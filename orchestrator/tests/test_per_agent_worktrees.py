@@ -290,7 +290,7 @@ class TestCleanupPipelineWorktrees:
     def test_cleanup_preserves_worktrees_when_requested(
         self, spawner, mock_docker_client, mock_gateway_client
     ):
-        """preserve_agent_worktrees=True skips every worktree deletion (#1878)."""
+        """preserve_worktrees=True skips every worktree deletion (#1878)."""
         container = ContainerInfo(
             container_id="abc123",
             container_name="egg-agent-issue-123-coder",
@@ -300,7 +300,7 @@ class TestCleanupPipelineWorktrees:
         )
         mock_docker_client.list_containers.return_value = [container]
 
-        removed = spawner.cleanup_pipeline("issue-123", preserve_agent_worktrees=True)
+        removed = spawner.cleanup_pipeline("issue-123", preserve_worktrees=True)
 
         # Job is still removed so a retry can spawn a fresh pod...
         assert removed == 1

@@ -10707,7 +10707,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 removed = _spawner.cleanup_pipeline(
                     pipeline_id,
                     force=True,
-                    preserve_agent_worktrees=skip_cleanup,
+                    preserve_worktrees=skip_cleanup,
                 )
                 if removed > 0:
                     logger.info(

@@ -1685,11 +1685,11 @@ class TestSafetyNetContainerCleanup:
 
         # cleanup_pipeline should have been called as safety net.  When the
         # pipeline ended in FAILED, the caller also passes
-        # preserve_agent_worktrees=True so a retry can reuse the worktrees
+        # preserve_worktrees=True so a retry can reuse the worktrees
         # (#1878).
         mock_spawner = mock_get_spawner.return_value
         mock_spawner.cleanup_pipeline.assert_called_with(
-            "issue-42", force=True, preserve_agent_worktrees=True
+            "issue-42", force=True, preserve_worktrees=True
         )
 
 
