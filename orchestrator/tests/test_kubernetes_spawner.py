@@ -237,8 +237,7 @@ def test_roles_without_worktree_are_valid():
     from kubernetes_spawner import _ROLES_WITHOUT_WORKTREE
 
     assert _ROLES_WITHOUT_WORKTREE.issubset(set(AgentRole)), (
-        f"Unknown roles in _ROLES_WITHOUT_WORKTREE: "
-        f"{_ROLES_WITHOUT_WORKTREE - set(AgentRole)}"
+        f"Unknown roles in _ROLES_WITHOUT_WORKTREE: {_ROLES_WITHOUT_WORKTREE - set(AgentRole)}"
     )
 
 
