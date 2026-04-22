@@ -51,8 +51,75 @@
       "started_at": "2026-04-22T03:43:53.606132Z",
       "work_started_at": "2026-04-22T03:43:55.950672Z",
       "completed_at": null,
-      "containers": [],
-      "agents": [],
+      "containers": [
+        {
+          "container_id": "51c5d4eb-bcd1-461a-b3e4-2fe211b7d3ef",
+          "container_name": "egg-sandbox-egg-agent-issue-1765-discoverability-refiner",
+          "status": "running",
+          "started_at": "2026-04-22T03:44:03.152753Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "refiner",
+          "session_token": null,
+          "pod_name": null,
+          "namespace": "egg-agents",
+          "job_name": "egg-sandbox-egg-agent-issue-1765-discoverability-refiner"
+        },
+        {
+          "container_id": "50faadfa-236e-4525-a01c-9d07e634d1f9",
+          "container_name": "egg-sandbox-egg-agent-issue-1765-discoverability-revie-494348e7",
+          "status": "running",
+          "started_at": "2026-04-22T03:44:03.152765Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_agent_design",
+          "session_token": null,
+          "pod_name": null,
+          "namespace": "egg-agents",
+          "job_name": "egg-sandbox-egg-agent-issue-1765-discoverability-revie-494348e7"
+        }
+      ],
+      "agents": [
+        {
+          "role": "reviewer_refine",
+          "status": "failed",
+          "container_id": null,
+          "container_info": null,
+          "started_at": "2026-04-22T03:44:03.152746Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "refiner",
+          "status": "running",
+          "container_id": "51c5d4eb-bcd1-461a-b3e4-2fe211b7d3ef",
+          "container_info": null,
+          "started_at": "2026-04-22T03:44:03.152762Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_agent_design",
+          "status": "running",
+          "container_id": "50faadfa-236e-4525-a01c-9d07e634d1f9",
+          "container_info": null,
+          "started_at": "2026-04-22T03:44:03.152767Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        }
+      ],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -71,7 +138,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-22T03:43:18.470790Z",
-  "updated_at": "2026-04-22T03:43:55.952452Z",
+  "updated_at": "2026-04-22T03:44:03.152832Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -84,5 +151,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 6
+  "version": 7
 }
