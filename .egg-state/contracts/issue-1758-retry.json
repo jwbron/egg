@@ -124,9 +124,398 @@
       "review_feedback": []
     }
   ],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Output format for the re-review delta: which command should the reviewer run?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "git log <sha>..HEAD --not origin/<base> -p  (per-commit patch series, issue's Option 1 \u2014 recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "git diff reconstructed PR-only trees (single aggregated diff, issue's Option 2 \u2014 more complex)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Keep git diff but add a separate summary list of PR-only commits (hybrid)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Orchestrator worktree freshness: should the orchestrator re-review prompt also include a 'git fetch origin <base>' nudge (or should we rely on worktrees already having fresh refs)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Add 'git fetch origin <base>' nudge in the orchestrator Delta Review directive too \u2014 safer, mirrors GHA fix",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Skip the nudge for orchestrator \u2014 cycle-1 already depends on origin/<base> being present, so worktree setup must already refresh it",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "BASE_REF default when env var is unset in the three GHA shell scripts \u2014 what fallback should we use?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Default to 'main' (matches status quo; CI-callable scripts keep working if someone forgets to plumb BASE_REF)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Fail loudly (exit non-zero) if BASE_REF is unset on the re-review path \u2014 prevents silent regressions but requires all callers to set it",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-04-22T20:43:28.617295Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-1",
+        "question": "Output format for the re-review delta: which command should the reviewer run?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "git log <sha>..HEAD --not origin/<base> -p  (per-commit patch series, issue's Option 1 \u2014 recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "git diff reconstructed PR-only trees (single aggregated diff, issue's Option 2 \u2014 more complex)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Keep git diff but add a separate summary list of PR-only commits (hybrid)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Output format for the re-review delta: which comma...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T20:43:34.084854Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-2",
+        "question": "Orchestrator worktree freshness: should the orchestrator re-review prompt also include a 'git fetch origin <base>' nudge (or should we rely on worktrees already having fresh refs)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Add 'git fetch origin <base>' nudge in the orchestrator Delta Review directive too \u2014 safer, mirrors GHA fix",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Skip the nudge for orchestrator \u2014 cycle-1 already depends on origin/<base> being present, so worktree setup must already refresh it",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Orchestrator worktree freshness: should the orches...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T20:43:40.410638Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-3",
+        "question": "BASE_REF default when env var is unset in the three GHA shell scripts \u2014 what fallback should we use?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Default to 'main' (matches status quo; CI-callable scripts keep working if someone forgets to plumb BASE_REF)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Fail loudly (exit non-zero) if BASE_REF is unset on the re-review path \u2014 prevents silent regressions but requires all callers to set it",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: BASE_REF default when env var is unset in the thre...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T20:43:47.684059Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Are there already-posted automated reviews on open PRs that were written against the buggy 'git diff <sha>..HEAD' command and should be flagged/retracted once this fix ships, or is the fix strictly forward-only?",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Any objection to per-commit 'git log -p' output on very long PRs (>30 commits in the delta window)? In practice re-review windows are small, but if there's a concern we'd want to cap the commit count or add a pagination nudge.",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "Non-default base branches in practice \u2014 are there any egg PRs today targeting something other than 'main' (e.g. a long-lived 'next' branch, chained PRs)? If not, the BASE_REF plumbing is still worth having but the 'develop' test case is purely theoretical.",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 3 question(s)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T20:45:48.416985Z",
+      "actor": "egg",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Are there already-posted automated reviews on open PRs that were written against the buggy 'git diff <sha>..HEAD' command and should be flagged/retracted once this fix ships, or is the fix strictly forward-only?",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Any objection to per-commit 'git log -p' output on very long PRs (>30 commits in the delta window)? In practice re-review windows are small, but if there's a concern we'd want to cap the commit count or add a pagination nudge.",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "Non-default base branches in practice \u2014 are there any egg PRs today targeting something other than 'main' (e.g. a long-lived 'next' branch, chained PRs)? If not, the BASE_REF plumbing is still worth having but the 'develop' test case is purely theoretical.",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "new_value": {
+        "id": "feedback-2",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "test",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 1 question(s)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T20:47:50.466321Z",
+      "actor": "egg",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": {
+        "id": "feedback-2",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "test",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "new_value": {
+        "id": "feedback-3",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "dummy check if any feedback exists",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 1 question(s)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T20:48:07.200329Z",
+      "actor": "egg",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": {
+        "id": "feedback-3",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "dummy check if any feedback exists",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "new_value": {
+        "id": "feedback-4",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Are there already-posted automated reviews on open PRs that were written against the buggy 'git diff <sha>..HEAD' command and should be flagged/retracted once this fix ships, or is the fix strictly forward-only?",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Any objection to per-commit 'git log -p' output on very long PRs (>30 commits in the delta window)? In practice re-review windows are small, but if there's a concern we'd want to cap the commit count or add a pagination nudge.",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "Non-default base branches in practice \u2014 are there any egg PRs today targeting something other than main (e.g. a long-lived 'next' branch, chained PRs)? If not, the BASE_REF plumbing is still worth having but the 'develop' test case is purely theoretical.",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 3 question(s)",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
@@ -137,7 +526,32 @@
     "test_plan": "- Automated: `pytest tests/action/test_build_review_prompt.py tests/action/test_build_agent_mode_design_review_prompt.py tests/action/test_build_contract_verification_prompt.py orchestrator/tests/test_pipeline_prompts.py` \u2014 all re-review assertions updated to the new command form, plus new non-default-base-ref coverage\n- Automated: `make test` \u2014 full suite passes\n- Manual: trigger a re-review on a PR that has a base-branch merge commit since the last review (either via the GHA bots or a BRC re-review cycle) and confirm the reviewer sees only PR-authored commits in the delta, not the merged-in base-branch work",
     "manual_steps": "Pre-merge: none\nPost-merge: monitor the next few automated re-reviews (especially on PRs that have merged main during their lifecycle) for a few days to confirm the attribution issue is gone"
   },
-  "feedback": null,
+  "feedback": {
+    "id": "feedback-4",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Are there already-posted automated reviews on open PRs that were written against the buggy 'git diff <sha>..HEAD' command and should be flagged/retracted once this fix ships, or is the fix strictly forward-only?",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "Any objection to per-commit 'git log -p' output on very long PRs (>30 commits in the delta window)? In practice re-review windows are small, but if there's a concern we'd want to cap the commit count or add a pagination nudge.",
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "question": "Non-default base branches in practice \u2014 are there any egg PRs today targeting something other than main (e.g. a long-lived 'next' branch, chained PRs)? If not, the BASE_REF plumbing is still worth having but the 'develop' test case is purely theoretical.",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
   "phase_configs": null,
   "agent_executions": []
 }
