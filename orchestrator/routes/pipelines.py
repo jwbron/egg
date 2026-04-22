@@ -1490,6 +1490,8 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             branch=pipeline.branch,
             base_branch=pipeline.branch,
             reason=reason,
+            spawn_max_retries=pipeline.config.spawn_max_retries,
+            spawn_retry_initial_backoff_seconds=pipeline.config.spawn_retry_initial_backoff_seconds,
         )
     except (ContainerSpawnError, KubernetesSpawnError) as e:
         # Revert early status update — the agent is not actually running.
