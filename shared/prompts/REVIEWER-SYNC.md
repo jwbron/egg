@@ -66,7 +66,8 @@ When updating review behavior, ensure both surfaces reflect the change:
 | Quality standards (be comprehensive, specific, etc.) | `action/review-conventions.md` "Comment Quality" section | `_build_review_prompt()` inline conventions |
 | Verdict classification (what's blocking vs non-blocking) | `action/review-conventions.md` "When to Approve vs Request Changes" | `_build_review_prompt()` "When to Use needs_revision vs approved" (sequential); `_build_brc_preamble()` ACK/NACK lifecycle (concurrent) |
 | Procedural review steps | `action/build-review-prompt.sh` "How to Proceed" / inline fallback "How to Review" | `_build_review_prompt()` procedural steps for code reviewer |
-| Diff command | `gh pr diff` (full PR changeset) | `git diff origin/{base_branch}...HEAD` (full changeset against base) |
+| Diff command (initial review) | `gh pr diff` (full PR changeset) | `git diff origin/{base_branch}...HEAD` (full changeset against base) |
+| Diff command (re-review / delta) | `git fetch origin ${BASE_REF}` + `git log ${LAST_REVIEW_COMMIT}..HEAD --not origin/${BASE_REF} -p` (PR-only commits since the last review — excludes base-branch merges; see [#1758](https://github.com/jwbron/egg/issues/1758)) | `git fetch origin {base_branch}` + `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` (same semantics; applies to both sequential re-reviews and BRC re-review cycles) |
 | Thoroughness emphasis | "Find ALL issues on the first pass" (build-review-prompt.sh) | "Find ALL issues on the first pass" (`_build_review_prompt()`) |
 | Severity classification | `shared/prompts/code-review-criteria.md` (shared) | Same file (shared) |
 
@@ -82,3 +83,4 @@ When changing review criteria or conventions:
 - [ ] Verify the procedural review steps match between both surfaces
 - [ ] If changing verdict format: check `_build_review_prompt()` (sequential verdict JSON) and `_build_agent_prompt()` + `_build_brc_preamble()` (concurrent ACK/NACK)
 - [ ] If changing ACK/NACK format guidance: update the structured format in `_build_brc_preamble()`
+- [ ] If changing the re-review delta command: update all three prompt builders (`action/build-review-prompt.sh`, `action/build-agent-mode-design-review-prompt.sh`, `action/build-contract-verification-prompt.sh`) AND both delta-review code paths in `orchestrator/routes/pipelines.py:_build_review_prompt()` (the `diff_command` assignment and the "Delta Review" directive). Keep the `BASE_REF` env var (GHA) and `base_branch` kwarg (orchestrator) in sync so non-`main`-targeted PRs still get the correct `--not origin/<base>` exclusion.

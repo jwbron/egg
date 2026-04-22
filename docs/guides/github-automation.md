@@ -59,7 +59,15 @@ and via `workflow_dispatch` with a PR number.
    and proceeds anyway.
 3. **Re-review detection** — Searches for an `<!-- egg-automated-review bot=<name> commit=<sha> -->`
    marker in previous reviews/comments to identify the last reviewed commit. On re-review,
-   the agent uses `git diff <last-commit>..HEAD` to focus on new changes only.
+   the agent focuses on the PR-authored commits that landed since the last review, excluding
+   any commits merged in from the base branch. The prompt instructs the agent to run
+   `git fetch origin ${BASE_REF}` and then
+   `git log <last-commit>..HEAD --not origin/${BASE_REF} -p`. `BASE_REF` defaults to `main`
+   and is set to the PR's actual base branch by `reusable-review.yml` (see
+   [#1758](https://github.com/jwbron/egg/issues/1758) — previous two-dot
+   `git diff <last-commit>..HEAD` incorrectly attributed base-branch merge contents to the PR).
+   Initial reviews (no prior marker found) still use the three-dot
+   `git diff origin/${BASE_REF}...HEAD` form against the base branch.
 4. **Stale review dismissal** — Dismisses previous bot reviews before posting a new one.
 5. **Trusted prompt build** — Checks out `main` (not the PR branch) to run
    `build-review-prompt.sh`, preventing prompt injection from malicious PRs.
@@ -91,6 +99,23 @@ skipping linter-handled style issues.
 
 This enables multiple specialized reviewers (e.g., security-focused, design-focused)
 by providing different prompt scripts while sharing the review infrastructure.
+
+**Base-branch plumbing.** The reusable workflow's `pr-meta` step emits a `base-ref`
+output (sourced from `gh pr view`'s `.base.ref`) alongside the existing
+`head-ref` / `head-sha` outputs. It is exported to the prompt-builder step as
+`BASE_REF` so the re-review delta command excludes base-branch commits for PRs
+that target any branch (not just `main`). Caller workflows need no changes —
+this plumbing is internal to `reusable-review.yml`.
+
+**Prompt-builder contract (`action/build-*-prompt.sh`).** All three prompt
+builders — `build-review-prompt.sh`, `build-agent-mode-design-review-prompt.sh`,
+and `build-contract-verification-prompt.sh` — accept a `BASE_REF` env var (default
+`main`). When `LAST_REVIEW_COMMIT` is set, the emitted prompt instructs the agent
+to run `git fetch origin ${BASE_REF}` and then
+`git log ${LAST_REVIEW_COMMIT}..HEAD --not origin/${BASE_REF} -p` so that commits
+reachable from the base branch are excluded from the delta patch series. Initial
+reviews (no `LAST_REVIEW_COMMIT`) continue to emit
+`git diff origin/${BASE_REF}...HEAD` unchanged.
 
 ### Reviewer Job Naming Convention
 

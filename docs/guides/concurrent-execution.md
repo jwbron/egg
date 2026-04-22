@@ -819,7 +819,9 @@ This explicit fetch+merge step ensures reviewers see the latest code (including 
 
 The same sync instruction is included for dual-role agents (e.g., `tester`) in their producer ORIENT step, so they also have up-to-date code before beginning work.
 
-**Reviewer diff command:** Reviewers use `git diff origin/{base_branch}...HEAD` (three-dot merge-base syntax) to see the full changeset against the base branch, rather than an arbitrary truncated window. The `base_branch` is resolved from `pipeline.base_branch` or the repository's default branch. This matches the context available to PR review bots, which see the complete PR diff.
+**Reviewer diff command:** On the first review cycle, reviewers use `git diff origin/{base_branch}...HEAD` (three-dot merge-base syntax) to see the full changeset against the base branch, rather than an arbitrary truncated window. The `base_branch` is resolved from `pipeline.base_branch` or the repository's default branch. This matches the context available to PR review bots, which see the complete PR diff.
+
+**Delta review (re-review cycles):** When a producer re-proposes in a later BRC cycle, the prompt's "Delta Review" directive has reviewers run `git fetch origin {base_branch}` followed by `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p`. This emits a per-commit patch series that explicitly excludes anything reachable from the base branch, so merges from `main` (or whichever branch the PR targets) no longer get attributed to the producer. See [#1758](https://github.com/jwbron/egg/issues/1758) for background — the previous two-dot `git diff {last_reviewed_commit}..HEAD` folded base-branch merge contents into the delta.
 
 ### Per-Agent Git Author
 
