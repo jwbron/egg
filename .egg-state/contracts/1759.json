@@ -1,0 +1,332 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1759,
+    "title": "MCP tooling gaps for the new Kubernetes deployment",
+    "url": "https://github.com/jwbron/egg/issues/1759"
+  },
+  "pipeline_id": "issue-1759-v3",
+  "current_phase": "pr",
+  "acceptance_criteria": [
+    {
+      "id": "ac-1",
+      "description": "[TASK-1-1] Create orchestrator/routes/deployment",
+      "verified": true
+    },
+    {
+      "id": "ac-2",
+      "description": "[TASK-1-2] Append get_deployment_context and validate_deployment_manifests schemas to PIPELINE_TOOLS; add _handle_get_deployment_context and _handle_validate_deployment_ma",
+      "verified": true
+    },
+    {
+      "id": "ac-3",
+      "description": "[TASK-1-3] orchestrator/tests/test_deployment_routes",
+      "verified": true
+    },
+    {
+      "id": "ac-4",
+      "description": "[TASK-2-1] gateway/worktree_manager",
+      "verified": true
+    },
+    {
+      "id": "ac-5",
+      "description": "[TASK-2-2] Append prune_stale_worktrees to PIPELINE_TOOLS; _handle_prune_stale_worktrees proxies via GatewayClient; add thin orchestrator passthrough POST /api/v1/deployme",
+      "verified": true
+    },
+    {
+      "id": "ac-6",
+      "description": "[TASK-2-3] validate_network_isolation: runtime gate, CNI-enforcement gate via get_deployment_context, Job in egg-agents with labels {app",
+      "verified": true
+    },
+    {
+      "id": "ac-7",
+      "description": "[TASK-2-4] orchestrator/redaction",
+      "verified": true
+    },
+    {
+      "id": "ac-8",
+      "description": "[TASK-2-5] test_prune_worktrees_tool",
+      "verified": true
+    },
+    {
+      "id": "ac-9",
+      "description": "[TASK-2-6] rebuild_and_rollout: POST /api/v1/deployment/rebuild-and-rollout under @require_lifecycle_secret, runtime gate, _REBUILD_IN_PROGRESS idempotency (409 on concurr",
+      "verified": true
+    },
+    {
+      "id": "ac-10",
+      "description": "[TASK-2-7] test_rebuild_and_rollout",
+      "verified": true
+    },
+    {
+      "id": "ac-11",
+      "description": "[TASK-3-1] skills/deployment-diagnose/SKILL",
+      "verified": true
+    },
+    {
+      "id": "ac-12",
+      "description": "[TASK-3-2] skills/agent-diagnose/SKILL",
+      "verified": true
+    },
+    {
+      "id": "ac-13",
+      "description": "[TASK-4-1] integration_tests/test_k8s_deployment_tools",
+      "verified": true
+    },
+    {
+      "id": "ac-14",
+      "description": "[TASK-4-2] docs/reference/mcp-deployment-tools",
+      "verified": true
+    }
+  ],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Introspection MCP tools (read-only)",
+      "status": "complete",
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Create orchestrator/routes/deployment",
+          "role": "coder",
+          "status": "complete",
+          "acceptance_criteria": "Create orchestrator/routes/deployment",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-2",
+          "description": "Append get_deployment_context and validate_deployment_manifests schemas to PIPELINE_TOOLS; add _handle_get_deployment_context and _handle_validate_deployment_manifests on PipelineToolHandler; wire int",
+          "role": "coder",
+          "status": "complete",
+          "acceptance_criteria": "Append get_deployment_context and validate_deployment_manifests schemas to PIPELINE_TOOLS; add _handle_get_deployment_context and _handle_validate_deployment_manifests on PipelineToolHandler; wire int",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-1-3",
+          "description": "orchestrator/tests/test_deployment_routes",
+          "role": "tester",
+          "status": "complete",
+          "acceptance_criteria": "orchestrator/tests/test_deployment_routes",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "phase-2",
+      "name": "Action MCP tools (state-mutating with safeties)",
+      "status": "complete",
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "gateway/worktree_manager",
+          "role": "coder",
+          "status": "complete",
+          "acceptance_criteria": "gateway/worktree_manager",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-2",
+          "description": "Append prune_stale_worktrees to PIPELINE_TOOLS; _handle_prune_stale_worktrees proxies via GatewayClient; add thin orchestrator passthrough POST /api/v1/deployment/prune-worktrees under @require_lifecy",
+          "role": "coder",
+          "status": "complete",
+          "acceptance_criteria": "Append prune_stale_worktrees to PIPELINE_TOOLS; _handle_prune_stale_worktrees proxies via GatewayClient; add thin orchestrator passthrough POST /api/v1/deployment/prune-worktrees under @require_lifecy",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-3",
+          "description": "validate_network_isolation: runtime gate, CNI-enforcement gate via get_deployment_context, Job in egg-agents with labels {app",
+          "role": "coder",
+          "status": "complete",
+          "acceptance_criteria": "validate_network_isolation: runtime gate, CNI-enforcement gate via get_deployment_context, Job in egg-agents with labels {app",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-4",
+          "description": "orchestrator/redaction",
+          "role": "coder",
+          "status": "complete",
+          "acceptance_criteria": "orchestrator/redaction",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-5",
+          "description": "test_prune_worktrees_tool",
+          "role": "tester",
+          "status": "complete",
+          "acceptance_criteria": "test_prune_worktrees_tool",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-6",
+          "description": "rebuild_and_rollout: POST /api/v1/deployment/rebuild-and-rollout under @require_lifecycle_secret, runtime gate, _REBUILD_IN_PROGRESS idempotency (409 on concurrent), asyncio task shelling out to `make",
+          "role": "coder",
+          "status": "complete",
+          "acceptance_criteria": "rebuild_and_rollout: POST /api/v1/deployment/rebuild-and-rollout under @require_lifecycle_secret, runtime gate, _REBUILD_IN_PROGRESS idempotency (409 on concurrent), asyncio task shelling out to `make",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-2-7",
+          "description": "test_rebuild_and_rollout",
+          "role": "tester",
+          "status": "complete",
+          "acceptance_criteria": "test_rebuild_and_rollout",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "phase-3",
+      "name": "Diagnostic skills",
+      "status": "complete",
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "skills/deployment-diagnose/SKILL",
+          "role": "documenter",
+          "status": "complete",
+          "acceptance_criteria": "skills/deployment-diagnose/SKILL",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-3-2",
+          "description": "skills/agent-diagnose/SKILL",
+          "role": "documenter",
+          "status": "complete",
+          "acceptance_criteria": "skills/agent-diagnose/SKILL",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "id": "phase-4",
+      "name": "Integration test and docs",
+      "status": "complete",
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "integration_tests/test_k8s_deployment_tools",
+          "role": "tester",
+          "status": "complete",
+          "acceptance_criteria": "integration_tests/test_k8s_deployment_tools",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        },
+        {
+          "id": "task-4-2",
+          "description": "docs/reference/mcp-deployment-tools",
+          "role": "documenter",
+          "status": "complete",
+          "acceptance_criteria": "docs/reference/mcp-deployment-tools",
+          "files_affected": [],
+          "commit": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "notes": ""
+        }
+      ]
+    }
+  ],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "approve",
+          "label": "approve",
+          "description": "Continue to plan"
+        },
+        {
+          "id": "request_changes",
+          "label": "request changes",
+          "description": "Revise the refine analysis"
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"approve\", \"context\": \"## Resolved decisions\\n\\n- D1 (decompose deliverables): **single umbrella** \\u2014 ship all 4 MCP tools + 2 skills in #1759 together.\\n- D2 (skill location): **skills/ alongside existing** \\u2014 no operator/agent subtree split yet.\\n- D3 (submit_task task-id reuse): **defer** \\u2014 tracked separately as #1804.\\n- D4 (rebuild_and_rollout): **include in scope** \\u2014 #1763 has merged, unblocking the implementation.\\n- D5 (log persistence for agent-diagnose): **defer** \\u2014 tracked separately as #1805; agent-diagnose ships against currently-available data.\\n- D6 (network-isolation probe image): **reuse sandbox image** \\u2014 short-lived Job, delete after results.\\n- D7 (tool ownership): **orchestrator-owned** \\u2014 new routes under orchestrator/routes/; matches existing pattern.\\n\\n## Resolved feedback (feedback-1)\\n\\n- Q1 (operator persona): egg developer running `make redeploy` on local k3s. No prod architecture yet. Skills can assume single-cluster / single-namespace / kubectl-context-resolves-to-egg-system.\\n- Q2 (identifier-translation asymmetries catalogue): Pod UID \\u2194 Job UID (#1760, #1764); session token \\u2194 container_id; issue number \\u2194 pipeline_id \\u2194 branch name (#1773); task_id \\u2194 agent role \\u2194 container name; contract field path `decisions.N` vs bare `decisions` (#1801 analysis).\\n- Q3 (existing integration tests): keep alongside the new MCP tool; don't migrate. Docker runtime is still supported for local dev; separate substrate.\\n- Q4 (deployment-diagnose silent-failure scan shape): scan **both** gateway + orchestrator; signature matching via structured-fields first with hash-of-stripped-line fallback; burst threshold 3+ in any 60s window; last ~2000 lines; human-invoked only (not continuous/automatic).\\n- Q5 (submit_task reuse fix shape): surface as known concern; specific fix tracked in #1804. No action in this umbrella.\\n- Q6 (other deployment environments): k3s only for day 1.\\n- Q7 (prune_stale_worktrees confirmation): `dry_run` is a sufficient gate for the local-dev persona. No extra confirmation needed.\\n- Q8 (existing ops runbook): none exists; skills bootstrap from the #1759 validation session's commentary.\\n\\n## Note added during review\\n\\n- Overlap between the proposed `deployment-diagnose` / `agent-diagnose` skills and the existing overseer agent is real (both are watchers that detect anomalies, classify them, and report to a human). Filed as #1806 \\u2014 investigation, non-blocking for #1759. Implementation plan should reference #1806 so the skills and the overseer don't get built in isolation and patched together later.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-21T20:54:24.094396Z",
+      "debounce_until": null
+    }
+  ],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 1,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Add Kubernetes deployment-diagnostic MCP tools and skills (#1759)",
+    "description": "Adds the MCP surface for diagnosing Kubernetes deployments on k3s \u2014 five new orchestrator tools and two operator-side skills that compose them \u2014 so future validation sessions have structured diagnostics instead of raw kubectl fallbacks.\n\nTools: get_deployment_context, validate_deployment_manifests, prune_stale_worktrees, validate_network_isolation, rebuild_and_rollout. Skills: deployment-diagnose, agent-diagnose. All under @require_lifecycle_secret. Skills redact env + log tails via orchestrator/redaction.py.\n\nCloses #1759."
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}

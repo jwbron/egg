@@ -370,4 +370,6 @@ After the migration, these Docker-specific files are removed:
 - [Network Isolation](network-isolation.md) — Full network security model
 - [Orchestrator Architecture](orchestrator.md) — Pipeline state, agent lifecycle, deployment modes
 - [Deployment Guide](../guides/deployment.md) — Setup and deployment instructions
+- [Deployment Diagnostics](../guides/deployment-diagnostics.md) — Operator guide: when to use `/deployment-diagnose` vs `/agent-diagnose`, evidence boundaries, redaction guarantees
+- [MCP Deployment Tools](../reference/mcp-deployment-tools.md) — Five k8s-facing MCP tools (`get_deployment_context`, `validate_deployment_manifests`, `prune_stale_worktrees`, `validate_network_isolation`, `rebuild_and_rollout`) that the diagnostic skills compose
 - [Concurrent Execution](../guides/concurrent-execution.md) — Multi-agent coordination
