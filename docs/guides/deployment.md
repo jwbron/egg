@@ -417,7 +417,7 @@ If legitimate long-running agents are losing their sessions, tune the idle thres
 ```yaml
 # In your gateway Deployment
 - name: EGG_SESSION_IDLE_TIMEOUT_MINUTES
-  value: "120"  # default: 60
+  value: "120"  # default: 60, minimum: 5
 - name: EGG_SESSION_CLEANUP_INTERVAL_MINUTES
   value: "15"   # default: 15, minimum: 1
 ```
