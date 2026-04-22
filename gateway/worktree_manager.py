@@ -931,9 +931,7 @@ class WorktreeManager:
             # constraining the suffix shape adds a layer of safety.
             worktree_dir = self.worktree_base / repo_name
             if worktree_dir.exists():
-                phase_pattern = re.compile(
-                    rf"{re.escape(container_id)}-[a-zA-Z0-9-]+"
-                )
+                phase_pattern = re.compile(rf"{re.escape(container_id)}-[a-zA-Z0-9-]+")
                 for entry in worktree_dir.iterdir():
                     if (
                         entry.is_dir()
