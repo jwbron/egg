@@ -513,6 +513,13 @@ class KubernetesSpawner:
                     issue_number=issue_number,
                     claude_code_version=os.environ.get("CLAUDE_CODE_VERSION"),
                     branch=branch,
+                    # Reuse the per-agent worktrees created above under
+                    # agent_worktree_id.  Without this, the gateway would
+                    # race to create a second worktree under job_name and
+                    # intermittently fail on .git/config.lock (#1857).
+                    worktree_container_id=(
+                        agent_worktree_id if worktree_created_this_call else None
+                    ),
                 )
                 session_token = session_info.session_token
 

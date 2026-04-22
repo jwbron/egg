@@ -282,6 +282,23 @@ class TestBasicEndpoints:
         assert data["service"] == "egg-orchestrator"
         assert "timestamp" in data
         assert "components" in data
+        # Readiness history fields (issue #1855) — let operators see when
+        # the service actually came up vs. a point-in-time snapshot.
+        assert data["process_start_time"] is not None
+        # First observation is healthy, so healthy_since == process_start_time.
+        assert data["healthy_since"] == data["process_start_time"]
+        assert data["last_unhealthy_at"] is None
+        assert isinstance(data["recent_transitions"], list)
+
+    def test_health_recent_transitions_accumulate(self, app, client):
+        # Two successive hits should not double-record a transition —
+        # the service has been healthy the whole time.
+        client.get("/api/v1/health")
+        resp = client.get("/api/v1/health")
+        data = json.loads(resp.data)
+        # Still exactly one transition (the initial healthy one).
+        healthy_transitions = [t for t in data["recent_transitions"] if t["state"] == "healthy"]
+        assert len(healthy_transitions) == 1
 
     def test_ready_returns_true(self, app, client):
         resp = client.get("/api/v1/ready")

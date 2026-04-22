@@ -92,12 +92,16 @@ class TestGetDeploymentContext:
     def test_docker_runtime_returns_placeholder_payload(self, client, monkeypatch):
         """On Docker the route returns a structured placeholder, not an error."""
         monkeypatch.setenv("EGG_RUNTIME", "docker")
+        monkeypatch.delenv("KUBERNETES_SERVICE_HOST", raising=False)
         response = client.get("/api/v1/deployment/context")
         assert response.status_code == 200
         body = response.get_json()
         assert body["success"] is True
         data = body["data"]
         assert data["runtime"] == "docker"
+        # #1850: the payload records how runtime was resolved so the
+        # operator can tell env-configured from auto-detected.
+        assert data["detection_source"] == "env"
         # Degraded payload still carries every key the operator expects.
         for key in (
             "namespace",
@@ -113,6 +117,148 @@ class TestGetDeploymentContext:
         assert data["network_policy_enforcement"] is False
         assert data["is_k3s"] is False
         assert data["images"] == {}
+
+    def test_unset_env_with_k8s_service_host_autodetects_kubernetes(self, client, monkeypatch):
+        """EGG_RUNTIME unset + KUBERNETES_SERVICE_HOST set → auto-detect k8s (#1850)."""
+        monkeypatch.delenv("EGG_RUNTIME", raising=False)
+        monkeypatch.setenv("KUBERNETES_SERVICE_HOST", "10.43.0.1")
+
+        fake_k8s = MagicMock()
+        fake_k8s.core_api.list_node.return_value.items = []
+        fake_version_info = MagicMock()
+        fake_version_info.git_version = "v1.30.2+k3s1"
+
+        with (
+            patch("routes.deployment._detect_k3s", return_value=(True, "v1.30.2+k3s1")),
+            patch("routes.deployment._detect_cni", return_value=("calico", True)),
+            patch(
+                "routes.deployment._collect_egg_image_tags",
+                return_value={"orchestrator": "egg-orchestrator:dev"},
+            ),
+            patch("kubernetes.client.VersionApi") as mock_version_api_cls,
+        ):
+            mock_version_api_cls.return_value.get_code.return_value = fake_version_info
+            with patch.dict(
+                "sys.modules",
+                {
+                    "kubernetes_client": MagicMock(
+                        get_kubernetes_client=MagicMock(return_value=fake_k8s),
+                    )
+                },
+            ):
+                response = client.get("/api/v1/deployment/context")
+
+        assert response.status_code == 200
+        data = response.get_json()["data"]
+        assert data["runtime"] == "kubernetes"
+        assert data["detection_source"] == "auto:k8s-service-host"
+
+    def test_unset_env_with_no_signals_defaults_to_docker(self, client, monkeypatch):
+        """EGG_RUNTIME unset + no KUBERNETES_SERVICE_HOST → auto-default docker."""
+        monkeypatch.delenv("EGG_RUNTIME", raising=False)
+        monkeypatch.delenv("KUBERNETES_SERVICE_HOST", raising=False)
+        response = client.get("/api/v1/deployment/context")
+        assert response.status_code == 200
+        data = response.get_json()["data"]
+        assert data["runtime"] == "docker"
+        assert data["detection_source"] == "auto:default"
+
+    def test_cluster_unreachable_demotes_to_unknown(self, client, monkeypatch):
+        """Kubernetes env var set but both apiserver probes fail → runtime=unknown (#1850)."""
+        monkeypatch.setenv("EGG_RUNTIME", "kubernetes")
+
+        fake_k8s = MagicMock()
+        fake_k8s.core_api.list_node.side_effect = RuntimeError("apiserver down")
+
+        with (
+            patch("kubernetes.client.VersionApi") as mock_version_api_cls,
+            patch.dict(
+                "sys.modules",
+                {
+                    "kubernetes_client": MagicMock(
+                        get_kubernetes_client=MagicMock(return_value=fake_k8s),
+                    )
+                },
+            ),
+        ):
+            mock_version_api_cls.return_value.get_code.side_effect = RuntimeError("apiserver down")
+            response = client.get("/api/v1/deployment/context")
+
+        assert response.status_code == 200
+        data = response.get_json()["data"]
+        assert data["runtime"] == "unknown"
+        assert data["detection_error"] == "cluster_unreachable"
+        # Operator sees the env-configured value via detection_source.
+        assert data["detection_source"] == "env"
+        # Both probes failed — nodes count is unknown, not zero.
+        assert data["cluster_info"]["nodes_unavailable"] is True
+
+    def test_empty_images_flags_images_unavailable(self, client, monkeypatch):
+        """Cluster reachable but image listing came back empty → flag it (#1850)."""
+        monkeypatch.setenv("EGG_RUNTIME", "kubernetes")
+
+        fake_k8s = MagicMock()
+        fake_k8s.core_api.list_node.return_value.items = []
+        fake_version_info = MagicMock()
+        fake_version_info.git_version = "v1.30.2+k3s1"
+
+        with (
+            patch("routes.deployment._detect_k3s", return_value=(True, "v1.30.2+k3s1")),
+            patch("routes.deployment._detect_cni", return_value=("calico", True)),
+            patch("routes.deployment._collect_egg_image_tags", return_value={}),
+            patch("kubernetes.client.VersionApi") as mock_version_api_cls,
+        ):
+            mock_version_api_cls.return_value.get_code.return_value = fake_version_info
+            with patch.dict(
+                "sys.modules",
+                {
+                    "kubernetes_client": MagicMock(
+                        get_kubernetes_client=MagicMock(return_value=fake_k8s),
+                    )
+                },
+            ):
+                response = client.get("/api/v1/deployment/context")
+
+        data = response.get_json()["data"]
+        assert data["runtime"] == "kubernetes"
+        assert data["images"] == {}
+        assert data["images_unavailable"] is True
+
+    def test_nodes_unavailable_on_partial_probe_failure(self, client, monkeypatch):
+        """Version probe ok but node-list probe fails → nodes_unavailable: true."""
+        monkeypatch.setenv("EGG_RUNTIME", "kubernetes")
+
+        fake_k8s = MagicMock()
+        fake_k8s.core_api.list_node.side_effect = RuntimeError("RBAC denied")
+        fake_version_info = MagicMock()
+        fake_version_info.git_version = "v1.30.2+k3s1"
+
+        with (
+            patch("routes.deployment._detect_k3s", return_value=(True, "v1.30.2+k3s1")),
+            patch("routes.deployment._detect_cni", return_value=("calico", True)),
+            patch(
+                "routes.deployment._collect_egg_image_tags",
+                return_value={"orchestrator": "egg-orchestrator:dev"},
+            ),
+            patch("kubernetes.client.VersionApi") as mock_version_api_cls,
+        ):
+            mock_version_api_cls.return_value.get_code.return_value = fake_version_info
+            with patch.dict(
+                "sys.modules",
+                {
+                    "kubernetes_client": MagicMock(
+                        get_kubernetes_client=MagicMock(return_value=fake_k8s),
+                    )
+                },
+            ):
+                response = client.get("/api/v1/deployment/context")
+
+        assert response.status_code == 200
+        data = response.get_json()["data"]
+        assert data["runtime"] == "kubernetes"
+        assert data["cluster_info"]["nodes"] == 0
+        assert data["cluster_info"]["nodes_unavailable"] is True
+        assert data["cluster_info"]["server_version"] == "v1.30.2+k3s1"
 
     def test_kubernetes_runtime_aggregates_cluster_info(self, client, monkeypatch):
         """On Kubernetes the route aggregates version/cni/images/k3s flags."""
@@ -166,7 +312,7 @@ class TestGetDeploymentContext:
         assert data["images"] == {"orchestrator": "egg-orchestrator:dev"}
 
     def test_kubernetes_client_init_failure_is_reported(self, client, monkeypatch):
-        """Client-init exceptions surface as a ``kubernetes_client_init_failed`` error."""
+        """Client-init exceptions demote runtime to ``unknown`` with detection_error (#1850)."""
         monkeypatch.setenv("EGG_RUNTIME", "kubernetes")
         with patch.dict(
             "sys.modules",
@@ -179,7 +325,8 @@ class TestGetDeploymentContext:
             response = client.get("/api/v1/deployment/context")
         assert response.status_code == 200
         data = response.get_json()["data"]
-        assert data["error"] == "kubernetes_client_init_failed"
+        assert data["runtime"] == "unknown"
+        assert data["detection_error"] == "kubernetes_client_init_failed"
         assert "boom" in data["detail"]
 
 
@@ -845,9 +992,30 @@ class TestRebuildAndRolloutRoute:
     def test_missing_repo_path_returns_500(self, client, monkeypatch, tmp_path):
         monkeypatch.setenv("EGG_RUNTIME", "kubernetes")
         monkeypatch.setenv("EGG_REPO_PATH", str(tmp_path / "nope"))
-        response = client.post("/api/v1/deployment/rebuild-and-rollout", json={})
+        with patch(
+            "routes.deployment._probe_kubernetes_reachable",
+            return_value=(True, None),
+        ):
+            response = client.post("/api/v1/deployment/rebuild-and-rollout", json={})
         assert response.status_code == 500
         assert "not found" in response.get_json()["message"]
+
+    def test_unreachable_cluster_returns_runtime_detection_failed(
+        self, client, monkeypatch, tmp_path
+    ):
+        """Refuse rebuild when apiserver is unreachable (#1850)."""
+        monkeypatch.setenv("EGG_RUNTIME", "kubernetes")
+        monkeypatch.setenv("EGG_REPO_PATH", str(tmp_path))
+        with patch(
+            "routes.deployment._probe_kubernetes_reachable",
+            return_value=(False, "apiserver_unreachable: connection refused"),
+        ):
+            response = client.post("/api/v1/deployment/rebuild-and-rollout", json={})
+        assert response.status_code == 200
+        data = response.get_json()["data"]
+        assert data["error"] == "runtime_detection_failed"
+        assert data["runtime"] == "unknown"
+        assert "apiserver_unreachable" in data["detail"]
 
     def test_first_call_returns_202_with_stream_id(self, client, monkeypatch, tmp_path):
         """Initial call returns 202 and a progress_stream_id."""
@@ -872,9 +1040,15 @@ class TestRebuildAndRolloutRoute:
                 dep_mod._REBUILD_IN_PROGRESS = False
                 dep_mod._REBUILD_ACTIVE_STREAM_ID = None
 
-        with patch(
-            "routes.deployment._run_redeploy_subprocess",
-            side_effect=_fake_runner,
+        with (
+            patch(
+                "routes.deployment._run_redeploy_subprocess",
+                side_effect=_fake_runner,
+            ),
+            patch(
+                "routes.deployment._probe_kubernetes_reachable",
+                return_value=(True, None),
+            ),
         ):
             response = client.post("/api/v1/deployment/rebuild-and-rollout", json={})
             assert response.status_code == 202
@@ -896,7 +1070,11 @@ class TestRebuildAndRolloutRoute:
         dep_mod._REBUILD_IN_PROGRESS = True
         dep_mod._REBUILD_ACTIVE_STREAM_ID = "existing-stream"
 
-        response = client.post("/api/v1/deployment/rebuild-and-rollout", json={})
+        with patch(
+            "routes.deployment._probe_kubernetes_reachable",
+            return_value=(True, None),
+        ):
+            response = client.post("/api/v1/deployment/rebuild-and-rollout", json={})
         assert response.status_code == 409
         body = response.get_json()
         assert body["success"] is False

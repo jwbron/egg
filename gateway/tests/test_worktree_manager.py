@@ -653,6 +653,105 @@ class TestWorktreeManagerDockerGitDir:
         assert merge.stdout.strip() == "refs/heads/egg/issue-99"
 
 
+class TestLookupWorktree:
+    """Tests for WorktreeManager.lookup_worktree (#1857).
+
+    lookup_worktree exists so that session_create can reuse a worktree
+    made by a prior /api/v1/worktrees/create call instead of racing to
+    create its own on the same bare repo's ``.git/config.lock``.
+    """
+
+    @pytest.fixture
+    def git_repo(self, tmp_path):
+        """Same real-repo fixture as TestWorktreeManagerDockerGitDir."""
+        import subprocess as sp
+
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+        repo_dir = repos_base / "test-repo"
+        repo_dir.mkdir()
+        result = sp.run(["git", "init"], cwd=repo_dir, capture_output=True, text=True)
+        if result.returncode != 0:
+            pytest.skip(f"git init not available: {result.stderr.strip()}")
+        sp.run(
+            ["git", "commit", "--allow-empty", "-m", "init"],
+            cwd=repo_dir,
+            capture_output=True,
+            check=True,
+            env={
+                **__import__("os").environ,
+                "GIT_AUTHOR_NAME": "test",
+                "GIT_AUTHOR_EMAIL": "t@t",
+                "GIT_COMMITTER_NAME": "test",
+                "GIT_COMMITTER_EMAIL": "t@t",
+            },
+        )
+
+        worktree_base = tmp_path / "worktrees"
+        return worktree_base, repos_base, repo_dir
+
+    def test_lookup_returns_info_for_existing_worktree(self, git_repo):
+        """Lookup returns WorktreeInfo with the same paths the creator saw."""
+        worktree_base, repos_base, _ = git_repo
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+
+        created = manager.create_worktree("test-repo", "pipe-1-coder")
+        looked_up = manager.lookup_worktree("test-repo", "pipe-1-coder")
+
+        assert looked_up.container_id == "pipe-1-coder"
+        assert looked_up.repo_name == "test-repo"
+        assert looked_up.worktree_path == created.worktree_path
+        assert looked_up.branch == created.branch
+        assert looked_up.git_dir == created.git_dir
+
+    def test_lookup_raises_when_worktree_missing(self, git_repo):
+        """Lookup must fail loudly rather than silently return a fake path —
+        otherwise a misconfigured caller would get a session pointing at
+        a non-existent worktree."""
+        worktree_base, repos_base, _ = git_repo
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+
+        with pytest.raises(ValueError, match="Worktree not found"):
+            manager.lookup_worktree("test-repo", "never-created")
+
+    def test_lookup_raises_when_directory_exists_but_not_a_worktree(self, git_repo):
+        """An empty directory at the expected path shouldn't be treated as
+        a valid worktree — the .git file gating in create_worktree is the
+        same invariant we rely on here."""
+        worktree_base, repos_base, _ = git_repo
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+
+        bogus = worktree_base / "broken" / "test-repo"
+        bogus.mkdir(parents=True)
+
+        with pytest.raises(ValueError, match="Worktree not found"):
+            manager.lookup_worktree("test-repo", "broken")
+
+    def test_lookup_rejects_path_traversal(self, tmp_path):
+        """Identifier validation applies to lookup the same way it applies
+        to create_worktree."""
+        worktree_base = tmp_path / "worktrees"
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+
+        with pytest.raises(ValueError, match="container_id"):
+            manager.lookup_worktree("test-repo", "../evil")
+        with pytest.raises(ValueError, match="repo_name"):
+            manager.lookup_worktree("../evil", "container-1")
+
+    def test_lookup_raises_when_repo_missing(self, tmp_path):
+        """Looking up a worktree for a repo that doesn't exist fails before
+        any filesystem check on the worktree path itself."""
+        worktree_base = tmp_path / "worktrees"
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+
+        with pytest.raises(ValueError, match="Repository not found"):
+            manager.lookup_worktree("missing-repo", "container-1")
+
+
 class TestWorktreeManagerRemoteBranchFetch:
     """Tests for create_worktree fetching remote branches that don't exist locally."""
 

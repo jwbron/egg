@@ -274,7 +274,14 @@ PIPELINE_TOOLS = [
     # --- Orchestrator-backed diagnostic tools ---
     {
         "name": "check_health",
-        "description": "Check health of the orchestrator and gateway services. Returns combined status.",
+        "description": (
+            "Check health of the orchestrator and gateway services. Returns combined status "
+            "plus per-service readiness history: `healthy_since` (ISO timestamp of the last "
+            "transition to healthy, or process start if never unhealthy this run), "
+            "`last_unhealthy_at` (most recent unhealthy observation, null if none), and a "
+            "bounded `recent_transitions` list. Use this to diagnose readiness flapping or "
+            "recently-started services when race-style failures happen."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {},
@@ -1647,7 +1654,13 @@ class PipelineToolHandler:
     # --- Orchestrator-backed tools ---
 
     def _handle_check_health(self, args: dict[str, Any]) -> dict[str, Any]:
-        """Check orchestrator and gateway health."""
+        """Check orchestrator and gateway health.
+
+        Each per-service entry includes readiness history (``healthy_since``,
+        ``last_unhealthy_at``, ``recent_transitions``) so operators can
+        diagnose "was this service reachable 30 seconds ago?" without having
+        to cross-reference logs. See issue #1855.
+        """
         result: dict[str, Any] = {}
 
         # Orchestrator health
@@ -1656,9 +1669,21 @@ class PipelineToolHandler:
             result["orchestrator"] = {
                 "healthy": orch.get("status") == "healthy",
                 "status": orch.get("status", "unknown"),
+                "healthy_since": orch.get("healthy_since"),
+                "last_unhealthy_at": orch.get("last_unhealthy_at"),
+                "process_start_time": orch.get("process_start_time"),
+                "recent_transitions": orch.get("recent_transitions", []),
             }
         except Exception as e:
-            result["orchestrator"] = {"healthy": False, "status": "unreachable", "error": str(e)}
+            result["orchestrator"] = {
+                "healthy": False,
+                "status": "unreachable",
+                "error": str(e),
+                "healthy_since": None,
+                "last_unhealthy_at": None,
+                "process_start_time": None,
+                "recent_transitions": [],
+            }
 
         # Gateway health — use direct HTTP to avoid importing orchestrator.gateway_client
         # which may not be available when the MCP server runs outside the orchestrator venv
@@ -1675,9 +1700,21 @@ class PipelineToolHandler:
                 "healthy": gw.get("status") == "healthy",
                 "status": gw.get("status", "unknown"),
                 "version": gw.get("version"),
+                "healthy_since": gw.get("healthy_since"),
+                "last_unhealthy_at": gw.get("last_unhealthy_at"),
+                "process_start_time": gw.get("process_start_time"),
+                "recent_transitions": gw.get("recent_transitions", []),
             }
         except Exception as e:
-            result["gateway"] = {"healthy": False, "status": "unreachable", "error": str(e)}
+            result["gateway"] = {
+                "healthy": False,
+                "status": "unreachable",
+                "error": str(e),
+                "healthy_since": None,
+                "last_unhealthy_at": None,
+                "process_start_time": None,
+                "recent_transitions": [],
+            }
 
         result["healthy"] = result.get("orchestrator", {}).get("healthy", False) and result.get(
             "gateway", {}
@@ -2181,9 +2218,11 @@ class PipelineToolHandler:
     def _handle_get_deployment_context(self, args: dict[str, Any]) -> dict[str, Any]:
         """Return runtime/cluster introspection.
 
-        Always returns a data dict.  On Docker, the response carries an
-        ``error: not_available_on_runtime`` field that callers can check
-        without branching on HTTP status.
+        Always returns a data dict.  On Docker, the response carries a
+        degraded placeholder payload with ``runtime: "docker"`` and
+        ``detection_source`` indicating provenance.  The k8s-gated routes
+        (not this one) use the ``not_available_on_runtime`` / ``runtime_detection_failed``
+        error pattern.
         """
         try:
             result = self._make_request("/api/v1/deployment/context", method="GET")
@@ -2302,8 +2341,8 @@ class PipelineToolHandler:
             return {"error": f"rebuild_and_rollout failed: {exc}"}
 
         data = result.get("data") or {}
-        # not_available_on_runtime short-circuit
-        if data.get("error") == "not_available_on_runtime":
+        # not_available_on_runtime / runtime_detection_failed short-circuit
+        if data.get("error") in ("not_available_on_runtime", "runtime_detection_failed"):
             return data
         stream_id = data.get("progress_stream_id")
         if not stream_id:

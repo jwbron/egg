@@ -21,7 +21,14 @@ _shared_path = Path(__file__).parent.parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
+from egg_health import HealthTracker
+
 health_bp = Blueprint("health", __name__, url_prefix="/api/v1")
+
+# Module-level health tracker — updated every time /api/v1/health is
+# evaluated. Exposes readiness history so operators can tell "healthy
+# since boot" from "just came up" (see issue #1855).
+_health_tracker = HealthTracker()
 
 
 @health_bp.route("/health", methods=["GET"])
@@ -42,7 +49,17 @@ def health_check() -> tuple[Response, int]:
             }
         }
     """
-    # Basic health response
+    # The orchestrator's /health endpoint always responds "healthy" today
+    # (degraded states aren't evaluated here), so each hit records a
+    # healthy observation. The tracker still populates process_start_time
+    # and healthy_since, which is exactly the signal operators need to
+    # distinguish "stable for hours" from "came up seconds ago" (#1855).
+    # TODO: When degraded-state evaluation is added (e.g. the "docker":
+    # "unknown" component below), pass the actual health status here
+    # instead of hard-coding True.
+    _health_tracker.record(True)
+    tracker_snapshot = _health_tracker.snapshot()
+
     response = {
         "status": "healthy",
         "service": "egg-orchestrator",
@@ -51,6 +68,10 @@ def health_check() -> tuple[Response, int]:
             "state_store": "ok",
             "docker": "unknown",  # Will be updated when docker client is available
         },
+        "process_start_time": tracker_snapshot["process_start_time"],
+        "healthy_since": tracker_snapshot["healthy_since"],
+        "last_unhealthy_at": tracker_snapshot["last_unhealthy_at"],
+        "recent_transitions": tracker_snapshot["recent_transitions"],
     }
 
     return jsonify(response), 200
