@@ -1232,6 +1232,8 @@ Or pass it in the pipeline config JSON (e.g. via the API):
 | `consensus_timeout_minutes` | int | `30` | Timeout before HITL escalation |
 | `agent_idle_timeout_minutes` | int | `60` | Agent idle timeout |
 | `overseer_enabled` | bool | `true` | Enable the overseer agent for pipeline health monitoring |
+| `spawn_max_retries` | int | `2` | Max additional retry attempts for transient gateway worktree-creation failures during agent spawn. Total attempts = `spawn_max_retries + 1`. Set to `0` to disable retry. |
+| `spawn_retry_initial_backoff_seconds` | float | `2.0` | Initial backoff between spawn retries. Subsequent attempts scale by 2.5× (e.g. 2 s, 5 s, 12.5 s). |
 
 All phases use concurrent BRC execution by default.
 
