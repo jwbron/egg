@@ -401,7 +401,10 @@ class TestRunConcurrentPhaseWait:
         assert recorded.namespace == "egg-sandbox"
         assert recorded.job_name == "issue-999-coder"
         assert recorded.pod_name == "issue-999-coder-xyz"
-        # agent_role comes from the bookkeeping path.
+        # model_copy initially overrides status to RUNNING, but the wait
+        # loop updates it to EXITED once the container finishes — verify
+        # the final state reflects the wait result.
+        assert recorded.status == ContainerStatus.EXITED
         assert recorded.agent_role == AgentRole.CODER
         assert recorded.started_at is not None
 
