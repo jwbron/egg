@@ -178,6 +178,25 @@ branch = get_default_branch("/path/to/repo")  # Returns "main", "master", etc.
 **Files:**
 - `default_branch.py` - Default branch detection logic
 
+### egg_health
+
+Thread-safe runtime health-transition tracker used by the orchestrator and gateway to annotate `/api/v1/health` responses with readiness history.
+
+- Records healthy/unhealthy observations and computes `healthy_since` (most recent transition to healthy, or process start if never unhealthy this run), `last_unhealthy_at`, and a bounded `recent_transitions` ring buffer.
+- Enables operators to distinguish "stable for hours" from "just came up" or "recently flapping" without cross-referencing logs.
+
+```python
+from egg_health import HealthTracker
+
+tracker = HealthTracker()
+tracker.record(is_healthy=True)
+snapshot = tracker.snapshot()
+# {"process_start_time": "...", "healthy_since": "...", "last_unhealthy_at": None, "recent_transitions": [...]}
+```
+
+**Files:**
+- `tracker.py` — `HealthTracker` class with `record()` and `snapshot()`
+
 ### egg_container
 
 Shared container-launch config builder that unifies container configuration for both CLI and orchestrator.
