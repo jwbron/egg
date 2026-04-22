@@ -24,6 +24,7 @@ Usage:
 """
 
 import argparse
+import codecs
 import functools
 import json
 import os
@@ -4990,35 +4991,180 @@ def _capture_non_streaming_response(
         )
 
 
+SSEResult = tuple[
+    list[dict[str, Any]] | None,
+    dict[str, Any] | None,
+    str | None,
+    str | None,
+]
+
+
+class _SSEAccumulator:
+    """Parse Anthropic SSE streaming responses incrementally.
+
+    Accepts bytes chunks via ``feed()``. Holds only parsed state plus a small
+    partial-line buffer — never the raw response bytes. Call ``result()`` once
+    at end of stream to get ``(content, usage, model, stop_reason)``.
+
+    Why: the previous implementation did ``b"".join(chunks).decode().split("\\n")``
+    at end-of-stream, peaking at ~3× the full response size per concurrent
+    request. At ~15 concurrent streams that's hundreds of MB of transient
+    allocation that the pod's 1Gi cgroup couldn't absorb (see #1885).
+    """
+
+    def __init__(self) -> None:
+        # errors="replace" matches the prior decode() behavior.
+        self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self._line_buf = ""
+        self._content_by_index: dict[int, dict[str, Any]] = {}
+        # Error events produce extra content blocks ordered before indexed
+        # blocks (preserves the pre-refactor ordering).
+        self._error_blocks: list[dict[str, Any]] = []
+        self._usage: dict[str, Any] | None = None
+        self._model: str | None = None
+        self._stop_reason: str | None = None
+        self._finalized = False
+
+    def feed(self, chunk: bytes) -> None:
+        """Decode ``chunk`` and process any complete lines it completes."""
+        if self._finalized or not chunk:
+            return
+        text = self._decoder.decode(chunk)
+        if not text:
+            return
+        if "\n" not in text:
+            self._line_buf += text
+            return
+        combined = self._line_buf + text
+        parts = combined.split("\n")
+        # parts[-1] is either "" (chunk ended on a newline) or the new partial line.
+        self._line_buf = parts[-1]
+        for line in parts[:-1]:
+            self._process_line(line)
+
+    def result(self) -> SSEResult:
+        """Flush any trailing partial line and return the parsed result."""
+        if not self._finalized:
+            tail = self._decoder.decode(b"", final=True)
+            if tail:
+                self._line_buf += tail
+            if self._line_buf:
+                self._process_line(self._line_buf)
+                self._line_buf = ""
+            self._finalized = True
+
+        content_blocks: list[dict[str, Any]] = list(self._error_blocks)
+        for index in sorted(self._content_by_index.keys()):
+            block = self._content_by_index[index]
+            if block.get("type") == "tool_use" and "partial_input" in block:
+                partial_input = block.pop("partial_input")
+                try:
+                    block["input"] = json.loads(partial_input)
+                except json.JSONDecodeError:
+                    logger.debug(
+                        "Failed to parse tool_use input JSON",
+                        tool_id=block.get("id"),
+                    )
+                    block["input"] = {}
+                    block["input_parse_error"] = True
+                    block["raw_partial_input"] = (
+                        partial_input[:RAW_INPUT_TRUNCATE_SIZE]
+                        if len(partial_input) > RAW_INPUT_TRUNCATE_SIZE
+                        else partial_input
+                    )
+            content_blocks.append(block)
+
+        return content_blocks or None, self._usage, self._model, self._stop_reason
+
+    def _process_line(self, line: str) -> None:
+        line = line.strip()
+        if not line.startswith("data: "):
+            return
+        data_str = line[6:]
+        if data_str == "[DONE]":
+            return
+        try:
+            event = json.loads(data_str)
+        except json.JSONDecodeError:
+            return
+        self._process_event(event)
+
+    def _process_event(self, event: dict[str, Any]) -> None:
+        event_type = event.get("type")
+
+        if event_type == "message_start":
+            message = event.get("message", {})
+            self._model = message.get("model")
+            message_usage = message.get("usage", {})
+            if message_usage:
+                if self._usage is None:
+                    self._usage = {}
+                # input_tokens / cache_* come from message_start, not message_delta.
+                if "input_tokens" in message_usage:
+                    self._usage["input_tokens"] = message_usage["input_tokens"]
+                if "cache_read_input_tokens" in message_usage:
+                    self._usage["cache_read_input_tokens"] = message_usage[
+                        "cache_read_input_tokens"
+                    ]
+                if "cache_creation_input_tokens" in message_usage:
+                    self._usage["cache_creation_input_tokens"] = message_usage[
+                        "cache_creation_input_tokens"
+                    ]
+
+        elif event_type == "error":
+            error_info = event.get("error", {})
+            self._error_blocks.append({"type": "error", "error": error_info})
+            self._stop_reason = "error"
+
+        elif event_type == "content_block_start":
+            index = event.get("index", 0)
+            content_block = event.get("content_block", {})
+            self._content_by_index[index] = content_block.copy()
+
+        elif event_type == "content_block_delta":
+            index = event.get("index", 0)
+            delta = event.get("delta", {})
+            delta_type = delta.get("type")
+            if index not in self._content_by_index:
+                self._content_by_index[index] = {
+                    "type": delta_type.replace("_delta", "") if delta_type else "unknown"
+                }
+            block = self._content_by_index[index]
+            if delta_type == "text_delta":
+                text = delta.get("text", "")
+                block["text"] = block.get("text", "") + text
+            elif delta_type == "input_json_delta":
+                partial_json = delta.get("partial_json", "")
+                block["partial_input"] = block.get("partial_input", "") + partial_json
+
+        elif event_type == "message_delta":
+            delta = event.get("delta", {})
+            self._stop_reason = delta.get("stop_reason")
+            event_usage = event.get("usage")
+            if event_usage:
+                if self._usage is None:
+                    self._usage = {}
+                # message_delta contains output_tokens.
+                self._usage.update(event_usage)
+
+
 def _capture_streaming_response(
     container_id: str,
     request_json: dict[str, Any],
-    chunks: list[bytes],
+    result: SSEResult,
     start_time: float,
 ) -> None:
     """
     Capture a streaming API response to the transcript buffer.
 
-    Reassembles the SSE chunks to extract the final message content and usage.
-
     Args:
         container_id: Container ID for buffer lookup
         request_json: Parsed request body
-        chunks: List of SSE response chunks
+        result: Parsed SSE result tuple from ``_SSEAccumulator.result()``
         start_time: Request start time for duration calculation
     """
     duration_ms = (time.time() - start_time) * 1000
-
-    # Reassemble SSE response to get content and usage
-    try:
-        response_content, response_usage, response_model, stop_reason = _parse_sse_response(chunks)
-    except Exception as e:
-        logger.debug(
-            "Failed to parse SSE response for transcript capture",
-            container_id=container_id,
-            error=str(e),
-        )
-        return
+    response_content, response_usage, response_model, stop_reason = result
 
     try:
         buffer = get_transcript_buffer(container_id)
@@ -5039,137 +5185,18 @@ def _capture_streaming_response(
         )
 
 
-def _parse_sse_response(
-    chunks: list[bytes],
-) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None, str | None, str | None]:
+def _parse_sse_response(chunks: list[bytes]) -> SSEResult:
     """
-    Parse SSE response chunks to extract message content and usage.
+    Parse SSE response chunks and return ``(content, usage, model, stop_reason)``.
 
-    Returns:
-        Tuple of (content, usage, model, stop_reason)
+    Thin wrapper over ``_SSEAccumulator`` retained for test coverage. Production
+    streaming capture feeds the accumulator directly so it never holds the
+    chunks list in memory — see ``proxy_anthropic_messages``.
     """
-    # Combine chunks and parse SSE events
-    full_response = b"".join(chunks).decode("utf-8", errors="replace")
-
-    content_blocks: list[dict[str, Any]] = []
-    usage: dict[str, Any] | None = None
-    model: str | None = None
-    stop_reason: str | None = None
-
-    # Track content blocks being built (keyed by index)
-    content_by_index: dict[int, dict[str, Any]] = {}
-
-    for line in full_response.split("\n"):
-        line = line.strip()
-        if not line.startswith("data: "):
-            continue
-
-        data_str = line[6:]  # Remove "data: " prefix
-        if data_str == "[DONE]":
-            continue
-
-        try:
-            event = json.loads(data_str)
-        except json.JSONDecodeError:
-            continue
-
-        event_type = event.get("type")
-
-        # Extract model and input_tokens from message_start
-        if event_type == "message_start":
-            message = event.get("message", {})
-            model = message.get("model")
-            # Capture input_tokens from message_start (message_delta only has output_tokens)
-            message_usage = message.get("usage", {})
-            if message_usage:
-                if usage is None:
-                    usage = {}
-                # input_tokens comes from message_start, not message_delta
-                if "input_tokens" in message_usage:
-                    usage["input_tokens"] = message_usage["input_tokens"]
-                if "cache_read_input_tokens" in message_usage:
-                    usage["cache_read_input_tokens"] = message_usage["cache_read_input_tokens"]
-                if "cache_creation_input_tokens" in message_usage:
-                    usage["cache_creation_input_tokens"] = message_usage[
-                        "cache_creation_input_tokens"
-                    ]
-
-        # Handle error events from streaming API
-        elif event_type == "error":
-            error_info = event.get("error", {})
-            # Add error as a content block so it's captured in transcript
-            content_blocks.append(
-                {
-                    "type": "error",
-                    "error": error_info,
-                }
-            )
-            stop_reason = "error"
-
-        # Track content block starts
-        elif event_type == "content_block_start":
-            index = event.get("index", 0)
-            content_block = event.get("content_block", {})
-            content_by_index[index] = content_block.copy()
-
-        # Accumulate content block deltas
-        elif event_type == "content_block_delta":
-            index = event.get("index", 0)
-            delta = event.get("delta", {})
-            delta_type = delta.get("type")
-
-            if index not in content_by_index:
-                content_by_index[index] = {
-                    "type": delta_type.replace("_delta", "") if delta_type else "unknown"
-                }
-
-            block = content_by_index[index]
-
-            if delta_type == "text_delta":
-                text = delta.get("text", "")
-                block["text"] = block.get("text", "") + text
-            elif delta_type == "input_json_delta":
-                # For tool_use blocks
-                partial_json = delta.get("partial_json", "")
-                block["partial_input"] = block.get("partial_input", "") + partial_json
-
-        # Extract output_tokens and stop_reason from message_delta
-        elif event_type == "message_delta":
-            delta = event.get("delta", {})
-            stop_reason = delta.get("stop_reason")
-            event_usage = event.get("usage")
-            if event_usage:
-                if usage is None:
-                    usage = {}
-                # message_delta contains output_tokens
-                usage.update(event_usage)
-
-    # Build final content blocks
-    for index in sorted(content_by_index.keys()):
-        block = content_by_index[index]
-        # For tool_use blocks, parse the accumulated JSON
-        if block.get("type") == "tool_use" and "partial_input" in block:
-            partial_input = block.pop("partial_input")
-            try:
-                block["input"] = json.loads(partial_input)
-            except json.JSONDecodeError:
-                # Log warning but still include the block with parse failure noted.
-                # Preserve the raw partial_input for debugging (truncated to avoid bloat).
-                logger.debug(
-                    "Failed to parse tool_use input JSON",
-                    tool_id=block.get("id"),
-                )
-                block["input"] = {}
-                block["input_parse_error"] = True
-                # Include truncated raw input for debugging incomplete streaming responses
-                block["raw_partial_input"] = (
-                    partial_input[:RAW_INPUT_TRUNCATE_SIZE]
-                    if len(partial_input) > RAW_INPUT_TRUNCATE_SIZE
-                    else partial_input
-                )
-        content_blocks.append(block)
-
-    return content_blocks or None, usage, model, stop_reason
+    acc = _SSEAccumulator()
+    for chunk in chunks:
+        acc.feed(chunk)
+    return acc.result()
 
 
 @app.route("/v1/messages", methods=["POST"])
@@ -5226,22 +5253,28 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
             # Forward actual Content-Type from upstream (usually text/event-stream)
             content_type = upstream.headers.get("content-type", "text/event-stream")
 
-            # For streaming, we need to capture the full response while forwarding chunks
-            # Cap memory usage at 10MB to prevent resource exhaustion
+            # Parse the SSE stream incrementally into a small accumulator so
+            # per-request peak memory is O(parsed content), not O(response × 3)
+            # as the prior b"".join(chunks).decode().split("\n") pattern was.
+            # Under concurrent pipeline load that triple allocation was the
+            # gateway's memory high-water mark — see #1885.
+            #
+            # MAX_CAPTURE_SIZE is still enforced as a defensive cap so a
+            # pathologically large upstream response can't drive the
+            # accumulator unbounded, but the raw bytes are never buffered.
             MAX_CAPTURE_SIZE = 10 * 1024 * 1024  # 10MB
-            collected_chunks: list[bytes] = []
-            collected_size = 0
+            accumulator: _SSEAccumulator | None = _SSEAccumulator() if container_id else None
+            bytes_seen = 0
             capture_truncated = False
 
             def generate() -> Any:
-                nonlocal collected_size, capture_truncated
+                nonlocal bytes_seen, capture_truncated
                 try:
                     for chunk in upstream.iter_bytes():
-                        # Only collect chunks until we hit the size limit
-                        if not capture_truncated:
-                            if collected_size + len(chunk) <= MAX_CAPTURE_SIZE:
-                                collected_chunks.append(chunk)
-                                collected_size += len(chunk)
+                        if accumulator is not None and not capture_truncated:
+                            if bytes_seen + len(chunk) <= MAX_CAPTURE_SIZE:
+                                accumulator.feed(chunk)
+                                bytes_seen += len(chunk)
                             else:
                                 capture_truncated = True
                                 logger.debug(
@@ -5252,12 +5285,11 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
                         yield chunk
                 finally:
                     upstream.close()
-                    # Capture to transcript buffer after streaming completes
-                    if container_id:
+                    if accumulator is not None and container_id:
                         _capture_streaming_response(
                             container_id=container_id,
                             request_json=request_json,
-                            chunks=collected_chunks,
+                            result=accumulator.result(),
                             start_time=start_time,
                         )
 
@@ -5719,6 +5751,17 @@ def main() -> None:
         health_port=args.health_port,
     )
     logger.info("Session authentication required for all container operations")
+
+    # Optional tracemalloc sampler (opt-in via GATEWAY_MEM_TRACE=1). Emits
+    # periodic RSS + top-allocation-site log records to stdout so the trail
+    # survives pod OOM via `kubectl logs --previous`. See #1885.
+    try:
+        from .mem_trace import start_if_enabled as _mem_trace_start
+    except ImportError:
+        from mem_trace import (  # type: ignore[no-redef, import-untyped]
+            start_if_enabled as _mem_trace_start,
+        )
+    _mem_trace_start()
 
     # Start dedicated health check server on a separate port so Docker/orchestrator
     # health checks are never blocked by long-running git operations on the main

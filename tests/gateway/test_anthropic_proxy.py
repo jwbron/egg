@@ -861,6 +861,99 @@ class TestParseSSEResponse:
         assert len(raw_input) == RAW_INPUT_TRUNCATE_SIZE
 
 
+class TestSSEAccumulatorChunkBoundaries:
+    """Verify the incremental accumulator produces the same result regardless
+    of how the upstream bytes are split across chunks. The production path
+    (#1885) feeds chunks as they arrive from httpx, so we can't assume any
+    particular event-boundary alignment."""
+
+    CANONICAL_STREAM = (
+        b'data: {"type":"message_start","message":{"id":"msg_1","model":"claude-x",'
+        b'"usage":{"input_tokens":7}}}\n\n'
+        b'data: {"type":"content_block_start","index":0,'
+        b'"content_block":{"type":"text","text":""}}\n\n'
+        b'data: {"type":"content_block_delta","index":0,'
+        b'"delta":{"type":"text_delta","text":"Hello "}}\n\n'
+        b'data: {"type":"content_block_delta","index":0,'
+        b'"delta":{"type":"text_delta","text":"world!"}}\n\n'
+        b'data: {"type":"content_block_stop","index":0}\n\n'
+        b'data: {"type":"message_delta",'
+        b'"delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":3}}\n\n'
+        b"data: [DONE]\n\n"
+    )
+
+    def _feed_and_result(self, splits: list[int]):
+        from gateway.gateway import _SSEAccumulator
+
+        acc = _SSEAccumulator()
+        start = 0
+        for offset in splits:
+            acc.feed(self.CANONICAL_STREAM[start:offset])
+            start = offset
+        acc.feed(self.CANONICAL_STREAM[start:])
+        return acc.result()
+
+    def test_parses_identically_to_single_feed(self):
+        """One-shot feed should match chunked feeds byte-for-byte."""
+        single = self._feed_and_result([])
+        chunked = self._feed_and_result(list(range(1, len(self.CANONICAL_STREAM), 37)))
+        assert single == chunked
+
+    def test_split_mid_line(self):
+        """Splitting mid-line — including mid-JSON — must not drop events."""
+        # Break at every newline boundary *and* halfway through each event.
+        content, usage, model, stop_reason = self._feed_and_result([10, 50, 120, 250, 400])
+        assert model == "claude-x"
+        assert usage == {"input_tokens": 7, "output_tokens": 3}
+        assert stop_reason == "end_turn"
+        assert content is not None
+        assert content[0]["text"] == "Hello world!"
+
+    def test_split_mid_utf8_multibyte(self):
+        """A multi-byte UTF-8 codepoint split across two chunks must still
+        decode correctly — this is the main reason for using an incremental
+        decoder rather than .decode() per chunk."""
+        from gateway.gateway import _SSEAccumulator
+
+        # "héllo" where é is 0xC3 0xA9; split between the two bytes.
+        frame = (
+            b'data: {"type":"message_start","message":{"model":"claude-x"}}\n\n'
+            b'data: {"type":"content_block_start","index":0,'
+            b'"content_block":{"type":"text","text":""}}\n\n'
+            b'data: {"type":"content_block_delta","index":0,'
+            b'"delta":{"type":"text_delta","text":"h\xc3\xa9llo"}}\n\n'
+            b'data: {"type":"content_block_stop","index":0}\n\n'
+            b'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n'
+            b"data: [DONE]\n\n"
+        )
+        # Find the position of 0xA9 and split *before* it so 0xC3 lands in one
+        # chunk and 0xA9 in the next.
+        split_at = frame.index(b"\xa9")
+        acc = _SSEAccumulator()
+        acc.feed(frame[:split_at])
+        acc.feed(frame[split_at:])
+        content, _usage, _model, _stop = acc.result()
+        assert content is not None
+        assert content[0]["text"] == "héllo"
+
+    def test_does_not_hold_bytes_after_feed(self):
+        """The accumulator must not retain a reference to fed chunks — that
+        was the #1885 regression. Approximate this by checking that the
+        per-instance byte footprint stays small after feeding a large stream."""
+        import sys
+
+        from gateway.gateway import _SSEAccumulator
+
+        acc = _SSEAccumulator()
+        # Feed 1 MB of irrelevant SSE lines (no data: prefix, so nothing is
+        # retained in content_by_index either).
+        big_chunk = b"comment: ignored\n" * (1024 * 64)  # ~1 MB
+        acc.feed(big_chunk)
+        # line_buf should be empty (chunk ends on \n) and no parsed state held.
+        assert sys.getsizeof(acc._line_buf) < 1024  # type: ignore[attr-defined]
+        assert acc._content_by_index == {}  # type: ignore[attr-defined]
+
+
 class TestTranscriptCaptureFunctions:
     """Tests for transcript capture helper functions."""
 
@@ -913,7 +1006,7 @@ class TestTranscriptCaptureFunctions:
         from unittest.mock import patch
 
         with patch("gateway.transcript_buffer.BUFFER_DIR", tmp_path):
-            from gateway.gateway import _capture_streaming_response
+            from gateway.gateway import _capture_streaming_response, _parse_sse_response
             from gateway.transcript_buffer import TranscriptBuffer
 
             container_id = "test-container-456"
@@ -933,7 +1026,7 @@ class TestTranscriptCaptureFunctions:
             _capture_streaming_response(
                 container_id=container_id,
                 request_json=request_json,
-                chunks=chunks,
+                result=_parse_sse_response(chunks),
                 start_time=time.time() - 0.3,
             )
 
