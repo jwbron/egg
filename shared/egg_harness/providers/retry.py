@@ -18,6 +18,10 @@ from egg_harness.providers.base import Provider, StreamEvent
 
 logger = logging.getLogger(__name__)
 
+# Module-level reference so tests can patch just this module's sleep
+# without globally mocking asyncio.sleep (which leaks into unrelated async code).
+_sleep = asyncio.sleep
+
 # HTTP status codes that should trigger a retry.
 _RETRYABLE_STATUS_CODES: frozenset[int] = frozenset({429, 500, 502, 503, 504})
 
@@ -126,7 +130,7 @@ class RetryProvider(Provider):
                         delay,
                         exc,
                     )
-                    await asyncio.sleep(delay)
+                    await _sleep(delay)
                 else:
                     logger.error(
                         "All %d retries exhausted on provider %r: %s",
