@@ -34,9 +34,9 @@ try:
         get_github_token as get_github_token,
     )
 
-    # CLI module exports
-    from .cli import gha_exec as gha_exec
-    from .cli import main as main
+    # GHA-entry re-export (relocated from .cli in #1762; interactive-mode
+    # ``main()`` was removed in the same change).
+    from .gha_exec import gha_exec as gha_exec
     from .config import (
         EGG_ISOLATED_NETWORK as EGG_ISOLATED_NETWORK,
     )
@@ -179,12 +179,11 @@ try:
         warn as warn,
     )
 
-    # Runtime module exports
+    # Runtime module exports. ``run_claude`` was removed in #1762 along
+    # with the rest of interactive mode; ``exec_in_new_container`` remains
+    # for the GHA path.
     from .runtime import (
         exec_in_new_container as exec_in_new_container,
-    )
-    from .runtime import (
-        run_claude as run_claude,
     )
 
     # Setup flow module exports
