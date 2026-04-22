@@ -277,3 +277,47 @@ All open questions have been registered via `egg-contract` and appear as separat
 complexity_tier: medium
 parallel_phases: false
 ```
+
+
+## HITL Resolution
+
+The following was approved by a human reviewer at the refine phase gate:
+
+## Resolved Questions
+
+**Decision 1 — Matcher semantics for coder's empty allowed_patterns**
+Answer: Option A — explicit catch-all ['**'] in CODER_PATTERNS.allowed_patterns. Keep deny-all-when-empty matcher semantics untouched so other roles' backstop is preserved.
+
+**Decision 2 — Scope of utility-role rewrites**
+Answer: Coder only. Do NOT rewrite autofixer or conflict_resolver in this PR. File follow-up issues for those.
+
+**Decision 3 — How to carve coder's .egg-state/ access**
+Answer: Block all of .egg-state/ and carve out .egg-state/agent-outputs/ via block_exempt_patterns. This is safer for future .egg-state/ subdirs than enumerating blocks.
+
+**Decision 4 — Overseer scope**
+Answer: OUT OF SCOPE for this PR. Overseer uses a different (narrow oversight-only) policy, not an extension-based allowlist, so the fix here does not port directly. Already filed as follow-up #1902.
+
+**Decision 5 — Pre-existing matcher bug for '**/tests/' directory pattern**
+Answer: YES — fix the matcher bug in this PR. Currently AgentFilePattern._matches_pattern does not correctly handle directory patterns ending with '/' under the '**' branch, so nested test dirs (e.g. gateway/tests/__init__.py) leak past coder's blocklist. Fix so '**/tests/' (and similar '**/<dir>/') patterns correctly match any file under a nested directory of that name.
+
+**Feedback Q1 — .egg/phase-permissions.json role=implementer file_restrictions**
+Answer: Split into three roles (coder, tester, documenter) to mirror the new three-role model. Keep the three surfaces (patterns.py, phase-permissions.json, shared/egg_container/__init__.py::_IMPLEMENT_READONLY_DIRS) manually in sync in this PR.
+
+**Feedback Q2 — Source of truth between the three surfaces**
+Answer: Status quo (keep all three in sync manually) in this PR. The deeper refactor — making patterns.py authoritative and deriving phase-permissions.json and _IMPLEMENT_READONLY_DIRS from it — is tracked as follow-up #1903 and is out of scope here. Add a TODO(#1903) comment on the hand-maintained lists noting the follow-up.
+
+**Feedback Q3 — Preemptive blocks on future .egg-state/ subdirs**
+Answer: None specifically. The 'block .egg-state/ + exempt agent-outputs/' model already protects against arbitrary future subdirs. No defensive 'secrets/' or 'credentials/' entries.
+
+**Feedback Q4 — Ownership of skills/ markdown**
+Answer: Coder-owned. SKILL.md is functional agent behavior, not documentation. Preserve via block_exempt_patterns=['skills/'] as today.
+
+## Additional pre-refine decisions (already confirmed)
+
+- Overseer: out of scope for this pipeline (filed as #1902).
+- In-container filesystem guard shared/egg_container/__init__.py:131 _IMPLEMENT_READONLY_DIRS: UPDATE in parallel with the gateway policy in this PR.
+
+## Follow-up issues already filed during /sdlc run
+
+- #1902 — Overseer file-boundary policy (oversight-only vs remediation scope)
+- #1903 — Make patterns.py the single source of truth for file restrictions

@@ -37,10 +37,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Keep deny-all semantics; add an explicit catch-all pattern ('**') to CODER_PATTERNS.allowed_patterns\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-22T23:46:05.118217Z",
       "debounce_until": null
     },
     {
@@ -70,10 +70,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Coder only \u2014 keep this issue scoped to the reported bug; file follow-ups for autofixer/conflict_resolver\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-22T23:46:40.305479Z",
       "debounce_until": null
     },
     {
@@ -103,10 +103,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Block all of .egg-state/ and use block_exempt_patterns=['.egg-state/agent-outputs/'] to carve out the handoff dir (what the issue proposes)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-22T23:47:35.668118Z",
       "debounce_until": null
     },
     {
@@ -136,10 +136,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Out of scope \u2014 leave overseer for a separate issue as the reporter suggested\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-22T23:47:45.811787Z",
       "debounce_until": null
     },
     {
@@ -169,10 +169,33 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Yes \u2014 fix the '**/tests/' directory pattern matching as part of this issue (coder would then be strictly blocked from any file under a tests/ subdirectory)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-22T23:48:10.968429Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "[Phase gate: refine] The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "## Resolved Questions\n\n**Decision 1 \u2014 Matcher semantics for coder's empty allowed_patterns**\nAnswer: Option A \u2014 explicit catch-all ['**'] in CODER_PATTERNS.allowed_patterns. Keep deny-all-when-empty matcher semantics untouched so other roles' backstop is preserved.\n\n**Decision 2 \u2014 Scope of utility-role rewrites**\nAnswer: Coder only. Do NOT rewrite autofixer or conflict_resolver in this PR. File follow-up issues for those.\n\n**Decision 3 \u2014 How to carve coder's .egg-state/ access**\nAnswer: Block all of .egg-state/ and carve out .egg-state/agent-outputs/ via block_exempt_patterns. This is safer for future .egg-state/ subdirs than enumerating blocks.\n\n**Decision 4 \u2014 Overseer scope**\nAnswer: OUT OF SCOPE for this PR. Overseer uses a different (narrow oversight-only) policy, not an extension-based allowlist, so the fix here does not port directly. Already filed as follow-up #1902.\n\n**Decision 5 \u2014 Pre-existing matcher bug for '**/tests/' directory pattern**\nAnswer: YES \u2014 fix the matcher bug in this PR. Currently AgentFilePattern._matches_pattern does not correctly handle directory patterns ending with '/' under the '**' branch, so nested test dirs (e.g. gateway/tests/__init__.py) leak past coder's blocklist. Fix so '**/tests/' (and similar '**/<dir>/') patterns correctly match any file under a nested directory of that name.\n\n**Feedback Q1 \u2014 .egg/phase-permissions.json role=implementer file_restrictions**\nAnswer: Split into three roles (coder, tester, documenter) to mirror the new three-role model. Keep the three surfaces (patterns.py, phase-permissions.json, shared/egg_container/__init__.py::_IMPLEMENT_READONLY_DIRS) manually in sync in this PR.\n\n**Feedback Q2 \u2014 Source of truth between the three surfaces**\nAnswer: Status quo (keep all three in sync manually) in this PR. The deeper refactor \u2014 making patterns.py authoritative and deriving phase-permissions.json and _IMPLEMENT_READONLY_DIRS from it \u2014 is tracked as follow-up #1903 and is out of scope here. Add a TODO(#1903) comment on the hand-maintained lists noting the follow-up.\n\n**Feedback Q3 \u2014 Preemptive blocks on future .egg-state/ subdirs**\nAnswer: None specifically. The 'block .egg-state/ + exempt agent-outputs/' model already protects against arbitrary future subdirs. No defensive 'secrets/' or 'credentials/' entries.\n\n**Feedback Q4 \u2014 Ownership of skills/ markdown**\nAnswer: Coder-owned. SKILL.md is functional agent behavior, not documentation. Preserve via block_exempt_patterns=['skills/'] as today.\n\n## Additional pre-refine decisions (already confirmed)\n\n- Overseer: out of scope for this pipeline (filed as #1902).\n- In-container filesystem guard shared/egg_container/__init__.py:131 _IMPLEMENT_READONLY_DIRS: UPDATE in parallel with the gateway policy in this PR.\n\n## Follow-up issues already filed during /sdlc run\n\n- #1902 \u2014 Overseer file-boundary policy (oversight-only vs remediation scope)\n- #1903 \u2014 Make patterns.py the single source of truth for file restrictions",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-22T23:43:58.325874Z",
       "debounce_until": null
     }
   ],
@@ -447,27 +470,27 @@
       {
         "id": "Q1",
         "question": "The '.egg/phase-permissions.json' file has a separate 'file_restrictions' section (role='implementer', blocked_patterns=['.egg-state/contracts/']) enforced by gateway/phase_filter.py::check_file_restrictions. Is that role-based phase restriction expected to stay as-is, or should it also reflect the new three-role model (e.g., split into coder/tester/documenter)?",
-        "answer": null
+        "answer": "Split .egg/phase-permissions.json's role=implementer file_restrictions into three roles (coder, tester, documenter) to mirror the new three-role model. Keep the three surfaces (patterns.py, phase-permissions.json, shared/egg_container/__init__.py::_IMPLEMENT_READONLY_DIRS) manually in sync in this PR."
       },
       {
         "id": "Q2",
         "question": "Comment in shared/egg_container/__init__.py:131 says _IMPLEMENT_READONLY_DIRS 'Must stay in sync with .egg/phase-permissions.json blocked_patterns for implement'. After this rewrite, which file is authoritative, and should the container side be simplified to derive its readonly dirs from the blocklist (rather than hardcoded)?",
-        "answer": null
+        "answer": "For THIS PR keep all three surfaces manually in sync (status quo). The deeper refactor \u2014 making shared/egg_restrictions/patterns.py authoritative and deriving phase-permissions.json + _IMPLEMENT_READONLY_DIRS from it \u2014 is OUT OF SCOPE for this PR and is tracked as follow-up issue #1903. Please add a TODO(#1903) comment on each of the hand-maintained lists in phase-permissions.json and _IMPLEMENT_READONLY_DIRS noting the follow-up."
       },
       {
         "id": "Q3",
         "question": "Under the new model, coder gains write access to any new top-level path or file type \u2014 including hypothetical .egg-state/ subdirs that don't exist yet. Are there future .egg-state/ subdirectories you'd want coder pre-emptively blocked from (e.g., a future '.egg-state/secrets/')?",
-        "answer": null
+        "answer": "None specifically. The 'block .egg-state/ + exempt .egg-state/agent-outputs/' model already protects against arbitrary future subdirectories. Do NOT add defensive preemptive entries for hypothetical paths like '.egg-state/secrets/' or '.egg-state/credentials/' \u2014 they don't exist and adding speculative entries invites drift."
       },
       {
         "id": "Q4",
         "question": "Currently CODER_PATTERNS.allowed_patterns includes 'skills/' (a directory prefix), while DOCUMENTER_PATTERNS blocks '**/*.md' implicitly. Under the new blocklist-complement model, should 'skills/' .md files still be coder-owned (as today) or are they documenter-owned? (SKILL.md is arguably functional code describing agent behavior, but it's still markdown.)",
-        "answer": null
+        "answer": "skills/ markdown remains COODER-OWNED under the new model. SKILL.md files are functional agent-behavior code, not documentation. Preserve via block_exempt_patterns=['skills/'] in CODER_PATTERNS, consistent with today's behavior (sandbox/agent-config/rules/*.md and sandbox/agent-config/commands/*.md are already treated this way)."
       }
     ],
-    "submitted": false,
-    "submitted_by": null,
-    "submitted_at": null,
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-04-22T23:49:01.164367Z",
     "comment_id": null,
     "debounce_until": null
   },
