@@ -208,6 +208,19 @@
           "pod_name": null,
           "namespace": "egg-agents",
           "job_name": "egg-sandbox-egg-agent-issue-1901-reviewer-plan"
+        },
+        {
+          "container_id": "f7471324-92f4-443f-b5ab-1cbb2b630535",
+          "container_name": "egg-sandbox-egg-agent-issue-1901-architect",
+          "status": "pending",
+          "started_at": null,
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": null,
+          "session_token": null,
+          "pod_name": null,
+          "namespace": "egg-agents",
+          "job_name": "egg-sandbox-egg-agent-issue-1901-architect"
         }
       ],
       "agents": [
@@ -239,8 +252,8 @@
         },
         {
           "role": "architect",
-          "status": "failed",
-          "container_id": "d9a1fd39-b7d6-49cb-bcf1-9aaca0176a29",
+          "status": "running",
+          "container_id": "f7471324-92f4-443f-b5ab-1cbb2b630535",
           "container_info": null,
           "started_at": "2026-04-22T23:49:43.066239Z",
           "completed_at": "2026-04-22T23:54:31.803056Z",
@@ -430,7 +443,7 @@
     }
   ],
   "created_at": "2026-04-22T23:25:22.973469Z",
-  "updated_at": "2026-04-22T23:54:31.803137Z",
+  "updated_at": "2026-04-22T23:59:17.372480Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -443,5 +456,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 30
+  "version": 31
 }
