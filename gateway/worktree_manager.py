@@ -1607,6 +1607,11 @@ class WorktreeManager:
                     continue
             if child.name in active_containers:
                 continue
+            # Mirror the _active_worktrees guard from cleanup_orphaned_worktrees
+            # so dry-run output accurately reflects what cleanup would skip.
+            with self._lock:
+                if child.name in self._active_worktrees:
+                    continue
             orphans.append(str(child))
         return orphans
 

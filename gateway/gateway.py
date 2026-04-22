@@ -3816,6 +3816,23 @@ def _derive_worktree_anchor_ids(sessions: list[dict[str, Any]]) -> set[str]:
     return anchors
 
 
+def _container_ids_from_sessions(sessions: list[dict[str, Any]]) -> set[str]:
+    """Return container IDs and worktree anchor IDs from session dicts.
+
+    Each session contributes its own ``container_id`` plus the derived
+    per-agent (``{pipeline_id}-{agent_role}``) and pipeline-level
+    (``{pipeline_id}``) worktree anchor IDs so that cleanup never wipes
+    a live pipeline's worktrees (#1874).
+    """
+    ids: set[str] = set()
+    for session_info in sessions:
+        cid = session_info.get("container_id")
+        if cid:
+            ids.add(cid)
+    ids |= _derive_worktree_anchor_ids(sessions)
+    return ids
+
+
 def _collect_active_container_ids() -> set[str]:
     """Return the best-effort set of container IDs that back live sessions.
 
@@ -3841,11 +3858,7 @@ def _collect_active_container_ids() -> set[str]:
     try:
         session_manager = get_session_manager()
         sessions = session_manager.list_sessions()
-        for session_info in sessions:
-            cid = session_info.get("container_id")
-            if cid:
-                active_container_ids.add(cid)
-        active_container_ids |= _derive_worktree_anchor_ids(sessions)
+        active_container_ids |= _container_ids_from_sessions(sessions)
     except Exception as exc:
         logger.warning(
             "prune: session-manager active-container lookup failed",
@@ -5596,11 +5609,7 @@ def main() -> None:
         # Extract active container IDs from surviving sessions, plus the
         # per-agent/pipeline worktree anchors the orchestrator assigns.
         sessions = session_manager.list_sessions()
-        for session_info in sessions:
-            container_id = session_info.get("container_id")
-            if container_id:
-                active_container_ids.add(container_id)
-        active_container_ids |= _derive_worktree_anchor_ids(sessions)
+        active_container_ids |= _container_ids_from_sessions(sessions)
         if active_container_ids:
             logger.info(
                 "Active containers from sessions",

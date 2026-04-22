@@ -387,6 +387,8 @@ class TestListOrphanWorktreePathGuard:
 
     def test_symlink_escape_is_skipped(self, tmp_path, monkeypatch):
         """A symlink pointing outside the worktree base is filtered out."""
+        import threading
+
         from worktree_manager import WorktreeManager
 
         base = tmp_path / "worktrees"
@@ -402,13 +404,51 @@ class TestListOrphanWorktreePathGuard:
         mgr = WorktreeManager.__new__(WorktreeManager)
         mgr.worktree_base = base
         mgr.repos_base = tmp_path / "repos"  # unused for this call
-        # Any other fields the method doesn't touch can stay un-set.
+        mgr._lock = threading.Lock()
+        mgr._active_worktrees = {}
 
         orphans = mgr.list_orphan_worktree_dirs(active_containers=set())
         assert any(o.endswith("normal-dir") for o in orphans)
         assert not any("outside" in o for o in orphans), (
             "symlink escape must not appear in orphan list"
         )
+
+
+class TestListOrphanWorktreeDirsActiveGuard:
+    """``list_orphan_worktree_dirs`` must respect ``_active_worktrees`` so the
+    dry-run prune route accurately reflects what cleanup would actually skip."""
+
+    def test_in_flight_worktree_excluded_from_orphan_list(self, tmp_path):
+        """A dir tracked in ``_active_worktrees`` must not appear as orphan."""
+        import threading
+
+        from worktree_manager import WorktreeInfo, WorktreeManager
+
+        base = tmp_path / "worktrees"
+        base.mkdir()
+        (base / "issue-42-coder").mkdir()
+        (base / "genuine-orphan").mkdir()
+
+        mgr = WorktreeManager.__new__(WorktreeManager)
+        mgr.worktree_base = base
+        mgr.repos_base = tmp_path / "repos"
+        mgr._lock = threading.Lock()
+        mgr._active_worktrees = {
+            "issue-42-coder": [
+                WorktreeInfo(
+                    container_id="issue-42-coder",
+                    repo_name="webapp",
+                    branch="egg/issue-42-coder/work",
+                    worktree_path=base / "issue-42-coder" / "webapp",
+                    git_dir=None,
+                )
+            ]
+        }
+
+        orphans = mgr.list_orphan_worktree_dirs(active_containers=set())
+        orphan_names = [o.split("/")[-1] for o in orphans]
+        assert "genuine-orphan" in orphan_names
+        assert "issue-42-coder" not in orphan_names
 
 
 class TestCollectActiveContainerIds:
@@ -554,6 +594,33 @@ class TestDeriveWorktreeAnchorIds:
         """Defensive against future session dicts that omit the field."""
         anchors = gateway._derive_worktree_anchor_ids([{"container_id": "adhoc"}])
         assert anchors == set()
+
+
+class TestContainerIdsFromSessions:
+    """Unit tests for ``_container_ids_from_sessions`` — the shared helper
+    that both ``_collect_active_container_ids`` and ``main()`` use to build
+    the active set from session metadata."""
+
+    def test_combines_container_ids_and_anchors(self):
+        ids = gateway._container_ids_from_sessions(
+            [
+                {
+                    "container_id": "egg-agent-issue-42-coder",
+                    "pipeline_id": "issue-42",
+                    "agent_role": "coder",
+                },
+                {"container_id": "solo", "pipeline_id": None, "agent_role": None},
+            ]
+        )
+        assert ids == {
+            "egg-agent-issue-42-coder",
+            "issue-42",
+            "issue-42-coder",
+            "solo",
+        }
+
+    def test_empty_sessions_returns_empty(self):
+        assert gateway._container_ids_from_sessions([]) == set()
 
 
 class TestConcurrentSecondCallGets409:
