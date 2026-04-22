@@ -113,6 +113,7 @@ def start_if_enabled() -> bool:
         top_n = int(os.environ.get(TOP_N_ENV_VAR, DEFAULT_TOP_N))
     except ValueError:
         top_n = DEFAULT_TOP_N
+    top_n = max(1, top_n)
 
     if not tracemalloc.is_tracing():
         tracemalloc.start(FRAME_DEPTH)

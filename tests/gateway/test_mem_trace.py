@@ -32,8 +32,10 @@ class TestStartIfEnabled:
         assert start_if_enabled() is False
 
     def test_returns_false_for_falsy_values(self, monkeypatch):
+        import gateway.mem_trace as _mt
         from gateway.mem_trace import ENABLE_ENV_VAR, start_if_enabled
 
+        _mt._started = False
         for value in ("", "0", "false", "no", "off"):
             monkeypatch.setenv(ENABLE_ENV_VAR, value)
             assert start_if_enabled() is False, f"expected False for {value!r}"
