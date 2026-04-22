@@ -5668,6 +5668,19 @@ def main() -> None:
     )
     cleanup_thread.start()
 
+    # Start background session pruner so stale entries don't accumulate across
+    # restarts.  Without this, sessions for dead containers survive until their
+    # 24h TTL lapses and are reloaded on every gateway restart (#1884).
+    try:
+        prune_interval = int(os.environ.get("EGG_SESSION_CLEANUP_INTERVAL_MINUTES", "15"))
+        idle_timeout = int(os.environ.get("EGG_SESSION_IDLE_TIMEOUT_MINUTES", "60"))
+        get_session_manager().start_background_pruner(
+            interval_minutes=prune_interval,
+            idle_timeout_minutes=idle_timeout,
+        )
+    except Exception as e:
+        logger.warning("Failed to start session background pruner", error=str(e))
+
     # Ensure launcher secret is configured - fail startup if not
     try:
         get_launcher_secret()

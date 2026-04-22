@@ -234,6 +234,12 @@ def _capture_and_cleanup_session(
 # Session configuration
 DEFAULT_SESSION_TTL_HOURS = 24
 DEFAULT_CLEANUP_INTERVAL_MINUTES = 15
+# Sessions idle longer than this are evicted even if their explicit TTL has not
+# yet lapsed.  Every successful validate_session() refreshes ``last_seen``, so a
+# stale ``last_seen`` means the container has stopped talking to the gateway —
+# typically because it was terminated or its pipeline was cancelled.  Without
+# this, sessions with a 24-hour TTL accumulate across gateway restarts (#1884).
+DEFAULT_SESSION_IDLE_TIMEOUT_MINUTES = 60
 SESSION_TOKEN_BYTES = 32  # 256 bits
 
 # Persistence file path - use a persistent volume so sessions survive gateway restarts
@@ -432,6 +438,10 @@ class SessionManager:
         # Token lookup: raw_token -> token_hash (for fast validation in memory)
         # This enables O(1) lookup when validating tokens
         self._token_to_hash: dict[str, str] = {}
+
+        # Background pruner state (initialized lazily in start_background_pruner)
+        self._prune_shutdown: threading.Event | None = None
+        self._prune_thread: threading.Thread | None = None
 
         # Load persisted sessions on startup
         self._load_from_disk()
@@ -984,6 +994,149 @@ class SessionManager:
                     )
 
         return len(expired_sessions)
+
+    def prune_idle_sessions(
+        self,
+        idle_timeout_minutes: int = DEFAULT_SESSION_IDLE_TIMEOUT_MINUTES,
+    ) -> int:
+        """Remove sessions whose ``last_seen`` is older than the idle threshold.
+
+        Complements :meth:`prune_expired_sessions`, which only evicts sessions
+        past their explicit ``expires_at``.  Without idle pruning, sessions for
+        dead containers survive until their 24-hour TTL lapses and accumulate
+        across gateway restarts because ``_load_from_disk`` only drops strictly
+        expired entries (#1884).
+
+        Every successful :meth:`validate_session` refreshes ``last_seen`` and
+        ``expires_at`` together, so a stale ``last_seen`` reliably indicates a
+        container that has stopped making requests.
+
+        Args:
+            idle_timeout_minutes: Minutes of inactivity after which a session
+                is considered abandoned.  Defaults to
+                ``DEFAULT_SESSION_IDLE_TIMEOUT_MINUTES``.
+
+        Returns:
+            Number of sessions pruned.
+        """
+        cutoff = datetime.now(UTC) - timedelta(minutes=idle_timeout_minutes)
+        idle_sessions: list[tuple[str, Session]] = []
+
+        with self._lock:
+            idle_hashes = [
+                token_hash
+                for token_hash, session in self._sessions.items()
+                if session.last_seen < cutoff
+            ]
+
+            for token_hash in idle_hashes:
+                session = self._sessions.pop(token_hash)
+                if session.session_token:
+                    self._token_to_hash.pop(session.session_token, None)
+                idle_sessions.append((token_hash, session))
+
+            if idle_sessions:
+                self._save_to_disk()
+
+        # Capture checkpoints concurrently; each capture can wait up to 30s.
+        if idle_sessions:
+            threads = []
+            for token_hash, session in idle_sessions:
+                t = threading.Thread(
+                    target=_capture_and_cleanup_session,
+                    args=(session, "expired"),
+                    daemon=True,
+                )
+                t.start()
+                threads.append((t, token_hash, session))
+
+            for t, token_hash, session in threads:
+                t.join(timeout=35)  # 30s capture timeout + 5s buffer
+                if t.is_alive():
+                    logger.warning(
+                        "Idle session pruned, checkpoint capture still in progress",
+                        event_type="session_idle_timeout",
+                        session_token_hash=token_hash[:16],
+                        container_id=session.container_id,
+                        capture_timed_out=True,
+                    )
+                else:
+                    logger.info(
+                        "Idle session pruned",
+                        event_type="session_idle_timeout",
+                        session_token_hash=token_hash[:16],
+                        container_id=session.container_id,
+                        idle_timeout_minutes=idle_timeout_minutes,
+                    )
+
+        return len(idle_sessions)
+
+    def start_background_pruner(
+        self,
+        interval_minutes: int = DEFAULT_CLEANUP_INTERVAL_MINUTES,
+        idle_timeout_minutes: int = DEFAULT_SESSION_IDLE_TIMEOUT_MINUTES,
+    ) -> None:
+        """Start a daemon thread that periodically prunes expired + idle sessions.
+
+        The loop sleeps ``interval_minutes`` before its first iteration so
+        freshly restored sessions have time to re-validate and refresh
+        ``last_seen`` before being evicted.  No-op if already running.
+        """
+        with self._lock:
+            if self._prune_thread is not None and self._prune_thread.is_alive():
+                return
+
+            self._prune_shutdown = threading.Event()
+            shutdown = self._prune_shutdown
+
+            def _loop() -> None:
+                logger.info(
+                    "Session background pruner started",
+                    interval_minutes=interval_minutes,
+                    idle_timeout_minutes=idle_timeout_minutes,
+                )
+                while not shutdown.is_set():
+                    if shutdown.wait(interval_minutes * 60):
+                        break
+                    try:
+                        expired = self.prune_expired_sessions()
+                        idle = self.prune_idle_sessions(idle_timeout_minutes)
+                        if expired or idle:
+                            logger.info(
+                                "Background prune cycle complete",
+                                pruned_expired=expired,
+                                pruned_idle=idle,
+                                remaining=len(self._sessions),
+                            )
+                    except Exception as e:
+                        logger.warning(
+                            "Background prune cycle failed",
+                            error=str(e),
+                            error_type=type(e).__name__,
+                        )
+
+            self._prune_thread = threading.Thread(
+                target=_loop,
+                name="session-pruner",
+                daemon=True,
+            )
+            self._prune_thread.start()
+
+    def stop_background_pruner(self, timeout: float = 5.0) -> None:
+        """Signal the background pruner to stop and wait for it to exit.
+
+        Primarily used by tests; production gateways run the pruner for the
+        process lifetime.
+        """
+        thread = self._prune_thread
+        shutdown = self._prune_shutdown
+        if shutdown is not None:
+            shutdown.set()
+        if thread is not None:
+            thread.join(timeout=timeout)
+        with self._lock:
+            self._prune_thread = None
+            self._prune_shutdown = None
 
     def list_sessions(self) -> list[dict[str, Any]]:
         """
