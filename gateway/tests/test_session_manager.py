@@ -335,6 +335,32 @@ class TestSessionManager:
         sessions = manager.list_sessions()
         assert len(sessions) == 3
 
+    def test_list_sessions_exposes_pipeline_and_role(self, manager):
+        """list_sessions must surface ``pipeline_id`` and ``agent_role`` so
+        cleanup paths can derive per-agent worktree anchor ids (#1874)."""
+        manager.register_session(
+            container_id="egg-agent-issue-42-coder",
+            container_ip=None,
+            mode="public",
+            pipeline_id="issue-42",
+            agent_role="coder",
+        )
+        manager.register_session(
+            container_id="solo-interactive",
+            container_ip=None,
+            mode="public",
+        )
+
+        sessions = {s["container_id"]: s for s in manager.list_sessions()}
+
+        pipeline_session = sessions["egg-agent-issue-42-coder"]
+        assert pipeline_session["pipeline_id"] == "issue-42"
+        assert pipeline_session["agent_role"] == "coder"
+
+        interactive = sessions["solo-interactive"]
+        assert interactive["pipeline_id"] is None
+        assert interactive["agent_role"] is None
+
     def test_clear_all(self, manager):
         """Test clearing all sessions."""
         for i in range(3):

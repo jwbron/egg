@@ -387,6 +387,8 @@ class TestListOrphanWorktreePathGuard:
 
     def test_symlink_escape_is_skipped(self, tmp_path, monkeypatch):
         """A symlink pointing outside the worktree base is filtered out."""
+        import threading
+
         from worktree_manager import WorktreeManager
 
         base = tmp_path / "worktrees"
@@ -402,13 +404,51 @@ class TestListOrphanWorktreePathGuard:
         mgr = WorktreeManager.__new__(WorktreeManager)
         mgr.worktree_base = base
         mgr.repos_base = tmp_path / "repos"  # unused for this call
-        # Any other fields the method doesn't touch can stay un-set.
+        mgr._lock = threading.Lock()
+        mgr._active_worktrees = {}
 
         orphans = mgr.list_orphan_worktree_dirs(active_containers=set())
         assert any(o.endswith("normal-dir") for o in orphans)
         assert not any("outside" in o for o in orphans), (
             "symlink escape must not appear in orphan list"
         )
+
+
+class TestListOrphanWorktreeDirsActiveGuard:
+    """``list_orphan_worktree_dirs`` must respect ``_active_worktrees`` so the
+    dry-run prune route accurately reflects what cleanup would actually skip."""
+
+    def test_in_flight_worktree_excluded_from_orphan_list(self, tmp_path):
+        """A dir tracked in ``_active_worktrees`` must not appear as orphan."""
+        import threading
+
+        from worktree_manager import WorktreeInfo, WorktreeManager
+
+        base = tmp_path / "worktrees"
+        base.mkdir()
+        (base / "issue-42-coder").mkdir()
+        (base / "genuine-orphan").mkdir()
+
+        mgr = WorktreeManager.__new__(WorktreeManager)
+        mgr.worktree_base = base
+        mgr.repos_base = tmp_path / "repos"
+        mgr._lock = threading.Lock()
+        mgr._active_worktrees = {
+            "issue-42-coder": [
+                WorktreeInfo(
+                    container_id="issue-42-coder",
+                    repo_name="webapp",
+                    branch="egg/issue-42-coder/work",
+                    worktree_path=base / "issue-42-coder" / "webapp",
+                    git_dir=None,
+                )
+            ]
+        }
+
+        orphans = mgr.list_orphan_worktree_dirs(active_containers=set())
+        orphan_names = [o.split("/")[-1] for o in orphans]
+        assert "genuine-orphan" in orphan_names
+        assert "issue-42-coder" not in orphan_names
 
 
 class TestCollectActiveContainerIds:
@@ -483,6 +523,104 @@ class TestCollectActiveContainerIds:
         ):
             result = gateway._collect_active_container_ids()
         assert result == set()
+
+    def test_per_agent_worktree_anchors_included(self):
+        """Sessions with ``pipeline_id``+``agent_role`` must contribute the
+        derived ``{pipeline_id}-{agent_role}`` and pipeline-level anchors
+        so that ``cleanup_orphaned_worktrees`` does not wipe the per-agent
+        worktrees on disk (which are named after ``agent_worktree_id``,
+        not the session's ``container_id``).  Regression for #1874.
+        """
+        from unittest.mock import MagicMock, patch
+
+        session_manager = MagicMock()
+        session_manager.list_sessions.return_value = [
+            {
+                "container_id": "egg-agent-issue-1758-again-coder",
+                "pipeline_id": "issue-1758-again",
+                "agent_role": "coder",
+            },
+            {
+                "container_id": "egg-agent-issue-1758-again-documenter",
+                "pipeline_id": "issue-1758-again",
+                "agent_role": "documenter",
+            },
+            # Interactive session with no pipeline context contributes only
+            # its own container id.
+            {"container_id": "solo-interactive", "pipeline_id": None, "agent_role": None},
+        ]
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=session_manager),
+            patch.object(gateway, "get_active_docker_containers", return_value=set()),
+        ):
+            result = gateway._collect_active_container_ids()
+
+        assert "issue-1758-again-coder" in result
+        assert "issue-1758-again-documenter" in result
+        assert "issue-1758-again" in result
+        assert "egg-agent-issue-1758-again-coder" in result
+        assert "solo-interactive" in result
+
+
+class TestDeriveWorktreeAnchorIds:
+    """Unit tests for the helper that maps session metadata to the worktree
+    dir names the orchestrator uses.  Keeping this standalone means future
+    changes to the naming scheme fail here, loudly, before they can wipe a
+    live pipeline's worktrees."""
+
+    def test_derives_per_agent_and_pipeline_anchors(self):
+        anchors = gateway._derive_worktree_anchor_ids(
+            [
+                {"pipeline_id": "issue-42", "agent_role": "coder"},
+                {"pipeline_id": "issue-42", "agent_role": "tester"},
+            ]
+        )
+        assert anchors == {"issue-42", "issue-42-coder", "issue-42-tester"}
+
+    def test_pipeline_without_role_still_protects_pipeline_level(self):
+        anchors = gateway._derive_worktree_anchor_ids(
+            [{"pipeline_id": "issue-99", "agent_role": None}]
+        )
+        assert anchors == {"issue-99"}
+
+    def test_session_without_pipeline_yields_no_anchors(self):
+        anchors = gateway._derive_worktree_anchor_ids(
+            [{"container_id": "adhoc", "pipeline_id": None, "agent_role": None}]
+        )
+        assert anchors == set()
+
+    def test_missing_keys_handled(self):
+        """Defensive against future session dicts that omit the field."""
+        anchors = gateway._derive_worktree_anchor_ids([{"container_id": "adhoc"}])
+        assert anchors == set()
+
+
+class TestContainerIdsFromSessions:
+    """Unit tests for ``_container_ids_from_sessions`` — the shared helper
+    that both ``_collect_active_container_ids`` and ``main()`` use to build
+    the active set from session metadata."""
+
+    def test_combines_container_ids_and_anchors(self):
+        ids = gateway._container_ids_from_sessions(
+            [
+                {
+                    "container_id": "egg-agent-issue-42-coder",
+                    "pipeline_id": "issue-42",
+                    "agent_role": "coder",
+                },
+                {"container_id": "solo", "pipeline_id": None, "agent_role": None},
+            ]
+        )
+        assert ids == {
+            "egg-agent-issue-42-coder",
+            "issue-42",
+            "issue-42-coder",
+            "solo",
+        }
+
+    def test_empty_sessions_returns_empty(self):
+        assert gateway._container_ids_from_sessions([]) == set()
 
 
 class TestConcurrentSecondCallGets409:
