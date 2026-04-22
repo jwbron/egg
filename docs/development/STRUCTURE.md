@@ -329,6 +329,9 @@ shared/
 │   ├── contract-review-criteria.md # Contract verification rules
 │   └── onboarding-docs-prompt.md # Documentation onboarding standard (egg-onboarding-docs)
 ├── egg_git/                # Git utilities
+├── egg_health/             # Runtime health-transition tracking (readiness history for /api/v1/health)
+│   ├── __init__.py         # Public API: HealthTracker
+│   └── tracker.py          # Thread-safe healthy/unhealthy transition recorder with snapshot()
 ├── egg_logging/            # Structured logging
 └── egg_orchestrator/       # Orchestrator integration layer
     ├── __init__.py         # Public API exports
