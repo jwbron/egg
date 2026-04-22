@@ -389,6 +389,8 @@ The orchestrator now waits for the gateway to become healthy before creating a p
 }
 ```
 
+> **Note:** `gateway_error` is `null` when the gateway reports unhealthy without a specific error string. The example above shows the most common case (`Connection refused` during startup).
+
 **To tune the wait**: set `EGG_GATEWAY_READY_TIMEOUT_SECONDS` on the orchestrator (default: `60`). Increase it if your gateway routinely takes longer than 60 seconds to start under load:
 
 ```yaml
