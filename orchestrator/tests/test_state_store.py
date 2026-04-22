@@ -9,6 +9,7 @@ import subprocess
 from unittest.mock import MagicMock, patch
 
 import pytest
+from gateway_client import PushResult
 from models import Pipeline, PipelinePhase, PipelineStatus
 from state_store import (
     GitOperationError,
@@ -1171,7 +1172,7 @@ class TestRemoteSync:
         which lives in the orchestrator pod's unshared emptyDir.
         """
         mock_client = MagicMock()
-        mock_client.push_worktree_branch.return_value = True
+        mock_client.push_worktree_branch.return_value = PushResult(ok=True)
 
         with patch("gateway_client.get_gateway_client", return_value=mock_client):
             # Import inside so the lazy import in sync_to_remote resolves
@@ -1189,7 +1190,9 @@ class TestRemoteSync:
     def test_sync_to_remote_returns_false_on_failure(self, state_store):
         """sync_to_remote returns False when the gateway push fails."""
         mock_client = MagicMock()
-        mock_client.push_worktree_branch.return_value = False
+        mock_client.push_worktree_branch.return_value = PushResult(
+            ok=False, category="test", detail="mock failure"
+        )
 
         with patch("gateway_client.get_gateway_client", return_value=mock_client):
             result = state_store.sync_to_remote()

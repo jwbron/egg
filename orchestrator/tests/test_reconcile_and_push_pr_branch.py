@@ -10,13 +10,13 @@ Cases covered (originally added for #1706, rewritten for #1731 to
 prefer rebase over merge and to auto-resolve conflicts under
 ``.egg-state/agent-outputs/`` by taking the remote side):
 
-- First push attempt succeeds → return True, no fetch/rebase attempted.
+- First push attempt succeeds → return PushResult(ok=True), no fetch/rebase attempted.
 - First push fails → fetch+rebase+retry path engaged.
-- Fetch failure → hard fail, no rebase attempted, return False.
-- Rebase conflict in a non-ephemeral path → rebase --abort, return False.
+- Fetch failure → hard fail, no rebase attempted, return PushResult(ok=False).
+- Rebase conflict in a non-ephemeral path → rebase --abort, return PushResult(ok=False).
 - Rebase conflict only under .egg-state/agent-outputs/ → auto-resolve and continue.
-- Rebase timeout → rebase --abort, return False.
-- Rebase succeeds but retry push still fails → return False.
+- Rebase timeout → rebase --abort, return PushResult(ok=False).
+- Rebase succeeds but retry push still fails → return PushResult(ok=False).
 - ``ref`` set (state-sync style, #1808): no reconcile — rebase is only
   meaningful when ``repo_path`` is a worktree checked out to the branch.
 """
@@ -24,7 +24,7 @@ prefer rebase over merge and to auto-resolve conflicts under
 import subprocess
 from unittest.mock import MagicMock, patch
 
-from gateway_client import GatewayClient
+from gateway_client import GatewayClient, PushResult
 
 
 def _run_result(returncode=0, stdout="", stderr=""):
@@ -37,13 +37,23 @@ def _run_result(returncode=0, stdout="", stderr=""):
 
 
 def _make_client(push_results):
-    """Return a GatewayClient whose ``_do_push`` yields ``push_results`` in order."""
+    """Return a GatewayClient whose ``_do_push`` yields ``push_results`` in order.
+
+    Each element of ``push_results`` is a bool expressing success/failure;
+    bools are wrapped into ``PushResult`` so the test doesn't need to
+    care about the failure category (the reconcile helpers branch only
+    on ``.ok``).
+    """
     client = GatewayClient(
         gateway_host="test-gateway",
         gateway_port=9848,  # noqa: EGG002
         launcher_secret="test-secret",
     )
-    client._do_push = MagicMock(side_effect=list(push_results))
+    results = [
+        r if isinstance(r, PushResult) else PushResult(ok=bool(r), category=None if r else "test")
+        for r in push_results
+    ]
+    client._do_push = MagicMock(side_effect=results)
     return client
 
 
@@ -58,7 +68,7 @@ class TestPushWorktreeBranchReconcile:
                 branch="egg/feature",
             )
 
-        assert ok is True
+        assert ok.ok is True
         assert client._do_push.call_count == 1
         mock_run.assert_not_called()
 
@@ -75,7 +85,7 @@ class TestPushWorktreeBranchReconcile:
                 branch="egg/feature",
             )
 
-        assert ok is True
+        assert ok.ok is True
         assert client._do_push.call_count == 2
         assert mock_run.call_count == 2
         fetch_cmd = mock_run.call_args_list[0].args[0]
@@ -101,7 +111,7 @@ class TestPushWorktreeBranchReconcile:
                 branch="egg/feature",
             )
 
-        assert ok is False
+        assert ok.ok is False
         assert client._do_push.call_count == 1
 
     def test_rebase_conflict_outside_agent_outputs_aborts(self, tmp_path):
@@ -122,7 +132,7 @@ class TestPushWorktreeBranchReconcile:
                 branch="egg/feature",
             )
 
-        assert ok is False
+        assert ok.ok is False
         assert client._do_push.call_count == 1
         abort_cmd = mock_run.call_args_list[-1].args[0]
         assert "rebase" in abort_cmd and "--abort" in abort_cmd
@@ -150,7 +160,7 @@ class TestPushWorktreeBranchReconcile:
                 branch="egg/feature",
             )
 
-        assert ok is True
+        assert ok.ok is True
         assert client._do_push.call_count == 2
         all_cmds = [c.args[0] for c in mock_run.call_args_list]
         assert any("checkout" in c and "--theirs" in c for c in all_cmds)
@@ -180,7 +190,7 @@ class TestPushWorktreeBranchReconcile:
                 branch="egg/feature",
             )
 
-        assert ok is True
+        assert ok.ok is True
         all_cmds = [c.args[0] for c in mock_run.call_args_list]
         assert any("rebase" in c and "--skip" in c for c in all_cmds)
         assert not any("rebase" in c and "--continue" in c for c in all_cmds)
@@ -205,7 +215,7 @@ class TestPushWorktreeBranchReconcile:
                 branch="egg/feature",
             )
 
-        assert ok is False
+        assert ok.ok is False
         all_cmds = [c.args[0] for c in mock_run.call_args_list]
         assert not any("checkout" in c and "--theirs" in c for c in all_cmds)
         abort_cmd = mock_run.call_args_list[-1].args[0]
@@ -233,7 +243,7 @@ class TestPushWorktreeBranchReconcile:
                 branch="egg/feature",
             )
 
-        assert ok is False
+        assert ok.ok is False
         assert client._do_push.call_count == 1
         abort_cmd = mock_run.call_args_list[-1].args[0]
         assert "rebase" in abort_cmd and "--abort" in abort_cmd
@@ -251,7 +261,7 @@ class TestPushWorktreeBranchReconcile:
                 branch="egg/feature",
             )
 
-        assert ok is False
+        assert ok.ok is False
         assert client._do_push.call_count == 2
 
     def test_ref_push_skips_reconcile(self, tmp_path):
@@ -270,6 +280,6 @@ class TestPushWorktreeBranchReconcile:
                 ref="egg/pipeline-state",
             )
 
-        assert ok is False
+        assert ok.ok is False
         assert client._do_push.call_count == 1
         mock_run.assert_not_called()

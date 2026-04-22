@@ -9245,14 +9245,15 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     # rejections internally (fetch+rebase+retry), so a
                     # single call is sufficient — no outer retry needed.
                     try:
-                        push_succeeded = spawner.gateway.push_worktree_branch(
+                        push_result = spawner.gateway.push_worktree_branch(
                             pipeline_id=pipeline_id,
                             repo_path=str(worktree_repo_path),
                             branch=push_branch,
                             mode=gateway_mode,
                         )
+                        push_succeeded = bool(push_result)
                         if not push_succeeded:
-                            push_err_msg = "push_worktree_branch returned False"
+                            push_err_msg = push_result.describe()
                     except Exception as push_err:
                         push_succeeded = False
                         push_err_msg = str(push_err)
