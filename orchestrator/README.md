@@ -432,6 +432,7 @@ See the [Pipeline Health Monitoring Guide](../docs/guides/pipeline-health-monito
 | `EGG_PRIVATE_MODE` | Private network mode | None |
 | `HOST_HOME` | Host machine home directory (for worktree path translation) | None |
 | `ORCHESTRATOR_PORT` | API port | `9849` |
+| `EGG_GATEWAY_READY_TIMEOUT_SECONDS` | Max wait for the gateway to become healthy at `POST /api/v1/pipelines`. Set to `0` to disable the gate. See #1851. | `60` |
 
 ### Constants
 

@@ -573,3 +573,154 @@ class TestBabysitCreationDuplicate:
         body = response.get_json()
         assert body["success"] is False
         assert "already exists" in body["message"].lower()
+
+
+class TestGatewayReadinessGate:
+    """``create_pipeline`` waits for gateway readiness before any gateway-
+
+    dependent work.  See #1851 — without this gate, fresh deploys hit a
+    window where the orchestrator is up but the gateway HTTP listener
+    isn't, and the first submission cascades into per-agent ConnectionRefused
+    errors that operators have to reverse-engineer.
+    """
+
+    def test_unready_gateway_returns_503_with_named_reason(self, client, monkeypatch):
+        """If ``wait_for_healthy`` times out, return a clear 503 — not a 200
+        followed by a downstream cascade of per-agent spawn failures.
+        """
+        # Cap the wait so the test stays fast even if patching regresses.
+        monkeypatch.setenv("EGG_GATEWAY_READY_TIMEOUT_SECONDS", "1")
+
+        with (
+            patch("routes.pipelines.get_state_store") as mock_store_factory,
+            patch("routes.pipelines.get_repo_path") as mock_repo_path,
+            patch("routes.pipelines.get_gateway_client") as mock_gw,
+        ):
+            mock_repo_path.return_value = "/tmp/repo"
+            mock_gw.return_value.wait_for_healthy.return_value = False
+            mock_gw.return_value.check_health.return_value = MagicMock(
+                status="unreachable", error="Connection refused"
+            )
+
+            response = client.post(
+                "/api/v1/pipelines",
+                json={
+                    "issue_number": 123,
+                    "repo": "owner/repo",
+                    "branch": "egg/issue-123",
+                },
+            )
+
+        assert response.status_code == 503, response.get_json()
+        body = response.get_json()
+        assert body["success"] is False
+        assert "gateway not ready" in body["message"].lower()
+        details = body.get("details", {})
+        assert details.get("reason") == "gateway_not_ready"
+        assert details.get("gateway_status") == "unreachable"
+        assert details.get("gateway_error") == "Connection refused"
+        assert details.get("timeout_seconds") == 1
+        # RFC 7231 §6.6.4: Retry-After guides client retry behaviour.
+        assert response.headers.get("Retry-After") == "1"
+        # Pipeline must not be created when the gateway is unreachable.
+        mock_store_factory.assert_not_called()
+
+    def test_ready_gateway_proceeds_to_pipeline_creation(self, client, monkeypatch):
+        """When ``wait_for_healthy`` returns True the route falls through
+        to the existing branch-existence check + creation flow.
+        """
+        monkeypatch.setenv("EGG_GATEWAY_READY_TIMEOUT_SECONDS", "5")
+
+        with (
+            patch("routes.pipelines.get_state_store") as mock_store_factory,
+            patch("routes.pipelines.get_repo_path") as mock_repo_path,
+            patch("routes.pipelines.get_gateway_client") as mock_gw,
+        ):
+            mock_repo_path.return_value = "/tmp/repo"
+            mock_gw.return_value.wait_for_healthy.return_value = True
+            mock_gw.return_value.ls_remote_branch.return_value = False
+            mock_store = MagicMock()
+            fake = MagicMock()
+            fake.id = "issue-123"
+            fake.model_dump.return_value = {"id": "issue-123", "has_contract": True}
+            mock_store.create_pipeline.return_value = fake
+            mock_store_factory.return_value = mock_store
+
+            response = client.post(
+                "/api/v1/pipelines",
+                json={
+                    "issue_number": 123,
+                    "repo": "owner/repo",
+                    "branch": "egg/issue-123",
+                },
+            )
+
+        assert response.status_code in (200, 201), response.get_json()
+        # check_health should NOT be called when wait_for_healthy succeeds —
+        # we only probe again to surface the last-known status on failure.
+        mock_gw.return_value.check_health.assert_not_called()
+
+    def test_zero_timeout_disables_gate(self, client, monkeypatch):
+        """``EGG_GATEWAY_READY_TIMEOUT_SECONDS=0`` skips the gate entirely
+        (escape hatch for environments where the gateway is started out of
+        band, e.g. integration test harnesses that wire it up themselves).
+        """
+        monkeypatch.setenv("EGG_GATEWAY_READY_TIMEOUT_SECONDS", "0")
+
+        with (
+            patch("routes.pipelines.get_state_store") as mock_store_factory,
+            patch("routes.pipelines.get_repo_path") as mock_repo_path,
+            patch("routes.pipelines.get_gateway_client") as mock_gw,
+        ):
+            mock_repo_path.return_value = "/tmp/repo"
+            mock_gw.return_value.ls_remote_branch.return_value = False
+            mock_store = MagicMock()
+            fake = MagicMock()
+            fake.id = "issue-123"
+            fake.model_dump.return_value = {"id": "issue-123", "has_contract": True}
+            mock_store.create_pipeline.return_value = fake
+            mock_store_factory.return_value = mock_store
+
+            response = client.post(
+                "/api/v1/pipelines",
+                json={
+                    "issue_number": 123,
+                    "repo": "owner/repo",
+                    "branch": "egg/issue-123",
+                },
+            )
+
+        assert response.status_code in (200, 201), response.get_json()
+        mock_gw.return_value.wait_for_healthy.assert_not_called()
+
+    def test_negative_timeout_clamped_to_zero(self, client, monkeypatch):
+        """Negative ``EGG_GATEWAY_READY_TIMEOUT_SECONDS`` is clamped to 0
+        (i.e. gate disabled), not silently treated as a truthy value.
+        """
+        monkeypatch.setenv("EGG_GATEWAY_READY_TIMEOUT_SECONDS", "-5")
+
+        with (
+            patch("routes.pipelines.get_state_store") as mock_store_factory,
+            patch("routes.pipelines.get_repo_path") as mock_repo_path,
+            patch("routes.pipelines.get_gateway_client") as mock_gw,
+        ):
+            mock_repo_path.return_value = "/tmp/repo"
+            mock_gw.return_value.ls_remote_branch.return_value = False
+            mock_store = MagicMock()
+            fake = MagicMock()
+            fake.id = "issue-123"
+            fake.model_dump.return_value = {"id": "issue-123", "has_contract": True}
+            mock_store.create_pipeline.return_value = fake
+            mock_store_factory.return_value = mock_store
+
+            response = client.post(
+                "/api/v1/pipelines",
+                json={
+                    "issue_number": 123,
+                    "repo": "owner/repo",
+                    "branch": "egg/issue-123",
+                },
+            )
+
+        assert response.status_code in (200, 201), response.get_json()
+        mock_gw.return_value.wait_for_healthy.assert_not_called()
