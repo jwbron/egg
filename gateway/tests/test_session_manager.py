@@ -1904,3 +1904,127 @@ class TestResolveStableRepoPath:
         # Should not raise, returns original path
         result = _resolve_stable_repo_path(str(path))
         assert result == str(path)
+
+
+class TestPruneIdleSessions:
+    """Tests for prune_idle_sessions (last_seen-based eviction — #1884)."""
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        return SessionManager(persistence_file=tmp_path / "sessions.json")
+
+    def test_prunes_sessions_with_stale_last_seen(self, manager):
+        """Sessions whose last_seen is older than the cutoff are evicted,
+        even when expires_at is still far in the future."""
+        token_idle, idle = manager.register_session(
+            container_id="idle-container",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+        # Backdate last_seen past the idle cutoff but leave expires_at fresh so
+        # we know idle-based pruning — not TTL-based pruning — is doing the work.
+        idle.last_seen = datetime.now(UTC) - timedelta(minutes=120)
+
+        token_fresh, fresh = manager.register_session(
+            container_id="fresh-container",
+            container_ip="172.18.0.6",
+            mode="private",
+        )
+
+        pruned = manager.prune_idle_sessions(idle_timeout_minutes=60)
+        assert pruned == 1
+        assert manager.validate_session(token_fresh).valid is True
+        assert manager.validate_session(token_idle).valid is False
+
+    def test_respects_idle_timeout_threshold(self, manager):
+        """A session with last_seen just inside the threshold is kept."""
+        token, session = manager.register_session(
+            container_id="borderline",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+        session.last_seen = datetime.now(UTC) - timedelta(minutes=29)
+        pruned = manager.prune_idle_sessions(idle_timeout_minutes=30)
+        assert pruned == 0
+        assert manager.validate_session(token).valid is True
+
+    def test_idle_prune_clears_token_cache(self, manager):
+        """Pruned sessions are removed from the raw-token lookup cache."""
+        token, session = manager.register_session(
+            container_id="idle-container",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+        session.last_seen = datetime.now(UTC) - timedelta(hours=2)
+        manager.prune_idle_sessions(idle_timeout_minutes=60)
+        assert token not in manager._token_to_hash
+
+    def test_idle_prune_persists_to_disk(self, tmp_path):
+        """After pruning, reload from disk does not resurrect the idle sessions."""
+        persist_path = tmp_path / "sessions.json"
+        manager = SessionManager(persistence_file=persist_path)
+
+        _token, session = manager.register_session(
+            container_id="idle-container",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+        session.last_seen = datetime.now(UTC) - timedelta(hours=2)
+        # Re-save so the disk copy also reflects the backdated last_seen;
+        # otherwise the reload would contain a fresh copy from register_session.
+        manager._save_to_disk()
+
+        manager.prune_idle_sessions(idle_timeout_minutes=60)
+
+        manager2 = SessionManager(persistence_file=persist_path)
+        assert manager2.list_sessions() == []
+
+
+class TestBackgroundPruner:
+    """Tests for the SessionManager background pruner thread."""
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        m = SessionManager(persistence_file=tmp_path / "sessions.json")
+        yield m
+        m.stop_background_pruner()
+
+    def test_background_pruner_evicts_idle_sessions(self, manager):
+        """With a fast interval, the pruner eventually removes idle sessions."""
+        _token, session = manager.register_session(
+            container_id="idle-container",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+        session.last_seen = datetime.now(UTC) - timedelta(hours=2)
+
+        # Poll the internal pruner directly via a very short interval
+        # (expressed in fractional minutes — 1 / 60 min ≈ 1s).
+        manager.start_background_pruner(
+            interval_minutes=1 / 60,  # ~1 second
+            idle_timeout_minutes=60,
+        )
+
+        # Wait up to ~5s for the first prune cycle to run.
+        deadline = datetime.now(UTC) + timedelta(seconds=5)
+        while datetime.now(UTC) < deadline:
+            if not manager._sessions:
+                break
+            threading.Event().wait(0.2)
+
+        assert manager._sessions == {}, "background pruner did not evict idle session"
+
+    def test_start_is_idempotent(self, manager):
+        """Calling start twice does not spawn duplicate threads."""
+        manager.start_background_pruner(interval_minutes=1, idle_timeout_minutes=60)
+        first = manager._prune_thread
+        manager.start_background_pruner(interval_minutes=1, idle_timeout_minutes=60)
+        assert manager._prune_thread is first
+
+    def test_stop_joins_thread(self, manager):
+        """stop_background_pruner exits cleanly and clears thread state."""
+        manager.start_background_pruner(interval_minutes=1, idle_timeout_minutes=60)
+        assert manager._prune_thread is not None
+        manager.stop_background_pruner(timeout=2.0)
+        assert manager._prune_thread is None
+        assert manager._prune_shutdown is None
