@@ -141,3 +141,35 @@ class TestListWorktreesForPipeline:
         )
         result = mgr.list_worktrees_for_pipeline("issue-123")
         assert result == []
+
+    def test_does_not_match_longer_pipeline_id_sharing_prefix(self, manager, temp_dirs):
+        """Pipeline IDs that extend another with '-qualifier' must not collide.
+
+        Regression test for #1865: cleanup of `issue-1758` previously
+        matched `issue-1758-worktree-fix-tester` via naive prefix scan,
+        wiping an active pipeline's worktrees mid-phase.
+        """
+        worktree_base, _ = temp_dirs
+        (worktree_base / "issue-1758" / "egg").mkdir(parents=True)
+        (worktree_base / "issue-1758-tester" / "egg").mkdir(parents=True)
+        (worktree_base / "issue-1758-worktree-fix" / "egg").mkdir(parents=True)
+        (worktree_base / "issue-1758-worktree-fix-tester" / "egg").mkdir(parents=True)
+        (worktree_base / "issue-1758-worktree-fix-reviewer_code" / "egg").mkdir(parents=True)
+
+        result = manager.list_worktrees_for_pipeline("issue-1758")
+        container_ids = {wt.container_id for wt in result}
+        assert container_ids == {"issue-1758", "issue-1758-tester"}
+
+    def test_matches_extended_pipeline_without_cross_contamination(self, manager, temp_dirs):
+        """The longer pipeline's own worktrees should still be returned."""
+        worktree_base, _ = temp_dirs
+        (worktree_base / "issue-1758-tester" / "egg").mkdir(parents=True)
+        (worktree_base / "issue-1758-worktree-fix" / "egg").mkdir(parents=True)
+        (worktree_base / "issue-1758-worktree-fix-tester" / "egg").mkdir(parents=True)
+
+        result = manager.list_worktrees_for_pipeline("issue-1758-worktree-fix")
+        container_ids = {wt.container_id for wt in result}
+        assert container_ids == {
+            "issue-1758-worktree-fix",
+            "issue-1758-worktree-fix-tester",
+        }

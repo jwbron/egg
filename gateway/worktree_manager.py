@@ -1258,15 +1258,17 @@ class WorktreeManager:
         if not self.worktree_base.exists():
             return results
 
-        # Prefix match is safe because pipeline IDs are structured as
-        # "issue-{number}" and won't overlap (e.g. "issue-12" won't
-        # match "issue-123-*" because we require a "-" after the ID).
-        prefix = f"{pipeline_id}-"
+        # Only match the pipeline-level worktree or "{pipeline_id}-{role}"
+        # where {role} is shaped like an AgentRole value (lower-case
+        # letters and underscores, no hyphens).  A naive `startswith`
+        # match collides when one pipeline ID is a prefix of another —
+        # e.g. `issue-1758` would spuriously match
+        # `issue-1758-worktree-fix-tester` (#1865).
+        per_agent = re.compile(rf"{re.escape(pipeline_id)}-[a-z_]+\Z")
         for entry in self.worktree_base.iterdir():
             if not entry.is_dir():
                 continue
-            # Match the pipeline-level worktree and any per-agent worktrees
-            if entry.name != pipeline_id and not entry.name.startswith(prefix):
+            if entry.name != pipeline_id and not per_agent.fullmatch(entry.name):
                 continue
             for repo_dir in entry.iterdir():
                 if not repo_dir.is_dir():

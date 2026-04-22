@@ -294,6 +294,51 @@ class TestPerAgentWorktreeErrorLogging:
 class TestWorktreeCleanup:
     """Pipeline cleanup must delete per-agent worktrees."""
 
+    def test_cleanup_filesystem_scan_does_not_cross_pipeline_boundary(
+        self, spawner, mock_docker_client, mock_gateway_client, tmp_path, monkeypatch
+    ):
+        """Regression for #1865: cleanup of a short-named pipeline must
+        not wipe an active pipeline whose ID extends it with a hyphenated
+        qualifier.
+
+        `issue-1758` previously matched `issue-1758-worktree-fix-tester`
+        via `startswith(f"{pipeline_id}-")`, deleting another pipeline's
+        worktree mid-phase.  After the fix only "{pipeline_id}-{role}"
+        with a role-shaped suffix (no hyphens) should match.
+        """
+        import kubernetes_spawner
+
+        worktree_base = tmp_path / "worktrees"
+        worktree_base.mkdir()
+        # Short pipeline's own worktrees — should be cleaned.
+        (worktree_base / "issue-1758" / "egg").mkdir(parents=True)
+        (worktree_base / "issue-1758-tester" / "egg").mkdir(parents=True)
+        # Longer pipeline that shares a prefix — must NOT be cleaned.
+        (worktree_base / "issue-1758-worktree-fix" / "egg").mkdir(parents=True)
+        (worktree_base / "issue-1758-worktree-fix-tester" / "egg").mkdir(parents=True)
+        (worktree_base / "issue-1758-worktree-fix-reviewer_code" / "egg").mkdir(parents=True)
+
+        monkeypatch.setattr(kubernetes_spawner, "WORKTREE_BASE_DIR", worktree_base)
+
+        # No jobs — the filesystem scan is the only path under test.
+        mock_docker_client.list_containers.return_value = []
+
+        spawner.cleanup_pipeline("issue-1758")
+
+        delete_calls = mock_gateway_client.delete_worktrees.call_args_list
+        deleted_ids = {
+            c.kwargs.get("container_id", c.args[0] if c.args else None) for c in delete_calls
+        }
+        deleted_ids.discard(None)
+
+        # pipeline-level worktree and role-suffixed per-agent worktree.
+        assert "issue-1758" in deleted_ids
+        assert "issue-1758-tester" in deleted_ids
+        # Must not touch the longer pipeline's worktrees.
+        assert "issue-1758-worktree-fix" not in deleted_ids
+        assert "issue-1758-worktree-fix-tester" not in deleted_ids
+        assert "issue-1758-worktree-fix-reviewer_code" not in deleted_ids
+
     def test_cleanup_deletes_per_agent_worktrees(
         self, spawner, mock_docker_client, mock_gateway_client
     ):
