@@ -80,9 +80,18 @@ def _resolve_runtime() -> tuple[str, str]:
     failures downstream. Auto-detection closes that gap without changing
     behavior when ``EGG_RUNTIME`` is set explicitly.
     """
+    _KNOWN_RUNTIMES = frozenset({"kubernetes", "docker"})
+
     explicit = os.environ.get("EGG_RUNTIME")
     if explicit:
-        return explicit.lower(), "env"
+        normalized = explicit.lower()
+        if normalized not in _KNOWN_RUNTIMES:
+            logger.warning(
+                "unrecognized EGG_RUNTIME value",
+                value=explicit,
+                known=sorted(_KNOWN_RUNTIMES),
+            )
+        return normalized, "env"
     if os.environ.get("KUBERNETES_SERVICE_HOST"):
         return "kubernetes", "auto:k8s-service-host"
     return "docker", "auto:default"
@@ -395,13 +404,16 @@ def _build_deployment_context_payload() -> dict[str, Any]:
 
     images = _collect_egg_image_tags(k8s, namespace)
 
+    cluster_info: dict[str, Any] = {"server_version": server_version, "nodes": nodes_count}
+    if not nodes_ok:
+        # Distinguish "zero nodes" (not a real scenario) from "probe
+        # failed, count unknown" — same pattern as images_unavailable.
+        cluster_info["nodes_unavailable"] = True
+
     payload.update(
         {
             "kubeconfig_context": os.environ.get("KUBE_CONTEXT"),
-            "cluster_info": {
-                "server_version": server_version,
-                "nodes": nodes_count,
-            },
+            "cluster_info": cluster_info,
             "cni": cni,
             "network_policy_enforcement": bool(enforcement),
             "images": images,
