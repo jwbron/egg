@@ -16,6 +16,7 @@ def run_build_review_prompt(
     github_repository: str,
     last_review_commit: str = "",
     runner_temp: str = "",
+    base_ref: str | None = None,
 ) -> tuple[int, str, str]:
     """Run build-review-prompt.sh with the given environment variables.
 
@@ -28,6 +29,9 @@ def run_build_review_prompt(
 
     if last_review_commit:
         env["LAST_REVIEW_COMMIT"] = last_review_commit
+
+    if base_ref is not None:
+        env["BASE_REF"] = base_ref
 
     # Use a temp directory if not specified
     if not runner_temp:
@@ -154,8 +158,14 @@ class TestReReview:
             assert "This is a **re-review**" in prompt
             assert "abc123def456" in prompt
 
-    def test_includes_git_diff_instruction(self) -> None:
-        """Re-review instructs to use git diff from last commit."""
+    def test_includes_git_log_delta_instruction(self) -> None:
+        """Re-review instructs to use git log --not origin/<base> for the delta.
+
+        Regression test for issue #1758: the old two-dot `git diff
+        <sha>..HEAD` form attributed base-branch merges to the PR. The
+        fix uses `git log <sha>..HEAD --not origin/<base> -p`, which
+        excludes commits reachable from the base branch.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             returncode, stdout, stderr = run_build_review_prompt(
                 pr_number="123",
@@ -166,7 +176,12 @@ class TestReReview:
 
             assert returncode == 0
             prompt = read_prompt_file(tmpdir, "123")
-            assert "git diff abc123def456..HEAD" in prompt
+            # New form: git log ... --not origin/<base> -p
+            assert "git log abc123def456..HEAD --not origin/main -p" in prompt
+            # Must fetch the base branch before relying on origin/<base>
+            assert "git fetch origin main" in prompt
+            # Old buggy two-dot diff form must be gone from the delta instruction
+            assert "git diff abc123def456..HEAD" not in prompt
 
     def test_includes_check_previous_feedback(self) -> None:
         """Re-review instructs to check previous review comments."""
@@ -257,6 +272,50 @@ class TestReReview:
             assert returncode == 0
             prompt = read_prompt_file(tmpdir, "123")
             assert "direct" in prompt.lower() or "Direct" in prompt
+
+
+class TestBaseRefCustom:
+    """Tests for BASE_REF env var on re-review (#1758).
+
+    A non-`main` base branch must propagate through the prompt so the
+    reviewer fetches and excludes the correct branch. Cycle-1 / initial
+    review tests live in TestInitialReview and are unaffected.
+    """
+
+    def test_custom_base_ref_develop(self) -> None:
+        """BASE_REF=develop produces 'git fetch origin develop' and 'origin/develop' in the delta."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            returncode, stdout, stderr = run_build_review_prompt(
+                pr_number="123",
+                github_repository="owner/repo",
+                last_review_commit="abc123def456",
+                runner_temp=tmpdir,
+                base_ref="develop",
+            )
+
+            assert returncode == 0, f"Script failed: {stderr}"
+            prompt = read_prompt_file(tmpdir, "123")
+            assert "git fetch origin develop" in prompt
+            assert "git log abc123def456..HEAD --not origin/develop -p" in prompt
+            # Should not mention the default 'main' when BASE_REF=develop
+            assert "git fetch origin main" not in prompt
+            assert "origin/main" not in prompt
+
+    def test_empty_base_ref_falls_back_to_main(self) -> None:
+        """Empty BASE_REF falls back to 'main' (${BASE_REF:-main})."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            returncode, _stdout, stderr = run_build_review_prompt(
+                pr_number="123",
+                github_repository="owner/repo",
+                last_review_commit="abc123def456",
+                runner_temp=tmpdir,
+                base_ref="",  # Empty string triggers the :-main default
+            )
+
+            assert returncode == 0, f"Script failed: {stderr}"
+            prompt = read_prompt_file(tmpdir, "123")
+            assert "git fetch origin main" in prompt
+            assert "git log abc123def456..HEAD --not origin/main -p" in prompt
 
 
 class TestRequiredVariables:

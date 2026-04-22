@@ -2324,7 +2324,11 @@ class TestBuildReviewPrompt:
         assert "CAN update the contract" not in prompt
 
     def test_delta_review_directive(self):
-        """Re-review with last_reviewed_commit includes delta review section."""
+        """Re-review with last_reviewed_commit includes delta review section.
+
+        The delta command excludes commits reachable from the base branch so
+        base-branch merges are not attributed to the PR author (issue #1758).
+        """
         prompt = _build_review_prompt(
             phase="implement",
             pipeline_id="test-pipe",
@@ -2335,7 +2339,12 @@ class TestBuildReviewPrompt:
             last_reviewed_commit="abc123",
         )
         assert "## Delta Review" in prompt
-        assert "git diff abc123..HEAD" in prompt
+        # New delta form: git log <sha>..HEAD --not origin/<base> -p
+        assert "git log abc123..HEAD --not origin/main -p" in prompt
+        # Must tell the reviewer to fetch the base branch first
+        assert "git fetch origin main" in prompt
+        # Old two-dot diff form must be gone from the delta path
+        assert "git diff abc123..HEAD" not in prompt
         assert "cycle 2" in prompt
 
     def test_first_review_no_delta_section(self):
@@ -3111,7 +3120,13 @@ class TestReviewPromptBaseBranch:
         assert "HEAD~10" not in prompt
 
     def test_delta_review_still_uses_commit_sha(self):
-        """Delta review (cycle > 1 with last_reviewed_commit) still uses commit SHA."""
+        """Delta review (cycle > 1 with last_reviewed_commit) still uses commit SHA.
+
+        Regression test for issue #1758: the delta command must now use
+        `git log <sha>..HEAD --not origin/<base> -p` (not the old two-dot
+        `git diff <sha>..HEAD`), and must include a `git fetch origin <base>`
+        nudge so the reviewer refreshes the base ref before filtering.
+        """
         prompt = _build_review_prompt(
             phase="implement",
             pipeline_id="test-pipe",
@@ -3122,9 +3137,40 @@ class TestReviewPromptBaseBranch:
             last_reviewed_commit="abc123def",
             base_branch="main",
         )
-        assert "git diff abc123def..HEAD" in prompt
-        # base_branch diff should NOT be the primary diff command for delta reviews
+        # New delta form — commit SHA is still the start point
+        assert "git log abc123def..HEAD --not origin/main -p" in prompt
+        # Delta Review directive references the new command + fetch nudge
+        assert "git fetch origin main" in prompt
+        # Old two-dot diff form must be gone
+        assert "git diff abc123def..HEAD" not in prompt
+        # Three-dot base_branch diff is the cycle-1 form, not delta
         assert "origin/main...HEAD" not in prompt
+
+    def test_delta_review_custom_base_branch(self):
+        """Delta review with a non-default base branch uses it in the command.
+
+        Regression test for issue #1758: the base_branch kwarg must plumb
+        through to both the procedural step and the Delta Review directive.
+        """
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+            review_cycle=2,
+            last_reviewed_commit="deadbeef",
+            base_branch="develop",
+        )
+        # New delta form uses origin/develop, not origin/main
+        assert "git log deadbeef..HEAD --not origin/develop -p" in prompt
+        # Fetch nudge targets the real base branch
+        assert "git fetch origin develop" in prompt
+        # The default 'main' must not leak through when base_branch=develop
+        assert "origin/main" not in prompt
+        assert "git fetch origin main" not in prompt
+        # And the buggy two-dot form must be gone
+        assert "git diff deadbeef..HEAD" not in prompt
 
     def test_contract_reviewer_uses_base_branch(self):
         """Contract reviewer also uses base_branch for diff command."""

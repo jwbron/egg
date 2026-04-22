@@ -16,6 +16,7 @@ def run_build_contract_prompt(
     github_repository: str,
     last_review_commit: str = "",
     runner_temp: str = "",
+    base_ref: str | None = None,
 ) -> tuple[int, str, str]:
     """Run build-contract-verification-prompt.sh with the given environment variables.
 
@@ -28,6 +29,9 @@ def run_build_contract_prompt(
 
     if last_review_commit:
         env["LAST_REVIEW_COMMIT"] = last_review_commit
+
+    if base_ref is not None:
+        env["BASE_REF"] = base_ref
 
     if not runner_temp:
         runner_temp = tempfile.gettempdir()
@@ -133,8 +137,11 @@ class TestReVerification:
             assert "Re-verify" in prompt or "re-review" in prompt.lower()
             assert "abc123def456" in prompt
 
-    def test_includes_git_diff_instruction(self) -> None:
-        """Re-verification instructs to use git diff from last commit."""
+    def test_includes_git_log_delta_instruction(self) -> None:
+        """Re-verification instructs to use git log --not origin/<base> for the delta.
+
+        Regression test for issue #1758.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             returncode, _, _ = run_build_contract_prompt(
                 pr_number="50",
@@ -145,7 +152,47 @@ class TestReVerification:
 
             assert returncode == 0
             prompt = read_prompt_file(tmpdir, "50")
-            assert "git diff abc123def456..HEAD" in prompt
+            assert "git log abc123def456..HEAD --not origin/main -p" in prompt
+            assert "git fetch origin main" in prompt
+            assert "git diff abc123def456..HEAD" not in prompt
+
+
+class TestBaseRefCustom:
+    """Tests for BASE_REF env var on re-verification (#1758)."""
+
+    def test_custom_base_ref_develop(self) -> None:
+        """BASE_REF=develop propagates into fetch and --not origin/develop."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            returncode, _stdout, stderr = run_build_contract_prompt(
+                pr_number="50",
+                github_repository="owner/repo",
+                last_review_commit="abc123def456",
+                runner_temp=tmpdir,
+                base_ref="develop",
+            )
+
+            assert returncode == 0, f"Script failed: {stderr}"
+            prompt = read_prompt_file(tmpdir, "50")
+            assert "git fetch origin develop" in prompt
+            assert "git log abc123def456..HEAD --not origin/develop -p" in prompt
+            assert "git fetch origin main" not in prompt
+            assert "origin/main" not in prompt
+
+    def test_empty_base_ref_falls_back_to_main(self) -> None:
+        """Empty BASE_REF falls back to 'main' (${BASE_REF:-main})."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            returncode, _stdout, stderr = run_build_contract_prompt(
+                pr_number="50",
+                github_repository="owner/repo",
+                last_review_commit="abc123def456",
+                runner_temp=tmpdir,
+                base_ref="",
+            )
+
+            assert returncode == 0, f"Script failed: {stderr}"
+            prompt = read_prompt_file(tmpdir, "50")
+            assert "git fetch origin main" in prompt
+            assert "git log abc123def456..HEAD --not origin/main -p" in prompt
 
 
 class TestRequiredVariables:
