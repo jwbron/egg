@@ -158,17 +158,21 @@ def _is_transient_spawn_failure(e: BaseException) -> bool:
 
 
 def _classify_spawn_error(e: BaseException | None) -> str | None:
-    """Short tag used in structured spawn-attempt logs."""
+    """Short tag used in structured spawn-attempt logs.
+
+    Priority order matches ``_is_transient_spawn_failure`` so the logged
+    category always agrees with the actual retry decision.
+    """
     if e is None:
         return None
+    message = str(e).lower()
+    if any(frag in message for frag in _PERMANENT_MESSAGE_FRAGMENTS):
+        return "permanent_message"
     status_code = getattr(e, "status_code", None)
     if status_code in _PERMANENT_STATUS_CODES:
         return f"permanent_{status_code}"
     if status_code in _TRANSIENT_STATUS_CODES:
         return f"transient_{status_code}"
-    message = str(e).lower()
-    if any(frag in message for frag in _PERMANENT_MESSAGE_FRAGMENTS):
-        return "permanent_message"
     if status_code is None:
         return type(e).__name__
     return f"unknown_{status_code}"
@@ -847,6 +851,8 @@ class KubernetesSpawner:
         extra_mounts: list["MountSpec"] | None = None,
         max_restarts: int = 2,
         reason: str = "",
+        spawn_max_retries: int = DEFAULT_SPAWN_MAX_RETRIES,
+        spawn_retry_initial_backoff_seconds: float = (DEFAULT_SPAWN_RETRY_INITIAL_BACKOFF_SECONDS),
     ) -> SpawnedContainer:
         """Restart an agent Job: delete and respawn preserving worktree.
 
@@ -866,6 +872,10 @@ class KubernetesSpawner:
             extra_mounts: Additional mount specs.
             max_restarts: Maximum restart attempts per agent per phase.
             reason: Human-readable reason for the restart.
+            spawn_max_retries: Retry attempts for transient gateway failures
+                during worktree creation (forwarded to ``spawn_agent_job``).
+            spawn_retry_initial_backoff_seconds: Initial backoff for spawn
+                retries (forwarded to ``spawn_agent_job``).
 
         Returns:
             SpawnedContainer with new Job info.
@@ -942,6 +952,8 @@ class KubernetesSpawner:
                 base_branch=base_branch,
                 extra_mounts=extra_mounts,
                 preserve_worktree_on_failure=True,
+                spawn_max_retries=spawn_max_retries,
+                spawn_retry_initial_backoff_seconds=spawn_retry_initial_backoff_seconds,
             )
 
             logger.info(

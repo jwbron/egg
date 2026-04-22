@@ -598,6 +598,18 @@ class TestIsTransientSpawnFailure:
 
         assert _is_transient_spawn_failure(OSError("socket timeout")) is True
 
+    def test_classify_agrees_with_is_transient_on_permanent_message_with_transient_status(
+        self, spawner
+    ):
+        """_classify_spawn_error must return 'permanent_message' when the message
+        contains a permanent fragment, even if the status code is transient (e.g. 500).
+        This ensures the logged error_category agrees with the retry decision."""
+        from kubernetes_spawner import _classify_spawn_error, _is_transient_spawn_failure
+
+        err = _FakeGatewayError("Repository not found", status_code=500)
+        assert _is_transient_spawn_failure(err) is False
+        assert _classify_spawn_error(err) == "permanent_message"
+
 
 # ---------------------------------------------------------------------------
 # TestStopAgentJob
