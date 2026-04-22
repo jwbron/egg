@@ -556,7 +556,7 @@ At each phase boundary, the orchestrator writes a **lossless** chronological log
 3. If matching messages exist, they are formatted as chronological markdown entries with full metadata (see file format below) and written to `.egg-state/brc-history/{identifier}-{phase}.md`. A companion `.json` file containing `msg.to_dict()` for every filtered message is also written for machine consumers
 4. If no matching messages exist for that phase, no files are created (graceful no-op)
 
-> **Note:** The separate `BRC_SUMMARY_TYPES` set (only the six `CONSENSUS_*` types) is used by the PR-body summary for counting purposes, so non-consensus message types contribute to the history file but do not inflate PR-body tallies.
+> **Note:** `BRC_HISTORY_TYPES` is a single unified frozenset containing all twelve message types listed above. There is no separate subset — the PR body links to the committed transcripts rather than computing inline tallies (see [#1828](https://github.com/jwbron/egg/issues/1828)).
 
 **PR-phase safety net:** The per-phase write (step 1) is best-effort — if the commit or push fails, BRC history files may not make it to the branch. As a safety net, the PR phase re-writes BRC history for **all completed phases** before creating the PR. Since `_write_brc_history()` is idempotent (it overwrites existing files), the re-write is safe regardless of whether the per-phase write succeeded. This ensures BRC history files are always present in the PR diff.
 
@@ -614,22 +614,13 @@ metadata:
 
 **Design rationale:** BRC messages live in the in-memory/Redis `MessageStore` and are cleared at phase transitions. Without persistence, this valuable communication context is lost. Previously, some agents would commit review files to `.egg-state/agent-outputs/`, but this was non-deterministic — it depended on whether the LLM agent happened to `git add` those files. Writing BRC history from the orchestrator at phase boundaries makes persistence deterministic. The lossless projection (full metadata in YAML blocks, all BRC-adjacent message types, and a JSON companion) ensures that no structured data is dropped during persistence — even if agents send rich metadata (artifact references, commit SHAs, ack versions), it all reaches the PR branch.
 
-### BRC Consensus Summary in PR Body
+### BRC History Link in PR Body
 
-When the orchestrator auto-creates the PR (during the PR phase), it includes a **## BRC Consensus Summary** section in the PR body if BRC messages exist. This gives human reviewers full visibility into how agents communicated and reached consensus — not just tallies, but the actual proposal and rationale content.
+When the orchestrator auto-creates the PR (during the PR phase), it includes a one-line pointer to the committed BRC history transcripts rather than inlining the full consensus discourse. The link line is built by `_build_brc_history_link_line`, which scans `.egg-state/brc-history/` for `{identifier}-<phase>.md` files and renders a sentence like:
 
-The summary is grouped by phase (using each message's `phase` field) and includes:
-- Agent roles involved in each phase
-- Counts of proposals, ACKs, NACKs, and confirmations (counted from `BRC_SUMMARY_TYPES` — `CONSENSUS_*` messages only)
-- Whether consensus was reached for that phase
-- **The final round's full proposal body** (`CONSENSUS_PROPOSE`) inline — the "final round" is determined by the highest `metadata.version` number among proposals
-- **All final-round ACK and NACK rationales** inline (so reviewers see what was approved or challenged; for NACKs, the summary also checks `metadata.payload.reason` as a fallback when the body is empty)
-- **Older/earlier-round messages** (from prior NACK cycles) wrapped in `<details><summary>Earlier rounds</summary>…</details>` to keep the PR body scannable
-- **Artifact links** pointing to the committed `.egg-state/brc-history/{identifier}-{phase}.md` and `.json` files for the full record
+> _Per-phase BRC transcripts: [`refine`](./.egg-state/brc-history/42-refine.md), [`plan`](./.egg-state/brc-history/42-plan.md), [`implement`](./.egg-state/brc-history/42-implement.md)._
 
-When an individual message body exceeds 2,000 characters, the tail is replaced with `… _(full content in brc-history/*.md)_` — messages are never dropped entirely.
-
-Messages without a `phase` value are grouped under `"unknown"` — if this appears in a PR summary, it indicates a bug where consensus messages were created without their phase field set. The section is capped at ~40,000 characters (raised from the previous ~2,000 limit to accommodate inline content) and is omitted entirely when no BRC messages exist. It appears before the `Authored-by: egg` footer.
+Phases are ordered by canonical execution order (`refine` → `plan` → `implement` → `pr`); any non-canonical names sort alphabetically after. The line is omitted entirely when no transcript files exist on disk or the identifier is `None`. See [#1828](https://github.com/jwbron/egg/issues/1828) for why the old inline BRC Consensus Summary was removed.
 
 ### Consensus Check
 
@@ -710,7 +701,7 @@ Even when all containers exit cleanly, consensus may not have been reached — a
 
 To close this gap, the no-failures branch now performs the same **final consensus recheck**. If `is_complete` is False, it logs a warning ("All containers exited cleanly but consensus not reached") and returns `exit_code=1` — preventing phase advancement. This ensures BRC consensus is a hard gate for phase completion regardless of exit codes.
 
-This scenario was observed in issue #1581, where a PR was opened with code changes despite the BRC Consensus Summary showing "Consensus not reached" for all phases.
+This scenario was observed in issue #1581, where a PR was opened with code changes despite consensus never being reached for any phase.
 
 The additional API call in step 5 is negligible — it only runs on the terminal path where all containers have already exited.
 
