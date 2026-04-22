@@ -125,10 +125,10 @@ Query parameters:
 | Parameter | Description |
 |-----------|-------------|
 | `role` | Return messages targeted to this role or broadcast to `"all"` |
-| `since_id` | Return only messages after this message ID (for incremental polling) |
+| `since_id` | Return only messages after this message ID (for incremental polling). If the cursor is not found (e.g., after a phase-boundary clear or post-compaction anchor recovery), the store falls back to returning all messages rather than an empty list. |
 | `limit` | Maximum messages to return (default: 100) |
 
-Messages are returned oldest-first. The `since_id` filter excludes the reference message itself — only messages that follow it are returned.
+Messages are returned oldest-first. The `since_id` filter excludes the reference message itself — only messages that follow it are returned. If the cursor ID is no longer present in the store (stale cursor), the endpoint degrades gracefully to a full-history replay instead of silently returning empty — preventing polling agents from stalling after a phase transition or anchor recovery.
 
 ### Message Bus Status
 
