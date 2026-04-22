@@ -14,7 +14,9 @@ from gateway_client import (
     GatewayClient,
     GatewayError,
     GatewayHealth,
+    PushResult,
     WorktreeResult,
+    _classify_push_stderr,
     get_gateway_client,
     validate_security_boundary,
 )
@@ -807,6 +809,65 @@ class TestWorktreeManagement:
                 pass
 
 
+class TestClassifyPushStderr:
+    """Tests for the git-push stderr classifier used by PushResult."""
+
+    @pytest.mark.parametrize(
+        "stderr,expected",
+        [
+            (
+                "! [rejected] egg/issue-42 -> egg/issue-42 (non-fast-forward)",
+                "non_fast_forward",
+            ),
+            (
+                "! [rejected] egg/issue-42 -> egg/issue-42 (fetch first)",
+                "non_fast_forward",
+            ),
+            (
+                "remote: HTTP 403: Authentication failed\nfatal: unable to access",
+                "auth_failed",
+            ),
+            (
+                "fatal: could not resolve host: github.com",
+                "network",
+            ),
+            (
+                "fatal: unable to access 'https://github.com/x.git/': "
+                "Could not read from remote repository",
+                "network",
+            ),
+            ("error: some other weird push error", "push_rejected"),
+        ],
+    )
+    def test_classifies_common_stderr_shapes(self, stderr, expected):
+        assert _classify_push_stderr(stderr) == expected
+
+
+class TestPushResult:
+    """Tests for the PushResult dataclass."""
+
+    def test_bool_is_ok(self):
+        assert bool(PushResult(ok=True)) is True
+        assert bool(PushResult(ok=False, category="non_fast_forward", detail="x")) is False
+
+    def test_describe_on_success(self):
+        assert PushResult(ok=True).describe() == "ok"
+
+    def test_describe_on_failure_with_detail(self):
+        r = PushResult(ok=False, category="auth_failed", detail="403 Forbidden")
+        assert r.describe() == "auth_failed: 403 Forbidden"
+
+    def test_describe_on_failure_without_detail(self):
+        r = PushResult(ok=False, category="auth_failed")
+        assert r.describe() == "auth_failed"
+
+    def test_describe_on_unclassified_failure(self):
+        # A failure that somehow lost its category still produces something
+        # readable rather than the literal string ``"None"``.
+        r = PushResult(ok=False)
+        assert r.describe() == "unknown"
+
+
 class TestPushWorktreeBranch:
     """Tests for push_worktree_branch method."""
 
@@ -817,10 +878,19 @@ class TestPushWorktreeBranch:
             repo_path="/home/egg/.egg-worktrees/issue-42/repo",
             branch="egg/issue-42",
         )
-        assert result is True
+        assert result.ok is True
+        assert bool(result) is True
+        assert result.category is None
+        assert result.detail is None
 
     def test_push_worktree_branch_gateway_unreachable(self):
-        """Test push fails gracefully when gateway is unreachable."""
+        """Test push fails gracefully when gateway is unreachable.
+
+        Uses ``ref=`` so reconcile is skipped — otherwise the fetch step
+        would supersede the initial ``gateway_unreachable`` classification
+        with ``reconcile_fetch_failed``. The ref=None path exercises both
+        classifications (see test_reconcile_and_push_pr_branch.py).
+        """
         client = GatewayClient(
             gateway_host="localhost",
             gateway_port=19999,
@@ -832,8 +902,15 @@ class TestPushWorktreeBranch:
             pipeline_id="issue-42",
             repo_path="/some/path",
             branch="egg/issue-42",
+            ref="egg/issue-42",
         )
-        assert result is False
+        assert result.ok is False
+        assert bool(result) is False
+        # No stderr available from a transport-level failure — category
+        # must still carry actionable detail so callers can distinguish
+        # "gateway down" from "push rejected".
+        assert result.category == "gateway_unreachable"
+        assert result.detail
 
     def test_push_worktree_branch_cleans_up_session(self, gateway_client, mock_gateway_server):
         """Test that temp session is cleaned up after push."""
@@ -883,6 +960,55 @@ class TestPushWorktreeBranch:
             assert len(push_calls) == 1
             push_data = push_calls[0].kwargs["data"]
             assert push_data["refspec"] == "HEAD:refs/heads/egg/issue-42"
+
+    def test_push_worktree_branch_classifies_gateway_push_rejection(self, gateway_client):
+        """When the gateway push endpoint returns 500 with git stderr in
+        details, the returned PushResult should classify the failure and
+        carry the stderr text — no more opaque ``returned False``.
+
+        Regression for #1852.
+        """
+        # Fake a gateway 500 response whose body mirrors the real gateway
+        # push endpoint's error shape: message + details.stderr.
+        rejected_stderr = (
+            "To github.com:owner/repo.git\n"
+            " ! [rejected]        egg/issue-42 -> egg/issue-42 (fetch first)\n"
+            "error: failed to push some refs"
+        )
+
+        def _raise_rejection(endpoint, **kwargs):
+            if endpoint == "/api/v1/git/push":
+                raise GatewayError(
+                    f"Push failed: {rejected_stderr}",
+                    status_code=500,
+                    details={"stdout": "", "stderr": rejected_stderr},
+                )
+            # Let session register/delete succeed via mock_gateway_server
+            # below is bypassed — we stub _make_request wholesale.
+            return {
+                "success": True,
+                "data": {
+                    "session_token": "test-token-12345",
+                    "created_at": "2026-01-01T00:00:00",
+                    "expires_at": "2026-01-02T00:00:00",
+                },
+            }
+
+        with patch.object(gateway_client, "_make_request", side_effect=_raise_rejection):
+            result = gateway_client.push_worktree_branch(
+                pipeline_id="issue-42",
+                repo_path="/home/egg/.egg-worktrees/issue-42/repo",
+                branch="egg/issue-42",
+                ref="egg/issue-42",  # Skip reconcile so we see the raw classification.
+            )
+
+        assert result.ok is False
+        assert result.category == "non_fast_forward"
+        assert "fetch first" in (result.detail or "")
+        # describe() is what callers surface to operators.
+        described = result.describe()
+        assert "non_fast_forward" in described
+        assert "fetch first" in described
 
     def test_push_worktree_branch_ref_param_uses_branch_refspec(
         self, gateway_client, mock_gateway_server

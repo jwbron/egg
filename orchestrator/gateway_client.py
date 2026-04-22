@@ -80,6 +80,68 @@ class GatewayHealth:
     error: str | None = None
 
 
+@dataclass(frozen=True)
+class PushResult:
+    """Outcome of a ``push_worktree_branch`` call.
+
+    On failure (``ok`` is ``False``), ``category`` names a coarse failure
+    class so callers can build actionable operator messages; ``detail``
+    carries the raw git stderr or inner error text.
+
+    Supports ``bool()`` so ``if push_result:`` callers that only care
+    about success keep working — only callers that need to surface the
+    reason need to inspect ``category`` / ``detail``.
+    """
+
+    ok: bool
+    category: str | None = None
+    detail: str | None = None
+
+    def __bool__(self) -> bool:
+        return self.ok
+
+    def describe(self) -> str:
+        """Return a human-readable ``category: detail`` string for logs/errors."""
+        if self.ok:
+            return "ok"
+        cat = self.category or "unknown"
+        if self.detail:
+            return f"{cat}: {self.detail}"
+        return cat
+
+
+def _classify_push_stderr(stderr: str) -> str:
+    """Classify a git push stderr into a coarse failure category.
+
+    Matches are substring-based on the lowercased stderr so the same
+    classifier handles pack-protocol errors, HTTP transport errors, and
+    plain push-rejected output. Unknown shapes fall back to
+    ``"push_rejected"``.
+    """
+    s = stderr.lower()
+    if "non-fast-forward" in s or "(fetch first)" in s:
+        return "non_fast_forward"
+    if "authentication failed" in s or "invalid credentials" in s or "403" in s:
+        return "auth_failed"
+    if "permission denied" in s or ("permission to" in s and "denied" in s):
+        return "permission_denied"
+    if "does not exist" in s and "repository" in s:
+        return "repo_missing"
+    if (
+        "could not resolve host" in s
+        or "could not read from remote" in s
+        or "connection timed out" in s
+        or "connection refused" in s
+        or "network is unreachable" in s
+    ):
+        return "network"
+    if "shallow" in s:
+        return "shallow_clone"
+    if "already exists" in s:
+        return "branch_exists"
+    return "push_rejected"
+
+
 class GatewayClient:
     """Client for interacting with the gateway sidecar.
 
@@ -631,7 +693,7 @@ class GatewayClient:
         branch: str,
         mode: Literal["public", "private"] = "public",
         ref: str | None = None,
-    ) -> bool:
+    ) -> PushResult:
         """Push a branch to remote using a temporary session.
 
         Called after contract initialization, phase completion, or pipeline
@@ -659,18 +721,24 @@ class GatewayClient:
             ref: Local ref to push (omit to push worktree HEAD)
 
         Returns:
-            True if push (possibly after reconcile) succeeded, False otherwise
+            ``PushResult`` whose ``ok`` flag is ``True`` on success and
+            ``False`` otherwise. On failure, ``category`` and ``detail``
+            describe why so callers can surface an operator-actionable
+            error (e.g. ``"non_fast_forward"``, ``"auth_failed"``,
+            ``"reconcile_fetch_failed"``). ``PushResult`` is truthy on
+            success so existing ``if push_ok:`` callers work unchanged.
         """
         refspec = f"refs/heads/{ref}:refs/heads/{branch}" if ref else f"HEAD:refs/heads/{branch}"
 
-        if self._do_push(
+        first = self._do_push(
             pipeline_id=pipeline_id,
             repo_path=repo_path,
             branch=branch,
             mode=mode,
             refspec=refspec,
-        ):
-            return True
+        )
+        if first.ok:
+            return first
 
         # Reconcile is only meaningful for worktree-HEAD pushes: the rebase
         # mutates the checkout at repo_path, which we only want to do when
@@ -681,8 +749,10 @@ class GatewayClient:
                 pipeline_id=pipeline_id,
                 branch=branch,
                 ref=ref,
+                category=first.category,
+                detail=first.detail,
             )
-            return False
+            return first
 
         return self._reconcile_and_retry_push(
             pipeline_id=pipeline_id,
@@ -690,6 +760,7 @@ class GatewayClient:
             branch=branch,
             mode=mode,
             refspec=refspec,
+            initial_failure=first,
         )
 
     def _do_push(
@@ -699,8 +770,15 @@ class GatewayClient:
         branch: str,
         mode: Literal["public", "private"],
         refspec: str,
-    ) -> bool:
-        """Send a single push request to the gateway. Returns True on success."""
+    ) -> PushResult:
+        """Send a single push request to the gateway.
+
+        Returns ``PushResult(ok=True)`` on success. On failure the gateway
+        HTTP 500 body carries git stderr in ``details["stderr"]``; we
+        classify it into a category and propagate both category and raw
+        stderr so callers can build an operator-actionable error without
+        re-reading source to understand what "False" meant.
+        """
         temp_container_id = f"{pipeline_id}-failsafe-push"
         session_token: str | None = None
         try:
@@ -734,11 +812,30 @@ class GatewayClient:
                 branch=branch,
                 refspec=refspec,
             )
-            return True
+            return PushResult(ok=True)
+        except GatewayError as e:
+            # Gateway returns 500 + details={"stderr": ...} on push failure
+            # (see gateway/gateway.py push handler). Connection/transport
+            # errors surface as GatewayError without details.
+            stderr = ""
+            if isinstance(e.details, dict):
+                stderr = (e.details.get("stderr") or "").strip()
+            if stderr:
+                category = _classify_push_stderr(stderr)
+                detail = stderr
+            else:
+                category = "gateway_unreachable" if e.status_code is None else "gateway_error"
+                detail = e.message or str(e)
+            logger.info(
+                "Push attempt failed — caller may retry via reconcile",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                refspec=refspec,
+                category=category,
+                error=detail,
+            )
+            return PushResult(ok=False, category=category, detail=detail)
         except Exception as e:
-            # First-attempt failure is logged at INFO: either reconcile will
-            # recover (handled by the caller) or the reconcile/unrecoverable
-            # path will log at WARNING/ERROR with detail.
             logger.info(
                 "Push attempt failed — caller may retry via reconcile",
                 pipeline_id=pipeline_id,
@@ -746,7 +843,7 @@ class GatewayClient:
                 refspec=refspec,
                 error=str(e),
             )
-            return False
+            return PushResult(ok=False, category="unknown", detail=str(e))
         finally:
             if session_token:
                 try:
@@ -761,24 +858,31 @@ class GatewayClient:
         branch: str,
         mode: Literal["public", "private"],
         refspec: str,
-    ) -> bool:
+        initial_failure: PushResult,
+    ) -> PushResult:
         """Fetch, rebase the worktree onto ``origin/{branch}``, and retry push.
 
         Runs directly against the worktree filesystem (shared hostPath) so
         the orchestrator can mutate the checkout without round-tripping
         through the gateway. Conflicts confined to
         ``.egg-state/agent-outputs/`` are resolved in favour of the remote;
-        conflicts elsewhere abort the rebase and return False.
+        conflicts elsewhere abort the rebase and return a failure result.
 
-        Returns True if the retry push succeeded, False otherwise. On
-        False, callers should treat the work as stranded locally and
-        surface an operator-actionable error (the housekeeping commits
-        are lost, but the agents' prior pushes are still on origin).
+        Returns ``PushResult(ok=True)`` when the retry push succeeds. On
+        failure, the returned ``PushResult`` carries a category that
+        identifies which stage of reconcile failed
+        (``reconcile_fetch_failed``, ``reconcile_rebase_failed``,
+        ``reconcile_retry_failed:<inner>``) so callers can distinguish
+        "original push was rejected and reconcile never ran" from
+        "reconcile ran but retry push still failed" without reading the
+        gateway source.
         """
         logger.warning(
             "Push rejected — attempting fetch+rebase+retry to reconcile divergence",
             pipeline_id=pipeline_id,
             branch=branch,
+            initial_category=initial_failure.category,
+            initial_detail=initial_failure.detail,
         )
 
         git_base = [
@@ -800,48 +904,66 @@ class GatewayClient:
                 timeout=60,
             )
         except subprocess.CalledProcessError as fetch_err:
+            stderr = (fetch_err.stderr or "").strip()
             logger.error(
                 "Push reconcile: fetch failed — work remains on local worktree only",
                 pipeline_id=pipeline_id,
                 branch=branch,
-                stderr=fetch_err.stderr,
+                stderr=stderr,
             )
-            return False
+            return PushResult(
+                ok=False,
+                category="reconcile_fetch_failed",
+                detail=stderr or f"git fetch exited {fetch_err.returncode}",
+            )
         except subprocess.TimeoutExpired:
             logger.error(
                 "Push reconcile: fetch timed out — work remains on local worktree only",
                 pipeline_id=pipeline_id,
                 branch=branch,
             )
-            return False
+            return PushResult(
+                ok=False,
+                category="reconcile_fetch_timeout",
+                detail=f"git fetch origin {branch} timed out after 60s",
+            )
 
-        if not _rebase_with_agent_output_autoresolve(
+        rebase_result = _rebase_with_agent_output_autoresolve(
             git_base=git_base,
             pipeline_id=pipeline_id,
             branch=branch,
-        ):
-            return False
+        )
+        if not rebase_result.ok:
+            return rebase_result
 
         logger.info(
             "Push reconcile: rebase succeeded — retrying push",
             pipeline_id=pipeline_id,
             branch=branch,
         )
-        if self._do_push(
+        retry = self._do_push(
             pipeline_id=pipeline_id,
             repo_path=worktree_path,
             branch=branch,
             mode=mode,
             refspec=refspec,
-        ):
-            return True
+        )
+        if retry.ok:
+            return retry
 
         logger.error(
             "Push reconcile: retry push still failed — work remains on local worktree only",
             pipeline_id=pipeline_id,
             branch=branch,
+            retry_category=retry.category,
+            retry_detail=retry.detail,
         )
-        return False
+        inner = retry.category or "unknown"
+        return PushResult(
+            ok=False,
+            category=f"reconcile_retry_failed:{inner}",
+            detail=retry.detail,
+        )
 
     def delete_remote_branch(
         self,
@@ -1223,21 +1345,23 @@ def _rebase_with_agent_output_autoresolve(
     pipeline_id: str,
     branch: str,
     max_autoresolve_iterations: int = 3,
-) -> bool:
+) -> PushResult:
     """Rebase the worktree onto ``origin/{branch}`` with agent-outputs auto-resolve.
 
     Conflicts confined to ``.egg-state/agent-outputs/`` are resolved in
     favour of the remote (``git checkout --theirs``) and the rebase is
     continued; conflicts anywhere else cause the rebase to be aborted
-    and ``False`` returned.
+    and a failure ``PushResult`` returned.
 
     The auto-resolve loop is bounded by ``max_autoresolve_iterations``
     to defend against pathological cases where every replayed commit
     re-introduces an agent-outputs conflict — three iterations is
     plenty for a handful of housekeeping commits.
 
-    Returns ``True`` when the rebase finished cleanly (possibly after
-    auto-resolve), ``False`` on any other failure.
+    Returns ``PushResult(ok=True)`` when the rebase finished cleanly
+    (possibly after auto-resolve). On failure, the ``category`` names
+    which part of the rebase went wrong (``reconcile_rebase_timeout``,
+    ``reconcile_rebase_conflict``, ``reconcile_rebase_failed``).
     """
     try:
         rebase_result = subprocess.run(
@@ -1254,10 +1378,14 @@ def _rebase_with_agent_output_autoresolve(
             branch=branch,
         )
         _abort_rebase_best_effort(git_base, pipeline_id, branch)
-        return False
+        return PushResult(
+            ok=False,
+            category="reconcile_rebase_timeout",
+            detail=f"git rebase origin/{branch} timed out after 120s",
+        )
 
     if rebase_result.returncode == 0:
-        return True
+        return PushResult(ok=True)
 
     for iteration in range(max_autoresolve_iterations):
         unmerged_paths = _list_unmerged_paths(git_base)
@@ -1270,7 +1398,12 @@ def _rebase_with_agent_output_autoresolve(
                 stderr=rebase_result.stderr,
             )
             _abort_rebase_best_effort(git_base, pipeline_id, branch)
-            return False
+            return PushResult(
+                ok=False,
+                category="reconcile_rebase_failed",
+                detail=(rebase_result.stderr or rebase_result.stdout or "").strip()
+                or "rebase stopped with no unmerged paths",
+            )
 
         non_ephemeral = [p for p in unmerged_paths if not p.startswith(".egg-state/agent-outputs/")]
         if non_ephemeral:
@@ -1283,7 +1416,11 @@ def _rebase_with_agent_output_autoresolve(
                 stderr=rebase_result.stderr,
             )
             _abort_rebase_best_effort(git_base, pipeline_id, branch)
-            return False
+            return PushResult(
+                ok=False,
+                category="reconcile_rebase_conflict",
+                detail=f"conflicts outside .egg-state/agent-outputs/: {', '.join(non_ephemeral)}",
+            )
 
         logger.warning(
             "Push reconcile: auto-resolving agent-outputs conflicts (taking remote)",
@@ -1322,7 +1459,11 @@ def _rebase_with_agent_output_autoresolve(
                 error=str(resolve_err),
             )
             _abort_rebase_best_effort(git_base, pipeline_id, branch)
-            return False
+            return PushResult(
+                ok=False,
+                category="reconcile_rebase_failed",
+                detail=f"agent-outputs auto-resolve failed: {resolve_err}",
+            )
 
         # If resolution cleared the index, ``--continue`` errors with
         # "No changes - did you forget to use 'git add'?". Use --skip.
@@ -1353,10 +1494,14 @@ def _rebase_with_agent_output_autoresolve(
                 branch=branch,
             )
             _abort_rebase_best_effort(git_base, pipeline_id, branch)
-            return False
+            return PushResult(
+                ok=False,
+                category="reconcile_rebase_timeout",
+                detail=f"git rebase {continue_cmd} timed out after 120s",
+            )
 
         if rebase_result.returncode == 0:
-            return True
+            return PushResult(ok=True)
 
     logger.error(
         "Push reconcile: rebase auto-resolve exceeded iteration limit — aborting",
@@ -1365,7 +1510,11 @@ def _rebase_with_agent_output_autoresolve(
         max_iterations=max_autoresolve_iterations,
     )
     _abort_rebase_best_effort(git_base, pipeline_id, branch)
-    return False
+    return PushResult(
+        ok=False,
+        category="reconcile_rebase_failed",
+        detail=(f"agent-outputs auto-resolve exceeded {max_autoresolve_iterations} iterations"),
+    )
 
 
 def _list_unmerged_paths(git_base: list[str]) -> list[str]:

@@ -667,12 +667,14 @@ class StateStore:
             from gateway_client import get_gateway_client
 
             client = get_gateway_client()
-            return client.push_worktree_branch(
-                pipeline_id="state-sync",
-                repo_path=str(self.repo_path),
-                branch=STATE_BRANCH,
-                mode=self._detect_gateway_mode(),
-                ref=STATE_BRANCH,
+            return bool(
+                client.push_worktree_branch(
+                    pipeline_id="state-sync",
+                    repo_path=str(self.repo_path),
+                    branch=STATE_BRANCH,
+                    mode=self._detect_gateway_mode(),
+                    ref=STATE_BRANCH,
+                )
             )
         except Exception as e:
             logger.warning(

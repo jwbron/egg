@@ -26,7 +26,7 @@ sys.modules.setdefault("docker", MagicMock())
 sys.modules.setdefault("docker.errors", MagicMock())
 sys.modules.setdefault("docker.types", MagicMock())
 
-from gateway_client import GatewayError
+from gateway_client import GatewayError, PushResult
 from models import Pipeline, PipelinePhase, PipelineStatus
 
 
@@ -780,6 +780,98 @@ class TestContractPushHardGate:
 
         # No agents should be spawned after push failure
         mock_spawn_wait.assert_not_called()
+
+    @patch("routes.pipelines._auto_create_pr", return_value="https://github.com/owner/repo/pull/1")
+    @patch("routes.pipelines._commit_statefiles_to_worktree")
+    @patch(_COMMON_PATCHES[7])
+    @patch(_COMMON_PATCHES[6])
+    @patch(_COMMON_PATCHES[5])
+    @patch(_COMMON_PATCHES[4])
+    @patch(_COMMON_PATCHES[3])
+    @patch(_COMMON_PATCHES[2])
+    @patch(_COMMON_PATCHES[1])
+    @patch(_COMMON_PATCHES[0])
+    def test_contract_push_failure_propagates_category_and_detail(
+        self,
+        mock_emit,
+        mock_get_spawner,
+        mock_get_store,
+        mock_spawn_wait,
+        mock_state_lock,
+        mock_build_prompt,
+        mock_read_draft,
+        mock_report,
+        mock_commit_statefiles,
+        mock_auto_create_pr,
+    ):
+        """Regression for #1852: pipeline.error must name the failure
+        category and carry the underlying detail, not the opaque string
+        ``"push_worktree_branch returned False"``."""
+        from routes.pipelines import WORKTREE_BASE_DIR, _run_pipeline
+
+        pipeline = Pipeline(
+            id="issue-42",
+            issue_number=42,
+            repo="owner/repo",
+            branch="egg/issue-42",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+        )
+        pipeline.contract_synced = False
+
+        execution = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+        execution.status = PipelineStatus.RUNNING
+        execution.started_at = datetime.now(UTC)
+
+        mock_store, mock_gateway = _setup_mocks(
+            mock_report,
+            mock_read_draft,
+            mock_build_prompt,
+            mock_state_lock,
+            mock_spawn_wait,
+            mock_get_store,
+            mock_get_spawner,
+            mock_emit,
+            pipeline,
+        )
+
+        mock_gateway.push_worktree_branch.return_value = PushResult(
+            ok=False,
+            category="non_fast_forward",
+            detail="! [rejected] egg/issue-42 -> egg/issue-42 (fetch first)",
+        )
+
+        worktree_dir = WORKTREE_BASE_DIR / "issue-42" / "repo"
+        mock_gateway.create_worktrees.return_value = MagicMock(
+            success=True,
+            worktrees={"repo": str(worktree_dir)},
+            errors=[],
+        )
+
+        with (
+            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
+            patch("pathlib.Path.exists", return_value=True),
+            patch("egg_contracts.loader.create_contract"),
+        ):
+            _run_pipeline("issue-42", Path("/repo"))
+
+        failed_pipelines = [
+            call.args[0]
+            for call in mock_store.save_pipeline.call_args_list
+            if call.args and getattr(call.args[0], "status", None) == PipelineStatus.FAILED
+        ]
+        assert failed_pipelines, "pipeline should have been saved in FAILED state"
+        error = failed_pipelines[-1].error or ""
+        assert "non_fast_forward" in error, (
+            f"expected error to contain failure category; got: {error!r}"
+        )
+        assert "fetch first" in error, (
+            f"expected error to contain git stderr detail; got: {error!r}"
+        )
+        assert "push_worktree_branch returned False" not in error, (
+            f"opaque legacy error string should not leak to operators; got: {error!r}"
+        )
 
     @patch("routes.pipelines._auto_create_pr", return_value="https://github.com/owner/repo/pull/1")
     @patch("routes.pipelines._commit_statefiles_to_worktree")
