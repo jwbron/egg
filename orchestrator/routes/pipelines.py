@@ -1490,6 +1490,8 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             branch=pipeline.branch,
             base_branch=pipeline.branch,
             reason=reason,
+            spawn_max_retries=pipeline.config.spawn_max_retries,
+            spawn_retry_initial_backoff_seconds=pipeline.config.spawn_retry_initial_backoff_seconds,
         )
     except (ContainerSpawnError, KubernetesSpawnError) as e:
         # Revert early status update — the agent is not actually running.
@@ -7260,6 +7262,8 @@ def _run_concurrent_phase(
         sandbox_env=sandbox_env,
         certs_volume=certs_volume,
         base_branch=pipeline.base_branch,
+        spawn_max_retries=pipeline.config.spawn_max_retries,
+        spawn_retry_initial_backoff_seconds=pipeline.config.spawn_retry_initial_backoff_seconds,
     )
 
     max_concurrent = getattr(pipeline.config, "max_concurrent_agents", 6)
@@ -8041,6 +8045,8 @@ def _spawn_and_wait(
     certs_volume: str | None = None,
     branch: str | None = None,
     extra_mounts: "list[MountSpec] | None" = None,
+    spawn_max_retries: int | None = None,
+    spawn_retry_initial_backoff_seconds: float | None = None,
 ) -> tuple[int, str]:
     """Spawn a container, wait for it to exit, clean up, return (exit_code, logs).
 
@@ -8057,11 +8063,19 @@ def _spawn_and_wait(
             with .git shadowed by /dev/null bind mounts to force gateway git operations.
         certs_volume: Docker named volume for gateway CA certs (mounted at
             /shared/certs read-only). If None, certs are not mounted.
+        spawn_max_retries: Override for spawn retry attempts (None uses spawner default).
+        spawn_retry_initial_backoff_seconds: Override for initial backoff (None uses spawner default).
 
     Returns:
         (exit_code, container_logs) — logs are captured before cleanup on failure.
     """
     from models import ContainerInfo, ContainerStatus, PipelinePhase
+
+    retry_kwargs: dict = {}
+    if spawn_max_retries is not None:
+        retry_kwargs["spawn_max_retries"] = spawn_max_retries
+    if spawn_retry_initial_backoff_seconds is not None:
+        retry_kwargs["spawn_retry_initial_backoff_seconds"] = spawn_retry_initial_backoff_seconds
 
     spawned = spawner.spawn_agent_job(
         pipeline_id=pipeline_id,
@@ -8076,6 +8090,7 @@ def _spawn_and_wait(
         repo_volumes=repo_volumes,
         branch=branch,
         extra_mounts=extra_mounts,
+        **retry_kwargs,
     )
 
     # Record container and agent in phase execution state

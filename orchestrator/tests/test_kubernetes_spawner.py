@@ -395,6 +395,223 @@ class TestSpawnAgentJob:
 
 
 # ---------------------------------------------------------------------------
+# TestSpawnRetry (#1839)
+# ---------------------------------------------------------------------------
+
+
+class TestSpawnRetry:
+    """Test bounded retry behavior for transient worktree-creation failures."""
+
+    def test_transient_then_success(self, spawner, mock_gateway):
+        """A transient failure on attempt 1 is retried; attempt 2 succeeds."""
+        mock_gateway.create_worktrees.side_effect = [
+            _FakeGatewayError("Timed out fetching refs", status_code=504),
+            _FakeWorktreeResult(),
+        ]
+        with patch("kubernetes_spawner.time.sleep") as mock_sleep:
+            result = spawner.spawn_agent_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                repos=["owner/repo"],
+                spawn_max_retries=2,
+                spawn_retry_initial_backoff_seconds=0.01,
+            )
+        assert result.pipeline_id == "pipe-1"
+        assert mock_gateway.create_worktrees.call_count == 2
+        mock_sleep.assert_called_once()
+
+    def test_all_attempts_fail_raises_with_attempt_count(self, spawner, mock_gateway):
+        """When all attempts fail, the final error names the attempt count."""
+        from kubernetes_spawner import KubernetesSpawnError
+
+        mock_gateway.create_worktrees.side_effect = _FakeGatewayError(
+            "Timed out fetching refs", status_code=504
+        )
+        with (
+            patch("kubernetes_spawner.time.sleep"),
+            pytest.raises(KubernetesSpawnError, match=r"after 3 attempt\(s\)"),
+        ):
+            spawner.spawn_agent_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                repos=["owner/repo"],
+                spawn_max_retries=2,
+                spawn_retry_initial_backoff_seconds=0.01,
+            )
+        assert mock_gateway.create_worktrees.call_count == 3
+
+    def test_permanent_failure_fails_fast(self, spawner, mock_gateway):
+        """Permanent failures (404/422) are not retried."""
+        from kubernetes_spawner import KubernetesSpawnError
+
+        mock_gateway.create_worktrees.side_effect = _FakeGatewayError(
+            "Repository not found", status_code=404
+        )
+        with (
+            patch("kubernetes_spawner.time.sleep") as mock_sleep,
+            pytest.raises(KubernetesSpawnError, match=r"after 1 attempt\(s\)"),
+        ):
+            spawner.spawn_agent_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                repos=["owner/repo"],
+                spawn_max_retries=2,
+                spawn_retry_initial_backoff_seconds=0.01,
+            )
+        assert mock_gateway.create_worktrees.call_count == 1
+        mock_sleep.assert_not_called()
+
+    def test_max_retries_zero_disables_retry(self, spawner, mock_gateway):
+        """spawn_max_retries=0 gives the pre-#1839 single-attempt behavior."""
+        from kubernetes_spawner import KubernetesSpawnError
+
+        mock_gateway.create_worktrees.side_effect = _FakeGatewayError(
+            "Timed out fetching refs", status_code=504
+        )
+        with (
+            patch("kubernetes_spawner.time.sleep") as mock_sleep,
+            pytest.raises(KubernetesSpawnError, match=r"after 1 attempt\(s\)"),
+        ):
+            spawner.spawn_agent_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                repos=["owner/repo"],
+                spawn_max_retries=0,
+            )
+        assert mock_gateway.create_worktrees.call_count == 1
+        mock_sleep.assert_not_called()
+
+    def test_connection_failure_no_status_code_is_transient(self, spawner, mock_gateway):
+        """GatewayError with status_code=None classifies as transient."""
+        mock_gateway.create_worktrees.side_effect = [
+            _FakeGatewayError("Failed to connect to gateway", status_code=None),
+            _FakeWorktreeResult(),
+        ]
+        with patch("kubernetes_spawner.time.sleep"):
+            result = spawner.spawn_agent_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                repos=["owner/repo"],
+                spawn_max_retries=2,
+                spawn_retry_initial_backoff_seconds=0.01,
+            )
+        assert result.pipeline_id == "pipe-1"
+        assert mock_gateway.create_worktrees.call_count == 2
+
+    def test_empty_worktree_result_not_retried(self, spawner, mock_gateway):
+        """A successful-looking response with no worktrees is treated as permanent."""
+        from kubernetes_spawner import KubernetesSpawnError
+
+        mock_gateway.create_worktrees.return_value = _FakeWorktreeResult(
+            success=True, worktrees={}, errors=["no repos matched"]
+        )
+        with (
+            patch("kubernetes_spawner.time.sleep") as mock_sleep,
+            pytest.raises(KubernetesSpawnError, match="no worktrees"),
+        ):
+            spawner.spawn_agent_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                repos=["owner/repo"],
+                spawn_max_retries=2,
+                spawn_retry_initial_backoff_seconds=0.01,
+            )
+        assert mock_gateway.create_worktrees.call_count == 1
+        mock_sleep.assert_not_called()
+
+    def test_backoff_scales_between_attempts(self, spawner, mock_gateway):
+        """Backoff grows between retries rather than staying flat."""
+        mock_gateway.create_worktrees.side_effect = [
+            _FakeGatewayError("Timed out", status_code=504),
+            _FakeGatewayError("Timed out", status_code=504),
+            _FakeWorktreeResult(),
+        ]
+        with patch("kubernetes_spawner.time.sleep") as mock_sleep:
+            spawner.spawn_agent_job(
+                pipeline_id="pipe-1",
+                agent_role=AgentRole.CODER,
+                repos=["owner/repo"],
+                spawn_max_retries=2,
+                spawn_retry_initial_backoff_seconds=0.01,
+            )
+        delays = [call.args[0] for call in mock_sleep.call_args_list]
+        assert len(delays) == 2
+        assert delays[1] > delays[0]
+
+
+# ---------------------------------------------------------------------------
+# TestIsTransientSpawnFailure (#1839)
+# ---------------------------------------------------------------------------
+
+
+class TestIsTransientSpawnFailure:
+    """Test classification of spawn failures.
+
+    Uses the ``spawner`` fixture (even though not needed directly) so that
+    ``kubernetes_spawner.GatewayError`` is bound to ``_FakeGatewayError``
+    before the classifier runs.
+    """
+
+    def test_transient_status_codes(self, spawner):
+        from kubernetes_spawner import _is_transient_spawn_failure
+
+        for code in (408, 429, 500, 502, 503, 504):
+            err = _FakeGatewayError("x", status_code=code)
+            assert _is_transient_spawn_failure(err) is True, f"status {code}"
+
+    def test_permanent_status_codes(self, spawner):
+        from kubernetes_spawner import _is_transient_spawn_failure
+
+        for code in (400, 401, 403, 404, 422):
+            err = _FakeGatewayError("x", status_code=code)
+            assert _is_transient_spawn_failure(err) is False, f"status {code}"
+
+    def test_repository_not_found_is_permanent(self, spawner):
+        """'Repository not found' trumps status_code heuristics."""
+        from kubernetes_spawner import _is_transient_spawn_failure
+
+        err = _FakeGatewayError("Repository not found", status_code=500)
+        assert _is_transient_spawn_failure(err) is False
+
+    def test_no_status_code_transient_message(self, spawner):
+        from kubernetes_spawner import _is_transient_spawn_failure
+
+        err = _FakeGatewayError("Failed to connect", status_code=None)
+        assert _is_transient_spawn_failure(err) is True
+
+    def test_no_status_code_unknown_message_is_transient(self, spawner):
+        """Unknown error with no status code defaults to transient per #1839."""
+        from kubernetes_spawner import _is_transient_spawn_failure
+
+        err = _FakeGatewayError("mystery gateway error", status_code=None)
+        assert _is_transient_spawn_failure(err) is True
+
+    def test_unknown_http_status_is_permanent(self, spawner):
+        """An HTTP status we don't know is treated as permanent (fail fast)."""
+        from kubernetes_spawner import _is_transient_spawn_failure
+
+        err = _FakeGatewayError("weird", status_code=418)
+        assert _is_transient_spawn_failure(err) is False
+
+    def test_non_gateway_exception_is_transient(self, spawner):
+        from kubernetes_spawner import _is_transient_spawn_failure
+
+        assert _is_transient_spawn_failure(OSError("socket timeout")) is True
+
+    def test_classify_agrees_with_is_transient_on_permanent_message_with_transient_status(
+        self, spawner
+    ):
+        """_classify_spawn_error must return 'permanent_message' when the message
+        contains a permanent fragment, even if the status code is transient (e.g. 500).
+        This ensures the logged error_category agrees with the retry decision."""
+        from kubernetes_spawner import _classify_spawn_error, _is_transient_spawn_failure
+
+        err = _FakeGatewayError("Repository not found", status_code=500)
+        assert _is_transient_spawn_failure(err) is False
+        assert _classify_spawn_error(err) == "permanent_message"
+
+
+# ---------------------------------------------------------------------------
 # TestStopAgentJob
 # ---------------------------------------------------------------------------
 
