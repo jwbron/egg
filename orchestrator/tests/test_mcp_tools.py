@@ -2554,6 +2554,60 @@ class TestGetServiceLogsTool:
         assert "error" in result
         assert "get_service_logs failed" in result["error"]
 
+    def test_http_error_surfaces_orchestrator_message(self, handler):
+        """HTTPError body must be unwrapped so the real cause is visible.
+
+        Before #1870, the caller saw only ``HTTP Error 500: INTERNAL
+        SERVER ERROR`` because urllib's HTTPError string hides the
+        response body. The handler now reads the JSON body and pulls
+        out the orchestrator's ``message`` field.
+        """
+        import io
+
+        body = json.dumps(
+            {
+                "success": False,
+                "message": (
+                    "Failed to read deployment gateway in egg-system: (403) Reason: Forbidden"
+                ),
+            }
+        ).encode()
+        http_err = HTTPError(
+            url="http://localhost:9849/api/v1/deployment/logs",
+            code=500,
+            msg="INTERNAL SERVER ERROR",
+            hdrs=None,  # type: ignore[arg-type]
+            fp=io.BytesIO(body),
+        )
+
+        with patch.object(handler, "_make_request", side_effect=http_err):
+            result = handler.handle_tool_call("get_service_logs", {"service": "gateway"})
+
+        assert "error" in result
+        assert "HTTP 500" in result["error"]
+        assert "Forbidden" in result["error"]
+        assert "egg-system" in result["error"]
+
+    def test_http_error_without_json_body_falls_back_to_default(self, handler):
+        """Non-JSON or empty bodies fall back to the urllib default string."""
+        import io
+
+        http_err = HTTPError(
+            url="http://localhost:9849/api/v1/deployment/logs",
+            code=502,
+            msg="Bad Gateway",
+            hdrs=None,  # type: ignore[arg-type]
+            fp=io.BytesIO(b"<html>nginx</html>"),
+        )
+
+        with patch.object(handler, "_make_request", side_effect=http_err):
+            result = handler.handle_tool_call("get_service_logs", {"service": "gateway"})
+
+        assert "error" in result
+        # Must hit the fallback path ("get_service_logs failed: <str(exc)>"),
+        # NOT the structured path ("get_service_logs failed (HTTP N): <detail>").
+        assert result["error"] == "get_service_logs failed: HTTP Error 502: Bad Gateway"
+
 
 class TestPipelineToolsSchemasForDeployment:
     """Guard the input-schema shape of the five new tools."""

@@ -48,3 +48,44 @@ subjects:
   - kind: ServiceAccount
     name: egg-orchestrator
     namespace: egg-system
+---
+# egg-system: read-only access to the orchestrator's own Deployments and
+# Pod logs. The `get_service_logs` MCP tool (#1853) resolves the gateway
+# or orchestrator Deployment by name, lists its pods, and reads their
+# logs. Without this Role the tool returned HTTP 500 on every call
+# because the default SA had no egg-system RBAC (#1870).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: egg-service-log-reader
+  namespace: egg-system
+  labels:
+    app.kubernetes.io/name: orchestrator
+    app.kubernetes.io/part-of: egg
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: egg-service-log-reader
+  namespace: egg-system
+  labels:
+    app.kubernetes.io/name: orchestrator
+    app.kubernetes.io/part-of: egg
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: egg-service-log-reader
+subjects:
+  - kind: ServiceAccount
+    name: egg-orchestrator
+    namespace: egg-system

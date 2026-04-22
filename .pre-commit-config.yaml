@@ -12,6 +12,9 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
+        # K8s manifests concatenate multiple docs with `---`; without this
+        # flag the hook rejects e.g. k8s/base/rbac.yaml (pre-existing).
+        args: [--allow-multiple-documents]
       - id: check-added-large-files
 
   # shellcheck disabled - requires Docker or local installation
