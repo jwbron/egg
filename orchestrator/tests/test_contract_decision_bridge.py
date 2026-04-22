@@ -241,6 +241,85 @@ def test_bridge_skips_decisions_for_other_phases(tmp_path: Path) -> None:
     assert dq.queued == []
 
 
+def test_bridge_skips_auto_decisions(tmp_path: Path) -> None:
+    """AUTO decisions must not be promoted — only HITL ones."""
+    from routes.pipelines import _queue_and_await_contract_decisions
+
+    identifier = "issue-42"
+    _make_contract_file(
+        tmp_path,
+        identifier,
+        decisions=[
+            {
+                "id": "decision-auto",
+                "question": "Auto-resolved question",
+                "type": "auto",
+                "phase": "refine",
+                "options": [],
+                "resolved": False,
+                "resolution": None,
+                "resolved_by": None,
+                "resolved_at": None,
+                "debounce_until": None,
+            },
+        ],
+    )
+    dq = _FakeQueue(resolutions=[])
+
+    _queue_and_await_contract_decisions(
+        dq,
+        tmp_path,
+        "pipeline-id",
+        identifier,
+        PipelinePhase.REFINE,
+    )
+
+    # AUTO decisions must not be surfaced as human choice decisions.
+    assert dq.queued == []
+
+
+def test_bridge_marks_feedback_submitted_on_unparseable_resolution(tmp_path: Path) -> None:
+    """Feedback is marked submitted even when the resolution JSON doesn't parse."""
+    from routes.pipelines import _queue_and_await_contract_decisions
+
+    identifier = "issue-42"
+    _make_contract_file(
+        tmp_path,
+        identifier,
+        feedback={
+            "id": "feedback-1",
+            "phase": "refine",
+            "questions": [
+                {"id": "Q1", "question": "What volume?", "answer": None},
+            ],
+            "submitted": False,
+            "submitted_by": None,
+            "submitted_at": None,
+            "comment_id": None,
+            "debounce_until": None,
+        },
+    )
+    # Resolution is a plain string, not the expected {"answers": {...}} JSON.
+    dq = _FakeQueue(resolutions=["just a freeform string"])
+
+    _queue_and_await_contract_decisions(
+        dq,
+        tmp_path,
+        "pipeline-id",
+        identifier,
+        PipelinePhase.REFINE,
+    )
+
+    data = json.loads((tmp_path / ".egg-state/contracts/issue-42.json").read_text())
+    fb = data["feedback"]
+    # Feedback must be marked submitted even though answers didn't parse —
+    # the human responded and shouldn't be asked again.
+    assert fb["submitted"] is True
+    assert fb["submitted_by"] == "human"
+    # Individual question answers remain None since the format didn't match.
+    assert fb["questions"][0]["answer"] is None
+
+
 def test_bridge_is_noop_when_contract_missing(tmp_path: Path) -> None:
     from routes.pipelines import _queue_and_await_contract_decisions
 

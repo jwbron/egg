@@ -1263,6 +1263,11 @@ def _existing_confirmed_for_role(
 
     try:
         store = get_message_store()
+        # Fetch a generous window of recent messages.  get_messages returns
+        # the *newest* N, so an extremely old CONFIRMED in a >10k-message
+        # pipeline could be missed — but that's the safe failure direction
+        # (a duplicate write, not a lost write).  Don't lower this limit
+        # without understanding that tradeoff.
         messages = store.get_messages(pipeline_id, limit=10000)
     except Exception:
         return (False, False)
@@ -1275,6 +1280,10 @@ def _existing_confirmed_for_role(
         if str(getattr(m, "message_type", "")) != "CONSENSUS_CONFIRMED":
             continue
         msg_phase = getattr(m, "phase", None)
+        # A null msg_phase is treated as matching any phase.  In practice
+        # all CONSENSUS_CONFIRMED writes set a phase, but if one somehow
+        # doesn't, counting it as a match is the conservative choice
+        # (prevents a duplicate rather than allowing one).
         if phase is not None and msg_phase is not None and msg_phase != phase:
             continue
         metadata = getattr(m, "metadata", None) or {}

@@ -8792,7 +8792,9 @@ def _queue_and_await_contract_decisions(
     pending_decisions = [
         d
         for d in contract.decisions
-        if not d.resolved and (d.phase is None or getattr(d.phase, "value", d.phase) == phase_value)
+        if not d.resolved
+        and getattr(d.type, "value", d.type) == "hitl"
+        and (d.phase is None or getattr(d.phase, "value", d.phase) == phase_value)
     ]
     fb = contract.feedback
     pending_feedback = None
@@ -8891,23 +8893,25 @@ def _queue_and_await_contract_decisions(
             except (json.JSONDecodeError, TypeError):
                 pass
 
-            if answers:
-                fb_id = pending_feedback.id
+            fb_id = pending_feedback.id
 
-                def _apply_fb(
-                    latest: Any, _fb_id: str = fb_id, _answers: dict[str, str] = answers
-                ) -> bool:
-                    if latest.feedback is None or latest.feedback.id != _fb_id:
-                        return False
-                    for q in latest.feedback.questions:
-                        if q.id in _answers:
-                            q.answer = _answers[q.id]
-                    latest.feedback.submitted = True
-                    latest.feedback.submitted_by = "human"
-                    latest.feedback.submitted_at = datetime.now(UTC)
-                    return True
+            def _apply_fb(
+                latest: Any, _fb_id: str = fb_id, _answers: dict[str, str] = answers
+            ) -> bool:
+                if latest.feedback is None or latest.feedback.id != _fb_id:
+                    return False
+                for q in latest.feedback.questions:
+                    if q.id in _answers:
+                        q.answer = _answers[q.id]
+                # Always mark submitted after resolution — even if
+                # individual answers didn't parse, the human responded
+                # and shouldn't be asked again.
+                latest.feedback.submitted = True
+                latest.feedback.submitted_by = "human"
+                latest.feedback.submitted_at = datetime.now(UTC)
+                return True
 
-                _save_contract_update(_apply_fb)
+            _save_contract_update(_apply_fb)
 
 
 def _persist_phase_gate_resolution(
