@@ -929,7 +929,7 @@ class TestContractPushHardGate:
         )
 
         # Succeed (reconcile is internal to push_worktree_branch)
-        mock_gateway.push_worktree_branch.return_value = True
+        mock_gateway.push_worktree_branch.return_value = PushResult(ok=True)
         mock_spawn_wait.return_value = (0, "success")
 
         worktree_dir = WORKTREE_BASE_DIR / "issue-42" / "repo"
