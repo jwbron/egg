@@ -42,8 +42,7 @@ to open a small PR, or any subset of a phase's full roster.
 
 ### Interactive mode (to be removed)
 
-- `bin/egg` (43 lines, `/home/egg/.egg-worktrees/issue-1762-membump-refiner/egg/bin/egg`) — thin wrapper invoking
-  `egg_lib.cli.main()`.
+- `bin/egg` (43 lines) — thin wrapper invoking `egg_lib.cli.main()`.
 - `sandbox/egg_lib/cli.py::main` (lines 27–220) — argparse, flag handling,
   `--setup`/`--reset`/`--compose`, then falls through to
   `run_claude(repo_mode=...)` at line 215.
@@ -52,22 +51,30 @@ to open a small PR, or any subset of a phase's full roster.
   the same module but does NOT invoke `run_claude`; it builds a
   one-shot `claude --print` command and calls
   `exec_in_new_container()`.
-- `sandbox/egg_lib/runtime.py::run_claude` (lines 634–920+) — orchestrates
-  image build, `ensure_compose_services()` (line 686), container IP
+- `sandbox/egg_lib/runtime.py::run_claude` (lines 634–~1050, extends past
+  920 — function has structural branches for k8s-vs-docker, session-mode,
+  mount-setup that the planner will need to enumerate) — orchestrates
+  image build, `ensure_compose_services()` at line **686**, container IP
   allocation, session creation, mount config, finally `docker run` with
   TTY for interactive use.
+- `sandbox/egg_lib/runtime.py::exec_in_new_container` (starts at line 996)
+  also calls `ensure_compose_services()` at line **1060** — this is the
+  **second** compose call site, and decision-4 below asks whether to
+  remove compose calls from this path in the same PR.
 - `sandbox/egg_lib/compose.py` (932 lines) — `get_compose_file`,
   `get_env_file`, `_generate_env_file`, `ensure_compose_services`,
   `run_compose_mode`. Callers: `cli.py:132` (compose --down/--build) and
-  `runtime.py:47` (both `run_claude` and `exec_in_new_container`).
+  `runtime.py:47` (imports used by both `run_claude` at line 686 and
+  `exec_in_new_container` at line 1060).
 - `sandbox/entrypoint.py::run_interactive` (line 1909) — in-container
   launcher dispatched from `main()` at line 2143 when `sys.argv == 1`.
 - `bin/egg-deploy` (383 lines) — compose-based deploy script
   (`bin/egg-deploy up/down/status/logs/build/init`). Uses
-  `docker-compose.yml` at line 26. (NOTE: grep confirms the
-  `docker-compose.yml` file no longer exists in the tree — the k8s
-  migration has already removed it. `egg-deploy` is effectively dead for
-  non-init subcommands today.)
+  `docker-compose.yml` at line 26 (hardcoded path) and runs
+  `docker compose -f "$COMPOSE_FILE" up` at line 284. (NOTE: grep
+  confirms the `docker-compose.yml` file no longer exists in the tree —
+  the k8s migration removed it. `egg-deploy up/down/status/logs/build`
+  are therefore broken today; only `egg-deploy init` still works.)
 
 ### Pipeline modes today
 
@@ -119,11 +126,12 @@ Non-egg repos strip `reviewer_agent_design` at line 1084.
 
 ### Roster plumbing into executor
 
-`ConcurrentPhaseExecutor.__init__(roles=...)` in
-`orchestrator/concurrent_executor.py:102` already accepts an explicit
-role override. `get_agent_roles()` (line 126) returns the override if
-provided, else falls back to `get_roles_for_phase(...)`. Today the
-override is *not* used — `pipelines.py:7243` always calls
+`ConcurrentPhaseExecutor.__init__` in
+`orchestrator/concurrent_executor.py:102` accepts an explicit `roles`
+kwarg (line 108 inside the signature). `get_agent_roles()` (line 126)
+returns the override if provided, else falls back to
+`get_roles_for_phase(...)`. Today the override is *not* used —
+`pipelines.py:7243` always calls
 `_get_roles_for_phase(phase, has_contract=has_contract, repo=repo)` and
 passes the result as `roles=roles` at line 7322. The review graph is
 filtered to the active role set at lines 7263–7270.
@@ -297,12 +305,9 @@ phase primitive") matches the narrative of the issue.
 
 ## Open Questions
 
-**IMPORTANT: Every open question MUST be registered as a contract decision or feedback item using `egg-contract`.** Do not just write questions as prose — they will not be seen by the human unless registered.
-
-Surface **all** uncertainties, ambiguities, and assumptions that need human input. Do not limit yourself to a small number — every genuine ambiguity, missing requirement, unstated assumption, or design choice that could go multiple ways should be raised here. It is far better to ask too many questions than to proceed with incorrect assumptions.
-
 The following decisions and open questions have been registered via
-`egg-contract add-decision` / `egg-contract add-feedback`:
+`egg-contract add-decision` / `egg-contract add-feedback` for the
+human to resolve before the plan phase begins:
 
 <!-- egg-hitl-decision id=decision-1 -->
 
@@ -379,11 +384,11 @@ The following decisions and open questions have been registered via
 
 <!-- egg-hitl-decision id=decision-9 -->
 
-**The issue calls for removing 'the entire bin/egg binary' and 'the interactive default branch in sandbox/egg_lib/cli.py:215'. When should removal land relative to the run_custom_phase primitive shipping?**
+**(Duplicate of Options Analysis — this decision asks you to confirm or override the recommended Option A.) When should removal land relative to the run_custom_phase primitive shipping?**
 
-- [ ] Ship both together in one PR (clean cutover — users can no longer invoke 'egg' but immediately have run_custom_phase as replacement)
-- [ ] Ship run_custom_phase first, then remove interactive mode in a follow-up PR (lower-risk: custom-phase proven before the fallback disappears)
-- [ ] Ship the removal first; rely on run_custom_phase landing before anyone needs the removed path (not recommended — breaks users)
+- [ ] Confirm Option A: Ship both together in one PR (recommended — clean cutover; the interactive fallback is already broken in practice since docker-compose.yml was removed)
+- [ ] Override to Option B: Ship run_custom_phase first, then remove interactive mode in a follow-up PR
+- [ ] Override to Option C: Minimal removal — leave egg_lib.cli.py::main in place (see decision-3 option 1 for a correlated choice)
 - [ ] Other (explain in reply)
 
 <!-- egg-feedback id=feedback-1 -->
@@ -401,8 +406,10 @@ Additional open-ended questions have been registered as
   may overwrite?
 - **Q4**: Repo allowlist — `repositories.yaml`-only, or arbitrary
   public GitHub repos via gateway allowlist?
-- **Q5**: `pr_number` validation in v1 — hard-reject or accept with
-  deprecation warning?
+- **Q5**: `pr_number` validation in v1 — (**NOTE**: largely overlaps
+  with decision-2; Q5 adds colour on the "accept with warning" path if
+  decision-2 is answered with the "accept" option, otherwise Q5 is
+  redundant.)
 - **Q6**: CLI surface alongside MCP — does `bin/egg-sdlc` grow a
   `custom-phase` subcommand, or MCP-only?
 - **Q7**: Persisted-state migration for existing pipelines — do
