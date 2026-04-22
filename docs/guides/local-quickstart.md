@@ -16,16 +16,16 @@ Get egg running locally with the full SDLC pipeline using a GitHub Personal Acce
 ```bash
 git clone https://github.com/jwbron/egg.git
 cd egg
-pip install -e ./sandbox   # install the egg CLI
-egg --setup                # interactive setup wizard
+bin/egg-deploy init        # generates ~/.config/egg/launcher-secret
 ```
 
-The setup wizard will prompt for:
-- Anthropic credentials (OAuth token recommended — run `claude auth status --json | jq -r '.oauthToken'`)
-- GitHub App credentials — **skip this** if using a PAT only (press Enter through the prompts)
-- Your GitHub username and repos to configure
-
-After setup, your config lives at `~/.config/egg/`.
+`bin/egg-deploy init` is the non-interactive replacement for the
+removed `egg --setup` wizard (see
+[#1762](https://github.com/jwbron/egg/issues/1762)). It creates
+`~/.config/egg/launcher-secret`; the `lifecycle-secret` required for
+HITL resolve / pipeline CRUD / phase-control endpoints is generated
+the same way (see [Deployment Guide](deployment.md) for the exact
+path). Fill in the rest of `~/.config/egg/` by hand.
 
 ## 2. Configure for PAT authentication
 
@@ -168,16 +168,23 @@ The pipeline stores its internal state in `.egg-state/` on the feature branch (n
 ## Common operations
 
 ```bash
-egg --public               # start interactive session (public mode — default)
-egg --private              # run in private mode (Anthropic API only, private repos)
-egg --exec "make test"     # run a command in an ephemeral sandbox
+# The interactive `egg` / `egg --public` / `egg --private` CLI was
+# removed in #1762. Drive agent work through the MCP server instead:
+#   submit_task(issue_number=..., repo="...")
+#   babysit_pr(pr_number=..., repo="...")
+#   run_agent_task(phase=..., roles=[...], repo="...", description="...")
+# See docs/guides/custom-phase.md for the run_agent_task primitive.
+
+bin/egg-deploy up          # apply k8s manifests, wait for readiness
+bin/egg-deploy status      # health + endpoint summary
+bin/egg-deploy down        # tear down the deployment
 make build && make k3s-import && make deploy  # rebuild images and redeploy after code changes
 make k3s-teardown          # remove k3s and all deployed resources
 ```
 
 ## Troubleshooting
 
-**Claude binary not found**: If the sandbox exits with `Claude Code CLI not found in PATH`, rebuild the sandbox image with `egg --reset`.
+**Claude binary not found**: If a sandbox job exits with `Claude Code CLI not found in PATH`, rebuild the sandbox image: `make build && make k3s-import && make deploy`. (The legacy `egg --reset` flag was removed in #1762.)
 
 **Gateway or orchestrator not starting**: Check pod status with `kubectl get pods -n egg-system` and logs with `kubectl logs -n egg-system deploy/gateway` or `kubectl logs -n egg-system deploy/orchestrator`.
 

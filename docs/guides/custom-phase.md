@@ -99,10 +99,27 @@ run_agent_task(
 | `branch` | `str` | no | `egg/custom-<pipeline_id>` | Target branch. Created from `base_branch` if it doesn't exist. |
 | `base_branch` | `str` | no | Repo default branch | Base for the target branch. |
 | `pr_number` | `int` | no | — | Target an existing PR. Reuses BABYSIT's per-role staging-branch / head-move guard semantics internally (decision-2). |
-| `issue_number` | `int` | no | — | Issue context. When supplied, the pipeline shares the `.egg-state/contracts/issue-<N>.json` contract with any existing ISSUE-mode pipeline for that issue. |
+| `issue_number` | `int` | no | — | Issue context. The CUSTOM pipeline's contract file is still keyed by `pipeline_id` (not `issue-<N>.json`) so concurrent ISSUE-mode pipelines on the same issue don't collide. |
 | `analysis` | `str` | no | — | Pre-populated analysis draft. Written to `.egg-state/drafts/` on first run. Producers may overwrite. |
 | `plan` | `str` | no | — | Pre-populated plan draft. Same semantics as `analysis`. |
+| `qualifier` | `str` | no | — | Suffix (`[a-z0-9]+(-[a-z0-9]+)*`) that disambiguates the `pipeline_id` when multiple CUSTOM runs target the same `issue_number` or `pr_number`. Pipeline id becomes `issue-<N>-<qualifier>` / `pr-<N>-<qualifier>` when set. |
 | `config` | `object` | no | `{}` | Forwarded to `PipelineConfig`. Notably `config={"hitl_gates": false}` opts out of human-in-the-loop gates (parity with ISSUE mode — see [HITL Decisions](../hitl-decisions.md)). |
+
+#### Pipeline id generation
+
+The handler derives `pipeline_id` from the caller inputs (see
+`_handle_run_agent_task` in `orchestrator/mcp_tools.py`):
+
+| Inputs | `pipeline_id` |
+|---|---|
+| `issue_number=N`, `qualifier=Q` | `issue-<N>-<Q>` |
+| `issue_number=N`, no `qualifier` | `issue-<N>-custom` |
+| `pr_number=N`, `qualifier=Q` | `pr-<N>-<Q>` |
+| `pr_number=N`, no `qualifier` | `pr-<N>` (BABYSIT-compatible) |
+| Neither | `custom-<hex>` (synthetic) |
+
+The branch default `egg/custom-<pipeline_id>` inherits the same id — so
+for a PR-targeted call with no qualifier the branch is `egg/custom-pr-<N>`.
 
 ### Response
 
