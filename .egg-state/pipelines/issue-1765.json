@@ -51,8 +51,62 @@
       "started_at": "2026-04-22T05:59:04.475890Z",
       "work_started_at": "2026-04-22T05:59:05.761775Z",
       "completed_at": null,
-      "containers": [],
-      "agents": [],
+      "containers": [
+        {
+          "container_id": "9fdad53d-b787-4914-9459-396a165f30af",
+          "container_name": "egg-sandbox-egg-agent-issue-1765-refiner",
+          "status": "running",
+          "started_at": "2026-04-22T05:59:17.257381Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "refiner",
+          "session_token": null,
+          "pod_name": null,
+          "namespace": "egg-agents",
+          "job_name": "egg-sandbox-egg-agent-issue-1765-refiner"
+        }
+      ],
+      "agents": [
+        {
+          "role": "refiner",
+          "status": "running",
+          "container_id": "9fdad53d-b787-4914-9459-396a165f30af",
+          "container_info": null,
+          "started_at": "2026-04-22T05:59:17.257419Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_agent_design",
+          "status": "failed",
+          "container_id": null,
+          "container_info": null,
+          "started_at": "2026-04-22T05:59:17.257441Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_refine",
+          "status": "failed",
+          "container_id": null,
+          "container_info": null,
+          "started_at": "2026-04-22T05:59:17.257450Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        }
+      ],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -71,7 +125,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-22T05:58:26.984908Z",
-  "updated_at": "2026-04-22T05:59:05.764139Z",
+  "updated_at": "2026-04-22T05:59:17.257692Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -84,5 +138,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 6
+  "version": 7
 }
