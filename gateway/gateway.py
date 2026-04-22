@@ -3793,6 +3793,29 @@ def worktree_list() -> tuple[Response, int] | Response:
 _worktree_prune_lock = threading.Lock()
 
 
+def _derive_worktree_anchor_ids(sessions: list[dict[str, Any]]) -> set[str]:
+    """Return the set of worktree directory names implied by active sessions.
+
+    Session ``container_id`` is the k8s Job name / Docker container name
+    (e.g. ``egg-agent-issue-1758-again-coder``), but per-agent worktrees
+    on disk are named after the orchestrator-assigned
+    ``agent_worktree_id`` of the form ``{pipeline_id}-{agent_role}`` and
+    the pipeline-level worktree is just ``{pipeline_id}``.  Without this
+    derivation, ``cleanup_orphaned_worktrees`` treats every per-agent
+    worktree as an orphan, which wiped live pipelines' worktrees during
+    gateway startup cleanup (#1874).
+    """
+    anchors: set[str] = set()
+    for session_info in sessions:
+        pipeline_id = session_info.get("pipeline_id")
+        agent_role = session_info.get("agent_role")
+        if pipeline_id:
+            anchors.add(pipeline_id)
+            if agent_role:
+                anchors.add(f"{pipeline_id}-{agent_role}")
+    return anchors
+
+
 def _collect_active_container_ids() -> set[str]:
     """Return the best-effort set of container IDs that back live sessions.
 
@@ -3803,7 +3826,10 @@ def _collect_active_container_ids() -> set[str]:
     Consults:
 
     1. Persisted sessions via :func:`get_session_manager` (primary source
-       of truth — survives gateway restarts).
+       of truth — survives gateway restarts).  Each session contributes
+       its own ``container_id`` plus the derived per-agent and
+       pipeline-level worktree anchor IDs so that cleanup never wipes a
+       live pipeline's worktrees (#1874).
     2. ``docker ps`` when Docker is reachable (safety net for sessions
        that outlive the session-manager snapshot).
 
@@ -3814,10 +3840,12 @@ def _collect_active_container_ids() -> set[str]:
     active_container_ids: set[str] = set()
     try:
         session_manager = get_session_manager()
-        for session_info in session_manager.list_sessions():
+        sessions = session_manager.list_sessions()
+        for session_info in sessions:
             cid = session_info.get("container_id")
             if cid:
                 active_container_ids.add(cid)
+        active_container_ids |= _derive_worktree_anchor_ids(sessions)
     except Exception as exc:
         logger.warning(
             "prune: session-manager active-container lookup failed",
@@ -5553,17 +5581,26 @@ def main() -> None:
     # Load sessions BEFORE worktree cleanup so we know which containers are active.
     # After a gateway restart, Docker CLI may not be available inside the container,
     # so we derive the active container set from persisted sessions instead.
+    #
+    # Each session contributes its own ``container_id`` plus the per-agent
+    # and pipeline-level worktree anchor IDs ({pipeline_id}-{role} and
+    # {pipeline_id}).  Without those derived anchors, cleanup would treat
+    # every live pipeline's per-agent worktree as orphaned because the
+    # on-disk dir name never matches the session container_id (#1874).
     active_container_ids: set[str] = set()
     try:
         session_manager = get_session_manager()
         pruned = session_manager.prune_expired_sessions()
         if pruned > 0:
             logger.info(f"Startup session cleanup pruned {pruned} expired session(s)")
-        # Extract active container IDs from surviving sessions
-        for session_info in session_manager.list_sessions():
+        # Extract active container IDs from surviving sessions, plus the
+        # per-agent/pipeline worktree anchors the orchestrator assigns.
+        sessions = session_manager.list_sessions()
+        for session_info in sessions:
             container_id = session_info.get("container_id")
             if container_id:
                 active_container_ids.add(container_id)
+        active_container_ids |= _derive_worktree_anchor_ids(sessions)
         if active_container_ids:
             logger.info(
                 "Active containers from sessions",

@@ -484,6 +484,77 @@ class TestCollectActiveContainerIds:
             result = gateway._collect_active_container_ids()
         assert result == set()
 
+    def test_per_agent_worktree_anchors_included(self):
+        """Sessions with ``pipeline_id``+``agent_role`` must contribute the
+        derived ``{pipeline_id}-{agent_role}`` and pipeline-level anchors
+        so that ``cleanup_orphaned_worktrees`` does not wipe the per-agent
+        worktrees on disk (which are named after ``agent_worktree_id``,
+        not the session's ``container_id``).  Regression for #1874.
+        """
+        from unittest.mock import MagicMock, patch
+
+        session_manager = MagicMock()
+        session_manager.list_sessions.return_value = [
+            {
+                "container_id": "egg-agent-issue-1758-again-coder",
+                "pipeline_id": "issue-1758-again",
+                "agent_role": "coder",
+            },
+            {
+                "container_id": "egg-agent-issue-1758-again-documenter",
+                "pipeline_id": "issue-1758-again",
+                "agent_role": "documenter",
+            },
+            # Interactive session with no pipeline context contributes only
+            # its own container id.
+            {"container_id": "solo-interactive", "pipeline_id": None, "agent_role": None},
+        ]
+
+        with (
+            patch.object(gateway, "get_session_manager", return_value=session_manager),
+            patch.object(gateway, "get_active_docker_containers", return_value=set()),
+        ):
+            result = gateway._collect_active_container_ids()
+
+        assert "issue-1758-again-coder" in result
+        assert "issue-1758-again-documenter" in result
+        assert "issue-1758-again" in result
+        assert "egg-agent-issue-1758-again-coder" in result
+        assert "solo-interactive" in result
+
+
+class TestDeriveWorktreeAnchorIds:
+    """Unit tests for the helper that maps session metadata to the worktree
+    dir names the orchestrator uses.  Keeping this standalone means future
+    changes to the naming scheme fail here, loudly, before they can wipe a
+    live pipeline's worktrees."""
+
+    def test_derives_per_agent_and_pipeline_anchors(self):
+        anchors = gateway._derive_worktree_anchor_ids(
+            [
+                {"pipeline_id": "issue-42", "agent_role": "coder"},
+                {"pipeline_id": "issue-42", "agent_role": "tester"},
+            ]
+        )
+        assert anchors == {"issue-42", "issue-42-coder", "issue-42-tester"}
+
+    def test_pipeline_without_role_still_protects_pipeline_level(self):
+        anchors = gateway._derive_worktree_anchor_ids(
+            [{"pipeline_id": "issue-99", "agent_role": None}]
+        )
+        assert anchors == {"issue-99"}
+
+    def test_session_without_pipeline_yields_no_anchors(self):
+        anchors = gateway._derive_worktree_anchor_ids(
+            [{"container_id": "adhoc", "pipeline_id": None, "agent_role": None}]
+        )
+        assert anchors == set()
+
+    def test_missing_keys_handled(self):
+        """Defensive against future session dicts that omit the field."""
+        anchors = gateway._derive_worktree_anchor_ids([{"container_id": "adhoc"}])
+        assert anchors == set()
+
 
 class TestConcurrentSecondCallGets409:
     """End-to-end mutex verification: a real second request during an in-flight

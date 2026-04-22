@@ -252,6 +252,37 @@ class TestWorktreeManager:
         # Should have attempted cleanup (may fail since it's not a real worktree)
         assert removed >= 0
 
+    def test_cleanup_skips_in_flight_worktrees(self, manager, temp_dirs):
+        """Worktrees tracked in ``_active_worktrees`` must survive cleanup.
+
+        Regression for #1874: a worktree just created by this gateway but
+        whose session has not yet been registered (so its container_id is
+        absent from ``active_containers``) was being wiped when startup or
+        prune cleanup raced with spawn.  ``_active_worktrees`` now shields
+        in-process worktrees from the sweep.
+        """
+        worktree_base, _ = temp_dirs
+
+        container_dir = worktree_base / "issue-1758-again-coder"
+        container_dir.mkdir(parents=True)
+        (container_dir / "webapp").mkdir()
+
+        info = WorktreeInfo(
+            container_id="issue-1758-again-coder",
+            repo_name="webapp",
+            branch="egg/issue-1758-again-coder/work",
+            worktree_path=container_dir / "webapp",
+            git_dir=None,
+        )
+        manager._active_worktrees["issue-1758-again-coder"] = [info]
+
+        # Session not yet registered — only the unrelated container is
+        # in the active set.  Worktree must still survive.
+        removed = manager.cleanup_orphaned_worktrees({"egg-agent-overseer"})
+
+        assert removed == 0
+        assert container_dir.exists()
+
 
 class TestGetActiveDockerContainers:
     """Tests for get_active_docker_containers helper."""
