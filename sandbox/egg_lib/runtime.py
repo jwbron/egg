@@ -41,9 +41,9 @@ from egg_container import (
 EGG_RUNTIME = os.environ.get("EGG_RUNTIME", "docker")
 
 # Import statusbar for quiet mode
-from statusbar import status, status_finish
+from statusbar import status_finish
 
-from .auth import get_anthropic_api_key, get_anthropic_auth_method
+from .auth import get_anthropic_api_key
 from .config import (
     GATEWAY_PORT,
     get_local_repos,
@@ -51,7 +51,6 @@ from .config import (
 from .container_logging import (
     extract_task_id_from_command,
     extract_thread_ts_from_task_file,
-    generate_container_id,
     get_docker_log_config,
     save_container_logs,
 )
@@ -64,7 +63,6 @@ from .gateway import (
 )
 from .output import error, get_quiet_mode, info, warn
 from .setup_flow import add_standard_mounts
-from .timing import _host_timer
 
 # Valid repo_mode values
 VALID_REPO_MODES = ("private", "public")
@@ -628,7 +626,6 @@ def _k8s_delete_job(
         )
     except Exception as e:
         warn(f"Failed to delete job {job_name}: {e}")
-
 
 
 def exec_in_new_container(

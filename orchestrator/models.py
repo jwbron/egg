@@ -600,9 +600,7 @@ class Pipeline(BaseModel):
         valid_role_values = {r.value for r in AgentRole}
         invalid = [r for r in v if r not in valid_role_values]
         if invalid:
-            raise ValueError(
-                f"active_roles contains unknown AgentRole values: {invalid}"
-            )
+            raise ValueError(f"active_roles contains unknown AgentRole values: {invalid}")
         # Defensive producer check: exclude reviewers AND cross-phase roles.
         _cross_phase_values = {
             AgentRole.OVERSEER.value,
@@ -611,8 +609,7 @@ class Pipeline(BaseModel):
             AgentRole.INSPECTOR.value,
         }
         has_producer = any(
-            (not r.startswith("reviewer_")) and r not in _cross_phase_values
-            for r in v
+            (not r.startswith("reviewer_")) and r not in _cross_phase_values for r in v
         )
         if not has_producer:
             raise ValueError(

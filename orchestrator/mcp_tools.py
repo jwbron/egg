@@ -221,8 +221,7 @@ PIPELINE_TOOLS = [
                 "config": {
                     "type": "object",
                     "description": (
-                        'Optional pipeline configuration overrides '
-                        '(e.g. {"hitl_gates": false}).'
+                        'Optional pipeline configuration overrides (e.g. {"hitl_gates": false}).'
                     ),
                 },
             },
@@ -1179,10 +1178,7 @@ class PipelineToolHandler:
         phase = args.get("phase")
         if phase not in {"refine", "plan", "implement"}:
             return {
-                "error": (
-                    f"phase must be one of 'refine', 'plan', 'implement' "
-                    f"(got {phase!r})"
-                )
+                "error": (f"phase must be one of 'refine', 'plan', 'implement' (got {phase!r})")
             }
 
         repo = args.get("repo")
@@ -1210,9 +1206,7 @@ class PipelineToolHandler:
             }
 
         issue_number = args.get("issue_number")
-        if issue_number is not None and (
-            not isinstance(issue_number, int) or issue_number < 1
-        ):
+        if issue_number is not None and (not isinstance(issue_number, int) or issue_number < 1):
             return {"error": "issue_number must be a positive integer"}
         pr_number = args.get("pr_number")
         if pr_number is not None and (not isinstance(pr_number, int) or pr_number < 1):
@@ -1283,9 +1277,7 @@ class PipelineToolHandler:
                     if reason:
                         error_info["reason"] = reason
                     if "existing_pipeline_id" in details:
-                        error_info["existing_pipeline_id"] = details.get(
-                            "existing_pipeline_id", ""
-                        )
+                        error_info["existing_pipeline_id"] = details.get("existing_pipeline_id", "")
                     if "existing_status" in details:
                         error_info["existing_status"] = details.get("existing_status", "")
                     if "existing_phase" in details:
@@ -1321,8 +1313,7 @@ class PipelineToolHandler:
                     "task_id": created_pipeline_id,
                     "status": "created_not_started",
                     "message": (
-                        "run_agent_task pipeline created but failed to start. "
-                        "Use task_id to retry."
+                        "run_agent_task pipeline created but failed to start. Use task_id to retry."
                     ),
                 }
 
