@@ -1,0 +1,306 @@
+{
+  "schemaVersion": "1.0",
+  "issue": 1901,
+  "phase": "plan",
+  "agent_role": "risk_analyst",
+  "pipeline_id": "issue-1901",
+  "summary": "Risk assessment for the coder file-boundary rewrite (extension allowlist -> blocklist-complement using explicit '**' catch-all) plus the in-scope matcher bug fix for '**/<dir>/' patterns. The change is surgical but flips the coder's default posture from allow-by-extension to allow-by-default-within-non-blocked. The blocklist becomes load-bearing: any gap lets coder write to files that were previously unreachable (CI config, top-level dotfiles, /bin scripts, .egg-state/ state dirs other than agent-outputs). The matcher bug fix is shared by every role that uses patterns.py — it can both tighten currently-leaky blocks and, if the regex/prefix logic is off by one, loosen blocks that other roles rely on. The third sync surface (.egg/phase-permissions.json) has cross-cutting implications because gateway/gateway.py calls check_file_restrictions(session_role,...), and session.agent_role for the implement phase is now literally 'coder'/'tester'/'documenter' — not 'implementer'. If the role split is done wrong, that enforcement layer silently becomes a no-op for the three new roles (no matching FileRestriction entries => allow-all). External research skipped: this is an internal Python refactor with no new third-party dependencies and no security advisories in play.",
+  "scope": {
+    "in_scope_changes": [
+      "Rewrite CODER_PATTERNS in shared/egg_restrictions/patterns.py: allowed_patterns=['**'], expand blocked_patterns to cover .egg-state/, docs/, tests/, plus file-name test patterns, keep block_exempt_patterns={.egg-state/agent-outputs/, sandbox/agent-config/rules/*.md, sandbox/agent-config/commands/*.md, skills/}.",
+      "Fix AgentFilePattern._matches_pattern so '**/<dir>/' directory-prefix patterns correctly match any descendant path. Currently '**/tests/' never matches because the '**' branch tries to fnmatch the filename against 'tests/' (a directory suffix) and fails.",
+      "Split .egg/phase-permissions.json file_restrictions entry role='implementer' into three entries role='coder'/'tester'/'documenter' (per resolved feedback Q1).",
+      "Update shared/egg_container/__init__.py::_IMPLEMENT_READONLY_DIRS in parallel with the phase-permissions.json blocklist (per resolved pre-refine decision).",
+      "Add TODO(#1903) comments on each of the three hand-maintained surfaces (per resolved feedback Q2).",
+      "Update docs/reference/agent-roles.md (documenter task, not coder).",
+      "Add/update tests for new coder allowed/blocked cases (bin/egg, sandbox/egg, LICENSE, .dockerignore, arbitrary new extensionless paths, nested tests/ dirs)."
+    ],
+    "out_of_scope": [
+      "AUTOFIXER_PATTERNS and CONFLICT_RESOLVER_PATTERNS rewrites (resolved decision-2: follow-up).",
+      "OVERSEER_PATTERNS rewrite (resolved decision-4: out-of-scope, tracked as #1902).",
+      "Making patterns.py the authoritative source of truth and deriving the other two surfaces from it (resolved feedback Q2: tracked as #1903).",
+      "Preemptive defensive blocks on hypothetical future .egg-state/ subdirs like 'secrets/' (resolved feedback Q3: don't add speculative entries).",
+      "Extracting skills/ markdown to documenter scope (resolved feedback Q4: coder-owned, preserve via block_exempt)."
+    ]
+  },
+  "risks": [
+    {
+      "id": "R-1",
+      "title": "Blocklist-complement model makes the blocklist load-bearing for security",
+      "category": "security",
+      "severity": "high",
+      "likelihood": "medium",
+      "impact": "After this change, the coder role can write to ANY path that does not appear in blocked_patterns (and is not also in block_exempt_patterns). A missing entry silently expands the coder's reach to sensitive or infrastructure files that were previously unreachable via the extension allowlist. Concrete expansions under the proposed blocklist: .github/workflows/*, .github/actions/*, .devcontainer/, .vscode/, LICENSE, .dockerignore, .env (if ever committed), top-level README.md (already blocked via **/*.md, so safe), all bin/* and sandbox/bin/* and sandbox/scripts/* scripts (intended), but also any new top-level dotfile/dotdir a future contributor adds without updating the blocklist.",
+      "evidence": [
+        "shared/egg_restrictions/patterns.py::AgentFilePattern.can_write lines 86-97: blocked_patterns take precedence, then empty allowed_patterns denies, then allowed_patterns matching; with allowed_patterns=['**'] the matcher short-circuits to 'True unless blocked'.",
+        "Current CODER_PATTERNS.blocked_patterns does NOT include '.github/' — the existing extension allowlist implicitly blocked it by not matching any pattern. After the rewrite, '.github/' must be added to blocked_patterns or coder can rewrite the CI config."
+      ],
+      "mitigations": [
+        "Audit the proposed blocklist against every top-level path in the repo (ls -a at repo root) before merging. Explicitly add '.github/' to CODER_PATTERNS.blocked_patterns.",
+        "Add a regression test that iterates every top-level directory/file in the repo and asserts that sensitive ones (.github/, .egg-state/ minus agent-outputs/, docs/, tests/, test/) return can_write=False, and that targeted new ones (bin/egg, sandbox/egg, LICENSE, .dockerignore, Procfile) return True.",
+        "Document (inline comment in patterns.py) that CODER_PATTERNS is now blocklist-driven and any new sensitive directory must be added to blocked_patterns.",
+        "Keep .egg/phase-permissions.json's 'implement' phase-level blocked_patterns list (already blocks .egg-state/contracts/, .egg-state/drafts/, .egg-state/pipelines/, .egg-state/reviews/) as a second line of defense for pipeline state."
+      ],
+      "rollback": "Revert the patterns.py diff. No data migration needed — patterns are evaluated at push time."
+    },
+    {
+      "id": "R-2",
+      "title": "Matcher bug fix has blast radius across every role",
+      "category": "compatibility",
+      "severity": "high",
+      "likelihood": "medium",
+      "impact": "AgentFilePattern._matches_pattern is shared by every role. Fixing the '**/<dir>/' directory-prefix branch changes behavior for patterns used by TESTER_PATTERNS ('**/tests/', '**/test/' in allowed_patterns), DOCUMENTER_PATTERNS ('**/tests/', '**/test/' in blocked_patterns), CONFLICT_RESOLVER_PATTERNS, and OVERSEER_PATTERNS. If the fix over-matches (e.g., 'foo/tests/bar/baz.py' starts matching 'tests/' when the caller meant only top-level 'tests/'), it could: (a) silently grant tester write access to paths that coincidentally contain 'tests' as a directory segment, (b) expand blocked-patterns to block previously-allowed nested files in other roles.",
+      "evidence": [
+        "shared/egg_restrictions/patterns.py::_matches_pattern lines 142-164: currently has two branches (prefix-directory via pattern.endswith('/') and '**' via split). The prefix-directory branch handles top-level 'tests/' correctly; the '**' branch handles '**/*.py' correctly. But '**/<dir>/' falls into the '**' branch with suffix='<dir>/' which fnmatch against a filename cannot ever match.",
+        "shared/tests/test_egg_restrictions.py (664 lines) and gateway/tests/test_agent_restrictions_patterns.py (798 lines) both assert current behavior. Some tests may implicitly rely on the broken '**/tests/' semantic (i.e. nested tests/ dirs leak past blocks)."
+      ],
+      "mitigations": [
+        "Before implementing the fix, enumerate every pattern of the form '**/<dir>/' currently in patterns.py: coder blocklist (tests/, test/, **/tests/, **/test/), documenter blocklist (**/tests/, **/test/), conflict_resolver allowlist (**/tests/, **/test/), tester allowlist (**/tests/, **/test/). The fix must correctly match descendants of any directory named <dir> for ALL these pattern uses.",
+        "Add targeted unit tests in test_agent_restrictions_patterns.py for each '**/<dir>/' usage: positive (gateway/tests/__init__.py matches '**/tests/'), negative (gateway/tests.py does NOT match '**/tests/'), and cross-role (tester's allowlist grants write to gateway/tests/foo.py, documenter's blocklist denies write to gateway/tests/foo.py).",
+        "Run the full gateway/tests/ and shared/tests/ suites after the matcher change; triage any failures into 'fixed bug (test needs update)' vs 'regression (matcher wrong)'. Do not blanket-update tests.",
+        "Leave the existing 'tests/' (no '**/') prefix pattern in place as a belt-and-suspenders for top-level tests/ dir — the fix should not remove it."
+      ],
+      "rollback": "If the matcher fix causes regressions that are hard to diagnose at review time, extract the directory-pattern fix into a separate commit and revert it while keeping the CODER_PATTERNS rewrite. The rewrite is independent of the matcher fix and can ship without it by using '**/tests/**'-style patterns in the coder blocklist."
+    },
+    {
+      "id": "R-3",
+      "title": "phase-permissions.json role split could silently disable enforcement",
+      "category": "security",
+      "severity": "high",
+      "likelihood": "medium",
+      "impact": "gateway/gateway.py line 942 calls check_file_restrictions(session_role, changed_files). session_role is session.agent_role. In the concurrent-implement world, agent_role is 'coder', 'tester', or 'documenter' (see issue-1901 worktree names). The current phase-permissions.json has ONE file_restrictions entry with role='implementer'. If the split is executed as 'replace with three entries (coder/tester/documenter)', existing contract/test code that still passes role='implementer' (tests/shared/egg_contracts/test_validator.py, orchestrator/tests/test_contracts_routes.py, gateway/tests/test_phase_filter_restrictions.py) will find zero restrictions matching 'implementer' and silently allow pushes to .egg-state/contracts/. Conversely, if the new three-role entries use the WRONG role identifiers (e.g. 'tester_agent' vs 'tester'), then the three new agent_role values don't find matching restrictions at push time and any one of them could push contract files.",
+      "evidence": [
+        "gateway/gateway.py lines 908-911, 942: session_role comes from getattr(g.session, 'agent_role', None); passed directly to check_file_restrictions.",
+        "gateway/phase_filter.py lines 586-589: get_file_restrictions_for_role does a case-insensitive exact match on role. If the configured role string is 'coder' and the session_role is 'coder', it matches; otherwise zero restrictions apply.",
+        "shared/egg_contracts/roles.py:18 and shared/egg_contracts/models.py:77 define IMPLEMENTER='implementer' as a first-class role that many tests still assert on."
+      ],
+      "mitigations": [
+        "In phase-permissions.json, KEEP the existing implementer entry in addition to adding coder/tester/documenter entries, OR ensure every test in tests/shared/egg_contracts/test_validator.py and orchestrator/tests/test_contracts_routes.py is updated to use the new role strings.",
+        "Add a gateway integration test that spawns a session with agent_role='coder' and asserts a push of '.egg-state/contracts/foo.json' is blocked. Repeat for agent_role='tester' and agent_role='documenter'. This test must fail if the phase-permissions.json split uses the wrong role names.",
+        "Grep for 'implementer' across the repo (currently 40+ hits in tests, shared/egg_contracts/, orchestrator/) and classify each: 'first-class contract role (keep)' vs 'phase_filter restriction lookup (needs migration)'. The task_planner should call this out explicitly in the task list so the coder cannot miss an implementer reference.",
+        "Prefer a conservative split: ADD coder/tester/documenter entries that each block .egg-state/contracts/, leave the implementer entry unchanged. That way every legacy code path keeps working and the three new concurrent-implement roles pick up the same protection."
+      ],
+      "rollback": "phase-permissions.json is a JSON config read at gateway startup. Revert the file to restore behavior — no stateful changes."
+    },
+    {
+      "id": "R-4",
+      "title": "Three-surface drift between patterns.py, phase-permissions.json, and _IMPLEMENT_READONLY_DIRS",
+      "category": "maintainability",
+      "severity": "medium",
+      "likelihood": "high",
+      "impact": "Three files describe overlapping-but-distinct restrictions: patterns.py (per-role git-push), phase-permissions.json (per-phase and per-role git-push), _IMPLEMENT_READONLY_DIRS (per-container bind-mount readonly). A future contributor editing one will forget the others — this is exactly the problem #1903 exists to track. Under the new blocklist-complement model, the three must all list the same directories for consistent behavior across push, filesystem, and phase gates.",
+      "evidence": [
+        "shared/egg_container/__init__.py:129-132: existing comment 'Must stay in sync with .egg/phase-permissions.json blocked_patterns for implement'.",
+        "Resolved feedback Q2: three surfaces stay manually in sync for THIS PR; #1903 tracks the deeper refactor."
+      ],
+      "mitigations": [
+        "Add TODO(#1903) comments on ALL THREE surfaces (per resolved Q2): patterns.py (near CODER_PATTERNS), phase-permissions.json (at the top of file_restrictions), and shared/egg_container/__init__.py:131.",
+        "Add a test (or at least a module-level assertion) that the three lists agree: every directory in _IMPLEMENT_READONLY_DIRS is present in phase-permissions.json implement.blocked_patterns and in CODER_PATTERNS.blocked_patterns. This catches drift early.",
+        "Document the drift risk in the PR description and link to #1903."
+      ],
+      "rollback": "Not applicable — this is a process/drift risk, not a runtime failure."
+    },
+    {
+      "id": "R-5",
+      "title": "Extensionless and top-level files retroactively become coder-editable",
+      "category": "security",
+      "severity": "medium",
+      "likelihood": "medium",
+      "impact": "The following files are currently blocked for coder (extension allowlist doesn't match) but will become coder-editable under the blocklist-complement model: bin/egg, bin/egg-deploy, bin/egg-onboarding-docs, bin/egg-sdlc, bin/egg-status, sandbox/egg, sandbox/bin/egg-*, sandbox/scripts/gh, sandbox/scripts/git, sandbox/scripts/git-credential-github-token, LICENSE, .dockerignore. This is the intended behavior (and fixes the #1901 bug) but sandbox/scripts/git-credential-github-token is a credential-handling script — a bug in coder writing to it could leak tokens. sandbox/scripts/gh and sandbox/scripts/git are shim scripts that intercept gh/git — replacing them would break the gateway's credential injection model.",
+      "evidence": [
+        "Analysis draft table line 38-47 (issue-1901/refine) enumerates these paths.",
+        "Direct ls inspection of bin/ and sandbox/bin/ and sandbox/scripts/ confirms the list."
+      ],
+      "mitigations": [
+        "Document in the PR description which files become newly coder-editable (the list above). Reviewer should confirm this is the intended posture.",
+        "Add sandbox/scripts/ (the directory containing the gateway shim scripts that wrap gh/git/credentials) to CODER_PATTERNS.blocked_patterns if the operator wants to keep it out of coder's reach — OR explicitly acknowledge in the analysis that coder can now modify these shims.",
+        "The HITL decision already resolved this implicitly (Q3 declined preemptive blocks, accepting the posture). The mitigation is strong PR-review + a test that fails if sandbox/scripts/git-credential-github-token is modified by coder (if we choose to block it)."
+      ],
+      "rollback": "Revert patterns.py."
+    },
+    {
+      "id": "R-6",
+      "title": "['**'] catch-all + path-traversal defense interaction",
+      "category": "security",
+      "severity": "low",
+      "likelihood": "low",
+      "impact": "_normalize_path rejects paths containing '..' by returning a sentinel that matches no pattern. With allowed_patterns=['**'], the sentinel '__INVALID_PATH_TRAVERSAL__' must NOT match '**'. Check _matches_pattern: for pattern='**' the split gives parts=['','']; prefix='' (always matches), suffix='' (since suffix.lstrip('/') == ''); suffix_match=True (because `not suffix` short-circuits). Reading the code: fnmatch.fnmatch(file_path, '*' + suffix) is called only if suffix.startswith('*'), which it doesn't when suffix=''. Result: '**' matches EVERY path including the sentinel. The deliberate can_write short-circuit on normalized=='__INVALID_PATH_TRAVERSAL__' is not present today (lines 83-85 only check the sentinel indirectly by returning a non-matching path). Need to verify the sentinel is actually unmatchable.",
+      "evidence": [
+        "shared/egg_restrictions/patterns.py:81-85: normalized = self._normalize_path(file_path); no explicit if normalized=='__INVALID_PATH_TRAVERSAL__': return False.",
+        "shared/egg_restrictions/patterns.py:108-111: _normalize_path returns the literal string '__INVALID_PATH_TRAVERSAL__' for '..' paths.",
+        "shared/egg_restrictions/patterns.py:149-161: the '**' branch of _matches_pattern returns True broadly — traces suggest '**' matches the sentinel too."
+      ],
+      "mitigations": [
+        "Add an explicit early return in can_write when normalized == '__INVALID_PATH_TRAVERSAL__' (defense in depth) — this is a cheap, non-semantic-changing safety rail.",
+        "Add a unit test: pattern with allowed_patterns=['**'], attempt to write '../../etc/passwd', assert can_write returns False.",
+        "The blocked_patterns check runs FIRST, so if the sentinel also doesn't match any blocked pattern (which today it doesn't — all current blocked patterns are prefixes), the path would pass if allowed_patterns includes '**'."
+      ],
+      "rollback": "Revert the added explicit sentinel check if a test regression appears."
+    },
+    {
+      "id": "R-7",
+      "title": "block_exempt for 'skills/' could over-exempt",
+      "category": "security",
+      "severity": "low",
+      "likelihood": "low",
+      "impact": "block_exempt_patterns contains 'skills/' (prefix match). This exempts ANY file under skills/ from ALL blocked_patterns — including the proposed '**/*.md' and '**/tests/' and even '.egg-state/'. If a contributor ever creates skills/.egg-state/ or skills/tests/, the exempt would bypass the blocks. Low likelihood, but worth noting.",
+      "evidence": [
+        "shared/egg_restrictions/patterns.py:241-248 (current): block_exempt_patterns=['sandbox/agent-config/rules/*.md', 'sandbox/agent-config/commands/*.md', 'skills/'].",
+        "can_write line 89-91: if any blocked match AND NO block_exempt match => deny. The 'AND NO exempt' check applies across ALL blocked patterns together."
+      ],
+      "mitigations": [
+        "Accept the risk: skills/ is a top-level directory and contributors are unlikely to nest .egg-state/ under it. Document the semantic in a comment near block_exempt_patterns.",
+        "Alternative (more surgical): replace the 'skills/' exempt with 'skills/**/*.md' to restrict the carve-out to markdown specifically."
+      ],
+      "rollback": "Revert patterns.py."
+    },
+    {
+      "id": "R-8",
+      "title": "Test invariant test_no_allowed_patterns_denies_all unchanged but test_empty_blocked_allows_through may need revisiting",
+      "category": "compatibility",
+      "severity": "low",
+      "likelihood": "low",
+      "impact": "The issue's proposed blocklist-complement model could have been implemented via Option B (flip empty-allowed semantics). Because the resolution picks Option A (['**'] catch-all), test_no_allowed_patterns_denies_all at gateway/tests/test_agent_restrictions_patterns.py:139 stays green. But coder-specific tests that asserted blocked extensionless files are blocked (e.g. 'cannot write to LICENSE') need to flip polarity to 'can write to LICENSE'. If any such test exists and is only updated to match the new semantic without understanding it, we may lose coverage of the 'can't accidentally rewrite LICENSE' invariant.",
+      "evidence": [
+        "shared/tests/test_egg_restrictions.py (664 lines) has extensive coder-path assertions.",
+        "gateway/tests/test_agent_restrictions_comprehensive.py (552 lines)."
+      ],
+      "mitigations": [
+        "Task list should explicitly call out: update coder tests by 'adding new allow cases and updating existing deny cases' rather than 'mass-rewriting'. Reviewer should confirm every changed assertion corresponds to the new intended policy.",
+        "Add a 'README.md invariant' test: coder cannot write to ./README.md (**/*.md blocks it). Ensures the blocklist carveout for skills/ and sandbox/agent-config/ doesn't accidentally expand."
+      ],
+      "rollback": "Revert tests."
+    },
+    {
+      "id": "R-9",
+      "title": "Performance impact of pattern matching scales linearly with blocklist size",
+      "category": "performance",
+      "severity": "low",
+      "likelihood": "low",
+      "impact": "AgentFilePattern._matches_pattern is called for each (file × pattern) combination during push validation. Current coder allowlist ~25 patterns, blocklist ~20 patterns => 45 regex-equivalent matches per file. Proposed coder allowlist 1 pattern ('**'), blocklist ~20 patterns => 21 matches per file, a net REDUCTION. Matcher fix for '**/<dir>/' may add a few extra string operations per match. Pushes of >100 files may see a small change; measured impact for typical implement-phase pushes (1-10 files) is negligible.",
+      "evidence": [
+        "shared/egg_restrictions/patterns.py:122-164 (_matches_pattern): O(1) per pattern.",
+        "gateway push validation iterates all changed files against all patterns for the role."
+      ],
+      "mitigations": [
+        "No action required. Net change is neutral-to-positive.",
+        "If matcher fix introduces noticeable perf regression (>100µs per match), add a simple regex-compile cache keyed by pattern string."
+      ],
+      "rollback": "N/A."
+    },
+    {
+      "id": "R-10",
+      "title": "sandbox/scripts/git shim replacement breaks the gateway model",
+      "category": "security",
+      "severity": "medium",
+      "likelihood": "low",
+      "impact": "sandbox/scripts/git and sandbox/scripts/gh are extensionless shims that sandboxed agents invoke instead of the real binaries; the gateway relies on these shims to route git/gh traffic through its credential/policy layer. Under the blocklist-complement model a misbehaving coder agent could rewrite them to bypass the gateway (e.g. replace git shim with a direct call to /usr/bin/git). Practical exploitation requires coder to already be running in the pipeline and choose to self-escalate, which is outside the threat model today — but the previous allowlist implicitly prevented it.",
+      "evidence": [
+        "sandbox/scripts/ contains: gh, git, git-credential-github-token.",
+        "None of these match the current CODER_PATTERNS extensions; all match the proposed ['**'] catch-all."
+      ],
+      "mitigations": [
+        "Add 'sandbox/scripts/' to CODER_PATTERNS.blocked_patterns (top-level prefix). Coder has no legitimate reason to modify the shim scripts — they are infrastructure, not product code.",
+        "Alternatively, ship without the block but flag this in the PR description for reviewer awareness. Given the HITL resolved feedback Q3 declined preemptive defensive blocks, this is a judgment call for the reviewer.",
+        "Cross-check this risk with the overseer follow-up (#1902) since overseer has similar concerns about post-deployment script tampering."
+      ],
+      "rollback": "Revert patterns.py blocklist entry."
+    },
+    {
+      "id": "R-11",
+      "title": "'.github/' not currently in coder blocklist — CI config becomes coder-editable",
+      "category": "security",
+      "severity": "high",
+      "likelihood": "medium",
+      "impact": "Today's CODER_PATTERNS allowlist does not include '.github/' paths — allowlist entries like '**/*.yml' and '**/*.yaml' match workflow files inside .github/workflows/ so coder CAN currently edit CI workflows. Wait — let me re-verify: '**/*.yml' matches .github/workflows/ci.yml today, so coder already has write access. But .github/actions/<name>/action.yml and .github/dependabot.yml also already allowed. So the proposed rewrite does NOT expand coder's access to .github/ files that are .yml/.yaml — those were already in scope. However, files like .github/CODEOWNERS (extensionless) are newly editable. Severity downgraded after verification: the only .github/ files that change polarity are extensionless (CODEOWNERS, PULL_REQUEST_TEMPLATE if extensionless) and .github/*.md (still blocked via **/*.md). Still worth listing explicitly.",
+      "evidence": [
+        "CODER_PATTERNS.allowed_patterns today includes '**/*.yml' and '**/*.yaml' => .github/workflows/*.yml already coder-editable today.",
+        "The role restriction for implement phase in .egg/phase-permissions.json does NOT currently block .github/ — only .egg-state/contracts/. So the blocker today is the allowlist, not the blocklist."
+      ],
+      "mitigations": [
+        "Explicitly add '.github/' to CODER_PATTERNS.blocked_patterns if CI config tampering is a concern. If not, accept that coder retains (already had) write access to CI yml files.",
+        "Add '.github/CODEOWNERS' to blocked_patterns as a defense-in-depth for the review system.",
+        "Make the decision explicit in the PR description so the reviewer can push back if they disagree."
+      ],
+      "rollback": "Revert patterns.py."
+    },
+    {
+      "id": "R-12",
+      "title": "Backward-compat for in-flight pipelines on older branches",
+      "category": "compatibility",
+      "severity": "low",
+      "likelihood": "low",
+      "impact": "Pattern evaluation happens at push time in the gateway (live process). Older pipelines on branches created before this change will be evaluated by the NEW code the moment the gateway is redeployed. A coder agent running against an old branch that relied on the extension allowlist (e.g. 'I cannot modify bin/egg, so I'll work around it') will suddenly find it CAN modify bin/egg. This is the desired behavior, so this 'risk' is really an observation. However, tests that ran against the old semantic (e.g. integration_tests/sdlc/test_role_enforcement.py:441 asserting role='implementer' in audit log) may fail on replay if they depend on specific restriction wording.",
+      "evidence": [
+        "Gateway is a long-running HTTP service; pattern changes take effect on next session created after redeploy.",
+        "No migration required — restrictions are evaluated per-push, not per-pipeline-state."
+      ],
+      "mitigations": [
+        "Deploy the gateway change during a quiet window if multiple pipelines are in implement phase. Restart should be seamless for sessions not actively pushing.",
+        "Watch gateway logs for 'push_denied_agent_role_restriction' events for 24h post-deploy; alert on unexpected deny patterns."
+      ],
+      "rollback": "Redeploy prior gateway image."
+    }
+  ],
+  "areas_needing_human_review": [
+    {
+      "area": "Scope of blocked_patterns beyond the issue's proposed list",
+      "question": "Should we add '.github/' (CI workflows and CODEOWNERS) and 'sandbox/scripts/' (gateway shim scripts) to CODER_PATTERNS.blocked_patterns as defense-in-depth? The HITL feedback-Q3 resolution declined preemptive blocks on hypothetical .egg-state/ subdirs, but .github/ and sandbox/scripts/ are real, present-today directories with specific sensitivity. Reviewer-plan should ACK or NACK this explicit call-out."
+    },
+    {
+      "area": "Backward compatibility of phase-permissions.json implementer -> coder/tester/documenter split",
+      "question": "The feedback-Q1 resolution directs a three-role split. But contract/audit code in shared/egg_contracts/roles.py and orchestrator still treat 'implementer' as a first-class role. Should the split ADD three new entries (keeping 'implementer' for legacy code paths) or REPLACE the implementer entry? Task planner's task list should make this explicit so the coder doesn't accidentally regress test coverage for the legacy role string."
+    },
+    {
+      "area": "Matcher fix scope",
+      "question": "The matcher bug fix for '**/<dir>/' affects every role that uses such patterns. Reviewer-plan should confirm the fix is accompanied by a regression test for each '**/<dir>/' usage site (tester allowlist, coder blocklist, documenter blocklist, conflict_resolver allowlist) and that the PR does not change any role's effective scope by accident."
+    },
+    {
+      "area": "Path-traversal interaction with ['**'] catch-all",
+      "question": "Verify the sentinel '__INVALID_PATH_TRAVERSAL__' returned by _normalize_path is treated as unmatchable by the new allowed_patterns=['**']. A belt-and-suspenders explicit check in can_write is recommended."
+    }
+  ],
+  "security_posture_summary": {
+    "before": "Coder is allow-by-extension. Extensionless and uncommon files are implicitly denied (caused #1901). .github/ yml files are allowed via '**/*.yml'. .egg-state/contracts/ is explicitly blocked; other .egg-state/ subdirs are implicitly allowed by the extension patterns (e.g. .egg-state/drafts/*.md is allowed by nothing, but .egg-state/oversight/*.json IS allowed).",
+    "after": "Coder is allow-by-default-within-non-blocked. All of .egg-state/ is blocked with .egg-state/agent-outputs/ carved out. docs/, tests/, and markdown are blocked. Matcher fix tightens nested tests/ blocks. Net: coder loses write access to .egg-state/drafts/, .egg-state/oversight/, .egg-state/reviews/, .egg-state/pipelines/, .egg-state/brc-history/ (all previously accidentally allowed for JSON). Coder gains access to extensionless scripts (bin/egg, sandbox/scripts/*) and top-level non-dotfiles (LICENSE, .dockerignore).",
+    "net_change": "Security posture is narrower in ways we want (.egg-state/ tightened) and broader in ways we want (extensionless files unblocked). Net-positive with the mitigations listed above applied."
+  },
+  "rollback_plan": {
+    "overall_strategy": "Every change in this PR is a pure code/config edit with no data migration. Rollback is a single git revert of the PR merge commit + gateway redeploy. No state cleanup, no contract edits, no worktree cleanup.",
+    "partial_rollback_options": [
+      "Keep CODER_PATTERNS rewrite but revert matcher fix: rewrite coder's blocklist to use '**/tests/**'-style patterns instead of '**/tests/', avoiding dependence on the matcher change.",
+      "Keep CODER_PATTERNS rewrite but revert phase-permissions.json split: ensure the legacy implementer entry remains and no tests break.",
+      "Keep phase-permissions.json split but revert CODER_PATTERNS rewrite: the three-role split is independently useful for the gateway audit layer."
+    ],
+    "monitoring_post_deploy": "Tail gateway logs for 24h looking for 'push_denied_agent_role_restriction' and 'push_denied_protected_files' events. Investigate any denies against bin/egg or sandbox/egg (the #1901 repro path — should now succeed) and any allows against .egg-state/contracts/ or docs/ (should still be denied)."
+  },
+  "external_research_note": "Skipped: this issue involves NO third-party dependencies, NO new libraries, NO external services, and NO cryptographic primitives. It is a pure internal refactor of per-role file-access policy in Python. Web searches for 'deny-by-default glob pattern matcher vulnerabilities' or 'fnmatch security' would not yield issue-specific information, and the resolved HITL decisions already capture the relevant tradeoffs.",
+  "artifacts": [
+    ".egg-state/agent-outputs/1901-risk_analyst-output.json"
+  ],
+  "source_review": {
+    "files_read": [
+      "shared/egg_restrictions/patterns.py (full)",
+      "shared/egg_container/__init__.py (around _IMPLEMENT_READONLY_DIRS)",
+      "gateway/phase_filter.py (check_file_restrictions)",
+      "gateway/gateway.py (check_file_restrictions call site)",
+      ".egg/phase-permissions.json (full)",
+      ".egg-state/drafts/1901-analysis.md (full)",
+      ".egg-state/contracts/issue-1901.json (resolved decisions)",
+      "gateway/tests/test_agent_restrictions_patterns.py (key invariants)"
+    ],
+    "key_files_at_risk": [
+      "shared/egg_restrictions/patterns.py",
+      "shared/egg_container/__init__.py",
+      ".egg/phase-permissions.json",
+      "gateway/phase_filter.py (no-op, but exercised)",
+      "gateway/gateway.py (no-op, but exercised)",
+      "shared/tests/test_egg_restrictions.py",
+      "gateway/tests/test_agent_restrictions_patterns.py",
+      "gateway/tests/test_agent_restrictions_comprehensive.py",
+      "gateway/tests/test_phase_filter_restrictions.py",
+      "tests/shared/egg_container/test_marker_files.py",
+      "tests/shared/egg_container/test_phase_mounts.py"
+    ]
+  }
+}
