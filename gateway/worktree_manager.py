@@ -922,16 +922,23 @@ class WorktreeManager:
                 results.append(result)
         else:
             # Clean all phase worktrees for this container by scanning.
-            # Use container_id + "-" as prefix to match any phase_id format
-            # (phase IDs may not start with "phase-").
+            # Match "{container_id}-{phase}" where {phase} has the shape
+            # of a sanitized phase ID ([a-zA-Z0-9-]+).  A naive
+            # `startswith(prefix)` could collide if another container_id
+            # extends this one (same bug class as #1865).  In practice
+            # the risk is low because container_id already includes the
+            # agent role suffix (e.g. "issue-1758-coder"), but
+            # constraining the suffix shape adds a layer of safety.
             worktree_dir = self.worktree_base / repo_name
             if worktree_dir.exists():
-                prefix = f"{container_id}-"
+                phase_pattern = re.compile(
+                    rf"{re.escape(container_id)}-[a-zA-Z0-9-]+"
+                )
                 for entry in worktree_dir.iterdir():
                     if (
-                        entry.name.startswith(prefix)
+                        entry.is_dir()
                         and entry.name != container_id
-                        and entry.is_dir()
+                        and phase_pattern.fullmatch(entry.name)
                     ):
                         # Extract the phase container ID from dir name
                         phase_container_id = entry.name
@@ -1264,7 +1271,10 @@ class WorktreeManager:
         # match collides when one pipeline ID is a prefix of another —
         # e.g. `issue-1758` would spuriously match
         # `issue-1758-worktree-fix-tester` (#1865).
-        per_agent = re.compile(rf"{re.escape(pipeline_id)}-[a-z_]+\Z")
+        #
+        # Assumes AgentRole values match [a-z_]+ — update if the enum
+        # gains values with digits or other characters.
+        per_agent = re.compile(rf"{re.escape(pipeline_id)}-[a-z_]+")
         for entry in self.worktree_base.iterdir():
             if not entry.is_dir():
                 continue
