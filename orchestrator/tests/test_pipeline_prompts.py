@@ -2324,7 +2324,13 @@ class TestBuildReviewPrompt:
         assert "CAN update the contract" not in prompt
 
     def test_delta_review_directive(self):
-        """Re-review with last_reviewed_commit includes delta review section."""
+        """Re-review with last_reviewed_commit includes delta review section.
+
+        See issue #1758: the delta directive now uses
+        `git log <sha>..HEAD --not origin/<base> -p` (which excludes merged-in
+        base-branch commits) instead of the old two-dot `git diff <sha>..HEAD`
+        form, and adds a `git fetch origin <base>` nudge.
+        """
         prompt = _build_review_prompt(
             phase="implement",
             pipeline_id="test-pipe",
@@ -2335,8 +2341,13 @@ class TestBuildReviewPrompt:
             last_reviewed_commit="abc123",
         )
         assert "## Delta Review" in prompt
-        assert "git diff abc123..HEAD" in prompt
+        # New base-excluding command form appears in the directive
+        assert "git log abc123..HEAD --not origin/main -p" in prompt
+        # Shallow-checkout nudge
+        assert "git fetch origin main" in prompt
         assert "cycle 2" in prompt
+        # Old two-dot diff form must not appear on the delta path
+        assert "git diff abc123..HEAD" not in prompt
 
     def test_first_review_no_delta_section(self):
         """First review cycle does not include delta review section."""
@@ -3111,7 +3122,9 @@ class TestReviewPromptBaseBranch:
         assert "HEAD~10" not in prompt
 
     def test_delta_review_still_uses_commit_sha(self):
-        """Delta review (cycle > 1 with last_reviewed_commit) still uses commit SHA."""
+        """Delta review (cycle > 1 with last_reviewed_commit) uses commit SHA in the
+        new base-excluding `git log` form (issue #1758).
+        """
         prompt = _build_review_prompt(
             phase="implement",
             pipeline_id="test-pipe",
@@ -3122,9 +3135,54 @@ class TestReviewPromptBaseBranch:
             last_reviewed_commit="abc123def",
             base_branch="main",
         )
-        assert "git diff abc123def..HEAD" in prompt
-        # base_branch diff should NOT be the primary diff command for delta reviews
+        # The commit SHA is still the left endpoint, but the command now excludes
+        # commits reachable from origin/<base>
+        assert "git log abc123def..HEAD --not origin/main -p" in prompt
+        # Three-dot base_branch diff should NOT be the primary diff command for delta reviews
         assert "origin/main...HEAD" not in prompt
+        # The old two-dot diff form is gone
+        assert "git diff abc123def..HEAD" not in prompt
+
+    def test_delta_review_with_non_default_base_branch(self):
+        """Delta review threads a non-main base_branch (e.g. `develop`) through
+        to both the diff command and the fetch nudge. Regression test for
+        issue #1758: without correct threading, the command would default to
+        `origin/main` and would still wrongly include develop-branch merges.
+        """
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="code",
+            issue_number=100,
+            review_cycle=2,
+            last_reviewed_commit="deadbeef",
+            base_branch="develop",
+        )
+        # The base ref in the command must match the PR's actual base branch
+        assert "git log deadbeef..HEAD --not origin/develop -p" in prompt
+        # The fetch nudge in the Delta Review directive must also use develop
+        assert "git fetch origin develop" in prompt
+        # origin/main must NOT appear on the delta path when the base is develop
+        assert "origin/main" not in prompt
+        # Old two-dot diff form must be gone
+        assert "git diff deadbeef..HEAD" not in prompt
+
+    def test_delta_review_contract_reviewer_uses_base_branch(self):
+        """Contract reviewer also threads base_branch through the delta command."""
+        prompt = _build_review_prompt(
+            phase="implement",
+            pipeline_id="test-pipe",
+            pipeline_mode="issue",
+            reviewer_type="contract",
+            issue_number=100,
+            review_cycle=2,
+            last_reviewed_commit="cafef00d",
+            base_branch="develop",
+        )
+        assert "git log cafef00d..HEAD --not origin/develop -p" in prompt
+        assert "git fetch origin develop" in prompt
+        assert "git diff cafef00d..HEAD" not in prompt
 
     def test_contract_reviewer_uses_base_branch(self):
         """Contract reviewer also uses base_branch for diff command."""
