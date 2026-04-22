@@ -267,6 +267,12 @@ phase_api = _load_module_with_replaced_imports(
     },
 )
 
+# mem_trace has no relative imports to other gateway modules
+mem_trace = _load_module_with_replaced_imports(
+    "mem_trace",
+    GATEWAY_DIR / "mem_trace.py",
+)
+
 # gateway imports from all
 gateway = _load_module_with_replaced_imports(
     "gateway",
