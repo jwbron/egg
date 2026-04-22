@@ -361,12 +361,12 @@ k3s-setup:  ## Install k3s with Calico CNI
 k3s-secrets:  ## Create gateway secrets from ~/.config/egg/
 	@if [ ! -f "$$HOME/.config/egg/launcher-secret" ]; then \
 		echo "ERROR: $$HOME/.config/egg/launcher-secret not found."; \
-		echo "Run 'bin/egg-deploy init' or 'egg --setup' to generate it."; \
+		echo "Run 'bin/egg-deploy init' to generate it."; \
 		exit 1; \
 	fi
 	@if [ ! -f "$$HOME/.config/egg/lifecycle-secret" ]; then \
 		echo "ERROR: $$HOME/.config/egg/lifecycle-secret not found."; \
-		echo "Run 'egg --setup' to generate it (required by #1769 HITL auth)."; \
+		echo "Run 'bin/egg-deploy init' to generate it (required by #1769 HITL auth)."; \
 		exit 1; \
 	fi
 	@echo "==> Creating gateway-secrets in egg-system namespace..."

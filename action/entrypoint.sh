@@ -119,7 +119,7 @@ fi
 export PYTHONPATH="${SCRIPT_DIR}/../sandbox:${SCRIPT_DIR}/../shared${PYTHONPATH:+:$PYTHONPATH}"
 
 set +e
-python3 -c "from egg_lib.cli import gha_exec; import sys; sys.exit(gha_exec())" \
+python3 -c "from egg_lib.gha_exec import gha_exec; import sys; sys.exit(gha_exec())" \
   2>&1 | tee "$LOG_FILE"
 SANDBOX_EXIT_CODE=${PIPESTATUS[0]}
 set -e
