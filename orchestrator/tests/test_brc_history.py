@@ -1,10 +1,11 @@
 """
-Tests for BRC history persistence: _write_brc_history and BRC summary in _build_pr_body.
+Tests for BRC history persistence: _write_brc_history and the PR-body
+one-line pointer to committed transcripts.
 
 Covers:
 - _write_brc_history: file creation with BRC messages, no-op on empty store
-- _build_pr_body: BRC Consensus Summary section presence/absence
-- Edge cases: mixed message types, multiple phases, character limits
+- _build_pr_body: one-line link to committed brc-history/*.md files (#1828)
+- Edge cases: mixed message types, multiple phases
 """
 
 import json
@@ -460,233 +461,6 @@ class TestWriteBrcHistory:
             assert list(history_dir.iterdir()) == [], "No file when no messages match phase"
 
 
-class TestBuildPrBodyBrcSummary:
-    """Tests for BRC Consensus Summary in _build_pr_body."""
-
-    def test_includes_brc_summary_when_messages_exist(self, tmp_path):
-        """PR body includes '## BRC Consensus Summary' when BRC messages exist."""
-        from routes.pipelines import _build_pr_body
-
-        pipeline = _make_pipeline()
-        _setup_contract(tmp_path)
-
-        messages = _make_brc_messages(pipeline_id="issue-42", phase="implement")
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            title, body = _build_pr_body(pipeline, tmp_path)
-
-        assert "## BRC Consensus Summary" in body
-
-    def test_no_brc_section_when_no_messages(self, tmp_path):
-        """PR body omits BRC section when no BRC messages exist."""
-        from routes.pipelines import _build_pr_body
-
-        pipeline = _make_pipeline()
-        _setup_contract(tmp_path)
-
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = []
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            title, body = _build_pr_body(pipeline, tmp_path)
-
-        assert "BRC Consensus Summary" not in body
-
-    def test_no_brc_section_when_only_non_brc_messages(self, tmp_path):
-        """PR body omits BRC section when only non-BRC messages exist."""
-        from routes.pipelines import _build_pr_body
-
-        pipeline = _make_pipeline()
-        _setup_contract(tmp_path)
-
-        non_brc_messages = [
-            _make_brc_message(
-                pipeline_id="issue-42",
-                message_type=MessageType.PROGRESS,
-                subject="Progress",
-                body="Working",
-                phase="implement",
-            ),
-        ]
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = non_brc_messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            title, body = _build_pr_body(pipeline, tmp_path)
-
-        assert "BRC Consensus Summary" not in body
-
-    def test_brc_summary_before_authored_by(self, tmp_path):
-        """BRC summary appears before 'Authored-by: egg' footer."""
-        from routes.pipelines import _build_pr_body
-
-        pipeline = _make_pipeline()
-        _setup_contract(tmp_path)
-
-        messages = _make_brc_messages(pipeline_id="issue-42", phase="implement")
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            title, body = _build_pr_body(pipeline, tmp_path)
-
-        brc_pos = body.index("BRC Consensus Summary")
-        authored_pos = body.index("Authored-by: egg")
-        assert brc_pos < authored_pos, "BRC summary must appear before Authored-by footer"
-
-    def test_brc_summary_under_40000_chars(self, tmp_path):
-        """BRC summary section stays under ~40000 characters (#1717 raised cap)."""
-        from routes.pipelines import _build_pr_body
-
-        pipeline = _make_pipeline()
-        _setup_contract(tmp_path)
-
-        # Create many BRC messages across multiple phases to stress the limit
-        messages = []
-        for phase in ["refine", "plan", "implement"]:
-            for i in range(20):
-                messages.append(
-                    _make_brc_message(
-                        pipeline_id="issue-42",
-                        from_role=f"agent_{i % 5}",
-                        message_type=MessageType.CONSENSUS_PROPOSE
-                        if i % 4 == 0
-                        else MessageType.CONSENSUS_ACK,
-                        subject=f"Message {i} in {phase}",
-                        body=f"Details for message {i} " * 10,
-                        phase=phase,
-                        timestamp=datetime(2026, 4, 8, 12, i, 0, tzinfo=UTC),
-                    )
-                )
-
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            title, body = _build_pr_body(pipeline, tmp_path)
-
-        # Extract just the BRC summary section
-        if "## BRC Consensus Summary" in body:
-            brc_start = body.index("## BRC Consensus Summary")
-            # Find the next section or end
-            rest = body[brc_start:]
-            # Find the next ## header or Authored-by
-            next_section = len(rest)
-            for marker in ["## Pipeline Context", "## Test Plan", "Authored-by: egg"]:
-                if marker in rest[1:]:
-                    idx = rest.index(marker, 1)
-                    if idx < next_section:
-                        next_section = idx
-            brc_section = rest[:next_section].strip()
-            assert len(brc_section) <= 40000, (
-                f"BRC summary section is {len(brc_section)} chars, should be <=40000"
-            )
-
-    def test_brc_summary_shows_phase_grouping(self, tmp_path):
-        """BRC summary groups messages by phase."""
-        from routes.pipelines import _build_pr_body
-
-        pipeline = _make_pipeline()
-        _setup_contract(tmp_path)
-
-        messages = _make_brc_messages(pipeline_id="issue-42", phase="implement") + [
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="planner",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                subject="Plan proposal",
-                body="Planning done",
-                phase="plan",
-                timestamp=datetime(2026, 4, 7, 12, 0, 0, tzinfo=UTC),
-            ),
-        ]
-
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            title, body = _build_pr_body(pipeline, tmp_path)
-
-        assert "## BRC Consensus Summary" in body
-        # Should show multiple phases
-        assert "implement" in body.lower()
-        assert "plan" in body.lower()
-
-    def test_brc_summary_shows_agent_roles(self, tmp_path):
-        """BRC summary mentions agent roles involved."""
-        from routes.pipelines import _build_pr_body
-
-        pipeline = _make_pipeline()
-        _setup_contract(tmp_path)
-
-        messages = _make_brc_messages(pipeline_id="issue-42", phase="implement")
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            title, body = _build_pr_body(pipeline, tmp_path)
-
-        brc_start = body.index("## BRC Consensus Summary")
-        brc_section = body[brc_start:]
-        # Should mention the roles
-        assert "coder" in brc_section
-        assert "reviewer_code" in brc_section or "tester" in brc_section
-
-    def test_existing_body_structure_preserved(self, tmp_path):
-        """Existing PR body structure (description, test plan, etc.) is preserved."""
-        from routes.pipelines import _build_pr_body
-
-        pipeline = _make_pipeline()
-        _setup_contract(tmp_path)
-
-        messages = _make_brc_messages(pipeline_id="issue-42", phase="implement")
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            title, body = _build_pr_body(pipeline, tmp_path)
-
-        # Existing sections should still be present
-        assert "Fixes a bypass" in body  # PR description from contract
-        assert "Authored-by: egg" in body
-        assert title == "Fix authentication bypass in login flow"
-
-    def test_handles_message_store_exception_gracefully(self, tmp_path):
-        """If get_message_store raises, _build_pr_body still returns valid PR body."""
-        from routes.pipelines import _build_pr_body
-
-        pipeline = _make_pipeline()
-        _setup_contract(tmp_path)
-
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.side_effect = Exception("Redis unavailable")
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            title, body = _build_pr_body(pipeline, tmp_path)
-
-        # Should still produce a valid PR body without BRC section
-        assert "Authored-by: egg" in body
-        assert "BRC Consensus Summary" not in body
-
-    def test_body_stays_under_github_limit(self, tmp_path):
-        """Full body with BRC summary stays under GitHub's 65536 char limit."""
-        from routes.pipelines import _build_pr_body
-
-        pipeline = _make_pipeline()
-        _setup_contract(tmp_path)
-
-        messages = _make_brc_messages(pipeline_id="issue-42", phase="implement")
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            title, body = _build_pr_body(pipeline, tmp_path)
-
-        assert len(body) < 65_536
-
-
 class TestWriteBrcHistoryEdgeCases:
     """Edge case tests for _write_brc_history."""
 
@@ -751,306 +525,6 @@ class TestWriteBrcHistoryEdgeCases:
         assert expected_path.exists()
         content = expected_path.read_text()
         assert "CONSENSUS_CONFIRMED" in content
-
-
-class TestBuildBrcConsensusSummary:
-    """Tests for _build_brc_consensus_summary helper."""
-
-    def test_returns_empty_string_when_no_messages(self):
-        """Returns empty string when message store has no messages."""
-        from routes.pipelines import _build_brc_consensus_summary
-
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = []
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        assert result == ""
-
-    def test_returns_empty_string_when_only_non_brc_messages(self):
-        """Returns empty string when only non-BRC messages exist."""
-        from routes.pipelines import _build_brc_consensus_summary
-
-        non_brc = [
-            _make_brc_message(
-                pipeline_id="issue-42",
-                message_type=MessageType.PROGRESS,
-                subject="Progress",
-                body="Working",
-            ),
-        ]
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = non_brc
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        assert result == ""
-
-    def test_includes_header(self):
-        """Summary starts with '## BRC Consensus Summary'."""
-        from routes.pipelines import _build_brc_consensus_summary
-
-        messages = _make_brc_messages(pipeline_id="issue-42", phase="implement")
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        assert result.startswith("## BRC Consensus Summary")
-
-    def test_shows_proposal_and_ack_counts(self):
-        """Summary includes proposal and ACK counts."""
-        from routes.pipelines import _build_brc_consensus_summary
-
-        messages = _make_brc_messages(pipeline_id="issue-42", phase="implement")
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        assert "proposal" in result.lower()
-        assert "ACK" in result
-
-    def test_shows_nack_counts(self):
-        """Summary includes NACK counts when present."""
-        from routes.pipelines import _build_brc_consensus_summary
-
-        messages = [
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                phase="implement",
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="reviewer_code",
-                message_type=MessageType.CONSENSUS_NACK,
-                body="Missing tests",
-                phase="implement",
-            ),
-        ]
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        assert "NACK" in result
-
-    def test_consensus_reached_indicator(self):
-        """Shows consensus reached when all roles have CONFIRMED."""
-        from routes.pipelines import _build_brc_consensus_summary
-
-        messages = _make_brc_messages(pipeline_id="issue-42", phase="implement")
-        # Add confirmations for all roles
-        for role in ["reviewer_code", "tester"]:
-            messages.append(
-                _make_brc_message(
-                    pipeline_id="issue-42",
-                    from_role=role,
-                    message_type=MessageType.CONSENSUS_CONFIRMED,
-                    subject=f"Confirmed by {role}",
-                    body="",
-                    phase="implement",
-                    timestamp=datetime(2026, 4, 8, 12, 20, 0, tzinfo=UTC),
-                )
-            )
-
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        assert "Consensus reached" in result or "consensus reached" in result.lower()
-
-    def test_capped_at_40000_chars(self):
-        """Summary is capped at approximately 40000 characters (#1717 raised cap).
-
-        Truncation still happens at phase-block boundaries to keep markdown intact.
-        """
-        from routes.pipelines import _build_brc_consensus_summary
-
-        # Create many messages to exceed the cap
-        messages = []
-        for phase in ["refine", "plan", "implement", "test", "review"]:
-            for i in range(30):
-                messages.append(
-                    _make_brc_message(
-                        pipeline_id="issue-42",
-                        from_role=f"long_agent_role_name_{i}",
-                        message_type=MessageType.CONSENSUS_PROPOSE
-                        if i % 3 == 0
-                        else MessageType.CONSENSUS_ACK,
-                        subject=f"Message {i} with a somewhat longer subject line",
-                        body=f"Body content for message {i} " * 50,
-                        phase=phase,
-                    )
-                )
-
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        # Truncated at phase-block boundary — must be under 40000 chars
-        assert len(result) <= 40000
-
-    def test_groups_by_phase(self):
-        """Messages from different phases appear in separate groups."""
-        from routes.pipelines import _build_brc_consensus_summary
-
-        messages = [
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                phase="plan",
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                phase="implement",
-            ),
-        ]
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        assert "plan" in result
-        assert "implement" in result
-
-    def test_returns_empty_on_store_exception(self):
-        """Returns empty string when message store raises exception."""
-        from routes.pipelines import _build_brc_consensus_summary
-
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.side_effect = Exception("Redis down")
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        assert result == ""
-
-    def test_consensus_reached_when_orchestrator_sent_re_review(self):
-        """Regression for #1706: orchestrator CONSENSUS_RE_REVIEW messages must
-        not cause the consensus check to fail.
-
-        The orchestrator sends BRC coordination messages (e.g.,
-        CONSENSUS_RE_REVIEW) but never sends CONSENSUS_CONFIRMED. If the
-        summary counts orchestrator as a participant, consensus will always
-        appear unreached after a re-review cycle, even when every real agent
-        has confirmed.
-
-        Since #1717, the summary inlines final-round content, so orchestrator
-        may appear in the body of inline messages (e.g., RE_REVIEW). The key
-        assertion is that consensus is shown as reached and that orchestrator
-        is excluded from the *participant role list* on the first line.
-        """
-        from routes.pipelines import _build_brc_consensus_summary
-
-        messages = [
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                phase="implement",
-                timestamp=datetime(2026, 4, 8, 12, 0, 0, tzinfo=UTC),
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="reviewer_code",
-                message_type=MessageType.CONSENSUS_ACK,
-                phase="implement",
-                timestamp=datetime(2026, 4, 8, 12, 5, 0, tzinfo=UTC),
-            ),
-            # Orchestrator issues a re-review directive — it is a coordinator,
-            # not a participant, and never confirms.
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="orchestrator",
-                message_type=MessageType.CONSENSUS_RE_REVIEW,
-                phase="implement",
-                timestamp=datetime(2026, 4, 8, 12, 7, 0, tzinfo=UTC),
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_CONFIRMED,
-                phase="implement",
-                timestamp=datetime(2026, 4, 8, 12, 15, 0, tzinfo=UTC),
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="reviewer_code",
-                message_type=MessageType.CONSENSUS_CONFIRMED,
-                phase="implement",
-                timestamp=datetime(2026, 4, 8, 12, 16, 0, tzinfo=UTC),
-            ),
-        ]
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        assert "Consensus reached" in result
-        assert "not reached" not in result
-        # Orchestrator should not appear in the participant role list (first line
-        # of the phase block: "**implement**: coder, reviewer_code")
-        first_phase_line = [line for line in result.split("\n") if line.startswith("**implement**")]
-        assert first_phase_line, "Expected a line starting with **implement**"
-        assert "orchestrator" not in first_phase_line[0]
-
-    def test_consensus_not_reached_ignores_orchestrator_presence(self):
-        """Orchestrator-only absence from CONFIRMED should not change the
-        consensus verdict: if a real agent hasn't confirmed, consensus is
-        still unreached regardless of orchestrator activity."""
-        from routes.pipelines import _build_brc_consensus_summary
-
-        messages = [
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                phase="implement",
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="reviewer_code",
-                message_type=MessageType.CONSENSUS_ACK,
-                phase="implement",
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="orchestrator",
-                message_type=MessageType.CONSENSUS_RE_REVIEW,
-                phase="implement",
-            ),
-            # Only coder confirms — reviewer_code hasn't.
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_CONFIRMED,
-                phase="implement",
-            ),
-        ]
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        assert "not reached" in result
 
 
 class TestWriteBrcHistoryLossless:
@@ -1293,68 +767,6 @@ class TestWriteBrcHistoryLossless:
         content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
         assert "OVERSEER_ALERT" in content
 
-    def test_handoff_excluded_from_summary_counts(self):
-        """HANDOFF messages appear in history but NOT in the consensus summary counts."""
-        from routes.pipelines import _build_brc_consensus_summary
-
-        messages = [
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                subject="Proposal",
-                body="Work",
-                phase="implement",
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.HANDOFF,
-                subject="Handoff",
-                body="Handing off",
-                phase="implement",
-            ),
-        ]
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        # Summary should only count CONSENSUS_* types
-        assert "1 proposal" in result
-        assert "HANDOFF" not in result
-
-    def test_overseer_alert_excluded_from_summary_counts(self):
-        """OVERSEER_ALERT messages appear in history but NOT in the consensus summary."""
-        from routes.pipelines import _build_brc_consensus_summary
-
-        messages = [
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                subject="Proposal",
-                body="Work",
-                phase="implement",
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="orchestrator",
-                message_type=MessageType.OVERSEER_ALERT,
-                subject="Alert",
-                body="Stall detected",
-                phase="implement",
-            ),
-        ]
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        assert "OVERSEER_ALERT" not in result
-
 
 class TestJsonCompanionFile:
     """Tests for the JSON companion file written by _write_brc_history (#1717)."""
@@ -1541,272 +953,25 @@ class TestJsonCompanionFile:
         assert md_path.exists(), "Markdown file should still be written despite JSON failure"
 
 
-class TestBrcConsensusSummaryInline:
-    """Tests for inline content and artifact links in _build_brc_consensus_summary (#1717)."""
+class TestBrcHistoryTypes:
+    """Tests for BRC_HISTORY_TYPES — the set of message types persisted to history files."""
 
-    def test_final_round_proposal_body_inline(self):
-        """PR body summary contains the final-round proposal body inline."""
-        from routes.pipelines import _build_brc_consensus_summary
+    def test_contains_all_consensus_types(self):
+        """BRC_HISTORY_TYPES includes every CONSENSUS_* message type."""
+        from routes.pipelines import BRC_HISTORY_TYPES
 
-        messages = [
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                subject="Proposal",
-                body="Implemented auth fix with input validation",
-                phase="implement",
-                metadata={"version": 1},
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="reviewer_code",
-                message_type=MessageType.CONSENSUS_ACK,
-                subject="ACK",
-                body="Code looks clean",
-                phase="implement",
-                metadata={"version": 1},
-            ),
-        ]
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
+        consensus_types = {
+            "CONSENSUS_PROPOSE",
+            "CONSENSUS_ACK",
+            "CONSENSUS_NACK",
+            "CONSENSUS_WITHDRAW",
+            "CONSENSUS_CONFIRMED",
+            "CONSENSUS_RE_REVIEW",
+        }
+        assert consensus_types <= BRC_HISTORY_TYPES
 
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        assert "Implemented auth fix with input validation" in result
-        assert "Code looks clean" in result
-
-    def test_final_round_nack_rationale_inline(self):
-        """PR body summary contains final-round NACK rationale inline."""
-        from routes.pipelines import _build_brc_consensus_summary
-
-        messages = [
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                subject="Proposal",
-                body="First attempt",
-                phase="implement",
-                metadata={"version": 1},
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="reviewer_code",
-                message_type=MessageType.CONSENSUS_NACK,
-                subject="NACK",
-                body="Missing error handling in auth flow",
-                phase="implement",
-                metadata={"version": 1},
-            ),
-        ]
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        assert "Missing error handling in auth flow" in result
-
-    def test_earlier_rounds_wrapped_in_details(self):
-        """Older/earlier-round messages are wrapped in <details> blocks."""
-        from routes.pipelines import _build_brc_consensus_summary
-
-        messages = [
-            # Round 1 (earlier)
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                subject="First proposal",
-                body="First attempt",
-                phase="implement",
-                metadata={"version": 1},
-                timestamp=datetime(2026, 4, 8, 12, 0, 0, tzinfo=UTC),
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="reviewer_code",
-                message_type=MessageType.CONSENSUS_NACK,
-                subject="NACK round 1",
-                body="Missing tests",
-                phase="implement",
-                metadata={"version": 1},
-                timestamp=datetime(2026, 4, 8, 12, 5, 0, tzinfo=UTC),
-            ),
-            # Round 2 (final)
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                subject="Second proposal",
-                body="Fixed with tests",
-                phase="implement",
-                metadata={"version": 2},
-                timestamp=datetime(2026, 4, 8, 13, 0, 0, tzinfo=UTC),
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="reviewer_code",
-                message_type=MessageType.CONSENSUS_ACK,
-                subject="ACK round 2",
-                body="All good now",
-                phase="implement",
-                metadata={"version": 2},
-                timestamp=datetime(2026, 4, 8, 13, 5, 0, tzinfo=UTC),
-            ),
-        ]
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        # Final round content should be inline (not in <details>)
-        assert "Fixed with tests" in result
-        assert "All good now" in result
-
-        # Earlier round content should be in <details>
-        assert "<details>" in result
-        assert "Earlier rounds" in result
-        assert "First attempt" in result or "Missing tests" in result
-
-    def test_artifact_links_present(self):
-        """Per-phase artifact links to .md and .json files are present."""
-        from routes.pipelines import _build_brc_consensus_summary
-
-        messages = [
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                subject="Proposal",
-                body="Work done",
-                phase="implement",
-            ),
-        ]
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42", identifier=42)
-
-        assert "Full record:" in result
-        assert ".egg-state/brc-history/42-implement.md" in result
-        assert ".egg-state/brc-history/42-implement.json" in result
-
-    def test_artifact_links_omitted_without_identifier(self):
-        """Artifact links are omitted when identifier is None."""
-        from routes.pipelines import _build_brc_consensus_summary
-
-        messages = [
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                subject="Proposal",
-                body="Work done",
-                phase="implement",
-            ),
-        ]
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        assert "Full record:" not in result
-
-    def test_truncated_body_has_pointer(self):
-        """When an individual body exceeds the inline limit, it is truncated with a pointer."""
-        from routes.pipelines import _build_brc_consensus_summary
-
-        long_body = "X" * 3000  # Exceeds _MAX_BODY_INLINE of 2000
-        messages = [
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                subject="Proposal",
-                body=long_body,
-                phase="implement",
-            ),
-        ]
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        # Should contain truncated body with pointer
-        assert "full content in brc-history/*.md" in result
-        # Original 3000-char body should NOT be fully present
-        assert long_body not in result
-
-    def test_no_empty_metadata_yaml_block(self, tmp_path):
-        """Messages with empty metadata should not have a YAML block."""
-        from routes.pipelines import _write_brc_history
-
-        messages = [
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_CONFIRMED,
-                subject="Confirmed",
-                body="",
-                phase="implement",
-                metadata={},
-            ),
-        ]
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            _write_brc_history(tmp_path, "issue-42", "implement", 42)
-
-        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
-        # Should still have a yaml block with id and phase, but no metadata key
-        assert "````yaml" in content
-        assert "id:" in content
-        assert "phase:" in content
-        # metadata key should NOT appear since it's empty
-        assert "metadata:" not in content
-
-
-class TestBrcMessageTypeConstants:
-    """Tests for BRC_SUMMARY_TYPES, BRC_HISTORY_TYPES, and backward-compat alias."""
-
-    def test_brc_message_types_is_alias_of_summary_types(self):
-        """BRC_MESSAGE_TYPES must remain a backward-compatible alias of BRC_SUMMARY_TYPES."""
-        from routes.pipelines import BRC_MESSAGE_TYPES, BRC_SUMMARY_TYPES
-
-        assert BRC_MESSAGE_TYPES is BRC_SUMMARY_TYPES
-
-    def test_brc_summary_types_contains_only_consensus_types(self):
-        """BRC_SUMMARY_TYPES must contain only CONSENSUS_* message types."""
-        from routes.pipelines import BRC_SUMMARY_TYPES
-
-        expected = frozenset(
-            {
-                "CONSENSUS_PROPOSE",
-                "CONSENSUS_ACK",
-                "CONSENSUS_NACK",
-                "CONSENSUS_WITHDRAW",
-                "CONSENSUS_CONFIRMED",
-                "CONSENSUS_RE_REVIEW",
-            }
-        )
-        assert BRC_SUMMARY_TYPES == expected
-
-    def test_brc_history_types_is_superset_of_summary_types(self):
-        """BRC_HISTORY_TYPES must be a strict superset of BRC_SUMMARY_TYPES."""
-        from routes.pipelines import BRC_HISTORY_TYPES, BRC_SUMMARY_TYPES
-
-        assert BRC_SUMMARY_TYPES < BRC_HISTORY_TYPES  # strict subset
-
-    def test_brc_history_types_includes_non_consensus_types(self):
-        """BRC_HISTORY_TYPES must include STATUS, HANDOFF, QUESTION, AGENT_FAILED, NUDGE, OVERSEER_ALERT."""
+    def test_includes_non_consensus_types(self):
+        """BRC_HISTORY_TYPES includes STATUS, HANDOFF, QUESTION, AGENT_FAILED, NUDGE, OVERSEER_ALERT."""
         from routes.pipelines import BRC_HISTORY_TYPES
 
         non_consensus_types = {
@@ -1820,7 +985,7 @@ class TestBrcMessageTypeConstants:
         assert non_consensus_types <= BRC_HISTORY_TYPES
 
     def test_progress_not_in_history_types(self):
-        """PROGRESS must NOT be in BRC_HISTORY_TYPES — it is not BRC-adjacent."""
+        """PROGRESS is not BRC-adjacent and must NOT appear in BRC_HISTORY_TYPES."""
         from routes.pipelines import BRC_HISTORY_TYPES
 
         assert "PROGRESS" not in BRC_HISTORY_TYPES
@@ -1931,225 +1096,6 @@ class TestYamlMetadataRoundTrip:
                 yaml_lines.append(line)
 
         assert found_yaml, "Expected at least one YAML block in the output"
-
-
-class TestNackPayloadReasonFallback:
-    """Tests for NACK rationale extraction from metadata.payload.reason when body is empty."""
-
-    def test_nack_body_empty_falls_back_to_metadata_payload_reason(self):
-        """When a NACK has empty body, _build_brc_consensus_summary uses metadata.payload.reason."""
-        from routes.pipelines import _build_brc_consensus_summary
-
-        messages = [
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                subject="Proposal",
-                body="Implementation done",
-                phase="implement",
-                metadata={"version": 1},
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="reviewer_code",
-                message_type=MessageType.CONSENSUS_NACK,
-                subject="NACK",
-                body="",  # Empty body
-                phase="implement",
-                metadata={
-                    "version": 1,
-                    "payload": {"reason": "Missing input validation on auth endpoint"},
-                },
-            ),
-        ]
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        assert "Missing input validation on auth endpoint" in result
-
-    def test_nack_payload_reason_not_dict_is_handled(self):
-        """When metadata.payload is not a dict, NACK with empty body shows no content."""
-        from routes.pipelines import _build_brc_consensus_summary
-
-        messages = [
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                subject="Proposal",
-                body="Done",
-                phase="implement",
-                metadata={"version": 1},
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="reviewer_code",
-                message_type=MessageType.CONSENSUS_NACK,
-                subject="NACK",
-                body="",
-                phase="implement",
-                metadata={
-                    "version": 1,
-                    "payload": "not-a-dict",
-                },
-            ),
-        ]
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        # Should not crash; NACK without extractable body is handled gracefully
-        assert "## BRC Consensus Summary" in result
-
-
-class TestVersionHandlingEdgeCases:
-    """Tests for version handling edge cases in _build_brc_consensus_summary."""
-
-    def test_non_integer_version_treated_as_zero(self):
-        """Non-parseable version in metadata is treated as version 0."""
-        from routes.pipelines import _build_brc_consensus_summary
-
-        messages = [
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                subject="Proposal",
-                body="Implementation",
-                phase="implement",
-                metadata={"version": "not-a-number"},
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="reviewer_code",
-                message_type=MessageType.CONSENSUS_ACK,
-                subject="ACK",
-                body="Looks good",
-                phase="implement",
-                metadata={"version": None},
-            ),
-        ]
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        # Should not crash; all messages treated as version 0 → all "final round"
-        assert "Implementation" in result
-        assert "Looks good" in result
-
-    def test_no_version_metadata_at_all(self):
-        """When no messages have version metadata, all messages are treated as final round."""
-        from routes.pipelines import _build_brc_consensus_summary
-
-        messages = [
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                subject="Proposal",
-                body="First attempt",
-                phase="implement",
-                metadata={},  # No version
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="reviewer_code",
-                message_type=MessageType.CONSENSUS_ACK,
-                subject="ACK",
-                body="LGTM",
-                phase="implement",
-                metadata={},  # No version
-            ),
-        ]
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        # All messages should be treated as final round — no <details> block
-        assert "First attempt" in result
-        assert "LGTM" in result
-        assert "<details>" not in result
-
-    def test_confirmed_and_re_review_always_final_round(self):
-        """CONFIRMED and RE_REVIEW messages are always treated as final-round."""
-        from routes.pipelines import _build_brc_consensus_summary
-
-        messages = [
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                subject="Proposal v1",
-                body="First attempt",
-                phase="implement",
-                metadata={"version": 1},
-                timestamp=datetime(2026, 4, 8, 12, 0, 0, tzinfo=UTC),
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                subject="Proposal v2",
-                body="Second attempt",
-                phase="implement",
-                metadata={"version": 2},
-                timestamp=datetime(2026, 4, 8, 13, 0, 0, tzinfo=UTC),
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="orchestrator",
-                message_type=MessageType.CONSENSUS_RE_REVIEW,
-                subject="Re-review",
-                body="Please re-review",
-                phase="implement",
-                metadata={"version": 1},  # version 1 but should be final
-                timestamp=datetime(2026, 4, 8, 13, 5, 0, tzinfo=UTC),
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_CONFIRMED,
-                subject="Confirmed",
-                body="All done",
-                phase="implement",
-                metadata={},  # No version but should be final
-                timestamp=datetime(2026, 4, 8, 14, 0, 0, tzinfo=UTC),
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="reviewer_code",
-                message_type=MessageType.CONSENSUS_CONFIRMED,
-                subject="Confirmed",
-                body="Confirming",
-                phase="implement",
-                metadata={"version": 1},  # version 1 but should be final
-                timestamp=datetime(2026, 4, 8, 14, 5, 0, tzinfo=UTC),
-            ),
-        ]
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        # Final round (v2 propose, RE_REVIEW, CONFIRMED) should be inline
-        assert "Second attempt" in result
-        # CONFIRMED messages don't have body for inline in the current impl —
-        # they may or may not show depending on whether they have body content
-        # The key assertion: RE_REVIEW is final round (not wrapped in <details>)
-        # Earlier round (v1 propose) should be in <details>
-        assert "<details>" in result
-        assert "First attempt" in result  # in <details> block
 
 
 class TestMarkdownWriteFailureIsolation:
@@ -2359,314 +1305,155 @@ class TestHistoryIncludesNonConsensusTypes:
         assert "AGENT_FAILED" in content
         assert "Container exited with code 1" in content
 
-    def test_non_consensus_types_excluded_from_summary(self):
-        """STATUS, HANDOFF, QUESTION, AGENT_FAILED, NUDGE, OVERSEER_ALERT excluded from summary."""
-        from routes.pipelines import _build_brc_consensus_summary
+    def test_handoff_included_in_history(self, tmp_path):
+        """HANDOFF messages are included in the history file."""
+        from routes.pipelines import _write_brc_history
 
-        non_consensus_types = [
-            (MessageType.STATUS, "Status update"),
-            (MessageType.HANDOFF, "Handoff"),
-            (MessageType.QUESTION, "Question"),
-            (MessageType.AGENT_FAILED, "Agent failed"),
-            (MessageType.NUDGE, "Nudge"),
-            (MessageType.OVERSEER_ALERT, "Alert"),
-        ]
         messages = [
             _make_brc_message(
                 pipeline_id="issue-42",
                 from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                subject="Proposal",
-                body="Work",
+                message_type=MessageType.HANDOFF,
+                subject="Handoff to tester",
+                body="Implementation ready for review",
                 phase="implement",
             ),
         ]
-        for msg_type, subject in non_consensus_types:
-            messages.append(
-                _make_brc_message(
-                    pipeline_id="issue-42",
-                    from_role="orchestrator",
-                    message_type=msg_type,
-                    subject=subject,
-                    body="Content",
-                    phase="implement",
-                )
-            )
         mock_store = MagicMock(spec=MessageStore)
         mock_store.get_messages.return_value = messages
 
         with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
-        assert "1 proposal" in result
-        # None of the non-consensus types should affect the summary
-        for msg_type, _ in non_consensus_types:
-            assert msg_type not in result
+        content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
+        assert "HANDOFF" in content
 
 
-class TestBuildPrBodyArtifactLinks:
-    """Tests for artifact links in _build_pr_body after #1717 changes."""
+class TestBuildBrcHistoryLinkLine:
+    """Tests for the one-line pointer to committed BRC history transcripts (#1828)."""
 
-    def test_pr_body_includes_artifact_links(self, tmp_path):
-        """PR body with BRC summary includes artifact links to .md and .json files."""
+    def _touch(self, tmp_path, filename: str) -> None:
+        history_dir = tmp_path / ".egg-state" / "brc-history"
+        history_dir.mkdir(parents=True, exist_ok=True)
+        (history_dir / filename).write_text("stub")
+
+    def test_returns_empty_when_identifier_is_none(self, tmp_path):
+        from routes.pipelines import _build_brc_history_link_line
+
+        self._touch(tmp_path, "42-implement.md")
+        assert _build_brc_history_link_line(tmp_path, None) == ""
+
+    def test_returns_empty_when_history_dir_missing(self, tmp_path):
+        from routes.pipelines import _build_brc_history_link_line
+
+        assert _build_brc_history_link_line(tmp_path, 42) == ""
+
+    def test_returns_empty_when_no_matching_files(self, tmp_path):
+        from routes.pipelines import _build_brc_history_link_line
+
+        # File for a different pipeline/identifier
+        self._touch(tmp_path, "99-implement.md")
+        assert _build_brc_history_link_line(tmp_path, 42) == ""
+
+    def test_links_files_in_canonical_phase_order(self, tmp_path):
+        """Phases link in refine → plan → implement → pr order even if files were created otherwise."""
+        from routes.pipelines import _build_brc_history_link_line
+
+        # Create deliberately out of order
+        self._touch(tmp_path, "42-implement.md")
+        self._touch(tmp_path, "42-plan.md")
+        self._touch(tmp_path, "42-refine.md")
+
+        result = _build_brc_history_link_line(tmp_path, 42)
+        assert result.startswith("_Per-phase BRC transcripts:")
+        assert result.endswith("._")
+        # Canonical order: refine before plan before implement
+        assert result.index("refine") < result.index("plan") < result.index("implement")
+        # Link format
+        assert "[`plan`](./.egg-state/brc-history/42-plan.md)" in result
+        assert "[`refine`](./.egg-state/brc-history/42-refine.md)" in result
+        assert "[`implement`](./.egg-state/brc-history/42-implement.md)" in result
+
+    def test_ignores_json_companions(self, tmp_path):
+        from routes.pipelines import _build_brc_history_link_line
+
+        self._touch(tmp_path, "42-implement.md")
+        self._touch(tmp_path, "42-implement.json")
+
+        result = _build_brc_history_link_line(tmp_path, 42)
+        # .json not surfaced as its own phase
+        assert ".json" not in result
+        assert "[`implement`]" in result
+
+    def test_string_identifier_works(self, tmp_path):
+        """Babysit-pr identifiers like 'pr-123-abc1234' glob the corresponding files."""
+        from routes.pipelines import _build_brc_history_link_line
+
+        self._touch(tmp_path, "pr-123-abc1234-implement.md")
+        self._touch(tmp_path, "pr-123-abc1234-plan.md")
+        # Unrelated file for a different identifier must not leak in
+        self._touch(tmp_path, "42-refine.md")
+
+        result = _build_brc_history_link_line(tmp_path, "pr-123-abc1234")
+        assert "[`plan`](./.egg-state/brc-history/pr-123-abc1234-plan.md)" in result
+        assert "[`implement`](./.egg-state/brc-history/pr-123-abc1234-implement.md)" in result
+        assert "42-refine" not in result
+
+    def test_unknown_phase_names_sorted_after_canonical(self, tmp_path):
+        from routes.pipelines import _build_brc_history_link_line
+
+        self._touch(tmp_path, "42-plan.md")
+        self._touch(tmp_path, "42-custom.md")
+
+        result = _build_brc_history_link_line(tmp_path, 42)
+        # Canonical phase (plan) must appear before the non-canonical one
+        assert result.index("plan") < result.index("custom")
+
+
+class TestBuildPrBodyBrcLink:
+    """Integration tests: _build_pr_body includes the one-line link when transcripts exist."""
+
+    def test_body_includes_link_line_when_history_files_exist(self, tmp_path):
+        from routes.pipelines import _build_pr_body
+
+        pipeline = _make_pipeline()
+        _setup_contract(tmp_path)
+        history_dir = tmp_path / ".egg-state" / "brc-history"
+        history_dir.mkdir(parents=True)
+        (history_dir / "42-plan.md").write_text("stub")
+        (history_dir / "42-implement.md").write_text("stub")
+
+        title, body = _build_pr_body(pipeline, tmp_path)
+
+        assert "_Per-phase BRC transcripts:" in body
+        assert "[`plan`](./.egg-state/brc-history/42-plan.md)" in body
+        assert "[`implement`](./.egg-state/brc-history/42-implement.md)" in body
+        # The dropped inline summary must not reappear
+        assert "## BRC Consensus Summary" not in body
+        # Existing sections still present
+        assert "Authored-by: egg" in body
+        assert title == "Fix authentication bypass in login flow"
+
+    def test_body_omits_link_line_when_no_history_files(self, tmp_path):
         from routes.pipelines import _build_pr_body
 
         pipeline = _make_pipeline()
         _setup_contract(tmp_path)
 
-        messages = _make_brc_messages(pipeline_id="issue-42", phase="implement")
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
+        title, body = _build_pr_body(pipeline, tmp_path)
 
-        with patch("message_store.get_message_store", return_value=mock_store):
-            title, body = _build_pr_body(pipeline, tmp_path)
+        assert "Per-phase BRC transcripts" not in body
+        assert "Authored-by: egg" in body
 
-        assert "Full record:" in body
-        assert ".egg-state/brc-history/42-implement.md" in body
-        assert ".egg-state/brc-history/42-implement.json" in body
-
-    def test_pr_body_inline_content_for_final_round(self, tmp_path):
-        """PR body contains inline proposal body content from final round."""
+    def test_link_line_appears_before_authored_by(self, tmp_path):
         from routes.pipelines import _build_pr_body
 
         pipeline = _make_pipeline()
         _setup_contract(tmp_path)
+        history_dir = tmp_path / ".egg-state" / "brc-history"
+        history_dir.mkdir(parents=True)
+        (history_dir / "42-implement.md").write_text("stub")
 
-        messages = [
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                subject="Proposal",
-                body="Implemented auth fix with validation",
-                phase="implement",
-                metadata={"version": 1},
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="reviewer_code",
-                message_type=MessageType.CONSENSUS_ACK,
-                subject="ACK",
-                body="Verified and approved",
-                phase="implement",
-                metadata={"version": 1},
-            ),
-        ]
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
+        title, body = _build_pr_body(pipeline, tmp_path)
 
-        with patch("message_store.get_message_store", return_value=mock_store):
-            title, body = _build_pr_body(pipeline, tmp_path)
-
-        # Final round content should be inline in the PR body
-        assert "Implemented auth fix with validation" in body
-        assert "Verified and approved" in body
-
-
-class TestEarlierRoundsDetailsBlock:
-    """Tests for the <details> block wrapping earlier-round messages."""
-
-    def test_body_less_earlier_round_messages_shown_without_content(self):
-        """Earlier-round messages with empty body are shown without content text."""
-        from routes.pipelines import _build_brc_consensus_summary
-
-        messages = [
-            # Round 1 (earlier) — CONFIRMED with no body
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                subject="First proposal",
-                body="First attempt",
-                phase="implement",
-                metadata={"version": 1},
-                timestamp=datetime(2026, 4, 8, 12, 0, 0, tzinfo=UTC),
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="reviewer_code",
-                message_type=MessageType.CONSENSUS_ACK,
-                subject="ACK v1",
-                body="",  # Empty body
-                phase="implement",
-                metadata={"version": 1},
-                timestamp=datetime(2026, 4, 8, 12, 5, 0, tzinfo=UTC),
-            ),
-            # Round 2 (final)
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                subject="Second proposal",
-                body="Updated implementation",
-                phase="implement",
-                metadata={"version": 2},
-                timestamp=datetime(2026, 4, 8, 13, 0, 0, tzinfo=UTC),
-            ),
-        ]
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        # Earlier round should be in <details>
-        assert "<details>" in result
-        # Body-less ACK should appear with role and type but no content text
-        assert "reviewer_code" in result
-        # Final round should be inline
-        assert "Updated implementation" in result
-
-    def test_multiple_rounds_details_block_structure(self):
-        """Multi-round consensus wraps all non-final rounds in a single <details> block."""
-        from routes.pipelines import _build_brc_consensus_summary
-
-        messages = [
-            # Round 1
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                body="Round 1 content",
-                phase="implement",
-                metadata={"version": 1},
-                timestamp=datetime(2026, 4, 8, 12, 0, 0, tzinfo=UTC),
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="reviewer_code",
-                message_type=MessageType.CONSENSUS_NACK,
-                body="Round 1 feedback",
-                phase="implement",
-                metadata={"version": 1},
-                timestamp=datetime(2026, 4, 8, 12, 5, 0, tzinfo=UTC),
-            ),
-            # Round 2
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                body="Round 2 content",
-                phase="implement",
-                metadata={"version": 2},
-                timestamp=datetime(2026, 4, 8, 13, 0, 0, tzinfo=UTC),
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="reviewer_code",
-                message_type=MessageType.CONSENSUS_NACK,
-                body="Round 2 feedback",
-                phase="implement",
-                metadata={"version": 2},
-                timestamp=datetime(2026, 4, 8, 13, 5, 0, tzinfo=UTC),
-            ),
-            # Round 3 (final)
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                body="Round 3 final",
-                phase="implement",
-                metadata={"version": 3},
-                timestamp=datetime(2026, 4, 8, 14, 0, 0, tzinfo=UTC),
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="reviewer_code",
-                message_type=MessageType.CONSENSUS_ACK,
-                body="Approved",
-                phase="implement",
-                metadata={"version": 3},
-                timestamp=datetime(2026, 4, 8, 14, 5, 0, tzinfo=UTC),
-            ),
-        ]
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        # Final round inline
-        assert "Round 3 final" in result
-        assert "Approved" in result
-
-        # Earlier rounds in <details>
-        assert "<details>" in result
-        assert "</details>" in result
-        assert "Earlier rounds" in result
-
-        # Both round 1 and round 2 content should be in the earlier section
-        details_start = result.index("<details>")
-        details_end = result.index("</details>")
-        details_content = result[details_start:details_end]
-        assert "Round 1 content" in details_content or "Round 1 feedback" in details_content
-        assert "Round 2 content" in details_content or "Round 2 feedback" in details_content
-
-    def test_single_round_no_details_block(self):
-        """Single-round consensus has no <details> block."""
-        from routes.pipelines import _build_brc_consensus_summary
-
-        messages = [
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                body="Only attempt",
-                phase="implement",
-                metadata={"version": 1},
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="reviewer_code",
-                message_type=MessageType.CONSENSUS_ACK,
-                body="Approved",
-                phase="implement",
-                metadata={"version": 1},
-            ),
-        ]
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42")
-
-        # Single round — no earlier rounds section
-        assert "<details>" not in result
-        assert "Only attempt" in result
-        assert "Approved" in result
-
-
-class TestSummaryMultiPhaseArtifactLinks:
-    """Tests for artifact links in multi-phase summaries."""
-
-    def test_artifact_links_per_phase_in_summary(self):
-        """Each phase block in the summary has its own artifact links."""
-        from routes.pipelines import _build_brc_consensus_summary
-
-        messages = [
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                body="Plan done",
-                phase="plan",
-            ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.CONSENSUS_PROPOSE,
-                body="Implement done",
-                phase="implement",
-            ),
-        ]
-        mock_store = MagicMock(spec=MessageStore)
-        mock_store.get_messages.return_value = messages
-
-        with patch("message_store.get_message_store", return_value=mock_store):
-            result = _build_brc_consensus_summary("issue-42", identifier=42)
-
-        # Both phases should have artifact links
-        assert ".egg-state/brc-history/42-plan.md" in result
-        assert ".egg-state/brc-history/42-plan.json" in result
-        assert ".egg-state/brc-history/42-implement.md" in result
-        assert ".egg-state/brc-history/42-implement.json" in result
+        assert body.index("Per-phase BRC transcripts") < body.index("Authored-by: egg")
