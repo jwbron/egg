@@ -52,6 +52,13 @@ spec:
               containerPort: 9850
               protocol: TCP
           env:
+            # Explicit runtime selector — the orchestrator code falls
+            # back to auto-detection via KUBERNETES_SERVICE_HOST when
+            # this is unset, but setting it explicitly prevents silent
+            # docker-defaulting if the auto-detection is ever bypassed
+            # (#1850).
+            - name: EGG_RUNTIME
+              value: "kubernetes"
             - name: EGG_ORCHESTRATOR_URL
               value: "http://orchestrator.egg-system.svc.cluster.local:9849"
             - name: GATEWAY_URL
