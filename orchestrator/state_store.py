@@ -789,6 +789,7 @@ class StateStore:
         source_artifact_prefix: str | None = None,
         has_contract: bool = True,
         pr_head_sha: str | None = None,
+        active_roles: list[str] | None = None,
     ) -> Pipeline:
         """Create a new pipeline.
 
@@ -801,7 +802,7 @@ class StateStore:
             prompt: User prompt (for prompt-driven pipelines)
             pipeline_id: Explicit pipeline ID (auto-generated if not provided)
             network_mode: Network mode for spawned containers ("public", "private", or None)
-            mode: Pipeline mode (ISSUE or BABYSIT). Defaults to ISSUE if not set.
+            mode: Pipeline mode (ISSUE, BABYSIT, or CUSTOM). Defaults to ISSUE.
             pr_number: PR number for babysit-mode pipelines (optional).
             analysis: Pre-generated analysis markdown for short flow pipelines (optional).
             plan: Pre-generated plan markdown with yaml-tasks appendix (optional).
@@ -809,6 +810,10 @@ class StateStore:
             source_artifact_prefix: Explicit prefix for draft filenames on
                 the source branch (e.g. ``"issue-1570-v3"``).  Overrides
                 the default pipeline_id-based prefix when reading artifacts.
+            active_roles: Resolved role subset for the pipeline's active phase.
+                Populated by run_agent_task (CUSTOM mode) and by the BABYSIT
+                subsumption path. None preserves the legacy default-roster
+                behaviour for ISSUE-mode pipelines (see #1762).
 
         Returns:
             Created pipeline
@@ -862,6 +867,8 @@ class StateStore:
                 pipeline_kwargs["pr_number"] = pr_number
             if pr_head_sha is not None:
                 pipeline_kwargs["pr_head_sha"] = pr_head_sha
+            if active_roles is not None:
+                pipeline_kwargs["active_roles"] = active_roles
             pipeline = Pipeline(**pipeline_kwargs)
 
             if config:
