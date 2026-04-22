@@ -77,6 +77,11 @@ spec:
             # by the fail-fast check in gateway.main() (#1803).
             - name: EGG_ORCHESTRATOR_URL
               value: "http://orchestrator.egg-system.svc.cluster.local:9849"
+            # Thread count for the gateway WSGI server. Default is 32
+            # (see gateway/gateway.py DEFAULT_THREADS). Surfaced here so
+            # operators can tune via kustomize overlay without reading source.
+            - name: GATEWAY_THREADS
+              value: "32"
           livenessProbe:
             httpGet:
               path: /api/v1/health
@@ -96,10 +101,10 @@ spec:
           resources:
             requests:
               cpu: 200m
-              memory: 1Gi
+              memory: 2Gi
             limits:
               cpu: "1"
-              memory: 4Gi
+              memory: 4Gi # TODO(#1885): review after leak-vs-load investigation
           volumeMounts:
             - name: secrets
               mountPath: /secrets
