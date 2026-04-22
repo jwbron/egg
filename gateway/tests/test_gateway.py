@@ -4822,6 +4822,74 @@ class TestSessionCreateReusesExistingWorktrees:
         data = json.loads(response.data)
         assert "worktree_container_id" in data["message"]
 
+    def test_session_create_validates_worktree_container_id_empty(
+        self, client, launcher_auth_headers
+    ):
+        """Empty worktree_container_id is rejected at the API boundary."""
+        response = client.post(
+            "/api/v1/sessions/create",
+            headers=launcher_auth_headers,
+            data=json.dumps(
+                {
+                    "container_id": "egg-agent-pipe-1-coder",
+                    "mode": "private",
+                    "repos": ["owner/repo"],
+                    "pipeline_id": "pipe-1",
+                    "worktree_container_id": "",
+                }
+            ),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "non-empty" in data["message"]
+
+    def test_session_create_validates_worktree_container_id_too_long(
+        self, client, launcher_auth_headers
+    ):
+        """Overly long worktree_container_id is rejected at the API boundary."""
+        response = client.post(
+            "/api/v1/sessions/create",
+            headers=launcher_auth_headers,
+            data=json.dumps(
+                {
+                    "container_id": "egg-agent-pipe-1-coder",
+                    "mode": "private",
+                    "repos": ["owner/repo"],
+                    "pipeline_id": "pipe-1",
+                    "worktree_container_id": "a" * 257,
+                }
+            ),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = json.loads(response.data)
+        assert "256 characters" in data["message"]
+
+    def test_session_create_validates_worktree_container_id_unsafe_chars(
+        self, client, launcher_auth_headers
+    ):
+        """Path traversal and unsafe characters in worktree_container_id
+        are rejected with a clear 400 instead of surfacing as a 500."""
+        for bad_value in ["../evil", "/absolute", "has spaces", ".hidden"]:
+            response = client.post(
+                "/api/v1/sessions/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "egg-agent-pipe-1-coder",
+                        "mode": "private",
+                        "repos": ["owner/repo"],
+                        "pipeline_id": "pipe-1",
+                        "worktree_container_id": bad_value,
+                    }
+                ),
+                content_type="application/json",
+            )
+            assert response.status_code == 400, f"Expected 400 for {bad_value!r}"
+            data = json.loads(response.data)
+            assert "unsafe characters" in data["message"], f"Bad message for {bad_value!r}"
+
 
 class TestWorktreeCreateEndpointResolution:
     """Tests for worktree_create endpoint's resolve_default_branch logic."""

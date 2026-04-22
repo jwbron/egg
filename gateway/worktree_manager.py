@@ -535,6 +535,13 @@ class WorktreeManager:
         Raises:
             ValueError: If inputs are invalid, the repo doesn't exist, or
                 no valid worktree is present at the expected path.
+
+        Note:
+            Unlike ``create_worktree``'s reuse path, this method deliberately
+            skips ``_chown_recursive`` and ``_configure_push_upstream``.  In
+            the current flow both ``create_worktrees`` and ``register_session``
+            run with the same ``host_uid``/``host_gid``, and push upstream was
+            already configured by the original ``create_worktree`` call.
         """
         validate_identifier(container_id, "container_id")
         validate_identifier(repo_name, "repo_name")

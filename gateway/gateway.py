@@ -4083,6 +4083,12 @@ def session_create() -> tuple[Response, int] | Response:
             return make_error("Invalid worktree_container_id: must be non-empty if provided")
         if len(worktree_container_id) > 256:
             return make_error("Invalid worktree_container_id: must be 256 characters or fewer")
+        if ".." in worktree_container_id or not re.match(
+            r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$", worktree_container_id
+        ):
+            return make_error(
+                "Invalid worktree_container_id: contains unsafe characters"
+            )
 
     # Validate local_only_repos if provided
     if local_only_repos:
