@@ -821,6 +821,17 @@ The same sync instruction is included for dual-role agents (e.g., `tester`) in t
 
 **Reviewer diff command:** Reviewers use `git diff origin/{base_branch}...HEAD` (three-dot merge-base syntax) to see the full changeset against the base branch, rather than an arbitrary truncated window. The `base_branch` is resolved from `pipeline.base_branch` or the repository's default branch. This matches the context available to PR review bots, which see the complete PR diff.
 
+**Delta re-review command (BRC `review_cycle > 1`):** When a reviewer has already reviewed a prior proposal and the producer re-proposes at a new commit, `_build_review_prompt()` emits a *delta* command instead of the full changeset:
+
+```bash
+git fetch origin {base_branch}
+git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p
+```
+
+`git log A..HEAD --not origin/{base}` lists only PR-side commits that are reachable from `HEAD`, reachable since the last review at `A`, and **not** reachable from the base branch — so commits that arrived via a base-branch merge between the last review and `HEAD` are excluded. This prevents the reviewer from attributing merged-in base-branch work to the producer's delta (see [#1758](https://github.com/jwbron/egg/issues/1758)). A naive `git diff A..HEAD` or three-dot `git diff A...HEAD` would both show those merged-in changes, because `A` is an ancestor of `HEAD` (so the merge-base collapses to `A`).
+
+In practice, BRC is designed to reach consensus in a single cycle, so the delta re-review path is rare for orchestrator reviewers — but the fix applies identically to all multi-cycle BRC reviews (`reviewer_code`, `reviewer_contract`, etc.) and to the GitHub Action PR/design/contract-verify review bots, which hit the re-review path more often.
+
 ### Per-Agent Git Author
 
 Each agent commits with a role-scoped author identity for auditability:
