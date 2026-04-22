@@ -394,7 +394,7 @@ def _build_deployment_context_payload() -> dict[str, Any]:
             {
                 "detection_error": "cluster_unreachable",
                 "detail": "neither VersionApi.get_code nor core_api.list_node succeeded",
-                "cluster_info": {"server_version": None, "nodes": 0},
+                "cluster_info": {"server_version": None, "nodes": 0, "nodes_unavailable": True},
             }
         )
         return payload

@@ -115,7 +115,9 @@ Read-only cluster introspection.
 When cluster introspection succeeds but listing deployments comes back
 empty (RBAC denial, empty namespace), `images_unavailable: true` is added
 so operators know the empty map reflects a partial failure rather than a
-cluster with no egg workloads.
+cluster with no egg workloads. Similarly, `cluster_info.nodes_unavailable: true`
+is set when the version probe succeeds but the node-list probe fails,
+distinguishing "zero nodes" from "count unknown".
 
 **Output shape** (Docker runtime — degrade-gracefully mode):
 

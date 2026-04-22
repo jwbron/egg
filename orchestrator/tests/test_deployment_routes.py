@@ -190,6 +190,8 @@ class TestGetDeploymentContext:
         assert data["detection_error"] == "cluster_unreachable"
         # Operator sees the env-configured value via detection_source.
         assert data["detection_source"] == "env"
+        # Both probes failed — nodes count is unknown, not zero.
+        assert data["cluster_info"]["nodes_unavailable"] is True
 
     def test_empty_images_flags_images_unavailable(self, client, monkeypatch):
         """Cluster reachable but image listing came back empty → flag it (#1850)."""
@@ -221,6 +223,42 @@ class TestGetDeploymentContext:
         assert data["runtime"] == "kubernetes"
         assert data["images"] == {}
         assert data["images_unavailable"] is True
+
+    def test_nodes_unavailable_on_partial_probe_failure(self, client, monkeypatch):
+        """Version probe ok but node-list probe fails → nodes_unavailable: true."""
+        monkeypatch.setenv("EGG_RUNTIME", "kubernetes")
+
+        fake_k8s = MagicMock()
+        fake_k8s.core_api.list_node.side_effect = RuntimeError("RBAC denied")
+        fake_version_info = MagicMock()
+        fake_version_info.git_version = "v1.30.2+k3s1"
+
+        with (
+            patch("routes.deployment._detect_k3s", return_value=(True, "v1.30.2+k3s1")),
+            patch("routes.deployment._detect_cni", return_value=("calico", True)),
+            patch(
+                "routes.deployment._collect_egg_image_tags",
+                return_value={"orchestrator": "egg-orchestrator:dev"},
+            ),
+            patch("kubernetes.client.VersionApi") as mock_version_api_cls,
+        ):
+            mock_version_api_cls.return_value.get_code.return_value = fake_version_info
+            with patch.dict(
+                "sys.modules",
+                {
+                    "kubernetes_client": MagicMock(
+                        get_kubernetes_client=MagicMock(return_value=fake_k8s),
+                    )
+                },
+            ):
+                response = client.get("/api/v1/deployment/context")
+
+        assert response.status_code == 200
+        data = response.get_json()["data"]
+        assert data["runtime"] == "kubernetes"
+        assert data["cluster_info"]["nodes"] == 0
+        assert data["cluster_info"]["nodes_unavailable"] is True
+        assert data["cluster_info"]["server_version"] == "v1.30.2+k3s1"
 
     def test_kubernetes_runtime_aggregates_cluster_info(self, client, monkeypatch):
         """On Kubernetes the route aggregates version/cni/images/k3s flags."""
