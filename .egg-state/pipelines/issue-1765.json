@@ -55,9 +55,9 @@
         {
           "container_id": "9fdad53d-b787-4914-9459-396a165f30af",
           "container_name": "egg-sandbox-egg-agent-issue-1765-refiner",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-22T05:59:17.257381Z",
-          "exited_at": null,
+          "exited_at": "2026-04-22T05:59:17.330697Z",
           "exit_code": null,
           "agent_role": "refiner",
           "session_token": null,
@@ -69,14 +69,14 @@
       "agents": [
         {
           "role": "refiner",
-          "status": "running",
+          "status": "failed",
           "container_id": "9fdad53d-b787-4914-9459-396a165f30af",
           "container_info": null,
           "started_at": "2026-04-22T05:59:17.257419Z",
-          "completed_at": null,
+          "completed_at": "2026-04-22T05:59:17.330697Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Aborted during spawn-failure cleanup",
           "retry_count": 0,
           "conflicts": []
         },
@@ -125,7 +125,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-22T05:58:26.984908Z",
-  "updated_at": "2026-04-22T05:59:17.257692Z",
+  "updated_at": "2026-04-22T05:59:17.330993Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -138,5 +138,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 7
+  "version": 8
 }
