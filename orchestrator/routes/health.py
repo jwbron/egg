@@ -54,6 +54,9 @@ def health_check() -> tuple[Response, int]:
     # healthy observation. The tracker still populates process_start_time
     # and healthy_since, which is exactly the signal operators need to
     # distinguish "stable for hours" from "came up seconds ago" (#1855).
+    # TODO: When degraded-state evaluation is added (e.g. the "docker":
+    # "unknown" component below), pass the actual health status here
+    # instead of hard-coding True.
     _health_tracker.record(True)
     tracker_snapshot = _health_tracker.snapshot()
 
