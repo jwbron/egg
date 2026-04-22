@@ -55,9 +55,9 @@
         {
           "container_id": "51c5d4eb-bcd1-461a-b3e4-2fe211b7d3ef",
           "container_name": "egg-sandbox-egg-agent-issue-1765-discoverability-refiner",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-22T03:44:03.152753Z",
-          "exited_at": null,
+          "exited_at": "2026-04-22T03:44:03.481141Z",
           "exit_code": null,
           "agent_role": "refiner",
           "session_token": null,
@@ -68,9 +68,9 @@
         {
           "container_id": "50faadfa-236e-4525-a01c-9d07e634d1f9",
           "container_name": "egg-sandbox-egg-agent-issue-1765-discoverability-revie-494348e7",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-22T03:44:03.152765Z",
-          "exited_at": null,
+          "exited_at": "2026-04-22T03:44:03.481141Z",
           "exit_code": null,
           "agent_role": "reviewer_agent_design",
           "session_token": null,
@@ -95,27 +95,27 @@
         },
         {
           "role": "refiner",
-          "status": "running",
+          "status": "failed",
           "container_id": "51c5d4eb-bcd1-461a-b3e4-2fe211b7d3ef",
           "container_info": null,
           "started_at": "2026-04-22T03:44:03.152762Z",
-          "completed_at": null,
+          "completed_at": "2026-04-22T03:44:03.481141Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Aborted during spawn-failure cleanup",
           "retry_count": 0,
           "conflicts": []
         },
         {
           "role": "reviewer_agent_design",
-          "status": "running",
+          "status": "failed",
           "container_id": "50faadfa-236e-4525-a01c-9d07e634d1f9",
           "container_info": null,
           "started_at": "2026-04-22T03:44:03.152767Z",
-          "completed_at": null,
+          "completed_at": "2026-04-22T03:44:03.481141Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Aborted during spawn-failure cleanup",
           "retry_count": 0,
           "conflicts": []
         }
@@ -138,7 +138,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-22T03:43:18.470790Z",
-  "updated_at": "2026-04-22T03:44:03.152832Z",
+  "updated_at": "2026-04-22T03:44:03.481219Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -151,5 +151,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 7
+  "version": 8
 }
