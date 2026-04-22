@@ -31,7 +31,7 @@ handlers on `PipelineToolHandler`. The server is rate-limited to 30 req/min
 
 ## Runtime Gating
 
-The six k8s-specific tools branch on the `EGG_RUNTIME` env var, which is
+All six deployment tools branch on the `EGG_RUNTIME` env var, which is
 read at the orchestrator process boundary. When `EGG_RUNTIME` is unset,
 the orchestrator auto-detects: if `KUBERNETES_SERVICE_HOST` is present
 (injected into every pod by the apiserver) the runtime is inferred to be
