@@ -67,6 +67,7 @@ gateway/
 ├── repo_parser.py          # Repository config parsing
 ├── repo_visibility.py      # Repository visibility logic
 ├── proxy_monitor.py        # Squid proxy monitoring
+├── mem_trace.py            # Opt-in tracemalloc memory sampler (GATEWAY_MEM_TRACE=1)
 ├── rate_limiter.py         # Rate limiting
 ├── config_validator.py     # Configuration validation
 ├── error_messages.py       # Error message formatting
