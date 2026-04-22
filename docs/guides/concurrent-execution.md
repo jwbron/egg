@@ -818,7 +818,9 @@ This explicit fetch+merge step ensures reviewers see the latest code (including 
 
 The same sync instruction is included for dual-role agents (e.g., `tester`) in their producer ORIENT step, so they also have up-to-date code before beginning work.
 
-**Reviewer diff command:** Reviewers use `git diff origin/{base_branch}...HEAD` (three-dot merge-base syntax) to see the full changeset against the base branch, rather than an arbitrary truncated window. The `base_branch` is resolved from `pipeline.base_branch` or the repository's default branch. This matches the context available to PR review bots, which see the complete PR diff.
+**Reviewer diff command:** On the first review cycle, reviewers use `git diff origin/{base_branch}...HEAD` (three-dot merge-base syntax) to see the full changeset against the base branch, rather than an arbitrary truncated window. The `base_branch` is resolved from `pipeline.base_branch` or the repository's default branch. This matches the context available to PR review bots, which see the complete PR diff.
+
+On re-review cycles (cycle > 1 with a `last_reviewed_commit` tracked), the prompt emits `git fetch origin {base_branch}` followed by `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` instead. The `--not origin/{base_branch}` filter excludes any base-branch merge commits that landed between reviews, so reviewers do not mis-attribute merged-in work to the producer (see [#1758](https://github.com/jwbron/egg/issues/1758)). The worktree-sync step above already ensures `origin/{base_branch}` is fetched before this command runs.
 
 ### Per-Agent Git Author
 

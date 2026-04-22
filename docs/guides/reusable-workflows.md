@@ -257,6 +257,25 @@ Most workflows accept a `prompt_script` parameter to customize the prompt genera
 2. Sets the `prompt-file` output variable
 3. Optionally sets the `model` output variable
 
+### Environment Variables Provided by `reusable-review.yml`
+
+Prompt-builder scripts invoked by `reusable-review.yml` are run from the trusted
+`main` checkout and receive the following environment variables:
+
+| Variable | Purpose |
+|----------|---------|
+| `PR_NUMBER` | PR being reviewed |
+| `LAST_REVIEW_COMMIT` | Empty on initial review; commit SHA from the `<!-- egg-automated-review ... -->` marker on re-review |
+| `BASE_REF` | PR's base branch (e.g., `main`, `develop`). Used in the re-review path to scope the delta command to commits not reachable from `origin/${BASE_REF}`. Defaults to `main` when unset. |
+
+On re-review (`LAST_REVIEW_COMMIT` non-empty), built-in prompt builders instruct
+the agent to run `git fetch origin ${BASE_REF}` followed by
+`git log ${LAST_REVIEW_COMMIT}..HEAD --not origin/${BASE_REF} -p`. This excludes
+any base-branch merge commits that landed between reviews, avoiding
+mis-attribution of merged-in work to the PR author
+(see [#1758](https://github.com/jwbron/egg/issues/1758)). Custom prompt builders
+that emit a re-review delta command should follow the same pattern.
+
 Example:
 ```bash
 #!/bin/bash
