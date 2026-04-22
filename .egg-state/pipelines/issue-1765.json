@@ -5,7 +5,7 @@
   "branch": "egg/issue-1765",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -47,10 +47,10 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-04-22T05:59:04.475890Z",
       "work_started_at": "2026-04-22T05:59:05.761775Z",
-      "completed_at": null,
+      "completed_at": "2026-04-22T05:59:17.355321Z",
       "containers": [
         {
           "container_id": "9fdad53d-b787-4914-9459-396a165f30af",
@@ -113,30 +113,30 @@
         {
           "cycle": 0,
           "started_at": "2026-04-22T05:59:05.761775Z",
-          "completed_at": null,
+          "completed_at": "2026-04-22T05:59:17.355275Z",
           "commit_sha": "b590550cfaa0334b0d490cd769f67b13b3d672cc"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Spawn failed for reviewer_agent_design, reviewer_refine — reviewer_agent_design: Per-agent worktree creation failed for issue-1765-reviewer_agent_design after 3 attempt(s): Failed to connect to gateway: [Errno 111] Connection refused; reviewer_refine: Per-agent worktree creation failed for issue-1765-reviewer_refine after 3 attempt(s): Failed to connect to gateway: [Errno 111] Connection refused",
       "hitl_feedback": null,
       "phase_start_sha": "b590550cfaa0334b0d490cd769f67b13b3d672cc"
     }
   },
   "decisions": [],
   "created_at": "2026-04-22T05:58:26.984908Z",
-  "updated_at": "2026-04-22T05:59:17.330993Z",
+  "updated_at": "2026-04-22T05:59:17.355516Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
   "pr_head_sha": null,
   "has_contract": true,
-  "error": null,
+  "error": "Spawn failed for reviewer_agent_design, reviewer_refine — reviewer_agent_design: Per-agent worktree creation failed for issue-1765-reviewer_agent_design after 3 attempt(s): Failed to connect to gateway: [Errno 111] Connection refused; reviewer_refine: Per-agent worktree creation failed for issue-1765-reviewer_refine after 3 attempt(s): Failed to connect to gateway: [Errno 111] Connection refused",
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 8
+  "version": 9
 }
