@@ -244,10 +244,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Out of scope — leave overseer for a separate issue as the reporter suggested\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Should we also fix the pre-existing matcher bug where '**/tests/' does NOT match nested test directories as a directory (nested .py files under test dirs are only blocked via file-name patterns like '**/test_*.py', so nested test __init__.py leaks through)?",
+      "context": "Open contract question decision-5, registered by an agent during the refine phase.",
+      "options": [
+        "Yes — fix the '**/tests/' directory pattern matching as part of this issue (coder would then be strictly blocked from any file under a tests/ subdirectory)",
+        "No — keep the pre-existing behavior; file a separate issue for the matcher bug",
+        "Partial — add explicit file-type patterns covering the leak (e.g., '**/tests/**') without changing the general matcher",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-22T23:47:45.838011Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-22T23:25:22.973469Z",
-  "updated_at": "2026-04-22T23:47:44.395528Z",
+  "updated_at": "2026-04-22T23:47:45.846868Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -260,5 +279,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 20
+  "version": 21
 }
