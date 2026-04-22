@@ -33,7 +33,7 @@ _shared_path = Path(__file__).parent.parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
-from egg_config.constants import TEST_GATEWAY_PORT  # noqa: E402
+from egg_config.constants import GATEWAY_PORT, TEST_GATEWAY_PORT  # noqa: E402
 
 
 @pytest.fixture
@@ -1091,7 +1091,7 @@ class TestGetServiceLogsRoute:
         fake_k8s.get_service_logs.return_value = {
             "service": "gateway",
             "namespace": "egg-test",
-            "pods": [{"pod": "gateway-abc", "logs": "listening on :9848\n"}],
+            "pods": [{"pod": "gateway-abc", "logs": f"listening on :{GATEWAY_PORT}\n"}],
         }
 
         with patch.dict(
