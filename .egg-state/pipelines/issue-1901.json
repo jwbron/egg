@@ -292,16 +292,16 @@
           "answer": ""
         }
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-22T23:48:10.975969Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-22T23:48:58.011984Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Split .egg/phase-permissions.json's role=implementer file_restrictions into three roles (coder, tester, documenter) to mirror the new three-role model. Keep the three surfaces (patterns.py, phase-permissions.json, shared/egg_container/__init__.py::_IMPLEMENT_READONLY_DIRS) manually in sync in this PR.\", \"Q2\": \"For THIS PR keep all three surfaces manually in sync (status quo). The deeper refactor — making shared/egg_restrictions/patterns.py authoritative and deriving phase-permissions.json + _IMPLEMENT_READONLY_DIRS from it — is OUT OF SCOPE for this PR and is tracked as follow-up issue #1903. Please add a TODO(#1903) comment on each of the hand-maintained lists in phase-permissions.json and _IMPLEMENT_READONLY_DIRS noting the follow-up.\", \"Q3\": \"None specifically. The 'block .egg-state/ + exempt .egg-state/agent-outputs/' model already protects against arbitrary future subdirectories. Do NOT add defensive preemptive entries for hypothetical paths like '.egg-state/secrets/' or '.egg-state/credentials/' — they don't exist and adding speculative entries invites drift.\", \"Q4\": \"skills/ markdown remains COODER-OWNED under the new model. SKILL.md files are functional agent-behavior code, not documentation. Preserve via block_exempt_patterns=['skills/'] in CODER_PATTERNS, consistent with today's behavior (sandbox/agent-config/rules/*.md and sandbox/agent-config/commands/*.md are already treated this way).\"}}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-22T23:25:22.973469Z",
-  "updated_at": "2026-04-22T23:48:10.982366Z",
+  "updated_at": "2026-04-22T23:48:58.018889Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -314,5 +314,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 23
+  "version": 24
 }
