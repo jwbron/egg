@@ -1,0 +1,299 @@
+{
+  "pipeline_id": "issue-1762-membump",
+  "issue_number": 1762,
+  "phase": "plan",
+  "role": "architect",
+  "title": "Replace interactive mode with a generic custom-phase MCP primitive",
+  "summary": "Ship a single PR that (a) adds PipelineMode.CUSTOM, a run_agent_task MCP tool, a Pipeline.active_roles field, and route/executor plumbing to run a single phase against a repo with a chosen subset of that phase's roles; and (b) deletes the legacy interactive mode — bin/egg, egg_lib.cli.main, run_claude, run_interactive, compose.py and all ensure_compose_services() call sites, the compose paths in bin/egg-deploy, and the interactive-specific flag family (--setup/--reset/--public/--private/--compose/--down/--build). BRC is unchanged; degenerate rosters short-circuit via the existing ApprovalMatrix.is_fully_acked path. The 9 HITL decisions resolved at the refine gate are fixed context — this architecture reflects all of them. BABYSIT stays as-is but is flagged for consolidation into CUSTOM as a follow-up per decision-2.",
+  "references": {
+    "analysis_draft": ".egg-state/drafts/1762-analysis.md",
+    "contract": ".egg-state/contracts/issue-1762-membump.json",
+    "brc_history": ".egg-state/brc-history/1762-refine.json"
+  },
+  "resolved_decisions": {
+    "decision-1": "Tool name: run_agent_task (NOT run_custom_phase — per HITL)",
+    "decision-2": "CUSTOM accepts pr_number and subsumes BABYSIT's semantics; BABYSIT mode should eventually be refactored to use CUSTOM internally, with deprecation as a follow-up once CUSTOM proves out against PR targets. For THIS PR: CUSTOM must accept pr_number and reuse BABYSIT's per-role staging-branch and head-move-guard code paths; BABYSIT mode itself stays in place.",
+    "decision-3": "Remove bin/egg AND egg_lib.cli.main; relocate gha_exec() from sandbox/egg_lib/cli.py to sandbox/egg_lib/gha_exec.py so action/entrypoint.sh's `from egg_lib.cli import gha_exec` call site must be updated to `from egg_lib.gha_exec import gha_exec`.",
+    "decision-4": "Full compose cutover — delete sandbox/egg_lib/compose.py and ALL call sites including ensure_compose_services() in exec_in_new_container() (runtime.py:1060). integration_tests fixtures also migrate.",
+    "decision-5": "Add Pipeline.active_roles: list[str] | None (defaults to None) in orchestrator/models.py. Stored at creation by state_store.create_pipeline; read by routes/pipelines.py::_run_concurrent_phase (line 7245 area) and by ConcurrentPhaseExecutor (already supports roles override at concurrent_executor.py:114, no change needed there). NOT on PipelineConfig (which is caller input, not resolved state) and NOT on PhaseExecution (custom-phase is single-phase by design).",
+    "decision-6": "Reject reviewer-only or empty rosters at the route boundary with HTTP 400. Require at least one producer role in the resolved roster (where 'producer' means any role NOT in _PHASE_REVIEWERS for the selected phase).",
+    "decision-7": "When the caller passes no branch, the route auto-generates `egg/custom-<pipeline_id>` and stores it on the Pipeline. Callers always receive a branch in the pipeline record and can `git show` the drafts. This eliminates the 'no-branch, no-writes' ambiguity entirely.",
+    "decision-8": "Only roles in _PHASE_ROLES ∪ _PHASE_REVIEWERS (for the selected phase) are selectable. Overseer, autofixer, conflict_resolver, and inspector are rejected with HTTP 400.",
+    "decision-9": "Option A — ship add + remove in one PR."
+  },
+  "deferred_questions": {
+    "q1_hitl_scope": "feedback-1 asks whether HITL gates apply to custom-phase pipelines. RECOMMENDATION to task_planner: PipelineConfig.hitl_gates default stays true (parity with ISSUE mode). Callers who want to skip HITL pass config={hitl_gates:false}. No new field; reuse existing knob.",
+    "q2_contract_keying": "When caller passes issue_number, the pipeline_id becomes `issue-<N>[-qualifier]` (same as submit_task) — the contract file is shared with any existing ISSUE-mode pipeline for that issue. When caller passes NO issue_number, pipeline_id is `pipeline-<rand>` or `pr-<pr_number>` (for CUSTOM+PR), and the contract file is keyed by pipeline_id — no sharing. This matches current state_store.create_pipeline semantics.",
+    "q3_analysis_plan_semantics": "analysis/plan args behave exactly as in submit_task: written to drafts on first run, parseable for contract population. When roster is producer-only, the producer may overwrite; when roster is reviewer-only (rejected by decision-6 anyway), no writers exist. Default to 'always accepted, producers may overwrite'.",
+    "q4_repo_allowlist": "Reuse the existing gateway repo allowlist (config/repositories.yaml). run_agent_task validates repo through the same path as submit_task — no new allowlist logic.",
+    "q5_pr_number_validation": "pr_number validation for CUSTOM matches BABYSIT: _fetch_pr_state pre-flight (lines 768-806 in pipelines.py) rejects merged/closed/fork/empty PRs with HTTP 400/409. This is the 'reuse BABYSIT semantics' path from decision-2.",
+    "q6_cli_surface": "MCP-only in v1. bin/egg-sdlc does NOT grow a custom-phase subcommand. The MCP tool name run_agent_task is the only surface.",
+    "q7_state_migration": "Pipeline.active_roles: list[str] | None with default None is additive — existing persisted pipelines load with active_roles=None, and state_store.create_pipeline passes through. No backfill needed.",
+    "q8_degenerate_roster_test": "Required. Plan-phase tests should cover: (a) single-producer roster reaches CONSENSUS_REACHED on first proposal, (b) producer+1-reviewer roster runs normal BRC, (c) reviewer-only roster returns HTTP 400 at validation, (d) empty roster returns HTTP 400, (e) roster containing overseer returns HTTP 400.",
+    "q9_docs_rewrite": "README.md, docs/guides/local-quickstart.md, docs/guides/deployment.md, docs/architecture/declarative-setup.md, docs/architecture/custom-harness.md. docs/architecture/kubernetes-migration.md is updated only to cross-reference the new tool (its compose→k8s historical record stays). New doc docs/guides/agent-task.md describes the run_agent_task flow. Update docs/index.md lookup table and docs/reference/sdlc-contract.md if the contract semantics change."
+  },
+  "architecture": {
+    "high_level": "The orchestrator gains one new pipeline mode and one new MCP tool. The pipeline's execution path is unchanged from ISSUE mode, with a single filter in _run_concurrent_phase that respects pipeline.active_roles when present. The sandbox loses its host-side CLI entry point (bin/egg, egg_lib.cli.main, run_claude, run_interactive, compose.py) entirely; what remains is the headless agent container plus a relocated gha_exec for the GitHub Action. Compose is replaced by k8s/kubectl for all operator-facing deployment.",
+    "components": {
+      "1_mcp_tool": {
+        "location": "orchestrator/mcp_tools.py",
+        "changes": {
+          "add_tool_descriptor": "Add a new entry to PIPELINE_TOOLS (around line 64) named 'run_agent_task' with inputSchema: {phase: 'refine'|'plan'|'implement' (required), roles: list[str] (optional, default = full phase roster), repo: str (required), description: str (required), branch: str (optional, auto-generated if absent), base_branch: str (optional), pr_number: int (optional), issue_number: int (optional), analysis: str (optional), plan: str (optional), config: object (optional)}. Description text makes it explicit that roles are phase-scoped and empty/reviewer-only rosters are rejected.",
+          "add_handler": "Add _handle_run_agent_task on PipelineToolHandler (alongside _handle_submit_task/_handle_babysit_pr around line 944/1055). The handler mirrors _handle_submit_task: validates description+repo, resolves pipeline_id (issue-N[-qualifier] if issue_number present; pipeline-<rand> if not; pr-<pr_number> if pr_number present), POSTs to /api/v1/pipelines with mode='custom', active_roles list, phase, pr_number (if any), analysis/plan/branch/base_branch/config. Returns {task_id, status, message}. Error-handling pattern matches _handle_submit_task for 409 (pipeline exists) and generic HTTP failures.",
+          "wire_handler": "Register 'run_agent_task': self._handle_run_agent_task in the handlers dict at line 865."
+        }
+      },
+      "2_pipeline_mode_enum": {
+        "location": "orchestrator/models.py",
+        "changes": {
+          "add_enum_value": "Add CUSTOM = 'custom' to PipelineMode at line 29. Docstring: 'Single-phase execution with an explicitly chosen subset of that phase's roles. BRC applies unchanged; degenerate rosters short-circuit via ApprovalMatrix.is_fully_acked. See #1762.'",
+          "add_pipeline_field": "Add `active_roles: list[str] | None = Field(default=None, description='Resolved roster for CUSTOM-mode pipelines — list of AgentRole string values. Stored at creation; read by _run_concurrent_phase to filter roles + review graph. None for ISSUE/BABYSIT modes.')` to Pipeline class (around line 556, near has_contract).",
+          "add_validator": "Add a field_validator for active_roles that rejects unknown role strings and cross-phase roles. The validator cannot reach the phase (Pipeline does not know which phase the list belongs to at validation time) — so the role-string shape is checked here (must be a value in AgentRole); phase-scoping is enforced at the route boundary, not the model."
+        }
+      },
+      "3_pipeline_route_validation": {
+        "location": "orchestrator/routes/pipelines.py (create_pipeline at line 691)",
+        "changes": {
+          "accept_mode_custom": "PipelineMode enum validation at line 749-751 already covers the new value automatically — no change needed here.",
+          "accept_active_roles": "Read `active_roles = data.get('active_roles')` and `phase = data.get('phase')` from the request body (around line 725-746).",
+          "validate_custom_mode_block": "Add a new validation block (after line 806, before the branch check at line 811) that runs only when mode == PipelineMode.CUSTOM:",
+          "validation_rules": [
+            "phase must be one of 'refine', 'plan', 'implement' — otherwise 400.",
+            "Resolve the default roster via get_roles_for_phase(phase, include_reviewers=True, repo=repo, has_contract=<see below>).",
+            "If active_roles is None: use the default roster verbatim.",
+            "If active_roles is a list: each entry must be a valid AgentRole string AND must appear in _PHASE_ROLES[phase] ∪ _PHASE_REVIEWERS[phase] (rejects overseer/autofixer/conflict_resolver/inspector and wrong-phase roles). Producer-only rule: at least one entry must be in _PHASE_ROLES[phase] (rejects reviewer-only/empty rosters with 400).",
+            "reviewer_contract auto-add rule: if active_roles omitted AND analysis OR plan are supplied (or pipeline has an upstream contract via source_branch) AND phase == 'implement', reviewer_contract is included by default via get_roles_for_phase(has_contract=True). If active_roles explicitly lists reviewer_contract without any contract artifact available → 400 with error 'reviewer_contract requires analysis/plan artifact'. Mirrors the existing has_contract filter (get_roles_for_phase line 1086-1089).",
+            "Auto-generate branch: if mode == CUSTOM and branch is None, set branch = f'egg/custom-{pipeline_id}'. This MUST happen after pipeline_id resolution (lines 821-826) and before the branch-existence check (line 866)."
+          ],
+          "pr_number_handling": "When mode == CUSTOM and pr_number is present, reuse the BABYSIT pre-flight exactly (lines 768-806). has_contract is set False (like BABYSIT). The pr_head_sha capture (line 959-962) also fires for CUSTOM+PR. Tests should verify that CUSTOM+pr_number produces the same set of refusals (merged, closed, fork, empty-diff) as BABYSIT.",
+          "pass_to_store": "Extend store.create_pipeline signature (state_store.py line 774-792) to accept `active_roles: list[str] | None = None` and pass it through to Pipeline(**kwargs). The route passes the resolved roster (after validation/filtering) — not the raw caller input."
+        }
+      },
+      "4_concurrent_phase_execution": {
+        "location": "orchestrator/routes/pipelines.py::_run_concurrent_phase (line 7184-7380+)",
+        "changes": {
+          "respect_active_roles": "At line 7245-7256, when building the `roles` list, prefer pipeline.active_roles if set. Pseudocode: ```\nif pipeline.active_roles is not None:\n    roles = [AgentRole(r) for r in pipeline.active_roles if r in {ar.value for ar in AgentRole}]\nelse:\n    roles = [AgentRole(r.value) for r in _get_roles_for_phase(phase_str, include_reviewers=True, repo=pipeline.repo, has_contract=getattr(pipeline, 'has_contract', True))]\n```",
+          "review_graph_filter_unchanged": "Lines 7263-7270 already filter the ReviewGraph by active role names — this handles CUSTOM correctly as-is once the roles list respects active_roles.",
+          "executor_unchanged": "ConcurrentPhaseExecutor already accepts `roles=roles` kwarg at line 7322 and stores _roles_override (line 114). No change needed in concurrent_executor.py.",
+          "approval_matrix_unchanged": "ApprovalMatrix.is_fully_acked at approval_matrix.py:162 already returns True when critical_reviewers_for(producer) is empty. This is the BRC short-circuit for degenerate rosters — no code change needed.",
+          "starting_phase_routing": "CUSTOM pipelines execute a single phase. The phase is recorded on the Pipeline (add `custom_phase: str | None = None` to Pipeline OR store it inside active_roles resolution context). RECOMMENDATION: reuse PipelineConfig.start_phase for this — CUSTOM pipelines set config.start_phase = <phase>, which already skips prior phases (validated at models.py:469-476 to accept 'plan'/'implement'). EXTEND the start_phase validator to also accept 'refine' for CUSTOM mode. Post-CUSTOM phase transition: the orchestrator's normal phase machinery should treat CUSTOM pipelines as 'single-phase' and mark the pipeline COMPLETE after the one phase's BRC reaches consensus. Grep for `advance_phase` / `current_phase` / `start_phase` handling in routes/pipelines.py and models.py to find the exact hook — likely a new branch in `_run_pipeline` or `complete_phase` that stops when mode == CUSTOM."
+        }
+      },
+      "5_pr_target_support": {
+        "location": "orchestrator/routes/pipelines.py (multiple call sites)",
+        "changes": {
+          "staging_branch_reuse": "When mode == CUSTOM and pr_number is set, reuse BABYSIT's per-role staging branch logic (concurrent_executor.py:174 — `pipeline_mode == _PipelineMode.BABYSIT`). PATCH: change that condition to `pipeline_mode in (_PipelineMode.BABYSIT, _PipelineMode.CUSTOM) and pipeline.pr_number is not None`, so CUSTOM+PR gets per-role staging branches identical to BABYSIT.",
+          "reviewer_prompts": "Update the condition at pipelines.py:6192 and :6357 (`if mode is not None and mode == PipelineMode.BABYSIT and phase == 'implement'`) to also trigger for `mode == PipelineMode.CUSTOM and pr_number is not None and phase == 'implement'`. Reviewer/producer orientation text (PR-diff-aware) then applies identically.",
+          "head_move_guard": "The PR head-move guard (line 4499 area, `_check_pr_head_sha`) runs on pr_head_sha. CUSTOM+PR captures pr_head_sha exactly like BABYSIT (line 959-962 already checks mode == BABYSIT — broaden to `mode in (BABYSIT, CUSTOM) and pr_number is not None`). All existing guard code then applies unchanged."
+        }
+      },
+      "6_interactive_mode_removal": {
+        "modules_deleted": [
+          "bin/egg (43 lines) — top-level binary. No replacement; users drive run_agent_task via MCP.",
+          "sandbox/egg_lib/cli.py::main (lines 27-220) and the file itself after relocating gha_exec.",
+          "sandbox/egg_lib/compose.py (932 lines) — entire module.",
+          "sandbox/egg_lib/runtime.py::run_claude (lines 634-~1050). The function is deleted; callers (cli.main) are deleted too.",
+          "sandbox/entrypoint.py::run_interactive (line 1909-1992). Entrypoint becomes exec-only.",
+          "The interactive dispatch in sandbox/entrypoint.py::main (lines 2131-2145). When sys.argv==1, the container errors out (`'egg entrypoint requires a command — interactive mode was removed in #1762'`) rather than falling through to run_interactive."
+        ],
+        "functions_modified": {
+          "exec_in_new_container": "Remove the `ensure_compose_services()` call at runtime.py:1060. The container expects the k8s/compose stack to already be up via bin/egg-deploy (or kubectl apply); no in-process bootstrap.",
+          "runtime.py_imports": "Delete `from .compose import ensure_compose_services` at runtime.py:47."
+        },
+        "files_modified": {
+          "sandbox/egg_lib/gha_exec.py": "NEW file. Move the `gha_exec()` function (cli.py lines 223-348) verbatim. Adjust imports to drop cli-only helpers it doesn't need (set_quiet_mode — import from .output; RuntimeContext — from .context; ensure_gateway_networks — from .docker; start_gateway_container — from .gateway; exec_in_new_container — from .runtime).",
+          "action/entrypoint.sh": "Change line 122 from `from egg_lib.cli import gha_exec` to `from egg_lib.gha_exec import gha_exec`.",
+          "sandbox/egg_lib/__init__.py": "Update public-symbol re-exports if they currently reference the deleted cli.main / run_claude / compose names.",
+          "bin/egg-deploy": "Delete the compose commands (`up`, `down`, `status`, `logs`, `build` at lines 284, 305, 321, 329, 141). Keep `init` (line-range grep + read — likely salvageable as 'generate config only'). RECOMMENDATION: replace `egg-deploy up` with a one-liner that prints 'use `kubectl apply -f k8s/` — compose deployment was removed in #1762' and exits 1.",
+          "tests/sandbox/test_cli_main.py": "DELETE entirely — all tests target the deleted cli.main path.",
+          "integration_tests/conftest.py": "Remove compose fixtures. Any test that needed ensure_compose_services() is rewritten against the gateway's k8s-style readiness check (or deleted if obsolete)."
+        }
+      },
+      "7_docs_rewrite": {
+        "rewrites": [
+          "README.md — replace the 'Quickstart / run egg' section with run_agent_task via MCP client examples.",
+          "docs/guides/local-quickstart.md — rewrite. Drop all references to `egg`, `egg --setup`, `egg --compose`. Add a run_agent_task example.",
+          "docs/guides/deployment.md — drop compose instructions; only k8s remains. Point at `bin/egg-deploy init` for config generation if that is preserved, else at `docs/guides/deploy-migration.md` for the kubectl path.",
+          "docs/architecture/declarative-setup.md — update to remove interactive-mode references; the orchestrator+gateway k8s deployment is the sole supported shape.",
+          "docs/architecture/custom-harness.md — update any references to bin/egg's harness-selection knob.",
+          "docs/index.md — update top-level lookup tables to remove interactive-mode rows; add a 'Run a one-off agent task' row pointing at run_agent_task."
+        ],
+        "new_doc": "docs/guides/agent-task.md — dedicated guide for run_agent_task: signature, phase/roles rules, worked examples for each phase (refine/plan/implement), PR-target example (decision-2), degenerate-roster examples (decision-6), branch auto-generation (decision-7).",
+        "unchanged": [
+          "docs/architecture/kubernetes-migration.md keeps the compose→k8s historical diff (decision context only).",
+          "docs/architecture/orchestrator.md updated lightly to mention PipelineMode.CUSTOM + the new tool.",
+          "docs/guides/babysit-pr.md updated with a footer noting babysit-pr semantics are also reachable via run_agent_task (phase=implement, pr_number=<N>) per decision-2."
+        ]
+      },
+      "8_test_coverage": {
+        "new_tests": {
+          "orchestrator/tests/test_run_agent_task.py": [
+            "test_mcp_tool_descriptor_exists — PIPELINE_TOOLS contains 'run_agent_task' with the expected schema.",
+            "test_handler_routes_submit_task_shape — mocked _make_request asserts POST body has mode='custom', phase, active_roles (when given).",
+            "test_handler_resolves_pipeline_id_from_issue_number — issue_number + qualifier → issue-N-<qualifier>.",
+            "test_handler_resolves_pipeline_id_from_pr_number — pr_number only → pr-<N>.",
+            "test_handler_resolves_pipeline_id_auto — no issue/PR → pipeline-<rand>."
+          ],
+          "orchestrator/tests/test_create_pipeline_custom_mode.py": [
+            "test_custom_mode_requires_phase — 400 when mode=custom and phase missing.",
+            "test_custom_mode_accepts_subset_roles — phase=implement, roles=['coder'] creates pipeline with active_roles=['coder'].",
+            "test_custom_mode_rejects_cross_phase_role — phase=plan, roles=['coder'] → 400.",
+            "test_custom_mode_rejects_overseer — roles=['overseer'] → 400.",
+            "test_custom_mode_rejects_reviewer_only — roles=['reviewer_plan'] → 400.",
+            "test_custom_mode_rejects_empty_roster — roles=[] → 400.",
+            "test_custom_mode_auto_generates_branch — no branch → 'egg/custom-<pipeline_id>'.",
+            "test_custom_mode_pr_number_reuses_babysit_preflight — merged/closed/fork/empty PR all refused.",
+            "test_custom_mode_reviewer_contract_auto_inclusion — default roster with analysis provided includes reviewer_contract."
+          ],
+          "orchestrator/tests/test_concurrent_phase_active_roles.py": [
+            "test_run_concurrent_phase_respects_active_roles — pipeline.active_roles=['refiner'] produces roles=[REFINER] and a single-node review graph.",
+            "test_brc_single_producer_consensus_short_circuit — single producer, no reviewers → is_fully_acked(producer) returns True after first propose; CONSENSUS_REACHED fires.",
+            "test_producer_plus_one_reviewer_runs_normal_brc — normal BRC applies."
+          ]
+        },
+        "deleted_tests": [
+          "tests/sandbox/test_cli_main.py — deleted entirely."
+        ],
+        "modified_tests": [
+          "orchestrator/tests/test_concurrent_executor_staging_branch.py — extend with CUSTOM+PR parametrizations (staging branches must also apply when mode=CUSTOM and pr_number is set).",
+          "orchestrator/tests/test_orient_prompts_babysit_pr.py — extend or split so PR-diff-aware orient prompts fire for mode in (BABYSIT, CUSTOM) when pr_number is set.",
+          "Any test that imports from sandbox.egg_lib.cli must be deleted or rewritten."
+        ]
+      }
+    },
+    "interface_contracts": {
+      "mcp_tool_input_schema": {
+        "name": "run_agent_task",
+        "required": ["description", "repo", "phase"],
+        "properties": {
+          "description": "Free-form task description (natural language)",
+          "repo": "owner/name",
+          "phase": "'refine' | 'plan' | 'implement'",
+          "roles": "list[str], optional — subset of the phase's producer+reviewer roles; default = full phase roster",
+          "branch": "optional — auto-generated as egg/custom-<pipeline_id> when absent",
+          "base_branch": "optional — defaults to repo default branch",
+          "pr_number": "optional — targets an existing PR (reuses BABYSIT pre-flight + staging-branch semantics)",
+          "issue_number": "optional — keys the contract file to issue-<N>[-qualifier]",
+          "analysis": "optional markdown — pre-populates the analysis artifact",
+          "plan": "optional markdown with yaml-tasks appendix — pre-populates the plan",
+          "config": "optional PipelineConfig overrides (hitl_gates, etc.)",
+          "qualifier": "optional — disambiguates pipeline_id when multiple custom-phase runs target the same issue/PR"
+        },
+        "output": "{task_id: str, status: 'started' | 'created_not_started', message: str} — same shape as submit_task"
+      },
+      "pipeline_record_shape": {
+        "mode": "'custom'",
+        "active_roles": "list[str] — resolved roster (producers + reviewers), stored at creation",
+        "branch": "egg/custom-<pipeline_id> (auto) OR caller-specified",
+        "has_contract": "True when analysis or plan is provided (or source_branch set); False for CUSTOM+PR (mirrors BABYSIT)",
+        "config.start_phase": "The phase selected by the caller (refine/plan/implement)",
+        "pr_number": "int when targeting a PR, else None",
+        "pr_head_sha": "captured when pr_number is set (reuses BABYSIT logic)"
+      }
+    },
+    "architectural_principles": [
+      "Additive-first: PipelineMode.CUSTOM, Pipeline.active_roles, and the new MCP tool are additive. Existing ISSUE/BABYSIT pipelines deserialize and run unchanged. Persisted state for in-flight pipelines has no active_roles field and defaults to None on load, which makes _run_concurrent_phase fall back to the ISSUE/BABYSIT code path.",
+      "Single source of truth for rosters: get_roles_for_phase() remains the authoritative function. The route's job is to validate caller input against the phase-scoped whitelist and store the resolved roster; the executor just reads Pipeline.active_roles.",
+      "BRC unchanged: no new events, no new messages, no new consensus logic. Degenerate rosters short-circuit via the existing ApprovalMatrix.is_fully_acked empty-reviewers code path. Tests exist already for is_fully_acked at the unit level; we add an integration test for single-producer consensus.",
+      "Phase-scoped roles: decision-8. OVERSEER, AUTOFIXER, CONFLICT_RESOLVER, INSPECTOR are rejected because they are either cross-phase or on-demand. This keeps the mental model simple — each role is resolvable from a single phase.",
+      "Producer-only rosters are OK; reviewer-only/empty are not: decision-6. A single producer reaches consensus in one cycle; a reviewer with no producer would stall. Validation fails fast at the route.",
+      "No 'no-branch' mode: decision-7. A branch is always materialized, even if auto-generated, so drafts have a git-retrievable location. This collapses the two retrieval paths (branch push vs. in-memory artifact collection) into one.",
+      "Compose is not preserved: decision-4. The compose module was a host-side convenience for interactive mode; the gateway+orchestrator run in k8s now. Half-live compose code is a tripwire, not a safety net.",
+      "Relocate gha_exec rather than copy-paste: decision-3. One logical owner for the GHA entry point; action/entrypoint.sh tracks the new import path.",
+      "BABYSIT stays until CUSTOM+PR proves out: decision-2. CUSTOM reuses BABYSIT's semantics internally (per-role staging, head-move guard, PR pre-flight), so the consolidation later is mostly route-level plumbing."
+    ]
+  },
+  "key_files": {
+    "new": [
+      ".egg-state/drafts/1762-plan.md (refinement of this architecture — task_planner produces via egg_sdlc)",
+      "sandbox/egg_lib/gha_exec.py",
+      "docs/guides/agent-task.md",
+      "orchestrator/tests/test_run_agent_task.py",
+      "orchestrator/tests/test_create_pipeline_custom_mode.py",
+      "orchestrator/tests/test_concurrent_phase_active_roles.py"
+    ],
+    "modified": [
+      "orchestrator/mcp_tools.py (PIPELINE_TOOLS append + PipelineToolHandler)",
+      "orchestrator/models.py (PipelineMode.CUSTOM + Pipeline.active_roles + start_phase validator expansion to accept 'refine')",
+      "orchestrator/state_store.py (create_pipeline signature + persistence path)",
+      "orchestrator/routes/pipelines.py (create_pipeline validation + _run_concurrent_phase roles resolution + staging-branch/orientation-prompt conditions extending BABYSIT semantics to CUSTOM+PR)",
+      "orchestrator/concurrent_executor.py (line 174 BABYSIT check broadened to include CUSTOM+PR — staging branches)",
+      "action/entrypoint.sh (import path for gha_exec)",
+      "sandbox/entrypoint.py (delete run_interactive; error-out sys.argv==1 path)",
+      "sandbox/egg_lib/runtime.py (delete run_claude; drop .compose import; remove ensure_compose_services() from exec_in_new_container)",
+      "sandbox/egg_lib/__init__.py (re-export cleanup)",
+      "bin/egg-deploy (delete compose subcommands; keep init if salvageable)",
+      "README.md",
+      "docs/index.md",
+      "docs/guides/local-quickstart.md",
+      "docs/guides/deployment.md",
+      "docs/architecture/declarative-setup.md",
+      "docs/architecture/custom-harness.md",
+      "docs/architecture/orchestrator.md",
+      "docs/guides/babysit-pr.md (footer noting run_agent_task alternative)",
+      "integration_tests/conftest.py (drop compose fixtures)"
+    ],
+    "deleted": [
+      "bin/egg",
+      "sandbox/egg_lib/cli.py",
+      "sandbox/egg_lib/compose.py",
+      "tests/sandbox/test_cli_main.py"
+    ]
+  },
+  "dependencies_and_call_graph": {
+    "mcp_tool_callpath": "Host MCP client → orchestrator MCP server (mcp_tools.py) → PipelineToolHandler._handle_run_agent_task → POST /api/v1/pipelines → routes/pipelines.py::create_pipeline → state_store.create_pipeline → POST /api/v1/pipelines/<id>/start → _run_pipeline → _run_concurrent_phase → ConcurrentPhaseExecutor.spawn_all → kubernetes_spawner.spawn_agent_job (per role).",
+    "persistence_path": ".egg-state/pipelines/<pipeline_id>.json stores the Pipeline record including active_roles. .egg-state/contracts/<issue_id_or_pipeline_id>.json holds the SDLC contract (artifacts, decisions, acceptance criteria).",
+    "brc_path": "Each spawned agent reaches PROPOSE via egg-orch consensus propose; ApprovalMatrix.is_fully_acked (approval_matrix.py:162) returns True immediately for producers whose review graph has no critical reviewers (the single-producer short-circuit). _check_consensus (peer_consensus.py:1410) fires CONSENSUS_REACHED once all confirmed roles match the graph."
+  },
+  "rollout_and_migration": {
+    "rollout": "Option A — single PR. Commit order WITHIN the PR: (1) add PipelineMode.CUSTOM enum value + Pipeline.active_roles (additive); (2) add _handle_run_agent_task + PIPELINE_TOOLS descriptor; (3) extend create_pipeline validation and _run_concurrent_phase; (4) add tests; (5) delete bin/egg, cli.main, run_claude, compose.py, run_interactive, ensure_compose_services call sites, interactive test file, compose calls in egg-deploy, and interactive-only flags; (6) relocate gha_exec and update action/entrypoint.sh; (7) docs rewrite.",
+    "persistence_migration": "None required. Pipeline.active_roles defaults to None; mode defaults to 'issue'. Existing .egg-state/pipelines/*.json deserialize unchanged.",
+    "backward_compatibility": "submit_task (ISSUE mode) and babysit_pr (BABYSIT mode) are unchanged at the MCP surface. submit_task --start-phase=implement still works. Any caller driving the old interactive path (bin/egg) loses access — documented as a breaking change in the PR description; this is the issue's explicit ask.",
+    "followups_out_of_scope": [
+      "Consolidate BABYSIT into CUSTOM (decision-2 follow-up): once CUSTOM+PR proves out, BABYSIT mode handler and MCP tool can be collapsed into a thin shim that calls run_agent_task internally.",
+      "CLI surface for bin/egg-sdlc (Q6): defer; MCP-only in v1."
+    ]
+  },
+  "risks_for_risk_analyst": {
+    "note": "These are callouts for the risk_analyst; not a complete risk assessment.",
+    "high": [
+      "GHA entry point regression: if the gha_exec relocation misses a dependency or the action/entrypoint.sh import update is missed, the GitHub Action breaks for all repos using it. Mitigation: add/update action CI test + verify by dry-running the action.",
+      "Compose removal breaks any hidden callers: grep shows compose references only in sandbox/egg_lib and integration_tests. But operators may have local scripts that call `egg --compose` / `bin/egg-deploy up`. Mitigation: release notes + deprecation message in bin/egg-deploy's stripped subcommands.",
+      "active_roles persistence read path: the new field must be read everywhere `roles` is resolved — specifically _run_concurrent_phase, restart_phase, advance_phase, startup_reconciliation, kubernetes_monitor. A missed read site leaves a CUSTOM pipeline running the full default roster, which would break decision-6 (reviewer-only rosters silently spawn producers). Mitigation: grep for `get_roles_for_phase` and add the `pipeline.active_roles` branch at every site."
+    ],
+    "medium": [
+      "Phase completion semantics for CUSTOM: CUSTOM pipelines are single-phase. The orchestrator's phase-advance logic (complete_phase / advance_phase) currently assumes the standard refine→plan→implement→pr sequence. A CUSTOM pipeline that reaches CONSENSUS_REACHED must transition to COMPLETE, not to the next phase. Mitigation: add a mode==CUSTOM guard in complete_phase/advance_phase.",
+      "reviewer_contract auto-add ambiguity: the rule 'include reviewer_contract by default when analysis/plan is supplied' is phase=implement-only. For phase=plan/refine, reviewer_contract is not in _PHASE_REVIEWERS, so the rule is moot. Document this in the plan-phase tasks to avoid planner confusion.",
+      "Staging-branch reuse for CUSTOM+PR: the line 174 condition in concurrent_executor.py gates per-role staging branches on BABYSIT. Broadening to CUSTOM+pr_number must preserve BABYSIT semantics (staging branch names, head-move guard, PR checkout step). Mitigation: strong tests covering CUSTOM+PR staging-branch behaviour.",
+      "Auto-generated branch collision: egg/custom-<pipeline_id> — if pipeline_id is pipeline-<rand> (no issue/PR context), branch names collide probabilistically; if pipeline_id is issue-N, a prior run on the same issue may have the same branch. Mitigation: the existing branch-existence check at line 866 already handles collision — terminal pipelines allow reuse; active pipelines block."
+    ],
+    "low": [
+      "test_cli_main.py deletion: ensure no other test module imports helpers from this file.",
+      "sandbox image size: removing compose.py and run_claude reduces image footprint — net positive.",
+      "docs drift across PRs: given the high number of doc touches, a doc-only follow-up review cycle may be needed post-merge."
+    ]
+  },
+  "open_questions_for_reviewer_plan": [
+    "Should CUSTOM+PR ALWAYS set has_contract=False (matching BABYSIT), or should we keep has_contract=True when analysis/plan are provided alongside pr_number? My recommendation is 'has_contract = bool(analysis or plan or source_branch); mode==CUSTOM+PR does NOT force False' — but this differs subtly from BABYSIT, which always forces False. If the reviewer_plan prefers strict parity with BABYSIT, I'll update.",
+    "Should the new 'custom_phase' be stored on PipelineConfig.start_phase (reusing existing field with expanded 'refine' validator) or on a dedicated Pipeline.custom_phase: str | None field? I lean toward reusing start_phase for YAGNI — any caller that cares is already reading config.start_phase. The reviewer_plan may disagree if the field semantics diverge (e.g., ISSUE pipelines' start_phase is an 'advance-to' knob; CUSTOM's start_phase is the 'only phase I run' knob).",
+    "Should we delete bin/egg-deploy compose subcommands or keep them as deprecation stubs that exit 1 with a migration message? Stubs are nicer for operators running stale scripts; deletion is cleaner. Recommend stubs for one release cycle then delete — but decision is subjective."
+  ],
+  "acceptance_criteria_hints_for_task_planner": [
+    "AC: run_agent_task MCP tool registered in PIPELINE_TOOLS with exact schema from resolved_decisions.",
+    "AC: POST /api/v1/pipelines with mode='custom' accepts/validates active_roles per decision-6 and decision-8 rules.",
+    "AC: Pipeline.active_roles persists to state_store and round-trips through load_pipeline.",
+    "AC: _run_concurrent_phase uses pipeline.active_roles when present (else falls back to full phase roster).",
+    "AC: Single-producer roster (e.g. phase=refine, roles=['refiner']) reaches CONSENSUS_REACHED on first PROPOSE.",
+    "AC: Reviewer-only or empty rosters return HTTP 400.",
+    "AC: Cross-phase or non-phase roles (overseer/autofixer/conflict_resolver/inspector) return HTTP 400.",
+    "AC: No branch in request → Pipeline.branch == 'egg/custom-<pipeline_id>' after creation.",
+    "AC: CUSTOM+pr_number runs BABYSIT pre-flight (merged/closed/fork/empty refusals) and uses per-role staging branches.",
+    "AC: bin/egg, sandbox/egg_lib/cli.py, sandbox/egg_lib/compose.py, tests/sandbox/test_cli_main.py are deleted.",
+    "AC: sandbox/entrypoint.py errors with a clear message when run with sys.argv==1 (interactive path removed).",
+    "AC: gha_exec imported from sandbox/egg_lib/gha_exec (verified by action/entrypoint.sh integration).",
+    "AC: bin/egg-deploy compose subcommands (up/down/status/logs/build) are removed or stubbed with migration message.",
+    "AC: Docs (README, index, local-quickstart, deployment, declarative-setup, custom-harness, orchestrator, babysit-pr) are updated; docs/guides/agent-task.md exists.",
+    "AC: Existing ISSUE and BABYSIT pipelines still succeed end-to-end (regression).",
+    "AC: integration_tests/conftest.py compose fixtures removed without orphaned references."
+  ]
+}
