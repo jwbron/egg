@@ -135,11 +135,13 @@ The `is_transient_crash()` function classifies these exit codes as transient:
 
 The `is_startup_failure()` function handles a separate class of transient error: exit code 1 within the first `STARTUP_FAILURE_WINDOW_SECONDS` (default: 30 seconds) of agent lifetime. The Agent SDK surfaces API-level errors — network blips, socket closes, 5xx responses during the first few turns — as `success=False` + exit 1, which is indistinguishable from a prompt-level failure by exit code alone. Agents that exit 1 within the startup window have almost certainly not done meaningful work, so the retry cost is negligible.
 
-Agents that exit 1 after the startup window (i.e., after doing real work) are still treated as permanent failures.
+Agents that exit 1 after the startup window (i.e., after doing real work) are still treated as permanent failures. The window is configurable via the `startup_failure_window_seconds` parameter; set to `0` to disable the heuristic.
+
+All other non-zero exit codes (2, 3, 42, etc.) that are neither signal-transient nor exit 1 are treated as permanent failures with no restart.
 
 ### Restart with Backoff
 
-When a transient crash is detected, the wrapper:
+When a transient crash or startup failure is detected, the wrapper:
 
 1. Logs `"Transient crash (code $AGENT_EXIT). Will restart with backoff."`
 2. Sleeps for `CRASH_BACKOFF` seconds (initial: `TRANSIENT_RESTART_BACKOFF_INITIAL`, default 5)
