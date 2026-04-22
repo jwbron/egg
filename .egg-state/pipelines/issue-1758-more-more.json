@@ -51,8 +51,114 @@
       "started_at": "2026-04-22T18:40:41.624258Z",
       "work_started_at": "2026-04-22T18:40:42.706028Z",
       "completed_at": null,
-      "containers": [],
-      "agents": [],
+      "containers": [
+        {
+          "container_id": "b9747bf4-8863-4178-baaa-485d5e040557",
+          "container_name": "egg-sandbox-egg-agent-issue-1758-more-more-coder",
+          "status": "running",
+          "started_at": "2026-04-22T18:40:58.753752Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "coder",
+          "session_token": null,
+          "pod_name": null,
+          "namespace": "egg-agents",
+          "job_name": "egg-sandbox-egg-agent-issue-1758-more-more-coder"
+        },
+        {
+          "container_id": "5d467ac4-468f-4c54-b29e-694a6ab757f7",
+          "container_name": "egg-sandbox-egg-agent-issue-1758-more-more-reviewer-code",
+          "status": "running",
+          "started_at": "2026-04-22T18:40:58.753802Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_code",
+          "session_token": null,
+          "pod_name": null,
+          "namespace": "egg-agents",
+          "job_name": "egg-sandbox-egg-agent-issue-1758-more-more-reviewer-code"
+        },
+        {
+          "container_id": "e89c4792-5aac-4db7-8064-0da9fed50b49",
+          "container_name": "egg-sandbox-egg-agent-issue-1758-more-more-tester",
+          "status": "running",
+          "started_at": "2026-04-22T18:40:58.753835Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "tester",
+          "session_token": null,
+          "pod_name": null,
+          "namespace": "egg-agents",
+          "job_name": "egg-sandbox-egg-agent-issue-1758-more-more-tester"
+        }
+      ],
+      "agents": [
+        {
+          "role": "coder",
+          "status": "running",
+          "container_id": "b9747bf4-8863-4178-baaa-485d5e040557",
+          "container_info": null,
+          "started_at": "2026-04-22T18:40:58.753783Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_code",
+          "status": "running",
+          "container_id": "5d467ac4-468f-4c54-b29e-694a6ab757f7",
+          "container_info": null,
+          "started_at": "2026-04-22T18:40:58.753814Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_contract",
+          "status": "failed",
+          "container_id": null,
+          "container_info": null,
+          "started_at": "2026-04-22T18:40:58.753822Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "documenter",
+          "status": "failed",
+          "container_id": null,
+          "container_info": null,
+          "started_at": "2026-04-22T18:40:58.753829Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "tester",
+          "status": "running",
+          "container_id": "e89c4792-5aac-4db7-8064-0da9fed50b49",
+          "container_info": null,
+          "started_at": "2026-04-22T18:40:58.753842Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        }
+      ],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -71,7 +177,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-22T18:40:06.983698Z",
-  "updated_at": "2026-04-22T18:40:42.710760Z",
+  "updated_at": "2026-04-22T18:40:58.754038Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -84,5 +190,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 6
+  "version": 7
 }
