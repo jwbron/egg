@@ -41,6 +41,11 @@ DEFAULT_RATE_LIMIT = 30  # requests per minute
 # anthropics/claude-code#20335), otherwise the client gives up before we reply.
 GET_STATUS_MAX_WAIT = 25
 
+# Module-level reference so tests can patch ``mcp_server._async_sleep``
+# without replacing the global ``asyncio.sleep`` (which would capture
+# unrelated calls from anyio internals during the test suite).
+_async_sleep = asyncio.sleep
+
 
 async def _apply_get_status_wait(tool_name: str, kwargs: dict) -> None:
     """Handle the ``get_status`` ``wait`` parameter on the event loop.
@@ -59,7 +64,7 @@ async def _apply_get_status_wait(tool_name: str, kwargs: dict) -> None:
     if isinstance(wait, bool):
         return  # bool is a subclass of int; reject to avoid True -> 1 sleep
     if isinstance(wait, (int, float)) and wait > 0:
-        await asyncio.sleep(min(wait, GET_STATUS_MAX_WAIT))
+        await _async_sleep(min(wait, GET_STATUS_MAX_WAIT))
 
 
 class RateLimiter:

@@ -131,11 +131,17 @@ The `is_transient_crash()` function classifies these exit codes as transient:
 | 139 | SIGSEGV | Segmentation fault |
 | 255 | *(Bun-specific)* | Bun runtime segfault (wraps the crash as exit 255) |
 
-All other non-zero exit codes (e.g., exit 1) are treated as non-transient and cause immediate failure without restart.
+### Startup Failure Detection
+
+The `is_startup_failure()` function handles a separate class of transient error: exit code 1 within the first `STARTUP_FAILURE_WINDOW_SECONDS` (default: 30 seconds) of agent lifetime. The Agent SDK surfaces API-level errors — network blips, socket closes, 5xx responses during the first few turns — as `success=False` + exit 1, which is indistinguishable from a prompt-level failure by exit code alone. Agents that exit 1 within the startup window have almost certainly not done meaningful work, so the retry cost is negligible.
+
+Agents that exit 1 after the startup window (i.e., after doing real work) are still treated as permanent failures. The window is configurable via the `startup_failure_window_seconds` parameter; set to `0` to disable the heuristic.
+
+All other non-zero exit codes (2, 3, 42, etc.) that are neither signal-transient nor exit 1 are treated as permanent failures with no restart.
 
 ### Restart with Backoff
 
-When a transient crash is detected, the wrapper:
+When a transient crash or startup failure is detected, the wrapper:
 
 1. Logs `"Transient crash (code $AGENT_EXIT). Will restart with backoff."`
 2. Sleeps for `CRASH_BACKOFF` seconds (initial: `TRANSIENT_RESTART_BACKOFF_INITIAL`, default 5)
@@ -151,7 +157,8 @@ Clean-exit restarts (exit code 0) do not incur any backoff delay.
 |----------|--------|-------|
 | Segfault (exit 139/255) | `NOT restarting` — agent permanently dead | Classified as transient, restarted with backoff |
 | OOM kill (exit 137) | `NOT restarting` — agent permanently dead | Classified as transient, restarted with backoff |
-| Application error (exit 1) | `NOT restarting` — immediate failure | Unchanged — still exits immediately |
+| API/network error at startup (exit 1, age &lt; 30s) | `NOT restarting` — immediate failure | Classified as startup failure, restarted with backoff |
+| Application error (exit 1, age &ge; 30s) | `NOT restarting` — immediate failure | Unchanged — still exits immediately |
 | Pipeline impact | Single crash kills pipeline | Transient crashes recovered; pipeline continues |
 
 This addresses the scenario described in [issue #1512](https://github.com/jwbron/egg/issues/1512), where a Bun segfault permanently killed an agent and caused the entire pipeline to fail even though 4 of 5 agents were healthy.
@@ -240,7 +247,8 @@ The optional `context` parameter injects additional guidance into the respawned 
 | Agent fails, error not retryable | Escalate to HITL (MANUAL policy) |
 | Agent fails, max retries exceeded | Escalate to HITL |
 | Transient crash in consensus wrapper (segfault, OOM) | Restart with exponential backoff (shares `MAX_CONSENSUS_RESTARTS` cap) |
-| Non-transient crash in consensus wrapper (exit 1) | Immediate failure, no restart |
+| Startup failure in consensus wrapper (exit 1 within 30s) | Restart with exponential backoff (treated as transient API/network error) |
+| Non-transient crash in consensus wrapper (exit 1 after 30s) | Immediate failure, no restart |
 | Wrapper: tracker stale after withdrawal cascade | Message bus fallback detects `CONSENSUS_CONFIRMED`; agent exits cleanly |
 | Overseer detects restartable infra error (unresponsive, crashed, OOM, timeout, hung) | `RESTART_AGENT` action — auto-restart via API (up to max restarts per phase) |
 | Overseer detects non-restartable infra error (permission denied, EROFS, filesystem) | Escalate to HITL (bypasses restart) |
