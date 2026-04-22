@@ -325,12 +325,52 @@ TESTER_FINDINGS_HEADER = "### tester findings"
 def _pipeline_identifier(
     issue_number: int | None,
     pipeline_id: str,
+    mode: "PipelineMode | None" = None,
 ) -> int | str:
     """Derive the pipeline identifier used for namespaced .egg-state filenames.
 
     Prefers ``issue_number`` when available, falling back to ``pipeline_id``.
+
+    CUSTOM-mode pipelines (#1762) ALWAYS key by ``pipeline_id`` even when
+    an ``issue_number`` is supplied — a CUSTOM pipeline sharing an issue
+    number with a concurrent ISSUE-mode pipeline must not collide on
+    ``.egg-state/drafts/<N>-analysis.md``.
     """
+    try:
+        from models import PipelineMode as _PipelineMode
+    except Exception:
+        _PipelineMode = None  # type: ignore[assignment]
+    if (
+        _PipelineMode is not None
+        and mode is not None
+        and mode == _PipelineMode.CUSTOM
+    ):
+        return pipeline_id or "unknown"
     return issue_number if issue_number is not None else pipeline_id
+
+
+def _uses_per_role_staging(pipeline: "Pipeline") -> bool:
+    """Return True when a pipeline uses BABYSIT-style per-role staging branches.
+
+    Broadened from the BABYSIT-only check in #1748 to cover CUSTOM-mode
+    pipelines whose ``pr_number`` is set (see #1762 TASK-2-7). The two
+    modes share staging-branch derivation, PR-diff-aware orient prompts,
+    and ``has_contract=False`` semantics because a CUSTOM pipeline with a
+    PR target is effectively BABYSIT under the hood — the only
+    user-facing difference is the MCP tool name.
+    """
+    try:
+        from models import PipelineMode as _PipelineMode
+    except Exception:
+        return False
+    mode = getattr(pipeline, "mode", None)
+    if mode is None:
+        return False
+    if mode == _PipelineMode.BABYSIT:
+        return True
+    if mode == _PipelineMode.CUSTOM and getattr(pipeline, "pr_number", None) is not None:
+        return True
+    return False
 
 
 def _brc_history_identifier(pipeline) -> int | str:
@@ -730,6 +770,9 @@ def create_pipeline() -> tuple[Response, int]:
     pr_number = data.get("pr_number")
     analysis = data.get("analysis")
     plan = data.get("plan")
+    # CUSTOM-mode parameters (#1762 run_agent_task primitive)
+    custom_phase = data.get("phase")
+    custom_roles_raw = data.get("roles")
     source_branch = data.get("source_branch")
     if source_branch is not None:
         if not re.match(r"^[a-zA-Z0-9_./-]+$", source_branch) or ".." in source_branch:
@@ -757,42 +800,112 @@ def create_pipeline() -> tuple[Response, int]:
         if not isinstance(pr_number, int) or pr_number < 1:
             return make_error_response("pr_number must be a positive integer")
 
+    # CUSTOM mode: validate phase early so the remaining pipeline fits
+    # on the rails shared with BABYSIT/ISSUE (#1762 TASK-2-1).
+    _CUSTOM_ALLOWED_PHASES = {"refine", "plan", "implement"}
+    if mode == PipelineMode.CUSTOM:
+        if not custom_phase:
+            return make_error_response(
+                "Missing phase (required for custom mode)",
+                status_code=400,
+                details={"reason": "missing_phase"},
+            )
+        if custom_phase not in _CUSTOM_ALLOWED_PHASES:
+            return make_error_response(
+                f"Invalid phase: {custom_phase!r} "
+                f"(must be one of {sorted(_CUSTOM_ALLOWED_PHASES)})",
+                status_code=400,
+                details={"reason": "invalid_phase"},
+            )
+        # If caller passed pr_number, validate it the same way BABYSIT does.
+        if pr_number is not None:
+            if not isinstance(pr_number, int) or pr_number < 1:
+                return make_error_response(
+                    "pr_number must be a positive integer",
+                    status_code=400,
+                    details={"reason": "invalid_pr_number"},
+                )
+
     if not repo:
         return make_error_response("Missing repo")
 
-    # Babysit mode pre-flight: refuse merged/closed/fork PRs and PRs with no
-    # diff before spawning agents (cheaper to fail fast than to detect after
-    # a container starts).  When gh is unavailable the helper returns {} and
-    # we proceed — downstream agents will surface the error organically.
+    # Repo allowlist check — applies to every mode, but we surface a
+    # CUSTOM-specific 400 reason when the mode is CUSTOM so callers
+    # (run_agent_task) see the structured response. See risk_analyst R9.
+    # First a lightweight shell-metacharacter sanity check; then we delegate
+    # to the repo_config allowlist which backs repositories.yaml.
+    if not re.match(r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$", repo):
+        return make_error_response(
+            f"Invalid repo format: {repo!r} (expected owner/name)",
+            status_code=400,
+            details={"reason": "repo_not_allowed"},
+        )
+    if mode == PipelineMode.CUSTOM:
+        try:
+            try:
+                from config.repo_config import is_readable_repo as _is_readable_repo
+                from config.repo_config import is_writable_repo as _is_writable_repo
+            except ImportError:
+                from repo_config import is_readable_repo as _is_readable_repo  # type: ignore[no-redef]
+                from repo_config import is_writable_repo as _is_writable_repo  # type: ignore[no-redef]
+            _allowed = False
+            try:
+                _allowed = bool(_is_writable_repo(repo) or _is_readable_repo(repo))
+            except Exception:
+                # Best-effort: if the allowlist helper raises (e.g. no
+                # repositories.yaml at all), fall through to the
+                # pre-existing behaviour of letting creation proceed.
+                _allowed = True
+            if not _allowed:
+                return make_error_response(
+                    f"Repository {repo!r} is not in the allowlist "
+                    "(repositories.yaml).",
+                    status_code=400,
+                    details={"reason": "repo_not_allowed", "repo": repo},
+                )
+        except Exception:
+            # If the allowlist machinery itself blew up, do not surface a
+            # 500 to the caller — the existing gateway-side check will
+            # still catch unauthorised writes.
+            pass
+
+    # PR pre-flight — applied uniformly to BABYSIT and to CUSTOM pipelines
+    # that supply a ``pr_number`` (#1762 TASK-2-6). Refuses merged/closed/
+    # fork PRs and PRs with no diff before any container spawn. When gh is
+    # unavailable the helper returns {} and we proceed — downstream agents
+    # will surface the error organically.
+    _needs_pr_preflight = (mode == PipelineMode.BABYSIT) or (
+        mode == PipelineMode.CUSTOM and pr_number is not None
+    )
     babysit_pr_state: dict[str, Any] | None = None
-    if mode == PipelineMode.BABYSIT:
+    if _needs_pr_preflight:
         babysit_pr_state = _fetch_pr_state(pr_number, repo=repo)
         if babysit_pr_state:
             pr_state = babysit_pr_state.get("state")
             if pr_state == "MERGED":
                 return make_error_response(
-                    f"PR #{pr_number} is already merged — babysit-pr cannot run on merged PRs.",
+                    f"PR #{pr_number} is already merged — cannot run against merged PRs.",
                     status_code=409,
                     details={"reason": "pr_merged", "pr_number": pr_number},
                 )
             if pr_state == "CLOSED":
                 return make_error_response(
-                    f"PR #{pr_number} is closed — reopen it before running babysit-pr.",
+                    f"PR #{pr_number} is closed — reopen it before running.",
                     status_code=409,
                     details={"reason": "pr_closed", "pr_number": pr_number},
                 )
             if babysit_pr_state.get("is_fork"):
                 head_repo = babysit_pr_state.get("head_repository_name_with_owner") or "fork"
                 return make_error_response(
-                    f"PR #{pr_number} is from a fork ({head_repo}). babysit-pr only "
-                    "supports same-repo PRs because staging branches must be pushable "
-                    "through the gateway.",
+                    f"PR #{pr_number} is from a fork ({head_repo}). Only "
+                    "same-repo PRs are supported because staging branches must "
+                    "be pushable through the gateway.",
                     status_code=400,
                     details={"reason": "pr_from_fork", "pr_number": pr_number},
                 )
             if not babysit_pr_state.get("changed_files"):
                 return make_error_response(
-                    f"PR #{pr_number} has no changed files — nothing for babysit-pr to review.",
+                    f"PR #{pr_number} has no changed files — nothing to review.",
                     status_code=409,
                     details={"reason": "pr_empty_diff", "pr_number": pr_number},
                 )
@@ -822,7 +935,23 @@ def create_pipeline() -> tuple[Response, int]:
     if not pipeline_id and mode == PipelineMode.BABYSIT:
         pipeline_id = f"pr-{pr_number}"
 
-    if (issue_number or pipeline_id) and not branch and mode != PipelineMode.BABYSIT:
+    # CUSTOM mode: auto-generate a branch (``egg/custom-<pipeline_id>``) when
+    # the caller did not supply one AND there is no PR to take the head
+    # branch from. Every CUSTOM pipeline has a branch so producers always
+    # have somewhere to push drafts (#1762 decision-7).
+    if mode == PipelineMode.CUSTOM and not branch and pr_number is None:
+        # pipeline_id may still be None at this point — fall back to a
+        # synthetic identifier so the branch name is always valid.
+        _pid_for_branch = pipeline_id or f"custom-{os.urandom(4).hex()}"
+        if not pipeline_id:
+            pipeline_id = _pid_for_branch
+        branch = f"egg/custom-{_pid_for_branch}"
+
+    if (
+        (issue_number or pipeline_id)
+        and not branch
+        and mode not in (PipelineMode.BABYSIT, PipelineMode.CUSTOM)
+    ):
         return make_error_response("Missing branch")
 
     # Wait for the gateway to be ready before any gateway-dependent work.
@@ -953,13 +1082,91 @@ def create_pipeline() -> tuple[Response, int]:
 
     # Babysit-pr pipelines run a one-off implement-phase BRC cycle against a
     # PR diff — no upstream SDLC contract exists, so reviewer_contract is
-    # filtered out of the active roster.
-    has_contract = mode != PipelineMode.BABYSIT
+    # filtered out of the active roster. CUSTOM pipelines with a PR target
+    # follow the same semantics (#1762 TASK-2-7). CUSTOM without a PR
+    # computes has_contract from whether analysis/plan/issue_contract is
+    # available (TASK-2-2).
+    if mode == PipelineMode.BABYSIT:
+        has_contract = False
+    elif mode == PipelineMode.CUSTOM:
+        # CUSTOM+PR: subsume BABYSIT — no upstream contract.
+        if pr_number is not None:
+            has_contract = False
+        else:
+            # CUSTOM without PR: has_contract is True when the caller
+            # passed inline analysis / plan OR when an ISSUE-mode contract
+            # file already exists for this issue number.
+            _has_artifact = bool(analysis) or bool(plan)
+            _has_issue_contract = False
+            if not _has_artifact and issue_number:
+                try:
+                    _contract_path = (
+                        repo_path
+                        / ".egg-state"
+                        / "contracts"
+                        / f"issue-{issue_number}.json"
+                    )
+                    _has_issue_contract = _contract_path.exists()
+                except Exception:
+                    _has_issue_contract = False
+            has_contract = _has_artifact or _has_issue_contract
+    else:
+        has_contract = True
     pr_head_sha: str | None = None
-    if mode == PipelineMode.BABYSIT and babysit_pr_state:
+    if _needs_pr_preflight and babysit_pr_state:
         _candidate_sha = babysit_pr_state.get("head_sha")
         if isinstance(_candidate_sha, str) and _candidate_sha:
             pr_head_sha = _candidate_sha
+
+    # Resolve the roster override for CUSTOM mode (and for BABYSIT, whose
+    # subsumption path persists the same list for runtime consistency —
+    # #1762 TASK-4-1). For ISSUE-mode pipelines active_roles stays None so
+    # the executor uses the full phase-default roster.
+    active_roles_to_persist: list[str] | None = None
+    if mode == PipelineMode.CUSTOM:
+        # Only validate when the caller supplied a roles field; None /
+        # missing means "use the default roster for the phase" and the
+        # helper expands it on our behalf.
+        try:
+            from egg_contracts.agent_roles import (
+                validate_roles_for_custom_phase as _validate_custom_roles,
+            )
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.error("Failed to import validate_roles_for_custom_phase", error=str(exc))
+            return make_error_response(
+                "Internal error validating roles",
+                status_code=500,
+            )
+        _resolved, _err = _validate_custom_roles(
+            phase=custom_phase,
+            requested_roles=(
+                list(custom_roles_raw)
+                if isinstance(custom_roles_raw, list)
+                else None
+            ),
+            repo=repo,
+            has_contract=has_contract,
+        )
+        if _err is not None or _resolved is None:
+            return make_error_response(
+                f"Invalid roles for phase {custom_phase!r}: {_err}",
+                status_code=400,
+                details={"reason": _err or "invalid_roles"},
+            )
+        active_roles_to_persist = [r.value for r in _resolved]
+    elif mode == PipelineMode.BABYSIT:
+        # TASK-4-1: populate active_roles on BABYSIT pipelines so the
+        # CUSTOM+PR code path and BABYSIT share the same runtime plumbing.
+        try:
+            from egg_contracts.agent_roles import get_roles_for_phase as _get_roles
+            _babysit_roles = _get_roles(
+                "implement", include_reviewers=True, repo=repo, has_contract=False
+            )
+            active_roles_to_persist = [r.value for r in _babysit_roles]
+        except Exception:
+            # Defensive: if role resolution fails we leave active_roles as
+            # None and fall back to the executor's default path.
+            active_roles_to_persist = None
 
     try:
         store = get_state_store(repo_path)
@@ -980,7 +1187,24 @@ def create_pipeline() -> tuple[Response, int]:
             source_artifact_prefix=source_artifact_prefix,
             has_contract=has_contract,
             pr_head_sha=pr_head_sha,
+            active_roles=active_roles_to_persist,
         )
+
+        # CUSTOM-mode pipelines skip refine/plan (we run the requested
+        # phase directly). For PR-targeted CUSTOM or when start_phase
+        # wasn't explicitly set via config, land on the right starting
+        # phase here so the scheduler/status endpoints see the correct
+        # phase immediately. state_store already handles BABYSIT.
+        if mode == PipelineMode.CUSTOM:
+            try:
+                from egg_contracts.models import PipelinePhase as _PipelinePhase
+                # Don't clobber an explicit config.start_phase if the
+                # caller set one.
+                if not getattr(pipeline.config, "start_phase", None):
+                    pipeline.current_phase = _PipelinePhase(custom_phase)
+                    store.save_pipeline(pipeline)
+            except Exception:
+                pass
 
         # Contract creation is deferred to _run_pipeline so it writes
         # into the per-pipeline worktree instead of the main repo.
@@ -2506,15 +2730,19 @@ def _get_draft_path(
     phase: str,
     issue_number: int | None = None,
     pipeline_id: str | None = None,
+    mode: "PipelineMode | None" = None,
 ) -> str | None:
     """Return relative path to the draft file for a phase.
 
     Uses issue_number as prefix when available, otherwise pipeline_id.
+    For CUSTOM-mode pipelines (#1762) always keys on pipeline_id so the
+    file does not collide with a concurrent ISSUE-mode pipeline sharing
+    the same ``issue_number``.
     """
     filename = _draft_filename(phase)
     if not filename:
         return None
-    prefix = _pipeline_identifier(issue_number, pipeline_id or "unknown")
+    prefix = _pipeline_identifier(issue_number, pipeline_id or "unknown", mode=mode)
     return f".egg-state/drafts/{prefix}-{filename}"
 
 
@@ -4242,6 +4470,7 @@ def _ensure_statefiles_on_branch(
                     draft_phase,
                     issue_number=pipeline.issue_number,
                     pipeline_id=pipeline.id,
+                    mode=getattr(pipeline, "mode", None),
                 )
                 if not draft_rel:
                     continue
@@ -4282,6 +4511,7 @@ def _ensure_statefiles_on_branch(
                 draft_phase,
                 issue_number=pipeline.issue_number,
                 pipeline_id=pipeline.id,
+                mode=getattr(pipeline, "mode", None),
             )
             if not draft_rel:
                 continue
@@ -6180,16 +6410,22 @@ def _build_reviewer_preparation(
         branch: The pipeline's work branch, if any.
         base_branch: The resolved base branch for diff/log commands. Falls
             back to ``main`` when ``None``.
-        mode: Pipeline execution mode. When :attr:`PipelineMode.BABYSIT`,
+        mode: Pipeline execution mode. When :attr:`PipelineMode.BABYSIT`
+            or :attr:`PipelineMode.CUSTOM` with a PR target (#1762),
             reviewer text instructs them to orient on the PR diff
             (``base...head``) before producers broadcast.
-        pr_number: GitHub PR number (only meaningful in babysit mode).
+        pr_number: GitHub PR number (meaningful for BABYSIT and CUSTOM+PR).
     """
     base_ref = _resolve_origin_ref(base_branch)
 
-    # Babysit mode: reviewers orient on the PR diff against its configured
-    # base branch, as if it were a fresh proposal from the producers (#1748).
-    if mode is not None and mode == PipelineMode.BABYSIT and phase == "implement":
+    # Babysit or CUSTOM+PR: reviewers orient on the PR diff against its
+    # configured base branch, as if it were a fresh proposal from the
+    # producers (#1748, #1762).
+    _is_pr_diff_aware = mode is not None and (
+        mode == PipelineMode.BABYSIT
+        or (mode == PipelineMode.CUSTOM and pr_number is not None)
+    )
+    if _is_pr_diff_aware and phase == "implement":
         pr_hint = f"PR #{pr_number}" if pr_number else "the PR under review"
         # Without an explicit PR-head checkout the worktree sits on the base
         # branch — ``git diff base...HEAD`` would be empty (#1748 reviewer_code
@@ -6350,11 +6586,16 @@ def _build_producer_orientation(
             "keep their review criteria in mind as you work."
         )
 
-    # Babysit mode: producers rebase the PR's base branch into their staging
-    # worktree, resolve conflicts only within their own role's file scope,
-    # and escalate cross-role overlap via the on-demand `conflict_resolver`
-    # role. A soft scope-expansion hint discourages off-diff refactors.
-    if mode is not None and mode == PipelineMode.BABYSIT and phase == "implement":
+    # Babysit or CUSTOM+PR: producers rebase the PR's base branch into
+    # their staging worktree, resolve conflicts only within their own
+    # role's file scope, and escalate cross-role overlap via the
+    # on-demand `conflict_resolver` role. A soft scope-expansion hint
+    # discourages off-diff refactors (#1748, #1762).
+    _producer_is_pr_diff_aware = mode is not None and (
+        mode == PipelineMode.BABYSIT
+        or (mode == PipelineMode.CUSTOM and pr_number is not None)
+    )
+    if _producer_is_pr_diff_aware and phase == "implement":
         base_ref = _resolve_origin_ref(base_branch)
         base_label = (base_branch or "the PR base branch").strip() or "the PR base branch"
         pr_hint = f"PR #{pr_number}" if pr_number else "the PR under review"
@@ -7243,17 +7484,31 @@ def _run_concurrent_phase(
     from egg_contracts.agent_roles import get_roles_for_phase as _get_roles_for_phase
 
     roles: list[AgentRole] = []
-    for r in _get_roles_for_phase(
-        phase_str,
-        include_reviewers=True,
-        repo=pipeline.repo,
-        has_contract=getattr(pipeline, "has_contract", True),
-    ):
-        try:
-            roles.append(AgentRole(r.value))
-        except ValueError:
-            # New roles not yet in orchestrator AgentRole — skip
-            continue
+    _roster_override = getattr(pipeline, "active_roles", None)
+    if _roster_override:
+        # CUSTOM-mode (#1762) and BABYSIT pipelines persist their resolved
+        # roster on pipeline.active_roles. Use it verbatim so in-flight
+        # pipelines survive role-roster version bumps.
+        for r_value in _roster_override:
+            try:
+                roles.append(AgentRole(r_value))
+            except ValueError:
+                # Role value from a newer schema the orchestrator can't
+                # spawn yet — skip it so BRC doesn't wait on an unspawnable
+                # agent.
+                continue
+    else:
+        for r in _get_roles_for_phase(
+            phase_str,
+            include_reviewers=True,
+            repo=pipeline.repo,
+            has_contract=getattr(pipeline, "has_contract", True),
+        ):
+            try:
+                roles.append(AgentRole(r.value))
+            except ValueError:
+                # New roles not yet in orchestrator AgentRole — skip
+                continue
 
     # Build a review graph filtered to only active roles so consensus
     # tracking doesn't wait for unspawned agents.
@@ -10570,7 +10825,15 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # Determine next phase
             next_phases = transitions.get(current_phase, [])
 
-            if not next_phases:
+            # CUSTOM-mode pipelines run exactly one phase and then
+            # terminate — no auto-advance (#1762 TASK-2-9 / decision-9).
+            # Mirrors BABYSIT's effective single-phase semantics (BABYSIT
+            # starts at IMPLEMENT and the PR step is a no-op).
+            _is_custom_mode = (
+                getattr(pipeline, "mode", None) == PipelineMode.CUSTOM
+            )
+
+            if not next_phases or _is_custom_mode:
                 # Terminal phase — pipeline complete
                 with get_pipeline_state_lock(pipeline_id):
                     pipeline = store.load_pipeline(pipeline_id)
@@ -10584,7 +10847,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                     message="Pipeline completed successfully",
                 )
                 _emit_pipeline_event(pipeline, "pipeline.completed")
-                logger.info("Pipeline complete", pipeline_id=pipeline_id)
+                logger.info(
+                    "Pipeline complete",
+                    pipeline_id=pipeline_id,
+                    custom_mode=_is_custom_mode,
+                )
                 break
 
             # Advance to next phase
@@ -10935,8 +11202,13 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                     transitions = PHASE_TRANSITIONS
                     current_phase = pipeline.current_phase
                     next_phases = transitions.get(current_phase, [])
+                    # CUSTOM-mode pipelines complete after their single
+                    # phase — no auto-advance (#1762 TASK-2-9).
+                    _is_custom_mode = (
+                        getattr(pipeline, "mode", None) == PipelineMode.CUSTOM
+                    )
 
-                    if not next_phases:
+                    if not next_phases or _is_custom_mode:
                         # Terminal phase — pipeline complete.
                         # Bump run_epoch so any lingering old _run_pipeline
                         # thread (e.g. stuck in its finally block) detects the

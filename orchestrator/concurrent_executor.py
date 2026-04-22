@@ -97,6 +97,15 @@ class ConcurrentPhaseExecutor:
       with retry/abort/continue options.
     - Multiple failures (2+ within 60s): Abort phase immediately.
     - Failure during consensus: Remove READY signal, treat as single failure.
+
+    Role roster resolution:
+    - When ``roles`` is explicitly supplied, that list is used verbatim
+      (the caller has already resolved the roster). ``_run_concurrent_phase``
+      drives this from ``Pipeline.active_roles`` for CUSTOM-mode pipelines
+      (#1762) and the subsumed BABYSIT path, so in-flight pipelines
+      survive role-roster version bumps.
+    - When ``roles`` is ``None``, the executor falls back to
+      ``get_roles_for_phase(current_phase, has_contract, repo)``.
     """
 
     def __init__(
@@ -107,6 +116,23 @@ class ConcurrentPhaseExecutor:
         review_graph: ReviewGraph | None = None,
         roles: list[AgentRole] | None = None,
     ) -> None:
+        """Initialise the executor.
+
+        Args:
+            pipeline: The Pipeline record this executor is running against.
+                When ``pipeline.active_roles`` is populated (CUSTOM-mode or
+                BABYSIT subsumption per #1762), callers typically also
+                pass the resolved list here as ``roles`` so the override
+                is honoured even before the next pipeline reload.
+            spawn_fn: Callable that creates containers for the given role.
+            max_concurrent: Maximum number of containers to run at once.
+            review_graph: Optional pre-filtered review graph; when None,
+                the executor derives it from the pipeline's current phase.
+            roles: Optional roster override. Driven by
+                ``Pipeline.active_roles`` when CUSTOM-mode (#1762) or when
+                BABYSIT's subsumption path populates the persisted roster.
+                None falls through to the full phase-default roster.
+        """
         self.pipeline = pipeline
         self.spawn_fn = spawn_fn
         self.max_concurrent = max_concurrent
@@ -162,17 +188,25 @@ class ConcurrentPhaseExecutor:
         call time, we fall back to the PR head branch so agents can still
         operate against the live PR.
         """
-        # Babysit-pr: per-role staging branch namespaced by PR head SHA.
+        # Babysit-pr AND CUSTOM+PR (#1762): per-role staging branch
+        # namespaced by PR head SHA. CUSTOM-mode pipelines that supply a
+        # pr_number inherit BABYSIT's per-role staging semantics so both
+        # modes land on one runtime code path.
         try:
             from models import PipelineMode as _PipelineMode  # local import to avoid cycles
         except Exception:
             _PipelineMode = None  # type: ignore[assignment]
         pipeline_mode = getattr(self.pipeline, "mode", None)
-        if (
-            _PipelineMode is not None
-            and pipeline_mode is not None
-            and pipeline_mode == _PipelineMode.BABYSIT
-        ):
+        _uses_staging = False
+        if _PipelineMode is not None and pipeline_mode is not None:
+            if pipeline_mode == _PipelineMode.BABYSIT:
+                _uses_staging = True
+            elif (
+                pipeline_mode == _PipelineMode.CUSTOM
+                and getattr(self.pipeline, "pr_number", None) is not None
+            ):
+                _uses_staging = True
+        if _uses_staging:
             pr_number = getattr(self.pipeline, "pr_number", None)
             sha = getattr(self.pipeline, "pr_head_sha", None)
             if pr_number and isinstance(sha, str) and len(sha) >= 7:
