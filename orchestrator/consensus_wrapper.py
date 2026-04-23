@@ -327,13 +327,135 @@ check_confirmed_and_wait() {{
 
     if [ "$agent_confirmed" = "True" ]; then
         cw_log "Agent already CONFIRMED in BRC protocol. Waiting for consensus..."
-        local poll_interval wait_count
+        # Event-driven wait (issue #1897, TASK-5-1): instead of
+        # sleep-looping over pipeline status, block on the SSE event
+        # stream and parse for the ``consensus.reached`` event-name.
+        # Any peer confirmation that completes consensus triggers the
+        # event within milliseconds, so consensus completion is
+        # noticed immediately rather than on the next 30s poll
+        # boundary.
+        #
+        # Fallback: if curl is unavailable or the SSE endpoint
+        # returns 5xx, degrade to the legacy sleep+status loop so
+        # local-dev without full SSE infrastructure still works
+        # (RISK-7 — keep the zero-Redis path viable).
+        local poll_interval wait_count sse_url rc
         poll_interval="${{EGG_MESSAGE_POLL_INTERVAL:-30}}"
+        sse_url="${{EGG_ORCHESTRATOR_URL:-http://egg-orchestrator:9849}}/api/v1/pipelines/${{EGG_PIPELINE_ID:-unknown}}/stream"
         wait_count=0
+
+        # Try SSE path if curl is available.
+        if command -v curl >/dev/null 2>&1 && [ -n "${{EGG_PIPELINE_ID:-}}" ]; then
+            cw_log "Waiting on SSE event 'consensus.reached' at $sse_url"
+            # Overall time cap for the SSE subscription. When the curl
+            # socket closes (SIGTERM, hangup, server EOF, max-time) we
+            # fall through to the final status check.
+            local max_seconds sse_exit_code
+            max_seconds=$(( MAX_READY_POLLS * poll_interval ))
+
+            # Run curl in the background so we can install a SIGTERM
+            # trap (issue #1897 TASK-5-1 acceptance b, reviewer_contract
+            # blocker 3). The orchestrator sends SIGTERM to the wrapper
+            # PID when it closes the pod; without the trap, curl would
+            # keep the stream open while the default bash handler tears
+            # down the process, producing a > 2s shutdown. With the trap
+            # we kill curl on TERM, clean up the temp file, and exit
+            # cleanly within the graceful shutdown window.
+            #
+            # ``--connect-timeout 5`` ensures we fail fast if the SSE
+            # endpoint is unreachable (older sandbox image, DNS error,
+            # proxy restriction) rather than blocking for the full
+            # max_seconds budget before falling through.
+            local curl_pid sse_tmp sse_exit_code
+            sse_tmp=$(mktemp -t consensus_sse.XXXXXX)
+            curl --no-buffer -sf \
+                --connect-timeout 5 \
+                -m "$max_seconds" \
+                "$sse_url" > "$sse_tmp" 2>/dev/null &
+            curl_pid=$!
+            trap "
+                cw_log 'SIGTERM received; stopping SSE curl (pid $curl_pid) and exiting cleanly.'
+                kill '$curl_pid' 2>/dev/null || true
+                rm -f '$sse_tmp' 2>/dev/null || true
+                exit 0
+            " TERM
+
+            # Poll the curl output for the consensus.reached event
+            # while curl is alive. Reading a growing temp file is more
+            # robust under ``set -uo pipefail`` than ``exec 9< <(curl)``
+            # (process substitution) — the fd-based approach was seen
+            # to hang rather than surface curl's fast-fail exit.
+            sse_exit_code=1
+            local tail_deadline
+            tail_deadline=$((SECONDS + max_seconds))
+            while [ "$SECONDS" -lt "$tail_deadline" ]; do
+                if grep -q '^event:.*consensus\.reached' "$sse_tmp" 2>/dev/null; then
+                    sse_exit_code=0
+                    break
+                fi
+                if ! kill -0 "$curl_pid" 2>/dev/null; then
+                    # curl exited — check one last time for the event.
+                    if grep -q '^event:.*consensus\.reached' "$sse_tmp" 2>/dev/null; then
+                        sse_exit_code=0
+                    fi
+                    break
+                fi
+                sleep 0.5
+            done
+            # Clean up: drop the trap and kill curl before falling
+            # through; we don't want the trap to fire during the rest
+            # of the function (which runs its own kill semantics).
+            trap - TERM
+            kill "$curl_pid" 2>/dev/null || true
+            wait "$curl_pid" 2>/dev/null || true
+            rm -f "$sse_tmp" 2>/dev/null || true
+
+            if [ "$sse_exit_code" -eq 0 ]; then
+                cw_log "SSE delivered consensus.reached. Verifying via status..."
+                local resp is_complete
+                resp=$(egg-orch pipeline status --json 2>/dev/null || echo "{{}}")
+                is_complete=$(echo "$resp" | python3 -c \
+                    "import sys,json; d=json.load(sys.stdin); print(d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('is_complete',False))" \
+                    2>/dev/null || echo "False")
+                if [ "$is_complete" = "True" ]; then
+                    cw_log "Consensus reached. Exiting."
+                    exit 0
+                fi
+            else
+                cw_log "SSE stream ended without consensus.reached; falling back to status loop"
+            fi
+        else
+            cw_log "curl or EGG_PIPELINE_ID unavailable; using status-poll fallback"
+        fi
+
+        # Secondary fallback: if SSE didn't deliver but egg-orch is
+        # available, block on the typed `egg-orch message wait` primitive
+        # before falling through to sleep.  This keeps the wrapper
+        # event-driven even when the SSE endpoint is unreachable
+        # (older sandbox image, proxy restriction) so we don't burn
+        # the full MAX_READY_POLLS budget on empty sleeps.
         while [ "$wait_count" -lt "$MAX_READY_POLLS" ]; do
             wait_count=$((wait_count + 1))
-            sleep "$poll_interval"
-            local resp is_complete
+            if command -v egg-orch >/dev/null 2>&1; then
+                # Block up to poll_interval seconds on a peer
+                # CONSENSUS_CONFIRMED / CONSENSUS_RE_REVIEW event.
+                egg-orch message wait \
+                    --for CONSENSUS_CONFIRMED \
+                    --for CONSENSUS_RE_REVIEW \
+                    --timeout "$poll_interval" >/dev/null 2>&1
+                rc=$?
+                if [ "$rc" -eq 2 ]; then
+                    # Transient error — short backoff to avoid tight-loop
+                    sleep 2
+                elif [ "$rc" -eq 3 ]; then
+                    # Permanent egg-orch error — sleep fallback
+                    sleep "$poll_interval"
+                fi
+            else
+                # No egg-orch CLI — pure sleep fallback (issue #1897
+                # RISK-7: keep zero-CLI local-dev path viable).
+                sleep "$poll_interval"
+            fi
             resp=$(egg-orch pipeline status --json 2>/dev/null || echo "{{}}")
             is_complete=$(echo "$resp" | python3 -c \
                 "import sys,json; d=json.load(sys.stdin); print(d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('is_complete',False))" \

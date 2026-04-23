@@ -29,7 +29,7 @@ EGG_IMAGE_TAG := $(shell git describe --always --dirty 2>/dev/null || echo lates
         setup deps venv install-linters check-linters \
         lint lint-python lint-shell lint-yaml lint-docker lint-actions lint-custom \
         test security \
-        test-integration test-e2e test-security \
+        test-integration test-e2e test-security smoketest-long-poll \
         lint-fix lint-python-fix lint-shell-fix lint-yaml-fix \
         build \
         k3s-setup k3s-secrets deploy redeploy k3s-teardown k3s-import
@@ -253,6 +253,19 @@ test: venv
 	@echo "==> Running unit tests..."
 	$(PYTEST) tests/ gateway/tests/ orchestrator/tests/ shared/tests/ -v $(PYTEST_ARGS)
 
+smoketest-long-poll: export PYTHONPATH := shared:gateway:orchestrator
+smoketest-long-poll: venv  ## Smoke-test the long-poll / event-driven wait infrastructure
+	$(PYTEST) \
+		orchestrator/tests/test_messages.py::TestWaitEndpoint \
+		orchestrator/tests/test_messages.py::TestLongPolling \
+		orchestrator/tests/test_messages.py::TestInflightLongPollGauge \
+		orchestrator/tests/test_messages.py::TestWaitTimeoutFloorRegression \
+		orchestrator/tests/test_message_store.py::TestWaitForTypesFilter \
+		orchestrator/tests/test_message_store.py::TestNotifyMultipleWaiters \
+		orchestrator/tests/test_cli.py::TestWaitressSizing \
+		orchestrator/tests/test_concurrent_integration.py::TestEventDrivenConsensusWait \
+		-v --timeout=90
+
 security:
 	@echo "==> Running security scan..."
 	@if command -v $(BANDIT) >/dev/null 2>&1; then \
@@ -366,7 +379,7 @@ k3s-secrets:  ## Create gateway secrets from ~/.config/egg/
 	fi
 	@if [ ! -f "$$HOME/.config/egg/lifecycle-secret" ]; then \
 		echo "ERROR: $$HOME/.config/egg/lifecycle-secret not found."; \
-		echo "Run 'bin/egg-deploy init' to generate it (required by #1769 HITL auth)."; \
+		echo "Generate it: openssl rand -hex 32 > $$HOME/.config/egg/lifecycle-secret"; \
 		exit 1; \
 	fi
 	@echo "==> Creating gateway-secrets in egg-system namespace..."

@@ -5084,10 +5084,15 @@ BRC_HISTORY_TYPES = frozenset(
         "CONSENSUS_RE_REVIEW",
         "STATUS",
         "HANDOFF",
-        "QUESTION",
         "AGENT_FAILED",
         "NUDGE",
         "OVERSEER_ALERT",
+        # HEARTBEAT (issue #1897) — structured per-agent state messages.
+        "HEARTBEAT",
+        # QUESTION removed per issue #1897 Phase 7.  The enum member
+        # remains for backward-compat until the tester updates
+        # test_brc_history / test_checkpoint fixtures; see
+        # MessageType.QUESTION.
     }
 )
 
@@ -6268,8 +6273,16 @@ def _build_brc_preamble(
                 "4. **RESPOND TO REVIEWS**: Poll for ACK/NACK from reviewers. "
                 "Handle NACKs by fixing issues and re-proposing.",
                 "5. **CONFIRM**: When all reviewers ACK: `egg-orch consensus confirmed`",
-                "6. **STAY ALIVE**: Keep polling `egg-orch message poll --wait 30` "
-                "until the orchestrator stops you.",
+                "6. **STAY ALIVE**: Block on the next BRC event with "
+                "`egg-orch message wait-loop --for CONSENSUS_CONFIRMED "
+                "--for CONSENSUS_RE_REVIEW --for OVERSEER_ALERT "
+                "--timeout 60` until the orchestrator stops you. "
+                "**Don't** wrap this in a shell `for i in 1..N` loop; "
+                "**don't** prefix it with `sleep N`.  The wait-loop "
+                "blocks server-side and returns the moment a BRC "
+                "event arrives — exit code 0 means act on it, 1 means "
+                "the wrapper exhausted retries (surface it). See "
+                "docs/reference/agent-wait-patterns.md.",
                 "7. **HANDLE RE-REVIEW**: If you receive a `CONSENSUS_RE_REVIEW` message "
                 "while staying alive, you MUST act on it — failure to do so will stall "
                 "the entire pipeline. If you are a reviewer of the re-proposing producer, "
@@ -6291,9 +6304,12 @@ def _build_brc_preamble(
                     mode=mode,
                     pr_number=pr_number,
                 ),
-                "2. **POLL**: Wait for `CONSENSUS_PROPOSE` from assigned producers "
-                "(`egg-orch message poll --wait 30`). While waiting, continue "
-                "your preparation work from step 1.",
+                "2. **POLL**: Block on `CONSENSUS_PROPOSE` from assigned producers "
+                "with `egg-orch message wait --for CONSENSUS_PROPOSE --timeout 60`.  "
+                "Exit code 0 means a proposal arrived (stdout has it); 1 means "
+                "timeout (re-issue the wait); 2 is transient.  Do NOT poll "
+                "in a shell `for` loop and do NOT `sleep N`.  While waiting, "
+                "continue your preparation work from step 1.",
                 "3. **SYNC**: Before reviewing, sync your worktree so you have the "
                 "producer's commits: `git fetch origin && git merge "
                 + _resolve_origin_ref(branch or base_branch)
@@ -6329,8 +6345,15 @@ def _build_brc_preamble(
                 "Boilerplate like 'lgtm' or 'no issues' will be rejected.",
                 "6. **CONFIRM**: When all assigned producers reviewed: "
                 "`egg-orch consensus confirmed`",
-                "7. **STAY ALIVE**: Keep polling `egg-orch message poll --wait 30` "
-                "until the orchestrator stops you.",
+                "7. **STAY ALIVE**: Block on the next BRC event with "
+                "`egg-orch message wait-loop --for CONSENSUS_PROPOSE "
+                "--for CONSENSUS_RE_REVIEW --for CONSENSUS_CONFIRMED "
+                "--for OVERSEER_ALERT --timeout 60` until the "
+                "orchestrator stops you. **Don't** wrap this in a "
+                "shell `for i in 1..N` loop; **don't** prefix it with "
+                "`sleep N`.  The wait-loop blocks server-side and "
+                "returns the moment a BRC event arrives. See "
+                "docs/reference/agent-wait-patterns.md.",
                 "8. **HANDLE RE-REVIEW**: If you receive a `CONSENSUS_RE_REVIEW` message "
                 "while staying alive, you MUST act on it — failure to do so will stall "
                 "the entire pipeline. Re-review the re-proposing producer's new proposal "
@@ -6374,14 +6397,16 @@ def _build_brc_preamble(
     if is_reviewer:
         lines.extend(
             [
-                "**As a reviewer**, use directed messages to request clarification:",
-                "- **QUESTION**: Ask a producer for clarification before or during your "
-                "review. This avoids unnecessary NACKs for ambiguities that can be "
-                "resolved with a quick exchange.",
-                "  ```",
-                '  egg-orch message send --to coder --type QUESTION --subject "Clarify auth flow" '
-                '--body "Is the token refresh handled in auth.py or middleware?"',
-                "  ```\n",
+                "**As a reviewer**, when you need clarification before "
+                "ACK/NACKing, put the question in your NACK `--reason` "
+                "block under `### Non-blocking`.  The producer sees it "
+                "atomically with the review verdict and the audit "
+                "trail is preserved.  The legacy QUESTION message "
+                "type was removed in issue #1897; off-protocol chatter "
+                "is no longer advertised.  A follow-up issue will "
+                "introduce a structured REQUEST/REPLY subsystem that "
+                "names a target peer and times out.",
+                "",
             ]
         )
 
@@ -7388,19 +7413,28 @@ def _build_agent_prompt(
                 "When you have completed your primary work:\n",
                 "1. Commit all changes",
                 '2. Run: `egg-orch signal readiness --state READY --reason "Work complete"`',
-                "3. Enter a stay-alive polling loop:",
+                "3. Enter an **event-driven** stay-alive wait (issue #1897). "
+                "Do NOT wrap `egg-orch` in a shell `for i in 1..N` loop, "
+                "and do NOT `sleep N` — use the server-side blocking primitive:",
                 "```bash",
-                "while true; do",
-                "  egg-orch message poll",
-                '  sleep "${EGG_MESSAGE_POLL_INTERVAL:-30}"',
-                "done",
+                "egg-orch message wait-loop \\",
+                "  --for CONSENSUS_CONFIRMED \\",
+                "  --for CONSENSUS_RE_REVIEW \\",
+                "  --for OVERSEER_ALERT \\",
+                "  --timeout 60",
                 "```",
-                "4. If a message arrives that affects your work, transition back to WORKING, "
-                "address it, then signal READY again. **In particular, if you receive a "
-                "`CONSENSUS_RE_REVIEW` message, you MUST re-confirm via "
-                "`egg-orch consensus confirmed` (or re-review and ACK/NACK if you are a "
-                "reviewer of the re-proposing producer). Ignoring this message will stall "
-                "the pipeline.**",
+                "`wait-loop` blocks server-side and loops forever until a "
+                "matching BRC event arrives (exit 0) or a permanent error "
+                "occurs (exit 1).  There is no outer timeout — the wrapper "
+                "owns the 0/1 contract.  See "
+                "`docs/reference/agent-wait-patterns.md` for the full "
+                "exit-code contract and the four anti-patterns to avoid.",
+                "4. If `wait-loop` returns with a message that affects your work, "
+                "transition back to WORKING, address it, then signal READY again. "
+                "**In particular, if you receive a `CONSENSUS_RE_REVIEW` message, "
+                "you MUST re-confirm via `egg-orch consensus confirmed` (or "
+                "re-review and ACK/NACK if you are a reviewer of the re-proposing "
+                "producer). Ignoring this message will stall the pipeline.**",
                 "5. **Do NOT exit.** The orchestrator will stop your container when consensus "
                 "is reached.",
             ]

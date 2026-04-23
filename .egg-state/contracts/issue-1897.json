@@ -1,0 +1,846 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1897,
+    "title": "Issue #1897",
+    "url": "https://github.com/jwbron/egg/issues/1897"
+  },
+  "pipeline_id": "issue-1897",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "What is the scope for issue #1897 \u2014 which of the five proposed work items should be in scope?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "All five items (audit prompts, blocking primitive, idempotent CLI, docs, heartbeats) \u2014 full scope",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Items 1, 3, 4 only (prompt audit, idempotent CLI verification, docs) \u2014 minimal/safe scope",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Items 1, 2, 4 (prompt audit + new blocking primitive + docs) \u2014 UX-focused scope",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Items 1, 4, 5 (prompt audit + docs + heartbeats) \u2014 observability-focused scope",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"All five items (audit prompts, blocking primitive, idempotent CLI, docs, heartbeats) \u2014 full scope\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T00:02:40.832032Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "How should the new blocking primitive be exposed (if in scope)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Add new dedicated CLI: egg-orch message wait --for TYPE [--from ROLE] [--timeout N]",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Extend existing message poll with --until/--for filters: egg-orch message poll --wait N --until-type TYPE",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "No new primitive \u2014 fix only by tightening prompt instructions and documentation",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Add new dedicated CLI: egg-orch message wait --for TYPE [--from ROLE] [--timeout N]\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T00:03:26.073313Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Should the 60-second cap on message poll --wait be raised?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Keep 60s cap (force agents to re-poll, server holds fewer long blocking connections)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Raise to 300s (5 min) \u2014 matches consensus_wrapper MAX_READY_POLLS interval",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Raise to 600s (10 min) \u2014 minimize bus chatter, rely on Redis XREAD BLOCK semantics",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Make configurable via env var (EGG_MESSAGE_POLL_MAX_WAIT) with current 60s default",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Make configurable via env var (EGG_MESSAGE_POLL_MAX_WAIT) with current 60s default\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T00:03:41.170138Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "How should the existing in-memory message store behave for --wait > 0?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Leave as-is: silent fallback to non-blocking (test environments only)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Implement true blocking via condition variable on the in-memory store",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Add a server-side sleep-until-empty-or-message loop in the route as fallback",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Implement true blocking via condition variable on the in-memory store\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T00:03:56.267757Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "What should happen with the QUESTION message type?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Remove it \u2014 it's only used in tests, encourages off-protocol chatter",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Formalize as a heartbeat/STATUS channel with required structured fields",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Keep but document that it is best-effort and unreplied \u2014 only for human triage",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Replace with a typed REQUEST/REPLY pattern that names a target peer and times out",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Remove it \u2014 it's only used in tests, encourages off-protocol chatter\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T00:04:31.435147Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Should agent prompt changes regress-protect with explicit anti-pattern bans?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes \u2014 add explicit don'ts: 'Do NOT use ; do NOT call  to wait; rely on --wait blocking semantics'",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "No \u2014 positive guidance only ('use a single while loop with --wait 30')",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Yes plus a sandbox-side guard: gateway rejects bash commands containing  followed by orch CLI",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Yes \u2014 add explicit don'ts: 'Do NOT use ; do NOT call  to wait; rely on --wait blocking semantics'\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T00:05:41.787453Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-7",
+      "question": "Should agent prompt changes regress-protect with explicit anti-pattern bans?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes \u2014 add explicit Don'ts: \"Do NOT use for-loops to wrap message poll; do NOT call sleep N to wait; rely on --wait blocking semantics\"",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "No \u2014 positive guidance only (\"use a single while loop with --wait 30\")",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Yes plus a sandbox-side guard: gateway rejects bash commands containing \"sleep [0-9]+ &&\" followed by orch CLI",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Yes \u2014 add explicit Don'ts: \\\"Do NOT use for-loops to wrap message poll; do NOT call sleep N to wait; rely on --wait blocking semantics\\\"\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T00:06:37.102986Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-8",
+      "question": "Should the consensus_wrapper.py \"stay alive\" loop (currently MAX_READY_POLLS \u00d7 30s = 300s) be replaced with event-driven blocking on consensus completion?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Replace shell sleep loop with a long XREAD BLOCK or SSE listener tied to is_complete signal",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Keep shell loop but extend MAX_READY_POLLS or accept the suggested poll interval from message_poll_hint_seconds",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Out of scope for this issue (the wrapper is internal, not the source of agent-side patterns)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Replace shell sleep loop with a long XREAD BLOCK or SSE listener tied to is_complete signal\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T00:07:12.329944Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-9",
+      "question": "[Phase gate: refine] The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "## Resolved Questions\n\n### Decisions\n\n**decision-1 (Scope)**: All 5 items (full scope) \u2014 audit prompts, blocking primitive, idempotent CLI, docs, heartbeats. Triggers Option C.\n\n**decision-2 (Blocking primitive)**: Add new dedicated CLI `egg-orch message wait --for TYPE [--from ROLE] [--timeout N]`.\n\n**decision-3 (--wait cap)**: Make configurable via env var `EGG_MESSAGE_POLL_MAX_WAIT` with current 60s default. Gateway HTTP_PROXY idle timeout must rise in lockstep if the cap is raised.\n\n**decision-4 (In-memory store for --wait > 0)**: Implement true blocking via condition variable on the in-memory store. Note: local deploys run without Redis for now, so this is load-bearing for local dev in addition to CI \u2014 not just a test-only concern.\n\n**decision-5 (QUESTION message type)**: Remove it. Zero production use today, only in test fixtures, encourages off-protocol chatter. No replacement needed in this pipeline \u2014 existing NACK/STATUS/HANDOFF/OVERSEER_ALERT channels cover legitimate cases. If structured peer Q&A is needed later, introduce it as a purpose-built REQUEST/REPLY subsystem in a future issue.\n\n**decision-6 (Duplicate block)**: Superseded \u2014 see decision-7.\n\n**decision-7 (Regression guard)**: Explicit Don'ts in prompt preamble \u2014 'Do NOT use for-loops to wrap message poll; do NOT call sleep N to wait; rely on --wait blocking semantics'. No gateway-level bash rejection.\n\n**decision-8 (consensus_wrapper stay-alive loop)**: Replace shell sleep loop with a long XREAD BLOCK or SSE listener tied to is_complete signal. SIGTERM handling and orchestrator graceful-shutdown semantics must be preserved.\n\n### Feedback / Questions\n\n**Q1 (timing of issue-1762-membump pollution vs. PR #1896)**: Before #1896 merged \u2014 item 3 (consensus-confirmed idempotency) is likely already done by the merged fix. Planner should still verify via replay or synthetic test but no additional dedup work is expected.\n\n**Q2 (in-memory store production use)**: Local deploys run without Redis for now. This strengthens decision-4: the condition-variable blocking on the in-memory store is load-bearing for local development, not just CI test environments.\n\n**Q3 (constraints on new message types / CLI)**: No hard constraints \u2014 new types are additive, old agents ignore unknowns, CLI changes are forward-only.\n\n**Q4 (heartbeat design)**: New dedicated HEARTBEAT message type with a structured state field (WORKING | WAITING_ON_ROLE | PROPOSED | IDLE). Clean separation from PROGRESS/STATUS. Overseer Tier 1 reads it directly instead of inferring from message timing.\n\n**Q5 (agent UX)**: Single recommended idiom and explicit bans on alternatives \u2014 `while true; do egg-orch message wait --for <TYPE> || break; done` \u2014 combined with the decision-7 Don'ts. Minimizes variance across agents.\n\n### Scope summary for plan phase\n\nThis is full-scope Option C work: prompt audit + typed blocking primitive (`message wait`) + env-configurable --wait cap + in-memory store blocking + remove QUESTION + add HEARTBEAT type + explicit prompt Don'ts + consensus_wrapper replacement + single-idiom docs + agent-wait-patterns.md. Complexity is high \u2014 plan phase should organize into parallel tracks where possible.",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-22T23:59:38.140105Z",
+      "debounce_until": null
+    }
+  ],
+  "workflow_owner": null,
+  "audit_log": [
+    {
+      "timestamp": "2026-04-22T23:34:27.914339Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-1",
+        "question": "What is the scope for issue #1897 \u2014 which of the five proposed work items should be in scope?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "All five items (audit prompts, blocking primitive, idempotent CLI, docs, heartbeats) \u2014 full scope",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Items 1, 3, 4 only (prompt audit, idempotent CLI verification, docs) \u2014 minimal/safe scope",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Items 1, 2, 4 (prompt audit + new blocking primitive + docs) \u2014 UX-focused scope",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Items 1, 4, 5 (prompt audit + docs + heartbeats) \u2014 observability-focused scope",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: What is the scope for issue #1897 \u2014 which of the f...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:34:32.563557Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-2",
+        "question": "How should the new blocking primitive be exposed (if in scope)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Add new dedicated CLI: egg-orch message wait --for TYPE [--from ROLE] [--timeout N]",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Extend existing message poll with --until/--for filters: egg-orch message poll --wait N --until-type TYPE",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "No new primitive \u2014 fix only by tightening prompt instructions and documentation",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should the new blocking primitive be exposed (...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:34:37.800717Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-3",
+        "question": "Should the 60-second cap on message poll --wait be raised?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Keep 60s cap (force agents to re-poll, server holds fewer long blocking connections)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Raise to 300s (5 min) \u2014 matches consensus_wrapper MAX_READY_POLLS interval",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Raise to 600s (10 min) \u2014 minimize bus chatter, rely on Redis XREAD BLOCK semantics",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Make configurable via env var (EGG_MESSAGE_POLL_MAX_WAIT) with current 60s default",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the 60-second cap on message poll --wait be...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:34:41.689162Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-4",
+        "question": "How should the existing in-memory message store behave for --wait > 0?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Leave as-is: silent fallback to non-blocking (test environments only)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Implement true blocking via condition variable on the in-memory store",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Add a server-side sleep-until-empty-or-message loop in the route as fallback",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should the existing in-memory message store be...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:34:46.539001Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-5",
+        "question": "What should happen with the QUESTION message type?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Remove it \u2014 it's only used in tests, encourages off-protocol chatter",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Formalize as a heartbeat/STATUS channel with required structured fields",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Keep but document that it is best-effort and unreplied \u2014 only for human triage",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Replace with a typed REQUEST/REPLY pattern that names a target peer and times out",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: What should happen with the QUESTION message type?",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:34:52.636967Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-6",
+        "question": "Should agent prompt changes regress-protect with explicit anti-pattern bans?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Yes \u2014 add explicit don'ts: 'Do NOT use ; do NOT call  to wait; rely on --wait blocking semantics'",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "No \u2014 positive guidance only ('use a single while loop with --wait 30')",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Yes plus a sandbox-side guard: gateway rejects bash commands containing  followed by orch CLI",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should agent prompt changes regress-protect with e...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:35:13.130291Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-7",
+        "question": "Should agent prompt changes regress-protect with explicit anti-pattern bans?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Yes \u2014 add explicit Don'ts: \"Do NOT use for-loops to wrap message poll; do NOT call sleep N to wait; rely on --wait blocking semantics\"",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "No \u2014 positive guidance only (\"use a single while loop with --wait 30\")",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Yes plus a sandbox-side guard: gateway rejects bash commands containing \"sleep [0-9]+ &&\" followed by orch CLI",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should agent prompt changes regress-protect with e...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:35:22.407633Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.7",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-8",
+        "question": "Should the consensus_wrapper.py \"stay alive\" loop (currently MAX_READY_POLLS \u00d7 30s = 300s) be replaced with event-driven blocking on consensus completion?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Replace shell sleep loop with a long XREAD BLOCK or SSE listener tied to is_complete signal",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Keep shell loop but extend MAX_READY_POLLS or accept the suggested poll interval from message_poll_hint_seconds",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Out of scope for this issue (the wrapper is internal, not the source of agent-side patterns)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the consensus_wrapper.py \"stay alive\" loop ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:35:36.803633Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "The 'consensus confirmed' idempotency fix from PR #1896 (commit ae9535b9) was merged just before this issue was filed. Was the bus pollution observed in pipeline issue-1762-membump from BEFORE or AFTER that fix landed? If after, the dedup logic in routes/signals.py:1241-1294 (_existing_confirmed_for_role) needs another bug fix; if before, item #3 in the proposed work may already be done.",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "How important is supporting the in-memory message store backend for true blocking (--wait > 0)? Currently the in-memory store silently falls back to non-blocking (routes/messages.py:181-184). Is this only a concern for tests, or do production deployments ever run without Redis?",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "Are there any constraints on adding new message types (like a new HEARTBEAT type) or new CLI subcommands? Backward compatibility with current pipelines mid-flight, schema versioning of the message store, etc.",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "Should the proposed instrumentation be a separate observability subsystem (#1897 item 5: agent heartbeats with WORKING/WAITING_ON_ROLE/PROPOSED/IDLE) or piggyback on the existing PROGRESS message type? PROGRESS already covers 'what you're doing'; STATUS covers 'who you're waiting on' is the gap.",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "What is the desired UX for an LLM-driven agent that should NOT loop or sleep \u2014 should we ship a single recommended idiom (e.g. 'while true; do egg-orch message poll --wait 60 --until consensus_reached || break; done') and ban everything else, or document several patterns and trust the agent to choose?",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 5 question(s)",
+      "checkpoint_id": null
+    }
+  ],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "The 'consensus confirmed' idempotency fix from PR #1896 (commit ae9535b9) was merged just before this issue was filed. Was the bus pollution observed in pipeline issue-1762-membump from BEFORE or AFTER that fix landed? If after, the dedup logic in routes/signals.py:1241-1294 (_existing_confirmed_for_role) needs another bug fix; if before, item #3 in the proposed work may already be done.",
+        "answer": "Before PR #1896 (commit ae9535b9) merged. Item #3 (consensus-confirmed idempotency) is likely already done by the merged fix. Planner should still verify via replay or synthetic test but no additional dedup work is expected."
+      },
+      {
+        "id": "Q2",
+        "question": "How important is supporting the in-memory message store backend for true blocking (--wait > 0)? Currently the in-memory store silently falls back to non-blocking (routes/messages.py:181-184). Is this only a concern for tests, or do production deployments ever run without Redis?",
+        "answer": "Local deploys run without Redis, for now. This is not just a test concern \u2014 the in-memory store is load-bearing for local development. Per decision-5, implement true blocking via condition variable on the in-memory store so local dev matches production (Redis/XREAD BLOCK) semantics."
+      },
+      {
+        "id": "Q3",
+        "question": "Are there any constraints on adding new message types (like a new HEARTBEAT type) or new CLI subcommands? Backward compatibility with current pipelines mid-flight, schema versioning of the message store, etc.",
+        "answer": "No hard constraints. New message types are additive (old agents ignore unknowns), CLI changes are forward-only, and removing QUESTION is low-risk because it has no production use today. Planner can treat this as additive evolution."
+      },
+      {
+        "id": "Q4",
+        "question": "Should the proposed instrumentation be a separate observability subsystem (#1897 item 5: agent heartbeats with WORKING/WAITING_ON_ROLE/PROPOSED/IDLE) or piggyback on the existing PROGRESS message type? PROGRESS already covers 'what you're doing'; STATUS covers 'who you're waiting on' is the gap.",
+        "answer": "New dedicated HEARTBEAT message type with a structured state field (WORKING | WAITING_ON_ROLE | PROPOSED | IDLE). Clean separation from PROGRESS (what you're doing) and STATUS (who you're waiting on). Overseer Tier 1 reads HEARTBEAT directly instead of inferring from message timing."
+      },
+      {
+        "id": "Q5",
+        "question": "What is the desired UX for an LLM-driven agent that should NOT loop or sleep \u2014 should we ship a single recommended idiom (e.g. 'while true; do egg-orch message poll --wait 60 --until consensus_reached || break; done') and ban everything else, or document several patterns and trust the agent to choose?",
+        "answer": "Ship a single recommended idiom and explicit bans on alternatives. Canonical idiom: `while true; do egg-orch message wait --for <TYPE> || break; done`. Combined with the decision-8 Don'ts (no for-loops, no sleep N). Minimizes variance across agents; reduces LLM-improvisation risk."
+      }
+    ],
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-04-23T00:08:57.850600Z",
+    "comment_id": null,
+    "debounce_until": null
+  },
+  "phase_configs": null,
+  "agent_executions": [
+    {
+      "role": "coder",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "tester",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "documenter",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "architect",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": null,
+      "completed_at": "2026-04-23T06:21:05.351866Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "risk_analyst",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": null,
+      "completed_at": "2026-04-23T06:21:10.607334Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "task_planner",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": null,
+      "completed_at": "2026-04-23T06:21:10.739610Z",
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    }
+  ]
+}

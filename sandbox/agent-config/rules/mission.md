@@ -149,7 +149,7 @@ to run. Follow those instructions exactly.
 - **Producers**: orient → work → propose → respond to reviews → confirm → stay alive
 - **Reviewers**: prepare → poll for proposals → review → ACK/NACK → confirm → stay alive
 - **Never exit** before the orchestrator stops you — completing your task is necessary but NOT sufficient
-- Use `egg-orch message poll --wait 30` for long-polling (not sleep loops)
+- Use `egg-orch message wait-loop --for <TYPE>` (blocks server-side, loops forever until a terminal match) for waiting on bus events. Do NOT wrap it in `for i in 1..N; do …; done`. Do NOT use `sleep N` to wait. See `$EGG_REPO_PATH/docs/reference/agent-wait-patterns.md`.
 
 ### Anti-Sycophancy Requirements
 

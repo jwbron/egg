@@ -320,12 +320,12 @@ class TestMessageSendTypeHelpText:
         assert "HANDOFF" in help_text, f"Expected 'HANDOFF' in --type help text, got: {help_text}"
 
     def test_type_help_includes_all_message_types(self):
-        """The --type argument help text lists all expected message types."""
+        """The --type argument help text lists all active message types."""
         parser = create_parser()
         type_action = _find_msg_send_type_action(parser)
         help_text = type_action.help
         assert help_text is not None, "--type has no help text"
-        for msg_type in ("PROGRESS", "QUESTION", "STATUS", "HANDOFF"):
+        for msg_type in ("PROGRESS", "STATUS", "HANDOFF"):
             assert msg_type in help_text, (
                 f"Expected '{msg_type}' in --type help text, got: {help_text}"
             )
