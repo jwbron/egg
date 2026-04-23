@@ -49,8 +49,7 @@ def get_message_poll_max_wait() -> int:
         val = int(raw)
     except (TypeError, ValueError):
         logger.warning(
-            "EGG_MESSAGE_POLL_MAX_WAIT=%r is not an integer; "
-            "falling back to %ds",
+            "EGG_MESSAGE_POLL_MAX_WAIT=%r is not an integer; falling back to %ds",
             raw,
             DEFAULT_MESSAGE_POLL_MAX_WAIT_SECONDS,
         )
@@ -120,8 +119,7 @@ def get_waitress_threads() -> int:
         val = int(raw)
     except (TypeError, ValueError):
         logger.warning(
-            "EGG_ORCH_WAITRESS_THREADS=%r is not an integer; "
-            "falling back to %d",
+            "EGG_ORCH_WAITRESS_THREADS=%r is not an integer; falling back to %d",
             raw,
             DEFAULT_WAITRESS_THREADS,
         )
@@ -157,8 +155,7 @@ def get_heartbeat_rate_limit() -> int:
         val = int(raw)
     except (TypeError, ValueError):
         logger.warning(
-            "EGG_HEARTBEAT_RATE_LIMIT=%r not an integer; falling "
-            "back to %d/min",
+            "EGG_HEARTBEAT_RATE_LIMIT=%r not an integer; falling back to %d/min",
             raw,
             DEFAULT_HEARTBEAT_RATE_LIMIT_PER_MIN,
         )

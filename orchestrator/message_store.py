@@ -184,9 +184,7 @@ class MessageStore:
             # "return all" instead of returning empty, so a stale cursor
             # doesn't silently hide new messages from a polling agent.
             if since_id:
-                found_idx = next(
-                    (i for i, m in enumerate(msgs) if m.id == since_id), None
-                )
+                found_idx = next((i for i, m in enumerate(msgs) if m.id == since_id), None)
                 if found_idx is not None:
                     msgs = msgs[found_idx + 1 :]
                 else:

@@ -66,9 +66,7 @@ class HeartbeatCoordinator:
             if len(window) >= limit_per_minute:
                 oldest = window[0]
                 retry_after = int(max(1, (oldest + self._window) - now))
-                return RateLimitDecision(
-                    allowed=False, retry_after_seconds=retry_after
-                )
+                return RateLimitDecision(allowed=False, retry_after_seconds=retry_after)
             window.append(now)
         return RateLimitDecision(allowed=True)
 

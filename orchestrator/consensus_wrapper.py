@@ -381,12 +381,31 @@ sys.exit(1)
             cw_log "curl or EGG_PIPELINE_ID unavailable; using status-poll fallback"
         fi
 
-        # Fallback sleep+status loop — also used when SSE disconnects
-        # before consensus.reached fires.
+        # Secondary fallback: if SSE didn't deliver but egg-orch is
+        # available, block on the typed `egg-orch message wait` primitive
+        # before falling through to sleep.  This keeps the wrapper
+        # event-driven even when the SSE endpoint is unreachable
+        # (older sandbox image, proxy restriction) so we don't burn
+        # the full MAX_READY_POLLS budget on empty sleeps.
         while [ "$wait_count" -lt "$MAX_READY_POLLS" ]; do
             wait_count=$((wait_count + 1))
-            sleep "$poll_interval"
-            local resp is_complete
+            if command -v egg-orch >/dev/null 2>&1; then
+                # Block up to poll_interval seconds on a peer
+                # CONSENSUS_CONFIRMED / CONSENSUS_RE_REVIEW event.
+                egg-orch message wait \
+                    --for CONSENSUS_CONFIRMED \
+                    --for CONSENSUS_RE_REVIEW \
+                    --timeout "$poll_interval" >/dev/null 2>&1
+                rc=$?
+                if [ "$rc" -eq 3 ]; then
+                    # Permanent egg-orch error — sleep fallback
+                    sleep "$poll_interval"
+                fi
+            else
+                # No egg-orch CLI — pure sleep fallback (issue #1897
+                # RISK-7: keep zero-CLI local-dev path viable).
+                sleep "$poll_interval"
+            fi
             resp=$(egg-orch pipeline status --json 2>/dev/null || echo "{{}}")
             is_complete=$(echo "$resp" | python3 -c \
                 "import sys,json; d=json.load(sys.stdin); print(d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('is_complete',False))" \

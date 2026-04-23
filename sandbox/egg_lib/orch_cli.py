@@ -1121,9 +1121,7 @@ def cmd_message_wait(args: argparse.Namespace) -> int:
     client_timeout = server_timeout + 10
 
     try:
-        result = api_request(
-            get_orchestrator_url(), endpoint, "GET", None, client_timeout
-        )
+        result = api_request(get_orchestrator_url(), endpoint, "GET", None, client_timeout)
     except ApiError as e:
         if e.status_code is not None and 400 <= e.status_code < 500 and e.status_code != 408:
             print(f"Error: {e.message}", file=sys.stderr)
@@ -1269,8 +1267,7 @@ def cmd_message_heartbeat(args: argparse.Namespace) -> int:
             except (TypeError, ValueError):
                 pass
             print(
-                f"Error: HEARTBEAT rate limit exceeded; retry after "
-                f"{retry_after}s.",
+                f"Error: HEARTBEAT rate limit exceeded; retry after {retry_after}s.",
                 file=sys.stderr,
             )
             return 3

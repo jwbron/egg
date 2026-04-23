@@ -212,9 +212,7 @@ class RedisMessageStore:
                         if since_id and read_start_id != "0-0"
                         else read_start_id
                     )
-                    result_entries = self._redis.xrange(
-                        key, min=exclusive_start, count=limit * 3
-                    )
+                    result_entries = self._redis.xrange(key, min=exclusive_start, count=limit * 3)
                     result = (
                         [
                             (
@@ -253,9 +251,7 @@ class RedisMessageStore:
         if want_types is None:
             messages, _ = _read_once(start_id, wait * 1000 if wait > 0 else None)
             if role:
-                messages = [
-                    m for m in messages if m.to_role == role or m.to_role == "all"
-                ]
+                messages = [m for m in messages if m.to_role == role or m.to_role == "all"]
             return messages[-limit:] if len(messages) > limit else messages
 
         # wait_for_types: re-block on remaining time budget until we find a
@@ -277,9 +273,7 @@ class RedisMessageStore:
 
             messages, last_sid = _read_once(current_start, block_ms)
             if role:
-                messages = [
-                    m for m in messages if m.to_role == role or m.to_role == "all"
-                ]
+                messages = [m for m in messages if m.to_role == role or m.to_role == "all"]
 
             matching = [m for m in messages if m.message_type in want_types]
             if matching:

@@ -40,6 +40,7 @@ logger = get_logger("orchestrator.messages")
 # #1897) so routes and the CLI agree on a single source of truth.
 try:
     from env_config import (
+        DEFAULT_MESSAGE_POLL_MAX_WAIT_SECONDS,
         MESSAGE_POLL_MAX_WAIT_WARN_THRESHOLD_SECONDS,
         get_heartbeat_rate_limit,
         get_message_poll_max_wait,
@@ -48,6 +49,7 @@ try:
     from heartbeat import get_heartbeat_coordinator
 except ImportError:  # pragma: no cover
     from ..env_config import (  # type: ignore[no-redef,import-not-found]
+        DEFAULT_MESSAGE_POLL_MAX_WAIT_SECONDS,
         MESSAGE_POLL_MAX_WAIT_WARN_THRESHOLD_SECONDS,
         get_heartbeat_rate_limit,
         get_message_poll_max_wait,
@@ -60,6 +62,7 @@ except ImportError:  # pragma: no cover
 _get_poll_max_wait = get_message_poll_max_wait
 log_poll_max_wait_startup = log_message_poll_max_wait_startup
 POLL_MAX_WAIT_WARN_THRESHOLD_SECONDS = MESSAGE_POLL_MAX_WAIT_WARN_THRESHOLD_SECONDS
+DEFAULT_POLL_MAX_WAIT_SECONDS = DEFAULT_MESSAGE_POLL_MAX_WAIT_SECONDS
 
 # In-flight long-poll gauge (RISK-3, issue #1897). Incremented when a
 # caller enters a blocking read and decremented when the call returns.
@@ -166,9 +169,7 @@ def send_message(pipeline_id: str) -> tuple[Response, int]:
     metadata_raw = body.get("metadata", {}) or {}
     if message_type == MessageType.HEARTBEAT:
         if not isinstance(metadata_raw, dict):
-            return _make_error(
-                "HEARTBEAT metadata must be an object with a 'state' field."
-            )
+            return _make_error("HEARTBEAT metadata must be an object with a 'state' field.")
         state = metadata_raw.get("state")
         if state not in HEARTBEAT_STATES:
             return _make_error(
@@ -316,9 +317,7 @@ def _apply_delphi_filter(
                     if "payload" in redacted_metadata:
                         payload = redacted_metadata["payload"]
                         redacted_metadata["payload"] = {
-                            k: v
-                            for k, v in payload.items()
-                            if k in ("version", "commit_sha")
+                            k: v for k, v in payload.items() if k in ("version", "commit_sha")
                         }
                     redacted_metadata["delphi_redacted"] = True
                     redacted_msg = msg.model_copy(
@@ -454,15 +453,11 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
 
     state = body.get("state")
     if state not in HEARTBEAT_STATES:
-        return _make_error(
-            "state must be one of "
-            f"{sorted(HEARTBEAT_STATES)} (got {state!r})."
-        )
+        return _make_error(f"state must be one of {sorted(HEARTBEAT_STATES)} (got {state!r}).")
     waiting_on = body.get("waiting_on")
     if state == "WAITING_ON_ROLE" and not waiting_on:
         return _make_error(
-            "state=WAITING_ON_ROLE requires waiting_on (the role this "
-            "agent is waiting on)."
+            "state=WAITING_ON_ROLE requires waiting_on (the role this agent is waiting on)."
         )
 
     # Validate pipeline.
