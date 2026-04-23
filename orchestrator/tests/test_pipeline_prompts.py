@@ -3588,10 +3588,11 @@ class TestDirectedCoordinationGuidance:
         preamble = _build_brc_preamble("coder", "implement")
         assert "egg-orch message send --to all --type STATUS" in preamble
 
-    def test_reviewer_question_has_cli_example(self):
-        """Reviewer QUESTION guidance includes a concrete egg-orch CLI example."""
+    def test_reviewer_question_removed_in_favor_of_nack_reason(self):
+        """Reviewer guidance directs questions into NACK --reason (issue #1897)."""
         preamble = _build_brc_preamble("reviewer_code", "implement")
-        assert "egg-orch message send --to coder --type QUESTION" in preamble
+        assert "NACK" in preamble and "--reason" in preamble
+        assert "legacy QUESTION" in preamble or "QUESTION message type was removed" in preamble
 
     # --- Regression guard ---
 
