@@ -41,6 +41,18 @@ class PipelineMode(StrEnum):
     derived from the PR head. Only the final consensus commit is pushed to
     the PR branch. See #1748.
     """
+    CUSTOM = "custom"
+    """One-off pipeline that runs a single phase against a repo with a
+    user-chosen subset of that phase's roles via the ``run_agent_task``
+    MCP tool.
+
+    Unlike ISSUE mode, the pipeline terminates after the selected phase
+    reaches CONSENSUS_REACHED — no auto-advance through refine/plan/
+    implement. Unlike BABYSIT, CUSTOM is not tied to a PR (though
+    ``pr_number`` is accepted and re-uses BABYSIT's per-role staging-branch
+    + head-move-guard semantics when supplied). The resolved role roster
+    is persisted on ``Pipeline.active_roles``. See #1762.
+    """
 
 
 class AgentExecutionStatus(StrEnum):
@@ -543,6 +555,15 @@ class Pipeline(BaseModel):
         "invalidates the cycle because the stored SHA no longer matches "
         "origin/<head_branch>.",
     )
+    active_roles: list[str] | None = Field(
+        default=None,
+        description="Resolved role roster for this pipeline's active phase "
+        "(populated for CUSTOM-mode pipelines via run_agent_task and for "
+        "BABYSIT pipelines via the subsumed code path). None means "
+        "'use the default roster for the current phase', preserving "
+        "backward compatibility with ISSUE-mode pipelines that existed "
+        "before #1762.",
+    )
 
     @field_validator("pr_head_sha")
     @classmethod
@@ -551,6 +572,50 @@ class Pipeline(BaseModel):
             return None
         if v is not None and not re.fullmatch(r"[0-9a-f]{7,40}", v):
             raise ValueError("pr_head_sha must be a 7-40 char hex string")
+        return v
+
+    @field_validator("active_roles")
+    @classmethod
+    def _validate_active_roles(cls, v: list[str] | None) -> list[str] | None:
+        """Validate the active_roles field on Pipeline.
+
+        Rules (aligned with #1762 TASK-1-2):
+          (a) None is allowed (default roster / ISSUE mode backward compat).
+          (b) Non-None MUST be a non-empty list of strings.
+          (c) Every entry must be a valid AgentRole value.
+          (d) At least one entry must be a phase-scoped producer role.
+              We compute the producer set as
+              ``all AgentRoles - reviewer_* - cross_phase``
+              so ``overseer`` / ``autofixer`` / ``conflict_resolver`` /
+              ``inspector`` are never counted as producers here. The
+              full phase-aware check still lives in
+              ``validate_roles_for_custom_phase`` (callers should prefer
+              that helper for detailed error reasons); this check is
+              defence-in-depth for direct-construction callers.
+        """
+        if v is None:
+            return None
+        if not isinstance(v, list) or len(v) == 0:
+            raise ValueError("active_roles must be a non-empty list (or null)")
+        valid_role_values = {r.value for r in AgentRole}
+        invalid = [r for r in v if r not in valid_role_values]
+        if invalid:
+            raise ValueError(f"active_roles contains unknown AgentRole values: {invalid}")
+        # Defensive producer check: exclude reviewers AND cross-phase roles.
+        _cross_phase_values = {
+            AgentRole.OVERSEER.value,
+            AgentRole.AUTOFIXER.value,
+            AgentRole.CONFLICT_RESOLVER.value,
+            AgentRole.INSPECTOR.value,
+        }
+        has_producer = any(
+            (not r.startswith("reviewer_")) and r not in _cross_phase_values for r in v
+        )
+        if not has_producer:
+            raise ValueError(
+                "active_roles must include at least one producer role "
+                "(reviewer-only or cross-phase-only rosters deadlock BRC)"
+            )
         return v
 
     has_contract: bool = Field(

@@ -1,0 +1,78 @@
+[
+  {
+    "id": "51daa182-1df0-4d",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "overseer_restart: overseer [info]",
+    "body": "Overseer container was respawned. Old container 6d03117c-83e exited with code None. New container 7901bfe9-5a6 is now running.",
+    "metadata": {
+      "exit_code": null,
+      "old_container_id": "6d03117c-83ea-4f79-a020-dd58f7e14c6e",
+      "new_container_id": "7901bfe9-5a6d-411b-881e-814838479823",
+      "log_tail": "unavailable",
+      "respawn_attempt": 1,
+      "max_respawns": 3
+    },
+    "timestamp": "2026-04-22T23:15:20.500688+00:00",
+    "phase": "pr"
+  },
+  {
+    "id": "e2b7d5ef-062d-4f",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "overseer_restart: overseer [info]",
+    "body": "Overseer container was respawned. Old container a5b7b006-bd1 exited with code None. New container 09aee66b-131 is now running.",
+    "metadata": {
+      "exit_code": null,
+      "old_container_id": "a5b7b006-bd1f-4e2e-b7e0-0277f14fb8d4",
+      "new_container_id": "09aee66b-131b-45b2-b3bf-805c2f4181ea",
+      "log_tail": "unavailable",
+      "respawn_attempt": 1,
+      "max_respawns": 3
+    },
+    "timestamp": "2026-04-22T23:15:50.960501+00:00",
+    "phase": "pr"
+  },
+  {
+    "id": "9e602ba6-c35b-44",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "overseer_restart: overseer [info]",
+    "body": "Overseer container was respawned. Old container 7901bfe9-5a6 exited with code None. New container 341b19ed-ef5 is now running.",
+    "metadata": {
+      "exit_code": null,
+      "old_container_id": "7901bfe9-5a6d-411b-881e-814838479823",
+      "new_container_id": "341b19ed-ef5c-48f3-a894-e3d17c897196",
+      "log_tail": "unavailable",
+      "respawn_attempt": 2,
+      "max_respawns": 3
+    },
+    "timestamp": "2026-04-22T23:16:20.726357+00:00",
+    "phase": "pr"
+  },
+  {
+    "id": "639e20d9-cc82-4e",
+    "pipeline_id": "issue-1762-membump",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "overseer_restart: overseer [info]",
+    "body": "Overseer container was respawned. Old container 09aee66b-131 exited with code None. New container 18706776-eea is now running.",
+    "metadata": {
+      "exit_code": null,
+      "old_container_id": "09aee66b-131b-45b2-b3bf-805c2f4181ea",
+      "new_container_id": "18706776-eeaf-4540-9ad4-41177ed2bec5",
+      "log_tail": "unavailable",
+      "respawn_attempt": 2,
+      "max_respawns": 3
+    },
+    "timestamp": "2026-04-22T23:16:22.253457+00:00",
+    "phase": "pr"
+  }
+]

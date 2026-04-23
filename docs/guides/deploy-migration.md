@@ -1,6 +1,15 @@
 # Deploy Migration Guide
 
-> **Note:** Docker Compose has been replaced by Kubernetes (k3s) as of [#1553](https://github.com/jwbron/egg/issues/1553). For the current deployment method, see the [Deployment Guide](deployment.md). For migration architecture details, see [Kubernetes Migration](../architecture/kubernetes-migration.md). The guide below is retained for reference only.
+> **Note:** Docker Compose was replaced by Kubernetes (k3s) in
+> [#1553](https://github.com/jwbron/egg/issues/1553), and the residual
+> compose code path + `bin/egg-deploy up/down/build/logs` compose
+> subcommands were removed in
+> [#1762](https://github.com/jwbron/egg/issues/1762). For the current
+> deployment method, see the [Deployment Guide](deployment.md). For
+> migration architecture details, see
+> [Kubernetes Migration](../architecture/kubernetes-migration.md). The
+> guide below is retained for historical reference only — none of the
+> `docker compose` commands it references still work.
 
 This guide helps you migrate from the legacy deployment scripts to the Docker Compose-based deployment (now superseded by Kubernetes).
 
