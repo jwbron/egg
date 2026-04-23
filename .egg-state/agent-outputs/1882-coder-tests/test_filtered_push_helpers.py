@@ -23,7 +23,6 @@ from filtered_push import (  # type: ignore[import-not-found]
     _translate_parents,
 )
 
-
 # ---------------------------------------------------------------------------
 # _compose_filtered_message — trailer preservation (NACK blocker #2)
 # ---------------------------------------------------------------------------
@@ -64,12 +63,7 @@ class TestComposeFilteredMessage:
 
     def test_preserves_co_authored_by_trailer(self):
         """Co-Authored-By (multi-line trailer block) survives."""
-        msg = (
-            "feat: foo\n"
-            "\n"
-            "Co-authored-by: bob <b@x>\n"
-            "Co-authored-by: carol <c@x>\n"
-        )
+        msg = "feat: foo\n\nCo-authored-by: bob <b@x>\nCo-authored-by: carol <c@x>\n"
         result = _compose_filtered_message(msg, " [auto-filtered]")
         assert "Co-authored-by: bob <b@x>" in result
         assert "Co-authored-by: carol <c@x>" in result
@@ -215,8 +209,9 @@ class TestTranslateParents:
 def test_commit_tree_accepts_list_signature():
     """``_commit_tree`` now accepts a list of parent SHAs; the old
     single-``str`` signature remains back-compat."""
-    import filtered_push  # type: ignore[import-not-found]
     import inspect
+
+    import filtered_push  # type: ignore[import-not-found]
 
     sig = inspect.signature(filtered_push._commit_tree)
     # The parameter's annotation must include ``list[str]`` (or just be

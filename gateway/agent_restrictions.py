@@ -88,6 +88,7 @@ def partition_files_by_role(
             blocked.append(path)
     return allowed, blocked
 
+
 __all__ = [
     "AGENT_PATTERNS",
     "AUTOFIXER_PATTERNS",

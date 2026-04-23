@@ -5,7 +5,6 @@ Monitors agent health, collects completion signals, and manages
 consensus-based phase completion.
 """
 
-import json
 import sys
 import threading
 from collections.abc import Callable

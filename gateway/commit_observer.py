@@ -19,12 +19,18 @@ from __future__ import annotations
 
 import logging
 import subprocess
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 try:
-    from egg_logging import get_logger  # type: ignore[import-not-found]
+    from egg_logging import get_logger
 except ImportError:  # pragma: no cover
-    def get_logger(name: str, **kwargs: Any):  # type: ignore[misc]
+
+    def get_logger(  # type: ignore[misc]
+        name: str,
+        level: int | str = logging.INFO,
+        component: str | None = None,
+    ) -> logging.Logger:
         return logging.getLogger(name)
 
 
@@ -168,7 +174,11 @@ def observe(
         get_client = getattr(_crc_mod, "get_client", None) if _crc_mod else None
         if get_client is None:
             try:
-                from commit_registry_client import get_client  # type: ignore[import-not-found]
+                # mypy: the dynamic loader below is a fallback path; the
+                # primary path finds the module already imported.
+                import commit_registry_client as _crc  # type: ignore[import-untyped]
+
+                get_client = _crc.get_client
             except ImportError:  # pragma: no cover
                 try:
                     import importlib.util as _util
@@ -176,9 +186,7 @@ def observe(
 
                     _p = _Path(__file__).parent / "commit_registry_client.py"
                     if _p.exists():
-                        _spec = _util.spec_from_file_location(
-                            "commit_registry_client", str(_p)
-                        )
+                        _spec = _util.spec_from_file_location("commit_registry_client", str(_p))
                         if _spec and _spec.loader:
                             _m = _util.module_from_spec(_spec)
                             _sys.modules["commit_registry_client"] = _m

@@ -16,21 +16,25 @@ path is handled separately by the caller — it short-circuits with
 
 from __future__ import annotations
 
-import dataclasses
 import logging
 import os
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from git_client import AttributedFile
+    from git_client import AttributedFile  # type: ignore[import-untyped]
 
 try:
-    from egg_logging import get_logger  # type: ignore[import-not-found]
+    from egg_logging import get_logger
 except ImportError:  # pragma: no cover
 
-    def get_logger(name: str, **kwargs: Any):  # type: ignore[misc]
+    def get_logger(  # type: ignore[misc]
+        name: str,
+        level: int | str = logging.INFO,
+        component: str | None = None,
+    ) -> logging.Logger:
         return logging.getLogger(name)
 
 
@@ -272,8 +276,8 @@ def execute_filtered_push(
     attributed_commits: list[str],
     attributed_files: list[AttributedFile],
     blocked_own_files: set[str],
-    push_fn,  # type: ignore[no-untyped-def]
-    registry_register,  # type: ignore[no-untyped-def]
+    push_fn: Callable[[], tuple[bool, str | None]],
+    registry_register: Callable[..., Any],
     pipeline_id: str | None = None,
     repo: str | None = None,
     auto_filter_suffix: str = " [auto-filtered]",
@@ -326,9 +330,7 @@ def execute_filtered_push(
     # first rewritten commit has a sane parent.  We resolve the first
     # parent of attributed_commits[0] (if any).
     if attributed_commits:
-        first_parent_result = _git(
-            exec_path, "rev-parse", f"{attributed_commits[0]}^@"
-        )
+        first_parent_result = _git(exec_path, "rev-parse", f"{attributed_commits[0]}^@")
         if first_parent_result.returncode == 0:
             first_parents = [
                 line.strip()
@@ -375,18 +377,16 @@ def execute_filtered_push(
             tree_sha = _tree_of(exec_path, sha)
             if tree_sha is None:
                 _rollback(exec_path, original_head, branch)
-                return FilteredPushResult(
-                    success=False, error=f"Missing tree for {sha}"
-                )
+                return FilteredPushResult(success=False, error=f"Missing tree for {sha}")
             parents_orig = meta.get("parents", "")
             orig_parent_list = [p for p in parents_orig.split() if p]
             # Chain is unchanged iff the first parent already matches
             # the running tip AND no merge parent got rewritten by an
             # earlier own-commit rewrite.
             any_merge_parent_rewritten = any(
-                p in parent_lookup and parent_lookup[p] != p
-                for p in orig_parent_list[1:]
+                p in parent_lookup and parent_lookup[p] != p for p in orig_parent_list[1:]
             )
+            new_sha: str
             if (
                 orig_parent_list
                 and orig_parent_list[0] == new_parent
@@ -397,18 +397,19 @@ def execute_filtered_push(
                 translated_parents = _translate_parents(
                     orig_parent_list, parent_lookup, new_parent or None
                 )
-                new_sha, err = _commit_tree(
+                built_sha, err = _commit_tree(
                     exec_path,
                     tree_sha,
                     translated_parents or None,
                     meta,
                     meta["message"],
                 )
-                if err or new_sha is None:
+                if err or built_sha is None:
                     _rollback(exec_path, original_head, branch)
                     return FilteredPushResult(
                         success=False, error=err or "commit-tree returned empty"
                     )
+                new_sha = built_sha
             parent_lookup[sha] = new_sha
             new_parent = new_sha
             pushed_commits.append(new_sha)
@@ -437,48 +438,45 @@ def execute_filtered_push(
             tree_sha = _tree_of(exec_path, sha)
             if tree_sha is None:
                 _rollback(exec_path, original_head, branch)
-                return FilteredPushResult(
-                    success=False, error=f"Missing tree for {sha}"
-                )
+                return FilteredPushResult(success=False, error=f"Missing tree for {sha}")
             parents_orig = meta.get("parents", "")
             orig_parent_list = [p for p in parents_orig.split() if p]
             any_merge_parent_rewritten = any(
-                p in parent_lookup and parent_lookup[p] != p
-                for p in orig_parent_list[1:]
+                p in parent_lookup and parent_lookup[p] != p for p in orig_parent_list[1:]
             )
+            new_sha_passthrough: str
             if (
                 orig_parent_list
                 and orig_parent_list[0] == new_parent
                 and not any_merge_parent_rewritten
             ):
-                new_sha = sha
+                new_sha_passthrough = sha
             else:
                 translated_parents = _translate_parents(
                     orig_parent_list, parent_lookup, new_parent or None
                 )
-                new_sha, err = _commit_tree(
+                built_sha, err = _commit_tree(
                     exec_path,
                     tree_sha,
                     translated_parents or None,
                     meta,
                     meta["message"],
                 )
-                if err or new_sha is None:
+                if err or built_sha is None:
                     _rollback(exec_path, original_head, branch)
                     return FilteredPushResult(
                         success=False, error=err or "commit-tree returned empty"
                     )
-            parent_lookup[sha] = new_sha
-            new_parent = new_sha
-            pushed_commits.append(new_sha)
+                new_sha_passthrough = built_sha
+            parent_lookup[sha] = new_sha_passthrough
+            new_parent = new_sha_passthrough
+            pushed_commits.append(new_sha_passthrough)
             continue
 
         base_tree = _tree_of(exec_path, sha)
         if base_tree is None:
             _rollback(exec_path, original_head, branch)
-            return FilteredPushResult(
-                success=False, error=f"Missing base tree for {sha}"
-            )
+            return FilteredPushResult(success=False, error=f"Missing base tree for {sha}")
         new_tree, err = _filter_tree(exec_path, base_tree, blocked_here)
         if err:
             _rollback(exec_path, original_head, branch)
@@ -498,25 +496,21 @@ def execute_filtered_push(
         new_message = _compose_filtered_message(meta["message"], auto_filter_suffix)
         parents_orig = meta.get("parents", "")
         orig_parent_list = [p for p in parents_orig.split() if p]
-        translated_parents = _translate_parents(
-            orig_parent_list, parent_lookup, new_parent or None
-        )
-        new_sha, err = _commit_tree(
+        translated_parents = _translate_parents(orig_parent_list, parent_lookup, new_parent or None)
+        rewritten_sha, err = _commit_tree(
             exec_path,
             new_tree or base_tree,
             translated_parents or None,
             meta,
             new_message,
         )
-        if err or new_sha is None:
+        if err or rewritten_sha is None:
             _rollback(exec_path, original_head, branch)
-            return FilteredPushResult(
-                success=False, error=err or "commit-tree returned empty"
-            )
-        parent_lookup[sha] = new_sha
-        new_parent = new_sha
-        pushed_commits.append(new_sha)
-        rewritten_commits.append({"original_sha": sha, "new_sha": new_sha})
+            return FilteredPushResult(success=False, error=err or "commit-tree returned empty")
+        parent_lookup[sha] = rewritten_sha
+        new_parent = rewritten_sha
+        pushed_commits.append(rewritten_sha)
+        rewritten_commits.append({"original_sha": sha, "new_sha": rewritten_sha})
 
     final_tip = new_parent
 
@@ -581,12 +575,12 @@ def execute_filtered_push(
     # Best-effort: register rewritten own-commits with the registry so a
     # subsequent cross-role push attributes them correctly.
     for mapping in rewritten_commits:
-        new_sha = mapping.get("new_sha")
-        if not new_sha:
+        reg_sha = mapping.get("new_sha")
+        if not reg_sha:
             continue
         try:
             registry_register(
-                sha=new_sha,
+                sha=reg_sha,
                 role=push_role,
                 pipeline_id=pipeline_id,
                 repo=repo,
@@ -598,7 +592,7 @@ def execute_filtered_push(
             # for these SHAs but without any audit-trail signal.
             logger.warning(
                 "filtered_push_register_rewritten_swallowed",
-                new_sha=new_sha,
+                new_sha=reg_sha,
                 branch=branch,
                 exc_info=True,
             )
@@ -640,9 +634,7 @@ def _rollback(exec_path: str, original_head: str, branch: str) -> None:
         )
 
 
-def _git_raw(
-    exec_path: str, *args: str, timeout: int = 60
-) -> subprocess.CompletedProcess[bytes]:
+def _git_raw(exec_path: str, *args: str, timeout: int = 60) -> subprocess.CompletedProcess[bytes]:
     """Variant of ``_git`` that returns raw bytes — used for ``git show``
     on potentially-binary blobs where ``text=True`` would corrupt the
     content via UTF-8 decoding.
@@ -664,9 +656,7 @@ def _git_raw(
     )
 
 
-def _restage_blocked_files(
-    exec_path: str, blocked_paths: list[str], source_sha: str
-) -> None:
+def _restage_blocked_files(exec_path: str, blocked_paths: list[str], source_sha: str) -> None:
     """Re-introduce the blocked files as *staged* uncommitted changes.
 
     After a filtered push the origin tip lacks the blocked paths.

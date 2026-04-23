@@ -13,6 +13,7 @@ import re
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 # Add shared directory to path for egg_logging
 _shared_path = Path(__file__).parent.parent.parent / "shared"
@@ -30,7 +31,7 @@ from repo_config import get_auth_mode
 try:
     from .github_client import get_github_client
 except ImportError:
-    from github_client import get_github_client  # type: ignore[no-redef, import-untyped]
+    from github_client import get_github_client  # type: ignore[no-redef,import-untyped]
 
 
 logger = get_logger("gateway.git-client")
@@ -1648,9 +1649,7 @@ def _files_for_commit(repo_path: str, sha: str) -> tuple[list[str], str | None]:
             f"diff-tree failed for {sha}: "
             f"rc={result.returncode} stderr={(result.stderr or '').strip()}"
         )
-    return [
-        line.strip() for line in (result.stdout or "").splitlines() if line.strip()
-    ], None
+    return [line.strip() for line in (result.stdout or "").splitlines() if line.strip()], None
 
 
 def get_attributed_changed_files_in_push(
@@ -1718,18 +1717,19 @@ def get_attributed_changed_files_in_push(
             get_client = getattr(_crc_mod, "get_client", None) if _crc_mod else None
             if get_client is None:
                 try:
-                    from commit_registry_client import get_client  # type: ignore[import-not-found]
+                    # The primary path finds the module preloaded; this
+                    # fallback only fires for standalone runners.
+                    import commit_registry_client as _crc  # type: ignore[import-untyped]
+
+                    get_client = _crc.get_client
                 except ImportError:
                     try:
                         import importlib.util as _util
-
                         from pathlib import Path as _Path
 
                         _p = _Path(__file__).parent / "commit_registry_client.py"
                         if _p.exists():
-                            _spec = _util.spec_from_file_location(
-                                "commit_registry_client", str(_p)
-                            )
+                            _spec = _util.spec_from_file_location("commit_registry_client", str(_p))
                             if _spec and _spec.loader:
                                 _m = _util.module_from_spec(_spec)
                                 _sys.modules["commit_registry_client"] = _m
@@ -1741,7 +1741,13 @@ def get_attributed_changed_files_in_push(
                 registry_client = get_client()
         if registry_client is not None:
             try:
-                attribution = dict(registry_client.lookup_bulk(list(commits)))  # type: ignore[attr-defined]
+                # registry_client is typed as ``object`` to avoid a hard
+                # import dependency on commit_registry_client.  The
+                # method is exercised by callers via duck-typing; cast
+                # to Any so mypy accepts the attribute access whether
+                # or not the stub is reachable.
+                _rc_any: Any = registry_client
+                attribution = dict(_rc_any.lookup_bulk(list(commits)))
             except Exception:
                 logger.warning(
                     "commit_authorship_lookup_exception",

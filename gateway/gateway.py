@@ -67,7 +67,7 @@ _health_tracker = HealthTracker()
 try:
     from .agent_restrictions import (
         check_agent_gh_operation,
-        get_agent_pattern,
+        get_agent_pattern,  # noqa: F401 — re-exported for test patching
     )
     from .anthropic_credentials import get_credentials_manager
     from .checkpoint_handler import (
@@ -109,7 +109,7 @@ try:
     from .phase_filter import (
         OperationType,
         PipelinePhase,
-        check_agent_restrictions,
+        check_agent_restrictions,  # noqa: F401 — re-exported for test patching
         check_anchor_write_permission,
         check_file_restrictions,
         check_phase_file_restrictions,
@@ -145,7 +145,7 @@ try:
 except ImportError:
     from agent_restrictions import (  # type: ignore[no-redef, import-untyped]
         check_agent_gh_operation,
-        get_agent_pattern,
+        get_agent_pattern,  # noqa: F401 — re-exported for test patching
     )
     from anthropic_credentials import get_credentials_manager  # type: ignore[no-redef]
     from checkpoint_handler import (  # type: ignore[no-redef, import-untyped]
@@ -187,7 +187,7 @@ except ImportError:
     from phase_filter import (  # type: ignore[no-redef, import-untyped]
         OperationType,
         PipelinePhase,
-        check_agent_restrictions,
+        check_agent_restrictions,  # noqa: F401 — re-exported for test patching
         check_anchor_write_permission,
         check_file_restrictions,
         check_phase_file_restrictions,
@@ -231,7 +231,7 @@ from repo_config import get_auth_mode, get_checkpoint_repo, is_checkpoint_repo
 logger = get_logger("gateway")
 
 
-def _load_sibling_gateway_module(module_name: str):
+def _load_sibling_gateway_module(module_name: str) -> Any:
     """Import a sibling gateway module regardless of test vs prod shape.
 
     Gateway modules are loaded two ways in this codebase: as a package
@@ -269,7 +269,7 @@ def _load_sibling_gateway_module(module_name: str):
         return None
 
 
-def _lookup_commit_observer_fn(name: str):
+def _lookup_commit_observer_fn(name: str) -> Any:
     """Return a callable from ``commit_observer`` without relative imports."""
     mod = _load_sibling_gateway_module("commit_observer")
     if mod is None:
@@ -1031,35 +1031,41 @@ def git_push() -> tuple[Response, int] | Response:
         _ar_mod = sys.modules.get("agent_restrictions") or sys.modules.get(
             "gateway.agent_restrictions"
         )
-        partition_files_by_role = getattr(_ar_mod, "partition_files_by_role", None) if _ar_mod else None
-        if partition_files_by_role is None:
+        _partition_fn: Any = getattr(_ar_mod, "partition_files_by_role", None) if _ar_mod else None
+        if _partition_fn is None:
             try:
-                from agent_restrictions import (  # type: ignore[import-not-found]
-                    partition_files_by_role,
+                from agent_restrictions import (
+                    partition_files_by_role as _imported_partition,
                 )
+
+                _partition_fn = _imported_partition
             except ImportError:  # pragma: no cover
-                from .agent_restrictions import (  # type: ignore[no-redef]
-                    partition_files_by_role,
+                from .agent_restrictions import (
+                    partition_files_by_role as _imported_partition,
                 )
+
+                _partition_fn = _imported_partition
 
         _gc_mod = sys.modules.get("git_client") or sys.modules.get("gateway.git_client")
-        get_attributed_changed_files_in_push = (
+        _get_attributed_fn: Any = (
             getattr(_gc_mod, "get_attributed_changed_files_in_push", None) if _gc_mod else None
         )
-        if get_attributed_changed_files_in_push is None:
+        if _get_attributed_fn is None:
             try:
-                from git_client import (  # type: ignore[import-not-found]
-                    get_attributed_changed_files_in_push,
-                )
-            except ImportError:  # pragma: no cover
-                from .git_client import (  # type: ignore[no-redef]
-                    get_attributed_changed_files_in_push,
+                from git_client import (
+                    get_attributed_changed_files_in_push as _imported_attr,
                 )
 
+                _get_attributed_fn = _imported_attr
+            except ImportError:  # pragma: no cover
+                from .git_client import (
+                    get_attributed_changed_files_in_push as _imported_attr,
+                )
+
+                _get_attributed_fn = _imported_attr
+
         # Resolve attribution for every commit in the push range.
-        attributed_push = get_attributed_changed_files_in_push(
-            exec_path, remote, branch, session_role=session_role
-        )
+        attributed_push = _get_attributed_fn(exec_path, remote, branch, session_role=session_role)
 
         # When the per-commit attribution can't be computed (e.g. the
         # caller mocked only the legacy file-detection path, or git
@@ -1073,9 +1079,9 @@ def git_push() -> tuple[Response, int] | Response:
         # list and push HEAD unchanged, leaking blocked files).
         attribution_fallback = bool(attributed_push.error or not attributed_push.commits)
         if attribution_fallback:
-            own_files = list(dict.fromkeys(changed_files))
-            pulled_files = []
-            unregistered_files = list(own_files)
+            own_files: list[str] = list(dict.fromkeys(changed_files))
+            pulled_files: list[str] = []
+            unregistered_files: list[str] = list(own_files)
             attributed_commits_list: list[str] = []
             attributed_files_list: list[Any] = []
         else:
@@ -1105,7 +1111,7 @@ def git_push() -> tuple[Response, int] | Response:
             if role_for_sha and role_for_sha != session_role:
                 pulled_commits_summary.append({"sha": sha, "author_role": role_for_sha})
 
-        allowed_own, blocked_own = partition_files_by_role(session_role, own_files)
+        allowed_own, blocked_own = _partition_fn(session_role, own_files)
 
         if unregistered_files and enforce:
             audit_log(
@@ -1167,7 +1173,9 @@ def git_push() -> tuple[Response, int] | Response:
             # the caller controls credentials and refspec) and returns a
             # structured result.
             _fp_mod = _load_sibling_gateway_module("filtered_push")
-            execute_filtered_push = getattr(_fp_mod, "execute_filtered_push", None) if _fp_mod else None
+            execute_filtered_push = (
+                getattr(_fp_mod, "execute_filtered_push", None) if _fp_mod else None
+            )
             if execute_filtered_push is None:
                 audit_log(
                     "push_denied_auto_filter_failed",
@@ -1193,9 +1201,7 @@ def git_push() -> tuple[Response, int] | Response:
                 push_args = ["push", "--no-verify"]
                 if force:
                     push_args.append("--force")
-                push_args.extend(
-                    [push_target, refspec] if refspec else [push_target]
-                )
+                push_args.extend([push_target, refspec] if refspec else [push_target])
                 cmd_inner = git_cmd("-c", "http.extraheader=", *push_args)
                 credential_helper_path_inner = None
                 try:
@@ -1608,9 +1614,7 @@ def git_push() -> tuple[Response, int] | Response:
             # Surface pulled_commits / filtered=False on plain pushes so
             # agents get consistent response shape across paths (#1882).
             if auto_filter_response is not None:
-                success_payload.setdefault(
-                    "filtered", auto_filter_response.get("filtered", False)
-                )
+                success_payload.setdefault("filtered", auto_filter_response.get("filtered", False))
                 success_payload.setdefault("nothing_to_push", False)
                 success_payload.setdefault(
                     "excluded_files", auto_filter_response.get("excluded_files", [])
@@ -1926,9 +1930,9 @@ def git_execute() -> tuple[Response, int] | Response:
         _observer_repo = getattr(_session_for_observer, "repo", None) or getattr(
             _session_for_observer, "checkpoint_repo", None
         )
-        _observer_branch = getattr(
-            _session_for_observer, "assigned_branch", None
-        ) or getattr(_session_for_observer, "branch", None)
+        _observer_branch = getattr(_session_for_observer, "assigned_branch", None) or getattr(
+            _session_for_observer, "branch", None
+        )
     if _observer_role and operation in (
         "commit",
         "merge",

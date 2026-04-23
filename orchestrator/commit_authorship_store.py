@@ -455,15 +455,10 @@ class CommitAuthorshipStore:
             self._state_store._run_git("add", rel, cwd=wt)
             # Skip commit if no changes staged (e.g., concurrent writer
             # already flushed the same content).
-            diff = self._state_store._run_git(
-                "diff", "--cached", "--quiet", cwd=wt, check=False
-            )
+            diff = self._state_store._run_git("diff", "--cached", "--quiet", cwd=wt, check=False)
             if diff.returncode == 0:
                 return
-            msg = (
-                f"commit-authorship: register {sha[:12]} "
-                f"as {role} (pipeline={pipeline_id})"
-            )
+            msg = f"commit-authorship: register {sha[:12]} as {role} (pipeline={pipeline_id})"
             self._state_store._run_git("commit", "--no-verify", "-m", msg, cwd=wt)
             # Best-effort async push; never block the caller on network.
             try:
