@@ -153,6 +153,19 @@ The gateway also injects an `<!-- egg-pipeline-context ... -->` HTML comment int
 
 This eliminates the need for agent interaction during PR creation and ensures consistent PR formatting across all pipelines.
 
+### Pipeline state writeback after auto-PR creation
+
+After a successful auto-PR creation, `_finalize_pr_phase_failed` (in `orchestrator/routes/pipelines.py`) writes both `pipeline.pr_number` and `pipeline.pr_head_sha` alongside the existing `phases["pr"].artifacts["pr_url"]` entry, all inside the same `get_pipeline_state_lock → reload → save` transaction:
+
+- `pr_number` is parsed from the `pr_url` via `re.search(r"/pull/(\d+)", pr_url)`. It is always populated when the URL has the expected shape.
+- `pr_head_sha` is fetched via `_fetch_pr_state(pr_number, pipeline.repo)` (which shells out to `gh pr view`). It is assigned only when the returned value matches the `[0-9a-f]{7,40}` hex-SHA pattern (guarded explicitly in `_finalize_pr_phase_failed` before assignment). If `_fetch_pr_state` returns an empty dict — e.g., `gh` is unavailable, or the PR is not yet propagated — `pr_head_sha` is left `None` and the PR phase still succeeds (graceful degradation).
+
+Issue-mode consumers (overseer stall detector, `get_pipeline_snapshot`, babysit-worker handoffs) can read `pipeline.pr_number` directly without falling back to `gh pr list` or parsing the `pr_url` artifact. These fields were added in response to issue #1911, where stale `pr_number` / `pr_head_sha` on successful runs drove false-positive `post-consensus-push-stall` alerts in the overseer.
+
+### Per-agent commit SHA diagnostics
+
+`_update_agents_complete` populates each `completed_agents[].commit` field from `_brc.get_proposal_commit_sha(role)`. When the BRC tracker returns `None` or the `"RECONSTRUCTED_NO_SHA"` sentinel, a structured `logger.warning("BRC tracker returned no commit sha for completed agent", pipeline_id=..., phase=..., role=..., brc_value=...)` is emitted so the missing writeback can be investigated. This is diagnostic only — there is deliberately no auto-fallback to a guessed SHA, since that would mask the underlying wiring gap.
+
 ## Per-Pipeline Worktrees
 
 The orchestrator reads pipeline artifacts (verdict files, draft documents, check results) from per-pipeline worktrees created by the gateway. These worktrees isolate work for each pipeline and are separate from both the orchestrator's state worktree and the main repository working directory.
@@ -274,7 +287,7 @@ The orchestrator coordinates specialized agent roles across pipeline phases. Eac
 
 ### Prompt Context Scoping
 
-Agent prompts are scoped to role-relevant context. Analysis roles (architect, task_planner, risk_analyst) receive the full issue body for problem understanding. Execution roles (tester, documenter) receive a summarized background with pointers to full context on demand. Reviewer prompts include the full changeset diff command (`git diff origin/{base_branch}...HEAD`) using the pipeline's base branch, ensuring reviewers see the complete set of changes rather than an arbitrary truncated window. The `base_branch` and pipeline `branch` are threaded through the prompt-building call chain (`_run_concurrent_phase` → `_build_agent_prompt` → `_build_review_prompt` / `_build_brc_preamble`). See [SDLC Pipeline Guide: Role-Specific Prompt Context](../guides/sdlc-pipeline.md#role-specific-prompt-context) for details.
+Agent prompts are scoped to role-relevant context. Analysis roles (architect, task_planner, risk_analyst) receive the full issue body for problem understanding. Execution roles (tester, documenter) receive a summarized background with pointers to full context on demand. Reviewer prompts include the full changeset diff command (`git diff origin/{base_branch}...HEAD`) using the pipeline's base branch, ensuring reviewers see the complete set of changes rather than an arbitrary truncated window. The `base_branch` and pipeline `branch` are threaded through the prompt-building call chain (`_run_concurrent_phase` → `_build_agent_prompt` → `_build_review_prompt` / `_build_brc_preamble`). On BRC `review_cycle > 1`, `_build_review_prompt()` switches to a delta command — `git fetch origin {base_branch}` + `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` — so the reviewer sees only PR-side commits pushed since the last review and not commits pulled in via a base-branch merge ([#1758](https://github.com/jwbron/egg/issues/1758)). See [SDLC Pipeline Guide: Role-Specific Prompt Context](../guides/sdlc-pipeline.md#role-specific-prompt-context) for details.
 
 ## Deployment Modes
 

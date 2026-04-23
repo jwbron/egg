@@ -1,17 +1,16 @@
 """Tests for consensus recheck after timeout fallback (issue #1691).
 
 When the consensus timeout fires (step 6) and the code falls back to
-waiting for containers via ThreadPoolExecutor, consensus may still be
+event-driven polling of container status, consensus may still be
 reached during the wait window.  If containers are force-killed after
 consensus was confirmed, the phase should succeed — not fail due to
-exit_code=-1 from timed-out waits.
+exit_code=-1 from force-killed containers.
 """
 
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from docker_client import ContainerOperationError
 from models import (
     AgentExecution,
     AgentExecutionStatus,
@@ -91,12 +90,12 @@ class TestConsensusTimeoutRecheck:
         self, MockExecutor, mock_prompt, mock_lock, mock_emit, mock_monotonic, mock_sleep
     ):
         """When consensus timeout fires but consensus is reached during the
-        ThreadPoolExecutor wait, the phase should succeed (exit code 0).
+        post-timeout polling wait, the phase should succeed (exit code 0).
 
         Reproduces the scenario from issue #1691:
         1. Timeout fires at 30 min (step 6)
-        2. Containers wait via ThreadPoolExecutor
-        3. Some containers timeout (exit -1) — wait_for_container raises
+        2. Containers polled in event-driven loop
+        3. Some containers force-killed (exit -1)
         4. But consensus IS complete
         5. Recheck should detect consensus and return 0
         """
@@ -151,21 +150,6 @@ class TestConsensusTimeoutRecheck:
 
         mock_docker = MagicMock()
         mock_docker.get_container_info.side_effect = lambda cid: container_infos.get(cid)
-
-        # Simulate: tester exits cleanly (0), coder and reviewer timeout (-1)
-        def _wait_side_effect(container_id, timeout=300):
-            if container_id == "tester-1":
-                return ContainerInfo(
-                    container_id="tester-1",
-                    container_name="issue-1691-tester",
-                    status=ContainerStatus.EXITED,
-                    exit_code=0,
-                    exited_at=datetime.now(UTC),
-                )
-            # Other containers: wait times out
-            raise ContainerOperationError(f"Wait timed out for {container_id}")
-
-        mock_docker.wait_for_container.side_effect = _wait_side_effect
         mock_docker.stop_container.return_value = ContainerInfo(
             container_id="stopped",
             container_name="stopped",
@@ -274,8 +258,6 @@ class TestConsensusTimeoutRecheck:
 
         mock_docker = MagicMock()
         mock_docker.get_container_info.side_effect = lambda cid: container_infos.get(cid)
-        # All containers timeout
-        mock_docker.wait_for_container.side_effect = ContainerOperationError("Timed out")
         mock_docker.stop_container.return_value = ContainerInfo(
             container_id="stopped",
             container_name="stopped",
@@ -357,7 +339,6 @@ class TestConsensusTimeoutRecheck:
 
         mock_docker = MagicMock()
         mock_docker.get_container_info.side_effect = lambda cid: container_infos.get(cid)
-        mock_docker.wait_for_container.side_effect = ContainerOperationError("Timed out")
         mock_docker.stop_container.return_value = ContainerInfo(
             container_id="coder-1",
             container_name="issue-1691-coder",
@@ -391,7 +372,7 @@ class TestConsensusTimeoutRecheck:
             **_CALL_ARGS,
         )
 
-        # Verify stop_container was called for the timed-out container
+        # Verify stop_container was called for the force-killed container
         mock_docker.stop_container.assert_called_with("coder-1", timeout=30)
 
     @patch("routes.pipelines.time.sleep")
@@ -448,7 +429,6 @@ class TestConsensusTimeoutRecheck:
 
         mock_docker = MagicMock()
         mock_docker.get_container_info.side_effect = lambda cid: container_infos.get(cid)
-        mock_docker.wait_for_container.side_effect = ContainerOperationError("Timed out")
         mock_docker.stop_container.return_value = ContainerInfo(
             container_id="stopped",
             container_name="stopped",
@@ -504,6 +484,123 @@ class TestConsensusTimeoutRecheck:
             f"Logs: {logs}"
         )
         assert "UNRESOLVED NACKs" in logs
+
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines._emit_event")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_timeout_incomplete_consensus_with_unresolved_nacks_appends_summary(
+        self, MockExecutor, mock_prompt, mock_lock, mock_emit, mock_monotonic, mock_sleep
+    ):
+        """When consensus is NOT complete on the has_failures recheck but has
+        unresolved NACKs, the NACK summary should appear in the returned logs.
+
+        Exercises the new code path at pipelines.py:8617-8630 where
+        is_complete=False and has_unresolved_nacks=True — distinct from the
+        sibling test where is_complete=True with NACKs.
+        """
+        call_count = [0]
+
+        def _monotonic():
+            call_count[0] += 1
+            return call_count[0] * 2000.0
+
+        mock_monotonic.side_effect = _monotonic
+
+        executions = [
+            _make_execution(AgentRole.CODER, "coder-1"),
+            _make_execution(AgentRole.REVIEWER_CODE, "reviewer-1"),
+        ]
+
+        container_infos = {
+            "coder-1": ContainerInfo(
+                container_id="coder-1",
+                container_name="issue-1691-coder",
+                status=ContainerStatus.RUNNING,
+                exit_code=None,
+            ),
+            "reviewer-1": ContainerInfo(
+                container_id="reviewer-1",
+                container_name="issue-1691-reviewer_code",
+                status=ContainerStatus.RUNNING,
+                exit_code=None,
+            ),
+        }
+
+        pipeline = _make_concurrent_pipeline()
+        phase_exec = _make_phase_execution()
+
+        mock_store = MagicMock()
+        mock_pipeline_state = MagicMock()
+        mock_pipeline_state.get_phase_execution.return_value = phase_exec
+        mock_pipeline_state.status = PipelineStatus.RUNNING
+        mock_store.load_pipeline.return_value = mock_pipeline_state
+
+        mock_docker = MagicMock()
+        mock_docker.get_container_info.side_effect = lambda cid: container_infos.get(cid)
+        mock_docker.stop_container.return_value = ContainerInfo(
+            container_id="stopped",
+            container_name="stopped",
+            status=ContainerStatus.EXITED,
+            exit_code=137,
+        )
+
+        mock_spawner = MagicMock()
+        mock_spawner.backend = mock_docker
+        mock_spawner.docker = mock_docker
+        mock_spawner.create_concurrent_spawn_fn.return_value = MagicMock()
+
+        # Consensus: never complete, but has unresolved NACKs on recheck
+        consensus_call_count = [0]
+
+        def _check_consensus():
+            consensus_call_count[0] += 1
+            if consensus_call_count[0] == 1:
+                return {
+                    "is_complete": False,
+                    "has_objections": False,
+                    "blocking_agents": ["coder"],
+                }
+            # Subsequent checks: still incomplete but with unresolved NACKs
+            return {
+                "is_complete": False,
+                "has_objections": False,
+                "has_unresolved_nacks": True,
+                "unresolved_nacks": [
+                    {
+                        "reviewer": "reviewer_code",
+                        "producer": "coder",
+                        "reason": "Missing error handling",
+                    },
+                ],
+                "blocking_agents": ["coder"],
+            }
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.side_effect = _check_consensus
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        exit_code, logs = _run_concurrent_phase(
+            pipeline_id="issue-1691",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            **_CALL_ARGS,
+        )
+
+        assert exit_code == 1, (
+            f"Expected exit code 1 (incomplete consensus with NACKs), got {exit_code}. Logs: {logs}"
+        )
+        # The NACK summary should be appended even when is_complete=False
+        assert "UNRESOLVED NACKs" in logs
+        assert "Missing error handling" in logs
 
     @patch("routes.pipelines.time.sleep")
     @patch("routes.pipelines.time.monotonic")

@@ -6,7 +6,12 @@ requires-python = ">=3.11"
 dependencies = [
     "pyyaml>=6.0",
     "requests>=2.31.0",
-    "claude-agent-sdk",
+    # Pin claude-agent-sdk to a bounded pre-1.0 range. create_sdk_mcp_server
+    # and @tool are confirmed on 0.1.65 — see sandbox/egg_agent_tools/. A
+    # 0.2 bump must be validated manually; see
+    # tests/sandbox/egg_agent_tools/test_sdk_surface.py for the import-time
+    # smoke test that will fail CI loudly on API drift. See #1765.
+    "claude-agent-sdk>=0.1.65,<0.2",
     "cryptography>=41.0.0",
     "PyJWT>=2.8.0",
 ]

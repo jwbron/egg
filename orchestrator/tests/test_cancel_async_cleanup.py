@@ -135,7 +135,7 @@ class TestAsyncCleanupOnCancel:
         cleanup_started = threading.Event()
         cleanup_can_finish = threading.Event()
 
-        def slow_cleanup(pipeline_id, force=False):
+        def slow_cleanup(pipeline_id, force=False, preserve_worktrees=False):
             cleanup_started.set()
             # Block until we allow it to finish (simulates slow Docker cleanup)
             cleanup_can_finish.wait(timeout=10)
@@ -163,7 +163,9 @@ class TestAsyncCleanupOnCancel:
         assert cleanup_started.wait(timeout=5), "Cleanup was never started"
 
         # Verify cleanup was actually called (in the background)
-        mock_spawner.cleanup_pipeline.assert_called_once_with("test-pipeline", force=True)
+        mock_spawner.cleanup_pipeline.assert_called_once_with(
+            "test-pipeline", force=True, preserve_worktrees=True
+        )
 
     @patch("routes.pipelines.get_decision_queue")
     @patch("routes.pipelines.get_container_spawner")
@@ -216,8 +218,15 @@ class TestAsyncCleanupOnCancel:
         pipeline.status = PipelineStatus.FAILED
         mock_resolve.return_value = (mock_store, pipeline)
 
+        cleanup_done = threading.Event()
+
         mock_spawner = MagicMock()
-        mock_spawner.cleanup_pipeline.return_value = 2
+
+        def cleanup_with_signal(pipeline_id, force=False, preserve_worktrees=False):
+            cleanup_done.set()
+            return 2
+
+        mock_spawner.cleanup_pipeline.side_effect = cleanup_with_signal
         mock_spawner_fn.return_value = mock_spawner
 
         mock_dq = MagicMock()
@@ -232,6 +241,12 @@ class TestAsyncCleanupOnCancel:
 
         body = response.get_json()
         assert body["data"]["cleanup_pending"] is True
+
+        # Verify FAILED pipelines do NOT preserve worktrees
+        assert cleanup_done.wait(timeout=5), "Background cleanup was never called"
+        mock_spawner.cleanup_pipeline.assert_called_once_with(
+            "test-pipeline", force=True, preserve_worktrees=False
+        )
 
     @patch("routes.pipelines.get_decision_queue")
     @patch("routes.pipelines.get_container_spawner")
@@ -283,7 +298,7 @@ class TestAsyncCleanupOnCancel:
 
         cleanup_completed = threading.Event()
 
-        def cleanup_with_signal(pipeline_id, force=False):
+        def cleanup_with_signal(pipeline_id, force=False, preserve_worktrees=False):
             time.sleep(0.1)  # Simulate some work
             cleanup_completed.set()
             return 4
@@ -304,7 +319,9 @@ class TestAsyncCleanupOnCancel:
 
         # Wait for background cleanup to complete
         assert cleanup_completed.wait(timeout=5), "Background cleanup did not run to completion"
-        mock_spawner.cleanup_pipeline.assert_called_once_with("test-pipeline", force=True)
+        mock_spawner.cleanup_pipeline.assert_called_once_with(
+            "test-pipeline", force=True, preserve_worktrees=True
+        )
 
     @patch("routes.pipelines.get_decision_queue")
     @patch("routes.pipelines.get_container_spawner")
@@ -370,7 +387,7 @@ class TestAsyncCleanupOnCancel:
 
         error_raised = threading.Event()
 
-        def cleanup_that_raises(pipeline_id, force=False):
+        def cleanup_that_raises(pipeline_id, force=False, preserve_worktrees=False):
             error_raised.set()
             raise RuntimeError("Docker daemon unavailable")
 
@@ -506,7 +523,7 @@ class TestCleanupBackgroundThreadBehavior:
 
         cleanup_done = threading.Event()
 
-        def cleanup_with_signal(pipeline_id, force=False):
+        def cleanup_with_signal(pipeline_id, force=False, preserve_worktrees=False):
             cleanup_done.set()
             return 2
 
@@ -528,7 +545,9 @@ class TestCleanupBackgroundThreadBehavior:
         assert cleanup_done.wait(timeout=5), "Cleanup was never called"
 
         # Verify the correct pipeline_id was passed
-        mock_spawner.cleanup_pipeline.assert_called_once_with("specific-pipeline-123", force=True)
+        mock_spawner.cleanup_pipeline.assert_called_once_with(
+            "specific-pipeline-123", force=True, preserve_worktrees=True
+        )
 
     @patch("routes.pipelines.get_decision_queue")
     @patch("routes.pipelines.get_container_spawner")
@@ -551,7 +570,7 @@ class TestCleanupBackgroundThreadBehavior:
 
         cleanup_called = threading.Event()
 
-        def cleanup_raises_docker_error(pipeline_id, force=False):
+        def cleanup_raises_docker_error(pipeline_id, force=False, preserve_worktrees=False):
             cleanup_called.set()
             raise DockerException("Container not found")
 

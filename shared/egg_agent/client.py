@@ -208,6 +208,70 @@ async def run_agent_async(
     if system_prompt is not None:
         options.system_prompt = system_prompt
 
+    # --- Opt-in: register in-process SDK MCP servers with egg's agent tools ---
+    # Gated on EGG_MCP_TOOLS so non-opt-in pipelines pay zero cost (no
+    # extra import, no prompt-weight change).  See issue #1765.
+    #
+    # The factory returns one SDK MCP server per namespace (keys: sdlc,
+    # brc, phase, progress, task).  The Claude-visible tool name is
+    # ``mcp__<server_key>__<raw_@tool_name>`` — keying each server by
+    # its namespace is what produces the decision-7 visible names
+    # ``mcp__sdlc__register_open_question`` etc.  A single aggregate
+    # server would double-prefix (``mcp__egg__mcp__sdlc__...``).
+    # Accept the documented truthy values only — "true"/"1"/"yes".
+    # A narrower set keeps the docs/config surface aligned across
+    # operators and avoids surprises for future maintainers.
+    _mcp_flag_raw = os.environ.get("EGG_MCP_TOOLS", "")
+    if _mcp_flag_raw.strip().lower() in ("true", "1", "yes"):
+        try:
+            from egg_agent_tools import (  # noqa: PLC0415
+                SYSTEM_PROMPT_NUDGE,
+                build_sandbox_mcp_server,
+            )
+
+            mcp_servers = build_sandbox_mcp_server()
+            # ``mcp_servers`` is already a {namespace: server} dict;
+            # merge into any caller-supplied mcp_servers on options.
+            existing_servers = getattr(options, "mcp_servers", None) or {}
+            options.mcp_servers = {**existing_servers, **mcp_servers}
+            # Preserve any caller-supplied system_prompt; append the
+            # nudge.  ``options.system_prompt`` is typed
+            # ``str | SystemPromptPreset | SystemPromptFile | None`` —
+            # we only know how to extend the plain-str case; for preset
+            # / file forms the nudge is set as the full prompt (the
+            # caller's preset/file remains accessible via the SDK's own
+            # plumbing but SystemPromptPreset / SystemPromptFile
+            # append semantics are not defined).
+            existing_prompt = options.system_prompt
+            if isinstance(existing_prompt, str) and existing_prompt:
+                options.system_prompt = existing_prompt.rstrip() + "\n\n" + SYSTEM_PROMPT_NUDGE
+            elif existing_prompt:
+                # SystemPromptPreset / SystemPromptFile — we cannot
+                # append to these forms.  Preserve the caller's prompt
+                # and skip the nudge to avoid silent data loss.
+                logger.warning(
+                    "Cannot append MCP tool nudge to non-string system_prompt "
+                    f"(type={type(existing_prompt).__name__}); MCP tools are registered but the nudge is omitted",
+                    event_type="system",
+                    event_subtype="mcp_nudge_skipped",
+                )
+            else:
+                options.system_prompt = SYSTEM_PROMPT_NUDGE
+            logger.info(
+                "Registered egg MCP tools",
+                event_type="system",
+                event_subtype="mcp_tools_enabled",
+                flag="EGG_MCP_TOOLS",
+                namespaces=list(mcp_servers.keys()),
+            )
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning(
+                "Failed to register egg MCP tools; continuing without them",
+                event_type="system",
+                event_subtype="mcp_tools_error",
+                error=str(e),
+            )
+
     stdout_parts: list[str] = []
     actual_model: str | None = None
     result_meta: dict[str, Any] = {}

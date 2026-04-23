@@ -423,7 +423,14 @@ POST /api/v1/git/execute
 
 ```
 POST /v1/messages
-  Description: Proxy for Anthropic messages API with credential injection
+  Description: Proxy for Anthropic messages API with credential injection.
+               Streaming responses survive upstream TCP resets — a bounded
+               single pre-stream retry covers resets before any byte has
+               been yielded downstream; mid-stream resets are surfaced as
+               a synthetic SSE `event: error` frame so the SDK fails
+               cleanly instead of dying on a truncated socket.
+               See ../docs/architecture/credential-injection.md
+               ("Upstream Stream Resilience") for design rationale.
 
 POST /v1/messages/count_tokens
   Description: Proxy for Anthropic token counting API
@@ -559,6 +566,8 @@ Both methods clear all in-memory config caches so the next access re-reads from 
 9. **Push-target enforcement**: Pipeline agents must push to their assigned branch only. When a push to the assigned branch fails (e.g., due to phase file restrictions from branch history contamination), agents must signal an error rather than improvise a new branch name. This prevents commits from landing on unexpected branches where the pipeline cannot find them.
 
 10. **Concurrent-mode push enforcement**: In BRC mode, direct `git push` is blocked — agents must use `egg-orch consensus propose --push`. This makes the "all changes must be reviewed" invariant structural rather than relying on agent compliance. A `consensus_push` marker flows from the orch CLI directly to the gateway API (bypassing the git wrapper), distinguishing protocol-originated pushes from direct pushes. A `CONCURRENT_PUSH_ENFORCEMENT` killswitch follows the same pattern as `PUSH_TARGET_ENFORCEMENT` for emergency bypass.
+
+11. **Upstream stream-reset resilience (Anthropic proxy)**: `proxy_anthropic_messages()` applies two asymmetric mitigations for `httpx.ReadError` / `httpx.RemoteProtocolError` on long-running SSE responses. A *pre-stream* retry (bounded to one attempt, gated on the first chunk not yet having been yielded downstream) transparently re-issues the upstream request when the reset lands before any downstream byte. A *mid-stream* synthetic SSE `event: error` frame is emitted when the reset lands after bytes have already flowed, because Anthropic exposes no resume tokens and mid-stream retry would risk double-charging and interleaving divergent generations. Full details in [credential-injection.md](../docs/architecture/credential-injection.md#upstream-stream-resilience). Distinct from gateway-pod-restart handling (#1883) and turn-1 consensus-wrapper retry (#1873).
 
 ## Testing
 

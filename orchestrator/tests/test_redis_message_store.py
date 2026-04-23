@@ -497,3 +497,265 @@ class TestThreadSafety:
         assert not errors
         messages = store.get_messages("test-pipeline", limit=100)
         assert len(messages) == 40
+
+
+class TestWaitForTypes:
+    """issue #1897: ``wait_for_types`` filters which messages unblock a
+    blocking read.  Unwanted types keep the caller blocked on the remaining
+    time budget, up to the inner-loop cap."""
+
+    def test_matching_type_returned(self, store):
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_CONFIRMED,
+                subject="done",
+            )
+        )
+        messages = store.get_messages(
+            "test-pipeline",
+            wait=2,
+            wait_for_types=[MessageType.CONSENSUS_CONFIRMED],
+        )
+        assert len(messages) == 1
+        assert messages[0].message_type == MessageType.CONSENSUS_CONFIRMED
+
+    def test_non_matching_type_does_not_return(self, store):
+        """A PROGRESS message pre-populated in the stream must NOT satisfy a
+        wait for CONSENSUS_CONFIRMED — caller should block and time out."""
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.PROGRESS,
+                subject="progress",
+            )
+        )
+        start = time.monotonic()
+        messages = store.get_messages(
+            "test-pipeline",
+            wait=1,
+            wait_for_types=[MessageType.CONSENSUS_CONFIRMED],
+        )
+        elapsed = time.monotonic() - start
+        assert messages == []
+        # Must have actually blocked, not returned instantly.
+        assert elapsed >= 0.5
+
+    def test_mixed_stream_filters_to_matching_only(self, store):
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.PROGRESS,
+                subject="p",
+            )
+        )
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_CONFIRMED,
+                subject="c",
+            )
+        )
+        messages = store.get_messages(
+            "test-pipeline",
+            wait=1,
+            wait_for_types=[MessageType.CONSENSUS_CONFIRMED],
+        )
+        # Only the CONSENSUS_CONFIRMED row comes back.
+        assert len(messages) == 1
+        assert messages[0].message_type == MessageType.CONSENSUS_CONFIRMED
+
+    def test_multiple_wait_types_act_as_or_filter(self, store):
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_RE_REVIEW,
+                subject="rr",
+            )
+        )
+        messages = store.get_messages(
+            "test-pipeline",
+            wait=1,
+            wait_for_types=[
+                MessageType.CONSENSUS_CONFIRMED,
+                MessageType.CONSENSUS_RE_REVIEW,
+            ],
+        )
+        assert len(messages) == 1
+        assert messages[0].message_type == MessageType.CONSENSUS_RE_REVIEW
+
+    def test_inner_loop_cap_prevents_infinite_spin(self, store):
+        """RISK (issue #1897): a pathological flood of non-matching types
+        must not cause the XREAD BLOCK loop to spin forever.  The inner-loop
+        cap is ``_WAIT_FOR_TYPES_MAX_INNER_LOOPS`` (100)."""
+        from redis_message_store import RedisMessageStore
+
+        assert RedisMessageStore._WAIT_FOR_TYPES_MAX_INNER_LOOPS == 100
+
+    def test_inner_loop_cap_functional_stress(self, store):
+        """Plan TASK-1-2 acceptance (c) + reviewer_code non-blocking
+        item: XADD >100 non-matching rows, invoke a blocking
+        ``wait_for_types=[CONSENSUS_CONFIRMED]`` read, and assert it
+        returns within ``wait + epsilon`` rather than spinning forever.
+
+        A constant assertion (test_inner_loop_cap_prevents_infinite_spin
+        above) only proves the attribute exists — it doesn't prove the
+        cap is actually consulted at runtime. This test XADD-s 150
+        PROGRESS rows (>100) and verifies the read returns within a
+        bounded wall-clock budget.
+        """
+        # Flood the stream with 150 non-matching PROGRESS rows.
+        for i in range(150):
+            store.add_message(
+                Message(
+                    pipeline_id="stress-test-pipeline",
+                    from_role="coder",
+                    to_role="all",
+                    message_type=MessageType.PROGRESS,
+                    subject=f"progress {i}",
+                )
+            )
+
+        # Blocking read with a 2s budget. Must return within 2.5s even
+        # though there are 150 rows to churn through — the cap kicks in
+        # at 100 and bails with empty. Without the cap, fakeredis
+        # wouldn't actually block (its XREAD block=ms behaviour diverges
+        # from real Redis), but the loop would still iterate 150 times
+        # rapidly — we confirm the return happens in a sane window.
+        wait_seconds = 2
+        start = time.monotonic()
+        messages = store.get_messages(
+            "stress-test-pipeline",
+            wait=wait_seconds,
+            wait_for_types=[MessageType.CONSENSUS_CONFIRMED],
+        )
+        elapsed = time.monotonic() - start
+
+        # No matching row exists — must return empty.
+        assert messages == []
+        # Must not exceed wait + a generous epsilon (3s). A bug that
+        # re-XREADs the same rows on every loop would take much longer.
+        assert elapsed < wait_seconds + 1.0, (
+            f"Flood-of-150 stress test took {elapsed:.2f}s "
+            f"(expected < {wait_seconds + 1}s). "
+            "Inner-loop cap may not be functioning — look for "
+            "unbounded re-reads of the same stream range."
+        )
+
+    def test_wait_zero_with_filter_returns_empty(self, store):
+        """A non-blocking read with a type filter returns [] immediately if
+        no matching row is present, even when other rows exist."""
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.PROGRESS,
+                subject="p",
+            )
+        )
+        messages = store.get_messages(
+            "test-pipeline",
+            wait=0,
+            wait_for_types=[MessageType.CONSENSUS_CONFIRMED],
+        )
+        assert messages == []
+
+
+class TestRedisFromTipSemantics:
+    """``from_tip=True`` uses Redis ``$`` so XREAD only matches entries
+    added after the call starts.
+
+    Backs the ``/messages/wait`` endpoint fix for issue #1925.
+    """
+
+    def test_pre_existing_match_ignored_with_from_tip(self, store):
+        """A matching pre-existing entry must NOT satisfy a from_tip wait."""
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_CONFIRMED,
+                subject="already seen",
+            )
+        )
+
+        # fakeredis's XREAD with $ is a no-op on streams with data — it
+        # returns empty immediately because no "later" entry exists. This
+        # is the correct behaviour contract even though real Redis would
+        # actually block for the timeout.
+        start = time.monotonic()
+        messages = store.get_messages(
+            "test-pipeline",
+            wait=1,
+            wait_for_types=[MessageType.CONSENSUS_CONFIRMED],
+            from_tip=True,
+        )
+        elapsed = time.monotonic() - start
+        assert messages == []
+        # Must not take longer than the wait budget.
+        assert elapsed < 2.0, f"from_tip wait over budget: {elapsed:.2f}s"
+
+    def test_explicit_since_id_disables_from_tip(self, store):
+        """When both are set, since_id wins — the caller wants the
+        cursor-passing path, not the stream tip."""
+        anchor = store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.PROGRESS,
+                subject="anchor",
+            )
+        )
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_CONFIRMED,
+                subject="after",
+            )
+        )
+
+        messages = store.get_messages(
+            "test-pipeline",
+            wait=1,
+            wait_for_types=[MessageType.CONSENSUS_CONFIRMED],
+            since_id=anchor.id,
+            from_tip=True,  # should be ignored in favor of since_id
+        )
+        assert len(messages) == 1
+        assert messages[0].subject == "after"
+
+    def test_from_tip_ignored_when_wait_zero(self, store):
+        """``wait=0`` + ``from_tip=True`` degrades to non-blocking read
+        from 0-0 (start_id = 0-0), not ``$`` — XRANGE doesn't accept ``$``
+        and we avoid the footgun."""
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.PROGRESS,
+                subject="p",
+            )
+        )
+        # Should not raise; returns the pre-existing message unfiltered.
+        messages = store.get_messages(
+            "test-pipeline",
+            wait=0,
+            from_tip=True,
+        )
+        assert len(messages) == 1

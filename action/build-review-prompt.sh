@@ -10,6 +10,11 @@
 #   GITHUB_REPOSITORY  — owner/repo
 #   RUNNER_TEMP        — Temp directory for prompt file
 #   LAST_REVIEW_COMMIT — (Optional) Commit SHA of last bot review, for re-reviews
+#   BASE_REF           — (Optional) PR base branch name for re-review delta
+#                        (defaults to "main"). Used to exclude base-branch
+#                        commits from the delta via
+#                        `git log ... --not origin/${BASE_REF} -p`
+#                        so reviewers see only PR-authored changes (#1758).
 #
 # Output:
 #   Sets 'prompt-file' and 'model' in $GITHUB_OUTPUT
@@ -127,6 +132,7 @@ build_prompt() {
 
     local prompt
     local is_rereview=false
+    local base_ref="${BASE_REF:-main}"
 
     # Check if this is a re-review (we have a previous review commit)
     if [[ -n "${LAST_REVIEW_COMMIT:-}" ]]; then
@@ -139,7 +145,7 @@ This is a **re-review** — you previously reviewed this PR at commit \`${LAST_R
 
 Perform a **thorough review of all new changes**. Find ALL issues in the new code—do not stop after identifying a few problems.
 
-1. **Review the delta**: Use \`git diff ${LAST_REVIEW_COMMIT}..HEAD\` to see what changed since your last review.
+1. **Review the delta**: First run \`git fetch origin ${base_ref}\` to ensure the base branch ref is available, then use \`git log ${LAST_REVIEW_COMMIT}..HEAD --not origin/${base_ref} -p\` to see what changed since your last review. This excludes any commits from \`${base_ref}\` that were merged into the PR branch since your last review, so you see only PR-authored changes.
 2. **Check previous feedback**: Use \`gh pr view ${PR_NUMBER} --comments\` to see previous review comments.
 3. **Verify issues addressed**: Confirm that concerns from your previous review have been properly fixed, not just superficially addressed.
 4. **Examine new code thoroughly**: Apply the same rigorous scrutiny to new changes as you would to an initial review. Read surrounding context, trace data flow, research when uncertain.

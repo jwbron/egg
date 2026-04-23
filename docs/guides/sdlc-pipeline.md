@@ -129,6 +129,8 @@ Once a pull request is created during the PR phase, two additional fields appear
 
 This avoids a separate `gh pr list` call by monitoring clients.
 
+> **Pipeline record fields (issue #1911).** The auto-PR path also writes `pipeline.pr_number` and (best-effort) `pipeline.pr_head_sha` onto the pipeline record itself, not only the `pr_url` phase artifact. Consumers that load the pipeline via `get_pipeline_snapshot` / the pipeline JSON can rely on `pipeline.pr_number` directly — the overseer's `post-consensus-push-stall` detector uses this as one of the three signals that the post-consensus transition succeeded. `pipeline.pr_head_sha` is populated when `gh pr view` returns a valid hex SHA; if the `gh` call fails or propagation is still in flight, the field is left `None` and the PR phase still succeeds.
+
 When `pending_decisions > 0`, the `data` object includes an additional `pending_decision` field with the first pending decision's details, so consumers don't need a second round-trip to fetch it:
 
 ```json
@@ -586,9 +588,9 @@ Agents are organized into five categories (execution, analysis, review, utility,
 
 | Role | Category | Purpose | File Access |
 |------|----------|---------|-------------|
-| **Coder** | Execution | Implements code changes | `src/`, `lib/`, `shared/` |
-| **Tester** | Execution | Finds gaps, writes tests, runs linters and reports issues to coder | `tests/`, `test_*.py`, `*.test.ts`, `**/conftest.py` |
-| **Documenter** | Execution | Updates documentation | `docs/`, `*.md`, `README*` |
+| **Coder** | Execution | Implements code changes | All files except docs, tests, `.egg-state/`, `.github/`, `sandbox/scripts/` (blocklist-complement; see [Agent Roles Reference](../reference/agent-roles.md#coder)) |
+| **Tester** | Execution | Finds gaps, writes tests, runs linters and reports issues to coder | Test files and infrastructure only: `tests/`, `test/`, `**/test_*.py`, `**/*_test.go`, `**/*.test.{ts,tsx,js,jsx}`, `**/*.spec.{ts,tsx,js,jsx}`, `**/conftest.py` (see [Agent Roles Reference](../reference/agent-roles.md#tester)) |
+| **Documenter** | Execution | Updates documentation | Documentation and markdown only: `docs/`, `**/*.md`, `**/README.md` (see [Agent Roles Reference](../reference/agent-roles.md#documenter)) |
 | **Autofixer** | Utility | Auto-fixes lint/format/type-check issues | Source and config files (no docs or contracts) |
 | **Conflict Resolver** | Utility | Resolves merge and inter-agent conflicts | Source, test, doc, and config files (no `.egg-state/`) |
 | **Reviewer (Code)** | Review | Reviews code for security, correctness | Review verdicts only |
@@ -1041,7 +1043,7 @@ Use `--base <branch>` to target a non-default base branch for the auto-created P
 - Universal options on every checkpoint: general feedback (`[f]`), change approach (`[a]`), cancel (`[c]`)
 - JSON resolution payloads for structured intent parsing (see [HITL Decisions](../hitl-decisions.md))
 - Automatic reconnection on SSE timeouts
-- Works both inside containers and from the host (via `egg --exec`)
+- Works both inside containers and from the host
 
 **Host-side:** `bin/egg-sdlc` launches a container with TTY passthrough for interactive features.
 
@@ -1254,7 +1256,7 @@ Agents communicate via the orchestrator message bus using structured envelopes:
 │  pipeline_id: "issue-999"                            │
 │  from_role: "coder"                                  │
 │  to_role: "tester" | "all"                           │
-│  message_type: "PROGRESS" | "QUESTION" | "STATUS" | "HANDOFF" │
+│  message_type: "PROGRESS" | "STATUS" | "HANDOFF" | "HEARTBEAT" │
 │  subject: "API endpoints complete"                   │
 │  body: "Implemented GET/POST/DELETE for /api/users"  │
 │  timestamp: "2026-03-11T10:30:00Z"                   │
@@ -1266,11 +1268,12 @@ Agents communicate via the orchestrator message bus using structured envelopes:
 | Type | Purpose | Example |
 |------|---------|---------|
 | `PROGRESS` | Notify about completed work | Coder: "API endpoints committed" |
-| `QUESTION` | Ask another agent for clarification | Tester: "Expected status for invalid input?" |
-| `STATUS` (reply) | Reply to a question | Coder: "400 Bad Request" |
 | `STATUS` | Share current activity | Documenter: "Documenting API section" |
 | `HANDOFF` | Signal a role-boundary artifact for another agent | Coder: "Test scaffolding ready — tester should create test files" |
+| `HEARTBEAT` | Typed agent state transition (`WORKING`/`WAITING_ON_ROLE`/`PROPOSED`/`IDLE`) emitted via `egg-orch message heartbeat` | Tester: `state=WAITING_ON_ROLE`, `waiting_on=coder` |
 | `AGENT_FAILED` | System notification of failure | System: "Tester agent crashed" |
+
+> `QUESTION` was removed in [#1897](https://github.com/jwbron/egg/issues/1897) — it had no reliable respondent. Reviewer questions go in `NACK` rationales; producer-to-producer requests go in `HANDOFF`; "I'm blocked on peer X" goes in a `HEARTBEAT` with `state=WAITING_ON_ROLE`. See [Agent Wait Patterns](../reference/agent-wait-patterns.md#anti-pattern-4--question-bus-messages-as-informal-status).
 
 **CLI commands**:
 
@@ -1331,12 +1334,16 @@ egg-orch signal readiness --state OBJECTING --reason "Found failing test"
 Each agent role has specific behavior patterns in concurrent mode:
 
 **Coder**: Implements code and sends `PROGRESS` messages when key interfaces are
-committed. Responds to `QUESTION` messages from tester/documenter. Signals `READY`
-after all implementation tasks are committed.
+committed. Answers tester/documenter clarifications through proposal summaries and
+commit messages (and, where the reviewer pass surfaces an ambiguity, by addressing
+the `NACK` rationale on re-propose). Signals `READY` after all implementation tasks
+are committed.
 
 **Tester**: Begins scaffolding tests early. Polls for coder `PROGRESS` to know when
-code is ready. Sends `QUESTION` messages for clarification. Signals `READY` after
-tests pass.
+code is ready. Raises ambiguities through the review cycle — either via `NACK`
+rationale when reviewing the coder, or by emitting a `HEARTBEAT` with
+`state=WAITING_ON_ROLE --waiting-on coder` so the overseer can see the block.
+Signals `READY` after tests pass.
 
 **Documenter**: Starts documentation based on the plan. Refines as implementation
 solidifies. Polls for `PROGRESS` from coder/tester. Signals `READY` after docs cover
@@ -1388,7 +1395,7 @@ Response includes a `concurrent` section:
     "max_concurrent_agents": 6,
     "messages": {
       "total": 12,
-      "by_type": {"PROGRESS": 5, "QUESTION": 3, "STATUS": 4, "HANDOFF": 0}
+      "by_type": {"PROGRESS": 5, "HEARTBEAT": 3, "STATUS": 4, "HANDOFF": 0}
     },
     "consensus": {
       "agents": {
@@ -1429,6 +1436,27 @@ coordinate commits via the message bus to avoid conflicts. If an agent encounter
 conflict when pushing, it should pull, rebase, and retry. If conflicts persist, the
 agent signals `BLOCKED` and a HITL decision is created. Consider adding role-based
 file restrictions to minimize overlap.
+
+## Agent MCP tools (`EGG_MCP_TOOLS` flag)
+
+**Default: off in iteration 1** — opt in per pipeline via the snippet below.
+
+Sandbox agents can call pipeline lifecycle operations (BRC consensus, HITL decisions, phase context, progress signals, task completion) through first-class Claude Agent SDK MCP tools rather than shelling out to `egg-contract` / `egg-orch` via `Bash`. The tools run **in-process** via `claude_agent_sdk.create_sdk_mcp_server` — no new network service, no new auth layer, no new process. See the [Agent MCP Tools reference](../reference/agent-tools.md) for the full 15-verb inventory (`mcp__sdlc__*`, `mcp__brc__*`, `mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`), schemas, and architecture.
+
+**Opt in per-pipeline.** The surface is gated behind the `EGG_MCP_TOOLS` environment variable (default **off** in iteration 1 — tracked in [#1765](https://github.com/jwbron/egg/issues/1765)). Set it on your sandbox pod env to enable:
+
+```bash
+# Per-pipeline opt-in via submit-task / pipeline-create payload
+{
+  "config": {
+    "env": {"EGG_MCP_TOOLS": "true"}
+  }
+}
+```
+
+Or export it in a local-quickstart shell before running `egg-sdlc`. Accepted truthy values: `true`, `1`, `yes`. When the flag is unset or falsy, `shared/egg_agent/client.py::run_agent_async` runs the pre-#1765 code path verbatim — no `mcp_servers` registration, no system-prompt changes, no import cost.
+
+The `claude_agent_sdk` harness is the only harness covered in iteration 1 (decision-3); `EGG_HARNESS=egg` does not yet register the tools. Iteration-2 verbs (peer, checkpoint, anchor, overseer, task-gap) are tracked in [#1917](https://github.com/jwbron/egg/issues/1917). The existing `sandbox/bin/egg-*` CLIs continue to work unchanged (decision-4).
 
 ## Pipeline Health Monitoring
 
@@ -1487,7 +1515,7 @@ Look for these log entries in chronological order:
    - `_write_brc_history: early return — message store unavailable` — The message store factory returned `None`.
    - `_write_brc_history: early return — failed to retrieve messages` — Exception calling `store.get_messages()`. Includes `error` detail.
    - `_write_brc_history: early return — no messages in store` — Store returned an empty list.
-   - `_write_brc_history: early return — no BRC messages for phase` — Messages exist but none match `BRC_HISTORY_TYPES` (the `CONSENSUS_*` types plus `STATUS`, `HANDOFF`, `QUESTION`, `AGENT_FAILED`, `NUDGE`, `OVERSEER_ALERT`) for the specified phase. Includes `total_messages` count.
+   - `_write_brc_history: early return — no BRC messages for phase` — Messages exist but none match `BRC_HISTORY_TYPES` (the `CONSENSUS_*` types plus `STATUS`, `HANDOFF`, `AGENT_FAILED`, `NUDGE`, `OVERSEER_ALERT`, `HEARTBEAT`) for the specified phase. Includes `total_messages` count. `QUESTION` was dropped from this set in [#1897](https://github.com/jwbron/egg/issues/1897).
 4. `Wrote BRC history file` — The history file was written to disk. Includes `path` and `message_count`. If this log is missing after step 2, an early-return was taken (check step 3).
 5. `_commit_statefiles_to_worktree: glob match results` — Shows `match_count` and `matched_paths` for `.egg-state/` files found by the pipeline-scoped glob. If `match_count` is 0, the BRC history file was not written to disk (check step 4 above).
 6. `_commit_statefiles_to_worktree: nothing staged — skipping commit` — The `git diff --cached --quiet` check returned 0, meaning `git add --force` did not stage anything. Possible causes: file permissions, `.gitignore` override, or the file was already committed identically.

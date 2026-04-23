@@ -4,10 +4,16 @@ Sandboxed Docker container. No SSH keys, cloud creds, or production access.
 
 ## Network Modes
 
-- `egg --public` (default): Full internet + public repos only. Can access PyPI, npm, web.
-- `egg --private`: Anthropic API only + private repos only. No PyPI/npm/web access — dependencies are pre-installed.
+- **Public mode** (default): Full internet + public repos only. Can access PyPI, npm, web.
+- **Private mode**: Anthropic API only + private repos only. No PyPI/npm/web access — dependencies are pre-installed.
 
 GitHub access MUST go through the gateway sidecar (not the proxy) for policy enforcement.
+
+## Environment Flags
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `EGG_MCP_TOOLS` | unset (off) | When truthy (`true`, `1`, `yes`), registers the in-process SDK MCP tool surface (15 iteration-1 verbs: `mcp__sdlc__*`, `mcp__brc__*`, `mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`) on `ClaudeAgentOptions.mcp_servers` and appends a bootstrap paragraph to the system prompt. Prefer these tools over Bash-ing `egg-contract` / `egg-orch` when the flag is on. When unset or falsy, the code path is byte-identical to pre-#1765 behaviour. See `../../../docs/reference/agent-tools.md`. Currently `claude_agent_sdk`-only; `EGG_HARNESS=egg` is not yet covered. |
 
 ## Capabilities
 

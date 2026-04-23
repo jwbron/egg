@@ -94,6 +94,25 @@ All concurrent agent containers are wrapped with a shell script defined in `orch
 
 Agents communicate with each other during concurrent execution via the orchestrator message bus (`orchestrator/message_store.py`). In production, messages are stored in Redis Streams, surviving orchestrator restarts. Messages are cleared at phase transition. In test environments, an in-memory fallback is used when Redis is not available.
 
+### How to Wait
+
+Agents wait for BRC messages with a single canonical command — `egg-orch message wait-loop` — which long-polls the bus server-side and exits only on a terminal match or a permanent error. The full contract (the one-liner for producers and reviewers, the four anti-patterns to avoid, the `egg-orch message wait` exit codes, the `HEARTBEAT` schema, and the `EGG_MESSAGE_POLL_MAX_WAIT` ↔ gateway-Squid coupling) is in [Agent Wait Patterns](../reference/agent-wait-patterns.md) — read it before writing an outer `for`-loop, a `sleep`, or a multi-call poll sequence.
+
+```bash
+# Producer STAY ALIVE — exits on consensus, re-review, or overseer alert
+egg-orch message wait-loop \
+  --for CONSENSUS_CONFIRMED \
+  --for CONSENSUS_RE_REVIEW \
+  --for OVERSEER_ALERT
+
+# Reviewer STAY ALIVE — also wakes on new proposals
+egg-orch message wait-loop \
+  --for CONSENSUS_PROPOSE \
+  --for CONSENSUS_RE_REVIEW \
+  --for CONSENSUS_CONFIRMED \
+  --for OVERSEER_ALERT
+```
+
 ### Sending Messages
 
 ```
@@ -106,12 +125,14 @@ Request body:
 {
   "from_role": "coder",
   "to_role": "tester",          // or "all" for broadcast
-  "message_type": "PROGRESS",   // PROGRESS, QUESTION, STATUS, AGENT_FAILED, HANDOFF
+  "message_type": "PROGRESS",   // PROGRESS, STATUS, HANDOFF, HEARTBEAT, AGENT_FAILED
   "subject": "Implemented auth module",
   "body": "auth.py is complete, tests can begin",
   "metadata": {}
 }
 ```
+
+> `QUESTION` was removed in [#1897](https://github.com/jwbron/egg/issues/1897) — it encouraged off-protocol chatter with no handler. Use `HANDOFF` when you need a peer to act, `HEARTBEAT` to advertise state, and typed NACK rationale to ask clarifying questions of a producer you're reviewing.
 
 The pipeline's current phase is automatically attached to each message. This applies to both the general message endpoint and the consensus signal handlers — all `CONSENSUS_*` messages (propose, ACK, NACK, withdraw, confirmed, re-review) and other BRC-adjacent types (`STATUS`, `HANDOFF`, `AGENT_FAILED`, etc.) include the phase field so that downstream consumers like BRC history persistence and PR summary generation can correctly group messages by phase.
 
@@ -144,10 +165,10 @@ Returns total message count and a breakdown by message type.
 | Type | Purpose |
 |------|---------|
 | `PROGRESS` | Agent progress updates for other agents |
-| `QUESTION` | Agent asking another agent a question |
 | `STATUS` | General status announcements |
-| `AGENT_FAILED` | Orchestrator notifying agents of a peer failure |
 | `HANDOFF` | Agent signaling completion of a handoff artifact |
+| `HEARTBEAT` | Agent state transition (`WORKING`, `WAITING_ON_ROLE`, `PROPOSED`, `IDLE`) — resets the orchestrator's `last_heartbeat` without emitting a free-form `PROGRESS` entry. See [Agent Wait Patterns — HEARTBEAT](../reference/agent-wait-patterns.md#4-heartbeat-message-type) for the metadata schema. |
+| `AGENT_FAILED` | Orchestrator notifying agents of a peer failure |
 | `CONSENSUS_PROPOSE` | Producer broadcasting its proposal for review |
 | `CONSENSUS_ACK` | Reviewer approving a producer's proposal |
 | `CONSENSUS_NACK` | Reviewer rejecting a producer's proposal (with reason) |
@@ -156,11 +177,15 @@ Returns total message count and a breakdown by message type.
 | `CONSENSUS_RE_REVIEW` | Orchestrator notifying a reviewer that their prior confirmation is stale and they must re-review the producer's new proposal version |
 | `OVERSEER_ALERT` | Health anomaly or lifecycle alert. Sent by the overseer agent for health anomalies (always with explicit `pipeline_id` and `from_role: overseer`), and by the orchestrator when the overseer is auto-respawned (with diagnostic metadata including exit code, log tail, and container IDs) |
 
+> **Removed in #1897**: `QUESTION` was dropped from the type vocabulary because it had no delivery semantics and was only used as informal free-form chatter. Agents that need a peer to act should use `HANDOFF`; agents that need to advertise state should use `HEARTBEAT`; reviewers with clarifying questions should put them in the `NACK` rationale so the producer sees them and can address them on re-propose.
+
 ### Message Store Backend
 
 The message store uses Redis Streams when Redis is available, falling back to an in-memory store for tests or unconfigured environments. The backend is selected via the `EGG_MESSAGE_STORE_BACKEND` environment variable (`"auto"` by default, `"redis"` to require Redis, `"memory"` to force in-memory).
 
-**Note:** Long-poll (`?wait=<s>`) only blocks with the Redis Streams backend. The in-memory store silently falls back to a non-blocking poll, so agents in test environments may see immediate empty responses instead of blocking.
+**Long-poll semantics (both backends):** `GET /messages/wait?for=<TYPE>&timeout=<s>` blocks on both backends until a matching message arrives or the timeout elapses. The in-memory store implements blocking via a per-pipeline `threading.Condition`; the Redis backend uses `XREAD BLOCK` with a server-side type-filter loop. The silent non-blocking fallback that previously lived in `routes/messages.py` was removed in [#1897](https://github.com/jwbron/egg/issues/1897) so backend misconfiguration fails loudly in CI instead of returning empty results. See [Agent Wait Patterns](../reference/agent-wait-patterns.md#3-exit-code-contract-for-egg-orch-message-wait) for the full exit-code contract and the `EGG_MESSAGE_POLL_MAX_WAIT` cap.
+
+**Clear-on-phase-transition safety:** When the store is cleared at phase boundaries, all blocked waits wake and return an empty list (within ~100 ms). This prevents blocked agents from staying stuck across a phase transition.
 
 ### Per-Phase Cleanup
 
@@ -191,7 +216,7 @@ egg-orch message send --to <role> --type <type> --subject "<subject>" --body "<b
 | Parameter | Required | Description |
 |-----------|----------|-------------|
 | `--to` | Yes | Target agent role (e.g., `tester`, `coder`) or `all` for broadcast |
-| `--type` | Yes | Message type: `HANDOFF`, `QUESTION`, `STATUS`, `PROGRESS` |
+| `--type` | Yes | Message type: `HANDOFF`, `STATUS`, `PROGRESS`, `HEARTBEAT`. (`QUESTION` was removed in [#1897](https://github.com/jwbron/egg/issues/1897) — see note below.) |
 | `--subject` | No | Short description of the message |
 | `--body` | No | Detailed message content |
 
@@ -202,9 +227,15 @@ The pipeline ID is auto-resolved from `EGG_PIPELINE_ID` if set; otherwise pass i
 | Type | Use when | Example |
 |------|----------|---------|
 | `HANDOFF` | You've produced an artifact that another agent needs to act on, especially when role boundaries prevent you from completing the work yourself | Coder can't push test files → HANDOFF to tester with file paths |
-| `QUESTION` | You need clarification from a specific agent before you can proceed with your own work | Tester asks coder: "What's the expected return type for `process_batch()`?" |
 | `STATUS` | Your current state affects a peer's decisions or timing | Documenter tells reviewer: "Docs not ready yet, reviewing coder output first" |
 | `PROGRESS` | You've completed a milestone that peers may be waiting on | Coder tells tester: "API endpoints committed and pushed" |
+| `HEARTBEAT` | You have a machine-actionable state transition to advertise (`WORKING`, `WAITING_ON_ROLE`, `PROPOSED`, `IDLE`) — use `egg-orch message heartbeat --state ...` rather than `message send --type HEARTBEAT` so the dedicated endpoint's schema validation, dedup, and rate limiting apply | Tester enters `WAITING_ON_ROLE` → `egg-orch message heartbeat --state WAITING_ON_ROLE --waiting-on coder`. See [Agent Wait Patterns — HEARTBEAT](../reference/agent-wait-patterns.md#4-heartbeat-message-type). |
+
+> **On `QUESTION` (removed in [#1897](https://github.com/jwbron/egg/issues/1897))**: the old `QUESTION` type had no guaranteed respondent and became a free-form chatter channel. For the typical "I'm blocked until you answer" case:
+>
+> - If you are a **reviewer** blocked on the producer's intent, put the question in your `egg-orch consensus nack --reason "..."` so the producer sees it in BRC history and addresses it on the next propose.
+> - If you are a **producer** blocked on another producer (e.g. tester blocked on coder), use `HANDOFF` with a concrete request rather than a free-form question.
+> - If you need to advertise that you are waiting on a peer (so the overseer doesn't classify you as stalled), emit `egg-orch message heartbeat --state WAITING_ON_ROLE --waiting-on <role>`.
 
 ### Worked Example: Role-Boundary Handoff (Coder → Tester)
 
@@ -250,15 +281,16 @@ egg-orch message poll --wait 30
 When a directed message arrives:
 
 1. **HANDOFF**: Act on the handoff artifact. If it requires work, do the work and acknowledge via a `STATUS` or `PROGRESS` message back.
-2. **QUESTION**: Answer the question via `egg-orch message send --to <asker> --type STATUS`. (`STATUS` serves as the generic reply type since the directed coordination vocabulary does not include a dedicated `RESPONSE` type.)
-3. **STATUS/PROGRESS**: Use the information to inform your own work — no response required unless the status changes your plan.
+2. **STATUS/PROGRESS**: Use the information to inform your own work — no response required unless the status changes your plan.
+3. **HEARTBEAT**: Peer state transitions are informational — consume them (e.g., to decide whether to send a follow-up `HANDOFF`) but do not reply. The overseer consumes `HEARTBEAT` for stall detection; agents typically only read them to disambiguate "peer is waiting on me" from "peer is making progress elsewhere".
 
 ### Best Practices
 
 - **Be specific.** Include file paths, commit SHAs, and concrete details — not just "please handle this."
 - **Send early.** Don't wait until your proposal to communicate coordination needs. Send a HANDOFF as soon as you know another agent needs to act.
 - **One message per concern.** Don't bundle unrelated coordination requests in a single message.
-- **Use the right type.** `HANDOFF` signals "you need to do something"; `QUESTION` signals "I'm blocked until you answer"; `STATUS` and `PROGRESS` are informational.
+- **Use the right type.** `HANDOFF` signals "you need to do something"; `STATUS` and `PROGRESS` are informational peer updates; `HEARTBEAT` advertises typed agent state (emit via `egg-orch message heartbeat`, not `message send`).
+- **Never use `QUESTION`.** It was removed in [#1897](https://github.com/jwbron/egg/issues/1897). Reviewer-to-producer questions go in `NACK` rationales; producer-to-producer "I need X" goes in `HANDOFF`; "I'm waiting on a peer" goes in a `HEARTBEAT` with `state=WAITING_ON_ROLE`.
 
 ## Readiness Signaling Protocol
 
@@ -553,11 +585,11 @@ At each phase boundary, the orchestrator writes a **lossless** chronological log
 **How it works:**
 
 1. After a phase completes (before `_commit_statefiles_to_worktree`), the orchestrator retrieves all messages from the message store for the pipeline
-2. Messages are filtered using `BRC_HISTORY_TYPES` — the six `CONSENSUS_*` types (`CONSENSUS_PROPOSE`, `CONSENSUS_ACK`, `CONSENSUS_NACK`, `CONSENSUS_WITHDRAW`, `CONSENSUS_CONFIRMED`, `CONSENSUS_RE_REVIEW`) **plus** orchestrator-adjacent types (`STATUS`, `HANDOFF`, `QUESTION`, `AGENT_FAILED`, `NUDGE`, `OVERSEER_ALERT`) — **and** by phase, so each file contains only that phase's BRC and coordination activity
+2. Messages are filtered using `BRC_HISTORY_TYPES` — the six `CONSENSUS_*` types (`CONSENSUS_PROPOSE`, `CONSENSUS_ACK`, `CONSENSUS_NACK`, `CONSENSUS_WITHDRAW`, `CONSENSUS_CONFIRMED`, `CONSENSUS_RE_REVIEW`) **plus** orchestrator-adjacent types (`STATUS`, `HANDOFF`, `AGENT_FAILED`, `NUDGE`, `OVERSEER_ALERT`, `HEARTBEAT`) — **and** by phase, so each file contains only that phase's BRC and coordination activity
 3. If matching messages exist, they are formatted as chronological markdown entries with full metadata (see file format below) and written to `.egg-state/brc-history/{identifier}-{phase}.md`. A companion `.json` file containing `msg.to_dict()` for every filtered message is also written for machine consumers
 4. If no matching messages exist for that phase, no files are created (graceful no-op)
 
-> **Note:** `BRC_HISTORY_TYPES` is a single unified frozenset containing all twelve message types listed above. There is no separate subset — the PR body links to the committed transcripts rather than computing inline tallies (see [#1828](https://github.com/jwbron/egg/issues/1828)).
+> **Note:** `BRC_HISTORY_TYPES` is a single unified frozenset containing all twelve message types listed above. There is no separate subset — the PR body links to the committed transcripts rather than computing inline tallies (see [#1828](https://github.com/jwbron/egg/issues/1828)). `QUESTION` was dropped from this set in [#1897](https://github.com/jwbron/egg/issues/1897); `HEARTBEAT` replaced it.
 
 **PR-phase safety net:** The per-phase write (step 1) is best-effort — if the commit or push fails, BRC history files may not make it to the branch. As a safety net, the PR phase re-writes BRC history for **all completed phases** before creating the PR. Since `_write_brc_history()` is idempotent (it overwrites existing files), the re-write is safe regardless of whether the per-phase write succeeded. This ensures BRC history files are always present in the PR diff.
 
@@ -820,6 +852,17 @@ This explicit fetch+merge step ensures reviewers see the latest code (including 
 The same sync instruction is included for dual-role agents (e.g., `tester`) in their producer ORIENT step, so they also have up-to-date code before beginning work.
 
 **Reviewer diff command:** Reviewers use `git diff origin/{base_branch}...HEAD` (three-dot merge-base syntax) to see the full changeset against the base branch, rather than an arbitrary truncated window. The `base_branch` is resolved from `pipeline.base_branch` or the repository's default branch. This matches the context available to PR review bots, which see the complete PR diff.
+
+**Delta re-review command (BRC `review_cycle > 1`):** When a reviewer has already reviewed a prior proposal and the producer re-proposes at a new commit, `_build_review_prompt()` emits a *delta* command instead of the full changeset:
+
+```bash
+git fetch origin {base_branch}
+git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p
+```
+
+`git log A..HEAD --not origin/{base}` lists only PR-side commits that are reachable from `HEAD`, reachable since the last review at `A`, and **not** reachable from the base branch — so commits that arrived via a base-branch merge between the last review and `HEAD` are excluded. This prevents the reviewer from attributing merged-in base-branch work to the producer's delta (see [#1758](https://github.com/jwbron/egg/issues/1758)). The naive alternatives both show those merged-in changes: two-dot `git diff A..HEAD` compares the `A` tree to the `HEAD` tree directly and so naturally includes everything that landed in between, merge or not; three-dot `git diff A...HEAD` expands to `git diff $(git merge-base A HEAD)..HEAD`, and because `A` is already an ancestor of `HEAD` the merge-base collapses to `A`, so three-dot reduces to the same tree diff.
+
+In practice, BRC is designed to reach consensus in a single cycle, so the delta re-review path is rare for orchestrator reviewers — but the fix applies identically to all multi-cycle BRC reviews (`reviewer_code`, `reviewer_contract`, etc.) and to the GitHub Action PR/design/contract-verify review bots, which hit the re-review path more often.
 
 ### Per-Agent Git Author
 

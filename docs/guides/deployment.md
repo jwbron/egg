@@ -49,9 +49,6 @@ make deploy
 
 # Verify everything is running
 kubectl get pods -n egg-system
-
-# Start a sandbox session
-egg --public
 ```
 
 ### Setup Details
@@ -161,14 +158,8 @@ k3s is Linux-native. On macOS, use one of:
 - **[Rancher Desktop](https://rancherdesktop.io/)**: Provides k3s in a managed VM
 - **Docker Desktop with k3s**: Enable Kubernetes in Docker Desktop settings
 
-```bash
-# Start egg session
-egg --public   # Public mode (full internet via proxy)
-egg --private  # Private mode (Anthropic API only)
-
-# Execute a one-off command
-egg --exec claude --print "Fix the tests"
-```
+Once deployed, interact with egg through the MCP server (port 9850) from any MCP-compatible client.
+See the [Custom-Phase Guide](custom-phase.md) for one-off agent work via `run_agent_task`.
 
 ## GitHub Action Deployment
 

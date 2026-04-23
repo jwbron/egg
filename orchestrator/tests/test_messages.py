@@ -648,8 +648,19 @@ class TestLongPolling:
                 resp = client.get("/api/v1/pipelines/test-pipeline/messages?wait=-5")
                 assert resp.status_code == 200
 
-    def test_wait_capped_at_sixty(self, client, app):
-        """Wait should be capped at 60 seconds."""
+    def test_wait_clamped_to_poll_max_wait(self, client, app, monkeypatch):
+        """Wait should be capped by EGG_MESSAGE_POLL_MAX_WAIT.
+
+        The route clamps any client-supplied ``wait`` to the configured
+        cap before calling ``MessageStore.get_messages``.  We verify the
+        clamp empirically by lowering the cap to 2s and sending
+        ``wait=999`` — the request must return in well under 999s.
+        Without the clamp, this test would block on ``cv.wait`` for the
+        full 999-second budget (issue #1928).
+        """
+        import time as _t
+
+        monkeypatch.setenv("EGG_MESSAGE_POLL_MAX_WAIT", "2")
         store = MessageStore()
 
         with app.test_request_context():
@@ -661,8 +672,12 @@ class TestLongPolling:
             ):
                 mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
 
+                start = _t.monotonic()
                 resp = client.get("/api/v1/pipelines/test-pipeline/messages?wait=999")
+                elapsed = _t.monotonic() - start
+
                 assert resp.status_code == 200
+                assert elapsed < 5, f"wait=999 with cap=2 took {elapsed:.1f}s; clamp not applied"
 
     def test_wait_invalid_defaults_to_zero(self, client, app):
         """Invalid wait parameter should default to 0."""
@@ -884,3 +899,768 @@ class TestInvalidPipelineId:
             ):
                 resp = client.get("/api/v1/pipelines/bad-id/messages/status")
                 assert resp.status_code == 400
+
+
+class TestHeartbeatValidation:
+    """HEARTBEAT metadata validation (issue #1897).
+
+    The server rejects malformed HEARTBEAT messages before they hit the
+    message store.  Validation rules:
+
+      * ``metadata.state`` must be one of the four enumerated values.
+      * ``WAITING_ON_ROLE`` requires ``metadata.waiting_on``.
+      * Bodies are free-form (only metadata is validated).
+    """
+
+    def test_valid_heartbeat_accepted(self, client, app):
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=MessageStore()),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/messages",
+                    json={
+                        "from_role": "coder",
+                        "message_type": "HEARTBEAT",
+                        "subject": "heartbeat: WORKING",
+                        "metadata": {"state": "WORKING"},
+                    },
+                )
+                assert resp.status_code == 200
+
+    def test_heartbeat_missing_state_rejected(self, client, app):
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/messages",
+                    json={
+                        "from_role": "coder",
+                        "message_type": "HEARTBEAT",
+                        "metadata": {},
+                    },
+                )
+                assert resp.status_code == 400
+                data = json.loads(resp.data)
+                assert "state" in data["message"].lower()
+
+    def test_heartbeat_invalid_state_rejected(self, client, app):
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/messages",
+                    json={
+                        "from_role": "coder",
+                        "message_type": "HEARTBEAT",
+                        "metadata": {"state": "BOGUS_STATE"},
+                    },
+                )
+                assert resp.status_code == 400
+                data = json.loads(resp.data)
+                assert "BOGUS_STATE" in data["message"]
+
+    def test_heartbeat_waiting_on_role_requires_waiting_on(self, client, app):
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/messages",
+                    json={
+                        "from_role": "coder",
+                        "message_type": "HEARTBEAT",
+                        "metadata": {"state": "WAITING_ON_ROLE"},
+                    },
+                )
+                assert resp.status_code == 400
+                data = json.loads(resp.data)
+                assert "waiting_on" in data["message"].lower()
+
+    def test_heartbeat_waiting_on_role_with_target_accepted(self, client, app):
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=MessageStore()),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/messages",
+                    json={
+                        "from_role": "coder",
+                        "message_type": "HEARTBEAT",
+                        "metadata": {
+                            "state": "WAITING_ON_ROLE",
+                            "waiting_on": "reviewer_code",
+                        },
+                    },
+                )
+                assert resp.status_code == 200
+
+    def test_heartbeat_non_dict_metadata_rejected(self, client, app):
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/messages",
+                    json={
+                        "from_role": "coder",
+                        "message_type": "HEARTBEAT",
+                        "metadata": "not-a-dict",
+                    },
+                )
+                # pydantic will already reject non-dict metadata before reaching
+                # our validator, so we allow either 400 (pydantic) or 400 (ours).
+                assert resp.status_code == 400
+
+
+class TestWaitEndpoint:
+    """GET /api/v1/pipelines/<id>/messages/wait (issue #1897).
+
+    Covers the happy path, the required ``for`` param, role / from filters,
+    timeout clamping, and pipeline validation.
+    """
+
+    def test_wait_missing_for_returns_400(self, client, app):
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.get("/api/v1/pipelines/test-pipeline/messages/wait?timeout=1")
+                assert resp.status_code == 400
+                data = json.loads(resp.data)
+                assert "for" in data["message"].lower()
+
+    def test_wait_returns_matched_message(self, client, app):
+        """A matching message added *after* the wait starts unblocks it.
+
+        Issue #1925: the wait endpoint now starts from the stream tip,
+        so pre-existing messages do NOT satisfy a cursor-less wait. This
+        test uses a background thread to inject the match while the
+        endpoint is blocking.
+        """
+        import threading
+        import time as _t
+
+        store = MessageStore()
+
+        def _add_after_delay() -> None:
+            _t.sleep(0.15)
+            store.add_message(
+                Message(
+                    pipeline_id="test-pipeline",
+                    from_role="coder",
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_CONFIRMED,
+                    subject="done",
+                )
+            )
+
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                t = threading.Thread(target=_add_after_delay)
+                t.start()
+                try:
+                    resp = client.get(
+                        "/api/v1/pipelines/test-pipeline/messages/wait"
+                        "?for=CONSENSUS_CONFIRMED&timeout=3"
+                    )
+                finally:
+                    t.join(timeout=2)
+                assert resp.status_code == 200
+                data = json.loads(resp.data)
+                assert data["data"]["count"] == 1
+                assert data["data"]["matched"] is True
+                assert data["data"]["messages"][0]["message_type"] == "CONSENSUS_CONFIRMED"
+
+    def test_wait_repeatable_for_param(self, client, app):
+        """Multiple --for types act as an OR filter."""
+        import threading
+        import time as _t
+
+        store = MessageStore()
+
+        def _add_after_delay() -> None:
+            _t.sleep(0.15)
+            store.add_message(
+                Message(
+                    pipeline_id="test-pipeline",
+                    from_role="coder",
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_RE_REVIEW,
+                    subject="re-review",
+                )
+            )
+
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                t = threading.Thread(target=_add_after_delay)
+                t.start()
+                try:
+                    resp = client.get(
+                        "/api/v1/pipelines/test-pipeline/messages/wait"
+                        "?for=CONSENSUS_CONFIRMED&for=CONSENSUS_RE_REVIEW"
+                        "&timeout=3"
+                    )
+                finally:
+                    t.join(timeout=2)
+                assert resp.status_code == 200
+                data = json.loads(resp.data)
+                assert data["data"]["count"] == 1
+                assert data["data"]["matched"] is True
+
+    def test_wait_times_out_with_empty_result(self, client, app):
+        """No matching message -> 200 with matched=False."""
+        store = MessageStore()
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    "?for=CONSENSUS_CONFIRMED&timeout=1"
+                )
+                # Status 200 (not 408) — same as poll_messages behaviour.
+                assert resp.status_code == 200
+                data = json.loads(resp.data)
+                assert data["data"]["count"] == 0
+                assert data["data"]["matched"] is False
+
+    def test_wait_from_filter(self, client, app):
+        """`from=ROLE` drops messages from other senders."""
+        import threading
+        import time as _t
+
+        store = MessageStore()
+
+        def _add_after_delay() -> None:
+            _t.sleep(0.15)
+            # Wrong-sender message first — must NOT unblock the wait.
+            store.add_message(
+                Message(
+                    pipeline_id="test-pipeline",
+                    from_role="documenter",
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_CONFIRMED,
+                    subject="docs confirmed",
+                )
+            )
+            _t.sleep(0.1)
+            store.add_message(
+                Message(
+                    pipeline_id="test-pipeline",
+                    from_role="coder",
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_CONFIRMED,
+                    subject="coder confirmed",
+                )
+            )
+
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                t = threading.Thread(target=_add_after_delay)
+                t.start()
+                try:
+                    resp = client.get(
+                        "/api/v1/pipelines/test-pipeline/messages/wait"
+                        "?for=CONSENSUS_CONFIRMED&from=coder&timeout=3"
+                    )
+                finally:
+                    t.join(timeout=2)
+                assert resp.status_code == 200
+                data = json.loads(resp.data)
+                assert data["data"]["count"] == 1
+                assert data["data"]["messages"][0]["from_role"] == "coder"
+
+    def test_wait_ignores_pre_existing_messages(self, client, app):
+        """Issue #1925 regression: a cursor-less wait must NOT return a
+        matching message that was added before the call started.
+
+        Before the fix, repeated wait-loop invocations re-matched the same
+        already-seen CONSENSUS_CONFIRMED on every call because the store
+        scanned from stream tail = 0. After the fix, the wait endpoint
+        starts from the stream tip, so pre-existing messages are ignored.
+        """
+        store = MessageStore()
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="documenter",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_CONFIRMED,
+                subject="already seen — must not match",
+            )
+        )
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    "?for=CONSENSUS_CONFIRMED&timeout=1"
+                )
+                assert resp.status_code == 200
+                data = json.loads(resp.data)
+                assert data["data"]["count"] == 0
+                assert data["data"]["matched"] is False
+
+    def test_wait_honors_explicit_since_id(self, client, app):
+        """Passing ``since_id=<id>`` opts out of from_tip behavior and
+        returns matching messages added after that cursor.
+
+        This is the race-safety pattern callers use when they've already
+        observed an event and want to wait for the NEXT event after it.
+        """
+        store = MessageStore()
+        cursor = store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="documenter",
+                to_role="all",
+                message_type=MessageType.PROGRESS,
+                subject="cursor anchor",
+            )
+        )
+        # A matching message added AFTER the cursor but BEFORE the wait
+        # call — with since_id passed, this must still be returned.
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_CONFIRMED,
+                subject="after cursor",
+            )
+        )
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    f"?for=CONSENSUS_CONFIRMED&since_id={cursor.id}&timeout=1"
+                )
+                assert resp.status_code == 200
+                data = json.loads(resp.data)
+                assert data["data"]["count"] == 1
+                assert data["data"]["messages"][0]["subject"] == "after cursor"
+
+    def test_wait_invalid_pipeline_id_returns_400(self, client, app):
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline",
+                side_effect=InvalidPipelineIdError("bad-id"),
+            ):
+                resp = client.get(
+                    "/api/v1/pipelines/bad-id/messages/wait?for=CONSENSUS_CONFIRMED&timeout=1"
+                )
+                assert resp.status_code == 400
+
+    def test_wait_timeout_clamped_to_env_cap(self, client, app, monkeypatch):
+        """``timeout`` is clamped by ``EGG_MESSAGE_POLL_MAX_WAIT``.
+
+        With the cap set to 2s, a timeout=999 request must not actually
+        block for 999 seconds.  We only verify here that the request returns
+        promptly (<5s) — a real integration test would measure more finely.
+        """
+        import time as _t
+
+        monkeypatch.setenv("EGG_MESSAGE_POLL_MAX_WAIT", "2")
+        store = MessageStore()
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                start = _t.monotonic()
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    "?for=CONSENSUS_CONFIRMED&timeout=999"
+                )
+                elapsed = _t.monotonic() - start
+                assert resp.status_code == 200
+                assert elapsed < 5  # would be 999s without clamp
+
+
+class TestEnvCapConfig:
+    """`EGG_MESSAGE_POLL_MAX_WAIT` plumbing (issue #1897)."""
+
+    def test_default_cap_is_60(self, monkeypatch):
+        from routes.messages import DEFAULT_POLL_MAX_WAIT_SECONDS, _get_poll_max_wait
+
+        monkeypatch.delenv("EGG_MESSAGE_POLL_MAX_WAIT", raising=False)
+        assert _get_poll_max_wait() == DEFAULT_POLL_MAX_WAIT_SECONDS
+        assert DEFAULT_POLL_MAX_WAIT_SECONDS == 60
+
+    def test_env_var_overrides(self, monkeypatch):
+        from routes.messages import _get_poll_max_wait
+
+        monkeypatch.setenv("EGG_MESSAGE_POLL_MAX_WAIT", "120")
+        assert _get_poll_max_wait() == 120
+
+    def test_env_var_invalid_falls_back_to_default(self, monkeypatch):
+        from routes.messages import DEFAULT_POLL_MAX_WAIT_SECONDS, _get_poll_max_wait
+
+        monkeypatch.setenv("EGG_MESSAGE_POLL_MAX_WAIT", "not-a-number")
+        assert _get_poll_max_wait() == DEFAULT_POLL_MAX_WAIT_SECONDS
+
+    def test_env_var_zero_falls_back_to_default(self, monkeypatch):
+        from routes.messages import DEFAULT_POLL_MAX_WAIT_SECONDS, _get_poll_max_wait
+
+        monkeypatch.setenv("EGG_MESSAGE_POLL_MAX_WAIT", "0")
+        assert _get_poll_max_wait() == DEFAULT_POLL_MAX_WAIT_SECONDS
+
+    def test_env_var_negative_falls_back_to_default(self, monkeypatch):
+        from routes.messages import DEFAULT_POLL_MAX_WAIT_SECONDS, _get_poll_max_wait
+
+        monkeypatch.setenv("EGG_MESSAGE_POLL_MAX_WAIT", "-5")
+        assert _get_poll_max_wait() == DEFAULT_POLL_MAX_WAIT_SECONDS
+
+    def test_startup_warning_above_threshold(self, monkeypatch):
+        """When the cap exceeds 90s, a warnings.warn names the gateway Squid
+        coupling (also logs WARNING, but we assert via warnings only to avoid
+        dependency on the logging configuration at test time)."""
+        import warnings as _warnings
+
+        from routes.messages import log_poll_max_wait_startup
+
+        monkeypatch.setenv("EGG_MESSAGE_POLL_MAX_WAIT", "120")
+        with _warnings.catch_warnings(record=True) as w:
+            _warnings.simplefilter("always")
+            log_poll_max_wait_startup()
+            assert any("120s" in str(x.message) for x in w)
+            assert any("gateway" in str(x.message).lower() for x in w)
+
+    def test_startup_no_warning_below_threshold(self, monkeypatch):
+        """At the default cap no warnings.warn is emitted."""
+        import warnings as _warnings
+
+        from routes.messages import log_poll_max_wait_startup
+
+        monkeypatch.setenv("EGG_MESSAGE_POLL_MAX_WAIT", "60")
+        with _warnings.catch_warnings(record=True) as w:
+            _warnings.simplefilter("always")
+            log_poll_max_wait_startup()
+            # No warning about EGG_MESSAGE_POLL_MAX_WAIT at the 60s cap.
+            assert not any("EGG_MESSAGE_POLL_MAX_WAIT" in str(x.message) for x in w)
+
+
+class TestInflightLongPollGauge:
+    """``egg_inflight_long_polls`` increments while blocking, decrements after.
+
+    We call the private helpers because verifying the gauge via a real
+    endpoint would require a running waitress stack.
+    """
+
+    def test_start_end_are_no_op_when_metric_unavailable(self):
+        """_track_long_poll_start/end should not raise when the metric
+        registry is unavailable (guarded by the ``except Exception`` block
+        in the module)."""
+        from routes.messages import _track_long_poll_end, _track_long_poll_start
+
+        # Calling either should not raise even if the gauge is None.
+        _track_long_poll_start()
+        _track_long_poll_end()
+
+
+class TestHeartbeatRoute:
+    """POST /api/v1/pipelines/<id>/heartbeat — plan TASK-3-2 and TASK-3-4.
+
+    Non-blocking items from reviewer_code NACK: add coverage for the
+    dedicated heartbeat route so the dedup + rate-limit plumbing has a
+    regression guard. Without these tests, a future refactor could
+    silently break the 429 response shape or the (state, waiting_on)
+    dedup and only surface in prod.
+    """
+
+    def test_heartbeat_route_accepts_valid_payload(self, client, app):
+        """Happy path: POST a valid heartbeat, get 200 + non-deduped."""
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                # Use a unique role so the global coordinator state from
+                # a prior test doesn't trigger dedup.
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={"from_role": "heartbeat-route-role-a", "state": "WORKING"},
+                )
+                assert resp.status_code == 200
+                data = json.loads(resp.data)
+                assert data["success"] is True
+                assert data["data"]["deduped"] is False
+
+    def test_heartbeat_route_dedups_repeat_state(self, client, app):
+        """Plan TASK-3-2: repeated (state, waiting_on) tuples dedupe."""
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                # Use a unique role for this test.
+                role = "heartbeat-route-role-b"
+                resp1 = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={"from_role": role, "state": "WORKING"},
+                )
+                assert resp1.status_code == 200
+                assert json.loads(resp1.data)["data"]["deduped"] is False
+
+                # Second identical call MUST dedupe.
+                resp2 = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={"from_role": role, "state": "WORKING"},
+                )
+                assert resp2.status_code == 200
+                assert json.loads(resp2.data)["data"]["deduped"] is True
+
+    def test_heartbeat_route_requires_from_role(self, client, app):
+        """Missing from_role -> 400."""
+        with app.test_request_context():
+            with patch("routes.messages.get_state_store_for_pipeline"):
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={"state": "WORKING"},
+                )
+                assert resp.status_code == 400
+
+    def test_heartbeat_route_rejects_invalid_state(self, client, app):
+        """Invalid state values rejected with 400."""
+        with app.test_request_context():
+            with patch("routes.messages.get_state_store_for_pipeline"):
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={"from_role": "coder", "state": "BOGUS"},
+                )
+                assert resp.status_code == 400
+                assert b"state must be one of" in resp.data
+
+    def test_heartbeat_route_waiting_on_role_requires_waiting_on(self, client, app):
+        """state=WAITING_ON_ROLE must include waiting_on."""
+        with app.test_request_context():
+            with patch("routes.messages.get_state_store_for_pipeline"):
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={"from_role": "coder", "state": "WAITING_ON_ROLE"},
+                )
+                assert resp.status_code == 400
+                assert b"waiting_on" in resp.data
+
+    def test_heartbeat_rate_limit_429_response_shape(self, client, app, monkeypatch):
+        """Plan TASK-3-4: exceeding EGG_HEARTBEAT_RATE_LIMIT returns 429
+        with retry_after in the body.
+
+        Response-shape pin: body MUST include ``retry_after`` (integer
+        seconds) so clients can back off deterministically. Without
+        this, a misbehaving agent could hot-loop on a rejected
+        heartbeat and saturate the waitress pool.
+        """
+        # Set a very low rate limit so we can blow through it cheaply.
+        monkeypatch.setenv("EGG_HEARTBEAT_RATE_LIMIT", "2")
+        # Reset the heartbeat coordinator so this test's rate-limit
+        # window starts empty.
+        import heartbeat as _hb
+
+        _hb._coordinator = None  # type: ignore[attr-defined]
+
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                # Need heartbeats that are NOT deduped by (state, waiting_on).
+                # Alternate states so each passes the dedup filter; then
+                # we exceed the rate limit on the third call.
+                role = "rate-limit-role-unique"
+                # First heartbeat: WORKING (allowed, non-dup).
+                r1 = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={"from_role": role, "state": "WORKING"},
+                )
+                assert r1.status_code == 200
+                # Second: PROPOSED (allowed, non-dup).
+                r2 = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={"from_role": role, "state": "PROPOSED"},
+                )
+                assert r2.status_code == 200
+                # Third: IDLE should trip the limit of 2/min.
+                r3 = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={"from_role": role, "state": "IDLE"},
+                )
+                assert r3.status_code == 429
+                body = json.loads(r3.data)
+                # Required fields per plan TASK-3-4.
+                assert body["success"] is False
+                assert "retry_after" in body
+                assert isinstance(body["retry_after"], int)
+                # retry_after should be in [0, 60] for a per-minute window.
+                assert 0 <= body["retry_after"] <= 60
+
+    def test_heartbeat_route_accepts_optional_since_field(self, client, app):
+        """Optional ``since`` field passed through into message metadata."""
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={
+                        "from_role": "heartbeat-route-role-since",
+                        "state": "WORKING",
+                        "since": "2026-04-23T07:00:00Z",
+                    },
+                )
+                assert resp.status_code == 200
+                data = json.loads(resp.data)
+                assert data["data"]["message"]["metadata"]["since"] == ("2026-04-23T07:00:00Z")
+
+
+class TestWaitTimeoutFloorRegression:
+    """Plan non-blocking: ``timeout <= 0`` is silently coerced to 1s
+    in routes/messages.py (see line 382-385). Pin the current behavior
+    so a future refactor doesn't accidentally return immediately on
+    timeout=0 (which would make /messages/wait behave like the
+    non-blocking /messages endpoint).
+    """
+
+    def test_timeout_zero_coerced_to_1s_minimum(self, client, app):
+        """A caller passing timeout=0 MUST still observe blocking
+        semantics for >= 1s rather than returning instantly.
+
+        This is a surprising-but-documented behavior — the wait endpoint
+        is explicitly blocking; a caller that wants non-blocking should
+        use /messages instead.
+        """
+        import time as _t
+
+        store = MessageStore()
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                start = _t.monotonic()
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    "?for=CONSENSUS_CONFIRMED&timeout=0"
+                )
+                elapsed = _t.monotonic() - start
+        assert resp.status_code == 200
+        # Coerced to 1s — expect the call to block at least close to 1s.
+        # Allow generous upper bound (3s) to tolerate slow CI.
+        assert 0.8 <= elapsed <= 3.0, (
+            f"timeout=0 elapsed={elapsed:.2f}s; expected ~1s floor "
+            "per routes/messages.py:382-385. If this drops to ~0s, "
+            "the silent floor has been removed — update the docstring."
+        )

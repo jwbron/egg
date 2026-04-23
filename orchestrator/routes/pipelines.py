@@ -1425,7 +1425,14 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
             def _background_cleanup(pid: str, status_value: str) -> None:
                 try:
                     spawner = _get_spawner()
-                    removed = spawner.cleanup_pipeline(pid, force=True)
+                    # Preserve worktrees for CANCELLED pipelines so that
+                    # restart_phase/restart_agent can resume with local
+                    # committed work intact (see #1725).
+                    removed = spawner.cleanup_pipeline(
+                        pid,
+                        force=True,
+                        preserve_worktrees=(status_value == "cancelled"),
+                    )
                     if removed > 0:
                         logger.info(
                             "Cleaned up pipeline containers after status change",
@@ -1670,11 +1677,14 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     except ValueError:
         return make_error_response(f"Invalid agent role: {agent_role}", status_code=400)
 
-    # Validate pipeline is in a restartable state
+    # Validate pipeline is in a restartable state.  CANCELLED is included so
+    # that a cancel_task(cleanup=false) pipeline can be resumed without a
+    # full resubmission (see #1725).
     if pipeline.status not in (
         PipelineStatus.RUNNING,
         PipelineStatus.AWAITING_HUMAN,
         PipelineStatus.FAILED,
+        PipelineStatus.CANCELLED,
     ):
         return make_error_response(
             f"Pipeline {pipeline_id} is not in a restartable state (status: {pipeline.status.value})",
@@ -1691,14 +1701,14 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     current_phase = pipeline.current_phase.value
     phase_exec = pipeline.phases.get(current_phase)
 
-    # Early status update: transition FAILED -> RUNNING before the slow
-    # container restart so that get_status returns "running" immediately,
-    # even if the MCP call times out (see #1594).
-    if pipeline.status == PipelineStatus.FAILED:
+    # Early status update: transition FAILED/CANCELLED -> RUNNING before the
+    # slow container restart so that get_status returns "running" immediately,
+    # even if the MCP call times out (see #1594, #1725).
+    if pipeline.status in (PipelineStatus.FAILED, PipelineStatus.CANCELLED):
         early_lock = get_pipeline_state_lock(pipeline_id)
         with early_lock:
             pipeline = store.load_pipeline(pipeline_id)
-            if pipeline.status == PipelineStatus.FAILED:
+            if pipeline.status in (PipelineStatus.FAILED, PipelineStatus.CANCELLED):
                 pipeline.status = PipelineStatus.RUNNING
                 _phase_exec = pipeline.phases.get(current_phase)
                 if _phase_exec is not None:
@@ -1953,11 +1963,14 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
     except ValueError:
         return make_error_response(f"Invalid phase: {phase}", status_code=400)
 
-    # Validate pipeline is in a restartable state
+    # Validate pipeline is in a restartable state.  CANCELLED is included so
+    # that a cancel_task(cleanup=false) pipeline can be resumed without a
+    # full resubmission (see #1725).
     if pipeline.status not in (
         PipelineStatus.RUNNING,
         PipelineStatus.AWAITING_HUMAN,
         PipelineStatus.FAILED,
+        PipelineStatus.CANCELLED,
     ):
         return make_error_response(
             f"Pipeline {pipeline_id} is not in a restartable state (status: {pipeline.status.value})",
@@ -3562,16 +3575,27 @@ def _build_review_prompt(
 
     # Delta review: for re-reviews with a known last-reviewed commit,
     # instruct the reviewer to focus on the delta.
+    #
+    # Two-dot `git diff A..HEAD` would wrongly include any base-branch merges
+    # landed between A and HEAD. `git log A..HEAD --not origin/<base> -p`
+    # explicitly excludes commits reachable from the base branch, so the
+    # reviewer sees only PR-authored work (issue #1758).
     is_delta_review = review_cycle > 1 and last_reviewed_commit and not draft_path
     _base_ref = _resolve_origin_ref(base_branch)
+    _delta_base_branch = _base_ref.removeprefix("origin/")
     diff_command = (
-        f"git diff {last_reviewed_commit}..HEAD"
+        f"git log {last_reviewed_commit}..HEAD --not {_base_ref} -p"
         if is_delta_review
         else f"git diff {_base_ref}...HEAD"
     )
 
     if draft_path:
         lines.append(f"1. Read the draft at `{draft_path}`")
+    elif is_delta_review:
+        lines.append(
+            f"1. First run `git fetch origin {_delta_base_branch}`, then review "
+            f"the delta using `{diff_command}` (see **Delta Review** below)"
+        )
     else:
         lines.append(
             f"1. Review the implementation using `git log --oneline -10` and `{diff_command}`"
@@ -3716,8 +3740,12 @@ def _build_review_prompt(
         lines.append("## Delta Review\n")
         lines.append(
             f"This is review cycle {review_cycle}. Focus on new changes since your "
-            f"last review. Use `git diff {last_reviewed_commit}..HEAD` to see the "
-            "delta. Verify prior feedback was addressed AND review new code thoroughly."
+            f"last review. First run `git fetch origin {_delta_base_branch}` to "
+            f"ensure the base branch is available, then use "
+            f"`git log {last_reviewed_commit}..HEAD --not {_base_ref} -p` to see "
+            "the delta — this excludes any base-branch commits that were merged "
+            "in since your last review, so you only see PR-authored changes. "
+            "Verify prior feedback was addressed AND review new code thoroughly."
         )
         lines.append("")
 
@@ -5017,10 +5045,35 @@ def _finalize_pr_phase_failed(
     pr_url = _auto_create_pr(pipeline, worktree_repo_path, spawner, gateway_mode=gateway_mode)
 
     if pr_url:
+        # Parse the PR number from the URL so downstream consumers
+        # (overseer, get_pipeline_snapshot, babysit-worker handoffs) can
+        # rely on ``pipeline.pr_number`` directly instead of re-deriving
+        # it from the ``pr_url`` artifact.  Match mirrors ``_get_pr_info``.
+        match = re.search(r"/pull/(\d+)", pr_url)
+        parsed_pr_number = int(match.group(1)) if match else None
+        # Best-effort lookup of the created PR's head SHA so we can also
+        # populate ``pipeline.pr_head_sha``.  Failures here must not fail
+        # the PR phase — leave ``pr_head_sha`` null and proceed.  The
+        # read-from-gh (vs. push-intent) is correct because the #1731
+        # fallback path may have opened the PR against the remote HEAD
+        # rather than our locally-pushed commit.
+        head_sha: str | None = None
+        if parsed_pr_number is not None:
+            # ``_fetch_pr_state`` already returns {} on any internal
+            # failure (gh missing, JSON parse error, non-zero exit),
+            # so we don't need an outer try/except wrapper here.
+            pr_state = _fetch_pr_state(parsed_pr_number, pipeline.repo)
+            candidate = pr_state.get("head_sha") if isinstance(pr_state, dict) else None
+            if isinstance(candidate, str) and re.fullmatch(r"[0-9a-f]{7,40}", candidate):
+                head_sha = candidate
         with get_pipeline_state_lock(pipeline_id):
             reloaded = store.load_pipeline(pipeline_id)
             phase_execution = reloaded.get_phase_execution(current_phase)
             phase_execution.artifacts = {"pr_url": pr_url}
+            if parsed_pr_number is not None:
+                reloaded.pr_number = parsed_pr_number
+            if head_sha is not None:
+                reloaded.pr_head_sha = head_sha
             store.save_pipeline(reloaded)
         return False
 
@@ -5044,10 +5097,15 @@ BRC_HISTORY_TYPES = frozenset(
         "CONSENSUS_RE_REVIEW",
         "STATUS",
         "HANDOFF",
-        "QUESTION",
         "AGENT_FAILED",
         "NUDGE",
         "OVERSEER_ALERT",
+        # HEARTBEAT (issue #1897) — structured per-agent state messages.
+        "HEARTBEAT",
+        # QUESTION removed per issue #1897 Phase 7.  The enum member
+        # remains for backward-compat until the tester updates
+        # test_brc_history / test_checkpoint fixtures; see
+        # MessageType.QUESTION.
     }
 )
 
@@ -6228,8 +6286,20 @@ def _build_brc_preamble(
                 "4. **RESPOND TO REVIEWS**: Poll for ACK/NACK from reviewers. "
                 "Handle NACKs by fixing issues and re-proposing.",
                 "5. **CONFIRM**: When all reviewers ACK: `egg-orch consensus confirmed`",
-                "6. **STAY ALIVE**: Keep polling `egg-orch message poll --wait 30` "
-                "until the orchestrator stops you.",
+                "6. **STAY ALIVE**: Block on the next BRC event with "
+                "`egg-orch message wait-loop --for CONSENSUS_CONFIRMED "
+                "--for CONSENSUS_RE_REVIEW --for OVERSEER_ALERT "
+                "--timeout 60` until the orchestrator stops you. "
+                "**Don't** wrap this in a shell `for i in 1..N` loop; "
+                "**don't** prefix it with `sleep N`.  The wait-loop "
+                "blocks server-side and returns the moment a NEW BRC "
+                "event arrives — events that predate the call (including "
+                "your own just-sent CONSENSUS_CONFIRMED) are skipped "
+                "(issue #1925).  Exit code 0 means act on the returned "
+                "message, 1 means the wrapper exhausted retries (surface "
+                "it).  If you need zero-drop semantics across a send→wait "
+                "boundary, capture your send's ID and pass `--since <id>`. "
+                "See docs/reference/agent-wait-patterns.md.",
                 "7. **HANDLE RE-REVIEW**: If you receive a `CONSENSUS_RE_REVIEW` message "
                 "while staying alive, you MUST act on it — failure to do so will stall "
                 "the entire pipeline. If you are a reviewer of the re-proposing producer, "
@@ -6251,9 +6321,12 @@ def _build_brc_preamble(
                     mode=mode,
                     pr_number=pr_number,
                 ),
-                "2. **POLL**: Wait for `CONSENSUS_PROPOSE` from assigned producers "
-                "(`egg-orch message poll --wait 30`). While waiting, continue "
-                "your preparation work from step 1.",
+                "2. **POLL**: Block on `CONSENSUS_PROPOSE` from assigned producers "
+                "with `egg-orch message wait --for CONSENSUS_PROPOSE --timeout 60`.  "
+                "Exit code 0 means a proposal arrived (stdout has it); 1 means "
+                "timeout (re-issue the wait); 2 is transient.  Do NOT poll "
+                "in a shell `for` loop and do NOT `sleep N`.  While waiting, "
+                "continue your preparation work from step 1.",
                 "3. **SYNC**: Before reviewing, sync your worktree so you have the "
                 "producer's commits: `git fetch origin && git merge "
                 + _resolve_origin_ref(branch or base_branch)
@@ -6289,8 +6362,19 @@ def _build_brc_preamble(
                 "Boilerplate like 'lgtm' or 'no issues' will be rejected.",
                 "6. **CONFIRM**: When all assigned producers reviewed: "
                 "`egg-orch consensus confirmed`",
-                "7. **STAY ALIVE**: Keep polling `egg-orch message poll --wait 30` "
-                "until the orchestrator stops you.",
+                "7. **STAY ALIVE**: Block on the next BRC event with "
+                "`egg-orch message wait-loop --for CONSENSUS_PROPOSE "
+                "--for CONSENSUS_RE_REVIEW --for CONSENSUS_CONFIRMED "
+                "--for OVERSEER_ALERT --timeout 60` until the "
+                "orchestrator stops you. **Don't** wrap this in a "
+                "shell `for i in 1..N` loop; **don't** prefix it with "
+                "`sleep N`.  The wait-loop blocks server-side and "
+                "returns the moment a NEW BRC event arrives — events "
+                "that predate the call are skipped (issue #1925).  If "
+                "you need zero-drop semantics across a send→wait "
+                "boundary, capture the ID of your most recent send and "
+                "pass `--since <id>`.  See "
+                "docs/reference/agent-wait-patterns.md.",
                 "8. **HANDLE RE-REVIEW**: If you receive a `CONSENSUS_RE_REVIEW` message "
                 "while staying alive, you MUST act on it — failure to do so will stall "
                 "the entire pipeline. Re-review the re-proposing producer's new proposal "
@@ -6334,14 +6418,16 @@ def _build_brc_preamble(
     if is_reviewer:
         lines.extend(
             [
-                "**As a reviewer**, use directed messages to request clarification:",
-                "- **QUESTION**: Ask a producer for clarification before or during your "
-                "review. This avoids unnecessary NACKs for ambiguities that can be "
-                "resolved with a quick exchange.",
-                "  ```",
-                '  egg-orch message send --to coder --type QUESTION --subject "Clarify auth flow" '
-                '--body "Is the token refresh handled in auth.py or middleware?"',
-                "  ```\n",
+                "**As a reviewer**, when you need clarification before "
+                "ACK/NACKing, put the question in your NACK `--reason` "
+                "block under `### Non-blocking`.  The producer sees it "
+                "atomically with the review verdict and the audit "
+                "trail is preserved.  The legacy QUESTION message "
+                "type was removed in issue #1897; off-protocol chatter "
+                "is no longer advertised.  A follow-up issue will "
+                "introduce a structured REQUEST/REPLY subsystem that "
+                "names a target peer and times out.",
+                "",
             ]
         )
 
@@ -7348,19 +7434,32 @@ def _build_agent_prompt(
                 "When you have completed your primary work:\n",
                 "1. Commit all changes",
                 '2. Run: `egg-orch signal readiness --state READY --reason "Work complete"`',
-                "3. Enter a stay-alive polling loop:",
+                "3. Enter an **event-driven** stay-alive wait (issue #1897). "
+                "Do NOT wrap `egg-orch` in a shell `for i in 1..N` loop, "
+                "and do NOT `sleep N` — use the server-side blocking primitive:",
                 "```bash",
-                "while true; do",
-                "  egg-orch message poll",
-                '  sleep "${EGG_MESSAGE_POLL_INTERVAL:-30}"',
-                "done",
+                "egg-orch message wait-loop \\",
+                "  --for CONSENSUS_CONFIRMED \\",
+                "  --for CONSENSUS_RE_REVIEW \\",
+                "  --for OVERSEER_ALERT \\",
+                "  --timeout 60",
                 "```",
-                "4. If a message arrives that affects your work, transition back to WORKING, "
-                "address it, then signal READY again. **In particular, if you receive a "
-                "`CONSENSUS_RE_REVIEW` message, you MUST re-confirm via "
-                "`egg-orch consensus confirmed` (or re-review and ACK/NACK if you are a "
-                "reviewer of the re-proposing producer). Ignoring this message will stall "
-                "the pipeline.**",
+                "`wait-loop` blocks server-side and loops forever until a "
+                "NEW matching BRC event arrives (exit 0) or a permanent error "
+                "occurs (exit 1).  There is no outer timeout — the wrapper "
+                "owns the 0/1 contract.  Events that predate the call "
+                "(including your own just-sent CONSENSUS_CONFIRMED) are "
+                "skipped (issue #1925); if you need zero-drop semantics "
+                "across a send→wait boundary, capture the ID of your "
+                "send and pass `--since <id>`.  See "
+                "`docs/reference/agent-wait-patterns.md` for the full "
+                "exit-code contract and the four anti-patterns to avoid.",
+                "4. If `wait-loop` returns with a message that affects your work, "
+                "transition back to WORKING, address it, then signal READY again. "
+                "**In particular, if you receive a `CONSENSUS_RE_REVIEW` message, "
+                "you MUST re-confirm via `egg-orch consensus confirmed` (or "
+                "re-review and ACK/NACK if you are a reviewer of the re-proposing "
+                "producer). Ignoring this message will stall the pipeline.**",
                 "5. **Do NOT exit.** The orchestrator will stop your container when consensus "
                 "is reached.",
             ]
@@ -7493,8 +7592,6 @@ def _run_concurrent_phase(
             exception propagates. Distinguishes spawn failures from container
             exits so the outer caller's ``pipeline.error`` is accurate.
     """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
     from models import (
         AgentExecution as StateAgentExecution,
     )
@@ -7799,10 +7896,9 @@ def _run_concurrent_phase(
     docker_client = spawner.backend
     all_logs: list[str] = []
     has_failures = [False]  # Mutable container for closure access
-    # Lock protects all_logs and has_failures mutations from the
-    # ThreadPoolExecutor threads in the timeout fallback path (step 6).
-    # The main polling loop is single-threaded, but the lock is cheap
-    # and makes the code safe regardless of GIL guarantees.
+    # Lock kept for forward-compat; the polling loop is single-threaded
+    # after the #1921 refactor but _record_container_exit uses the lock
+    # and is called from multiple code paths.
     _logs_lock = threading.Lock()
 
     poll_interval = 5  # seconds
@@ -7914,6 +8010,26 @@ def _run_concurrent_phase(
                         sha = _brc.get_proposal_commit_sha(agent.role.value)
                         if sha and sha != "RECONSTRUCTED_NO_SHA":
                             agent.commit = sha
+                        elif sha is None or sha == "RECONSTRUCTED_NO_SHA":
+                            # Diagnostic only (#1911): log when the BRC
+                            # tracker returns null or the
+                            # RECONSTRUCTED_NO_SHA sentinel for a role
+                            # so we can see on real runs whether the
+                            # three-role implement phase
+                            # (coder/tester/documenter) wiring misses
+                            # SHAs.  Deliberately no auto-fallback —
+                            # that would mask the real bug.  Empty
+                            # string is the expected reviewer default
+                            # (reviewers never propose) — do NOT warn
+                            # for that case or the signal drowns in
+                            # noise.
+                            logger.warning(
+                                "BRC tracker returned no commit sha for completed agent",
+                                pipeline_id=pipeline_id,
+                                phase=phase_str,
+                                role=agent.role.value,
+                                brc_value=sha,
+                            )
 
                 # Also mark containers as exited so the container monitor
                 # doesn't find stale RUNNING entries and mark pipeline FAILED.
@@ -8319,56 +8435,130 @@ def _run_concurrent_phase(
                 consensus.get("blocking_agents", []),
             )
 
-            # Fall back: wait for remaining containers with ThreadPoolExecutor
+            # Fall back: event-driven wait for remaining containers.
+            #
+            # Issue #1921: the previous implementation used a
+            # ThreadPoolExecutor with a blocking
+            # wait_for_container(timeout=3600) per container.  During
+            # that hour the polling loop was blind to BRC progress —
+            # a NACK → re-propose → ACK cycle completing in the final
+            # minute could still be force-killed.  Now we poll
+            # container status in short steps and re-check consensus
+            # between steps, early-returning on completion before
+            # force-killing anything.
             remaining = [e for e in active_executions if e.container_id not in exited_containers]
             if remaining:
-                with ThreadPoolExecutor(max_workers=len(remaining)) as pool:
+                post_timeout_budget = 3600  # seconds total
+                post_timeout_poll_interval = 30  # seconds between checks
+                post_timeout_start = time.monotonic()
 
-                    def _wait_remaining(exec_info):
-                        try:
-                            final_info = docker_client.wait_for_container(
-                                exec_info.container_id,
-                                timeout=3600,
+                while remaining:
+                    elapsed_post_timeout = time.monotonic() - post_timeout_start
+                    if elapsed_post_timeout >= post_timeout_budget:
+                        break
+
+                    # A. Re-check consensus; if agents converged during
+                    # the wait, stop containers and return success
+                    # before force-killing them.
+                    try:
+                        _wait_consensus = executor.check_consensus()
+                    except Exception as _wait_consensus_err:
+                        logger.warning(
+                            "Consensus recheck during post-timeout wait failed",
+                            pipeline_id=pipeline_id,
+                            error=str(_wait_consensus_err),
+                        )
+                        _wait_consensus = None
+
+                    if (
+                        _wait_consensus
+                        and _wait_consensus.get("is_complete")
+                        and not _wait_consensus.get("has_unresolved_nacks")
+                    ):
+                        combined_logs = "\n".join(all_logs)
+                        _total_elapsed = time.monotonic() - start_time
+                        if _emit_event is not None:
+                            _emit_event(
+                                EventType.CONSENSUS_REACHED,
+                                pipeline_id,
+                                data={"elapsed_seconds": _total_elapsed},
                             )
+                        logger.info(
+                            "Consensus reached during post-timeout wait",
+                            pipeline_id=pipeline_id,
+                            elapsed_post_timeout_seconds=round(elapsed_post_timeout, 1),
+                            total_elapsed_seconds=round(_total_elapsed, 1),
+                        )
+                        _update_agents_complete()
+                        _stop_running_containers()
+                        return 0, combined_logs
+
+                    # B. Non-blocking container status check; record
+                    # any that have exited naturally.
+                    still_running = []
+                    for exec_info in remaining:
+                        try:
+                            info = docker_client.get_container_info(exec_info.container_id)
                         except (
                             ContainerNotFoundError,
                             ContainerOperationError,
                             PodNotFoundError,
                             JobOperationError,
-                        ):
-                            # Timeout or lost — stop the container so it doesn't
-                            # keep running as an orphan (issue #1691).
-                            try:
-                                docker_client.stop_container(exec_info.container_id, timeout=30)
-                            except Exception:
-                                pass
-                            final_info = ContainerInfo(
+                        ) as _wait_status_err:
+                            logger.warning(
+                                "Container lost during post-timeout wait",
+                                container_id=exec_info.container_id,
+                                role=exec_info.role.value,
+                                error=str(_wait_status_err),
+                            )
+                            info = ContainerInfo(
                                 container_id=exec_info.container_id,
                                 container_name=f"{pipeline_id}-{exec_info.role.value}",
                                 status=ContainerStatus.FAILED,
                                 exit_code=-1,
                                 exited_at=datetime.now(UTC),
                             )
-                        _record_container_exit(exec_info, final_info)
 
-                    futures = {pool.submit(_wait_remaining, e): e for e in remaining}
-                    for future in as_completed(futures):
-                        exc = future.exception()
-                        if exc:
-                            logger.error(
-                                "Error waiting for container after timeout",
-                                role=futures[future].role.value,
-                                error=str(exc),
-                            )
-                            with _logs_lock:
-                                has_failures[0] = True
+                        if info.status in (
+                            ContainerStatus.EXITED,
+                            ContainerStatus.FAILED,
+                            ContainerStatus.REMOVED,
+                        ):
+                            exited_containers[exec_info.container_id] = info
+                            _record_container_exit(exec_info, info)
+                        else:
+                            still_running.append(exec_info)
+
+                    remaining = still_running
+                    if not remaining:
+                        break
+
+                    time.sleep(post_timeout_poll_interval)
+
+                # Budget exhausted with containers still running —
+                # force-kill so they don't orphan (issue #1691).
+                for exec_info in remaining:
+                    try:
+                        docker_client.stop_container(exec_info.container_id, timeout=30)
+                    except Exception:
+                        pass
+                    final_info = ContainerInfo(
+                        container_id=exec_info.container_id,
+                        container_name=f"{pipeline_id}-{exec_info.role.value}",
+                        status=ContainerStatus.FAILED,
+                        exit_code=-1,
+                        exited_at=datetime.now(UTC),
+                    )
+                    exited_containers[exec_info.container_id] = final_info
+                    _record_container_exit(exec_info, final_info)
 
             combined_logs = "\n".join(all_logs)
             if has_failures[0]:
-                # Consensus recheck: consensus may have completed during the
-                # ThreadPoolExecutor wait window (issue #1691).  Without this
-                # recheck, containers that were force-killed after consensus
-                # was already confirmed would cause the phase to fail.
+                # Consensus recheck: consensus may have completed right as the
+                # post-timeout budget elapsed and containers were force-killed
+                # (issue #1691).  The in-loop consensus check covers the common
+                # case; this recheck catches the narrow race where consensus
+                # completed between the last in-loop check and force-kill.
                 try:
                     _timeout_consensus = executor.check_consensus()
                 except Exception as e:
@@ -8449,6 +8639,20 @@ def _run_concurrent_phase(
                     _stop_running_containers()
                     return 0, combined_logs
 
+                # Consensus not complete on recheck.  Mirror the non-failure
+                # branch's NACK summary so operators see which reviewer edges
+                # are still blocking, even when containers had non-zero exits.
+                if _timeout_consensus.get("has_unresolved_nacks"):
+                    nack_details = _timeout_consensus.get("unresolved_nacks", [])
+                    nack_summary = _format_nack_summary(nack_details)
+                    logger.warning(
+                        "Timeout with unresolved NACKs (has_failures path)",
+                        pipeline_id=pipeline_id,
+                        nack_count=len(nack_details),
+                    )
+                    combined_logs += (
+                        f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
+                    )
                 return 1, combined_logs
 
             # After timeout, check the BRC approval matrix for unresolved

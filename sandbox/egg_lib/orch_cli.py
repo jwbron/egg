@@ -32,6 +32,9 @@ Commands:
     egg-orch container logs <pid> <cid>          Get container logs
     egg-orch message send <pid> --to <role> ...  Send inter-agent message (concurrent mode)
     egg-orch message poll <pid> ...              Poll for messages (concurrent mode)
+    egg-orch message wait <pid> --for TYPE ...   Block until typed event arrives
+    egg-orch message wait-loop <pid> --for TYPE  Loop message wait until match / cap
+    egg-orch message heartbeat <pid> --state X   Emit structured HEARTBEAT
     egg-orch message status <pid>                Get message bus status (concurrent mode)
     egg-orch signal readiness <pid> --state ...  Signal readiness state (concurrent mode)
     egg-orch consensus propose <pid> ...         Send BRC consensus proposal
@@ -495,6 +498,26 @@ def _require_role(args: argparse.Namespace) -> str:
     return role
 
 
+def _render_handler_error(err: Any) -> int:
+    """Render a GatewayError / HandlerError in the legacy orch_cli stderr shape.
+
+    Used by the MCP-counterpart ``cmd_*`` functions so CLI parity is
+    preserved when a handler raises instead of returning ``success=False``.
+    """
+    message = getattr(err, "message", None) or str(err)
+    print(f"Error: {message}", file=sys.stderr)
+    status = getattr(err, "status_code", None)
+    if status:
+        print(f"Status: {status}", file=sys.stderr)
+    details = getattr(err, "details", None)
+    if details:
+        try:
+            print(f"Details: {json.dumps(details, indent=2)}", file=sys.stderr)
+        except (TypeError, ValueError):
+            pass
+    return int(getattr(err, "exit_code", 1))
+
+
 def cmd_signal_complete(args: argparse.Namespace) -> int:
     """Signal agent completion."""
     pid = require_pipeline_id(args)
@@ -522,7 +545,12 @@ def cmd_signal_complete(args: argparse.Namespace) -> int:
 
 
 def cmd_signal_progress(args: argparse.Namespace) -> int:
-    """Signal progress update."""
+    """Signal percent-based progress update (legacy /signal endpoint).
+
+    This is a separate code path from ``mcp__progress__emit``, which
+    hits the structured-event endpoint (``/progress``, step/state).
+    Kept inline for CLI parity; no MCP tool ever exposed this verb.
+    """
     pid = require_pipeline_id(args)
     role = _require_role(args)
     data: dict[str, Any] = {
@@ -549,49 +577,54 @@ def cmd_signal_progress(args: argparse.Namespace) -> int:
 
 
 def cmd_signal_error(args: argparse.Namespace) -> int:
-    """Signal an error."""
+    """Signal an error.
+
+    Delegates to :func:`egg_agent_tools.handlers.progress.progress_signal_error`.
+    """
+    from egg_agent_tools.handlers import progress as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
     pid = require_pipeline_id(args)
     role = _require_role(args)
-    data: dict[str, Any] = {
-        "signal_type": "error",
-        "agent_role": role,
+    req: dict[str, Any] = {
+        "pipeline_id": pid,
+        "role": role,
         "error": args.error,
         "recoverable": args.recoverable,
     }
-
-    result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    try:
+        resp = _handlers.progress_signal_error(req)
+    except (GatewayError, HandlerError) as err:
+        return _render_handler_error(err)
 
     if args.json:
-        print_json(result)
+        print_json(resp.get("signal", {}))
         return 0
-
-    if result.get("success"):
-        print(f"Signaled error for {role}")
-        return 0
-    print(f"Error: {result.get('message')}", file=sys.stderr)
-    return 1
+    print(f"Signaled error for {role}")
+    return 0
 
 
 def cmd_signal_heartbeat(args: argparse.Namespace) -> int:
-    """Send heartbeat."""
+    """Send heartbeat.
+
+    Delegates to :func:`egg_agent_tools.handlers.progress.progress_heartbeat`.
+    """
+    from egg_agent_tools.handlers import progress as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
     pid = require_pipeline_id(args)
     role = _require_role(args)
-    data: dict[str, Any] = {
-        "signal_type": "heartbeat",
-        "agent_role": role,
-    }
-
-    result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    req: dict[str, Any] = {"pipeline_id": pid, "role": role}
+    try:
+        resp = _handlers.progress_heartbeat(req)
+    except (GatewayError, HandlerError) as err:
+        return _render_handler_error(err)
 
     if args.json:
-        print_json(result)
+        print_json(resp.get("signal", {}))
         return 0
-
-    if result.get("success"):
-        print("Heartbeat sent")
-        return 0
-    print(f"Error: {result.get('message')}", file=sys.stderr)
-    return 1
+    print("Heartbeat sent")
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -1072,6 +1105,262 @@ def cmd_message_poll(args: argparse.Namespace) -> int:
     return 0
 
 
+def _classify_gateway_error_rc(status: int | None) -> int:
+    """Map a GatewayError status onto message-wait's transient/permanent rc."""
+    if status is not None and 400 <= status < 500 and status != 408:
+        return 3
+    # 5xx, 408, connection / timeout failures
+    return 2
+
+
+def cmd_message_wait(args: argparse.Namespace) -> int:
+    """Event-driven wait for a message of one or more types.
+
+    Issue #1897: the canonical blocking primitive for BRC coordination.
+    Agents should prefer this over ``message poll --wait`` with shell-level
+    retry loops.
+
+    Delegates to :func:`egg_agent_tools.handlers.message.message_wait`.
+
+    Exit codes (contract):
+        0 — one or more matching messages returned (printed to stdout).
+        1 — timeout elapsed with no match.
+        2 — transient error (5xx, network hiccup, JSON parse failure).
+            Retrying is safe.
+        3 — permanent error (4xx other than 408, bad pipeline id,
+            argparse/config failure). Retrying will not help.
+    """
+    from egg_agent_tools.handlers import message as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
+    try:
+        pid = require_pipeline_id(args)
+    except SystemExit:
+        return 3
+    # require_pipeline_id validates but exits(1) — wrap semantics into 3.
+
+    role = args.role or get_agent_role_from_env()
+    req: dict[str, Any] = {
+        "pipeline_id": pid,
+        "role": role,
+        "for_types": list(args.for_ or []),
+        "timeout": args.timeout if args.timeout is not None else 60,
+    }
+    if getattr(args, "from_", None):
+        req["from_role"] = args.from_
+    if args.since:
+        req["since"] = args.since
+    if args.limit:
+        req["limit"] = args.limit
+
+    try:
+        resp = _handlers.message_wait(req)
+    except GatewayError as err:
+        # GatewayError subclasses HandlerError — match it first so
+        # transient (5xx/408/network) failures map to rc=2, not rc=3.
+        rc = _classify_gateway_error_rc(err.status_code)
+        prefix = "Error" if rc == 3 else "Transient error"
+        print(f"{prefix}: {err.message}", file=sys.stderr)
+        return rc
+    except HandlerError as err:
+        print(f"Error: {err.message}", file=sys.stderr)
+        return 3
+    except Exception as err:  # pragma: no cover - defensive
+        print(f"Unexpected error: {err}", file=sys.stderr)
+        return 2
+
+    messages = list(resp.get("messages") or [])
+    matched = bool(resp.get("matched"))
+
+    if args.json:
+        print_json(resp.get("raw", {}))
+    else:
+        if matched:
+            for msg in messages:
+                ts = msg.get("timestamp", "")[:19]
+                from_r = msg.get("from_role", "?")
+                to_r = msg.get("to_role", "?")
+                mtype = msg.get("message_type", "?")
+                subject = msg.get("subject", "")
+                print(f"  [{ts}] {from_r} -> {to_r} ({mtype}): {subject}")
+                body = msg.get("body", "")
+                if body:
+                    indented = body.replace("\n", "\n    ")
+                    print(f"    {indented}")
+            print(f"\n{len(messages)} message(s) matched")
+
+    return 0 if matched else 1
+
+
+def cmd_message_wait_loop(args: argparse.Namespace) -> int:
+    """Canonical wait-loop convenience command (issue #1897).
+
+    Loops **forever** until a matching message arrives (exit 0, prints
+    the message) OR a permanent error occurs (exit 1).  The outer
+    timeout is intentional — BRC consensus can legitimately take hours
+    on long phases, and an agent wrapping this in its own outer loop
+    would defeat the purpose.
+
+    Exit codes (wrapper contract, DIFFERENT from ``message wait``):
+
+      * 0 — a matching message arrived; it is printed to stdout.
+      * 1 — a permanent error occurred (bad pipeline id, auth, argparse
+        misuse propagated from an inner ``message wait`` rc=3).
+        Callers should NOT retry.
+
+    Transient errors (rc=2 from the inner call) are retried with short
+    exponential backoff (cap 5s).  Timeouts (rc=1) re-enter the loop
+    with a fresh inner call so the agent keeps blocking on the next
+    event.
+
+    ``--max-iterations`` is a safety valve only — its default is
+    effectively unbounded (``sys.maxsize``) so normal BRC consensus
+    never trips it.  The CLI help advertises it as "loops forever by
+    default".
+
+    Delegates to
+    :func:`egg_agent_tools.handlers.message.message_wait_loop`.
+    """
+    from egg_agent_tools.handlers import message as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
+    # --json is not supported on wait-loop (produces concatenated JSON
+    # objects on stdout across iterations).  Force it off so downstream
+    # renders match the legacy behaviour.
+    args.json = False
+
+    try:
+        pid = require_pipeline_id(args)
+    except SystemExit:
+        return 1
+
+    role = args.role or get_agent_role_from_env()
+    req: dict[str, Any] = {
+        "pipeline_id": pid,
+        "role": role,
+        "for_types": list(args.for_ or []),
+        "timeout": args.timeout if args.timeout is not None else 60,
+    }
+    if getattr(args, "from_", None):
+        req["from_role"] = args.from_
+    if args.since:
+        req["since"] = args.since
+    if args.limit:
+        req["limit"] = args.limit
+    if args.max_iterations is not None and args.max_iterations > 0:
+        req["max_iterations"] = args.max_iterations
+
+    try:
+        resp = _handlers.message_wait_loop(req)
+    except GatewayError as err:
+        # GatewayError subclasses HandlerError — match it first.  The
+        # handler reclassifies 4xx (non-408) as permanent and re-raises;
+        # the wait-loop contract collapses both GatewayError and
+        # HandlerError to rc=1 so callers can't confuse them with
+        # transient misses.
+        print(f"Error: {err.message}", file=sys.stderr)
+        return 1
+    except HandlerError as err:
+        print(f"Error: {err.message}", file=sys.stderr)
+        return 1
+
+    messages = list(resp.get("messages") or [])
+    matched = bool(resp.get("matched"))
+    if matched:
+        for msg in messages:
+            ts = msg.get("timestamp", "")[:19]
+            from_r = msg.get("from_role", "?")
+            to_r = msg.get("to_role", "?")
+            mtype = msg.get("message_type", "?")
+            subject = msg.get("subject", "")
+            print(f"  [{ts}] {from_r} -> {to_r} ({mtype}): {subject}")
+            body = msg.get("body", "")
+            if body:
+                indented = body.replace("\n", "\n    ")
+                print(f"    {indented}")
+        print(f"\n{len(messages)} message(s) matched")
+        return 0
+    # Safety cap tripped — extraordinarily unlikely with the default
+    # sys.maxsize cap. Return 1 (no match) so callers behave the same
+    # as a bounded-retry timeout.
+    return 1
+
+
+def cmd_message_heartbeat(args: argparse.Namespace) -> int:
+    """Emit a structured HEARTBEAT message (issue #1897).
+
+    Delegates to
+    :func:`egg_agent_tools.handlers.message.message_heartbeat`.  The
+    handler POSTs to the dedicated ``/api/v1/pipelines/{id}/heartbeat``
+    endpoint which handles schema validation, per-role dedup, and the
+    ``EGG_HEARTBEAT_RATE_LIMIT`` 429 response.  HTTP 429 is treated as a
+    rate-limit error (exit 3 per the CLI contract — caller should honour
+    the server's suggested ``retry_after``).
+    """
+    from egg_agent_tools.handlers import message as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
+    try:
+        pid = require_pipeline_id(args)
+    except SystemExit:
+        return 3
+
+    role = args.role or get_agent_role_from_env()
+    if not role:
+        print("Error: --role required or set EGG_AGENT_ROLE", file=sys.stderr)
+        return 3
+
+    req: dict[str, Any] = {
+        "pipeline_id": pid,
+        "role": role,
+        "state": args.state,
+    }
+    if args.waiting_on:
+        req["waiting_on"] = args.waiting_on
+    if args.since:
+        req["since"] = args.since
+    if args.body:
+        req["body"] = args.body
+
+    try:
+        resp = _handlers.message_heartbeat(req)
+    except GatewayError as err:
+        # GatewayError subclasses HandlerError — match it first so we
+        # can distinguish transport failures (rc=2/3 by status) from
+        # user input errors (rc=3).
+        # 429 rate-limit is a permanent error from this invocation's
+        # perspective — caller should honour retry_after and try again
+        # later.
+        if err.status_code == 429:
+            retry_after = 60
+            try:
+                if err.details and isinstance(err.details, dict):
+                    retry_after = int(err.details.get("retry_after", 60))
+            except (TypeError, ValueError):
+                pass
+            print(
+                f"Error: HEARTBEAT rate limit exceeded; retry after {retry_after}s.",
+                file=sys.stderr,
+            )
+            return 3
+        rc = _classify_gateway_error_rc(err.status_code)
+        prefix = "Error" if rc == 3 else "Transient error"
+        print(f"{prefix}: {err.message}", file=sys.stderr)
+        return rc
+    except HandlerError as err:
+        print(f"Error: {err.message}", file=sys.stderr)
+        return 3
+
+    if args.json:
+        print_json(resp.get("signal", {}))
+        return 0
+    if resp.get("deduped"):
+        print(f"HEARTBEAT deduped (unchanged state {args.state})")
+    else:
+        print(f"HEARTBEAT sent: {args.state}")
+    return 0
+
+
 def cmd_message_status(args: argparse.Namespace) -> int:
     """Get message bus status."""
     pid = require_pipeline_id(args)
@@ -1296,7 +1585,16 @@ def _consensus_push() -> int:
 
 
 def cmd_consensus_propose(args: argparse.Namespace) -> int:
-    """Send CONSENSUS_PROPOSE signal, optionally pushing code first."""
+    """Send CONSENSUS_PROPOSE signal, optionally pushing code first.
+
+    Delegates to :func:`egg_agent_tools.handlers.brc.brc_propose` so the
+    MCP ``mcp__brc__propose`` tool and the CLI share one handler.  The
+    ``--push`` / ``--file`` / ``--json`` / ``--commit-sha`` surface is
+    preserved.
+    """
+    from egg_agent_tools.handlers import brc as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
     pid = require_pipeline_id(args)
     role = _require_role(args)
 
@@ -1309,120 +1607,116 @@ def cmd_consensus_propose(args: argparse.Namespace) -> int:
         if push_result != 0:
             return push_result
 
-    # Read payload from file or construct from args
-    payload: dict[str, Any]
+    req: dict[str, Any]
     if getattr(args, "file", None):
+        # File-based payload: forward the parsed dict VERBATIM to the
+        # handler via the ``raw_payload`` key so unknown/custom schema
+        # fields are not silently dropped.  The handler still layers
+        # our structured request on top for required defaults
+        # (pipeline_id / role / commit_sha fallback).
         with open(args.file) as f:
-            payload = json.load(f)
-    else:
-        # Resolve commit SHA: use provided value or default to HEAD
-        commit_sha = getattr(args, "commit_sha", None) or ""
-        if not commit_sha:
-            try:
-                commit_sha = subprocess.check_output(
-                    ["git", "rev-parse", "HEAD"],
-                    text=True,
-                    cwd=os.environ.get("EGG_REPO_PATH"),
-                    stderr=subprocess.DEVNULL,
-                ).strip()
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                print(
-                    "Error: --commit-sha not provided and could not resolve HEAD",
-                    file=sys.stderr,
-                )
-                return 1
-        payload = {
-            "summary": getattr(args, "summary", "") or "",
-            "attestation": {},
-            "artifacts": getattr(args, "artifacts", []) or [],
-            "risk_considered": getattr(args, "risk", "") or "",
-            "commit_sha": commit_sha,
-            "files_changed": getattr(args, "files_changed", []) or [],
-            "tests_run": getattr(args, "tests_run", []) or [],
-            "tasks_satisfied": getattr(args, "tasks", []) or [],
+            file_payload: dict[str, Any] = json.load(f)
+        req = {
+            "pipeline_id": pid,
+            "role": role,
+            "raw_payload": file_payload,
         }
+        # Resolve commit SHA fallback even for --file so the handler
+        # can default to HEAD when the payload omits it.
+        commit_sha = file_payload.get("commit_sha") or getattr(args, "commit_sha", None)
+        if commit_sha:
+            req["commit_sha"] = commit_sha
+    else:
+        req = {
+            "pipeline_id": pid,
+            "role": role,
+            "summary": getattr(args, "summary", "") or "",
+            "artifacts": list(getattr(args, "artifacts", []) or []),
+            "risk_considered": getattr(args, "risk", "") or "",
+            "files_changed": list(getattr(args, "files_changed", []) or []),
+            "tests_run": list(getattr(args, "tests_run", []) or []),
+            "tasks": list(getattr(args, "tasks", []) or []),
+        }
+        if getattr(args, "commit_sha", None):
+            req["commit_sha"] = args.commit_sha
 
     changed_artifacts = getattr(args, "changed_artifacts", None)
-
-    data: dict[str, Any] = {
-        "signal_type": "consensus_propose",
-        "agent_role": role,
-        "payload": payload,
-    }
     if changed_artifacts:
-        data["changed_artifacts"] = changed_artifacts
+        req["changed_artifacts"] = list(changed_artifacts)
 
-    result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    try:
+        resp = _handlers.brc_propose(req)
+    except (GatewayError, HandlerError) as err:
+        return _render_handler_error(err)
 
+    signal = resp.get("signal", {})
     if args.json:
-        print_json(result)
+        print_json(signal)
         return 0
 
-    if result.get("success"):
-        print(f"Proposal sent by {role}")
-        consensus = result.get("data", {}).get("consensus", {})
-        phase = consensus.get("agents", {}).get(role, {}).get("phase", "")
-        if phase:
-            print(f"  BRC phase: {phase}")
-        return 0
-    print(f"Error: {result.get('message')}", file=sys.stderr)
-    return 1
+    print(f"Proposal sent by {role}")
+    phase = resp.get("phase")
+    if phase:
+        print(f"  BRC phase: {phase}")
+    return 0
 
 
 def cmd_consensus_ack(args: argparse.Namespace) -> int:
-    """Send CONSENSUS_ACK signal for a producer."""
+    """Send CONSENSUS_ACK signal for a producer.
+
+    Delegates to :func:`egg_agent_tools.handlers.brc.brc_ack`.
+    """
+    from egg_agent_tools.handlers import brc as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
     pid = require_pipeline_id(args)
     role = _require_role(args)
-
-    data: dict[str, Any] = {
-        "signal_type": "consensus_ack",
-        "agent_role": role,
+    req = {
+        "pipeline_id": pid,
+        "role": role,
         "producer_role": args.producer_role,
-        "payload": {
-            "artifact_references": args.files_reviewed,
-            "reason": args.reason,
-        },
+        "reason": args.reason,
+        "files_reviewed": list(args.files_reviewed or []),
     }
-
-    result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    try:
+        resp = _handlers.brc_ack(req)
+    except (GatewayError, HandlerError) as err:
+        return _render_handler_error(err)
 
     if args.json:
-        print_json(result)
+        print_json(resp.get("signal", {}))
         return 0
-
-    if result.get("success"):
-        print(f"ACK sent by {role} for {args.producer_role}")
-        return 0
-    print(f"Error: {result.get('message')}", file=sys.stderr)
-    return 1
+    print(f"ACK sent by {role} for {args.producer_role}")
+    return 0
 
 
 def cmd_consensus_nack(args: argparse.Namespace) -> int:
-    """Send CONSENSUS_NACK signal for a producer."""
+    """Send CONSENSUS_NACK signal for a producer.
+
+    Delegates to :func:`egg_agent_tools.handlers.brc.brc_nack`.
+    """
+    from egg_agent_tools.handlers import brc as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
     pid = require_pipeline_id(args)
     role = _require_role(args)
-
-    data: dict[str, Any] = {
-        "signal_type": "consensus_nack",
-        "agent_role": role,
+    req = {
+        "pipeline_id": pid,
+        "role": role,
         "producer_role": args.producer_role,
-        "payload": {
-            "reason": args.reason,
-            "artifact_references": args.files_reviewed,
-        },
+        "reason": args.reason,
+        "files_reviewed": list(args.files_reviewed or []),
     }
-
-    result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    try:
+        resp = _handlers.brc_nack(req)
+    except (GatewayError, HandlerError) as err:
+        return _render_handler_error(err)
 
     if args.json:
-        print_json(result)
+        print_json(resp.get("signal", {}))
         return 0
-
-    if result.get("success"):
-        print(f"NACK sent by {role} for {args.producer_role}: {args.reason}")
-        return 0
-    print(f"Error: {result.get('message')}", file=sys.stderr)
-    return 1
+    print(f"NACK sent by {role} for {args.producer_role}: {args.reason}")
+    return 0
 
 
 def cmd_consensus_withdraw(args: argparse.Namespace) -> int:
@@ -1450,44 +1744,54 @@ def cmd_consensus_withdraw(args: argparse.Namespace) -> int:
 
 
 def cmd_consensus_confirmed(args: argparse.Namespace) -> int:
-    """Send CONSENSUS_CONFIRMED signal after all reviewers ACK."""
+    """Send CONSENSUS_CONFIRMED signal after all reviewers ACK.
+
+    Delegates to :func:`egg_agent_tools.handlers.brc.brc_confirm`.
+    Exit-code parity preserved: 2 for ``pending_acks``, 0 for
+    confirmed, 1 for gateway error.
+    """
+    from egg_agent_tools.handlers import brc as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
     pid = require_pipeline_id(args)
     role = _require_role(args)
-
-    data: dict[str, Any] = {
-        "signal_type": "consensus_confirmed",
-        "agent_role": role,
-    }
-
-    result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    try:
+        resp = _handlers.brc_confirm({"pipeline_id": pid, "role": role})
+    except (GatewayError, HandlerError) as err:
+        return _render_handler_error(err)
 
     if args.json:
-        print_json(result)
+        print_json(resp.get("signal", {}))
         return 0
 
-    if result.get("success"):
-        data = result.get("data", {})
-        # 202: producer is waiting for reviewer re-ACKs after re-proposal
-        if data.get("status") == "pending_acks":
-            print(f"Waiting for reviewer re-ACKs: {result.get('message')}")
-            return 2
-        consensus_reached = data.get("consensus_reached", False)
-        print(f"Confirmation recorded for {role}")
-        if consensus_reached:
-            print("  Consensus reached!")
-        return 0
-    print(f"Error: {result.get('message')}", file=sys.stderr)
-    return 1
+    if resp.get("status") == "pending_acks":
+        print(f"Waiting for reviewer re-ACKs: {resp.get('message')}")
+        return 2
+    print(f"Confirmation recorded for {role}")
+    if resp.get("consensus_reached"):
+        print("  Consensus reached!")
+    return 0
 
 
 def cmd_consensus_status(args: argparse.Namespace) -> int:
-    """Show BRC consensus status (approval matrix and review graph)."""
+    """Show BRC consensus status (approval matrix and review graph).
+
+    Delegates the structured data-build to
+    :func:`egg_agent_tools.handlers.brc.brc_get_state` so the MCP
+    ``mcp__brc__get_state`` tool and this CLI share one handler.  The
+    human-readable rendering stays here in the shim.
+    """
+    from egg_agent_tools.handlers import brc as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
     pid = require_pipeline_id(args)
 
-    result = orch_request(f"/api/v1/pipelines/{pid}/status")
+    try:
+        resp = _handlers.brc_get_state({"pipeline_id": pid})
+    except (GatewayError, HandlerError) as err:
+        return _render_handler_error(err)
 
-    consensus = result.get("data", {}).get("concurrent", {}).get("consensus", {})
-
+    consensus = resp.get("consensus", {}) or {}
     if args.json:
         print_json(consensus)
         return 0
@@ -1560,35 +1864,44 @@ def cmd_env(args: argparse.Namespace) -> int:
 
 
 def cmd_progress_emit(args: argparse.Namespace) -> int:
-    """Emit a structured progress event."""
+    """Emit a structured progress event.
+
+    Delegates to :func:`egg_agent_tools.handlers.progress.progress_emit`
+    so the MCP ``mcp__progress__emit`` tool and the CLI share one
+    handler.  Stdout / exit-code parity preserved.
+    """
+    from egg_agent_tools.handlers import progress as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
     pid = require_pipeline_id(args)
     role = args.role or get_agent_role_from_env()
     if not role:
         print("Error: --role required or set EGG_AGENT_ROLE", file=sys.stderr)
         sys.exit(1)
 
-    data: dict[str, Any] = {
-        "agent_role": role,
+    req: dict[str, Any] = {
+        "pipeline_id": pid,
+        "role": role,
         "step": args.step,
         "state": args.state,
     }
     if args.detail:
-        data["detail"] = args.detail
+        req["detail"] = args.detail
     if args.blocker:
-        data["blocker"] = args.blocker
+        req["blocker"] = args.blocker
 
-    result = orch_request(f"/api/v1/pipelines/{pid}/progress", method="POST", data=data)
+    try:
+        resp = _handlers.progress_emit(req)
+    except (GatewayError, HandlerError) as err:
+        return _render_handler_error(err)
 
     if args.json:
-        print_json(result)
+        print_json(resp.get("signal", {}))
         return 0
 
-    if result.get("success"):
-        event = result.get("data", {}).get("event", {})
-        print(f"Progress emitted: {event.get('id', 'unknown')} [{args.state}] {args.step}")
-        return 0
-    print(f"Error: {result.get('message')}", file=sys.stderr)
-    return 1
+    event_id = resp.get("event_id") or "unknown"
+    print(f"Progress emitted: {event_id} [{args.state}] {args.step}")
+    return 0
 
 
 def cmd_progress_query(args: argparse.Namespace) -> int:
@@ -1859,8 +2172,16 @@ def create_parser() -> argparse.ArgumentParser:
     msg_send.add_argument(
         "--type",
         required=True,
-        choices=["PROGRESS", "QUESTION", "STATUS", "HANDOFF"],
-        help="Message type (PROGRESS, QUESTION, STATUS, HANDOFF)",
+        choices=["PROGRESS", "STATUS", "HANDOFF", "HEARTBEAT"],
+        help=(
+            "Message type (PROGRESS, STATUS, HANDOFF, HEARTBEAT). "
+            "QUESTION was removed in issue #1897 — put clarifying "
+            "questions in a NACK --reason block marked "
+            '"### Non-blocking" so the producer sees them with the '
+            "verdict.  For HEARTBEAT prefer the dedicated "
+            "`message heartbeat` subcommand (schema validation + "
+            "rate limit + dedup)."
+        ),
     )
     msg_send.add_argument("--subject", help="Message subject")
     msg_send.add_argument("--body", help="Message body")
@@ -1878,6 +2199,116 @@ def create_parser() -> argparse.ArgumentParser:
     )
     _add_json_flag(msg_poll)
     msg_poll.set_defaults(func=cmd_message_poll)
+
+    # message wait — typed event-driven blocking primitive (issue #1897)
+    msg_wait = msg_sub.add_parser(
+        "wait",
+        help="Block until a message of one or more types arrives",
+        description=(
+            "Block on a typed BRC event.  Exit 0 = matched, "
+            "1 = timeout, 2 = transient (retry ok), "
+            "3 = permanent.  Prefer this over shell retry loops."
+        ),
+    )
+    msg_wait.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    msg_wait.add_argument(
+        "--for",
+        dest="for_",
+        action="append",
+        required=True,
+        help="Message type to wait for (repeatable, required)",
+    )
+    msg_wait.add_argument("--role", help="Filter for role (default: EGG_AGENT_ROLE)")
+    msg_wait.add_argument("--from", dest="from_", help="Filter by sender role")
+    msg_wait.add_argument("--since", help="Return messages after this ID")
+    msg_wait.add_argument("--limit", type=int, help="Max messages")
+    msg_wait.add_argument(
+        "--timeout",
+        type=int,
+        default=60,
+        help="Server-side block timeout in seconds (clamped by "
+        "EGG_MESSAGE_POLL_MAX_WAIT, default 60)",
+    )
+    _add_json_flag(msg_wait)
+    msg_wait.set_defaults(func=cmd_message_wait)
+
+    # message wait-loop — canonical idiom for BRC stay-alive polling
+    msg_wait_loop = msg_sub.add_parser(
+        "wait-loop",
+        help="Loop message wait until matched or max iterations reached",
+        description=(
+            "Convenience wrapper: call `message wait` in a loop until a "
+            "match arrives (exit 0) or max-iterations / permanent error "
+            "occurs (exit 1).  Agents should invoke this "
+            "instead of shelling out their own while-loop."
+        ),
+    )
+    msg_wait_loop.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    msg_wait_loop.add_argument(
+        "--for",
+        dest="for_",
+        action="append",
+        required=True,
+        help="Message type to wait for (repeatable, required)",
+    )
+    msg_wait_loop.add_argument("--role", help="Filter for role (default: EGG_AGENT_ROLE)")
+    msg_wait_loop.add_argument("--from", dest="from_", help="Filter by sender role")
+    msg_wait_loop.add_argument("--since", help="Return messages after this ID")
+    msg_wait_loop.add_argument("--limit", type=int, help="Max messages")
+    msg_wait_loop.add_argument(
+        "--timeout",
+        type=int,
+        default=60,
+        help="Per-call block timeout in seconds",
+    )
+    msg_wait_loop.add_argument(
+        "--max-iterations",
+        type=int,
+        default=None,
+        help=(
+            "Safety cap on outer-loop iterations.  **Loops forever by "
+            "default** (value is effectively unbounded unless set) so "
+            "normal BRC consensus never trips it.  Set to a positive "
+            "integer only for test harnesses or deterministic "
+            "reproductions."
+        ),
+    )
+    # --json is intentionally NOT supported on wait-loop: the loop calls
+    # cmd_message_wait repeatedly, and each timeout iteration would print
+    # a JSON object to stdout, producing concatenated invalid JSON.
+    # Use ``egg-orch message wait --json`` directly for single-shot JSON.
+    msg_wait_loop.set_defaults(func=cmd_message_wait_loop)
+
+    # message heartbeat — emit a structured HEARTBEAT (issue #1897)
+    msg_hb = msg_sub.add_parser(
+        "heartbeat",
+        help="Emit a structured HEARTBEAT state message",
+        description=(
+            "Emit a HEARTBEAT with a required --state "
+            "(WORKING|WAITING_ON_ROLE|PROPOSED|IDLE). "
+            "--state WAITING_ON_ROLE requires --waiting-on."
+        ),
+    )
+    msg_hb.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    msg_hb.add_argument("--role", help="Sender role (default: EGG_AGENT_ROLE)")
+    msg_hb.add_argument(
+        "--state",
+        required=True,
+        choices=["WORKING", "WAITING_ON_ROLE", "PROPOSED", "IDLE"],
+        help="Agent state",
+    )
+    msg_hb.add_argument(
+        "--waiting-on",
+        dest="waiting_on",
+        help="Peer role the agent is waiting on (required for WAITING_ON_ROLE)",
+    )
+    msg_hb.add_argument(
+        "--since",
+        help="Optional ISO-8601 / epoch timestamp naming when the current state began",
+    )
+    msg_hb.add_argument("--body", help="Free-form body text")
+    _add_json_flag(msg_hb)
+    msg_hb.set_defaults(func=cmd_message_heartbeat)
 
     # message status
     msg_status = msg_sub.add_parser("status", help="Message bus status")

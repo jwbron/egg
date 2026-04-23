@@ -77,6 +77,8 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Checkpoint Browser](reference/checkpoint-browser.md) | Full `egg-checkpoint` command reference for browsing agent session history |
 | [SDLC Contract](reference/sdlc-contract.md) | Full `egg-contract` command reference for tracking tasks, commits, decisions |
 | [MCP Deployment Tools](reference/mcp-deployment-tools.md) | Six k8s-facing MCP tools: `get_deployment_context`, `validate_deployment_manifests`, `prune_stale_worktrees`, `validate_network_isolation`, `rebuild_and_rollout`, `get_service_logs` |
+| [Agent MCP Tools](reference/agent-tools.md) | In-process SDK MCP tools sandbox agents call on the `tool_use` stream (15 iteration-1 verbs: `mcp__sdlc__*`, `mcp__brc__*`, `mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`); opt-in via `EGG_MCP_TOOLS` |
+| [Agent Wait Patterns](reference/agent-wait-patterns.md) | Canonical `egg-orch message wait-loop` idiom for BRC STAY ALIVE, the four anti-patterns to avoid, the `egg-orch message wait` exit-code contract, the `HEARTBEAT` metadata schema, and the `EGG_MESSAGE_POLL_MAX_WAIT` / `EGG_ORCH_WAITRESS_THREADS` env-var couplings |
 
 ### SDLC Pipeline Templates
 
@@ -107,7 +109,7 @@ Each major component has detailed documentation:
 | [Custom Harness](../shared/egg_harness/README.md) | `shared/egg_harness/` | Provider-abstracted agent runtime with context management |
 | [Harness Integration](../shared/egg_harness_integration/README.md) | `shared/egg_harness_integration/` | Egg-specific harness wiring (tools, permissions, prompt, compaction) |
 | [Configuration](../config/README.md) | `config/` | Repository and host configuration |
-| [CLI Entry Points](../bin/README.md) | `bin/` | `egg` and `egg-sdlc` commands |
+| [CLI Entry Points](../bin/README.md) | `bin/` | `egg-sdlc`, `egg-deploy`, and other CLI tools |
 | [GitHub Action](../action/README.md) | `action/` | Composite action for GitHub Actions |
 | [Claude Code Config](../sandbox/agent-config/README.md) | `sandbox/agent-config/` | Agent rules and slash commands |
 
@@ -135,6 +137,7 @@ Each major component has detailed documentation:
 | **Kubernetes / k3s migration** | [Kubernetes Migration](architecture/kubernetes-migration.md) | [Deployment Guide](guides/deployment.md), [Network Isolation](architecture/network-isolation.md), [Orchestrator Architecture](architecture/orchestrator.md) |
 | **Concurrent execution mode** | [Concurrent Execution Guide](guides/concurrent-execution.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Checkpoint Access](guides/checkpoint-access.md), [Orchestrator Architecture](architecture/orchestrator.md) |
 | **Directed agent coordination** | [Concurrent Execution: Directed Coordination](guides/concurrent-execution.md#directed-coordination) | [Orchestrator CLI](reference/orchestrator-cli.md), [SDLC Pipeline Guide](guides/sdlc-pipeline.md) |
+| **Agent STAY ALIVE / bus waits** | [Agent Wait Patterns](reference/agent-wait-patterns.md) | [Concurrent Execution: Message Bus](guides/concurrent-execution.md#how-to-wait), [Orchestrator CLI](reference/orchestrator-cli.md) |
 | **Agent roles and file permissions** | [Agent Roles Reference](reference/agent-roles.md) | [SDLC Pipeline Guide](guides/sdlc-pipeline.md), [Architecture Overview](architecture/README.md) |
 | **Agent failure recovery** | [Agent Recovery Reference](reference/agent-recovery.md) | [Concurrent Execution Guide](guides/concurrent-execution.md), [Orchestrator Architecture](architecture/orchestrator.md) |
 | **Restarting stuck agents/phases** | [Agent Recovery Reference](reference/agent-recovery.md#agent-level-restart) | [Pipeline Health Monitoring](guides/pipeline-health-monitoring.md), [Orchestrator CLI](reference/orchestrator-cli.md), [Phase Management MCP Tools](reference/orchestrator-cli.md#phase-management-mcp-tools) |

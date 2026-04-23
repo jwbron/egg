@@ -34,7 +34,7 @@ def _make_args(
     push: bool = False,
     summary: str = "test proposal",
     artifacts: list[str] | None = None,
-    commit_sha: str = "abc123",
+    commit_sha: str = "abc1234",
     risk: str = "",
     file: str | None = None,
     changed_artifacts: list[str] | None = None,
@@ -391,7 +391,10 @@ class TestConsensusProposeWithPush:
 
         with (
             patch("egg_lib.orch_cli._consensus_push", return_value=0) as mock_push,
-            patch("egg_lib.orch_cli.orch_request", return_value=mock_response),
+            patch(
+                "egg_agent_tools.handlers.brc.orchestrator_request",
+                return_value=mock_response,
+            ),
         ):
             result = cmd_consensus_propose(args)
             assert result == 0
@@ -405,7 +408,10 @@ class TestConsensusProposeWithPush:
 
         with (
             patch("egg_lib.orch_cli._consensus_push", return_value=0) as mock_push,
-            patch("egg_lib.orch_cli.orch_request", return_value=mock_response),
+            patch(
+                "egg_agent_tools.handlers.brc.orchestrator_request",
+                return_value=mock_response,
+            ),
         ):
             result = cmd_consensus_propose(args)
             assert result == 0
@@ -417,7 +423,7 @@ class TestConsensusProposeWithPush:
 
         with (
             patch("egg_lib.orch_cli._consensus_push", return_value=1),
-            patch("egg_lib.orch_cli.orch_request") as mock_request,
+            patch("egg_agent_tools.handlers.brc.orchestrator_request") as mock_request,
         ):
             result = cmd_consensus_propose(args)
             assert result == 1

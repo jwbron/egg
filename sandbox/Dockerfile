@@ -212,9 +212,9 @@ RUN groupadd -g 1000 egg && \
 # The egg script always passes the specific PyPI version to bust Docker's layer
 # cache when a new version is released. The "latest" fallback only applies if the
 # build-arg is omitted (e.g. manual docker build without the egg script).
-ARG CLAUDE_AGENT_SDK_VERSION=latest
+ARG CLAUDE_AGENT_SDK_VERSION=0.1.65
 RUN if [ "$CLAUDE_AGENT_SDK_VERSION" = "latest" ]; then \
-        pip3 install --no-cache-dir --upgrade claude-agent-sdk; \
+        pip3 install --no-cache-dir --upgrade 'claude-agent-sdk>=0.1.65,<0.2'; \
     else \
         pip3 install --no-cache-dir claude-agent-sdk==${CLAUDE_AGENT_SDK_VERSION}; \
     fi && \

@@ -813,7 +813,13 @@ class TestJsonCompanionFile:
             assert "timestamp" in entry
 
     def test_json_includes_non_consensus_types(self, tmp_path):
-        """JSON companion includes HANDOFF, AGENT_FAILED, OVERSEER_ALERT, STATUS, NUDGE, QUESTION."""
+        """JSON companion includes HANDOFF, AGENT_FAILED, OVERSEER_ALERT, STATUS, NUDGE.
+
+        Issue #1897 removed QUESTION from BRC_HISTORY_TYPES (plan TASK-7-2);
+        agents now use the NACK ``--reason`` channel or HEARTBEAT
+        WAITING_ON_ROLE instead. A standalone test below
+        (``test_question_not_in_history_types``) asserts the removal.
+        """
         from routes.pipelines import _write_brc_history
 
         messages = [
@@ -865,14 +871,6 @@ class TestJsonCompanionFile:
                 body="Please proceed",
                 phase="implement",
             ),
-            _make_brc_message(
-                pipeline_id="issue-42",
-                from_role="coder",
-                message_type=MessageType.QUESTION,
-                subject="Question",
-                body="Need clarification",
-                phase="implement",
-            ),
         ]
         mock_store = MagicMock(spec=MessageStore)
         mock_store.get_messages.return_value = messages
@@ -890,7 +888,6 @@ class TestJsonCompanionFile:
         assert "OVERSEER_ALERT" in types_in_json
         assert "STATUS" in types_in_json
         assert "NUDGE" in types_in_json
-        assert "QUESTION" in types_in_json
 
     def test_json_includes_metadata_fields(self, tmp_path):
         """JSON companion preserves full metadata including artifact_references."""
@@ -971,13 +968,18 @@ class TestBrcHistoryTypes:
         assert consensus_types <= BRC_HISTORY_TYPES
 
     def test_includes_non_consensus_types(self):
-        """BRC_HISTORY_TYPES includes STATUS, HANDOFF, QUESTION, AGENT_FAILED, NUDGE, OVERSEER_ALERT."""
+        """BRC_HISTORY_TYPES includes STATUS, HANDOFF, AGENT_FAILED, NUDGE, OVERSEER_ALERT.
+
+        Issue #1897 removed QUESTION from BRC_HISTORY_TYPES (plan TASK-7-2);
+        see ``test_question_not_in_history_types`` for the removal regression
+        guard. Agents now encode questions via NACK ``--reason`` sections or
+        HEARTBEAT ``WAITING_ON_ROLE`` metadata.
+        """
         from routes.pipelines import BRC_HISTORY_TYPES
 
         non_consensus_types = {
             "STATUS",
             "HANDOFF",
-            "QUESTION",
             "AGENT_FAILED",
             "NUDGE",
             "OVERSEER_ALERT",
@@ -989,6 +991,24 @@ class TestBrcHistoryTypes:
         from routes.pipelines import BRC_HISTORY_TYPES
 
         assert "PROGRESS" not in BRC_HISTORY_TYPES
+
+    def test_question_not_in_history_types(self):
+        """Plan TASK-7-2 acceptance (b): QUESTION was removed from
+        BRC_HISTORY_TYPES as part of issue #1897.
+
+        This is an explicit regression guard so a future refactor that
+        re-introduces QUESTION (e.g., copy-pasting from an older enum
+        definition) fails at test time rather than silently shipping.
+        Callers that previously used QUESTION should encode the question
+        via ``CONSENSUS_NACK --reason`` (for reviewers) or
+        ``HEARTBEAT metadata.state=WAITING_ON_ROLE`` (for producers).
+        """
+        from routes.pipelines import BRC_HISTORY_TYPES
+
+        assert "QUESTION" not in BRC_HISTORY_TYPES, (
+            "QUESTION was removed from BRC_HISTORY_TYPES in #1897; "
+            "if it's back, check the Phase 7 rollback path."
+        )
 
 
 class TestYamlMetadataRoundTrip:
@@ -1257,15 +1277,23 @@ class TestHistoryIncludesNonConsensusTypes:
         content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
         assert "NUDGE" in content
 
-    def test_question_included_in_history(self, tmp_path):
-        """QUESTION messages are included in the history file."""
+    def test_status_replaces_removed_question_type(self, tmp_path):
+        """STATUS messages (as the QUESTION replacement) are included in
+        the history file.
+
+        Issue #1897 removed QUESTION (plan TASK-7-2). Clarifying questions
+        between agents now flow through either STATUS (for coordination
+        pings) or NACK ``--reason`` blocks (for review-time questions).
+        This test uses a STATUS message with question-like content as a
+        concrete example of the replacement pattern.
+        """
         from routes.pipelines import _write_brc_history
 
         messages = [
             _make_brc_message(
                 pipeline_id="issue-42",
                 from_role="tester",
-                message_type=MessageType.QUESTION,
+                message_type=MessageType.STATUS,
                 subject="Question about auth flow",
                 body="Should I test the SSO path?",
                 phase="implement",
@@ -1278,7 +1306,7 @@ class TestHistoryIncludesNonConsensusTypes:
             _write_brc_history(tmp_path, "issue-42", "implement", 42)
 
         content = (tmp_path / ".egg-state" / "brc-history" / "42-implement.md").read_text()
-        assert "QUESTION" in content
+        assert "STATUS" in content
         assert "Should I test the SSO path?" in content
 
     def test_agent_failed_included_in_history(self, tmp_path):

@@ -66,7 +66,8 @@ When updating review behavior, ensure both surfaces reflect the change:
 | Quality standards (be comprehensive, specific, etc.) | `action/review-conventions.md` "Comment Quality" section | `_build_review_prompt()` inline conventions |
 | Verdict classification (what's blocking vs non-blocking) | `action/review-conventions.md` "When to Approve vs Request Changes" | `_build_review_prompt()` "When to Use needs_revision vs approved" (sequential); `_build_brc_preamble()` ACK/NACK lifecycle (concurrent) |
 | Procedural review steps | `action/build-review-prompt.sh` "How to Proceed" / inline fallback "How to Review" | `_build_review_prompt()` procedural steps for code reviewer |
-| Diff command | `gh pr diff` (full PR changeset) | `git diff origin/{base_branch}...HEAD` (full changeset against base) |
+| Diff command (first review) | `gh pr diff` (full PR changeset) | `git diff origin/{base_branch}...HEAD` (full changeset against base) |
+| Diff command (re-review / delta) | `git fetch origin ${BASE_REF}` + `git log ${LAST_REVIEW_COMMIT}..HEAD --not origin/${BASE_REF} -p` (PR-side commits only; excludes base-branch merges, see [#1758](https://github.com/jwbron/egg/issues/1758)) | `git fetch origin {base_branch}` + `git log {last_reviewed_commit}..HEAD --not origin/{base_branch} -p` (same semantics for BRC `review_cycle > 1`) |
 | Thoroughness emphasis | "Find ALL issues on the first pass" (build-review-prompt.sh) | "Find ALL issues on the first pass" (`_build_review_prompt()`) |
 | Severity classification | `shared/prompts/code-review-criteria.md` (shared) | Same file (shared) |
 
@@ -82,3 +83,4 @@ When changing review criteria or conventions:
 - [ ] Verify the procedural review steps match between both surfaces
 - [ ] If changing verdict format: check `_build_review_prompt()` (sequential verdict JSON) and `_build_agent_prompt()` + `_build_brc_preamble()` (concurrent ACK/NACK)
 - [ ] If changing ACK/NACK format guidance: update the structured format in `_build_brc_preamble()`
+- [ ] If changing the re-review diff command: update the three PR-reviewer builders (`action/build-review-prompt.sh`, `action/build-agent-mode-design-review-prompt.sh`, `action/build-contract-verification-prompt.sh`), the SDLC reviewer's `_build_review_prompt()` `is_delta_review` branch plus its Delta Review directive, and the `BASE_REF` plumbing in `.github/workflows/reusable-review.yml`. The first-review three-dot `git diff origin/<base>...HEAD` is independent of the delta path.

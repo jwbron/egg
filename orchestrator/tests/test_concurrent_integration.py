@@ -157,21 +157,21 @@ class TestConcurrentMessageExchange:
         assert received[0]["message_type"] == "PROGRESS"
         assert received[0]["subject"] == "API complete"
 
-        # Tester sends question to coder
+        # Tester sends status query to coder
         send_message(
             "issue-999",
             "tester",
             "coder",
-            "QUESTION",
+            "STATUS",
             "Test expectations",
             "What is expected return code?",
         )
 
-        # Coder polls and gets broadcast + targeted question
+        # Coder polls and gets broadcast + targeted status
         received = poll_messages("issue-999", "coder")
-        assert len(received) == 2  # Broadcast PROGRESS + targeted QUESTION
+        assert len(received) == 2  # Broadcast PROGRESS + targeted STATUS
         assert received[0]["message_type"] == "PROGRESS"  # broadcast to "all"
-        assert received[1]["message_type"] == "QUESTION"  # targeted to "coder"
+        assert received[1]["message_type"] == "STATUS"  # targeted to "coder"
 
     def test_broadcast_message_received_by_all(self):
         """Broadcast messages (to_role='all') are received by all agents."""
@@ -421,7 +421,7 @@ class TestConcurrentEndToEnd:
         send_msg("coder", "tester", "PROGRESS", "API tests can start")
 
         # Step 3: Tester starts testing, sends question
-        send_msg("tester", "coder", "QUESTION", "Expected HTTP status for invalid input?")
+        send_msg("tester", "coder", "STATUS", "Expected HTTP status for invalid input?")
         send_msg("coder", "tester", "RESPONSE", "400 Bad Request")
 
         # Step 4: Documenter tracks changes
@@ -448,8 +448,8 @@ class TestConcurrentEndToEnd:
         assert len(messages) == 6
         progress_msgs = [m for m in messages if m["message_type"] == "PROGRESS"]
         assert len(progress_msgs) == 2
-        question_msgs = [m for m in messages if m["message_type"] == "QUESTION"]
-        assert len(question_msgs) == 1
+        status_msgs = [m for m in messages if m["message_type"] == "STATUS"]
+        assert len(status_msgs) == 3  # tester + documenter + reviewer STATUS
 
 
 class TestGetAgentRoles:
@@ -582,7 +582,20 @@ class TestConcurrentPromptLifecycle:
         assert "BRC Consensus Protocol" not in prompt
 
     def test_concurrent_phase_completion_includes_polling_loop(self):
-        """Concurrent prompts should have stay-alive instructions in Phase Completion."""
+        """Concurrent prompts should have stay-alive instructions in Phase Completion.
+
+        Issue #1897 replaced the ``egg-orch message poll`` shell idiom
+        with the event-driven ``egg-orch message wait-loop`` primitive
+        so we assert the new idiom here.  The anti-pattern ban is also
+        asserted so we catch any future regression that re-introduces
+        a ``sleep N &&`` or ``for i in ... do message poll`` pattern.
+
+        This test pins the **canonical --for list** documented in
+        ``docs/reference/agent-wait-patterns.md`` §1 so any drift
+        between docs and prompts is caught here: producer stay-alive
+        must wait on CONSENSUS_CONFIRMED + CONSENSUS_RE_REVIEW +
+        OVERSEER_ALERT simultaneously (the docs-required triple).
+        """
         from routes.pipelines import _build_agent_prompt
 
         prompt = _build_agent_prompt(
@@ -593,8 +606,47 @@ class TestConcurrentPromptLifecycle:
             concurrent=True,
         )
         assert "egg-orch signal readiness --state READY" in prompt
-        assert "egg-orch message poll" in prompt
+        # New canonical idiom (issue #1897).
+        assert "egg-orch message wait-loop" in prompt
+        # Canonical producer --for list per agent-wait-patterns.md §1.
+        # Each MUST be present — missing any one lets the agent stall
+        # through a particular BRC event type.
+        assert "--for CONSENSUS_CONFIRMED" in prompt
+        assert "--for CONSENSUS_RE_REVIEW" in prompt
+        assert "--for OVERSEER_ALERT" in prompt
         assert "Do NOT exit" in prompt
+        # Anti-pattern bans (both `for i in ... do poll` AND `sleep N`).
+        # Lower-case match because the prompt uses ``**don't**`` for
+        # emphasis, not the formal ``Do NOT`` marker.
+        low = prompt.lower()
+        assert "for i in" in low, "Producer stay-alive must call out the for-loop anti-pattern"
+        assert "sleep" in low, "Producer stay-alive must call out the sleep anti-pattern"
+
+    def test_reviewer_stay_alive_uses_canonical_for_list(self):
+        """Reviewer stay-alive prompt pins the reviewer-specific
+        canonical --for list documented in agent-wait-patterns.md §1:
+        CONSENSUS_PROPOSE + CONSENSUS_RE_REVIEW + CONSENSUS_CONFIRMED +
+        OVERSEER_ALERT.
+
+        Reviewers need CONSENSUS_PROPOSE (producers re-proposing after
+        a NACK) in addition to the producer-triple — without it they
+        miss the most important event for their role.
+        """
+        from routes.pipelines import _build_agent_prompt
+
+        prompt = _build_agent_prompt(
+            role_value="reviewer_code",
+            phase="implement",
+            pipeline_id="issue-123",
+            pipeline_mode="issue",
+            concurrent=True,
+        )
+        assert "egg-orch message wait-loop" in prompt
+        # Reviewer-specific canonical --for list.
+        assert "--for CONSENSUS_PROPOSE" in prompt
+        assert "--for CONSENSUS_RE_REVIEW" in prompt
+        assert "--for CONSENSUS_CONFIRMED" in prompt
+        assert "--for OVERSEER_ALERT" in prompt
 
     def test_non_concurrent_phase_completion_says_exit(self):
         """Non-concurrent prompts should tell agents to exit normally."""
@@ -799,3 +851,368 @@ class TestAgentsMarkedCompleteAfterConsensus:
             pipeline.get_phase_execution(PipelinePhase.IMPLEMENT).status == PipelineStatus.RUNNING
         )
         assert pipeline.status == PipelineStatus.RUNNING
+
+
+# ---------------------------------------------------------------------------
+# Issue #1897 plan-mandated integration tests: TASK-8-1 / TASK-8-2 / TASK-8-3
+# ---------------------------------------------------------------------------
+#
+# The plan (revision 4) specifies three integration tests that validate the
+# end-to-end goal of #1897:
+#
+#   * TASK-8-1: event-driven BRC wake-up within 2s of CONSENSUS_CONFIRMED
+#   * TASK-8-2: repeated ``consensus confirmed`` calls do not pollute the
+#               bus (PR #1896 regression guard, HITL Q1 follow-up)
+#   * TASK-8-3: misconfigured EGG_MESSAGE_POLL_MAX_WAIT produces 504 from
+#               the gateway (RISK-4 named-failure mode, so operators see a
+#               loud error rather than silent stalls)
+#
+# These exercise the plumbing end-to-end — not just the unit-level
+# MessageStore blocking tested in test_message_store.py — because the
+# failure modes they guard against are all at the integration boundary.
+
+
+class TestEventDrivenConsensusWait:
+    """Plan TASK-8-1: an agent blocking on the ``/messages/wait``
+    endpoint MUST return within ~2s of a peer writing a
+    ``CONSENSUS_CONFIRMED`` message to the bus.
+
+    Before issue #1897, agents polled every 30s; the sub-2s target is
+    the core success criterion of the whole feature.
+    """
+
+    @pytest.fixture
+    def wait_app(self):
+        """Flask app wired to messages_bp + a fresh in-memory MessageStore."""
+        from flask import Flask
+        from message_store import reset_message_store
+        from routes.messages import messages_bp
+
+        app = Flask(__name__)
+        app.register_blueprint(messages_bp)
+        app.config["TESTING"] = True
+        reset_message_store()
+        yield app
+        reset_message_store()
+
+    def test_event_driven_consensus_wait_wakes_within_2s(self, wait_app):
+        """A thread blocked on ``/messages/wait?for=CONSENSUS_CONFIRMED``
+        MUST unblock within 2s of a peer writing that message type.
+
+        Measured wall-clock in-process via the Flask test client, so the
+        only latency is the condition-variable wake-up path; if it
+        exceeds 2s, something is polling rather than blocking.
+        """
+        import threading
+        import time as _t
+        from unittest.mock import MagicMock
+
+        from message_store import Message, MessageType, get_message_store
+
+        pipeline_id = "issue-task-8-1"
+
+        # Results from the waiter thread. Use ``Any`` so mypy does not
+        # complain about indexing the heterogeneous-dict result.
+        from typing import Any as _Any
+
+        wake_data: dict[str, _Any] = {}
+
+        def blocking_wait() -> None:
+            """Waiter: block on /messages/wait until a CONSENSUS_CONFIRMED arrives."""
+            client = wait_app.test_client()
+            with wait_app.test_request_context():
+                with patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline:
+                    mock_get_store_for_pipeline.return_value = (
+                        MagicMock(),
+                        _make_pipeline_mock_for_task_8(),
+                    )
+                    start = _t.monotonic()
+                    resp = client.get(
+                        f"/api/v1/pipelines/{pipeline_id}/messages/wait"
+                        "?for=CONSENSUS_CONFIRMED&timeout=10"
+                    )
+                    wake_data["elapsed"] = _t.monotonic() - start
+                    wake_data["status"] = resp.status_code
+                    wake_data["body"] = json.loads(resp.data)
+
+        # Start the waiter.
+        waiter = threading.Thread(target=blocking_wait)
+        waiter.start()
+
+        # Give the waiter a moment to enter the blocking branch.
+        _t.sleep(0.1)
+
+        # Peer writes the confirmation — this must wake the waiter via the
+        # per-pipeline condition variable.
+        store = get_message_store()
+        write_time = _t.monotonic()
+        store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role="reviewer_code",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_CONFIRMED,
+                subject="Confirmed by reviewer_code",
+            )
+        )
+
+        # The waiter should return quickly — give it a generous upper
+        # bound (5s) but ASSERT the tighter sub-2s target.
+        waiter.join(timeout=5)
+        assert not waiter.is_alive(), (
+            "Waiter did not return within 5s — condition variable likely not notifying"
+        )
+
+        # Wall-clock from write → wake must be well under 2s.
+        total_elapsed = _t.monotonic() - write_time
+        assert total_elapsed < 2, (
+            f"Event-driven wake-up took {total_elapsed:.2f}s (target: <2s). "
+            "The wait primitive is NOT event-driven."
+        )
+
+        # The endpoint must have observed the message and returned matched=True.
+        assert wake_data["status"] == 200
+        assert wake_data["body"]["data"]["matched"] is True
+        assert wake_data["body"]["data"]["count"] == 1
+        assert wake_data["body"]["data"]["messages"][0]["message_type"] == ("CONSENSUS_CONFIRMED")
+
+
+class TestConsensusConfirmedDedupRegression:
+    """Plan TASK-8-2 (HITL Q1 follow-up to PR #1896): repeated
+    ``consensus confirmed`` calls MUST NOT spray the bus with duplicate
+    ``CONSENSUS_CONFIRMED`` messages.
+
+    Before PR #1896, a retry-looping agent could write N consecutive
+    CONFIRMED messages on each retry, polluting the bus and tricking
+    the fallback check into false positives. The signal handler now
+    dedups via ``_existing_confirmed_for_role``; N=10 repeated calls
+    from the same role in the same phase should yield exactly 1
+    CONFIRMED message.
+    """
+
+    @pytest.fixture
+    def deduce_app(self):
+        """Flask app wired to signals_bp + messages_bp + fresh stores."""
+        from flask import Flask
+        from message_store import reset_message_store
+        from routes.messages import messages_bp
+        from routes.signals import signals_bp
+
+        app = Flask(__name__)
+        app.register_blueprint(signals_bp)
+        app.register_blueprint(messages_bp)
+        app.config["TESTING"] = True
+        reset_message_store()
+        yield app
+        reset_message_store()
+
+    def test_ten_confirmed_calls_yield_exactly_one_bus_message(self, deduce_app):
+        """N=10 consensus-confirmed invocations from the same role MUST
+        result in exactly 1 bus message with message_type=CONSENSUS_CONFIRMED.
+
+        This is the PR #1896 regression guard; without the dedup, the
+        count is N.
+        """
+        import tempfile
+        from unittest.mock import MagicMock
+
+        from consensus import ReadinessState, get_consensus_evaluator
+        from message_store import get_message_store
+
+        pipeline_id = "issue-task-8-2"
+        agent_role = "coder"
+        N = 10
+
+        # Seed the evaluator so the confirmed handler has state to work with.
+        evaluator = get_consensus_evaluator()
+        evaluator.register_agent(pipeline_id, agent_role)
+        evaluator.update_readiness(
+            pipeline_id,
+            agent_role,
+            ReadinessState.READY,
+            reason="setup",
+        )
+
+        client = deduce_app.test_client()
+
+        # NOTE: peer_consensus.get_peer_consensus_tracker is imported
+        # *locally* inside handle_consensus_confirmed_signal (see
+        # routes/signals.py:1314), so we patch the source module, not
+        # the routes.signals namespace.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with (
+                patch("routes.signals.get_repo_path", return_value=tmpdir),
+                patch(
+                    "routes.signals.resolve_repo_path_for_pipeline",
+                    return_value=tmpdir,
+                ),
+                patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+                patch("routes.signals._write_consensus_confirmed_marker"),
+                patch("peer_consensus.get_peer_consensus_tracker") as mock_get_tracker,
+            ):
+                mock_tracker = MagicMock()
+                mock_tracker.handle_confirmed.return_value = {
+                    "status": "confirmed",
+                    "message": "Confirmed",
+                    "consensus_reached": False,
+                }
+                mock_get_tracker.return_value = mock_tracker
+
+                # Fire N consensus_confirmed calls from the same role.
+                for _ in range(N):
+                    resp = client.post(
+                        f"/api/v1/pipelines/{pipeline_id}/signal",
+                        json={
+                            "signal_type": "consensus_confirmed",
+                            "agent_role": agent_role,
+                        },
+                    )
+                    # First call should succeed; subsequent calls should
+                    # still succeed (the handler is idempotent) but NOT
+                    # emit a duplicate message.
+                    assert resp.status_code in (200, 202), (
+                        f"Signal returned {resp.status_code}: {resp.data!r}"
+                    )
+
+        # Count CONSENSUS_CONFIRMED messages from agent_role in this pipeline.
+        store = get_message_store()
+        messages = store.get_messages(pipeline_id, limit=1000)
+        confirmed_from_role = [
+            m
+            for m in messages
+            if m.from_role == agent_role and str(m.message_type) == "CONSENSUS_CONFIRMED"
+        ]
+
+        # Cleanup
+        evaluator.clear(pipeline_id)
+
+        assert len(confirmed_from_role) == 1, (
+            f"N={N} consensus_confirmed calls produced "
+            f"{len(confirmed_from_role)} messages (expected 1). "
+            "PR #1896 dedup has regressed."
+        )
+
+
+class TestMisconfiguredCap504:
+    """Plan TASK-8-3 (RISK-4 named failure mode): if an operator sets
+    ``EGG_MESSAGE_POLL_MAX_WAIT`` above the gateway's Squid
+    ``read_timeout``, long-polls should produce a visible 504 rather
+    than silently stalling.
+
+    The full test requires a subprocess orchestrator behind a proxy
+    harness with the Squid timeout pinned to 60s; that harness lives in
+    integration_tests/. In the unit suite we verify the decision logic:
+    when cap > SAFE_THRESHOLD, the startup warning MUST be emitted
+    naming the gateway Squid coupling so an operator sees the config
+    error loudly.
+    """
+
+    def test_warning_emitted_when_cap_exceeds_threshold(self, monkeypatch):
+        """Plan TASK-8-3 (unit-level): setting
+        EGG_MESSAGE_POLL_MAX_WAIT above the safe threshold MUST emit a
+        WARNING naming the gateway Squid coupling.
+
+        Without this warning, an operator who raises the cap without
+        rebuilding the gateway image sees their long-polls silently
+        hit 504 with no diagnostic hint. The warning is the difference
+        between a 15-minute oncall page and an hour of stare-at-logs.
+        """
+        import warnings
+
+        monkeypatch.setenv("EGG_MESSAGE_POLL_MAX_WAIT", "120")  # > 90s threshold
+        # Re-import to pick up the env var
+        import importlib
+
+        import env_config
+
+        importlib.reload(env_config)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            env_config.log_message_poll_max_wait_startup()
+            # At least one warning must mention the Squid coupling.
+            messages = [str(w.message) for w in caught]
+            assert any("squid.conf" in m.lower() or "squid" in m.lower() for m in messages), (
+                f"No Squid-coupling warning emitted; caught: {messages!r}"
+            )
+            assert any("image rebuild" in m.lower() or "rebuild" in m.lower() for m in messages), (
+                "Warning must tell the operator a rebuild is required"
+            )
+
+    def test_no_warning_when_cap_at_default(self, monkeypatch):
+        """Safe default (60s) must NOT emit the warning — otherwise the
+        warning loses signal through fatigue."""
+        import warnings
+
+        monkeypatch.delenv("EGG_MESSAGE_POLL_MAX_WAIT", raising=False)
+        import importlib
+
+        import env_config
+
+        importlib.reload(env_config)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            env_config.log_message_poll_max_wait_startup()
+            squid_warnings = [w for w in caught if "squid" in str(w.message).lower()]
+            assert not squid_warnings, (
+                f"Safe default emitted Squid warning (false positive): {squid_warnings!r}"
+            )
+
+    def test_clamp_prevents_abusive_timeout_values(self, monkeypatch):
+        """Even if an operator sends a timeout=9999 query arg, the cap
+        MUST clamp it so the long-poll doesn't outlive the Squid
+        timeout (the 504 failure mode).
+
+        This is a unit-level proxy for the full subprocess harness —
+        it confirms the clamp is actually applied on every request,
+        not just at startup.
+        """
+        from unittest.mock import MagicMock
+
+        from flask import Flask
+        from message_store import MessageStore, reset_message_store
+        from routes.messages import messages_bp
+
+        monkeypatch.setenv("EGG_MESSAGE_POLL_MAX_WAIT", "2")
+
+        app = Flask(__name__)
+        app.register_blueprint(messages_bp)
+        app.config["TESTING"] = True
+        reset_message_store()
+
+        store = MessageStore()
+        client = app.test_client()
+        import time as _t
+
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock_for_task_8(),
+                )
+                start = _t.monotonic()
+                resp = client.get(
+                    "/api/v1/pipelines/test/messages/wait?for=CONSENSUS_CONFIRMED&timeout=9999"
+                )
+                elapsed = _t.monotonic() - start
+
+        # Cap is 2s, so the call MUST return in < 5s, not 9999s.
+        assert resp.status_code == 200
+        assert elapsed < 5, (
+            f"timeout=9999 with cap=2 took {elapsed:.1f}s; clamp not applied. "
+            "This would cause the 504 failure mode in production."
+        )
+        reset_message_store()
+
+
+def _make_pipeline_mock_for_task_8() -> MagicMock:
+    """Minimal pipeline mock used by TASK-8 integration tests."""
+    pipeline = MagicMock()
+    pipeline.current_phase.value = "implement"
+    return pipeline
