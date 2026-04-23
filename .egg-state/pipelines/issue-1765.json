@@ -286,16 +286,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-23T06:52:14.462931Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-23T06:52:47.628355Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Keep both indefinitely — CLIs are used by humans, tests, entrypoint scripts, and bash wrappers; MCP tools are additive for agents (Recommended — matches AC 'existing CLIs keep working')\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:22:09.201730Z",
-  "updated_at": "2026-04-23T06:52:14.473018Z",
+  "updated_at": "2026-04-23T06:52:47.637792Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -309,5 +309,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:32:00.470351Z",
-  "version": 45
+  "version": 46
 }
