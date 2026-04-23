@@ -358,7 +358,7 @@ If all agents have confirmed BRC consensus but the pipeline phase has not transi
 **Transition-completion short-circuit:** Before applying the 90-second grace window, the detector loads the pipeline and returns early (no alert, no HITL decision, no Slack) when any of the following indicate the post-consensus transition already succeeded:
 
 - `pipeline.current_phase != "implement"` — the pipeline has already advanced out of implement (e.g., into `pr` or `complete`)
-- `pipeline.pr_number is not None` — an auto-created PR number has been written back to the pipeline record (see [`_finalize_pr_phase_failed` in `orchestrator/routes/pipelines.py`](../architecture/orchestrator.md#special-case-pr-phase))
+- `pipeline.pr_number is not None` — an auto-created PR number has been written back to the pipeline record (see [Pipeline state writeback after auto-PR creation](../architecture/orchestrator.md#pipeline-state-writeback-after-auto-pr-creation))
 - `phases["pr"].artifacts["pr_url"]` is set — the PR phase has already recorded a `pr_url` artifact
 
 When the short-circuit fires, the grace-period timer (`_post_consensus_stall_first_seen`) is reset so a subsequent genuine stall gets a fresh grace window. If loading the pipeline raises an exception, the detector falls through to the existing behaviour (fail open — a bug in the short-circuit must not suppress genuine alerts).
