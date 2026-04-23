@@ -387,6 +387,57 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
         # advance_phase call would be blocked by the optimistic lock above.
         _clear_concurrent_state(pipeline_id)
 
+        # When leaving the plan phase, parse the plan draft's yaml-tasks
+        # appendix into the contract's pr/phases fields.  _run_pipeline's
+        # per-phase block only runs this for the thread that owned the
+        # plan phase; a force=true advance replaces that thread before it
+        # reaches the populate step, leaving contract.pr empty and the
+        # PR phase's auto-PR path falling back to placeholder title/body
+        # (see #1941).
+        #
+        # Commit the result in-process so _sync_worktree_with_remote in
+        # the newly-spawned thread pushes rather than resets the change.
+        # Failures warn and continue — the advance-phase path is a recovery
+        # hammer; blocking it on populate failures would defeat the purpose.
+        if previous_phase == PipelinePhase.PLAN:
+            try:
+                from routes import resolve_worktree_path
+                from routes.pipelines import (
+                    _commit_statefiles_to_worktree,
+                    _pipeline_identifier,
+                    _populate_contract_from_plan_safe,
+                )
+
+                worktree_path = resolve_worktree_path(pipeline_id, store.repo_path)
+                pipeline_mode = pipeline.mode.value if pipeline.mode else "issue"
+                _populate_contract_from_plan_safe(
+                    worktree_path,
+                    pipeline_id,
+                    pipeline_mode,
+                    pipeline.issue_number,
+                )
+                try:
+                    _commit_statefiles_to_worktree(
+                        worktree_path,
+                        "Populate contract from plan on plan-phase exit",
+                        pipeline_identifier=_pipeline_identifier(
+                            pipeline.issue_number, pipeline_id
+                        ),
+                        pipeline_id=pipeline_id,
+                    )
+                except Exception as commit_err:
+                    logger.warning(
+                        "Failed to commit populated contract on plan exit (continuing)",
+                        pipeline_id=pipeline_id,
+                        error=str(commit_err),
+                    )
+            except Exception as exit_err:
+                logger.warning(
+                    "Failed to run plan-exit populate (continuing)",
+                    pipeline_id=pipeline_id,
+                    error=str(exit_err),
+                )
+
         # Launch a new _run_pipeline thread to process the target phase.
         # Without this, the pipeline stays in RUNNING state with no thread
         # driving agent spawning or consensus detection.  See #1672.
