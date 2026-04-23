@@ -18,14 +18,14 @@ pure handler functions (`sandbox/egg_agent_tools/handlers/*.py`), and a
 CI drift test (`tests/tools/test_mcp_cli_drift.py`) enforces the
 one-to-one mapping.
 
-## Opt-in — `EGG_MCP_TOOLS`
+## Flag — `EGG_MCP_TOOLS`
 
-The surface is gated behind a new environment variable:
+The surface is **on by default** since [#1942](https://github.com/jwbron/egg/issues/1942). Iteration 1 shipped it default-off; the flag was flipped once the wire-up was stable. The env var is retained as a rollback switch:
 
-| Flag | Default | Effect |
-|------|---------|--------|
-| `EGG_MCP_TOOLS=true` / `1` / `yes` | off | Register the 15 tools and append `SYSTEM_PROMPT_NUDGE` to `options.system_prompt`. |
-| `EGG_MCP_TOOLS` unset / falsy | default | Code path is byte-identical to the pre-#1765 behaviour. Non-opt-in pipelines pay no import cost and see no prompt changes. |
+| Flag | Effect |
+|------|--------|
+| `EGG_MCP_TOOLS` unset / `true` / `1` / `yes` | **Default.** Register the 15 tools and append `SYSTEM_PROMPT_NUDGE` to `options.system_prompt`. |
+| `EGG_MCP_TOOLS=false` / `0` / `no` / `off` | Opt-out. Code path is byte-identical to the pre-#1765 behaviour — no import cost, no prompt changes. |
 
 **Currently `claude_agent_sdk` harness only.** `EGG_HARNESS=egg` is
 not yet covered (decision-3) and will register the tools in parallel
@@ -99,11 +99,9 @@ test-collection time rather than silently breaking every sandbox.
 
 ## Follow-ups
 
-- **Burn-in window (TBD follow-up issue):** 5–10 opt-in pipelines,
-  compare turns-per-phase and cost-per-phase with/without the flag.
-  Once ≥15 % reduction is confirmed in refine/plan, a follow-up PR
-  flips the default to `true`. A later follow-up PR removes the flag
-  entirely.
+- **Default flipped — [#1942](https://github.com/jwbron/egg/issues/1942):**
+  The tool surface is now on by default; `EGG_MCP_TOOLS=false` is the
+  rollback switch. A later follow-up will remove the flag entirely.
 - **Iteration 2 verbs — [#1917](https://github.com/jwbron/egg/issues/1917):**
   Roughly 15 additional verbs surfaced in the capability audit (peer,
   checkpoint, anchor, overseer, task-gap) are tracked there.

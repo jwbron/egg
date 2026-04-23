@@ -8,6 +8,7 @@ from types import ModuleType
 from typing import Any
 from unittest.mock import patch
 
+import pytest
 from egg_agent.client import _MAX_TOOL_CONTENT_LOG_LEN, _truncate, run_agent, run_agent_async
 
 # ── Mock SDK types ──────────────────────────────────────────────────────────
@@ -841,10 +842,11 @@ class TestRunAgentSync:
         assert "Hello from Claude" in result.stdout
 
 
-# ── EGG_MCP_TOOLS wire-up tests (issue #1765) ──────────────────────────────
+# ── EGG_MCP_TOOLS wire-up tests (issues #1765, #1942) ──────────────────────
 class TestMcpToolsFlag:
     """Capture ClaudeAgentOptions kwargs via a patched constructor and
-    verify the gating behaviour of EGG_MCP_TOOLS."""
+    verify the gating behaviour of EGG_MCP_TOOLS.  Default is on since
+    issue #1942 — set the env to a falsy value to opt out."""
 
     def _patch_options(self, captured: list):
         from claude_agent_sdk import ClaudeAgentOptions as _Real
@@ -856,9 +858,33 @@ class TestMcpToolsFlag:
 
         return _Capturing
 
+    def _require_tools(self):
+        try:
+            from egg_agent_tools import SYSTEM_PROMPT_NUDGE
+
+            return SYSTEM_PROMPT_NUDGE
+        except ImportError:
+            import pytest
+
+            pytest.skip("egg_agent_tools not importable")
+
     @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
-    def test_mcp_tools_flag_off(self, mock_query, monkeypatch):
+    def test_mcp_tools_default_on_when_env_unset(self, mock_query, monkeypatch):
         monkeypatch.delenv("EGG_MCP_TOOLS", raising=False)
+        nudge = self._require_tools()
+        captured: list = []
+        capturing_cls = self._patch_options(captured)
+        with patch("claude_agent_sdk.ClaudeAgentOptions", capturing_cls):
+            _run_async(run_agent_async("hi"))
+        assert len(captured) == 1
+        opts = captured[0]
+        assert getattr(opts, "mcp_servers", None)
+        assert opts.system_prompt == nudge
+
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    @pytest.mark.parametrize("value", ["false", "0", "no", "off", "FALSE", "No"])
+    def test_mcp_tools_opt_out_explicit_falsy(self, mock_query, monkeypatch, value):
+        monkeypatch.setenv("EGG_MCP_TOOLS", value)
         captured: list = []
         capturing_cls = self._patch_options(captured)
         with patch("claude_agent_sdk.ClaudeAgentOptions", capturing_cls):
@@ -869,37 +895,27 @@ class TestMcpToolsFlag:
         assert not mcp
 
     @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
-    def test_mcp_tools_flag_on(self, mock_query, monkeypatch):
+    def test_mcp_tools_flag_on_preserves_caller_prompt(self, mock_query, monkeypatch):
         monkeypatch.setenv("EGG_MCP_TOOLS", "true")
+        nudge = self._require_tools()
         captured: list = []
         capturing_cls = self._patch_options(captured)
-        try:
-            from egg_agent_tools import SYSTEM_PROMPT_NUDGE
-        except ImportError:
-            import pytest
-
-            pytest.skip("egg_agent_tools not importable")
         with patch("claude_agent_sdk.ClaudeAgentOptions", capturing_cls):
             _run_async(run_agent_async("hi", system_prompt="existing-prompt"))
         opts = captured[0]
         assert getattr(opts, "mcp_servers", None)
-        assert opts.system_prompt.endswith(SYSTEM_PROMPT_NUDGE)
+        assert opts.system_prompt.endswith(nudge)
         assert opts.system_prompt.startswith("existing-prompt")
 
     @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
     def test_mcp_tools_flag_on_no_caller_prompt(self, mock_query, monkeypatch):
         monkeypatch.setenv("EGG_MCP_TOOLS", "yes")
+        nudge = self._require_tools()
         captured: list = []
         capturing_cls = self._patch_options(captured)
-        try:
-            from egg_agent_tools import SYSTEM_PROMPT_NUDGE
-        except ImportError:
-            import pytest
-
-            pytest.skip("egg_agent_tools not importable")
         with patch("claude_agent_sdk.ClaudeAgentOptions", capturing_cls):
             _run_async(run_agent_async("hi"))
-        assert captured[0].system_prompt == SYSTEM_PROMPT_NUDGE
+        assert captured[0].system_prompt == nudge
 
 
 class TestCanUseToolPassesMcpNames:

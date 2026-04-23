@@ -208,9 +208,11 @@ async def run_agent_async(
     if system_prompt is not None:
         options.system_prompt = system_prompt
 
-    # --- Opt-in: register in-process SDK MCP servers with egg's agent tools ---
-    # Gated on EGG_MCP_TOOLS so non-opt-in pipelines pay zero cost (no
-    # extra import, no prompt-weight change).  See issue #1765.
+    # --- Register in-process SDK MCP servers with egg's agent tools ---
+    # Default-on since issue #1942.  Set ``EGG_MCP_TOOLS=false`` (or
+    # ``0`` / ``no`` / ``off``) on the pod env to opt out — the kill
+    # switch preserved from #1765's opt-in rollout.  See issue #1765
+    # for the original design and #1942 for the default flip.
     #
     # The factory returns one SDK MCP server per namespace (keys: sdlc,
     # brc, phase, progress, task).  The Claude-visible tool name is
@@ -218,11 +220,8 @@ async def run_agent_async(
     # its namespace is what produces the decision-7 visible names
     # ``mcp__sdlc__register_open_question`` etc.  A single aggregate
     # server would double-prefix (``mcp__egg__mcp__sdlc__...``).
-    # Accept the documented truthy values only — "true"/"1"/"yes".
-    # A narrower set keeps the docs/config surface aligned across
-    # operators and avoids surprises for future maintainers.
-    _mcp_flag_raw = os.environ.get("EGG_MCP_TOOLS", "")
-    if _mcp_flag_raw.strip().lower() in ("true", "1", "yes"):
+    _mcp_flag_raw = os.environ.get("EGG_MCP_TOOLS", "").strip().lower()
+    if _mcp_flag_raw not in ("false", "0", "no", "off"):
         try:
             from egg_agent_tools import (  # noqa: PLC0415
                 SYSTEM_PROMPT_NUDGE,
