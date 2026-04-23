@@ -347,23 +347,70 @@ check_confirmed_and_wait() {{
         # Try SSE path if curl is available.
         if command -v curl >/dev/null 2>&1 && [ -n "${{EGG_PIPELINE_ID:-}}" ]; then
             cw_log "Waiting on SSE event 'consensus.reached' at $sse_url"
-            # --no-buffer so we see events live; -m sets an overall
-            # time cap (MAX_READY_POLLS × poll_interval).  When the
-            # curl socket closes (SIGTERM, hangup, server EOF) we
+            # Overall time cap for the SSE subscription. When the curl
+            # socket closes (SIGTERM, hangup, server EOF, max-time) we
             # fall through to the final status check.
-            local max_seconds
+            local max_seconds sse_exit_code
             max_seconds=$(( MAX_READY_POLLS * poll_interval ))
-            # The -m max-time flag bounds the overall stream.  When
-            # the server emits the consensus.reached event we grep
-            # for it and break via `exit` inside the pipeline.
-            if curl --no-buffer -sf -m "$max_seconds" "$sse_url" 2>/dev/null | \
-                python3 -c '
-import sys
-for line in sys.stdin:
-    if line.startswith("event:") and "consensus.reached" in line:
-        sys.exit(0)
-sys.exit(1)
-'; then
+
+            # Run curl in the background so we can install a SIGTERM
+            # trap (issue #1897 TASK-5-1 acceptance b, reviewer_contract
+            # blocker 3). The orchestrator sends SIGTERM to the wrapper
+            # PID when it closes the pod; without the trap, curl would
+            # keep the stream open while the default bash handler tears
+            # down the process, producing a > 2s shutdown. With the trap
+            # we kill curl on TERM, clean up the temp file, and exit
+            # cleanly within the graceful shutdown window.
+            #
+            # ``--connect-timeout 5`` ensures we fail fast if the SSE
+            # endpoint is unreachable (older sandbox image, DNS error,
+            # proxy restriction) rather than blocking for the full
+            # max_seconds budget before falling through.
+            local curl_pid sse_tmp sse_exit_code
+            sse_tmp=$(mktemp -t consensus_sse.XXXXXX)
+            curl --no-buffer -sf \
+                --connect-timeout 5 \
+                -m "$max_seconds" \
+                "$sse_url" > "$sse_tmp" 2>/dev/null &
+            curl_pid=$!
+            trap "
+                cw_log 'SIGTERM received; stopping SSE curl (pid $curl_pid) and exiting cleanly.'
+                kill '$curl_pid' 2>/dev/null || true
+                rm -f '$sse_tmp' 2>/dev/null || true
+                exit 0
+            " TERM
+
+            # Poll the curl output for the consensus.reached event
+            # while curl is alive. Reading a growing temp file is more
+            # robust under ``set -uo pipefail`` than ``exec 9< <(curl)``
+            # (process substitution) — the fd-based approach was seen
+            # to hang rather than surface curl's fast-fail exit.
+            sse_exit_code=1
+            local tail_deadline
+            tail_deadline=$((SECONDS + max_seconds))
+            while [ "$SECONDS" -lt "$tail_deadline" ]; do
+                if grep -q '^event:.*consensus\.reached' "$sse_tmp" 2>/dev/null; then
+                    sse_exit_code=0
+                    break
+                fi
+                if ! kill -0 "$curl_pid" 2>/dev/null; then
+                    # curl exited — check one last time for the event.
+                    if grep -q '^event:.*consensus\.reached' "$sse_tmp" 2>/dev/null; then
+                        sse_exit_code=0
+                    fi
+                    break
+                fi
+                sleep 0.5
+            done
+            # Clean up: drop the trap and kill curl before falling
+            # through; we don't want the trap to fire during the rest
+            # of the function (which runs its own kill semantics).
+            trap - TERM
+            kill "$curl_pid" 2>/dev/null || true
+            wait "$curl_pid" 2>/dev/null || true
+            rm -f "$sse_tmp" 2>/dev/null || true
+
+            if [ "$sse_exit_code" -eq 0 ]; then
                 cw_log "SSE delivered consensus.reached. Verifying via status..."
                 local resp is_complete
                 resp=$(egg-orch pipeline status --json 2>/dev/null || echo "{{}}")

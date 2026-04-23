@@ -29,7 +29,7 @@ except ImportError:
 
 
 import redis
-from message_store import Message
+from message_store import Message, coerce_deprecated_message_type
 
 logger = get_logger("orchestrator.redis_message_store")
 
@@ -92,7 +92,10 @@ def _message_from_redis(stream_id: str, fields: dict[bytes | str, bytes | str]) 
         pipeline_id=_get("pipeline_id"),
         from_role=_get("from_role"),
         to_role=_get("to_role"),
-        message_type=_get("message_type"),
+        # Coerce deprecated types (e.g. replayed ``QUESTION`` from an
+        # older checkpoint) to their current replacement so downstream
+        # code doesn't need to handle removed enum members (#1897).
+        message_type=coerce_deprecated_message_type(_get("message_type")),
         subject=_get("subject"),
         body=_get("body"),
         metadata=metadata,

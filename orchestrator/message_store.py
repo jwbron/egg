@@ -19,20 +19,22 @@ logger = logging.getLogger("orchestrator.message_store")
 
 
 class MessageType:
-    """Standard message types for inter-agent communication."""
+    """Standard message types for inter-agent communication.
+
+    Note on QUESTION (issue #1897 Phase 7): the QUESTION message type was
+    removed. It is no longer a valid enum member. Inbound messages that
+    still carry ``message_type="QUESTION"`` (e.g. replayed from an older
+    checkpoint) are coerced to ``MessageType.PROGRESS`` by
+    :func:`coerce_deprecated_message_type` below so they still appear in
+    history and downstream pipelines don't crash on unknown types.  A
+    follow-up issue will introduce a structured REQUEST/REPLY peer-Q&A
+    subsystem that names a target peer and times out.
+    """
 
     PROGRESS = "PROGRESS"
     STATUS = "STATUS"
     AGENT_FAILED = "AGENT_FAILED"
     HANDOFF = "HANDOFF"
-    # DEPRECATED (issue #1897). QUESTION is no longer advertised in the
-    # reviewer preamble or the CLI ``--type`` choice list; it is retained
-    # as an enum member here only so existing test fixtures (tester
-    # owns the test files) keep resolving until the tester updates them.
-    # A follow-up issue will replace QUESTION with a structured
-    # REQUEST/REPLY peer-Q&A subsystem that names a target peer and
-    # times out, and will then remove this member entirely.
-    QUESTION = "QUESTION"
     # Structured per-agent state heartbeat (issue #1897).
     # ``metadata`` is a JSON object with
     # ``{"state": ..., "waiting_on": ..., "since": ...}``;
@@ -61,6 +63,35 @@ HEARTBEAT_STATES: frozenset[str] = frozenset(
         "IDLE",
     }
 )
+
+# Deprecated-in-#1897 message types that are tolerated on inbound/replay
+# paths so existing on-disk brc-history files and in-flight pipelines
+# don't crash on a now-unknown type. These map to a still-valid type
+# that preserves the audit trail without reintroducing the deprecated
+# channel.
+_DEPRECATED_TYPE_COERCIONS: dict[str, str] = {
+    # QUESTION became a PROGRESS-tier status message in #1897. Kept here
+    # only for replay / deserialization safety; no code should emit
+    # QUESTION at write time. See module docstring and reviewer_contract
+    # blocker 2 on #1897.
+    "QUESTION": "PROGRESS",
+}
+
+
+def coerce_deprecated_message_type(raw_type: str) -> str:
+    """Normalise a deprecated message_type to its live replacement.
+
+    Used by the Redis/in-memory deserialization paths so replayed
+    messages whose ``message_type`` no longer exists on this version
+    of the orchestrator still land in the in-memory representation
+    with a valid type. Unknown-but-not-deprecated types pass through
+    unchanged — the rest of the pipeline treats unknown types as
+    opaque.
+
+    Returns the coerced type (e.g. ``"PROGRESS"``) if ``raw_type`` is
+    in the deprecation map, otherwise the original ``raw_type``.
+    """
+    return _DEPRECATED_TYPE_COERCIONS.get(raw_type, raw_type)
 
 
 class Message(BaseModel):

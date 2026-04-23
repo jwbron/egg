@@ -30,7 +30,13 @@ except ImportError:
 
 
 from events import EventType, emit_event
-from message_store import HEARTBEAT_STATES, Message, MessageType, get_message_store
+from message_store import (
+    HEARTBEAT_STATES,
+    Message,
+    MessageType,
+    coerce_deprecated_message_type,
+    get_message_store,
+)
 from routes import get_state_store_for_pipeline
 from state_store import InvalidPipelineIdError, PipelineNotFoundError
 
@@ -138,6 +144,12 @@ def send_message(pipeline_id: str) -> tuple[Response, int]:
     message_type = body.get("message_type")
     if not message_type:
         return _make_error("Missing message_type")
+
+    # Normalise deprecated message_type values (issue #1897) before any
+    # downstream logic sees them — e.g. a replayed ``QUESTION`` becomes
+    # ``PROGRESS`` so the audit trail is preserved without a now-unknown
+    # enum member circulating through the bus.
+    message_type = coerce_deprecated_message_type(message_type)
 
     # Catch the common shell-escape footgun where a caller sends e.g.
     # `--to $role` in a context that didn't expand the variable. The message
@@ -471,20 +483,29 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
     coordinator = get_heartbeat_coordinator()
 
     # Rate limit first — cheap check, bounds load.
+    #
+    # The 429 response shape is specified in issue #1897 reviewer_contract
+    # blocker 5: the body MUST carry ``error: "rate_limited"`` and
+    # ``retry_after: N`` so clients (``cmd_message_heartbeat``, external
+    # integrators) can parse a stable contract, and the HTTP
+    # ``Retry-After`` response header MUST echo N so standards-compliant
+    # HTTP clients can honour it without parsing the JSON.
     limit = get_heartbeat_rate_limit()
     decision = coordinator.check_rate_limit(pipeline_id, from_role, limit)
     if not decision.allowed:
+        retry_after = int(decision.retry_after_seconds)
         resp = jsonify(
             {
                 "success": False,
+                "error": "rate_limited",
                 "message": (
                     f"HEARTBEAT rate limit exceeded "
-                    f"({limit}/min per role); retry after "
-                    f"{decision.retry_after_seconds}s."
+                    f"({limit}/min per role); retry after {retry_after}s."
                 ),
-                "retry_after": decision.retry_after_seconds,
+                "retry_after": retry_after,
             }
         )
+        resp.headers["Retry-After"] = str(retry_after)
         return resp, 429
 
     # Dedup: silently drop if the role's (state, waiting_on) hasn't
