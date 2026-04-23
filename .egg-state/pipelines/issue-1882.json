@@ -295,16 +295,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-23T06:37:31.913529Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-23T06:38:06.909138Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Remove it entirely in this change — the gateway auto-filter fully supersedes it and keeping dead code adds maintenance burden\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:21:58.997312Z",
-  "updated_at": "2026-04-23T06:37:31.923638Z",
+  "updated_at": "2026-04-23T06:38:06.919249Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -318,5 +318,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:31:28.068349Z",
-  "version": 33
+  "version": 34
 }
