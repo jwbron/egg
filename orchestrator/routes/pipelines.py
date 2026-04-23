@@ -6322,11 +6322,16 @@ def _build_brc_preamble(
                     pr_number=pr_number,
                 ),
                 "2. **POLL**: Block on `CONSENSUS_PROPOSE` from assigned producers "
-                "with `egg-orch message wait --for CONSENSUS_PROPOSE --timeout 60`.  "
-                "Exit code 0 means a proposal arrived (stdout has it); 1 means "
-                "timeout (re-issue the wait); 2 is transient.  Do NOT poll "
-                "in a shell `for` loop and do NOT `sleep N`.  While waiting, "
-                "continue your preparation work from step 1.",
+                "with `egg-orch message wait-loop --for CONSENSUS_PROPOSE`.  "
+                "`wait-loop` blocks server-side and returns exit 0 the moment "
+                "a proposal arrives (stdout has it); it re-issues the inner "
+                "long-poll internally so timeouts never surface to you.  Do "
+                "NOT wrap this in a shell `for` loop, do NOT `sleep N`, and "
+                "do NOT use bare `egg-orch message wait` here — a bare `wait` "
+                "exits 1 on each timeout which the tool surface renders as an "
+                "error and invites a tight retry loop (issue #1943).  Finish "
+                "your preparation work from step 1 before entering the "
+                "wait-loop.",
                 "3. **SYNC**: Before reviewing, sync your worktree so you have the "
                 "producer's commits: `git fetch origin && git merge "
                 + _resolve_origin_ref(branch or base_branch)
