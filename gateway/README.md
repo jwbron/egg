@@ -477,10 +477,14 @@ are unchanged — upstream resets on those paths continue to surface through the
 existing `httpx.ConnectError` / `httpx.TimeoutException` / generic `Exception`
 handlers as 502/504 JSON payloads.
 
-**Observability:** both log events are structured and carry the session's
-`container_id` where known. Sustained volume of either event likely indicates
-an upstream issue worth investigating (network flakiness, connection pool
-staleness, upstream rate-limiting).
+**Observability:** both log events are structured and include per-event
+context — `attempt` / `error` / `error_type` on `upstream_reset_retry`, and
+`error` / `error_type` / `bytes_transferred` on `upstream_reset_midstream`.
+Cross-correlation to a specific session / container requires joining on
+request-adjacent log lines (the Anthropic proxy handler does not currently
+stamp `container_id` onto either event). Sustained volume of either event
+likely indicates an upstream issue worth investigating (network flakiness,
+connection pool staleness, upstream rate-limiting).
 
 ### Health
 
