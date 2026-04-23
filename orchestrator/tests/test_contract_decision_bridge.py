@@ -332,3 +332,110 @@ def test_bridge_is_noop_when_contract_missing(tmp_path: Path) -> None:
         PipelinePhase.REFINE,
     )
     assert dq.queued == []
+
+
+class _OrderTrackingQueue(_FakeQueue):
+    """FakeQueue that records queue/wait call order (for #1956)."""
+
+    def __init__(self, resolutions: list[str]) -> None:
+        super().__init__(resolutions)
+        self.events: list[tuple[str, str]] = []
+
+    def queue_decision(
+        self,
+        question: str,
+        context: str = "",
+        options: list[str] | None = None,
+        decision_type: str = "choice",
+        questions: list[dict[str, str]] | None = None,
+        phase: PipelinePhase | None = None,
+        content_changed: bool | None = None,
+    ) -> HITLDecision:
+        decision = super().queue_decision(
+            question=question,
+            context=context,
+            options=options,
+            decision_type=decision_type,
+            questions=questions,
+            phase=phase,
+            content_changed=content_changed,
+        )
+        self.events.append(("queue", decision.id))
+        return decision
+
+    def wait_for_decision(self, decision_id: str) -> HITLDecision:
+        self.events.append(("wait", decision_id))
+        return super().wait_for_decision(decision_id)
+
+
+def test_bridge_queues_all_decisions_before_waiting(tmp_path: Path) -> None:
+    """All queue_decision calls must precede the first wait_for_decision.
+
+    Regression test for #1956: previously the bridge queued and waited on
+    decisions one at a time, so ``get_status`` only ever surfaced a single
+    pending decision even when the contract had many. The fix batches the
+    queue pass so the skill can prompt for up to 4 decisions at once.
+    """
+    from routes.pipelines import _queue_and_await_contract_decisions
+
+    identifier = "issue-42"
+    _make_contract_file(
+        tmp_path,
+        identifier,
+        decisions=[
+            {
+                "id": f"decision-{i}",
+                "question": f"Question {i}?",
+                "type": "hitl",
+                "phase": "refine",
+                "options": [
+                    {"id": "opt-a", "label": "A", "description": None},
+                    {"id": "opt-b", "label": "B", "description": None},
+                ],
+                "resolved": False,
+                "resolution": None,
+                "resolved_by": None,
+                "resolved_at": None,
+                "debounce_until": None,
+            }
+            for i in range(1, 4)
+        ],
+        feedback={
+            "id": "feedback-1",
+            "phase": "refine",
+            "questions": [{"id": "Q1", "question": "Notes?", "answer": None}],
+            "submitted": False,
+            "submitted_by": None,
+            "submitted_at": None,
+            "comment_id": None,
+            "debounce_until": None,
+        },
+    )
+    dq = _OrderTrackingQueue(
+        resolutions=[
+            "A",
+            "B",
+            "A",
+            json.dumps({"action": "submit_feedback", "answers": {"Q1": "ok"}}),
+        ]
+    )
+
+    _queue_and_await_contract_decisions(
+        dq,
+        tmp_path,
+        "pipeline-id",
+        identifier,
+        PipelinePhase.REFINE,
+    )
+
+    # 3 choice decisions + 1 feedback decision → 4 queue events, 4 wait events
+    queue_events = [e for e in dq.events if e[0] == "queue"]
+    wait_events = [e for e in dq.events if e[0] == "wait"]
+    assert len(queue_events) == 4
+    assert len(wait_events) == 4
+
+    # Every queue must happen before the first wait — that's what lets
+    # ``get_status`` surface all pending decisions as a single batch.
+    first_wait_idx = next(i for i, e in enumerate(dq.events) if e[0] == "wait")
+    for e in dq.events[:first_wait_idx]:
+        assert e[0] == "queue", f"queue-before-wait invariant broken: {dq.events}"
