@@ -418,16 +418,16 @@
           "answer": ""
         }
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-23T06:55:40.743691Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-23T06:58:22.471838Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Moot — we chose Option D (in-process SDK MCP), not Option C. For the record: if Option C were revisited, the sandbox-facing server should expose only the BRC + HITL + phase-context core (~15 verbs per decision-11), and must NEVER expose submit_task, cancel_task, restart_phase, advance_phase, populate_contract, or the container/pod admin surface. Threat model to design against: a compromised sandbox container should not be able to (a) spawn or cancel pipelines, (b) modify other pipelines' state, (c) read checkpoints from other pipelines, or (d) escalate privilege by invoking orchestrator admin APIs. Option D sidesteps this by construction — handlers don't exist in the agent's process — so the threat-model work is deferred until/unless Option C is reconsidered.\", \"Q2\": \"Flavour (c): make the CLI a thin wrapper over the @tool handler functions. Both the shell CLI and the MCP tool dispatch into the same handler — single source of truth, no drift possible by construction. This aligns with decision-2's hybrid auto+override (argparse defines the skeleton schema; handlers define the behavior). Add (a) as belt-and-suspenders: a CI test that asserts every @tool has a matching CLI subparser for any tool that is expected to be CLI-accessible, and vice versa. Rejecting (b) standalone: 'argparse as single source of truth' can't express the new verbs (brc_get_state as JSON, peer_read_artifact, etc.) that have no CLI equivalent — the tool registry is the authoritative surface, not argparse.\", \"Q3\": \"Yes — inject a short (<=200 word) bootstrap paragraph into the system prompt per decision-10/7 (Hybrid D + prompt nudge). The paragraph should name the tool namespaces (mcp__sdlc__*, mcp__brc__*, mcp__phase__*, mcp__progress__*) and explicitly say 'prefer these over Bash for agent-lifecycle operations.' Past experience (cited in the draft) shows agents default to Bash even when a structured tool exists; the prompt nudge corrects for that without spending prompt tokens on full tool schemas.\", \"Q4\": \"JSON payload verbatim (option a). Typed tools should return structured data; agents will parse JSON reliably with orders of magnitude fewer errors than parsing terminal-table output. Token-economy argument for compact text is weak because tool results are not billed per input token in the agent's steady-state loop. If a human-formatted view is useful for something else (e.g., debug checkpoint replay), generate it separately from the CLI, not from the MCP tool. Exception: for very large payloads (brc_get_state on a pipeline with dozens of agents), tools should accept a `verbose: bool` argument and default to a compact projection.\", \"Q5\": \"N/A — we chose Option D, which runs tools in the agent's own process. No new auth layer is needed because handlers execute inside the sandbox's existing trust boundary. This question becomes relevant only if we revisit Option C in a future iteration.\", \"Q6\": \"MCP tool calls get distinct names natively (`mcp__sdlc__register_open_question` vs `Bash`) in the tool_use stream — the checkpoint browser will show them correctly without any code changes. Optional future improvement: add a checkpoint-search facet to filter by MCP-tool namespace prefix (mcp__sdlc__*, mcp__brc__*, etc.) for analytics; not required for iteration 1.\", \"Q7\": \"Default 60s timeout is fine for the BRC + HITL + phase-context core — these are all fast operations (register a decision, read a task list, propose a version, query current state). For long-running verbs in iteration 2 (checkpoint_search, overseer_query_status with deep history, peer_poll_messages with a long wait): split into start/poll pairs. Pattern: `<verb>_start` returns a job-id; `<verb>_poll(job_id)` returns result-or-still-running. This also gives the agent a natural cancellation point. Not a concern for iteration 1 since none of the core 15 verbs are long-running.\", \"Q8\": \"Feature-flag gated initially (e.g., EGG_MCP_TOOLS=true in ClaudeAgentOptions.env or as a per-pipeline config). Burn-in window of N=5-10 pipelines comparing turn-count and cost-per-phase between MCP-enabled and shell-only modes. Flip default to ON once metrics show ≥15% reduction in turns-per-phase for the refine/plan phases (the ones with highest tooling-archaeology cost in #1765's motivating observation). Rollout feature flag can be removed in a follow-up after a clean week. This matches the pattern used in prior egg rollouts (overseer, concurrent-mode).\"}}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:22:09.201730Z",
-  "updated_at": "2026-04-23T06:55:40.766936Z",
+  "updated_at": "2026-04-23T06:58:22.484689Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -441,5 +441,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:32:00.470351Z",
-  "version": 55
+  "version": 56
 }
