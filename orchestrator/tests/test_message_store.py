@@ -404,3 +404,93 @@ class TestClearRemovesConditionVariable:
         assert 0.8 <= elapsed <= 2.0, (
             f"Fresh wait after clear took {elapsed:.2f}s; expected ~1s (normal timeout path)"
         )
+
+
+class TestFromTipSemantics:
+    """``from_tip=True`` snaps the starting cursor to the current length
+    so only messages added after the call unblock the wait.
+
+    Backs the ``/messages/wait`` endpoint fix for issue #1925: without
+    from_tip, repeated cursor-less wait-loop invocations re-matched the
+    same already-seen event and returned instantly instead of blocking.
+    """
+
+    def test_pre_existing_matching_message_does_not_match(self, store: MessageStore) -> None:
+        """A matching message added BEFORE the wait must be ignored."""
+        store.add_message(_make_message(message_type=MessageType.CONSENSUS_CONFIRMED))
+
+        start = time.monotonic()
+        msgs = store.get_messages(
+            "test-pipeline",
+            wait=1,
+            wait_for_types=[MessageType.CONSENSUS_CONFIRMED],
+            from_tip=True,
+        )
+        elapsed = time.monotonic() - start
+
+        assert msgs == []
+        # Must have actually blocked — ~1s not ~0s.
+        assert elapsed >= 0.5, (
+            f"from_tip=True returned in {elapsed:.2f}s; expected to block ~1s "
+            "because no NEW matching message arrived"
+        )
+
+    def test_post_call_message_unblocks_from_tip_wait(self, store: MessageStore) -> None:
+        """A matching message added AFTER the wait begins unblocks it."""
+        # Seed a pre-existing matching message that from_tip must skip.
+        store.add_message(_make_message(message_type=MessageType.CONSENSUS_CONFIRMED))
+
+        got: list[list[Message]] = []
+
+        def _block() -> None:
+            got.append(
+                store.get_messages(
+                    "test-pipeline",
+                    wait=5,
+                    wait_for_types=[MessageType.CONSENSUS_CONFIRMED],
+                    from_tip=True,
+                )
+            )
+
+        t = threading.Thread(target=_block)
+        t.start()
+        time.sleep(0.2)  # let the thread enter the blocking wait
+
+        store.add_message(
+            _make_message(message_type=MessageType.CONSENSUS_CONFIRMED, from_role="later")
+        )
+        t.join(timeout=2)
+
+        assert not t.is_alive()
+        assert len(got) == 1 and len(got[0]) == 1
+        # Returned the NEW message (from_role='later'), not the pre-seeded one.
+        assert got[0][0].from_role == "later"
+
+    def test_from_tip_ignored_when_wait_zero(self, store: MessageStore) -> None:
+        """With ``wait=0`` there's nothing to block on; from_tip is a no-op
+        (prevents a footgun where from_tip + non-blocking would silently
+        return empty regardless of stream state)."""
+        store.add_message(_make_message(message_type=MessageType.CONSENSUS_CONFIRMED))
+
+        msgs = store.get_messages(
+            "test-pipeline",
+            wait=0,
+            from_tip=True,
+        )
+        # No wait_for_types + wait=0 + from_tip: same as plain non-blocking read.
+        assert len(msgs) == 1
+
+    def test_explicit_since_id_disables_from_tip(self, store: MessageStore) -> None:
+        """When both are set, since_id wins and from_tip is ignored."""
+        anchor = store.add_message(_make_message(message_type=MessageType.PROGRESS))
+        store.add_message(_make_message(message_type=MessageType.CONSENSUS_CONFIRMED))
+
+        msgs = store.get_messages(
+            "test-pipeline",
+            wait=1,
+            wait_for_types=[MessageType.CONSENSUS_CONFIRMED],
+            since_id=anchor.id,
+            from_tip=True,
+        )
+        assert len(msgs) == 1
+        assert msgs[0].message_type == MessageType.CONSENSUS_CONFIRMED

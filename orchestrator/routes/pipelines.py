@@ -6292,10 +6292,14 @@ def _build_brc_preamble(
                 "--timeout 60` until the orchestrator stops you. "
                 "**Don't** wrap this in a shell `for i in 1..N` loop; "
                 "**don't** prefix it with `sleep N`.  The wait-loop "
-                "blocks server-side and returns the moment a BRC "
-                "event arrives — exit code 0 means act on it, 1 means "
-                "the wrapper exhausted retries (surface it). See "
-                "docs/reference/agent-wait-patterns.md.",
+                "blocks server-side and returns the moment a NEW BRC "
+                "event arrives — events that predate the call (including "
+                "your own just-sent CONSENSUS_CONFIRMED) are skipped "
+                "(issue #1925).  Exit code 0 means act on the returned "
+                "message, 1 means the wrapper exhausted retries (surface "
+                "it).  If you need zero-drop semantics across a send→wait "
+                "boundary, capture your send's ID and pass `--since <id>`. "
+                "See docs/reference/agent-wait-patterns.md.",
                 "7. **HANDLE RE-REVIEW**: If you receive a `CONSENSUS_RE_REVIEW` message "
                 "while staying alive, you MUST act on it — failure to do so will stall "
                 "the entire pipeline. If you are a reviewer of the re-proposing producer, "
@@ -6365,7 +6369,11 @@ def _build_brc_preamble(
                 "orchestrator stops you. **Don't** wrap this in a "
                 "shell `for i in 1..N` loop; **don't** prefix it with "
                 "`sleep N`.  The wait-loop blocks server-side and "
-                "returns the moment a BRC event arrives. See "
+                "returns the moment a NEW BRC event arrives — events "
+                "that predate the call are skipped (issue #1925).  If "
+                "you need zero-drop semantics across a send→wait "
+                "boundary, capture the ID of your most recent send and "
+                "pass `--since <id>`.  See "
                 "docs/reference/agent-wait-patterns.md.",
                 "8. **HANDLE RE-REVIEW**: If you receive a `CONSENSUS_RE_REVIEW` message "
                 "while staying alive, you MUST act on it — failure to do so will stall "
@@ -7437,9 +7445,13 @@ def _build_agent_prompt(
                 "  --timeout 60",
                 "```",
                 "`wait-loop` blocks server-side and loops forever until a "
-                "matching BRC event arrives (exit 0) or a permanent error "
+                "NEW matching BRC event arrives (exit 0) or a permanent error "
                 "occurs (exit 1).  There is no outer timeout — the wrapper "
-                "owns the 0/1 contract.  See "
+                "owns the 0/1 contract.  Events that predate the call "
+                "(including your own just-sent CONSENSUS_CONFIRMED) are "
+                "skipped (issue #1925); if you need zero-drop semantics "
+                "across a send→wait boundary, capture the ID of your "
+                "send and pass `--since <id>`.  See "
                 "`docs/reference/agent-wait-patterns.md` for the full "
                 "exit-code contract and the four anti-patterns to avoid.",
                 "4. If `wait-loop` returns with a message that affects your work, "

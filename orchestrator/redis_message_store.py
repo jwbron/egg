@@ -165,6 +165,7 @@ class RedisMessageStore:
         wait: int = 0,
         wait_for_types: Sequence[str] | None = None,
         from_role: str | None = None,
+        from_tip: bool = False,
     ) -> list[Message]:
         """Get messages from the Redis Stream.
 
@@ -188,12 +189,26 @@ class RedisMessageStore:
                 ``from_role=...`` unconditionally, so a Redis backend
                 without this parameter raised ``TypeError`` in production
                 (reviewer_code blocker 1 on #1897 proposal v4).
+            from_tip: If True AND ``since_id`` is not set AND ``wait > 0``,
+                start the read at the stream tip (Redis ``$``) so only
+                entries added *after* the call starts can unblock the wait.
+                Required by the ``/messages/wait`` endpoint's event-driven
+                contract (issue #1925) — without it, a repeated wait-loop
+                call returns the same already-seen event on every invocation.
         """
         key = _stream_key(pipeline_id)
 
         # Resolve since_id (message UUID) to Redis stream ID
         start_id = "0-0"
-        if since_id:
+        if from_tip and not since_id and wait > 0:
+            # Redis XREAD treats ``$`` as "only entries with an ID greater
+            # than the greatest ID in the stream at call time" — i.e., a
+            # true event wait. Only safe on the blocking path (XREAD);
+            # XRANGE does not accept ``$``. Inner wait_for_types loop
+            # replaces ``$`` with a concrete ``last_sid`` after the first
+            # read, so subsequent cursor advancement uses real IDs.
+            start_id = "$"
+        elif since_id:
             stream_id = self._resolve_stream_id(pipeline_id, since_id)
             if stream_id:
                 start_id = stream_id

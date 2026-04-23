@@ -212,6 +212,41 @@ loop-forever semantic:
 | 2 (transient) | Back off (≤ 2 s test mode, exponential in production) and continue |
 | 3 (permanent) | Exit 1 so the agent fails fast |
 
+### "New events only" default (issue #1925)
+
+A cursor-less `wait` / `wait-loop` call starts at the **stream tip** —
+it only matches events added **after** the call begins. Events that
+already exist in the message stream (including the agent's own
+just-sent `CONSENSUS_CONFIRMED`) are skipped.
+
+Rationale: before #1925, a cursor-less wait scanned from the beginning
+of the stream, so once the stream contained any matching event,
+every subsequent `wait-loop` invocation returned instantly with the
+same already-seen message instead of blocking for the next one. That
+forced agents to either spin in foreground or manually construct a
+`--since <last_seen_id>` on each call.
+
+**Race: send → wait.** There is a small window between the agent
+sending its own CONSENSUS_CONFIRMED and entering `wait-loop` during
+which a peer event could arrive — with the default new-events-only
+behaviour, that event would not unblock the wait. In practice this
+window is milliseconds and the peer event case is rare at that
+instant, but if you need zero-drop semantics capture an anchor
+message ID before your send and pass it explicitly:
+
+```bash
+# zero-drop pattern — anchor BEFORE the send, wait from the anchor
+anchor=$(egg-orch message poll --limit 1 --json | jq -r '.messages[0].id // empty')
+egg-orch consensus confirmed
+egg-orch message wait-loop \
+  --for CONSENSUS_CONFIRMED --for CONSENSUS_RE_REVIEW --for OVERSEER_ALERT \
+  ${anchor:+--since "$anchor"}
+```
+
+With `--since`, the wait starts at the named ID (exclusive) and
+includes any event — your own send, a peer's, or one that arrived
+in the window — that arrived after the anchor.
+
 ## 4. `HEARTBEAT` Message Type
 
 `HEARTBEAT` is a typed message agents emit on state transitions so the

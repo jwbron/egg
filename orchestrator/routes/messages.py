@@ -403,6 +403,14 @@ def wait_messages(pipeline_id: str) -> tuple[Response, int]:
         # from_role is applied INSIDE the blocking read (message_store
         # level) so a message with a matching TYPE but the wrong
         # sender does not unblock us — prevents client-side spin.
+        #
+        # from_tip is set when no since_id is supplied so only events
+        # arriving AFTER this call can unblock the wait. Without it,
+        # repeated wait-loop invocations all re-match the same
+        # already-seen event because the store starts scanning from
+        # "0-0" (issue #1925). Callers that want cursor-passing
+        # semantics pass ``since_id`` explicitly, which disables
+        # from_tip below.
         messages = message_store.get_messages(
             pipeline_id,
             role=role,
@@ -411,6 +419,7 @@ def wait_messages(pipeline_id: str) -> tuple[Response, int]:
             wait=timeout,
             wait_for_types=wait_for_types,
             from_role=from_role,
+            from_tip=since_id is None,
         )
     finally:
         _track_long_poll_end()

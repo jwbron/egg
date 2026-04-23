@@ -670,3 +670,92 @@ class TestWaitForTypes:
             wait_for_types=[MessageType.CONSENSUS_CONFIRMED],
         )
         assert messages == []
+
+
+class TestRedisFromTipSemantics:
+    """``from_tip=True`` uses Redis ``$`` so XREAD only matches entries
+    added after the call starts.
+
+    Backs the ``/messages/wait`` endpoint fix for issue #1925.
+    """
+
+    def test_pre_existing_match_ignored_with_from_tip(self, store):
+        """A matching pre-existing entry must NOT satisfy a from_tip wait."""
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_CONFIRMED,
+                subject="already seen",
+            )
+        )
+
+        # fakeredis's XREAD with $ is a no-op on streams with data — it
+        # returns empty immediately because no "later" entry exists. This
+        # is the correct behaviour contract even though real Redis would
+        # actually block for the timeout.
+        start = time.monotonic()
+        messages = store.get_messages(
+            "test-pipeline",
+            wait=1,
+            wait_for_types=[MessageType.CONSENSUS_CONFIRMED],
+            from_tip=True,
+        )
+        elapsed = time.monotonic() - start
+        assert messages == []
+        # Must not take longer than the wait budget.
+        assert elapsed < 2.0, f"from_tip wait over budget: {elapsed:.2f}s"
+
+    def test_explicit_since_id_disables_from_tip(self, store):
+        """When both are set, since_id wins — the caller wants the
+        cursor-passing path, not the stream tip."""
+        anchor = store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.PROGRESS,
+                subject="anchor",
+            )
+        )
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_CONFIRMED,
+                subject="after",
+            )
+        )
+
+        messages = store.get_messages(
+            "test-pipeline",
+            wait=1,
+            wait_for_types=[MessageType.CONSENSUS_CONFIRMED],
+            since_id=anchor.id,
+            from_tip=True,  # should be ignored in favor of since_id
+        )
+        assert len(messages) == 1
+        assert messages[0].subject == "after"
+
+    def test_from_tip_ignored_when_wait_zero(self, store):
+        """``wait=0`` + ``from_tip=True`` degrades to non-blocking read
+        from 0-0 (start_id = 0-0), not ``$`` — XRANGE doesn't accept ``$``
+        and we avoid the footgun."""
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.PROGRESS,
+                subject="p",
+            )
+        )
+        # Should not raise; returns the pre-existing message unfiltered.
+        messages = store.get_messages(
+            "test-pipeline",
+            wait=0,
+            from_tip=True,
+        )
+        assert len(messages) == 1
