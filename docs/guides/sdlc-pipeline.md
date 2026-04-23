@@ -1041,7 +1041,7 @@ Use `--base <branch>` to target a non-default base branch for the auto-created P
 - Universal options on every checkpoint: general feedback (`[f]`), change approach (`[a]`), cancel (`[c]`)
 - JSON resolution payloads for structured intent parsing (see [HITL Decisions](../hitl-decisions.md))
 - Automatic reconnection on SSE timeouts
-- Works both inside containers and from the host (via `egg --exec`)
+- Works both inside containers and from the host
 
 **Host-side:** `bin/egg-sdlc` launches a container with TTY passthrough for interactive features.
 
