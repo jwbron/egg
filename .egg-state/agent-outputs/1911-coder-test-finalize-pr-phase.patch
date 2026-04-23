@@ -1,0 +1,97 @@
+diff --git a/orchestrator/tests/test_finalize_pr_phase.py b/orchestrator/tests/test_finalize_pr_phase.py
+index cc94b8e29..70f465a0c 100644
+--- a/orchestrator/tests/test_finalize_pr_phase.py
++++ b/orchestrator/tests/test_finalize_pr_phase.py
+@@ -41,8 +41,10 @@ class TestFinalizePrPhase:
+         with (
+             patch("routes.pipelines._auto_create_pr") as mock_create,
+             patch("routes.pipelines.get_pipeline_state_lock"),
++            patch("routes.pipelines._fetch_pr_state") as mock_fetch,
+         ):
+             mock_create.return_value = "https://github.com/owner/repo/pull/99"
++            mock_fetch.return_value = {"head_sha": "abc1234def"}
+             failed = _finalize_pr_phase_failed(
+                 pipeline=pipeline,
+                 worktree_repo_path=Path("/tmp/wt"),
+@@ -59,6 +61,70 @@ class TestFinalizePrPhase:
+         assert phase_execution.artifacts == {"pr_url": "https://github.com/owner/repo/pull/99"}
+         store.save_pipeline.assert_called_once_with(pipeline)
+ 
++    def test_populates_pr_number_and_head_sha_from_created_pr(self):
++        """#1911: after a successful auto-PR creation, the reloaded
++        pipeline should have ``pr_number`` parsed from the URL and
++        ``pr_head_sha`` populated from ``_fetch_pr_state``."""
++        pipeline = _make_pipeline()
++        store = MagicMock()
++        store.load_pipeline.return_value = pipeline
++
++        with (
++            patch("routes.pipelines._auto_create_pr") as mock_create,
++            patch("routes.pipelines.get_pipeline_state_lock"),
++            patch("routes.pipelines._fetch_pr_state") as mock_fetch,
++        ):
++            mock_create.return_value = "https://github.com/owner/repo/pull/99"
++            mock_fetch.return_value = {"head_sha": "abc1234def"}
++            failed = _finalize_pr_phase_failed(
++                pipeline=pipeline,
++                worktree_repo_path=Path("/tmp/wt"),
++                spawner=MagicMock(),
++                store=store,
++                pipeline_id=pipeline.id,
++                current_phase=PipelinePhase.PR,
++                gateway_mode="public",
++                push_ok=True,
++            )
++
++        assert failed is False
++        # _fetch_pr_state was called with the parsed PR number + repo
++        mock_fetch.assert_called_once_with(99, "owner/repo")
++        # Reloaded pipeline object (same MagicMock return) now carries
++        # both pr_number and pr_head_sha
++        assert pipeline.pr_number == 99
++        assert pipeline.pr_head_sha == "abc1234def"
++
++    def test_populates_pr_number_but_skips_head_sha_when_gh_unavailable(self):
++        """#1911: _fetch_pr_state empty-return (gh missing / propagation
++        delay) should degrade gracefully — pr_number still populated,
++        pr_head_sha remains None, PR phase still reports success."""
++        pipeline = _make_pipeline()
++        store = MagicMock()
++        store.load_pipeline.return_value = pipeline
++
++        with (
++            patch("routes.pipelines._auto_create_pr") as mock_create,
++            patch("routes.pipelines.get_pipeline_state_lock"),
++            patch("routes.pipelines._fetch_pr_state") as mock_fetch,
++        ):
++            mock_create.return_value = "https://github.com/owner/repo/pull/99"
++            mock_fetch.return_value = {}
++            failed = _finalize_pr_phase_failed(
++                pipeline=pipeline,
++                worktree_repo_path=Path("/tmp/wt"),
++                spawner=MagicMock(),
++                store=store,
++                pipeline_id=pipeline.id,
++                current_phase=PipelinePhase.PR,
++                gateway_mode="public",
++                push_ok=True,
++            )
++
++        assert failed is False
++        assert pipeline.pr_number == 99
++        assert pipeline.pr_head_sha is None
++
+     def test_push_failed_but_fallback_pr_url_still_stores_artifact(self):
+         """#1731 fallback: push failed, but PR is opened against remote
+         HEAD and the URL is returned — treat as success."""
+@@ -69,8 +135,10 @@ class TestFinalizePrPhase:
+         with (
+             patch("routes.pipelines._auto_create_pr") as mock_create,
+             patch("routes.pipelines.get_pipeline_state_lock"),
++            patch("routes.pipelines._fetch_pr_state") as mock_fetch,
+         ):
+             mock_create.return_value = "https://github.com/owner/repo/pull/100"
++            mock_fetch.return_value = {}
+             failed = _finalize_pr_phase_failed(
+                 pipeline=pipeline,
+                 worktree_repo_path=Path("/tmp/wt"),

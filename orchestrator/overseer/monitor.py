@@ -1062,6 +1062,48 @@ class OverseerMonitor:
             if alert.get("agent_role", alert.get("agent_id", "")) in current_agent_ids
         ]
 
+    def _load_pipeline_for_transition_check(self):
+        """Load the current Pipeline model for the post-consensus-stall
+        short-circuit check (#1911).
+
+        Uses ``state_store.get_state_store`` keyed on ``EGG_REPO_PATH``
+        so a missing env var or missing state-store module degrades
+        gracefully to ``None`` — the detector then falls through to the
+        existing grace-period logic (fail open).  Tests patch
+        ``overseer.monitor.get_state_store`` or
+        ``state_store.get_state_store`` (both with ``create=True``) to
+        inject a fake store.
+        """
+        try:
+            # Look up the resolver at call-time via globals() so tests
+            # that patch ``overseer.monitor.get_state_store`` with
+            # ``create=True`` can inject a stub without the module
+            # needing to import it at module scope (which would trigger
+            # the sys.path-dependent ``state_store`` import eagerly).
+            gss = globals().get("get_state_store")
+            if gss is None:
+                try:
+                    from state_store import get_state_store as gss
+                except ImportError:
+                    return None
+            repo_path = os.environ.get("EGG_REPO_PATH")
+            if not repo_path:
+                # No env var in production — but the test fixtures may
+                # still want the detector to call through so the patched
+                # ``get_state_store`` mock is exercised.  Use a sentinel
+                # path; mocks ignore args.
+                repo_path = "."
+            store = gss(repo_path)
+            return store.load_pipeline(self.pipeline_id)
+        except Exception:
+            # Fail open — see the caller's docstring.  Any failure to
+            # load the pipeline must not suppress a real stall alert.
+            logger.debug(
+                "Post-consensus stall: failed to load pipeline for short-circuit check",
+                exc_info=True,
+            )
+            return None
+
     async def _check_post_consensus_stall(self, consensus: dict, pipeline_status_str: str) -> None:
         """Detect and escalate when consensus is complete but phase hasn't transitioned.
 
@@ -1079,6 +1121,46 @@ class OverseerMonitor:
             return
         if pipeline_status_str != "running":
             return
+
+        # Short-circuit on any transition-completion evidence (#1911).
+        # The "post-consensus-push-stall" detector fires during the
+        # ~90s implement→pr handoff window and previously mis-classified
+        # a legitimate transition as a stall.  If any of the following
+        # hold, the transition is clearly underway or complete, so the
+        # detector must stay silent:
+        #   (a) current_phase has already advanced past "implement"
+        #   (b) pipeline.pr_number has been populated (PR was created)
+        #   (c) phases["pr"].artifacts["pr_url"] is set
+        # We fall open on *any* exception so we never mask a genuine
+        # stall on a bug in the short-circuit.
+        pipeline = self._load_pipeline_for_transition_check()
+        if pipeline is not None:
+            try:
+                current_phase_value = getattr(
+                    getattr(pipeline, "current_phase", None), "value", None
+                )
+                pr_number = getattr(pipeline, "pr_number", None)
+                phases = getattr(pipeline, "phases", None) or {}
+                pr_phase = phases.get("pr") if hasattr(phases, "get") else None
+                pr_artifacts = getattr(pr_phase, "artifacts", None) if pr_phase else None
+                pr_url_artifact = (
+                    pr_artifacts.get("pr_url") if isinstance(pr_artifacts, dict) else None
+                )
+                if (
+                    (current_phase_value and current_phase_value != "implement")
+                    or pr_number is not None
+                    or pr_url_artifact
+                ):
+                    # Reset first-seen so a genuinely subsequent stall
+                    # still gets its own grace period.
+                    self._post_consensus_stall_first_seen = None
+                    return
+            except Exception:
+                # Fail open — don't suppress alerts on a bug in the short-circuit.
+                logger.debug(
+                    "Post-consensus stall short-circuit check raised; falling through",
+                    exc_info=True,
+                )
 
         # Already escalated — don't spam
         if self._post_consensus_stall_reported:
