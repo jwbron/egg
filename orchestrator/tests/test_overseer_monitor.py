@@ -662,6 +662,172 @@ class TestPostConsensusStall:
 
 
 # ===================================================================
+# test_post_consensus_stall_transition_completion_shortcircuit (#1911)
+# ===================================================================
+
+
+class TestPostConsensusStallTransitionCompletionShortcircuit:
+    """Regression tests for jwbron/egg#1911 task-1-2.
+
+    When consensus is complete and the pipeline is still ``running``, the
+    post-consensus stall detector used to fire after its grace period even
+    when the implement phase had already transitioned into PR-creation.
+    The symptom: ``post_consensus_stall`` alerts / HITL / Slack firing
+    during the normal implement→PR transition window.
+
+    The short-circuit added in #1911 loads the pipeline inside the detector
+    and returns early — with no alert, no HITL, no Slack — whenever any of
+    the three "transition is done" signals is set:
+
+      (a) ``pipeline.current_phase.value != 'implement'`` — already moved on
+      (b) ``pipeline.pr_number is not None`` — auto-PR finalized
+      (c) ``pipeline.phases.get('pr').artifacts['pr_url']`` populated
+
+    It also resets ``_post_consensus_stall_first_seen`` in the short-circuit
+    so a later genuine stall gets a fresh grace period. If the pipeline
+    load raises, the detector falls through to the existing grace-period
+    logic (fail open) — we never want a state-store hiccup to suppress a
+    real stall alert indefinitely.
+    """
+
+    @staticmethod
+    def _pipeline(
+        *,
+        current_phase="implement",
+        pr_number=None,
+        pr_artifact=None,
+    ):
+        """Build a MagicMock pipeline matching the attribute accesses in
+        ``_check_post_consensus_stall``."""
+        phases: dict = {}
+        if pr_artifact is not None:
+            pr_phase = MagicMock()
+            pr_phase.artifacts = {"pr_url": pr_artifact}
+            phases["pr"] = pr_phase
+        pipeline = MagicMock()
+        pipeline.current_phase = MagicMock(value=current_phase)
+        pipeline.pr_number = pr_number
+        pipeline.phases = phases
+        return pipeline
+
+    def _monitor_with_store(self, pipeline, pipeline_id: str) -> "OverseerMonitor":
+        """Build a monitor with HITL/broadcast/Slack stubbed and a store
+        patched in that returns ``pipeline`` from load_pipeline."""
+        monitor = OverseerMonitor(pipeline_id=pipeline_id, config=_MockConfig())
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._send_slack_notification = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
+        store = MagicMock()
+        store.load_pipeline.return_value = pipeline
+        # Pre-age first_seen so the grace period would normally have
+        # elapsed — the short-circuit must fire *before* the grace check.
+        monitor._post_consensus_stall_first_seen = time.time() - 999
+        return monitor, store
+
+    def _invoke(self, monitor, store):
+        """Invoke the detector with consensus complete + running status,
+        patching the state store resolution to return our fake store."""
+        consensus = {"is_complete": True}
+        # Patch both the likely import sites — the coder may import
+        # ``get_state_store`` at module scope or resolve it lazily inside
+        # the function.  Patching both is harmless either way.
+        with (
+            patch("overseer.monitor.get_state_store", return_value=store, create=True),
+            patch("state_store.get_state_store", return_value=store, create=True),
+        ):
+            _run(monitor._check_post_consensus_stall(consensus, "running"))
+
+    def test_shortcircuits_when_phase_already_advanced(self) -> None:
+        """current_phase != 'implement' — detector must NOT broadcast / HITL
+        / Slack.  The phase has already finished transitioning out of
+        implement so any "consensus complete but still running" signal is
+        stale."""
+        pipeline = self._pipeline(current_phase="pr")
+        monitor, store = self._monitor_with_store(pipeline, "test-1911-phase-advanced")
+
+        self._invoke(monitor, store)
+
+        monitor._broadcast_alert.assert_not_awaited()
+        monitor._create_hitl_decision.assert_not_awaited()
+        monitor._send_slack_notification.assert_not_awaited()
+        # Short-circuit reset first_seen — subsequent genuine stalls get a
+        # fresh grace period.
+        assert monitor._post_consensus_stall_first_seen is None
+
+    def test_shortcircuits_when_pr_number_populated(self) -> None:
+        """pipeline.pr_number is not None — auto-PR finalized, the
+        implement→PR transition is done.  No alert."""
+        pipeline = self._pipeline(pr_number=99)
+        monitor, store = self._monitor_with_store(pipeline, "test-1911-pr-number")
+
+        self._invoke(monitor, store)
+
+        monitor._broadcast_alert.assert_not_awaited()
+        monitor._create_hitl_decision.assert_not_awaited()
+        monitor._send_slack_notification.assert_not_awaited()
+        assert monitor._post_consensus_stall_first_seen is None
+
+    def test_shortcircuits_when_pr_url_artifact_present(self) -> None:
+        """phases['pr'].artifacts['pr_url'] is set — the artifact write
+        that happens inside _finalize_pr_phase_failed's lock has landed,
+        so the transition is done.  No alert."""
+        pipeline = self._pipeline(pr_artifact="https://github.com/owner/repo/pull/99")
+        monitor, store = self._monitor_with_store(pipeline, "test-1911-pr-url")
+
+        self._invoke(monitor, store)
+
+        monitor._broadcast_alert.assert_not_awaited()
+        monitor._create_hitl_decision.assert_not_awaited()
+        monitor._send_slack_notification.assert_not_awaited()
+        assert monitor._post_consensus_stall_first_seen is None
+
+    def test_fails_open_when_pipeline_load_raises(self) -> None:
+        """If the state store raises (e.g. transient FS error), the
+        detector falls through to the existing grace-period / broadcast
+        logic — we don't want infrastructure hiccups to indefinitely
+        suppress real stall alerts."""
+        monitor = OverseerMonitor(
+            pipeline_id="test-1911-load-raises",
+            config=_MockConfig(),
+        )
+        monitor._create_hitl_decision = AsyncMock()
+        monitor._send_slack_notification = AsyncMock()
+        monitor._broadcast_alert = AsyncMock()
+        monitor._post_consensus_stall_first_seen = time.time() - 999
+
+        store = MagicMock()
+        store.load_pipeline.side_effect = RuntimeError("transient storage error")
+        consensus = {"is_complete": True}
+
+        with (
+            patch("overseer.monitor.get_state_store", return_value=store, create=True),
+            patch("state_store.get_state_store", return_value=store, create=True),
+        ):
+            _run(monitor._check_post_consensus_stall(consensus, "running"))
+
+        # Grace period elapsed + no short-circuit applied — existing
+        # behavior is to escalate.
+        monitor._broadcast_alert.assert_awaited_once()
+        monitor._create_hitl_decision.assert_awaited_once()
+        monitor._send_slack_notification.assert_awaited_once()
+
+    def test_no_shortcircuit_when_phase_implement_and_no_pr_markers(self) -> None:
+        """Sanity check: when NONE of the three transition-completion
+        signals is set — implement phase, no pr_number, no pr_url artifact —
+        the detector must still fire after the grace period.  This is the
+        original bug-reproduction path; the short-circuit must not
+        accidentally swallow genuine stalls."""
+        pipeline = self._pipeline(current_phase="implement", pr_number=None, pr_artifact=None)
+        monitor, store = self._monitor_with_store(pipeline, "test-1911-genuine-stall")
+
+        self._invoke(monitor, store)
+
+        monitor._broadcast_alert.assert_awaited_once()
+        monitor._create_hitl_decision.assert_awaited_once()
+        monitor._send_slack_notification.assert_awaited_once()
+
+
+# ===================================================================
 # test_escalation_safety_net
 # ===================================================================
 
