@@ -564,16 +564,16 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-23T07:42:51.583854Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-23T07:43:43.751338Z",
+      "resolution": "{\"action\": \"approve\", \"context\": \"Approved without walkthrough per user instruction. Plan covers:\\n- 5 phases (handlers → MCP package → client wire-up → tests → docs)\\n- 15 tools across mcp__sdlc__*, mcp__brc__*, mcp__phase__*, mcp__progress__*, mcp__task__* namespaces (matches decision-7 semantic naming and decision-8 scope)\\n- Handler/@tool split with CI drift test enforcing one-to-one mapping\\n- CLI parity preserved (decision-4): argparse surface, stdout, exit codes unchanged\\n- Feature flag EGG_MCP_TOOLS (default false) per feedback-Q8\\n- Handler error model: raise GatewayError (not sys.exit); @tool wrappers run via asyncio.to_thread and return is_error tool-result on failure\\n- SYSTEM_PROMPT_NUDGE generated programmatically from TOOL_NAMESPACES with drift test\\n- Divergence from architect's concurrent proposal resolved: opt-in flag over opt-out, handlers under egg_agent_tools package, single aggregate server\\n- Iteration 2 verbs deferred to #1917\\n- claude-agent-sdk pinned with SDK smoke test\\n\\nProceed to implement phase.\"}",
       "phase": "plan",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:22:09.201730Z",
-  "updated_at": "2026-04-23T07:42:51.612018Z",
+  "updated_at": "2026-04-23T07:43:43.760665Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -587,5 +587,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T07:27:32.480571Z",
-  "version": 74
+  "version": 75
 }
