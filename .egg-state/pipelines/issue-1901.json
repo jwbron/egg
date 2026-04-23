@@ -328,10 +328,10 @@
         {
           "container_id": "79c82311-6bef-4b00-8cc0-fc2064aa43cb",
           "container_name": "egg-sandbox-egg-agent-issue-1901-documenter",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-23T03:04:15.958715Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-23T04:34:16.650366Z",
+          "exit_code": -1,
           "agent_role": "documenter",
           "session_token": null,
           "pod_name": null,
@@ -394,14 +394,14 @@
         },
         {
           "role": "documenter",
-          "status": "complete",
+          "status": "failed",
           "container_id": "79c82311-6bef-4b00-8cc0-fc2064aa43cb",
           "container_info": null,
           "started_at": "2026-04-23T03:04:15.958717Z",
-          "completed_at": "2026-04-23T03:39:40.695450Z",
+          "completed_at": "2026-04-23T04:34:16.712182Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -602,7 +602,7 @@
     }
   ],
   "created_at": "2026-04-22T23:25:22.973469Z",
-  "updated_at": "2026-04-23T04:33:53.994258Z",
+  "updated_at": "2026-04-23T04:34:16.712279Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -615,5 +615,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T00:10:48.673750Z",
-  "version": 54
+  "version": 55
 }
