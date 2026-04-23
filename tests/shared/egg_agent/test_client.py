@@ -864,8 +864,6 @@ class TestMcpToolsFlag:
 
             return SYSTEM_PROMPT_NUDGE
         except ImportError:
-            import pytest
-
             pytest.skip("egg_agent_tools not importable")
 
     @patch("claude_agent_sdk.query", side_effect=_mock_query_success)

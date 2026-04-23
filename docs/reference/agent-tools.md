@@ -22,7 +22,7 @@ The MCP tool surface is **on by default** since [#1942](https://github.com/jwbro
 
 | Flag | Effect |
 |------|--------|
-| `EGG_MCP_TOOLS` unset / `true` / `1` / `yes` | **Default.** Registers the 15 iteration-1 tools (one server per namespace) on `options.mcp_servers` and appends `SYSTEM_PROMPT_NUDGE` to `options.system_prompt`. |
+| `EGG_MCP_TOOLS` unset or any value not listed below | **Default.** Registers the 15 iteration-1 tools (one server per namespace) on `options.mcp_servers` and appends `SYSTEM_PROMPT_NUDGE` to `options.system_prompt`. |
 | `EGG_MCP_TOOLS=false` (or `0` / `no` / `off`) | Opt-out. Code path is byte-identical to the pre-#1765 behaviour — no `mcp_servers` registration, no prompt changes, no import cost. |
 
 Iteration 1 (#1765) shipped the flag default-off while the wire-up burned in.

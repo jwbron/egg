@@ -1,10 +1,10 @@
 """End-to-end integration test for sandbox MCP tool discovery.
 
-With ``EGG_MCP_TOOLS=true`` and a trivial prompt asking the agent to
-"call mcp__phase__get_context and report back", the agent's first
-``tool_use`` block must name an ``mcp__*`` tool rather than ``Bash``.
-This catches SDK API drift between releases — the offline mocks in the
-unit tests cannot.
+Verifies that the agent's MCP tool surface is registered correctly —
+both with the default (flag unset, tools on) and with an explicit
+``EGG_MCP_TOOLS=true``.  The agent's first ``tool_use`` block must name
+an ``mcp__*`` tool rather than ``Bash``.  This catches SDK API drift
+between releases — the offline mocks in the unit tests cannot.
 
 Gated behind the ``@pytest.mark.integration`` marker so it does not run
 on every PR.  Further gated behind ``EGG_LIVE_SDK=1`` so the live SDK
@@ -37,38 +37,11 @@ def _skip_if_no_sdk() -> None:
         pytest.skip("claude_agent_sdk not installed in this environment")
 
 
-def test_agent_calls_mcp_tool_when_flag_enabled() -> None:
-    """End-to-end: the agent must use the mcp__* tool surface, not Bash.
+def _assert_mcp_servers_registered() -> None:
+    """Run ``run_agent_async`` and assert all namespace servers are wired up.
 
-    Live path (EGG_LIVE_SDK=1): spawn the Claude Agent SDK in-process
-    with a trivial prompt and assert the first tool_use names an mcp__*
-    tool.
-
-    Offline path (default): structurally verify the wire-up so the
-    marker-gated test still produces a signal without spending API
-    tokens.  This asserts that with EGG_MCP_TOOLS=true,
-    ``run_agent_async`` populates ``options.mcp_servers['egg']`` (the
-    necessary precondition for the agent to see the mcp__* tools)."""
-
-    _skip_if_no_sdk()
-
-    os.environ["EGG_MCP_TOOLS"] = "true"
-    live = os.environ.get("EGG_LIVE_SDK", "") in ("1", "true", "yes")
-
-    if live:  # pragma: no cover - only in nightly job
-        # A full live round-trip would go here.  We stop before spending
-        # API credits in the non-live path so this file is safe to
-        # collect in CI.  The real implementation would:
-        #   result = run_agent("Call mcp__phase__get_context and report back.")
-        #   parse result.events for ToolUseBlock
-        #   assert events[0].name.startswith("mcp__")
-        pytest.skip("Live SDK path not implemented here — covered by nightly-only job")
-
-    # Offline structural check: MCP servers are registered on the
-    # options object when the flag is on.  Per decision-7 the sandbox
-    # wire-up uses one server per namespace so the Claude-visible tool
-    # names read ``mcp__<namespace>__<verb>`` rather than being
-    # double-prefixed.
+    Shared helper for both the default-on and explicit-flag tests.
+    """
     from claude_agent_sdk import ClaudeAgentOptions
     from egg_agent_tools import build_sandbox_mcp_server
     from egg_agent_tools.tools import TOOL_NAMESPACES
@@ -127,3 +100,40 @@ def test_agent_calls_mcp_tool_when_flag_enabled() -> None:
     real_servers = build_sandbox_mcp_server()
     assert real_servers
     assert set(real_servers.keys()) == set(TOOL_NAMESPACES)
+
+
+def test_mcp_tools_default_on_when_flag_unset() -> None:
+    """MCP tools must register when EGG_MCP_TOOLS is not set (default-on)."""
+    _skip_if_no_sdk()
+    os.environ.pop("EGG_MCP_TOOLS", None)
+    _assert_mcp_servers_registered()
+
+
+def test_agent_calls_mcp_tool_when_flag_enabled() -> None:
+    """End-to-end: the agent must use the mcp__* tool surface, not Bash.
+
+    Live path (EGG_LIVE_SDK=1): spawn the Claude Agent SDK in-process
+    with a trivial prompt and assert the first tool_use names an mcp__*
+    tool.
+
+    Offline path (default): structurally verify the wire-up so the
+    marker-gated test still produces a signal without spending API
+    tokens.  This asserts that with EGG_MCP_TOOLS=true,
+    ``run_agent_async`` populates ``options.mcp_servers`` (the
+    necessary precondition for the agent to see the mcp__* tools)."""
+
+    _skip_if_no_sdk()
+
+    os.environ["EGG_MCP_TOOLS"] = "true"
+    live = os.environ.get("EGG_LIVE_SDK", "") in ("1", "true", "yes")
+
+    if live:  # pragma: no cover - only in nightly job
+        # A full live round-trip would go here.  We stop before spending
+        # API credits in the non-live path so this file is safe to
+        # collect in CI.  The real implementation would:
+        #   result = run_agent("Call mcp__phase__get_context and report back.")
+        #   parse result.events for ToolUseBlock
+        #   assert events[0].name.startswith("mcp__")
+        pytest.skip("Live SDK path not implemented here — covered by nightly-only job")
+
+    _assert_mcp_servers_registered()
