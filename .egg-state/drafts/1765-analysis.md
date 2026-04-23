@@ -844,3 +844,31 @@ coordination.
 ---
 
 *Authored-by: egg*
+
+
+## HITL Resolution
+
+The following was approved by a human reviewer at the refine phase gate:
+
+## Resolved Questions (captured for downstream phases)
+
+**decision-1 (mechanism)**: Hybrid D + prompt nudge — in-process SDK MCP server via create_sdk_mcp_server + @tool, wired into egg_agent.client, plus a short system-prompt paragraph pointing agents at the mcp__* tools.
+
+**decision-2 (handler derivation)**: Hybrid — auto-derive the skeleton from existing CLI/argparse-style signatures, allow per-tool overrides for descriptions/schemas where auto-derivation is insufficient.
+
+**decision-3 (harness coverage)**: claude_agent_sdk harness only for iteration 1. Defer parallel registration for experimental EGG_HARNESS=egg until that harness graduates.
+
+**decision-4 (CLI retention)**: Keep the sandbox/bin/egg-* CLIs indefinitely. Humans, tests, entrypoint scripts, and bash recovery wrappers depend on them; MCP tools are additive for agents. Do not deprecate.
+
+**decision-7 (naming; supersedes decision-5)**: Semantic verbs grouped by function (what the agent is DOING). Examples: mcp__sdlc__register_open_question, mcp__brc__propose, mcp__phase__get_context. Rationale: agent's mental model is verbs; tool names are stable under CLI refactoring; capabilities with no CLI counterpart slot in naturally.
+
+**decision-8 (scope; supersedes decision-6)**: BRC + HITL core for iteration 1 (~15 verbs): producer/reviewer lifecycle, HITL registration, heartbeat/progress, task completion, phase context orientation. Full capability audit (~30 verbs) is scoped to iteration 2 — tracked separately in issue #1917.
+
+## Related issues filed during this refine
+
+- #1915 — change_approach feedback via provide_input never reaches agents (found during this refine; workaround is direct send_message after reset)
+- #1917 — iteration 2 follow-up for the remaining ~15 verbs from the full capability audit
+
+## Notes for the plan phase
+
+The agent-first framing is the authoritative frame; do not regress to CLI-taxonomy-based thinking. Name tools from the agent's perspective. If plan surfaces a verb that was missed in the refine capability audit, add it to the iteration-1 scope (if clearly core) or defer to #1917 (if optional).

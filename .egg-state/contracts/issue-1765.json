@@ -47,10 +47,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Hybrid D+B: in-process SDK tools as primary surface, plus a short tool index injected into the system prompt\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:50:58.827853Z",
       "debounce_until": null
     },
     {
@@ -80,10 +80,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Hybrid: auto-generate the skeleton, allow per-tool overrides for descriptions/schemas where the argparse help is insufficient (Recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:51:39.213025Z",
       "debounce_until": null
     },
     {
@@ -113,10 +113,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"claude_agent_sdk harness only \u2014 the egg harness is opt-in and experimental; parallel registration can be added later when it graduates (Recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:52:14.448903Z",
       "debounce_until": null
     },
     {
@@ -146,10 +146,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Keep both indefinitely \u2014 CLIs are used by humans, tests, entrypoint scripts, and bash wrappers; MCP tools are additive for agents (Recommended \u2014 matches AC 'existing CLIs keep working')\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:52:49.649272Z",
       "debounce_until": null
     },
     {
@@ -179,10 +179,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Superseded by decision-7 in the v5 analysis draft: semantic verbs grouped by function (what the agent is DOING), not CLI taxonomy. Names like mcp__sdlc__register_open_question, mcp__brc__propose, mcp__phase__get_context. This decision (decision-5) was framed around CLI-mirroring options and is obsolete.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:53:40.002399Z",
       "debounce_until": null
     },
     {
@@ -212,10 +212,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Superseded by decision-8 in the v5 analysis draft: scope is defined by the Agent Capability Audit, not by CLI subcommand taxonomy. Iteration 1 ships the BRC + HITL core (~15 verbs: producer/reviewer lifecycle, HITL registration, heartbeat/progress, task completion, phase context orientation). Iteration 2 covers the remaining ~15 verbs from the full audit, tracked in issue #1917.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:54:20.184639Z",
       "debounce_until": null
     },
     {
@@ -250,10 +250,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Semantic / verb-based names grouped by agent function, decoupled from CLI taxonomy \u2014 e.g. mcp__sdlc__register_open_question, mcp__brc__propose, mcp__phase__get_context, mcp__checkpoint__search. New capabilities with no CLI counterpart slot in naturally. Stable under CLI refactors. (Recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:55:00.424124Z",
       "debounce_until": null
     },
     {
@@ -283,10 +283,33 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"BRC + HITL + phase-context core (~15 tools): brc_propose/ack/nack/confirm/get_state/list_blocking; hitl_register_decision/request_feedback/check_answers; phase_get_context/get_assigned_tasks; progress_emit/signal_error/heartbeat; task_complete (Recommended \u2014 covers every agent role's BRC lifecycle + HITL + orientation on day one, without boiling the ocean)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:55:40.722923Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-9",
+      "question": "[Phase gate: refine] The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "## Resolved Questions (captured for downstream phases)\n\n**decision-1 (mechanism)**: Hybrid D + prompt nudge \u2014 in-process SDK MCP server via create_sdk_mcp_server + @tool, wired into egg_agent.client, plus a short system-prompt paragraph pointing agents at the mcp__* tools.\n\n**decision-2 (handler derivation)**: Hybrid \u2014 auto-derive the skeleton from existing CLI/argparse-style signatures, allow per-tool overrides for descriptions/schemas where auto-derivation is insufficient.\n\n**decision-3 (harness coverage)**: claude_agent_sdk harness only for iteration 1. Defer parallel registration for experimental EGG_HARNESS=egg until that harness graduates.\n\n**decision-4 (CLI retention)**: Keep the sandbox/bin/egg-* CLIs indefinitely. Humans, tests, entrypoint scripts, and bash recovery wrappers depend on them; MCP tools are additive for agents. Do not deprecate.\n\n**decision-7 (naming; supersedes decision-5)**: Semantic verbs grouped by function (what the agent is DOING). Examples: mcp__sdlc__register_open_question, mcp__brc__propose, mcp__phase__get_context. Rationale: agent's mental model is verbs; tool names are stable under CLI refactoring; capabilities with no CLI counterpart slot in naturally.\n\n**decision-8 (scope; supersedes decision-6)**: BRC + HITL core for iteration 1 (~15 verbs): producer/reviewer lifecycle, HITL registration, heartbeat/progress, task completion, phase context orientation. Full capability audit (~30 verbs) is scoped to iteration 2 \u2014 tracked separately in issue #1917.\n\n## Related issues filed during this refine\n\n- #1915 \u2014 change_approach feedback via provide_input never reaches agents (found during this refine; workaround is direct send_message after reset)\n- #1917 \u2014 iteration 2 follow-up for the remaining ~15 verbs from the full capability audit\n\n## Notes for the plan phase\n\nThe agent-first framing is the authoritative frame; do not regress to CLI-taxonomy-based thinking. Name tools from the agent's perspective. If plan surfaces a verb that was missed in the refine capability audit, add it to the iteration-1 scope (if clearly core) or defer to #1917 (if optional).",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:50:08.700649Z",
       "debounce_until": null
     }
   ],
@@ -725,47 +748,47 @@
       {
         "id": "Q1",
         "question": "Access-control slice: if we DO add a separate sandbox-facing MCP server (Option C), what's the minimum tool set we want exposed, and which orchestrator-side tools (submit_task / cancel_task / restart_phase / advance_phase / get_consensus_status) should NEVER be reachable from inside a sandbox? Is there a concrete threat model you want us to design against?",
-        "answer": null
+        "answer": "Moot \u2014 we chose Option D (in-process SDK MCP), not Option C. For the record: if Option C were revisited, the sandbox-facing server should expose only the BRC + HITL + phase-context core (~15 verbs per decision-11), and must NEVER expose submit_task, cancel_task, restart_phase, advance_phase, populate_contract, or the container/pod admin surface. Threat model to design against: a compromised sandbox container should not be able to (a) spawn or cancel pipelines, (b) modify other pipelines' state, (c) read checkpoints from other pipelines, or (d) escalate privilege by invoking orchestrator admin APIs. Option D sidesteps this by construction \u2014 handlers don't exist in the agent's process \u2014 so the threat-model work is deferred until/unless Option C is reconsidered."
       },
       {
         "id": "Q2",
         "question": "Drift-prevention contract: what's the acceptable mechanism for keeping the CLI and the tool schemas in sync? Options: (a) CI test that parses each CLI's argparse and diffs against the @tool registry; (b) single source of truth (argparse) with tools derived at import time; (c) make the CLI a thin wrapper over the @tool functions (CLI calls the same handler internally). Which flavour of 'no drift' do you want?",
-        "answer": null
+        "answer": "Flavour (c): make the CLI a thin wrapper over the @tool handler functions. Both the shell CLI and the MCP tool dispatch into the same handler \u2014 single source of truth, no drift possible by construction. This aligns with decision-2's hybrid auto+override (argparse defines the skeleton schema; handlers define the behavior). Add (a) as belt-and-suspenders: a CI test that asserts every @tool has a matching CLI subparser for any tool that is expected to be CLI-accessible, and vice versa. Rejecting (b) standalone: 'argparse as single source of truth' can't express the new verbs (brc_get_state as JSON, peer_read_artifact, etc.) that have no CLI equivalent \u2014 the tool registry is the authoritative surface, not argparse."
       },
       {
         "id": "Q3",
         "question": "Bootstrap guidance: even after MCP tools are registered, should we inject a short (<=200 word) 'these tools exist, prefer them over Bash' paragraph into the system prompt, or trust the SDK's native tool-discovery without a prompt nudge? Past experience suggests agents sometimes default to Bash even when a structured tool exists.",
-        "answer": null
+        "answer": "Yes \u2014 inject a short (<=200 word) bootstrap paragraph into the system prompt per decision-10/7 (Hybrid D + prompt nudge). The paragraph should name the tool namespaces (mcp__sdlc__*, mcp__brc__*, mcp__phase__*, mcp__progress__*) and explicitly say 'prefer these over Bash for agent-lifecycle operations.' Past experience (cited in the draft) shows agents default to Bash even when a structured tool exists; the prompt nudge corrects for that without spending prompt tokens on full tool schemas."
       },
       {
         "id": "Q4",
         "question": "Output shape for diagnostic subcommands: commands like 'egg-orch pipeline status' emit rich terminal tables/JSON. Should the MCP tool return (a) the JSON payload verbatim, (b) a compact text summary for token economy, or (c) both as multi-content blocks? This affects tool-call token cost and agent comprehension.",
-        "answer": null
+        "answer": "JSON payload verbatim (option a). Typed tools should return structured data; agents will parse JSON reliably with orders of magnitude fewer errors than parsing terminal-table output. Token-economy argument for compact text is weak because tool results are not billed per input token in the agent's steady-state loop. If a human-formatted view is useful for something else (e.g., debug checkpoint replay), generate it separately from the CLI, not from the MCP tool. Exception: for very large payloads (brc_get_state on a pipeline with dozens of agents), tools should accept a `verbose: bool` argument and default to a compact projection."
       },
       {
         "id": "Q5",
         "question": "Authn/authz for network-transport MCP (if Option C lands instead of D): sandbox agents currently authenticate to the gateway via EGG_SESSION_TOKEN. Should a sandbox-facing MCP server reuse that token, introduce a new per-agent token, or piggyback on the existing EGG_LIFECYCLE_SECRET? What's the expected token lifecycle across agent restarts?",
-        "answer": null
+        "answer": "N/A \u2014 we chose Option D, which runs tools in the agent's own process. No new auth layer is needed because handlers execute inside the sandbox's existing trust boundary. This question becomes relevant only if we revisit Option C in a future iteration."
       },
       {
         "id": "Q6",
         "question": "Observability: should MCP tool calls generate distinct log events / checkpoints separate from the SDK's built-in tool_use stream? Today, Bash calls to egg CLIs show up as 'Bash' tool_use blocks in checkpoints; if they become first-class MCP tools they'll show up under distinct names \u2014 does the checkpoint browser need any changes to group or search them?",
-        "answer": null
+        "answer": "MCP tool calls get distinct names natively (`mcp__sdlc__register_open_question` vs `Bash`) in the tool_use stream \u2014 the checkpoint browser will show them correctly without any code changes. Optional future improvement: add a checkpoint-search facet to filter by MCP-tool namespace prefix (mcp__sdlc__*, mcp__brc__*, etc.) for analytics; not required for iteration 1."
       },
       {
         "id": "Q7",
         "question": "Timeouts and cancellation: SDK MCP server tool calls default to 60s connection timeout; some egg subcommands (e.g. 'egg-pipeline-watch', 'egg-checkpoint search') can run longer. What's the right timeout envelope, and should long-running operations be split into start/poll tool pairs rather than blocking?",
-        "answer": null
+        "answer": "Default 60s timeout is fine for the BRC + HITL + phase-context core \u2014 these are all fast operations (register a decision, read a task list, propose a version, query current state). For long-running verbs in iteration 2 (checkpoint_search, overseer_query_status with deep history, peer_poll_messages with a long wait): split into start/poll pairs. Pattern: `<verb>_start` returns a job-id; `<verb>_poll(job_id)` returns result-or-still-running. This also gives the agent a natural cancellation point. Not a concern for iteration 1 since none of the core 15 verbs are long-running."
       },
       {
         "id": "Q8",
         "question": "Rollout plan preference: should the MCP tool surface be enabled for all roles simultaneously, or gated behind a feature flag (e.g. EGG_MCP_TOOLS=true) during a burn-in window where we compare token/turn-count between the two modes?",
-        "answer": null
+        "answer": "Feature-flag gated initially (e.g., EGG_MCP_TOOLS=true in ClaudeAgentOptions.env or as a per-pipeline config). Burn-in window of N=5-10 pipelines comparing turn-count and cost-per-phase between MCP-enabled and shell-only modes. Flip default to ON once metrics show \u226515% reduction in turns-per-phase for the refine/plan phases (the ones with highest tooling-archaeology cost in #1765's motivating observation). Rollout feature flag can be removed in a follow-up after a clean week. This matches the pattern used in prior egg rollouts (overseer, concurrent-mode)."
       }
     ],
-    "submitted": false,
-    "submitted_by": null,
-    "submitted_at": null,
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-04-23T06:58:22.543725Z",
     "comment_id": null,
     "debounce_until": null
   },
