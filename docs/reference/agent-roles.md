@@ -413,7 +413,7 @@ Agent file restrictions are enforced at multiple layers:
 |-------|-------------|------|
 | **SDK tool interception** | Rejects `Write`, `Edit`, and `NotebookEdit` to disallowed paths before execution | Soft — saves tokens, drives delegation |
 | **Per-agent worktrees** | Isolates agents' working directories so they can't overwrite each other | Structural — prevents stomping |
-| **Gateway push validation** | Blocks pushes containing files outside the agent's role boundaries | Hard — security boundary |
+| **Gateway push auto-filter** | Strips out-of-scope own-role files from the push and rewrites the unpushed range; pulled cross-role commits pass through unchanged ([#1882](https://github.com/jwbron/egg/issues/1882)) | Hard — security boundary |
 
 ### SDK Tool Interception (Soft Enforcement)
 
@@ -427,11 +427,15 @@ This prevents agents from wasting context window on out-of-scope work. Without t
 
 **Implementation:** `shared/egg_agent/tool_interceptor.py` contains the `check_file_write_permission()` function. It normalizes the absolute file path to a repo-relative path, then calls `check_agent_file_access()` from `egg_restrictions`. The callback is registered via the `can_use_tool` parameter on `ClaudeAgentOptions`.
 
-### Gateway Push Validation (Hard Enforcement)
+### Gateway Push Auto-Filter (Hard Enforcement)
 
-The gateway enforces role-based file restrictions at push time. The default behavior is **enforce** (violations block the push). Set `EGG_AGENT_RESTRICTIONS_ENFORCE=false` for warn-only mode during migration.
+As of [#1882](https://github.com/jwbron/egg/issues/1882), the gateway **auto-filters** agent-role file-restriction violations instead of returning `403 Push denied`. Every push is partitioned per commit via the commit-authorship registry: own-role commits with blocked paths are rewritten in place with an `[auto-filtered]` suffix, commits whose filtered tree becomes empty are dropped, and pulled cross-role commits pass through bitwise-unchanged. Response bodies carry `filtered`, `excluded_files`, `pushed_files`, `pushed_commits`, and `pulled_commits`. If *every* own file is blocked, the gateway returns `200 nothing_to_push: true` without updating the remote. See [Gateway Auto-Filter Architecture](../architecture/gateway-auto-filter.md) for the full design and the per-commit rewrite algorithm.
 
-The gateway's `get_changed_files_in_push()` uses per-commit detection (#1539) — inspecting each commit individually via `rev-list` + `diff-tree` — to report only files from the current push, eliminating false positives from other agents' prior pushes to the same branch.
+**Kill switch:** `EGG_AGENT_RESTRICTIONS_ENFORCE=false` short-circuits the rewrite path — the gateway logs a WARNING and plain-pushes. The response schema is preserved (`filtered: false`, `excluded_files: []`, `pushed_files`, `pulled_commits`) so downstream tooling does not need to branch on the flag.
+
+**Non-agent-role restrictions keep 403.** Phase / anchor scope / protected-file / branch-ownership / private-mode / concurrent-mode checks still return `403 Push denied` — only agent-role file restrictions auto-filter.
+
+The gateway's `get_attributed_changed_files_in_push()` walks the unpushed range via `rev-list` + `diff-tree` per commit, then does a single bulk `lookup_bulk` against the commit-authorship registry to tag each file with its authoring role (or `None` if unregistered — treated as own-authored per the fail-closed invariant).
 
 For the exact allowed and blocked patterns per role, see `shared/egg_restrictions/patterns.py` (canonical source). The gateway imports from this shared package for push-time validation.
 
@@ -448,6 +452,8 @@ Each agent commits with a role-scoped author for auditability:
 | *(any role)* | `egg (<role>)` | `<role>@egg.local` |
 
 This is set automatically by the sandbox entrypoint using the `EGG_AGENT_ROLE` environment variable. If the variable is not set, the default `egg <egg@localhost>` is used.
+
+> **Note ([#1882](https://github.com/jwbron/egg/issues/1882)):** The git identity is used for display in `git log` only. Authoritative commit attribution for push-time file-restriction enforcement comes from the **commit-authorship registry**, which is populated inline by the gateway's `/api/v1/git/execute` observer using the session's role — not from `commit.author_email`. A compromised sandbox cannot forge another role's authorship by overriding the `user.email` config, because the gateway records who authored each commit based on which session token created it. See [Gateway Auto-Filter Architecture](../architecture/gateway-auto-filter.md#why-a-commit-authorship-registry).
 
 ## Related Documentation
 
