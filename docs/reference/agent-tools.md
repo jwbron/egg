@@ -40,39 +40,44 @@ for the per-pipeline opt-in recipe.
 ## Tool inventory (15 verbs)
 
 All 15 tools are registered as `@tool`-decorated wrappers in
-`sandbox/egg_agent_tools/tools/*.py`. The raw `@tool` name in the
-decorator is `mcp__<namespace>__<verb>`, where `<namespace>` is one of
-`sdlc`, `brc`, `phase`, `progress`, `task`.
+`sandbox/egg_agent_tools/tools/*.py`. The raw `@tool` name is the verb
+itself (e.g. `"propose"`, `"register_open_question"`).
 
 ### Tool-name resolution (how Claude sees these tools)
 
 The SDK renders an MCP tool in `tool_use` blocks as
-`mcp__<server_key>__<raw_tool_name>`, where `<server_key>` is the key
-used in `options.mcp_servers` (currently `{'egg': server}`, so the
-server key is `egg`) and `<raw_tool_name>` is the name passed to the
-`@tool` decorator. With the current registration this means the
-Claude-visible tool names include a literal `mcp__egg__` prefix in
-front of the raw `@tool` name — e.g. the `brc_propose` wrapper whose
-raw name is `mcp__brc__propose` surfaces to Claude as
-`mcp__egg__mcp__brc__propose`. The tables below list the **raw `@tool`
-names** (what the handler code declares and what the drift test
-introspects); when the agent actually calls a tool, prepend
-`mcp__egg__` mentally to get the SDK-visible identifier. The exact
-convention may tighten in a follow-up (e.g. splitting into 5
-per-namespace servers or dropping the extra `mcp__<ns>__` prefix from
-raw names) — the authoritative source is the shipping `TOOL_LIST` in
-`sandbox/egg_agent_tools/tools/__init__.py` and the
-`SYSTEM_PROMPT_NUDGE` generated at import time by
+`mcp__<server_key>__<raw_tool_name>`. `build_sandbox_mcp_server`
+returns a `{namespace: server}` dict — one SDK MCP server per
+namespace, keyed by `sdlc`, `brc`, `phase`, `progress`, or `task` —
+and `shared/egg_agent/client.py::run_agent_async` merges that dict
+into `options.mcp_servers` when `EGG_MCP_TOOLS=true`. With raw
+`@tool` names declared as plain verbs, Claude's composition
+naturally produces the semantic names in the tables below:
+
+- raw name `propose` in server key `brc` → `mcp__brc__propose`
+- raw name `register_open_question` in server key `sdlc` →
+  `mcp__sdlc__register_open_question`
+- ...and so on for every verb.
+
+The tables list the **SDK-visible tool names** (what appears in
+`tool_use` blocks and what agents call). The `ToolRegistration.name`
+attribute in `sandbox/egg_agent_tools/tools/_registry.py` carries
+the same full name for drift-test introspection and nudge
+generation. The authoritative sources are the shipping `TOOL_LIST`
+and per-namespace dict returned by
+`sandbox/egg_agent_tools/server.py::build_sandbox_mcp_server()`, plus
+the `SYSTEM_PROMPT_NUDGE` generated at import time by
 `sandbox/egg_agent_tools/server.py::_render_nudge()`.
 
 Every tool with a shell-CLI counterpart declares a `cli_command`
-attribute (e.g. `("egg-orch", "consensus", "propose")`) so a CI drift
-test (`tests/tools/test_mcp_cli_drift.py`) can assert the MCP tool and
+attribute on its `ToolRegistration` (e.g. `("egg-orch", "consensus",
+"propose")`) so a CI drift test
+(`tests/tools/test_mcp_cli_drift.py`) can assert the MCP tool and
 the CLI subparser dispatch the same handler function. If a handler
 moves, both surfaces move together or CI fails. Adding a new tool
 means adding a `cli_command` attribute on the registration (or
-explicitly setting it to `None` for new verbs with no CLI counterpart)
-— the drift gate will refuse the PR otherwise.
+explicitly setting it to `None` for new verbs with no CLI
+counterpart) — the drift gate will refuse the PR otherwise.
 
 ### `mcp__sdlc__*` — HITL and contract-level operations
 
@@ -109,7 +114,7 @@ them as optional and promotes them in iteration 2
 
 | Tool | Purpose | Handler | CLI counterpart |
 |------|---------|---------|-----------------|
-| `mcp__progress__emit` | Signal a progress percent (`0`–`100`) for the current agent, with optional `task` ID and free-form `message`. Maps to the existing `signal progress` verb (not `progress emit`) — the structured-event schema is iteration-2 scope. | `handlers.progress.progress_emit` | `egg-orch signal progress` |
+| `mcp__progress__emit` | Emit a structured progress event: required `step` (step name) and `state` (`working`/`blocked`/`complete`), optional `detail` and `blocker`. | `handlers.progress.progress_emit` | `egg-orch progress emit` |
 | `mcp__progress__signal_error` | Signal an error to the orchestrator (`--error <msg>` payload + recoverable flag). | `handlers.progress.progress_signal_error` | `egg-orch signal error` |
 | `mcp__progress__heartbeat` | Send a heartbeat so the orchestrator knows the agent is alive. | `handlers.progress.progress_heartbeat` | `egg-orch signal heartbeat` |
 
@@ -171,14 +176,12 @@ renderer is intentionally namespace-driven so the nudge and
 nudge on the next import, and the drift test in `test_server.py`
 keeps both sides honest.
 
-> **Tool-name caveat:** the nudge points agents at
-> `mcp__<namespace>__*`, which is the *raw* `@tool` name. Remember
-> (see "Tool-name resolution" above) that the SDK exposes these with
-> the `mcp_servers` dict-key prefix attached (currently `mcp__egg__`),
-> so the name that appears in actual `tool_use` blocks is
-> `mcp__egg__mcp__<namespace>__<verb>`. This is an implementation
-> detail that may be smoothed in a follow-up and should not affect
-> how documentation or the nudge reads.
+The nudge points agents at `mcp__<namespace>__*`, which is the
+literal name Claude sees in `tool_use` blocks — the per-namespace
+server split (one SDK MCP server per `sdlc` / `brc` / `phase` /
+`progress` / `task` key) makes the composed
+`mcp__<server_key>__<raw_name>` resolve directly to the semantic
+name the nudge advertises. No mental prefix-prepending required.
 
 ## Architecture
 

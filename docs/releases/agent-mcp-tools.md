@@ -33,14 +33,11 @@ when that harness graduates from experimental to supported.
 
 ## Iteration-1 verbs (15 total)
 
-Raw `@tool` name namespaces: `mcp__sdlc__*`, `mcp__brc__*`,
-`mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`.
-
-> Names below are the **raw `@tool` names** declared in
-> `sandbox/egg_agent_tools/tools/*.py`. The SDK prefixes them with
-> the `options.mcp_servers` dict-key (currently `egg`), so the
-> Claude-visible `tool_use` name is `mcp__egg__<raw_name>` — see
-> [docs/reference/agent-tools.md — Tool-name resolution](../reference/agent-tools.md#tool-name-resolution-how-claude-sees-these-tools).
+Namespaces (each backed by its own SDK MCP server, keyed by
+namespace in `options.mcp_servers`): `mcp__sdlc__*`, `mcp__brc__*`,
+`mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`. Names below are
+the literal tool names Claude sees in `tool_use` blocks — see
+[docs/reference/agent-tools.md — Tool-name resolution](../reference/agent-tools.md#tool-name-resolution-how-claude-sees-these-tools).
 
 | # | Tool | Handler | CLI counterpart |
 |---|------|---------|-----------------|
@@ -55,7 +52,7 @@ Raw `@tool` name namespaces: `mcp__sdlc__*`, `mcp__brc__*`,
 | 9 | `mcp__brc__list_blocking` | `handlers.brc.brc_list_blocking` | — *(new capability)* |
 | 10 | `mcp__phase__get_context` | `handlers.phase.phase_get_context` | — *(new capability)* |
 | 11 | `mcp__phase__get_assigned_tasks` | `handlers.phase.phase_get_assigned_tasks` | *(filtered view over `egg-contract show`)* |
-| 12 | `mcp__progress__emit` | `handlers.progress.progress_emit` | `egg-orch signal progress` |
+| 12 | `mcp__progress__emit` | `handlers.progress.progress_emit` | `egg-orch progress emit` |
 | 13 | `mcp__progress__signal_error` | `handlers.progress.progress_signal_error` | `egg-orch signal error` |
 | 14 | `mcp__progress__heartbeat` | `handlers.progress.progress_heartbeat` | `egg-orch signal heartbeat` |
 | 15 | `mcp__task__complete` | `handlers.task.task_complete` | `egg-contract complete-task` |
