@@ -439,6 +439,29 @@
       "resolved_by": "human",
       "resolved_at": "2026-04-22T23:48:58.011984Z",
       "debounce_until": null
+    },
+    {
+      "id": "decision-8",
+      "question": "[Phase gate: plan] The plan phase has completed. Please review the plan and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Plan approved. Covers all scope agreed in refine HITL (Option A catch-all, matcher bug fix, phase-permissions.json three-role split, TODO(#1903) annotations, docs update). Defense-in-depth additions (.github/ + sandbox/scripts/ blocks) accepted \u2014 reasonable given CI rewrite / credential-shim-bypass risks. TASK-5-4 drift-detection test accepted \u2014 good belt-and-suspenders for the three-surface sync.",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T03:03:34.267874Z",
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
