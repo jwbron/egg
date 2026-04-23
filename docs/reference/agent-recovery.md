@@ -217,7 +217,7 @@ Source: `orchestrator/routes/pipelines.py`
 
 When agent-level restarts are insufficient (e.g., multiple agents stuck, consensus state corrupted, or the phase needs a fresh start), a **phase-level restart** kills all containers for the phase and respawns all agents from scratch.
 
-Restarts are allowed when the pipeline is in `RUNNING`, `AWAITING_HUMAN`, or `FAILED` state. If the pipeline is in `FAILED` state, the restart automatically resets both the pipeline and phase status to `RUNNING`.
+Restarts are allowed when the pipeline is in `RUNNING`, `AWAITING_HUMAN`, `FAILED`, or `CANCELLED` state. If the pipeline is in `FAILED` or `CANCELLED` state, the restart automatically resets both the pipeline and phase status to `RUNNING`. The `CANCELLED` case supports resuming a pipeline that was stopped via `cancel_task(cleanup=false)` without a full resubmission — see [#1725](https://github.com/jwbron/egg/issues/1725).
 
 ### How It Works
 
