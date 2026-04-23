@@ -276,16 +276,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-23T06:34:05.306705Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-23T06:37:29.171166Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Gateway rewrites the agent's local HEAD to match what it pushed (fast-forward on origin). No divergence, but the blocked files are returned as uncommitted staged changes instead.\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:21:58.997312Z",
-  "updated_at": "2026-04-23T06:34:05.318909Z",
+  "updated_at": "2026-04-23T06:37:29.186668Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -299,5 +299,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:31:28.068349Z",
-  "version": 31
+  "version": 32
 }
