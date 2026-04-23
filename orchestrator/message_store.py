@@ -25,6 +25,14 @@ class MessageType:
     STATUS = "STATUS"
     AGENT_FAILED = "AGENT_FAILED"
     HANDOFF = "HANDOFF"
+    # DEPRECATED (issue #1897). QUESTION is no longer advertised in the
+    # reviewer preamble or the CLI ``--type`` choice list; it is retained
+    # as an enum member here only so existing test fixtures (tester
+    # owns the test files) keep resolving until the tester updates them.
+    # A follow-up issue will replace QUESTION with a structured
+    # REQUEST/REPLY peer-Q&A subsystem that names a target peer and
+    # times out, and will then remove this member entirely.
+    QUESTION = "QUESTION"
     # Structured per-agent state heartbeat (issue #1897).
     # Body is a JSON document with {"state": ..., "waiting_on": ..., "since": ...}.
     # See docs/reference/agent-wait-patterns.md.

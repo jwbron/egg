@@ -2039,8 +2039,13 @@ def create_parser() -> argparse.ArgumentParser:
     msg_send.add_argument(
         "--type",
         required=True,
-        choices=["PROGRESS", "QUESTION", "STATUS", "HANDOFF"],
-        help="Message type (PROGRESS, QUESTION, STATUS, HANDOFF)",
+        choices=["PROGRESS", "QUESTION", "STATUS", "HANDOFF", "HEARTBEAT"],
+        help=(
+            "Message type (PROGRESS, STATUS, HANDOFF, HEARTBEAT). "
+            "QUESTION is DEPRECATED — see #1897; use the dedicated "
+            "`message heartbeat` subcommand for HEARTBEAT instead of "
+            "raw --type HEARTBEAT."
+        ),
     )
     msg_send.add_argument("--subject", help="Message subject")
     msg_send.add_argument("--body", help="Message body")

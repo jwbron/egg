@@ -5044,10 +5044,15 @@ BRC_HISTORY_TYPES = frozenset(
         "CONSENSUS_RE_REVIEW",
         "STATUS",
         "HANDOFF",
+        # QUESTION is deprecated in issue #1897 but retained in the BRC
+        # history set until the tester updates test_brc_history fixtures
+        # in a follow-up commit.  See MessageType.QUESTION.
         "QUESTION",
         "AGENT_FAILED",
         "NUDGE",
         "OVERSEER_ALERT",
+        # HEARTBEAT (issue #1897) — structured per-agent state messages.
+        "HEARTBEAT",
     }
 )
 
@@ -6354,7 +6359,11 @@ def _build_brc_preamble(
                 "**As a reviewer**, use directed messages to request clarification:",
                 "- **QUESTION**: Ask a producer for clarification before or during your "
                 "review. This avoids unnecessary NACKs for ambiguities that can be "
-                "resolved with a quick exchange.",
+                "resolved with a quick exchange.  **Deprecated (issue #1897)** — the "
+                "QUESTION message type will be replaced by a structured REQUEST/REPLY "
+                "subsystem in a follow-up issue.  For new code, prefer putting the "
+                "question in a NACK `--reason` block marked \"### Non-blocking\" so the "
+                "producer sees it atomically with the verdict.",
                 "  ```",
                 '  egg-orch message send --to coder --type QUESTION --subject "Clarify auth flow" '
                 '--body "Is the token refresh handled in auth.py or middleware?"',
