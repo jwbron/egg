@@ -586,7 +586,7 @@ Agents are organized into five categories (execution, analysis, review, utility,
 
 | Role | Category | Purpose | File Access |
 |------|----------|---------|-------------|
-| **Coder** | Execution | Implements code changes | `src/`, `lib/`, `shared/` |
+| **Coder** | Execution | Implements code changes | All files except docs, tests, `.egg-state/`, `.github/`, `sandbox/scripts/` (blocklist-complement; see [Agent Roles Reference](../reference/agent-roles.md#coder)) |
 | **Tester** | Execution | Finds gaps, writes tests, runs linters and reports issues to coder | `tests/`, `test_*.py`, `*.test.ts`, `**/conftest.py` |
 | **Documenter** | Execution | Updates documentation | `docs/`, `*.md`, `README*` |
 | **Autofixer** | Utility | Auto-fixes lint/format/type-check issues | Source and config files (no docs or contracts) |
