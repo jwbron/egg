@@ -1,0 +1,254 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1758,
+    "title": "Issue #1758",
+    "url": "https://github.com/jwbron/egg/issues/1758"
+  },
+  "pipeline_id": "issue-1758",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `orchestrator/routes/pipelines.py:_build_review_prompt()` (~L3297), replace the `is_delta_review` branch of `diff_command` with `git log {last_reviewed_commit}..HEAD --not {_base_ref} -p`. Leave the cycle-1 three-dot `git diff {_base_ref}...HEAD` branch unchanged.",
+          "status": "complete",
+          "commit": "3898fc6bd508785cf61125fcc21a353d037a98e0",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Cycle > 1 with `last_reviewed_commit` set produces `git log <sha>..HEAD --not origin/<base> -p`; cycle 1 still produces the three-dot `git diff origin/<base>...HEAD`.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "In `orchestrator/routes/pipelines.py` (~L3448), update the \"Delta Review\" directive text to reference the new `git log \u2026 --not {_base_ref} -p` command (using the already-resolved `_base_ref`) and add a `git fetch origin {base_branch}` nudge before it.",
+          "status": "complete",
+          "commit": "3898fc6bd508785cf61125fcc21a353d037a98e0",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The Delta Review section of the generated prompt names the new command form and includes a `git fetch origin <base>` instruction.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "In each of `action/build-review-prompt.sh` (~L142), `action/build-agent-mode-design-review-prompt.sh` (~L92), and `action/build-contract-verification-prompt.sh` (~L106): accept a new `BASE_REF` env var defaulting to `main` (`local base_ref=\"${BASE_REF:-main}\"`); replace the `git diff ${LAST_REVIEW_COMMIT}..HEAD` instruction with a two-part instruction \u2014 first `git fetch origin ${base_ref}`, then `git log ${LAST_REVIEW_COMMIT}..HEAD --not origin/${base_ref} -p`; document `BASE_REF` in the file header comment block. The initial-review (no `LAST_REVIEW_COMMIT`) branch is not touched.",
+          "status": "complete",
+          "commit": "3898fc6bd508785cf61125fcc21a353d037a98e0",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Running any of the three scripts with `LAST_REVIEW_COMMIT=abc123 BASE_REF=main` produces a prompt that includes `git fetch origin main` and `git log abc123..HEAD --not origin/main -p`, and does not contain `git diff abc123..HEAD`.",
+          "files_affected": [
+            "action/build-review-prompt.sh",
+            "action/build-agent-mode-design-review-prompt.sh",
+            "action/build-contract-verification-prompt.sh"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "In `.github/workflows/reusable-review.yml`, extend the `pr-meta` step (~L344-365) to emit a `base-ref` output from the existing `pr_json` jq pipeline (add `echo \"base-ref=$(echo \"$pr_json\" | jq -r '.base.ref')\"` alongside the existing head-ref/head-repo/head-sha lines). Then in the \"Build review prompt from trusted main branch\" step (~L487-494), add `BASE_REF: ${{ steps.pr-meta.outputs.base-ref }}` to the `env:` block. No changes needed to consumer workflows \u2014 plumbing is internal to `reusable-review.yml`.",
+          "status": "complete",
+          "commit": "3898fc6bd508785cf61125fcc21a353d037a98e0",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "A workflow run of `reusable-review.yml` sets `BASE_REF` to the PR's actual base branch when invoking the prompt-builder step. For a PR targeting main, `BASE_REF=main`. For a PR targeting a non-main branch, `BASE_REF` is that branch name.",
+          "files_affected": [
+            ".github/workflows/reusable-review.yml"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-5",
+          "description": "Update `tests/action/test_build_review_prompt.py`, `tests/action/test_build_agent_mode_design_review_prompt.py`, and `tests/action/test_build_contract_verification_prompt.py`: replace existing re-review assertions that check for `git diff <sha>..HEAD` (e.g. `test_build_review_prompt.py:169`) with assertions that look for `git log <sha>..HEAD --not origin/main -p` and `git fetch origin main`; extend the test helpers (`run_build_*_prompt`) to accept a `base_ref` kwarg that sets `BASE_REF` in the env; add one new test per file that passes `base_ref=\"develop\"` and asserts the generated prompt contains `git fetch origin develop` and `git log <sha>..HEAD --not origin/develop -p`. Ensure no test still asserts the old two-dot `git diff` form on the re-review path. Initial-review tests stay as-is.",
+          "status": "pending",
+          "commit": "445b189cb",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The three test files pass under `pytest tests/action/`. No test still asserts `git diff <sha>..HEAD` on the re-review path.",
+          "files_affected": [
+            "tests/action/test_build_review_prompt.py",
+            "tests/action/test_build_agent_mode_design_review_prompt.py",
+            "tests/action/test_build_contract_verification_prompt.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-6",
+          "description": "Update `orchestrator/tests/test_pipeline_prompts.py` wherever it asserts the content of `_build_review_prompt`'s delta branch (cycle > 1 with `last_reviewed_commit` set): replace `git diff <sha>..HEAD` assertions with `git log <sha>..HEAD --not origin/<base> -p`; assert the Delta Review directive references the new command plus the `git fetch origin <base>` nudge. Add a test that calls `_build_review_prompt(..., review_cycle=2, last_reviewed_commit=\"<sha>\", base_branch=\"develop\", ...)` and asserts the emitted command uses `origin/develop`, not `origin/main`. Cycle-1 tests asserting `git diff origin/main...HEAD` stay unchanged.",
+          "status": "pending",
+          "commit": "445b189cb",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`pytest orchestrator/tests/test_pipeline_prompts.py` passes and the new non-default-base test fails if `base_branch` isn't correctly threaded through.",
+          "files_affected": [
+            "orchestrator/tests/test_pipeline_prompts.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [
+    {
+      "timestamp": "2026-04-22T23:39:28.465108Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:39:28.470004Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": null,
+      "new_value": "3898fc6bd508785cf61125fcc21a353d037a98e0",
+      "reason": "Linked commit 3898fc6 to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:39:28.650338Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:39:28.655308Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": null,
+      "new_value": "3898fc6bd508785cf61125fcc21a353d037a98e0",
+      "reason": "Linked commit 3898fc6 to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:39:28.834105Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:39:28.838148Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.commit",
+      "old_value": null,
+      "new_value": "3898fc6bd508785cf61125fcc21a353d037a98e0",
+      "reason": "Linked commit 3898fc6 to task-1-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:39:29.018574Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.3.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-4 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:39:29.023244Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.3.commit",
+      "old_value": null,
+      "new_value": "3898fc6bd508785cf61125fcc21a353d037a98e0",
+      "reason": "Linked commit 3898fc6 to task-1-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:50:46.048717Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.4.commit",
+      "old_value": null,
+      "new_value": "445b189cb",
+      "reason": "Linked commit 445b189 to task-1-5",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:50:46.249662Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.5.commit",
+      "old_value": null,
+      "new_value": "445b189cb",
+      "reason": "Linked commit 445b189 to task-1-6",
+      "checkpoint_id": null
+    }
+  ],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Fix #1758: exclude base-branch commits from re-review deltas",
+    "description": "Re-review prompts used `git diff ${LAST_REVIEW_COMMIT}..HEAD`, a snapshot diff that includes any base-branch merge that landed between the last review and HEAD. This caused reviewers to attribute merged-in work to the PR author (see issue #1758 for a concrete example on PR #1692).\n\nSwitches all five affected call sites (three GHA prompt builders plus two in `orchestrator/routes/pipelines.py:_build_review_prompt`) to `git log ${LAST_REVIEW_COMMIT}..HEAD --not origin/${BASE_REF} -p`, which explicitly excludes commits reachable from the base branch. Shell scripts accept a new `BASE_REF` env var (default `main`); `reusable-review.yml` plumbs the real base ref from its existing `pr-meta` step. Cycle-1 full-PR reviews are unchanged.",
+    "test_plan": "- Automated: `pytest tests/action/test_build_review_prompt.py tests/action/test_build_agent_mode_design_review_prompt.py tests/action/test_build_contract_verification_prompt.py orchestrator/tests/test_pipeline_prompts.py` \u2014 all re-review assertions updated, plus new non-default-base-ref coverage\n- Automated: `make test` \u2014 full suite passes\n- Manual: trigger a re-review on a PR that has a base-branch merge commit since the last review (either via the GHA bots or a BRC re-review cycle) and confirm the reviewer sees only PR-authored commits in the delta, not the merged-in base-branch work",
+    "manual_steps": "Pre-merge: none\nPost-merge: monitor the next few automated re-reviews (especially on PRs that have merged main during their lifecycle) for a few days to confirm the attribution issue is gone"
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}

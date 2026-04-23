@@ -1,0 +1,941 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1901,
+    "title": "Issue #1901",
+    "url": "https://github.com/jwbron/egg/issues/1901"
+  },
+  "pipeline_id": "issue-1901",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Policy rewrite",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Rewrite CODER_PATTERNS in shared/egg_restrictions/patterns.py\nas follows: allowed_patterns=[\"**\"]; blocked_patterns covers\n.egg-state/, docs/, **/*.md, **/README.md, tests/, test/,\n**/tests/, **/test/, the test-file-name patterns\n(**/*_test.py, **/test_*.py, **/*_test.go, **/test_*.go,\n**/*.test.{ts,tsx,js,jsx}, **/*.spec.{ts,tsx,js,jsx}),\n**/conftest.py; block_exempt_patterns covers\n.egg-state/agent-outputs/, sandbox/agent-config/rules/*.md,\nsandbox/agent-config/commands/*.md, skills/. Update the\ndescription string to \"Coder: everything except tester's\ntest scope, documenter's docs/markdown scope, and the\npipeline-state .egg-state/ directory (agent-outputs/\ncarved back)\".\n",
+          "status": "complete",
+          "commit": "e4672c29ff430586564fab59943ab07d555f1611",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Diff shows CODER_PATTERNS.allowed_patterns=[\"**\"] and the\nnew blocklist/exempt lists. `python -c \"from\nshared.egg_restrictions.patterns import CODER_PATTERNS;\nprint(CODER_PATTERNS.can_write('bin/egg'),\nCODER_PATTERNS.can_write('docs/x.md'),\nCODER_PATTERNS.can_write('tests/test_x.py'),\nCODER_PATTERNS.can_write('.egg-state/agent-outputs/x.json'),\nCODER_PATTERNS.can_write('.egg-state/drafts/1901-plan.md'))\"`\nprints `True False False True False`.\n",
+          "files_affected": [
+            "shared/egg_restrictions/patterns.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add a comment immediately above CODER_PATTERNS in\nshared/egg_restrictions/patterns.py:\n`# TODO(#1903): keep blocked_patterns in sync with\nshared/egg_container/__init__.py::_IMPLEMENT_READONLY_DIRS\nand .egg/phase-permissions.json until #1903 unifies these\nsurfaces.`\n",
+          "status": "complete",
+          "commit": "90cf6e0f075a2e48467e82a2fbd6ac99cc0fc3f2",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`rg -n \"TODO\\\\(#1903\\\\)\" shared/egg_restrictions/patterns.py`\nfinds exactly one occurrence on the line immediately\npreceding `CODER_PATTERNS = AgentFilePattern(`.\n",
+          "files_affected": [
+            "shared/egg_restrictions/patterns.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "Matcher bug fix",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "In shared/egg_restrictions/patterns.py, fix\nAgentFilePattern._matches_pattern: when a pattern ends\nwith '/' under the ** branch, treat it as a directory\nprefix and match any file whose path contains that\ndirectory segment (for `**/<dir>/`) or starts with it\n(for bare `<dir>/`). File-name patterns (**/*.py,\n**/*.test.ts, \u2026) must keep current behavior.\nPreserve the _normalize_path path-traversal guard.\n",
+          "status": "complete",
+          "commit": "90cf6e0f075a2e48467e82a2fbd6ac99cc0fc3f2",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`AgentFilePattern._matches_pattern(\"gateway/tests/__init__.py\", \"**/tests/\")`\nreturns True;\n`AgentFilePattern._matches_pattern(\"src/foo.py\", \"**/tests/\")`\nreturns False;\n`AgentFilePattern._matches_pattern(\"pkg/bar.py\", \"**/*.py\")`\nreturns True (regression).\n(Note: path-traversal rejection lives in `_normalize_path`\nwhich is called by `can_write`, NOT by `_matches_pattern`.\nThe `can_write(\"../../etc/passwd\")` regression moves to\nTASK-5-1 / TASK-5-2.)\n",
+          "files_affected": [
+            "shared/egg_restrictions/patterns.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Gateway phase-permissions.json sync",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "In .egg/phase-permissions.json, replace the single\n`implementer` entry in the top-level `file_restrictions`\narray with three entries:\n(a) role=coder, blocked_patterns=[\n    \".egg-state/contracts/\", \"docs/\", \"**/*.md\",\n    \"tests/\", \"test/\", \"**/tests/\", \"**/test/\",\n    \"**/*_test.py\", \"**/test_*.py\", \"**/*_test.go\",\n    \"**/test_*.go\", \"**/*.test.ts\", \"**/*.test.tsx\",\n    \"**/*.test.js\", \"**/*.test.jsx\", \"**/*.spec.ts\",\n    \"**/*.spec.tsx\", \"**/*.spec.js\", \"**/*.spec.jsx\",\n    \"**/conftest.py\"\n  ], blocked_reason=\"Coder cannot modify tests, docs, or\n  pipeline-state contracts; see #1901.\",\n  description=\"Coder: everything except tester, documenter,\n  and .egg-state/ scopes.\";\n(b) role=tester, blocked_patterns=[\n    \"docs/\", \"**/*.md\", \".egg-state/contracts/\"\n  ], blocked_reason=\"Tester cannot modify docs or\n  pipeline-state contracts.\",\n  description=\"Tester: tests and test infrastructure only.\";\n(c) role=documenter, blocked_patterns=[\n    \"**/*.py\", \"**/*.ts\", \"**/*.tsx\", \"**/*.js\",\n    \"**/*.jsx\", \"**/*.go\", \"**/*.java\", \"**/*.rb\",\n    \"**/*.rs\", \"tests/\", \"test/\", \"**/tests/\",\n    \"**/test/\", \".egg-state/contracts/\"\n  ], blocked_reason=\"Documenter cannot modify source,\n  tests, or contracts.\",\n  description=\"Documenter: docs and markdown only.\".\nPrefix each entry's `description` string with\n`\"TODO(#1903): keep in sync with CODER_PATTERNS / TESTER_PATTERNS /\nDOCUMENTER_PATTERNS in shared/egg_restrictions/patterns.py.\"`\n(JSON does not permit comments; prefixing `description`\nis the chosen in-file marker).\n**Keep the legacy `implementer` entry unchanged**\n(blocked_patterns=[\".egg-state/contracts/\"]). Rationale:\nthe gateway's `check_file_restrictions` (phase_filter.py:591)\nmatches role names exactly, and sessions carry the\nfine-grained role (`coder`/`tester`/`documenter`) from\n`g.session.agent_role` (gateway.py:911) \u2014 NOT the coarse\n`implementer` \u2014 so the `implementer` entry is effectively\na dead-weight back-compat record. Retaining it costs\nnothing and guards any future call-site that still\npasses `\"implementer\"`. The new three entries are what\nwill actually enforce at push time.\n",
+          "status": "complete",
+          "commit": "90cf6e0f075a2e48467e82a2fbd6ac99cc0fc3f2",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`jq '.file_restrictions | map(.role) | sort'` on\n`.egg/phase-permissions.json` prints\n`[\"coder\", \"documenter\", \"implementer\", \"tester\"]`.\nAll three new entries (coder/tester/documenter) have\nnon-empty `blocked_patterns`, a `blocked_reason`\nfield, and a `description` field prefixed with\n`TODO(#1903):`. The existing `implementer` entry is\nunchanged byte-for-byte. JSON is valid:\n`python -c \"import json; json.load(open('.egg/phase-permissions.json'))\"`\nexits 0.\n",
+          "files_affected": [
+            ".egg/phase-permissions.json"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Container readonly-dirs annotation",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "In shared/egg_container/__init__.py, add a comment\nimmediately above the `_IMPLEMENT_READONLY_DIRS = (...)`\ntuple (near line 131):\n`# TODO(#1903): keep in sync with CODER_PATTERNS.blocked_patterns\nin shared/egg_restrictions/patterns.py and the\nfile_restrictions section of .egg/phase-permissions.json\nuntil #1903 makes patterns.py the single source of truth.`\n",
+          "status": "complete",
+          "commit": "90cf6e0f075a2e48467e82a2fbd6ac99cc0fc3f2",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`rg -n \"TODO\\\\(#1903\\\\)\" shared/egg_container/__init__.py`\nfinds exactly one occurrence on the line immediately\npreceding the `_IMPLEMENT_READONLY_DIRS = (...)` line.\nNo behavior change; existing tests still pass.\n",
+          "files_affected": [
+            "shared/egg_container/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Tests",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "In shared/tests/test_egg_restrictions.py, add tests that\nCODER_PATTERNS.can_write returns True for:\n\"bin/egg\", \"bin/egg-deploy\", \"bin/egg-status\",\n\"sandbox/egg\", \"sandbox/bin/egg-health-inspect\",\n\"sandbox/scripts/gh\",\n\"sandbox/scripts/git-credential-github-token\",\n\"LICENSE\", \".dockerignore\",\n\"path/to/new-thing\", \"pyproject.toml\", \"Makefile\",\n\".egg-state/agent-outputs/coder.json\",\n\"skills/my-skill/SKILL.md\", \"skills/my-skill/handler.py\",\n\"sandbox/agent-config/rules/foo.md\",\n\"sandbox/agent-config/commands/bar.md\".\nAnd returns False for:\n\"docs/foo.md\", \"README.md\", \"tests/test_x.py\",\n\"test/test_y.py\", \"gateway/tests/__init__.py\",\n\"conftest.py\" (add inline comment: \"root-level conftest\nmatches **/conftest.py under the fixed matcher \u2014 the ** branch\nmatches zero or more path segments, so naive readers expecting\na subdirectory should see this explicit case\"),\n\".egg-state/contracts/spec.json\",\n\".egg-state/drafts/1901-plan.md\",\n\".egg-state/reviews/verdict.json\",\n\".egg-state/secrets/key\" (hypothetical future subdir),\n\"../../etc/passwd\" (path-traversal regression \u2014 this\nassertion MUST go through `CODER_PATTERNS.can_write`, not\n`_matches_pattern`, because the traversal guard lives in\n`_normalize_path` and is only invoked by `can_write`).\nKeep all existing CODER_PATTERNS assertions green.\nUpdate any test that literally enumerates the old\nallow-list (replace with behavior-level assertions).\n",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`pytest shared/tests/test_egg_restrictions.py -q` passes\nwith new test case ids containing `bin_egg`,\n`sandbox_scripts`, `licensing`, `arbitrary_top_level`,\n`nested_tests_init`, `egg_state_blocks`,\n`agent_outputs_exempt`, `skills_exempt`,\n`sandbox_agent_config_exempt`, `path_traversal_via_can_write`.\nNo previously-passing assertion regresses.\n",
+          "files_affected": [
+            "shared/tests/test_egg_restrictions.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-5-2",
+          "description": "In gateway/tests/test_agent_restrictions_patterns.py, add\ntests that mirror TASK-5-1 against CODER_PATTERNS, plus\nregression tests for the matcher fix:\n- _matches_pattern(\"gateway/tests/__init__.py\", \"**/tests/\") is True\n- _matches_pattern(\"src/foo.py\", \"**/tests/\") is False\n- _matches_pattern(\"tests/conftest.py\", \"**/tests/\") is True\n- _matches_pattern(\"pkg/bar.py\", \"**/*.py\") is True (regression)\n- test_no_allowed_patterns_denies_all remains green.\nAdd a `can_write`-level traversal regression:\nCODER_PATTERNS.can_write(\"../../etc/passwd\") is False\n(the guard lives in `_normalize_path` via `can_write`;\nassert at that level, NOT at `_matches_pattern`).\nAdd tester- and documenter-scoped regression tests:\nTESTER_PATTERNS.can_write(\"tests/test_x.py\") is True and\n.can_write(\"gateway/server.py\") is False;\nDOCUMENTER_PATTERNS.can_write(\"docs/x.md\") is True and\n.can_write(\"src/app.py\") is False.\n",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`pytest gateway/tests/test_agent_restrictions_patterns.py -q`\npasses; the matcher-fix regression tests are present;\nthe can_write-level path-traversal regression is\npresent; test_no_allowed_patterns_denies_all is\nunchanged and green.\n",
+          "files_affected": [
+            "gateway/tests/test_agent_restrictions_patterns.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-5-3",
+          "description": "Review and update the following gateway test files.\nThe at-risk assertion patterns are:\n(a) any assertion that literally enumerates\n    `CODER_PATTERNS.allowed_patterns` as a specific set\n    (replace with behavior-level assertions against\n    `can_write`);\n(b) any assertion that maps the coarse role\n    `\"implementer\"` to a specific rejection message\n    (today's single-entry model) \u2014 keep such assertions\n    but add parallel coverage for `\"coder\"`, `\"tester\"`,\n    `\"documenter\"` if they were previously silent;\n(c) any assertion that iterates through blocked patterns\n    expecting only `.egg-state/contracts/` \u2014 tester\n    adds three-role scenarios as noted below.\nFiles and changes:\n- gateway/tests/test_agent_restrictions_enforce.py:\n  add end-to-end push-rejection scenarios where\n  session_role=coder pushes `bin/egg` (now allowed)\n  and session_role=coder pushes `docs/x.md`,\n  `tests/test_x.py`, and `.egg-state/contracts/foo.json`\n  (all blocked). Assert the rejection message format\n  matches `\"Role 'coder' cannot modify: {file}\"`.\n- gateway/tests/test_push_error_enrichment.py:\n  ensure the enriched error message for the three new\n  `file_restrictions` entries is correct. Add a case\n  for each role (coder/tester/documenter) with one\n  blocked file.\n- gateway/tests/test_agent_restrictions_comprehensive.py:\n  replace any pattern-enumeration assertions with\n  behavior-level assertions. Add one case per role\n  confirming the allowed/blocked set from TASK-5-1.\n- gateway/tests/test_phase_filter_restrictions.py:\n  add a test class `TestThreeRoleFileRestrictions` that\n  exercises `check_file_restrictions(\"coder\", [...])`,\n  `check_file_restrictions(\"tester\", [...])`, and\n  `check_file_restrictions(\"documenter\", [...])`\n  against representative allowed/blocked paths.\n",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`pytest gateway/tests/ -q` passes. Each of the four test\nfiles contains at least one new case per role\n(coder/tester/documenter) that asserts on\npush-rejection or file_restrictions behavior. No\npreviously-passing assertion regresses.\n",
+          "files_affected": [
+            "gateway/tests/test_agent_restrictions_enforce.py",
+            "gateway/tests/test_push_error_enrichment.py",
+            "gateway/tests/test_agent_restrictions_comprehensive.py",
+            "gateway/tests/test_phase_filter_restrictions.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-6",
+      "name": "Documentation",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-6-1",
+          "description": "In `docs/reference/agent-roles.md`, rewrite the File\naccess sections of `### coder`, `### tester`, and\n`### documenter` (lines ~129\u2013175). The existing coder\nFile access bullet at line 134 enumerates the legacy\nallowlist extensions and MUST be replaced; see the\nbefore/after sketch below.\n\nBEFORE (current line 134):\n",
+          "status": "pending",
+          "commit": "e87696616abac7785d229e741f1b15b5b00161db",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "",
+          "files_affected": [],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "How should the matcher treat an empty allowed_patterns list for the coder role?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Keep deny-all semantics; add an explicit catch-all pattern ('**') to CODER_PATTERNS.allowed_patterns",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Change semantics: empty allowed_patterns means 'allow by default' (blocklist-only mode) across all roles",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Add a new sentinel flag (e.g., allow_by_default=True) on AgentFilePattern; coder opts in",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Keep deny-all semantics; add an explicit catch-all pattern ('**') to CODER_PATTERNS.allowed_patterns\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-22T23:46:05.118217Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Should autofixer and conflict_resolver (which also use extension-based allowlists) get the same blocklist-complement treatment in this issue?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes \u2014 rewrite all three utility roles now for consistency (coder, autofixer, conflict_resolver)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Coder only \u2014 keep this issue scoped to the reported bug; file follow-ups for autofixer/conflict_resolver",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Coder + autofixer (both apply automated fixes to source) \u2014 leave conflict_resolver for a follow-up",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Coder only \u2014 keep this issue scoped to the reported bug; file follow-ups for autofixer/conflict_resolver\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-22T23:46:40.305479Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "How should the coder's .egg-state/ access be carved?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Block all of .egg-state/ and use block_exempt_patterns=['.egg-state/agent-outputs/'] to carve out the handoff dir (what the issue proposes)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Enumerate blocked .egg-state/ subdirs explicitly: contracts/, drafts/, pipelines/, reviews/, oversight/, checkpoints/, brc-history/, agent-anchors/ \u2014 and leave agent-outputs/ implicitly allowed",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Keep today's approach: allowed_patterns includes '.egg-state/agent-outputs/' and blocked_patterns includes '.egg-state/contracts/' only",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Block all of .egg-state/ and use block_exempt_patterns=['.egg-state/agent-outputs/'] to carve out the handoff dir (what the issue proposes)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-22T23:47:35.668118Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Overseer hit the same wall per the issue's 'out of scope' note. Should we include overseer in this fix?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Out of scope \u2014 leave overseer for a separate issue as the reporter suggested",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "In scope \u2014 give overseer the same treatment (allow everything except .egg-state/ non-oversight subdirs, tester's scope, documenter's scope)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Middle ground \u2014 tighten overseer's access only enough to unblock the specific deletion path that stalled the pipeline (list extensionless scripts)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Out of scope \u2014 leave overseer for a separate issue as the reporter suggested\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-22T23:47:45.811787Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Should we also fix the pre-existing matcher bug where '**/tests/' does NOT match nested test directories as a directory (nested .py files under test dirs are only blocked via file-name patterns like '**/test_*.py', so nested test __init__.py leaks through)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes \u2014 fix the '**/tests/' directory pattern matching as part of this issue (coder would then be strictly blocked from any file under a tests/ subdirectory)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "No \u2014 keep the pre-existing behavior; file a separate issue for the matcher bug",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Partial \u2014 add explicit file-type patterns covering the leak (e.g., '**/tests/**') without changing the general matcher",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Yes \u2014 fix the '**/tests/' directory pattern matching as part of this issue (coder would then be strictly blocked from any file under a tests/ subdirectory)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-22T23:48:10.968429Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "[Phase gate: refine] The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "## Resolved Questions\n\n**Decision 1 \u2014 Matcher semantics for coder's empty allowed_patterns**\nAnswer: Option A \u2014 explicit catch-all ['**'] in CODER_PATTERNS.allowed_patterns. Keep deny-all-when-empty matcher semantics untouched so other roles' backstop is preserved.\n\n**Decision 2 \u2014 Scope of utility-role rewrites**\nAnswer: Coder only. Do NOT rewrite autofixer or conflict_resolver in this PR. File follow-up issues for those.\n\n**Decision 3 \u2014 How to carve coder's .egg-state/ access**\nAnswer: Block all of .egg-state/ and carve out .egg-state/agent-outputs/ via block_exempt_patterns. This is safer for future .egg-state/ subdirs than enumerating blocks.\n\n**Decision 4 \u2014 Overseer scope**\nAnswer: OUT OF SCOPE for this PR. Overseer uses a different (narrow oversight-only) policy, not an extension-based allowlist, so the fix here does not port directly. Already filed as follow-up #1902.\n\n**Decision 5 \u2014 Pre-existing matcher bug for '**/tests/' directory pattern**\nAnswer: YES \u2014 fix the matcher bug in this PR. Currently AgentFilePattern._matches_pattern does not correctly handle directory patterns ending with '/' under the '**' branch, so nested test dirs (e.g. gateway/tests/__init__.py) leak past coder's blocklist. Fix so '**/tests/' (and similar '**/<dir>/') patterns correctly match any file under a nested directory of that name.\n\n**Feedback Q1 \u2014 .egg/phase-permissions.json role=implementer file_restrictions**\nAnswer: Split into three roles (coder, tester, documenter) to mirror the new three-role model. Keep the three surfaces (patterns.py, phase-permissions.json, shared/egg_container/__init__.py::_IMPLEMENT_READONLY_DIRS) manually in sync in this PR.\n\n**Feedback Q2 \u2014 Source of truth between the three surfaces**\nAnswer: Status quo (keep all three in sync manually) in this PR. The deeper refactor \u2014 making patterns.py authoritative and deriving phase-permissions.json and _IMPLEMENT_READONLY_DIRS from it \u2014 is tracked as follow-up #1903 and is out of scope here. Add a TODO(#1903) comment on the hand-maintained lists noting the follow-up.\n\n**Feedback Q3 \u2014 Preemptive blocks on future .egg-state/ subdirs**\nAnswer: None specifically. The 'block .egg-state/ + exempt agent-outputs/' model already protects against arbitrary future subdirs. No defensive 'secrets/' or 'credentials/' entries.\n\n**Feedback Q4 \u2014 Ownership of skills/ markdown**\nAnswer: Coder-owned. SKILL.md is functional agent behavior, not documentation. Preserve via block_exempt_patterns=['skills/'] as today.\n\n## Additional pre-refine decisions (already confirmed)\n\n- Overseer: out of scope for this pipeline (filed as #1902).\n- In-container filesystem guard shared/egg_container/__init__.py:131 _IMPLEMENT_READONLY_DIRS: UPDATE in parallel with the gateway policy in this PR.\n\n## Follow-up issues already filed during /sdlc run\n\n- #1902 \u2014 Overseer file-boundary policy (oversight-only vs remediation scope)\n- #1903 \u2014 Make patterns.py the single source of truth for file restrictions",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-22T23:43:58.325874Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-7",
+      "question": "Open feedback request feedback-1",
+      "type": "hitl",
+      "phase": null,
+      "options": [],
+      "resolved": true,
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Split .egg/phase-permissions.json's role=implementer file_restrictions into three roles (coder, tester, documenter) to mirror the new three-role model. Keep the three surfaces (patterns.py, phase-permissions.json, shared/egg_container/__init__.py::_IMPLEMENT_READONLY_DIRS) manually in sync in this PR.\", \"Q2\": \"For THIS PR keep all three surfaces manually in sync (status quo). The deeper refactor \u2014 making shared/egg_restrictions/patterns.py authoritative and deriving phase-permissions.json + _IMPLEMENT_READONLY_DIRS from it \u2014 is OUT OF SCOPE for this PR and is tracked as follow-up issue #1903. Please add a TODO(#1903) comment on each of the hand-maintained lists in phase-permissions.json and _IMPLEMENT_READONLY_DIRS noting the follow-up.\", \"Q3\": \"None specifically. The 'block .egg-state/ + exempt .egg-state/agent-outputs/' model already protects against arbitrary future subdirectories. Do NOT add defensive preemptive entries for hypothetical paths like '.egg-state/secrets/' or '.egg-state/credentials/' \u2014 they don't exist and adding speculative entries invites drift.\", \"Q4\": \"skills/ markdown remains COODER-OWNED under the new model. SKILL.md files are functional agent-behavior code, not documentation. Preserve via block_exempt_patterns=['skills/'] in CODER_PATTERNS, consistent with today's behavior (sandbox/agent-config/rules/*.md and sandbox/agent-config/commands/*.md are already treated this way).\"}}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-22T23:48:58.011984Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-8",
+      "question": "[Phase gate: plan] The plan phase has completed. Please review the plan and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Plan approved. Covers all scope agreed in refine HITL (Option A catch-all, matcher bug fix, phase-permissions.json three-role split, TODO(#1903) annotations, docs update). Defense-in-depth additions (.github/ + sandbox/scripts/ blocks) accepted \u2014 reasonable given CI rewrite / credential-shim-bypass risks. TASK-5-4 drift-detection test accepted \u2014 good belt-and-suspenders for the three-surface sync.",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T03:03:34.267874Z",
+      "debounce_until": null
+    }
+  ],
+  "workflow_owner": null,
+  "audit_log": [
+    {
+      "timestamp": "2026-04-22T23:30:26.544916Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-1",
+        "question": "How should the matcher treat an empty allowed_patterns list for the coder role?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Keep deny-all semantics; add an explicit catch-all pattern ('**') to CODER_PATTERNS.allowed_patterns",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Change semantics: empty allowed_patterns means 'allow by default' (blocklist-only mode) across all roles",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Add a new sentinel flag (e.g., allow_by_default=True) on AgentFilePattern; coder opts in",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should the matcher treat an empty allowed_patt...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:30:32.931950Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-2",
+        "question": "Should autofixer and conflict_resolver (which also use extension-based allowlists) get the same blocklist-complement treatment in this issue?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Yes \u2014 rewrite all three utility roles now for consistency (coder, autofixer, conflict_resolver)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Coder only \u2014 keep this issue scoped to the reported bug; file follow-ups for autofixer/conflict_resolver",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Coder + autofixer (both apply automated fixes to source) \u2014 leave conflict_resolver for a follow-up",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should autofixer and conflict_resolver (which also...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:30:39.323686Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-3",
+        "question": "How should the coder's .egg-state/ access be carved?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Block all of .egg-state/ and use block_exempt_patterns=['.egg-state/agent-outputs/'] to carve out the handoff dir (what the issue proposes)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Enumerate blocked .egg-state/ subdirs explicitly: contracts/, drafts/, pipelines/, reviews/, oversight/, checkpoints/, brc-history/, agent-anchors/ \u2014 and leave agent-outputs/ implicitly allowed",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Keep today's approach: allowed_patterns includes '.egg-state/agent-outputs/' and blocked_patterns includes '.egg-state/contracts/' only",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should the coder's .egg-state/ access be carve...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:30:45.238434Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-4",
+        "question": "Overseer hit the same wall per the issue's 'out of scope' note. Should we include overseer in this fix?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Out of scope \u2014 leave overseer for a separate issue as the reporter suggested",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "In scope \u2014 give overseer the same treatment (allow everything except .egg-state/ non-oversight subdirs, tester's scope, documenter's scope)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Middle ground \u2014 tighten overseer's access only enough to unblock the specific deletion path that stalled the pipeline (list extensionless scripts)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Overseer hit the same wall per the issue's 'out of...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:30:51.947907Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-5",
+        "question": "Should we also fix the pre-existing matcher bug where '**/tests/' does NOT match nested test directories as a directory (nested .py files under test dirs are only blocked via file-name patterns like '**/test_*.py', so nested test __init__.py leaks through)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Yes \u2014 fix the '**/tests/' directory pattern matching as part of this issue (coder would then be strictly blocked from any file under a tests/ subdirectory)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "No \u2014 keep the pre-existing behavior; file a separate issue for the matcher bug",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Partial \u2014 add explicit file-type patterns covering the leak (e.g., '**/tests/**') without changing the general matcher",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should we also fix the pre-existing matcher bug wh...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T23:31:03.497600Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "The '.egg/phase-permissions.json' file has a separate 'file_restrictions' section (role='implementer', blocked_patterns=['.egg-state/contracts/']) enforced by gateway/phase_filter.py::check_file_restrictions. Is that role-based phase restriction expected to stay as-is, or should it also reflect the new three-role model (e.g., split into coder/tester/documenter)?",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Comment in shared/egg_container/__init__.py:131 says _IMPLEMENT_READONLY_DIRS 'Must stay in sync with .egg/phase-permissions.json blocked_patterns for implement'. After this rewrite, which file is authoritative, and should the container side be simplified to derive its readonly dirs from the blocklist (rather than hardcoded)?",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "Under the new model, coder gains write access to any new top-level path or file type \u2014 including hypothetical .egg-state/ subdirs that don't exist yet. Are there future .egg-state/ subdirectories you'd want coder pre-emptively blocked from (e.g., a future '.egg-state/secrets/')?",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "Currently CODER_PATTERNS.allowed_patterns includes 'skills/' (a directory prefix), while DOCUMENTER_PATTERNS blocks '**/*.md' implicitly. Under the new blocklist-complement model, should 'skills/' .md files still be coder-owned (as today) or are they documenter-owned? (SKILL.md is arguably functional code describing agent behavior, but it's still markdown.)",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 4 question(s)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T03:07:17.845624Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.commit",
+      "old_value": null,
+      "new_value": "e87696616abac7785d229e741f1b15b5b00161db",
+      "reason": "Linked commit e876966 to task-6-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T03:10:33.550847Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T03:10:33.563955Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": null,
+      "new_value": "90cf6e0f075a2e48467e82a2fbd6ac99cc0fc3f2",
+      "reason": "Linked commit 90cf6e0 to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T03:10:33.747286Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T03:10:33.760949Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": null,
+      "new_value": "90cf6e0f075a2e48467e82a2fbd6ac99cc0fc3f2",
+      "reason": "Linked commit 90cf6e0 to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T03:10:34.039823Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T03:10:34.066456Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.commit",
+      "old_value": null,
+      "new_value": "90cf6e0f075a2e48467e82a2fbd6ac99cc0fc3f2",
+      "reason": "Linked commit 90cf6e0 to task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T03:10:34.247280Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T03:10:34.263978Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.commit",
+      "old_value": null,
+      "new_value": "90cf6e0f075a2e48467e82a2fbd6ac99cc0fc3f2",
+      "reason": "Linked commit 90cf6e0 to task-3-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T03:10:34.445697Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T03:10:34.458641Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.commit",
+      "old_value": null,
+      "new_value": "90cf6e0f075a2e48467e82a2fbd6ac99cc0fc3f2",
+      "reason": "Linked commit 90cf6e0 to task-4-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T03:32:19.952450Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": "90cf6e0f075a2e48467e82a2fbd6ac99cc0fc3f2",
+      "new_value": "e4672c29ff430586564fab59943ab07d555f1611",
+      "reason": "Linked commit e4672c2 to task-1-1",
+      "checkpoint_id": null
+    }
+  ],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Fix #1901: coder file-boundary blocklist-complement rewrite",
+    "description": "**Problem.** The `coder` role's git-push policy\n(`CODER_PATTERNS` in `shared/egg_restrictions/patterns.py`) is an\nextension-based allowlist. Any file that does not match one of\nthe enumerated extensions (or the short literal list of build\nfiles like `Makefile`/`Dockerfile`) is rejected. The concrete\nfailure observed in issue-1762-membump (PR #1900) was that the\ncoder could not delete `bin/egg` or `sandbox/egg` \u2014 both\nextensionless scripts \u2014 and no other role had permission either.\nThe implement phase stalled for over an hour before a human\nadvanced the pipeline.\n\n**Changes.**\n1. **Rewrite `CODER_PATTERNS`** as an explicit catch-all\n   (`allowed_patterns=[\"**\"]`) paired with a blocklist that\n   carves out the tester's test scope, the documenter's\n   markdown/docs scope, and the pipeline-state `.egg-state/`\n   directory. `block_exempt_patterns` preserves the coder's\n   handoff directory (`.egg-state/agent-outputs/`), the\n   `skills/` tree, and `sandbox/agent-config/{rules,commands}/*.md`\n   (functional code, not docs).\n2. **Fix the `_matches_pattern` directory-pattern bug.**\n   Patterns of the form `**/<dir>/` previously leaked nested\n   files like `gateway/tests/__init__.py`. The fix treats a\n   pattern ending in `/` as a directory prefix under the `**`\n   branch so nested test directories are fully blocked.\n3. **Mirror the three-role model in\n   `.egg/phase-permissions.json`.** The legacy single\n   `implementer` entry in `file_restrictions` is split into\n   three entries (`coder`, `tester`, `documenter`) so the\n   gateway's phase-filter layer aligns with the agent-pattern\n   layer.\n4. **Annotate the three sync'd surfaces.** A `TODO(#1903)`\n   comment on `CODER_PATTERNS`, on `_IMPLEMENT_READONLY_DIRS`,\n   and on the new `phase-permissions.json` entries points\n   future maintainers to the follow-up that will make\n   `patterns.py` the single source of truth.\n5. **Tests & docs.** New unit tests cover extensionless files\n   (`bin/egg`, `sandbox/egg`, `LICENSE`, `.dockerignore`,\n   arbitrary new paths), the nested-test-dir regression,\n   `.egg-state/` block + `agent-outputs/` exemption, and\n   `skills/` exemption. `docs/reference/agent-roles.md` is\n   rewritten to describe the three-role mutual-exclusion\n   model.\n\n**Impact.** Extensionless top-level scripts (`bin/egg`,\n`sandbox/egg`, `sandbox/bin/egg-health-inspect`,\n`sandbox/scripts/gh`, and similar) are now modifiable by the\ncoder. Adding a new language or new config file format no\nlonger requires editing `CODER_PATTERNS`. Tester and\ndocumenter scopes are unchanged. The deny-all backstop on\nempty `allowed_patterns` is preserved for every other role.\n\n**Single PR.** Everything above \u2014 the policy rewrite, the\nmatcher bug fix, the `phase-permissions.json` split, the\ncontainer-sync annotation, the tests, and the docs update \u2014\nlands in this one PR on `egg/issue-1901`. No follow-up PRs\nare required. Follow-up *issues* `#1902` (overseer) and\n`#1903` (single source of truth) remain open as tracked\nfuture work but do NOT need to merge with this PR.",
+    "test_plan": "- Automated: `make test` (runs `shared/tests/test_egg_restrictions.py`,\n  `gateway/tests/test_agent_restrictions_patterns.py`,\n  `gateway/tests/test_agent_restrictions_enforce.py`,\n  `gateway/tests/test_push_error_enrichment.py`,\n  `gateway/tests/test_phase_filter_restrictions.py`). New cases\n  cover `bin/egg`, `sandbox/egg`, `LICENSE`, `.dockerignore`,\n  arbitrary new top-level paths, the nested test-dir matcher\n  fix (`gateway/tests/__init__.py`), `.egg-state/` blocks with\n  `agent-outputs/` exemption, and `skills/`/`sandbox/agent-config/`\n  exemptions. `test_no_allowed_patterns_denies_all` must remain\n  green (matcher semantics unchanged).\n- Manual: (1) In a Python shell, import `CODER_PATTERNS` and\n  confirm `can_write(\"bin/egg\")` is `True`,\n  `can_write(\"docs/foo.md\")` is `False`,\n  `can_write(\"tests/test_x.py\")` is `False`, and\n  `can_write(\".egg-state/agent-outputs/x.json\")` is `True`.\n  (2) Grep for literal uses of the old CODER_PATTERNS\n  enumeration: `rg -n \"\\\\*\\\\*/\\\\*\\\\.py\" shared/ gateway/` and\n  confirm no call-site depends on the old allow-list as data.\n  (3) Confirm the matcher bug fix by running\n  `AgentFilePattern._matches_pattern(\"gateway/tests/__init__.py\", \"**/tests/\")`\n  \u2014 must return `True`.",
+    "manual_steps": "Pre-merge: None beyond standard review. Confirm CI green.\nPost-merge: None. Follow-up issues #1902 (overseer) and #1903\n(single-source-of-truth refactor) are already filed and\nreferenced by TODO comments in this PR."
+  },
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "The '.egg/phase-permissions.json' file has a separate 'file_restrictions' section (role='implementer', blocked_patterns=['.egg-state/contracts/']) enforced by gateway/phase_filter.py::check_file_restrictions. Is that role-based phase restriction expected to stay as-is, or should it also reflect the new three-role model (e.g., split into coder/tester/documenter)?",
+        "answer": "Split .egg/phase-permissions.json's role=implementer file_restrictions into three roles (coder, tester, documenter) to mirror the new three-role model. Keep the three surfaces (patterns.py, phase-permissions.json, shared/egg_container/__init__.py::_IMPLEMENT_READONLY_DIRS) manually in sync in this PR."
+      },
+      {
+        "id": "Q2",
+        "question": "Comment in shared/egg_container/__init__.py:131 says _IMPLEMENT_READONLY_DIRS 'Must stay in sync with .egg/phase-permissions.json blocked_patterns for implement'. After this rewrite, which file is authoritative, and should the container side be simplified to derive its readonly dirs from the blocklist (rather than hardcoded)?",
+        "answer": "For THIS PR keep all three surfaces manually in sync (status quo). The deeper refactor \u2014 making shared/egg_restrictions/patterns.py authoritative and deriving phase-permissions.json + _IMPLEMENT_READONLY_DIRS from it \u2014 is OUT OF SCOPE for this PR and is tracked as follow-up issue #1903. Please add a TODO(#1903) comment on each of the hand-maintained lists in phase-permissions.json and _IMPLEMENT_READONLY_DIRS noting the follow-up."
+      },
+      {
+        "id": "Q3",
+        "question": "Under the new model, coder gains write access to any new top-level path or file type \u2014 including hypothetical .egg-state/ subdirs that don't exist yet. Are there future .egg-state/ subdirectories you'd want coder pre-emptively blocked from (e.g., a future '.egg-state/secrets/')?",
+        "answer": "None specifically. The 'block .egg-state/ + exempt .egg-state/agent-outputs/' model already protects against arbitrary future subdirectories. Do NOT add defensive preemptive entries for hypothetical paths like '.egg-state/secrets/' or '.egg-state/credentials/' \u2014 they don't exist and adding speculative entries invites drift."
+      },
+      {
+        "id": "Q4",
+        "question": "Currently CODER_PATTERNS.allowed_patterns includes 'skills/' (a directory prefix), while DOCUMENTER_PATTERNS blocks '**/*.md' implicitly. Under the new blocklist-complement model, should 'skills/' .md files still be coder-owned (as today) or are they documenter-owned? (SKILL.md is arguably functional code describing agent behavior, but it's still markdown.)",
+        "answer": "skills/ markdown remains COODER-OWNED under the new model. SKILL.md files are functional agent-behavior code, not documentation. Preserve via block_exempt_patterns=['skills/'] in CODER_PATTERNS, consistent with today's behavior (sandbox/agent-config/rules/*.md and sandbox/agent-config/commands/*.md are already treated this way)."
+      }
+    ],
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-04-22T23:49:01.164367Z",
+    "comment_id": null,
+    "debounce_until": null
+  },
+  "phase_configs": null,
+  "agent_executions": [
+    {
+      "role": "coder",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": null,
+      "completed_at": "2026-04-23T04:20:08.694551Z",
+      "commit": "e4672c29f",
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "tester",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": null,
+      "completed_at": "2026-04-23T04:27:39.376590Z",
+      "commit": "02046b746",
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "documenter",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    }
+  ]
+}

@@ -1,0 +1,758 @@
+[
+  {
+    "id": "96552339-d692-43",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from documenter",
+    "body": "Documented the gateway's upstream stream-reset resilience in docs/architecture/credential-injection.md: added an 'Upstream Stream Resilience' subsection under 'Gateway Proxy Endpoints' that explains the pre-stream bounded retry (transparent to the SDK) and mid-stream synthetic SSE error-event emission added to proxy_anthropic_messages() for #1907. Includes a comparison table of reset timing vs gateway behavior vs agent-visible effect, rationale for why full stream resumption is unsafe, retry bounds, and how the fix relates to/differs from #1883 and #1873. Also cross-linked the new section from the existing Implementation details bullet list.",
+    "metadata": {
+      "payload": {
+        "summary": "Documented the gateway's upstream stream-reset resilience in docs/architecture/credential-injection.md: added an 'Upstream Stream Resilience' subsection under 'Gateway Proxy Endpoints' that explains the pre-stream bounded retry (transparent to the SDK) and mid-stream synthetic SSE error-event emission added to proxy_anthropic_messages() for #1907. Includes a comparison table of reset timing vs gateway behavior vs agent-visible effect, rationale for why full stream resumption is unsafe, retry bounds, and how the fix relates to/differs from #1883 and #1873. Also cross-linked the new section from the existing Implementation details bullet list.",
+        "attestation": {},
+        "artifacts": [
+          "docs/architecture/credential-injection.md"
+        ],
+        "risk_considered": "",
+        "commit_sha": "db72789ee62acce28330beb54f075d51c4ad11d6",
+        "files_changed": [
+          "docs/architecture/credential-injection.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "task-1-1",
+          "task-1-2"
+        ]
+      },
+      "version": 1,
+      "commit_sha": "db72789ee62acce28330beb54f075d51c4ad11d6"
+    },
+    "timestamp": "2026-04-23T05:18:11.117581+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "30dbfc47-e4c3-47",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "reviewer_code",
+    "to_role": "documenter",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for documenter",
+    "body": "\nReviewed commit db72789ee and the resulting docs/architecture/credential-injection.md section. Verified content against the contract tasks (task-1-1 pre-stream retry semantics, task-1-2 mid-stream graceful close behavior) and against the #1907 issue description.\n\n### What I verified\n- New 'Upstream Stream Resilience' section is placed under 'Request Flow' adjacent to the existing /v1/messages description, so readers discover it in the right context.\n- The reset-timing table correctly splits pre-stream (transparent retry, transparent to agent) vs mid-stream (synthetic error SSE frame), which matches the contract division of tasks.\n- Mid-stream row states the four contract requirements \u2014 yield Anthropic-style 'event: error', feed through the accumulator, log.warning with container_id and bytes_seen, preserve finally upstream.close() + _capture_streaming_response \u2014 all in the order the contract specifies.\n- The 'Why not full stream resumption?' paragraph accurately captures the root cause (no Anthropic resume tokens, partial wire orphan, risk of double-charging / interleaved generations). Matches the issue's recommendation.\n- 'Bounded retry' paragraph correctly notes the single-attempt cap and bytes_seen == 0 gate, and routes exhausted failures to the pre-existing ConnectError/TimeoutException/Exception handlers, preserving the 502/504 contracts.\n- Scope paragraph cleanly separates #1907 from #1883 (gateway pod restart) and #1873 (turn-1 wrapper retry). Useful for future triage.\n- Markdown table and anchor link ([Upstream Stream Resilience](#upstream-stream-resilience)) render correctly in GFM.\n- No code change in this commit \u2014 so no risk of behavior regression from the docs PR itself.\n\n### Non-blocking\n- **docs/architecture/credential-injection.md:~68** \u2014 consider listing the structured log event names operators will search on ('upstream_reset_retry' INFO, 'upstream_reset_midstream' WARN). Right now the docs say 'logger.warning records the reset with container_id and bytes_seen' but don't give the event name, so an operator has to read gateway.py to know what to grep dashboards for. Low priority; the coder's gateway/README.md (if updated) may cover this.\n- **docs/architecture/credential-injection.md:~70** \u2014 minor: the mid-stream row mentions 'feed it through the accumulator so the transcript still captures the failure' but doesn't explicitly state the error envelope's JSON shape. If gateway/README.md ends up documenting the exact wire format, a cross-link here would help SDK authors reason about parser changes.\n- **Cross-consistency caveat** \u2014 the docs claim container_id is stamped onto the mid-stream log. That must match the final code; if the coder's implementation omits container_id (as dc835cefa from the prior #1907 branch did), the docs will be wrong and will need a follow-up. I'll catch that during coder review.\n\nRecommending ACK on the docs-only scope. The documented behavior matches the contract; any mismatch with final code is the coder's responsibility to reconcile and I'll flag it there.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "db72789ee",
+          "docs/architecture/credential-injection.md"
+        ],
+        "reason": "\nReviewed commit db72789ee and the resulting docs/architecture/credential-injection.md section. Verified content against the contract tasks (task-1-1 pre-stream retry semantics, task-1-2 mid-stream graceful close behavior) and against the #1907 issue description.\n\n### What I verified\n- New 'Upstream Stream Resilience' section is placed under 'Request Flow' adjacent to the existing /v1/messages description, so readers discover it in the right context.\n- The reset-timing table correctly splits pre-stream (transparent retry, transparent to agent) vs mid-stream (synthetic error SSE frame), which matches the contract division of tasks.\n- Mid-stream row states the four contract requirements \u2014 yield Anthropic-style 'event: error', feed through the accumulator, log.warning with container_id and bytes_seen, preserve finally upstream.close() + _capture_streaming_response \u2014 all in the order the contract specifies.\n- The 'Why not full stream resumption?' paragraph accurately captures the root cause (no Anthropic resume tokens, partial wire orphan, risk of double-charging / interleaved generations). Matches the issue's recommendation.\n- 'Bounded retry' paragraph correctly notes the single-attempt cap and bytes_seen == 0 gate, and routes exhausted failures to the pre-existing ConnectError/TimeoutException/Exception handlers, preserving the 502/504 contracts.\n- Scope paragraph cleanly separates #1907 from #1883 (gateway pod restart) and #1873 (turn-1 wrapper retry). Useful for future triage.\n- Markdown table and anchor link ([Upstream Stream Resilience](#upstream-stream-resilience)) render correctly in GFM.\n- No code change in this commit \u2014 so no risk of behavior regression from the docs PR itself.\n\n### Non-blocking\n- **docs/architecture/credential-injection.md:~68** \u2014 consider listing the structured log event names operators will search on ('upstream_reset_retry' INFO, 'upstream_reset_midstream' WARN). Right now the docs say 'logger.warning records the reset with container_id and bytes_seen' but don't give the event name, so an operator has to read gateway.py to know what to grep dashboards for. Low priority; the coder's gateway/README.md (if updated) may cover this.\n- **docs/architecture/credential-injection.md:~70** \u2014 minor: the mid-stream row mentions 'feed it through the accumulator so the transcript still captures the failure' but doesn't explicitly state the error envelope's JSON shape. If gateway/README.md ends up documenting the exact wire format, a cross-link here would help SDK authors reason about parser changes.\n- **Cross-consistency caveat** \u2014 the docs claim container_id is stamped onto the mid-stream log. That must match the final code; if the coder's implementation omits container_id (as dc835cefa from the prior #1907 branch did), the docs will be wrong and will need a follow-up. I'll catch that during coder review.\n\nRecommending ACK on the docs-only scope. The documented behavior matches the contract; any mismatch with final code is the coder's responsibility to reconcile and I'll flag it there.\n"
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-23T05:20:19.307283+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6f5d5c18-6228-46",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "orchestrator",
+    "to_role": "documenter",
+    "message_type": "STATUS",
+    "subject": "All reviewers have ACKed \u2014 ready to confirm",
+    "body": "All assigned reviewers have ACKed your proposal (version 1). Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "fully_acked": true,
+      "version": 1
+    },
+    "timestamp": "2026-04-23T05:20:19.307304+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a7f5232c-1c7c-4d",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "coder",
+    "to_role": "tester",
+    "message_type": "HANDOFF",
+    "subject": "Gateway stream-reset impl ready at dc5058a; test patch in agent-outputs",
+    "body": "Implemented task-1-1 + task-1-2 in gateway/gateway.py (commit dc5058a on egg/issue-1907-v2). Ready for task-1-3 tests.\n\nA ready-to-apply test patch covering all three acceptance cases is at .egg-state/agent-outputs/coder-test-additions-issue-1907.patch (committed as 5a46e8c9):\n\n  git apply .egg-state/agent-outputs/coder-test-additions-issue-1907.patch\n\nThe patch extends TestStreamingResponse in tests/gateway/test_anthropic_proxy.py with:\n  (a) test_pre_stream_reset_retries_once_and_succeeds - client.send() raises ReadError once, second attempt returns a valid iterator; asserts send called 2x and downstream sees clean 200 SSE\n  (b) test_pre_stream_first_chunk_reset_retries_and_succeeds - first iter_bytes() yields nothing and raises ReadError; asserts retry re-primes and produces normal stream\n  (c) test_mid_stream_reset_emits_synthetic_error_frame - iter_bytes yields one chunk then raises RemoteProtocolError; asserts downstream body contains original chunk followed by well-formed 'event: error' SSE frame and stream closes without exception\n\nAll 49 tests in test_anthropic_proxy.py pass locally (pytest tests/gateway/test_anthropic_proxy.py). Feel free to adjust phrasing or add coverage - the patch is meant as a fast path to task-1-3 acceptance, not a mandate.",
+    "metadata": {},
+    "timestamp": "2026-04-23T05:20:47.683791+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "22570e76-b7b4-42",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from coder",
+    "body": "Gateway proxy_anthropic_messages() is now resilient to upstream Anthropic TCP resets on /v1/messages streaming requests. (A) Pre-stream resets from client.send() or the first iter_bytes() call are retried once transparently so the downstream Claude SDK sees a clean 200 response. (B) Mid-stream resets are caught inside generate(), emitted as a well-formed Anthropic-style 'event: error' SSE frame, and fed through _SSEAccumulator so transcript capture still records the failed turn. upstream.close() and _capture_streaming_response() still run via finally. Covers tasks task-1-1 and task-1-2. task-1-3 (tests) handed off to tester via HANDOFF message a7f5232c with a ready-to-apply patch at .egg-state/agent-outputs/coder-test-additions-issue-1907.patch; all three tests + existing streaming tests pass locally (pytest tests/gateway/test_anthropic_proxy.py -> 49 passed). Linted clean (ruff).",
+    "metadata": {
+      "payload": {
+        "summary": "Gateway proxy_anthropic_messages() is now resilient to upstream Anthropic TCP resets on /v1/messages streaming requests. (A) Pre-stream resets from client.send() or the first iter_bytes() call are retried once transparently so the downstream Claude SDK sees a clean 200 response. (B) Mid-stream resets are caught inside generate(), emitted as a well-formed Anthropic-style 'event: error' SSE frame, and fed through _SSEAccumulator so transcript capture still records the failed turn. upstream.close() and _capture_streaming_response() still run via finally. Covers tasks task-1-1 and task-1-2. task-1-3 (tests) handed off to tester via HANDOFF message a7f5232c with a ready-to-apply patch at .egg-state/agent-outputs/coder-test-additions-issue-1907.patch; all three tests + existing streaming tests pass locally (pytest tests/gateway/test_anthropic_proxy.py -> 49 passed). Linted clean (ruff).",
+        "attestation": {},
+        "artifacts": [
+          "gateway/gateway.py",
+          ".egg-state/agent-outputs/coder-test-additions-issue-1907.patch"
+        ],
+        "risk_considered": "",
+        "commit_sha": "5a46e8c99a4c4db976fd45afca5eab40dd940718",
+        "files_changed": [
+          "gateway/gateway.py",
+          ".egg-state/agent-outputs/coder-test-additions-issue-1907.patch"
+        ],
+        "tests_run": [
+          "tests/gateway/test_anthropic_proxy.py::TestStreamingResponse::test_streaming_request_detected",
+          "tests/gateway/test_anthropic_proxy.py::TestStreamingResponse::test_streaming_content_type_forwarded",
+          "tests/gateway/test_anthropic_proxy.py::TestStreamingResponse::test_pre_stream_reset_retries_once_and_succeeds",
+          "tests/gateway/test_anthropic_proxy.py::TestStreamingResponse::test_pre_stream_first_chunk_reset_retries_and_succeeds",
+          "tests/gateway/test_anthropic_proxy.py::TestStreamingResponse::test_mid_stream_reset_emits_synthetic_error_frame"
+        ],
+        "tasks_satisfied": [
+          "task-1-1",
+          "task-1-2"
+        ]
+      },
+      "version": 1,
+      "commit_sha": "5a46e8c99a4c4db976fd45afca5eab40dd940718"
+    },
+    "timestamp": "2026-04-23T05:21:06.107990+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "834412fc-ced2-44",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "reviewer_contract",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_contract for coder",
+    "body": "\n### Criterion-by-criterion contract verification\n\nReviewed coder commits dc5058ad5 (gateway fix) and 5a46e8c99 (test handoff patch) against the three tasks in .egg-state/contracts/issue-1907-v2.json.\n\n**[task-1-1] Pre-stream retry \u2014 VERIFIED**\n- gateway/gateway.py:5261-5292 defines `_send_and_prime()` which calls `client.build_request` + `client.send(http_req, stream=True)`, then immediately calls `upstream_resp.iter_bytes()` and `next(iterator)` to pre-fetch the first chunk. Any `httpx.ReadError` / `httpx.RemoteProtocolError` from either client.send() or the first next() is caught; the failed upstream is closed (`upstream_resp.close()`); the exception is re-raised for the outer retry loop.\n- gateway/gateway.py:5297-5312 wraps this in `for attempt in range(2)` \u2014 attempt 0 logs 'Upstream Anthropic connection reset before any byte was forwarded; retrying once' and continues; attempt 1 re-raises, falling through to the existing `except Exception` handler at line 5455 which returns a 502. This matches the contract requirement 'On second failure, fall through to the existing error-return path'.\n- Retry is bounded to exactly one (`range(2)` = attempts 0 and 1). The request is fully rebuilt each attempt (`_send_and_prime` calls `client.build_request` anew), so a stale connection-pool entry cannot carry over.\n\n**[task-1-2] Mid-stream synthetic SSE error \u2014 VERIFIED**\n- gateway/gateway.py:5347-5385 wraps the downstream-yield portion of `generate()` in `try/except (httpx.ReadError, httpx.RemoteProtocolError)`. The try block yields `first_chunk` (if not None) then iterates `primed_iterator`. On catch, it logs a warning with `container_id` and `bytes_seen` (both required by the task), builds an Anthropic-style payload `{\"type\": \"error\", \"error\": {\"type\": \"api_error\", \"message\": \"upstream connection reset\"}}`, encodes as `b\"event: error\\ndata: <json>\\n\\n\"`, feeds it through `_consume_chunk` (so the accumulator captures it), and yields it to downstream before returning cleanly.\n- The shape matches what `_SSEAccumulator._process_event` handles at gateway.py:5114 (event_type == 'error'), so transcript capture round-trips the synthetic frame correctly.\n- The original `finally: upstream.close()` + `_capture_streaming_response` block at lines 5386-5401 is preserved unchanged, so mid-stream reset still runs both.\n- No retry on mid-stream \u2014 correct per the contract (Anthropic has no resume tokens; retrying after bytes have flowed would be unsafe).\n\n**[task-1-3] Three new tests in tests/gateway/test_anthropic_proxy.py \u2014 PENDING (tester hand-off)**\n- The coder did NOT modify `tests/gateway/test_anthropic_proxy.py`; the commit message states 'tests/ is outside coder's file boundary' and delivers the three tests as `.egg-state/agent-outputs/coder-test-additions-issue-1907.patch` for the tester role to apply.\n- The patch content itself satisfies the acceptance criteria:\n  - (a) `test_pre_stream_reset_retries_once_and_succeeds` (patch L18-69): mocks `client.send.side_effect = [ReadError, good_response]`, asserts `send.call_count == 2`, `build_request.call_count == 2`, downstream body has both SSE events and no `event: error`.\n  - (b) `test_pre_stream_first_chunk_reset_retries_and_succeeds` (patch L71-125): first response's iter_bytes raises ReadError on first next; second response streams normally. Asserts send twice, `bad_response.close.assert_called()`, downstream clean.\n  - (c) `test_mid_stream_reset_emits_synthetic_error_frame` (patch L127-179): iterator yields one chunk then raises `httpx.RemoteProtocolError`. Asserts send once (no retry), status 200, body contains original chunk then `event: error` then `api_error` then `upstream connection reset`, order verified via `data.index(first_chunk) < data.index(b\"event: error\")`, `mock_response.close.assert_called()`.\n- Helper `_raising_iter` (patch L9-16) matches the task's 'small helper to wrap an iterator so it raises after N yielded chunks' requirement.\n- Coder's commit message claims 'All three verified locally against commit dc5058a: pytest tests/gateway/test_anthropic_proxy.py -v -> 49 passed'.\n- **task-1-3 will only be fully satisfied once the tester applies this patch (or writes equivalent tests) into tests/gateway/test_anthropic_proxy.py and CI confirms they pass.** My assigned producer is coder \u2014 this is flagged for the tester's scope, not a block on the coder.\n\n**Phase status consistency**: The contract's `phases[0].status` is still 'pending' and tasks have `status: pending`. Expected \u2014 contract-state updates happen after all producers reach CONFIRMED. No contract-integrity red flags on the coder's output.\n\n### Non-blocking observations\n- gateway/gateway.py:5357 \u2014 catching `(httpx.ReadError, httpx.RemoteProtocolError)` inside the mid-stream try is exactly right, but an unrelated `httpx.NetworkError` from upstream (e.g. a WriteError) would still bubble out of `generate()` as before. Not required by the contract; noting for the record.\n- gateway/gateway.py:5280-5283 \u2014 the inner `try/except StopIteration: first = None` correctly handles an empty upstream body (server returned 200 with zero bytes). Good defensive coding not spelled out in the contract.\n- The `_send_and_prime` helper's `except Exception: pass` around `upstream_resp.close()` (5289-5291) silently swallows any close-error; acceptable since we are about to retry or re-raise the original reset.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "gateway/gateway.py",
+          ".egg-state/agent-outputs/coder-test-additions-issue-1907.patch"
+        ],
+        "reason": "\n### Criterion-by-criterion contract verification\n\nReviewed coder commits dc5058ad5 (gateway fix) and 5a46e8c99 (test handoff patch) against the three tasks in .egg-state/contracts/issue-1907-v2.json.\n\n**[task-1-1] Pre-stream retry \u2014 VERIFIED**\n- gateway/gateway.py:5261-5292 defines `_send_and_prime()` which calls `client.build_request` + `client.send(http_req, stream=True)`, then immediately calls `upstream_resp.iter_bytes()` and `next(iterator)` to pre-fetch the first chunk. Any `httpx.ReadError` / `httpx.RemoteProtocolError` from either client.send() or the first next() is caught; the failed upstream is closed (`upstream_resp.close()`); the exception is re-raised for the outer retry loop.\n- gateway/gateway.py:5297-5312 wraps this in `for attempt in range(2)` \u2014 attempt 0 logs 'Upstream Anthropic connection reset before any byte was forwarded; retrying once' and continues; attempt 1 re-raises, falling through to the existing `except Exception` handler at line 5455 which returns a 502. This matches the contract requirement 'On second failure, fall through to the existing error-return path'.\n- Retry is bounded to exactly one (`range(2)` = attempts 0 and 1). The request is fully rebuilt each attempt (`_send_and_prime` calls `client.build_request` anew), so a stale connection-pool entry cannot carry over.\n\n**[task-1-2] Mid-stream synthetic SSE error \u2014 VERIFIED**\n- gateway/gateway.py:5347-5385 wraps the downstream-yield portion of `generate()` in `try/except (httpx.ReadError, httpx.RemoteProtocolError)`. The try block yields `first_chunk` (if not None) then iterates `primed_iterator`. On catch, it logs a warning with `container_id` and `bytes_seen` (both required by the task), builds an Anthropic-style payload `{\"type\": \"error\", \"error\": {\"type\": \"api_error\", \"message\": \"upstream connection reset\"}}`, encodes as `b\"event: error\\ndata: <json>\\n\\n\"`, feeds it through `_consume_chunk` (so the accumulator captures it), and yields it to downstream before returning cleanly.\n- The shape matches what `_SSEAccumulator._process_event` handles at gateway.py:5114 (event_type == 'error'), so transcript capture round-trips the synthetic frame correctly.\n- The original `finally: upstream.close()` + `_capture_streaming_response` block at lines 5386-5401 is preserved unchanged, so mid-stream reset still runs both.\n- No retry on mid-stream \u2014 correct per the contract (Anthropic has no resume tokens; retrying after bytes have flowed would be unsafe).\n\n**[task-1-3] Three new tests in tests/gateway/test_anthropic_proxy.py \u2014 PENDING (tester hand-off)**\n- The coder did NOT modify `tests/gateway/test_anthropic_proxy.py`; the commit message states 'tests/ is outside coder's file boundary' and delivers the three tests as `.egg-state/agent-outputs/coder-test-additions-issue-1907.patch` for the tester role to apply.\n- The patch content itself satisfies the acceptance criteria:\n  - (a) `test_pre_stream_reset_retries_once_and_succeeds` (patch L18-69): mocks `client.send.side_effect = [ReadError, good_response]`, asserts `send.call_count == 2`, `build_request.call_count == 2`, downstream body has both SSE events and no `event: error`.\n  - (b) `test_pre_stream_first_chunk_reset_retries_and_succeeds` (patch L71-125): first response's iter_bytes raises ReadError on first next; second response streams normally. Asserts send twice, `bad_response.close.assert_called()`, downstream clean.\n  - (c) `test_mid_stream_reset_emits_synthetic_error_frame` (patch L127-179): iterator yields one chunk then raises `httpx.RemoteProtocolError`. Asserts send once (no retry), status 200, body contains original chunk then `event: error` then `api_error` then `upstream connection reset`, order verified via `data.index(first_chunk) < data.index(b\"event: error\")`, `mock_response.close.assert_called()`.\n- Helper `_raising_iter` (patch L9-16) matches the task's 'small helper to wrap an iterator so it raises after N yielded chunks' requirement.\n- Coder's commit message claims 'All three verified locally against commit dc5058a: pytest tests/gateway/test_anthropic_proxy.py -v -> 49 passed'.\n- **task-1-3 will only be fully satisfied once the tester applies this patch (or writes equivalent tests) into tests/gateway/test_anthropic_proxy.py and CI confirms they pass.** My assigned producer is coder \u2014 this is flagged for the tester's scope, not a block on the coder.\n\n**Phase status consistency**: The contract's `phases[0].status` is still 'pending' and tasks have `status: pending`. Expected \u2014 contract-state updates happen after all producers reach CONFIRMED. No contract-integrity red flags on the coder's output.\n\n### Non-blocking observations\n- gateway/gateway.py:5357 \u2014 catching `(httpx.ReadError, httpx.RemoteProtocolError)` inside the mid-stream try is exactly right, but an unrelated `httpx.NetworkError` from upstream (e.g. a WriteError) would still bubble out of `generate()` as before. Not required by the contract; noting for the record.\n- gateway/gateway.py:5280-5283 \u2014 the inner `try/except StopIteration: first = None` correctly handles an empty upstream body (server returned 200 with zero bytes). Good defensive coding not spelled out in the contract.\n- The `_send_and_prime` helper's `except Exception: pass` around `upstream_resp.close()` (5289-5291) silently swallows any close-error; acceptable since we are about to retry or re-raise the original reset.\n"
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-23T05:23:36.870372+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5b170f39-0a7d-4a",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_contract (pending_acks)",
+    "body": "Agent reviewer_contract cannot confirm: producers ['tester'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-23T05:23:42.744193+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "cb5e833b-c022-46",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "reviewer_code",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for coder",
+    "body": "\nReviewed both coder commits end-to-end: dc5058ad5 (gateway.py code change, +122 -22) and 5a46e8c99 (test hand-off patch for tester role).\n\n### What I verified\n\n**Pre-stream retry loop (task-1-1)**\n- _send_and_prime() correctly encapsulates send + iter_bytes + first-chunk peek. The inner try/except catches ReadError/RemoteProtocolError from iter_bytes()/next(iterator) and closes upstream_resp before re-raising so the retry does not leak the failed connection.\n- ReadError raised from client.send() itself is outside the inner try, so it propagates out of _send_and_prime without hitting the close block \u2014 but that's safe because upstream_resp was never assigned (no leak). Outer retry loop then catches and retries. This matches the 'client.send() raises' scenario in the contract.\n- Outer loop 'for attempt in range(2)' is bounded and has exactly MAX_PRE_STREAM_RETRIES=1 semantics. On attempt=0 ReadError: logs warning, continue. On attempt=1 ReadError: raise re-raises to outer handler.\n- Retry rebuilds the request with the same headers + body (both captured before the loop), so request replay is exact including injected x-api-key / OAuth. No credential re-injection race.\n- ConnectError / TimeoutException from send() propagate past the retry catch and hit their existing 502 / 504 handlers unchanged \u2014 confirmed by reading the outer exception chain at gateway.py:5433-5464.\n\n**Mid-stream graceful close (task-1-2)**\n- generate() wraps 'yield first_chunk + for chunk in primed_iterator' in try/except for (ReadError, RemoteProtocolError). On catch, emits a well-formed SSE envelope (b'event: error\\ndata: {...}\\n\\n') with Anthropic-style 'type: api_error' payload.\n- The synthetic error frame IS fed through _consume_chunk before being yielded, so the _SSEAccumulator parses it as an 'error' event (accumulator recognizes event_type == 'error' at gateway.py:5114 and appends it to _error_blocks with stop_reason='error'). The transcript buffer therefore captures the failed turn.\n- logger.warning carries container_id + bytes_seen + error \u2014 matches the contract's acceptance fields exactly.\n- finally block runs upstream.close() + _capture_streaming_response unchanged; mid-stream error path doesn't bypass transcript capture.\n\n**Test hand-off (task-1-3)**\n- .egg-state/agent-outputs/coder-test-additions-issue-1907.patch adds three tests to TestStreamingResponse covering (a) send()-raises-then-retries, (b) first-iter_bytes()-raises-then-retries, (c) mid-stream RemoteProtocolError \u2192 synthetic error frame. Contract acceptance criteria met.\n- _raising_iter(chunks, error) helper is the N-chunk wrapper the contract asked for.\n- Assertions verify: send.call_count, build_request.call_count, response body contents, bad_response.close() called before retry, absence of 'event: error' on successful retry, presence on mid-stream reset, ordering (first chunk before error frame), mock_response.close() called in finally.\n- json.dumps default separators produce '\"type\": \"api_error\"' (space after colon) \u2014 matches the test's literal assertion b'\"type\": \"api_error\"'. Verified via default json.dumps behavior.\n\n**Safety / correctness checks**\n- Synthetic error frame contains no user-controlled data \u2014 no injection vector.\n- Retry does not amplify load beyond 2x per affected request; no unbounded loop.\n- httpx.ReadError and httpx.RemoteProtocolError are both real symbols (verified at module level, gateway.py:47 imports httpx; RemoteProtocolError is httpx.ProtocolError subclass).\n- _SSEAccumulator.feed() tolerates multi-line frames and accumulates across chunk boundaries; feeding the synthetic frame in one shot is fine.\n- StopIteration on next(iterator) correctly sets first_chunk=None and is handled by 'if first_chunk is not None' guard in generate().\n- Empty first_chunk (b'') falls through to yield b'' which is harmless downstream.\n\n### Non-blocking\n\n- **gateway.py:5312** \u2014 when pre-stream retry exhausts, the ReadError / RemoteProtocolError re-raises into the generic 'except Exception' handler (line 5455-5464), producing message 'Anthropic API proxy error: ...' and HTTP 502. Consider adding a dedicated 'except (httpx.ReadError, httpx.RemoteProtocolError)' handler right before the generic 'except Exception' so operators get 'Anthropic API connection reset: ...' as the error message, and so the retry-exhaustion case emits a distinct log line rather than the generic 'Anthropic API proxy error' exception log. Not blocking \u2014 502 is the correct status and the generic handler does log.\n\n- **gateway.py:5348** \u2014 'nonlocal bytes_seen' inside generate() is unused (bytes_seen is only read there, never assigned). Harmless but misleading. Safe to drop.\n\n- **gateway.py:5303** and **gateway.py:5365** \u2014 log message is a descriptive sentence rather than a structured event name. Operators grepping dashboards for a specific event (e.g. 'upstream_reset_retry' / 'upstream_reset_midstream') will have to match on substrings of the sentence. Consider using short event names as the first positional arg with the descriptive text moved to a 'message=' kwarg, for consistency with other gateway event-style logs. Not blocking; the structured kwargs (container_id, bytes_seen, error) are present, which is the important part.\n\n- **Test hand-off pattern** \u2014 tests live in a patch file under .egg-state/agent-outputs/ rather than in tests/gateway/test_anthropic_proxy.py directly. Tester role is expected to apply it. That's the standard boundary split, but it means task-1-3 isn't fully landed until the tester runs 'git apply'. I'll verify the applied form when the tester proposes.\n\nRecommending ACK. The implementation satisfies both contract tasks (pre-stream retry and mid-stream graceful close), feeds the synthetic frame through the accumulator, logs with container_id + bytes_seen as required, and the finally/close semantics are preserved. The hand-off tests cover the three contract scenarios correctly.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "dc5058ad5",
+          "5a46e8c99",
+          "gateway/gateway.py",
+          ".egg-state/agent-outputs/coder-test-additions-issue-1907.patch"
+        ],
+        "reason": "\nReviewed both coder commits end-to-end: dc5058ad5 (gateway.py code change, +122 -22) and 5a46e8c99 (test hand-off patch for tester role).\n\n### What I verified\n\n**Pre-stream retry loop (task-1-1)**\n- _send_and_prime() correctly encapsulates send + iter_bytes + first-chunk peek. The inner try/except catches ReadError/RemoteProtocolError from iter_bytes()/next(iterator) and closes upstream_resp before re-raising so the retry does not leak the failed connection.\n- ReadError raised from client.send() itself is outside the inner try, so it propagates out of _send_and_prime without hitting the close block \u2014 but that's safe because upstream_resp was never assigned (no leak). Outer retry loop then catches and retries. This matches the 'client.send() raises' scenario in the contract.\n- Outer loop 'for attempt in range(2)' is bounded and has exactly MAX_PRE_STREAM_RETRIES=1 semantics. On attempt=0 ReadError: logs warning, continue. On attempt=1 ReadError: raise re-raises to outer handler.\n- Retry rebuilds the request with the same headers + body (both captured before the loop), so request replay is exact including injected x-api-key / OAuth. No credential re-injection race.\n- ConnectError / TimeoutException from send() propagate past the retry catch and hit their existing 502 / 504 handlers unchanged \u2014 confirmed by reading the outer exception chain at gateway.py:5433-5464.\n\n**Mid-stream graceful close (task-1-2)**\n- generate() wraps 'yield first_chunk + for chunk in primed_iterator' in try/except for (ReadError, RemoteProtocolError). On catch, emits a well-formed SSE envelope (b'event: error\\ndata: {...}\\n\\n') with Anthropic-style 'type: api_error' payload.\n- The synthetic error frame IS fed through _consume_chunk before being yielded, so the _SSEAccumulator parses it as an 'error' event (accumulator recognizes event_type == 'error' at gateway.py:5114 and appends it to _error_blocks with stop_reason='error'). The transcript buffer therefore captures the failed turn.\n- logger.warning carries container_id + bytes_seen + error \u2014 matches the contract's acceptance fields exactly.\n- finally block runs upstream.close() + _capture_streaming_response unchanged; mid-stream error path doesn't bypass transcript capture.\n\n**Test hand-off (task-1-3)**\n- .egg-state/agent-outputs/coder-test-additions-issue-1907.patch adds three tests to TestStreamingResponse covering (a) send()-raises-then-retries, (b) first-iter_bytes()-raises-then-retries, (c) mid-stream RemoteProtocolError \u2192 synthetic error frame. Contract acceptance criteria met.\n- _raising_iter(chunks, error) helper is the N-chunk wrapper the contract asked for.\n- Assertions verify: send.call_count, build_request.call_count, response body contents, bad_response.close() called before retry, absence of 'event: error' on successful retry, presence on mid-stream reset, ordering (first chunk before error frame), mock_response.close() called in finally.\n- json.dumps default separators produce '\"type\": \"api_error\"' (space after colon) \u2014 matches the test's literal assertion b'\"type\": \"api_error\"'. Verified via default json.dumps behavior.\n\n**Safety / correctness checks**\n- Synthetic error frame contains no user-controlled data \u2014 no injection vector.\n- Retry does not amplify load beyond 2x per affected request; no unbounded loop.\n- httpx.ReadError and httpx.RemoteProtocolError are both real symbols (verified at module level, gateway.py:47 imports httpx; RemoteProtocolError is httpx.ProtocolError subclass).\n- _SSEAccumulator.feed() tolerates multi-line frames and accumulates across chunk boundaries; feeding the synthetic frame in one shot is fine.\n- StopIteration on next(iterator) correctly sets first_chunk=None and is handled by 'if first_chunk is not None' guard in generate().\n- Empty first_chunk (b'') falls through to yield b'' which is harmless downstream.\n\n### Non-blocking\n\n- **gateway.py:5312** \u2014 when pre-stream retry exhausts, the ReadError / RemoteProtocolError re-raises into the generic 'except Exception' handler (line 5455-5464), producing message 'Anthropic API proxy error: ...' and HTTP 502. Consider adding a dedicated 'except (httpx.ReadError, httpx.RemoteProtocolError)' handler right before the generic 'except Exception' so operators get 'Anthropic API connection reset: ...' as the error message, and so the retry-exhaustion case emits a distinct log line rather than the generic 'Anthropic API proxy error' exception log. Not blocking \u2014 502 is the correct status and the generic handler does log.\n\n- **gateway.py:5348** \u2014 'nonlocal bytes_seen' inside generate() is unused (bytes_seen is only read there, never assigned). Harmless but misleading. Safe to drop.\n\n- **gateway.py:5303** and **gateway.py:5365** \u2014 log message is a descriptive sentence rather than a structured event name. Operators grepping dashboards for a specific event (e.g. 'upstream_reset_retry' / 'upstream_reset_midstream') will have to match on substrings of the sentence. Consider using short event names as the first positional arg with the descriptive text moved to a 'message=' kwarg, for consistency with other gateway event-style logs. Not blocking; the structured kwargs (container_id, bytes_seen, error) are present, which is the important part.\n\n- **Test hand-off pattern** \u2014 tests live in a patch file under .egg-state/agent-outputs/ rather than in tests/gateway/test_anthropic_proxy.py directly. Tester role is expected to apply it. That's the standard boundary split, but it means task-1-3 isn't fully landed until the tester runs 'git apply'. I'll verify the applied form when the tester proposes.\n\nRecommending ACK. The implementation satisfies both contract tasks (pre-stream retry and mid-stream graceful close), feeds the synthetic frame through the accumulator, logs with container_id + bytes_seen as required, and the finally/close semantics are preserved. The hand-off tests cover the three contract scenarios correctly.\n"
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-23T05:26:21.474811+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "0757bb0d-8016-4f",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "tester",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from tester for coder",
+    "body": "\nReviewed gateway/gateway.py changes at dc5058ad5 (proxy_anthropic_messages streaming branch, lines 5241\u20135408) and the handoff test patch at 5a46e8c99. Exercised the new code paths end-to-end with four new pytest cases in tests/gateway/test_anthropic_proxy.py (all 50 tests in the file pass).\n\n### Correctness verification\n- **Task 1-1 (pre-stream retry)**: `_send_and_prime()` cleanly factors out build_request/send/iter_bytes()/next(), wraps only that scope in `except (httpx.ReadError, httpx.RemoteProtocolError)`, closes the failed upstream before re-raising so the caller's retry opens a fresh connection (no half-open sockets leaked to the httpx connection pool). The outer `for attempt in range(2)` loop is bounded to exactly one retry; on attempt==1 the `raise` re-propagates and the outer `except Exception` handler returns 502. StopIteration during prime is translated to `first=None`, so an empty upstream body does not trigger spurious retry. Verified by test_streaming_send_reset_retries_once, test_streaming_first_chunk_reset_retries_once, and test_streaming_send_reset_retry_exhausted_returns_502.\n- **Task 1-2 (mid-stream synthetic error)**: the nested try/except inside `generate()` catches ReadError/RemoteProtocolError raised by either the first_chunk path or the subsequent `for chunk in primed_iterator` iteration. Emits a well-formed Anthropic-style SSE frame (`event: error\\ndata: {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"upstream connection reset\"}}\\n\\n`) that parses as valid JSON and matches the shape the Claude SDK's error handler expects. The frame is fed through `_consume_chunk()` so `_SSEAccumulator` records it (stop_reason='error' branch in _process_event), and the `finally: upstream.close()` + `_capture_streaming_response` postamble still runs. logger.warning carries container_id and bytes_seen. Verified by test_streaming_midstream_reset_yields_synthetic_error_frame with a JSON-parse assertion on the synthetic payload.\n\n### Defensive behaviors confirmed\n- Failed upstream is closed inside `_send_and_prime`'s except before re-raise; retry opens a fresh connection.\n- No downstream duplication of first_chunk (it's yielded once, then the for loop continues the same primed_iterator).\n- Exhaustion falls through to the existing generic exception handler \u2192 502 with api_error payload (not an infinite loop).\n- mypy diff against baseline: 78 errors in both \u2014 no new type errors introduced.\n\n### Non-blocking\n- **gateway/gateway.py:5370** \u2014 the log's `bytes_seen` counter is only advanced by `_consume_chunk` when `accumulator is not None` (i.e., when container_id is set). In no-session requests the log line will always show bytes_seen=0 even if several chunks flowed. Minor \u2014 operator traffic mostly has container_id \u2014 but worth noting if someone later tries to use the log for mid-stream-reset rate analysis on anonymous traffic.\n- **gateway/gateway.py:5281** \u2014 `first = next(iterator)` is assigned inside the inner try, so StopIteration (empty body) returns first=None, which is correct but subtle. A one-line comment noting \"empty-body upstream \u2192 first_chunk is None, for loop is a no-op\" would aid future readers. Existing docstring mentions it; pure polish.\n\nNothing blocking. The implementation is minimal, scoped, well-commented, and matches the contract exactly. Clean ACK.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "gateway/gateway.py",
+          ".egg-state/agent-outputs/coder-test-additions-issue-1907.patch"
+        ],
+        "reason": "\nReviewed gateway/gateway.py changes at dc5058ad5 (proxy_anthropic_messages streaming branch, lines 5241\u20135408) and the handoff test patch at 5a46e8c99. Exercised the new code paths end-to-end with four new pytest cases in tests/gateway/test_anthropic_proxy.py (all 50 tests in the file pass).\n\n### Correctness verification\n- **Task 1-1 (pre-stream retry)**: `_send_and_prime()` cleanly factors out build_request/send/iter_bytes()/next(), wraps only that scope in `except (httpx.ReadError, httpx.RemoteProtocolError)`, closes the failed upstream before re-raising so the caller's retry opens a fresh connection (no half-open sockets leaked to the httpx connection pool). The outer `for attempt in range(2)` loop is bounded to exactly one retry; on attempt==1 the `raise` re-propagates and the outer `except Exception` handler returns 502. StopIteration during prime is translated to `first=None`, so an empty upstream body does not trigger spurious retry. Verified by test_streaming_send_reset_retries_once, test_streaming_first_chunk_reset_retries_once, and test_streaming_send_reset_retry_exhausted_returns_502.\n- **Task 1-2 (mid-stream synthetic error)**: the nested try/except inside `generate()` catches ReadError/RemoteProtocolError raised by either the first_chunk path or the subsequent `for chunk in primed_iterator` iteration. Emits a well-formed Anthropic-style SSE frame (`event: error\\ndata: {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"upstream connection reset\"}}\\n\\n`) that parses as valid JSON and matches the shape the Claude SDK's error handler expects. The frame is fed through `_consume_chunk()` so `_SSEAccumulator` records it (stop_reason='error' branch in _process_event), and the `finally: upstream.close()` + `_capture_streaming_response` postamble still runs. logger.warning carries container_id and bytes_seen. Verified by test_streaming_midstream_reset_yields_synthetic_error_frame with a JSON-parse assertion on the synthetic payload.\n\n### Defensive behaviors confirmed\n- Failed upstream is closed inside `_send_and_prime`'s except before re-raise; retry opens a fresh connection.\n- No downstream duplication of first_chunk (it's yielded once, then the for loop continues the same primed_iterator).\n- Exhaustion falls through to the existing generic exception handler \u2192 502 with api_error payload (not an infinite loop).\n- mypy diff against baseline: 78 errors in both \u2014 no new type errors introduced.\n\n### Non-blocking\n- **gateway/gateway.py:5370** \u2014 the log's `bytes_seen` counter is only advanced by `_consume_chunk` when `accumulator is not None` (i.e., when container_id is set). In no-session requests the log line will always show bytes_seen=0 even if several chunks flowed. Minor \u2014 operator traffic mostly has container_id \u2014 but worth noting if someone later tries to use the log for mid-stream-reset rate analysis on anonymous traffic.\n- **gateway/gateway.py:5281** \u2014 `first = next(iterator)` is assigned inside the inner try, so StopIteration (empty body) returns first=None, which is correct but subtle. A one-line comment noting \"empty-body upstream \u2192 first_chunk is None, for loop is a no-op\" would aid future readers. Existing docstring mentions it; pure polish.\n\nNothing blocking. The implementation is minimal, scoped, well-commented, and matches the contract exactly. Clean ACK.\n"
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-23T05:26:44.639749+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "ce567672-653b-46",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "orchestrator",
+    "to_role": "coder",
+    "message_type": "STATUS",
+    "subject": "All reviewers have ACKed \u2014 ready to confirm",
+    "body": "All assigned reviewers have ACKed your proposal (version 1). Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "fully_acked": true,
+      "version": 1
+    },
+    "timestamp": "2026-04-23T05:26:44.639767+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "7786c580-03aa-43",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by coder (pending_acks)",
+    "body": "Agent coder cannot confirm: producers ['tester'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-23T05:26:55.150838+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e3cef6b6-5b5b-43",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "AGENT_FAILED",
+    "subject": "Agent coder failed",
+    "body": "Container exited with code 1",
+    "metadata": {},
+    "timestamp": "2026-04-23T05:27:42.115094+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "16cbfb6c-8cc0-43",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "overseer_restart: overseer [info]",
+    "body": "Overseer container was respawned. Old container 2a098b4c-bc4 exited with code 1. New container 3c43e0dd-b4f is now running.",
+    "metadata": {
+      "exit_code": 1,
+      "old_container_id": "2a098b4c-bc45-4d73-ba0a-1edcd49e6053",
+      "new_container_id": "3c43e0dd-b4f8-423e-92bf-f98417a211dc",
+      "log_tail": "2026-04-23 05:25:45 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01FwPHxywtMFC6H55fCcctMw is_error=False content=\"{\\\"cycle\\\": 1, \\\"ts\\\": \\\"2026-04-23T05:25:45.854088+00:00\\\", \\\"status\\\": \\\"running\\\", \\\"...\" [/opt/egg-runtime/shared/egg_agent/client.py:291]\n2026-04-23 05:25:50 [INFO    ] egg-agent: Assistant message event_type=assistant event_subtype=text text=\"**Cycle 12:** Same state \u2014 tester still `WORKING` (~4.5 min since coder hande...\" [/opt/egg-runtime/shared/egg_agent/client.py:266]\n2026-04-23 05:25:51 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=Bash tool_use_id=toolu_01NCy6HQauhBMVk9Y8oSuvet input=\"{\\\"command\\\": \\\"sleep 60 && python3 /opt/egg-runtime/sandbox/overseer_monitor.py...\" [/opt/egg-runtime/shared/egg_agent/client.py:258]\n2026-04-23 05:26:51 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01NCy6HQauhBMVk9Y8oSuvet is_error=False content=\"{\\\"cycle\\\": 1, \\\"ts\\\": \\\"2026-04-23T05:26:51.766136+00:00\\\", \\\"status\\\": \\\"running\\\", \\\"...\" [/opt/egg-runtime/shared/egg_agent/client.py:291]\n**Action**: No intervention needed. Tester is actively `WORKING` \u2014 monitoring for tester proposal which will unblock consensus completion.**Cycle 12:** Same state \u2014 tester still `WORKING` (~4.5 min since coder handed off patch). Both reviewers `REVIEWING`. Waiting for tester proposal to unblock consensus.**Cycle 13 \u2014 Small State Progression!**\n- `tester.reviewer_phase` advanced: `WORKING` \u2192 `REVIEWING`\n- `tester.producer_phase` still `WORKING` \u2014 tester is concurrently reviewing other proposals while still implementing their test additions\n- This is valid BRC behavior; tester has dual producer+reviewer roles\n- **Still blocked**: tester must PROPOSE before consensus can complete\n\n2026-04-23 05:27:00 [INFO    ] egg-agent: Assistant message event_type=assistant event_subtype=text text=\"**Cycle 13 \u2014 Small State Progression!** - `tester.reviewer_phase` advanced: `...\" [/opt/egg-runtime/shared/egg_agent/client.py:266]\n2026-04-23 05:27:01 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=Bash tool_use_id=toolu_01TAQwgBuW6MD5jPJB4AgmQF input=\"{\\\"command\\\": \\\"sleep 60 && python3 /opt/egg-runtime/sandbox/overseer_monitor.py...\" [/opt/egg-runtime/shared/egg_agent/client.py:258]\n2026-04-23 05:28:01 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01TAQwgBuW6MD5jPJB4AgmQF is_error=False content=\"{\\\"cycle\\\": 1, \\\"ts\\\": \\\"2026-04-23T05:28:01.390060+00:00\\\", \\\"status\\\": \\\"running\\\", \\\"...\" [/opt/egg-runtime/shared/egg_agent/client.py:291]\n2026-04-23 05:28:03 [INFO    ] egg-agent: Assistant message event_type=assistant event_subtype=text text=\"You've hit your limit \u00b7 resets 8am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:266]\n2026-04-23 05:28:03 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result model=claude-sonnet-4-6 session_id=c482e5ac-b5dd-43ea-8632-f7d632e8c616 cost_usd=1.6430545000000003 num_turns=27 duration_ms=828836 success=False error=\"You've hit your limit \u00b7 resets 8am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:317]\nan error occurred during closing of asynchronous generator <async_generator object InternalClient._process_query_inner at 0xfffed8e97300>\nasyncgen: <async_generator object InternalClient._process_query_inner at 0xfffed8e97300>\nRuntimeError: aclose(): asynchronous generator is already running\nYou've hit your limit \u00b7 resets 8am (UTC)\nAll healthy. Continuing to monitor.You've hit your limit \u00b7 resets 8am (UTC)You've hit your limit \u00b7 resets 8am (UTC)",
+      "respawn_attempt": 1,
+      "max_respawns": 3
+    },
+    "timestamp": "2026-04-23T05:28:20.537883+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "2f1d2b77-822e-4b",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "overseer_restart: overseer [info]",
+    "body": "Overseer container was respawned. Old container 3c43e0dd-b4f exited with code 1. New container 8dae5a38-e92 is now running.",
+    "metadata": {
+      "exit_code": 1,
+      "old_container_id": "3c43e0dd-b4f8-423e-92bf-f98417a211dc",
+      "new_container_id": "8dae5a38-e920-4a1b-b010-bf079d6bdaa6",
+      "log_tail": "2026-04-23 05:28:21 [INFO    ] egg-agent: Agent session init event_type=system event_subtype=init model=sonnet cwd= permission_mode=bypassPermissions max_turns=2000 timeout=7200 setting_sources=\"['project', 'user']\" disallowed_tools=[] sdk=claude_agent_sdk [/opt/egg-runtime/shared/egg_agent/client.py:215]\n2026-04-23 05:28:22 [INFO    ] egg-agent: Assistant message event_type=assistant event_subtype=text text=\"You've hit your limit \u00b7 resets 8am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:266]\n2026-04-23 05:28:22 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result model=<synthetic> session_id=9ed97b09-9a8f-479f-9c4f-23436ed73246 cost_usd=0 num_turns=1 duration_ms=691 success=False error=\"You've hit your limit \u00b7 resets 8am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:317]\nan error occurred during closing of asynchronous generator <async_generator object InternalClient._process_query_inner at 0xffff32407300>\nasyncgen: <async_generator object InternalClient._process_query_inner at 0xffff32407300>\nRuntimeError: aclose(): asynchronous generator is already running\nYou've hit your limit \u00b7 resets 8am (UTC)\nYou've hit your limit \u00b7 resets 8am (UTC)You've hit your limit \u00b7 resets 8am (UTC)",
+      "respawn_attempt": 2,
+      "max_respawns": 3
+    },
+    "timestamp": "2026-04-23T05:28:50.760831+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e21533bb-fb59-44",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "overseer_restart: overseer [info]",
+    "body": "Overseer container was respawned. Old container 8dae5a38-e92 exited with code 1. New container ecc33b65-a7b is now running.",
+    "metadata": {
+      "exit_code": 1,
+      "old_container_id": "8dae5a38-e920-4a1b-b010-bf079d6bdaa6",
+      "new_container_id": "ecc33b65-a7b1-46b0-9c6b-25654bb6038a",
+      "log_tail": "2026-04-23 05:28:51 [INFO    ] egg-agent: Agent session init event_type=system event_subtype=init model=sonnet cwd= permission_mode=bypassPermissions max_turns=2000 timeout=7200 setting_sources=\"['project', 'user']\" disallowed_tools=[] sdk=claude_agent_sdk [/opt/egg-runtime/shared/egg_agent/client.py:215]\n2026-04-23 05:28:52 [INFO    ] egg-agent: Assistant message event_type=assistant event_subtype=text text=\"You've hit your limit \u00b7 resets 8am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:266]\n2026-04-23 05:28:52 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result model=<synthetic> session_id=689678d5-0cfe-4625-ac70-0f1f825be180 cost_usd=0 num_turns=1 duration_ms=563 success=False error=\"You've hit your limit \u00b7 resets 8am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:317]\nan error occurred during closing of asynchronous generator <async_generator object InternalClient._process_query_inner at 0xfffed05f7300>\nasyncgen: <async_generator object InternalClient._process_query_inner at 0xfffed05f7300>\nRuntimeError: aclose(): asynchronous generator is already running\nYou've hit your limit \u00b7 resets 8am (UTC)\nYou've hit your limit \u00b7 resets 8am (UTC)You've hit your limit \u00b7 resets 8am (UTC)",
+      "respawn_attempt": 3,
+      "max_respawns": 3
+    },
+    "timestamp": "2026-04-23T05:29:21.244142+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "2acb7ed3-8a00-47",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "AGENT_FAILED",
+    "subject": "Agent documenter failed",
+    "body": "Container exited with code 1",
+    "metadata": {},
+    "timestamp": "2026-04-23T05:31:05.742346+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "276dc5ff-e1fb-49",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "AGENT_FAILED",
+    "subject": "Agent reviewer_contract failed",
+    "body": "Container exited with code 1",
+    "metadata": {},
+    "timestamp": "2026-04-23T05:31:49.181664+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4258739b-c398-4d",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "overseer_restart: overseer [info]",
+    "body": "Overseer container was respawned. Old container 32c5d42d-be4 exited with code 1. New container 0fafc89c-519 is now running.",
+    "metadata": {
+      "exit_code": 1,
+      "old_container_id": "32c5d42d-be41-400e-b87d-8b0ac643014d",
+      "new_container_id": "0fafc89c-5198-4e1c-9b9d-7a7050d1eff3",
+      "log_tail": "2026-04-23 05:31:22 [INFO    ] egg-agent: Agent session init event_type=system event_subtype=init model=sonnet cwd= permission_mode=bypassPermissions max_turns=2000 timeout=7200 setting_sources=\"['project', 'user']\" disallowed_tools=[] sdk=claude_agent_sdk [/opt/egg-runtime/shared/egg_agent/client.py:215]\n2026-04-23 05:31:22 [INFO    ] egg-agent: Assistant message event_type=assistant event_subtype=text text=\"You've hit your limit \u00b7 resets 8am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:266]\n2026-04-23 05:31:22 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result model=<synthetic> session_id=df3bb442-09fd-4259-84ee-5591848e4f75 cost_usd=0 num_turns=1 duration_ms=464 success=False error=\"You've hit your limit \u00b7 resets 8am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:317]\nan error occurred during closing of asynchronous generator <async_generator object InternalClient._process_query_inner at 0xffff2d3e7300>\nasyncgen: <async_generator object InternalClient._process_query_inner at 0xffff2d3e7300>\nRuntimeError: aclose(): asynchronous generator is already running\nYou've hit your limit \u00b7 resets 8am (UTC)\nYou've hit your limit \u00b7 resets 8am (UTC)You've hit your limit \u00b7 resets 8am (UTC)",
+      "respawn_attempt": 1,
+      "max_respawns": 3
+    },
+    "timestamp": "2026-04-23T05:31:51.328788+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "bd93878f-bd61-44",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from coder",
+    "body": "Gateway /v1/messages proxy now resilient to upstream Anthropic TCP resets. (A) pre-stream retry: client.send() + first iter_bytes() are wrapped in a bounded 1x retry on httpx.ReadError/RemoteProtocolError \u2014 the upstream is closed and a fresh request reissued so downstream SDK never sees the error (covers stale connection-pool entries, very-early resets). (B) mid-stream synthetic error: if a reset arrives after bytes have already flowed downstream, generate() catches it, logs container_id+bytes_seen, and yields a well-formed Anthropic-style 'event: error' SSE frame so the SDK treats it as a clean API error rather than a truncated socket. The synthetic frame is fed through _SSEAccumulator so transcript capture still records the failed turn; finally: upstream.close() and _capture_streaming_response behavior preserved unchanged. All four streaming-reset tests pass (send reset retry, first-chunk reset retry, mid-stream synthetic error frame, retry-exhausted 502 path); full tests/gateway/test_anthropic_proxy.py suite (50 tests) green. Satisfies contract tasks task-1-1 (pre-stream retry), task-1-2 (mid-stream synthetic error), task-1-3 (three new TestStreamingResponse tests).",
+    "metadata": {
+      "payload": {
+        "summary": "Gateway /v1/messages proxy now resilient to upstream Anthropic TCP resets. (A) pre-stream retry: client.send() + first iter_bytes() are wrapped in a bounded 1x retry on httpx.ReadError/RemoteProtocolError \u2014 the upstream is closed and a fresh request reissued so downstream SDK never sees the error (covers stale connection-pool entries, very-early resets). (B) mid-stream synthetic error: if a reset arrives after bytes have already flowed downstream, generate() catches it, logs container_id+bytes_seen, and yields a well-formed Anthropic-style 'event: error' SSE frame so the SDK treats it as a clean API error rather than a truncated socket. The synthetic frame is fed through _SSEAccumulator so transcript capture still records the failed turn; finally: upstream.close() and _capture_streaming_response behavior preserved unchanged. All four streaming-reset tests pass (send reset retry, first-chunk reset retry, mid-stream synthetic error frame, retry-exhausted 502 path); full tests/gateway/test_anthropic_proxy.py suite (50 tests) green. Satisfies contract tasks task-1-1 (pre-stream retry), task-1-2 (mid-stream synthetic error), task-1-3 (three new TestStreamingResponse tests).",
+        "attestation": {},
+        "artifacts": [
+          "gateway/gateway.py",
+          "tests/gateway/test_anthropic_proxy.py"
+        ],
+        "risk_considered": "",
+        "commit_sha": "dda1f2ad76ecbc08de27ada991a494fd725297d2",
+        "files_changed": [
+          "gateway/gateway.py",
+          "tests/gateway/test_anthropic_proxy.py"
+        ],
+        "tests_run": [
+          "tests/gateway/test_anthropic_proxy.py::TestStreamingResponse"
+        ],
+        "tasks_satisfied": [
+          "task-1-1",
+          "task-1-2",
+          "task-1-3"
+        ]
+      },
+      "version": 1,
+      "commit_sha": "dda1f2ad76ecbc08de27ada991a494fd725297d2"
+    },
+    "timestamp": "2026-04-23T05:38:00.867680+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "fbc8408d-8134-41",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "reviewer_contract",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_contract for coder",
+    "body": "\nContract verification review \u2014 cycle 1. All three tasks VERIFIED against their acceptance criteria.\n\n### [task-1-1] Pre-stream bounded (1x) retry \u2014 VERIFIED\nEvidence: gateway/gateway.py:5261-5312.\n- `_send_and_prime()` (5261-5292) builds a fresh request, calls `client.send(..., stream=True)`, then primes `next(iter_bytes())`. Catches `httpx.ReadError`/`httpx.RemoteProtocolError` during either step, closes the failed upstream via `upstream_resp.close()` (5289), and re-raises.\n- Retry loop `for attempt in range(2)` (5297-5312) calls `_send_and_prime()`, breaks on success, and on attempt 0 failure logs a warning with `container_id` and continues; on attempt 1 re-raises to the outer handler which returns 502 (verified by `test_streaming_send_reset_retry_exhausted_returns_502` at tests/gateway/test_anthropic_proxy.py:782).\n- Request is *rebuilt* each attempt (build_request is inside _send_and_prime), not reused \u2014 satisfies the 'rebuild the request' clause.\n- Acceptance clause 'send() ReadError once \u2192 retry succeeds, clean 200 SSE' verified by `test_streaming_send_reset_retries_once` (test_anthropic_proxy.py:583): asserts `mock_client.send.call_count == 2`, status 200, body contains message_start+message_stop, no `event: error` frame.\n- Acceptance clause 'first iter_bytes() ReadError \u2192 gateway re-primes, normal stream' verified by `test_streaming_first_chunk_reset_retries_once` (test_anthropic_proxy.py:632): bad_response.iter_bytes returns a generator that raises on first next() pull; retry produces clean stream; `bad_response.close.assert_called()` confirms the failed upstream is released.\n\n### [task-1-2] Mid-stream synthetic SSE error frame \u2014 VERIFIED\nEvidence: gateway/gateway.py:5347-5401.\n- `generate()` wraps the iteration (first_chunk yield + `for chunk in primed_iterator`) in try/except catching `httpx.ReadError` and `httpx.RemoteProtocolError` (5357).\n- On catch: logs `logger.warning` with `container_id` and `bytes_seen` (5365-5371), builds Anthropic-style payload `{type: error, error: {type: api_error, message: 'upstream connection reset'}}` (5372-5378), emits `event: error\\ndata: <json>\\n\\n` frame (5379-5383), feeds it to the accumulator via `_consume_chunk(error_frame)` (5384), yields it (5385), and returns cleanly (no re-raise).\n- The outer `finally:` block (5386-5401) preserving `upstream.close()` and `_capture_streaming_response(...)` is untouched.\n- Acceptance 'original chunk then well-formed event: error frame, stream closes without raising, _capture_streaming_response still runs' verified by `test_streaming_midstream_reset_yields_synthetic_error_frame` (test_anthropic_proxy.py:693): asserts `first_chunk in body`, `event: error in body`, `body.index(first_chunk) < body.index(event: error)`, `body.endswith(b'\\n\\n')`, parses the payload JSON and checks `payload['type'] == 'error'` and `payload['error']['type'] == 'api_error'`, and asserts `mid_reset_response.close.assert_called()` proving the finally branch ran.\n\n### [task-1-3] Tests in TestStreamingResponse \u2014 VERIFIED\nEvidence: tests/gateway/test_anthropic_proxy.py:569-830.\n- Helper `_iter_then_raise(chunks, exc)` (569-581): yields chunks then raises; empty list raises on first pull (pre-stream reset); N chunks raises on pull N+1 (mid-stream reset). Matches 'small helper to wrap an iterator so it raises after N yielded chunks'.\n- (a) `test_streaming_send_reset_retries_once` (583) \u2014 send() ReadError once then success.\n- (b) `test_streaming_first_chunk_reset_retries_once` (632) \u2014 iter_bytes raises on first pull then retry succeeds.\n- (c) `test_streaming_midstream_reset_yields_synthetic_error_frame` (693) \u2014 RemoteProtocolError after one chunk; body ends with synthetic event: error frame.\n- Bonus: `test_streaming_send_reset_retry_exhausted_returns_502` (782) \u2014 exhaustion returns 502.\n- Ran `pytest tests/gateway/test_anthropic_proxy.py::TestStreamingResponse -v` locally \u2014 6 passed in 0.77s; both pre-existing tests (`test_streaming_request_detected`, `test_streaming_content_type_forwarded`) continue to pass, satisfying the no-regression clause.\n\n### Non-blocking\n- **gateway/gateway.py:5348** \u2014 `nonlocal bytes_seen` in `generate()` is unused (generate never rebinds `bytes_seen`; the mutation happens inside `_consume_chunk`, which has its own nonlocal). Harmless but removable. Does not affect contract verification.\n- **gateway/gateway.py:5294-5296** \u2014 `upstream: Any`, `primed_iterator: Any`, `first_chunk: bytes | None` could be typed as `httpx.Response` / `Iterator[bytes]` for clarity; current `Any` matches the surrounding style so this is optional.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "gateway/gateway.py",
+          "tests/gateway/test_anthropic_proxy.py"
+        ],
+        "reason": "\nContract verification review \u2014 cycle 1. All three tasks VERIFIED against their acceptance criteria.\n\n### [task-1-1] Pre-stream bounded (1x) retry \u2014 VERIFIED\nEvidence: gateway/gateway.py:5261-5312.\n- `_send_and_prime()` (5261-5292) builds a fresh request, calls `client.send(..., stream=True)`, then primes `next(iter_bytes())`. Catches `httpx.ReadError`/`httpx.RemoteProtocolError` during either step, closes the failed upstream via `upstream_resp.close()` (5289), and re-raises.\n- Retry loop `for attempt in range(2)` (5297-5312) calls `_send_and_prime()`, breaks on success, and on attempt 0 failure logs a warning with `container_id` and continues; on attempt 1 re-raises to the outer handler which returns 502 (verified by `test_streaming_send_reset_retry_exhausted_returns_502` at tests/gateway/test_anthropic_proxy.py:782).\n- Request is *rebuilt* each attempt (build_request is inside _send_and_prime), not reused \u2014 satisfies the 'rebuild the request' clause.\n- Acceptance clause 'send() ReadError once \u2192 retry succeeds, clean 200 SSE' verified by `test_streaming_send_reset_retries_once` (test_anthropic_proxy.py:583): asserts `mock_client.send.call_count == 2`, status 200, body contains message_start+message_stop, no `event: error` frame.\n- Acceptance clause 'first iter_bytes() ReadError \u2192 gateway re-primes, normal stream' verified by `test_streaming_first_chunk_reset_retries_once` (test_anthropic_proxy.py:632): bad_response.iter_bytes returns a generator that raises on first next() pull; retry produces clean stream; `bad_response.close.assert_called()` confirms the failed upstream is released.\n\n### [task-1-2] Mid-stream synthetic SSE error frame \u2014 VERIFIED\nEvidence: gateway/gateway.py:5347-5401.\n- `generate()` wraps the iteration (first_chunk yield + `for chunk in primed_iterator`) in try/except catching `httpx.ReadError` and `httpx.RemoteProtocolError` (5357).\n- On catch: logs `logger.warning` with `container_id` and `bytes_seen` (5365-5371), builds Anthropic-style payload `{type: error, error: {type: api_error, message: 'upstream connection reset'}}` (5372-5378), emits `event: error\\ndata: <json>\\n\\n` frame (5379-5383), feeds it to the accumulator via `_consume_chunk(error_frame)` (5384), yields it (5385), and returns cleanly (no re-raise).\n- The outer `finally:` block (5386-5401) preserving `upstream.close()` and `_capture_streaming_response(...)` is untouched.\n- Acceptance 'original chunk then well-formed event: error frame, stream closes without raising, _capture_streaming_response still runs' verified by `test_streaming_midstream_reset_yields_synthetic_error_frame` (test_anthropic_proxy.py:693): asserts `first_chunk in body`, `event: error in body`, `body.index(first_chunk) < body.index(event: error)`, `body.endswith(b'\\n\\n')`, parses the payload JSON and checks `payload['type'] == 'error'` and `payload['error']['type'] == 'api_error'`, and asserts `mid_reset_response.close.assert_called()` proving the finally branch ran.\n\n### [task-1-3] Tests in TestStreamingResponse \u2014 VERIFIED\nEvidence: tests/gateway/test_anthropic_proxy.py:569-830.\n- Helper `_iter_then_raise(chunks, exc)` (569-581): yields chunks then raises; empty list raises on first pull (pre-stream reset); N chunks raises on pull N+1 (mid-stream reset). Matches 'small helper to wrap an iterator so it raises after N yielded chunks'.\n- (a) `test_streaming_send_reset_retries_once` (583) \u2014 send() ReadError once then success.\n- (b) `test_streaming_first_chunk_reset_retries_once` (632) \u2014 iter_bytes raises on first pull then retry succeeds.\n- (c) `test_streaming_midstream_reset_yields_synthetic_error_frame` (693) \u2014 RemoteProtocolError after one chunk; body ends with synthetic event: error frame.\n- Bonus: `test_streaming_send_reset_retry_exhausted_returns_502` (782) \u2014 exhaustion returns 502.\n- Ran `pytest tests/gateway/test_anthropic_proxy.py::TestStreamingResponse -v` locally \u2014 6 passed in 0.77s; both pre-existing tests (`test_streaming_request_detected`, `test_streaming_content_type_forwarded`) continue to pass, satisfying the no-regression clause.\n\n### Non-blocking\n- **gateway/gateway.py:5348** \u2014 `nonlocal bytes_seen` in `generate()` is unused (generate never rebinds `bytes_seen`; the mutation happens inside `_consume_chunk`, which has its own nonlocal). Harmless but removable. Does not affect contract verification.\n- **gateway/gateway.py:5294-5296** \u2014 `upstream: Any`, `primed_iterator: Any`, `first_chunk: bytes | None` could be typed as `httpx.Response` / `Iterator[bytes]` for clarity; current `Any` matches the surrounding style so this is optional.\n"
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-23T05:39:08.929784+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "af50e030-c79d-4f",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from documenter",
+    "body": "Documenter phase complete for #1907. Reviewed the code resilience changes in gateway/gateway.py (pre-stream bounded retry + mid-stream synthetic SSE error-event) and confirmed the existing docs/architecture/credential-injection.md 'Upstream Stream Resilience' section accurately matches the implementation (retry bounded to one attempt, gated on bytes_seen == 0; mid-stream ReadError/RemoteProtocolError catch emits well-formed Anthropic-style event: error frame fed through accumulator; finally upstream.close() preserved; logger.warning with container_id+bytes_seen). Enhanced gateway/README.md to add a cross-reference in the Anthropic Proxy endpoint block and a new Design Decision #11, so readers of the gateway API reference can discover the resilience behavior and jump to the architecture doc. No contract tasks (task-1-1..task-1-3) are owned by documenter; those are coder/tester artifacts. Documentation satisfies the implicit cross-cutting requirement that operator-facing behavior changes are described in the architecture docs.",
+    "metadata": {
+      "payload": {
+        "summary": "Documenter phase complete for #1907. Reviewed the code resilience changes in gateway/gateway.py (pre-stream bounded retry + mid-stream synthetic SSE error-event) and confirmed the existing docs/architecture/credential-injection.md 'Upstream Stream Resilience' section accurately matches the implementation (retry bounded to one attempt, gated on bytes_seen == 0; mid-stream ReadError/RemoteProtocolError catch emits well-formed Anthropic-style event: error frame fed through accumulator; finally upstream.close() preserved; logger.warning with container_id+bytes_seen). Enhanced gateway/README.md to add a cross-reference in the Anthropic Proxy endpoint block and a new Design Decision #11, so readers of the gateway API reference can discover the resilience behavior and jump to the architecture doc. No contract tasks (task-1-1..task-1-3) are owned by documenter; those are coder/tester artifacts. Documentation satisfies the implicit cross-cutting requirement that operator-facing behavior changes are described in the architecture docs.",
+        "attestation": {},
+        "artifacts": [
+          "docs/architecture/credential-injection.md",
+          "gateway/README.md"
+        ],
+        "risk_considered": "",
+        "commit_sha": "0a4e87643761aa6d24008168aafdf01eae748f44",
+        "files_changed": [
+          "gateway/README.md"
+        ],
+        "tests_run": [
+          ""
+        ],
+        "tasks_satisfied": [
+          ""
+        ]
+      },
+      "version": 1,
+      "commit_sha": "0a4e87643761aa6d24008168aafdf01eae748f44"
+    },
+    "timestamp": "2026-04-23T05:39:22.937384+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c4cd2735-7051-4c",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "reviewer_code",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for coder",
+    "body": "\nReviewed gateway/gateway.py (full diff of proxy_anthropic_messages() streaming branch, lines 5241-5408) plus surrounding helpers (_SSEAccumulator at 5002-5149, _capture_streaming_response at 5151-5196, _filter_response_headers, get_anthropic_client at 4767-4780, and the outer except handlers at 5433-5464). Verified httpx exception inheritance (ReadError and RemoteProtocolError both descend from TransportError\u2192RequestError\u2192HTTPError\u2192Exception) so retry-exhausted cases reach the catch-all Exception handler and surface as 502. Traced data flow end-to-end:\n\n### Correctness (verified)\n1. **Pre-stream prime pattern is sound.** _send_and_prime() calls client.send(..., stream=True) then iter_bytes() then next(iterator) to pull the first chunk eagerly. This is what gates the 'no downstream byte has flowed' invariant \u2014 the retry is only safe because Response() is not constructed until after the prime succeeds. If send() raises, upstream_resp is never bound (correct \u2014 nothing to close). If iter_bytes()/next() raises ReadError/RemoteProtocolError, the inner except closes upstream_resp before re-raising, preventing a half-open conn leaking back into the httpx keepalive pool.\n2. **Bounded retry is correctly bounded.** for attempt in range(2) with a break on success and raise on attempt==1 exhaustion. No risk of infinite loop. Retry-exhausted ReadError/RemoteProtocolError bubble to the except Exception branch \u2192 jsonify({'error': {'type': 'api_error', ...}}), 502 \u2014 matches the existing error contract.\n3. **StopIteration is legally caught.** _send_and_prime() is a regular function, not a generator, so PEP 479 does not apply. An empty upstream body (first=None) correctly no-ops the first-chunk yield in generate() and the for-loop over primed_iterator terminates immediately.\n4. **Iterator handoff is single-owned.** iter_bytes() is called exactly once per upstream response (inside _send_and_prime); next() pulls one chunk; the same iterator object is returned and reused in generate()'s for-loop. No double-iter_bytes() call that would create a second generator on the same already-consumed stream.\n5. **Mid-stream synthetic frame is well-formed.** event: error\\ndata: {JSON}\\n\\n shape matches Anthropic's documented error event and is parsed by _SSEAccumulator._process_event at gateway.py:5114 (produces _error_blocks + stop_reason='error'), so the captured transcript correctly reflects the failed generation. Frame is fed through _consume_chunk before being yielded so the accumulator sees it.\n6. **finally: upstream.close() + _capture_streaming_response preserved.** Runs on success, on mid-stream ReadError, and on mid-stream RemoteProtocolError. Transcript capture still happens on failure \u2014 operators retain visibility into the partial turn.\n7. **Request rebuild on retry is safe.** headers is a resolved dict; request_body is bytes from request.get_data() (Flask caches it). build_request is called fresh inside _send_and_prime on every attempt, so no consumed-stream issue.\n8. **Retry scope is correct.** Only ReadError + RemoteProtocolError trigger the retry. ConnectError (502) and TimeoutException (504) still get their existing dedicated handlers \u2014 no behavior change for non-reset errors.\n\n### Security\n- No new attack surface: synthetic error frame payload is a fixed literal ('upstream connection reset'); no attacker-influenced string is interpolated into the SSE frame.\n- Credential injection path unchanged; headers dict is built once upstream of the retry loop.\n- No log injection: container_id comes from session, error string comes from httpx exception, both pass through logger.warning's structured kwargs (not format string injection).\n\n### Non-blocking observations\n- **gateway.py:5348** 'nonlocal bytes_seen' inside generate() is technically redundant \u2014 generate() only reads bytes_seen (in the warning log's kwargs), never assigns. Harmless, and removing it is a style change only.\n- **gateway.py:5285-5292** The inner try/except in _send_and_prime() only closes upstream_resp on httpx.ReadError/RemoteProtocolError. A non-transport exception at that point (e.g., an AttributeError from a pathological response mock) would leak the streaming connection. In practice this is unreachable for real httpx, but a broader 'except BaseException:' with try/close could be slightly more defensive. Not worth blocking.\n- **gateway.py:5357-5385** The synthetic error frame is counted against MAX_CAPTURE_SIZE via _consume_chunk. If the accumulator is already capture_truncated=True, the synthetic frame is still yielded downstream (correct) but won't appear in the captured transcript \u2014 the transcript will lose the error signal. For a 10MB-truncated capture this is a rare corner, but it means big-response-then-reset turns will not show as error=true in stop_reason. Document or special-case as future work; not blocking.\n- **gateway.py:5381** json.dumps() is called on every mid-stream reset; tiny allocation but could be hoisted to a module-level pre-encoded constant if this path ever becomes hot. Micro-optimization, skip.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "gateway/gateway.py",
+          "dc5058ad5"
+        ],
+        "reason": "\nReviewed gateway/gateway.py (full diff of proxy_anthropic_messages() streaming branch, lines 5241-5408) plus surrounding helpers (_SSEAccumulator at 5002-5149, _capture_streaming_response at 5151-5196, _filter_response_headers, get_anthropic_client at 4767-4780, and the outer except handlers at 5433-5464). Verified httpx exception inheritance (ReadError and RemoteProtocolError both descend from TransportError\u2192RequestError\u2192HTTPError\u2192Exception) so retry-exhausted cases reach the catch-all Exception handler and surface as 502. Traced data flow end-to-end:\n\n### Correctness (verified)\n1. **Pre-stream prime pattern is sound.** _send_and_prime() calls client.send(..., stream=True) then iter_bytes() then next(iterator) to pull the first chunk eagerly. This is what gates the 'no downstream byte has flowed' invariant \u2014 the retry is only safe because Response() is not constructed until after the prime succeeds. If send() raises, upstream_resp is never bound (correct \u2014 nothing to close). If iter_bytes()/next() raises ReadError/RemoteProtocolError, the inner except closes upstream_resp before re-raising, preventing a half-open conn leaking back into the httpx keepalive pool.\n2. **Bounded retry is correctly bounded.** for attempt in range(2) with a break on success and raise on attempt==1 exhaustion. No risk of infinite loop. Retry-exhausted ReadError/RemoteProtocolError bubble to the except Exception branch \u2192 jsonify({'error': {'type': 'api_error', ...}}), 502 \u2014 matches the existing error contract.\n3. **StopIteration is legally caught.** _send_and_prime() is a regular function, not a generator, so PEP 479 does not apply. An empty upstream body (first=None) correctly no-ops the first-chunk yield in generate() and the for-loop over primed_iterator terminates immediately.\n4. **Iterator handoff is single-owned.** iter_bytes() is called exactly once per upstream response (inside _send_and_prime); next() pulls one chunk; the same iterator object is returned and reused in generate()'s for-loop. No double-iter_bytes() call that would create a second generator on the same already-consumed stream.\n5. **Mid-stream synthetic frame is well-formed.** event: error\\ndata: {JSON}\\n\\n shape matches Anthropic's documented error event and is parsed by _SSEAccumulator._process_event at gateway.py:5114 (produces _error_blocks + stop_reason='error'), so the captured transcript correctly reflects the failed generation. Frame is fed through _consume_chunk before being yielded so the accumulator sees it.\n6. **finally: upstream.close() + _capture_streaming_response preserved.** Runs on success, on mid-stream ReadError, and on mid-stream RemoteProtocolError. Transcript capture still happens on failure \u2014 operators retain visibility into the partial turn.\n7. **Request rebuild on retry is safe.** headers is a resolved dict; request_body is bytes from request.get_data() (Flask caches it). build_request is called fresh inside _send_and_prime on every attempt, so no consumed-stream issue.\n8. **Retry scope is correct.** Only ReadError + RemoteProtocolError trigger the retry. ConnectError (502) and TimeoutException (504) still get their existing dedicated handlers \u2014 no behavior change for non-reset errors.\n\n### Security\n- No new attack surface: synthetic error frame payload is a fixed literal ('upstream connection reset'); no attacker-influenced string is interpolated into the SSE frame.\n- Credential injection path unchanged; headers dict is built once upstream of the retry loop.\n- No log injection: container_id comes from session, error string comes from httpx exception, both pass through logger.warning's structured kwargs (not format string injection).\n\n### Non-blocking observations\n- **gateway.py:5348** 'nonlocal bytes_seen' inside generate() is technically redundant \u2014 generate() only reads bytes_seen (in the warning log's kwargs), never assigns. Harmless, and removing it is a style change only.\n- **gateway.py:5285-5292** The inner try/except in _send_and_prime() only closes upstream_resp on httpx.ReadError/RemoteProtocolError. A non-transport exception at that point (e.g., an AttributeError from a pathological response mock) would leak the streaming connection. In practice this is unreachable for real httpx, but a broader 'except BaseException:' with try/close could be slightly more defensive. Not worth blocking.\n- **gateway.py:5357-5385** The synthetic error frame is counted against MAX_CAPTURE_SIZE via _consume_chunk. If the accumulator is already capture_truncated=True, the synthetic frame is still yielded downstream (correct) but won't appear in the captured transcript \u2014 the transcript will lose the error signal. For a 10MB-truncated capture this is a rare corner, but it means big-response-then-reset turns will not show as error=true in stop_reason. Document or special-case as future work; not blocking.\n- **gateway.py:5381** json.dumps() is called on every mid-stream reset; tiny allocation but could be hoisted to a module-level pre-encoded constant if this path ever becomes hot. Micro-optimization, skip.\n"
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-23T05:40:57.283779+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "4acb30fc-83d0-4e",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "reviewer_code",
+    "to_role": "documenter",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for documenter",
+    "body": "\nReviewed the full credential-injection.md diff (18 added lines, 56-76) against the implementation in gateway/gateway.py:5241-5408. Verified the docs accurately describe both resilience paths and their boundaries.\n\n### Accuracy (verified)\n- The pre-stream vs mid-stream table correctly characterizes what each path does, including the key subtlety that the retry is gated on 'no downstream byte has flowed' (implemented via the first-chunk prime in _send_and_prime, not via a bytes_seen == 0 runtime check \u2014 docs say 'gated on bytes_seen == 0' which is conceptually right but the implementation enforces it structurally by returning from _send_and_prime before Response() is built. Close enough \u2014 no correction needed).\n- The 'why not full resumption' explanation correctly identifies the two real concerns: no Anthropic resume tokens, and double-charging / divergent-generation interleaving.\n- The 'bounded retry \u2014 capped at one attempt' matches for attempt in range(2) with a single continue at attempt==0.\n- The 'falls through to the pre-existing except httpx.ConnectError / TimeoutException / Exception handlers' matches gateway.py:5433-5464 exactly.\n- The distinction from #1883 (gateway pod restart) and #1873 (consensus-wrapper turn-1 retry) is correct \u2014 those handle gateway-process-gone and single-agent-startup respectively; #1907 handles gateway-healthy/upstream-unhealthy, which is a disjoint concern.\n- The aclose() cleanup-bug reference correctly identifies why a clean synthetic SSE frame is preferable to a raw socket truncation \u2014 the downstream SDK's async generator cleanup races on a truncated read, producing the 'aclose(): asynchronous generator is already running' RuntimeError pattern we saw in overseer log_tail.\n\n### Structure / readability\n- Markdown table format is consistent with the existing doc style (rendered endpoint table directly above).\n- Cross-links to #1907, #1883, #1873 are correctly formatted.\n- Appropriately scoped \u2014 lives under 'Gateway Proxy Endpoints' where a streaming-resilience note naturally belongs, not shoehorned into a section about credentials.\n\n### Non-blocking observations\n- **credential-injection.md:74** Minor: 'gated on bytes_seen == 0' is a slight conceptual simplification \u2014 the actual gate is 'the first-chunk prime has not yet returned successfully.' bytes_seen only tracks what's been yielded once generate() runs. Either phrasing works; no change needed.\n- The doc could mention that the synthetic error frame's message is a fixed literal ('upstream connection reset') \u2014 useful for operators grepping transcripts for this failure mode. Non-blocking, nice-to-have.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "docs/architecture/credential-injection.md",
+          "db72789ee"
+        ],
+        "reason": "\nReviewed the full credential-injection.md diff (18 added lines, 56-76) against the implementation in gateway/gateway.py:5241-5408. Verified the docs accurately describe both resilience paths and their boundaries.\n\n### Accuracy (verified)\n- The pre-stream vs mid-stream table correctly characterizes what each path does, including the key subtlety that the retry is gated on 'no downstream byte has flowed' (implemented via the first-chunk prime in _send_and_prime, not via a bytes_seen == 0 runtime check \u2014 docs say 'gated on bytes_seen == 0' which is conceptually right but the implementation enforces it structurally by returning from _send_and_prime before Response() is built. Close enough \u2014 no correction needed).\n- The 'why not full resumption' explanation correctly identifies the two real concerns: no Anthropic resume tokens, and double-charging / divergent-generation interleaving.\n- The 'bounded retry \u2014 capped at one attempt' matches for attempt in range(2) with a single continue at attempt==0.\n- The 'falls through to the pre-existing except httpx.ConnectError / TimeoutException / Exception handlers' matches gateway.py:5433-5464 exactly.\n- The distinction from #1883 (gateway pod restart) and #1873 (consensus-wrapper turn-1 retry) is correct \u2014 those handle gateway-process-gone and single-agent-startup respectively; #1907 handles gateway-healthy/upstream-unhealthy, which is a disjoint concern.\n- The aclose() cleanup-bug reference correctly identifies why a clean synthetic SSE frame is preferable to a raw socket truncation \u2014 the downstream SDK's async generator cleanup races on a truncated read, producing the 'aclose(): asynchronous generator is already running' RuntimeError pattern we saw in overseer log_tail.\n\n### Structure / readability\n- Markdown table format is consistent with the existing doc style (rendered endpoint table directly above).\n- Cross-links to #1907, #1883, #1873 are correctly formatted.\n- Appropriately scoped \u2014 lives under 'Gateway Proxy Endpoints' where a streaming-resilience note naturally belongs, not shoehorned into a section about credentials.\n\n### Non-blocking observations\n- **credential-injection.md:74** Minor: 'gated on bytes_seen == 0' is a slight conceptual simplification \u2014 the actual gate is 'the first-chunk prime has not yet returned successfully.' bytes_seen only tracks what's been yielded once generate() runs. Either phrasing works; no change needed.\n- The doc could mention that the synthetic error frame's message is a fixed literal ('upstream connection reset') \u2014 useful for operators grepping transcripts for this failure mode. Non-blocking, nice-to-have.\n"
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-23T05:41:15.883063+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5c8544d6-3be4-4c",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "orchestrator",
+    "to_role": "documenter",
+    "message_type": "STATUS",
+    "subject": "All reviewers have ACKed \u2014 ready to confirm",
+    "body": "All assigned reviewers have ACKed your proposal (version 1). Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "fully_acked": true,
+      "version": 1
+    },
+    "timestamp": "2026-04-23T05:41:15.883077+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "6086974b-301d-4b",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by documenter (pending_acks)",
+    "body": "Agent documenter cannot confirm: producers ['tester'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-23T05:41:47.404042+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "693bd80a-e281-4a",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "reviewer_code",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for coder",
+    "body": "\nRe-reviewing coder's re-proposal at commit dda1f2ad7 (now covers the full implement payload: gateway.py resilience code + tests that tester landed). Same substantive review as my prior ACK \u2014 all concerns verified against the final HEAD.\n\n### Correctness (verified against gateway/gateway.py:5241-5408)\n1. **Pre-stream prime pattern.** _send_and_prime() calls client.send(..., stream=True), then iter_bytes(), then next(iterator) eagerly. The first-chunk fetch is what gates the 'no byte yielded' invariant \u2014 Response() is constructed only after prime succeeds, so retry is structurally safe. If send() raises ReadError/RemoteProtocolError, upstream_resp is never bound (correct \u2014 nothing to close, the connection never committed). If iter_bytes() or next() raises, the inner except closes upstream_resp before re-raising, preventing a half-open conn leaking back into httpx's keepalive pool.\n2. **Bounded retry.** for attempt in range(2), break on success, raise on attempt==1 exhaustion. No infinite-loop risk. Exhausted ReadError/RemoteProtocolError propagate to except Exception \u2192 502 (httpx.ReadError and RemoteProtocolError are both subclasses of httpx.HTTPError and Exception \u2014 verified via the class __mro__).\n3. **StopIteration.** _send_and_prime is a regular function (not a generator), so PEP 479 doesn't apply \u2014 catching StopIteration from next(iterator) is legal. Empty body (first=None) correctly no-ops the first-chunk yield.\n4. **Iterator ownership.** iter_bytes() is called exactly once per upstream response, and the same iterator object is returned and reused in generate()'s for-loop. No second-call-to-iter_bytes that would reset the read-position or raise.\n5. **Synthetic SSE frame.** event: error\\ndata: {JSON}\\n\\n matches Anthropic's documented shape and is parsed by _SSEAccumulator._process_event at gateway.py:5114 \u2192 produces _error_blocks + stop_reason='error' in the captured transcript. Fed through _consume_chunk before yield so the accumulator sees it.\n6. **finally: upstream.close() + _capture_streaming_response preserved** on all paths: success, mid-stream ReadError, mid-stream RemoteProtocolError. Operators retain transcript visibility into partial turns.\n7. **Retry is idempotent.** headers is a resolved dict; request_body is bytes (Flask caches via get_data()); build_request is fresh per attempt. No consumed-stream risk across retries.\n8. **Exception scope.** Only ReadError + RemoteProtocolError trigger retry. ConnectError \u2192 502 and TimeoutException \u2192 504 keep their existing handlers unchanged.\n\n### Tests (verified against tests/gateway/test_anthropic_proxy.py:542-813)\nFour new tests in TestStreamingResponse:\n- test_streaming_send_reset_retries_once \u2014 covers task-1-1 clause (a): send() raises, retry succeeds. Asserts send called twice, 200 status, no synthetic error frame, good_response.close() invoked.\n- test_streaming_first_chunk_reset_retries_once \u2014 covers task-1-1 clause (b): first iter_bytes() pull raises, retry succeeds. Asserts bad_response.close() called (no pool leak) before good_response.close().\n- test_streaming_midstream_reset_yields_synthetic_error_frame \u2014 covers task-1-2: RemoteProtocolError after first chunk \u2192 downstream body = original chunk + synthetic event: error frame. Asserts no retry, body.endswith(b'\\n\\n'), first_chunk precedes error frame, and parses the synthetic JSON to verify shape (type='error', error.type='api_error', message present).\n- test_streaming_send_reset_retry_exhausted_returns_502 \u2014 extra defense: both attempts raise, downstream gets 502, mock_client.send.call_count == 2 (bounded).\n\nHelper _iter_then_raise(chunks, exc) matches task-1-3's 'helper to wrap an iterator so it raises after N yielded chunks' requirement.\n\nTester reports  and  in commit dda1f2ad7's message.\n\n### Security\n- Synthetic error frame payload is a fixed literal ('upstream connection reset') \u2014 no attacker-controlled interpolation into SSE wire.\n- Credential injection path unchanged; headers dict built once upstream of retry loop.\n- No log injection: container_id and error come through structured logger.warning kwargs.\n\n### Non-blocking observations\n- **gateway.py:5348** 'nonlocal bytes_seen' is redundant in generate() \u2014 only read, never assigned. Harmless.\n- **gateway.py:5285-5292** Inner except in _send_and_prime only closes upstream_resp on ReadError/RemoteProtocolError. Non-transport exceptions (e.g., AttributeError) would leak; unreachable in practice with real httpx, but a broader except + try-close is slightly more defensive. Not blocking.\n- **gateway.py:5357-5385** Synthetic error frame is counted against MAX_CAPTURE_SIZE via _consume_chunk. If the accumulator is already capture_truncated=True (>10MB response), the synthetic frame still yields downstream correctly but won't appear in the transcript \u2014 so big-response-then-reset turns lose the error signal in stop_reason. Rare corner; non-blocking.\n- **gateway.py:5381** json.dumps on every mid-stream reset is a micro-allocation; could be hoisted to a module-level pre-encoded constant. Skip.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "gateway/gateway.py",
+          "tests/gateway/test_anthropic_proxy.py",
+          "dda1f2ad7"
+        ],
+        "reason": "\nRe-reviewing coder's re-proposal at commit dda1f2ad7 (now covers the full implement payload: gateway.py resilience code + tests that tester landed). Same substantive review as my prior ACK \u2014 all concerns verified against the final HEAD.\n\n### Correctness (verified against gateway/gateway.py:5241-5408)\n1. **Pre-stream prime pattern.** _send_and_prime() calls client.send(..., stream=True), then iter_bytes(), then next(iterator) eagerly. The first-chunk fetch is what gates the 'no byte yielded' invariant \u2014 Response() is constructed only after prime succeeds, so retry is structurally safe. If send() raises ReadError/RemoteProtocolError, upstream_resp is never bound (correct \u2014 nothing to close, the connection never committed). If iter_bytes() or next() raises, the inner except closes upstream_resp before re-raising, preventing a half-open conn leaking back into httpx's keepalive pool.\n2. **Bounded retry.** for attempt in range(2), break on success, raise on attempt==1 exhaustion. No infinite-loop risk. Exhausted ReadError/RemoteProtocolError propagate to except Exception \u2192 502 (httpx.ReadError and RemoteProtocolError are both subclasses of httpx.HTTPError and Exception \u2014 verified via the class __mro__).\n3. **StopIteration.** _send_and_prime is a regular function (not a generator), so PEP 479 doesn't apply \u2014 catching StopIteration from next(iterator) is legal. Empty body (first=None) correctly no-ops the first-chunk yield.\n4. **Iterator ownership.** iter_bytes() is called exactly once per upstream response, and the same iterator object is returned and reused in generate()'s for-loop. No second-call-to-iter_bytes that would reset the read-position or raise.\n5. **Synthetic SSE frame.** event: error\\ndata: {JSON}\\n\\n matches Anthropic's documented shape and is parsed by _SSEAccumulator._process_event at gateway.py:5114 \u2192 produces _error_blocks + stop_reason='error' in the captured transcript. Fed through _consume_chunk before yield so the accumulator sees it.\n6. **finally: upstream.close() + _capture_streaming_response preserved** on all paths: success, mid-stream ReadError, mid-stream RemoteProtocolError. Operators retain transcript visibility into partial turns.\n7. **Retry is idempotent.** headers is a resolved dict; request_body is bytes (Flask caches via get_data()); build_request is fresh per attempt. No consumed-stream risk across retries.\n8. **Exception scope.** Only ReadError + RemoteProtocolError trigger retry. ConnectError \u2192 502 and TimeoutException \u2192 504 keep their existing handlers unchanged.\n\n### Tests (verified against tests/gateway/test_anthropic_proxy.py:542-813)\nFour new tests in TestStreamingResponse:\n- test_streaming_send_reset_retries_once \u2014 covers task-1-1 clause (a): send() raises, retry succeeds. Asserts send called twice, 200 status, no synthetic error frame, good_response.close() invoked.\n- test_streaming_first_chunk_reset_retries_once \u2014 covers task-1-1 clause (b): first iter_bytes() pull raises, retry succeeds. Asserts bad_response.close() called (no pool leak) before good_response.close().\n- test_streaming_midstream_reset_yields_synthetic_error_frame \u2014 covers task-1-2: RemoteProtocolError after first chunk \u2192 downstream body = original chunk + synthetic event: error frame. Asserts no retry, body.endswith(b'\\n\\n'), first_chunk precedes error frame, and parses the synthetic JSON to verify shape (type='error', error.type='api_error', message present).\n- test_streaming_send_reset_retry_exhausted_returns_502 \u2014 extra defense: both attempts raise, downstream gets 502, mock_client.send.call_count == 2 (bounded).\n\nHelper _iter_then_raise(chunks, exc) matches task-1-3's 'helper to wrap an iterator so it raises after N yielded chunks' requirement.\n\nTester reports  and  in commit dda1f2ad7's message.\n\n### Security\n- Synthetic error frame payload is a fixed literal ('upstream connection reset') \u2014 no attacker-controlled interpolation into SSE wire.\n- Credential injection path unchanged; headers dict built once upstream of retry loop.\n- No log injection: container_id and error come through structured logger.warning kwargs.\n\n### Non-blocking observations\n- **gateway.py:5348** 'nonlocal bytes_seen' is redundant in generate() \u2014 only read, never assigned. Harmless.\n- **gateway.py:5285-5292** Inner except in _send_and_prime only closes upstream_resp on ReadError/RemoteProtocolError. Non-transport exceptions (e.g., AttributeError) would leak; unreachable in practice with real httpx, but a broader except + try-close is slightly more defensive. Not blocking.\n- **gateway.py:5357-5385** Synthetic error frame is counted against MAX_CAPTURE_SIZE via _consume_chunk. If the accumulator is already capture_truncated=True (>10MB response), the synthetic frame still yields downstream correctly but won't appear in the transcript \u2014 so big-response-then-reset turns lose the error signal in stop_reason. Rare corner; non-blocking.\n- **gateway.py:5381** json.dumps on every mid-stream reset is a micro-allocation; could be hoisted to a module-level pre-encoded constant. Skip.\n"
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-23T05:42:41.320703+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3b886e85-f331-4f",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "reviewer_code",
+    "to_role": "documenter",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for documenter",
+    "body": "\nRe-reviewing documenter's re-proposal at 0a4e87643, which adds gateway/README.md breadcrumb to the previously-reviewed credential-injection.md content.\n\n### credential-injection.md (re-verified)\nMatches implementation at gateway/gateway.py:5241-5408:\n- Pre-stream vs mid-stream table accurately describes behavior.\n- 'Why not full resumption' rationale is correct (no Anthropic resume tokens, double-charging, divergent generation interleaving).\n- 'Bounded retry' matches for attempt in range(2) with single continue.\n- Fall-through to ConnectError/TimeoutException/Exception handlers matches gateway.py:5433-5464.\n- Relationship to #1883 and #1873 is correctly distinguished.\n- The aclose() cleanup-bug reference correctly identifies the downstream SDK failure mode that a clean synthetic SSE frame avoids.\n\n### gateway/README.md delta (0a4e87643)\nNew content:\n- Line 421-430: /v1/messages endpoint description expanded with a 3-sentence summary of the resilience guarantees + cross-link to credential-injection.md. Content accurately matches implementation (pre-stream bounded single retry, mid-stream synthetic SSE error frame).\n- Line 565: Design decision #11 added in the same style as decisions 1-10. Correctly states: bounded to one attempt, gated on bytes_seen == 0 conceptually, mid-stream fallback because no resume tokens, risk of double-charging/interleaved generations. Correctly distinguishes from #1883 (pod restart) and #1873 (turn-1 consensus-wrapper retry).\n\n### Discoverability\nGood layering: operator-facing API reference (gateway/README.md) gets a short breadcrumb; design rationale (docs/architecture/credential-injection.md) holds the full table and prose. No duplication \u2014 the README content is a 3-line summary pointing to the detail doc.\n\n### Non-blocking observations\n- **credential-injection.md:74 / gateway/README.md design-decision #11** 'gated on bytes_seen == 0' is a slight conceptual simplification \u2014 the actual gate is 'the first-chunk prime returned successfully'. bytes_seen only tracks yields once generate() runs. Either phrasing is correct for operators.\n- Design decision #11 could mention the synthetic error message is the fixed literal 'upstream connection reset' (helps operators grep transcripts for this failure mode). Non-blocking nice-to-have.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "docs/architecture/credential-injection.md",
+          "gateway/README.md",
+          "0a4e87643"
+        ],
+        "reason": "\nRe-reviewing documenter's re-proposal at 0a4e87643, which adds gateway/README.md breadcrumb to the previously-reviewed credential-injection.md content.\n\n### credential-injection.md (re-verified)\nMatches implementation at gateway/gateway.py:5241-5408:\n- Pre-stream vs mid-stream table accurately describes behavior.\n- 'Why not full resumption' rationale is correct (no Anthropic resume tokens, double-charging, divergent generation interleaving).\n- 'Bounded retry' matches for attempt in range(2) with single continue.\n- Fall-through to ConnectError/TimeoutException/Exception handlers matches gateway.py:5433-5464.\n- Relationship to #1883 and #1873 is correctly distinguished.\n- The aclose() cleanup-bug reference correctly identifies the downstream SDK failure mode that a clean synthetic SSE frame avoids.\n\n### gateway/README.md delta (0a4e87643)\nNew content:\n- Line 421-430: /v1/messages endpoint description expanded with a 3-sentence summary of the resilience guarantees + cross-link to credential-injection.md. Content accurately matches implementation (pre-stream bounded single retry, mid-stream synthetic SSE error frame).\n- Line 565: Design decision #11 added in the same style as decisions 1-10. Correctly states: bounded to one attempt, gated on bytes_seen == 0 conceptually, mid-stream fallback because no resume tokens, risk of double-charging/interleaved generations. Correctly distinguishes from #1883 (pod restart) and #1873 (turn-1 consensus-wrapper retry).\n\n### Discoverability\nGood layering: operator-facing API reference (gateway/README.md) gets a short breadcrumb; design rationale (docs/architecture/credential-injection.md) holds the full table and prose. No duplication \u2014 the README content is a 3-line summary pointing to the detail doc.\n\n### Non-blocking observations\n- **credential-injection.md:74 / gateway/README.md design-decision #11** 'gated on bytes_seen == 0' is a slight conceptual simplification \u2014 the actual gate is 'the first-chunk prime returned successfully'. bytes_seen only tracks yields once generate() runs. Either phrasing is correct for operators.\n- Design decision #11 could mention the synthetic error message is the fixed literal 'upstream connection reset' (helps operators grep transcripts for this failure mode). Non-blocking nice-to-have.\n"
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-23T05:43:00.063692+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3b395420-caae-49",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "orchestrator",
+    "to_role": "documenter",
+    "message_type": "STATUS",
+    "subject": "All reviewers have ACKed \u2014 ready to confirm",
+    "body": "All assigned reviewers have ACKed your proposal (version 1). Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "fully_acked": true,
+      "version": 1
+    },
+    "timestamp": "2026-04-23T05:43:00.063704+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c5a1595e-686a-47",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from tester",
+    "body": "Validated coder's gateway stream-reset resilience fix for #1907 and extended TestStreamingResponse with 4 new tests in tests/gateway/test_anthropic_proxy.py (commit dda1f2a). All three contract acceptance cases are covered: (a) test_streaming_send_reset_retries_once \u2014 client.send() raises httpx.ReadError once, bounded 1x retry produces clean 200 SSE; (b) test_streaming_first_chunk_reset_retries_once \u2014 first iter_bytes() pull raises ReadError, gateway closes bad upstream and re-primes; (c) test_streaming_midstream_reset_yields_synthetic_error_frame \u2014 RemoteProtocolError after one chunk yields well-formed Anthropic-style 'event: error' SSE frame after the original chunk, JSON-parses the synthetic payload to detect malformed output, verifies upstream.close() runs, and confirms no retry is attempted mid-stream. Plus one defense-in-depth test (test_streaming_send_reset_retry_exhausted_returns_502) that confirms the retry is bounded to 1x and falls through to 502. Tests use the contract-mandated _iter_then_raise helper that wraps an iterator so it raises after N yielded chunks. Checks passed: ruff check (clean), ruff format --check (686 files already formatted), mypy (Success: no issues found in 186 source files), pytest tests/gateway/ (129 passed). Wider test-suite failures in orchestrator/tests/test_kubernetes_client.py and orchestrator/tests/test_gateway_client.py are pre-existing sandbox env issues (module 'kubernetes.client' missing V1SecurityContext/AppsV1Api) unrelated to this PR. Satisfies task-1-3; task-1-1 and task-1-2 validated as correctly implemented by coder in gateway/gateway.py (commit dc5058a). No gaps found \u2014 coder's implementation matches contract spec.",
+    "metadata": {
+      "payload": {
+        "summary": "Validated coder's gateway stream-reset resilience fix for #1907 and extended TestStreamingResponse with 4 new tests in tests/gateway/test_anthropic_proxy.py (commit dda1f2a). All three contract acceptance cases are covered: (a) test_streaming_send_reset_retries_once \u2014 client.send() raises httpx.ReadError once, bounded 1x retry produces clean 200 SSE; (b) test_streaming_first_chunk_reset_retries_once \u2014 first iter_bytes() pull raises ReadError, gateway closes bad upstream and re-primes; (c) test_streaming_midstream_reset_yields_synthetic_error_frame \u2014 RemoteProtocolError after one chunk yields well-formed Anthropic-style 'event: error' SSE frame after the original chunk, JSON-parses the synthetic payload to detect malformed output, verifies upstream.close() runs, and confirms no retry is attempted mid-stream. Plus one defense-in-depth test (test_streaming_send_reset_retry_exhausted_returns_502) that confirms the retry is bounded to 1x and falls through to 502. Tests use the contract-mandated _iter_then_raise helper that wraps an iterator so it raises after N yielded chunks. Checks passed: ruff check (clean), ruff format --check (686 files already formatted), mypy (Success: no issues found in 186 source files), pytest tests/gateway/ (129 passed). Wider test-suite failures in orchestrator/tests/test_kubernetes_client.py and orchestrator/tests/test_gateway_client.py are pre-existing sandbox env issues (module 'kubernetes.client' missing V1SecurityContext/AppsV1Api) unrelated to this PR. Satisfies task-1-3; task-1-1 and task-1-2 validated as correctly implemented by coder in gateway/gateway.py (commit dc5058a). No gaps found \u2014 coder's implementation matches contract spec.",
+        "artifacts": [
+          "tests/gateway/test_anthropic_proxy.py"
+        ],
+        "files_changed": [
+          "tests/gateway/test_anthropic_proxy.py"
+        ],
+        "tests_run": [
+          "tests/gateway/test_anthropic_proxy.py::TestStreamingResponse::test_streaming_send_reset_retries_once",
+          "tests/gateway/test_anthropic_proxy.py::TestStreamingResponse::test_streaming_first_chunk_reset_retries_once",
+          "tests/gateway/test_anthropic_proxy.py::TestStreamingResponse::test_streaming_midstream_reset_yields_synthetic_error_frame",
+          "tests/gateway/test_anthropic_proxy.py::TestStreamingResponse::test_streaming_send_reset_retry_exhausted_returns_502"
+        ],
+        "tasks": [
+          "task-1-3"
+        ],
+        "checks_passed": [
+          "lint",
+          "test"
+        ],
+        "tests_execution_blocked": false,
+        "commit_sha": "dda1f2ad76ecbc08de27ada991a494fd725297d2"
+      },
+      "version": 1,
+      "commit_sha": "dda1f2ad76ecbc08de27ada991a494fd725297d2"
+    },
+    "timestamp": "2026-04-23T05:50:23.317921+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "7863726e-b980-40",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_contract",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-23T05:50:33.033892+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "13ac79cf-8c58-45",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by documenter",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-23T05:50:44.881622+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "134d53ed-1469-4f",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "tester",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from tester for coder",
+    "body": "Reviewed gateway/gateway.py in commit dc5058a. Verified task-1-1 (pre-stream retry): _send_and_prime() correctly wraps client.send() and the first-chunk prime, re-raises only httpx.ReadError and httpx.RemoteProtocolError, closes the failed upstream in its own except branch before re-raising (no connection-pool leak), and the outer 'for attempt in range(2)' loop enforces a bounded 1x retry with logger.warning(container_id, error=str(reset_err)) between attempts and re-raise on exhaustion so the existing outer except returns 502. Correctly gated on bytes_seen == 0 (no byte yielded downstream yet). Verified task-1-2 (mid-stream synthetic frame): generate() now splits into a 'yield first_chunk if not None, then iterate primed_iterator' pattern wrapped in try/except (httpx.ReadError, httpx.RemoteProtocolError); on catch, emits a well-formed SSE frame 'event: error\\ndata: {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"upstream connection reset\"}}\\n\\n', feeds it through the accumulator via _consume_chunk (respects MAX_CAPTURE_SIZE budget), logs a warning with container_id and bytes_seen, and returns cleanly. The existing finally: upstream.close() and _capture_streaming_response behavior is preserved \u2014 generate() still returns via the normal path, and upstream.close() still runs because the finally: branch is untouched. All 50 tests in tests/gateway/test_anthropic_proxy.py pass (including my 4 new resilience tests) and the wider 129-test gateway/ suite is clean. ruff check, ruff format --check, and mypy are all green.\\n### Non-blocking\\n- **gateway/gateway.py:5278** \u2014 The retry loop swallows the first reset_err's full traceback when the retry succeeds. That's intentional (transparent retry) but worth a one-line comment acknowledging it for future maintainers.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "gateway/gateway.py"
+        ],
+        "reason": "Reviewed gateway/gateway.py in commit dc5058a. Verified task-1-1 (pre-stream retry): _send_and_prime() correctly wraps client.send() and the first-chunk prime, re-raises only httpx.ReadError and httpx.RemoteProtocolError, closes the failed upstream in its own except branch before re-raising (no connection-pool leak), and the outer 'for attempt in range(2)' loop enforces a bounded 1x retry with logger.warning(container_id, error=str(reset_err)) between attempts and re-raise on exhaustion so the existing outer except returns 502. Correctly gated on bytes_seen == 0 (no byte yielded downstream yet). Verified task-1-2 (mid-stream synthetic frame): generate() now splits into a 'yield first_chunk if not None, then iterate primed_iterator' pattern wrapped in try/except (httpx.ReadError, httpx.RemoteProtocolError); on catch, emits a well-formed SSE frame 'event: error\\ndata: {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"upstream connection reset\"}}\\n\\n', feeds it through the accumulator via _consume_chunk (respects MAX_CAPTURE_SIZE budget), logs a warning with container_id and bytes_seen, and returns cleanly. The existing finally: upstream.close() and _capture_streaming_response behavior is preserved \u2014 generate() still returns via the normal path, and upstream.close() still runs because the finally: branch is untouched. All 50 tests in tests/gateway/test_anthropic_proxy.py pass (including my 4 new resilience tests) and the wider 129-test gateway/ suite is clean. ruff check, ruff format --check, and mypy are all green.\\n### Non-blocking\\n- **gateway/gateway.py:5278** \u2014 The retry loop swallows the first reset_err's full traceback when the retry succeeds. That's intentional (transparent retry) but worth a one-line comment acknowledging it for future maintainers."
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-23T05:50:50.211513+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "afa044d8-8b48-4d",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "orchestrator",
+    "to_role": "coder",
+    "message_type": "STATUS",
+    "subject": "All reviewers have ACKed \u2014 ready to confirm",
+    "body": "All assigned reviewers have ACKed your proposal (version 1). Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "fully_acked": true,
+      "version": 1
+    },
+    "timestamp": "2026-04-23T05:50:50.211536+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "679e33a5-58a4-47",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by tester (pending_acks)",
+    "body": "Producer tester cannot confirm: not fully ACKed. Pending reviewers: ['reviewer_code']",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-23T05:50:59.218838+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "537938e8-9162-4e",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "reviewer_code",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for tester",
+    "body": "\nReviewed tests/gateway/test_anthropic_proxy.py additions at commit dda1f2ad7 (lines 542-813 in TestStreamingResponse, +269 lines total). Verified all tests trace to contract task-1-3 acceptance and that the test-execution evidence in the commit message is credible.\n\n### Test-execution evidence\nCommit message reports 'pytest tests/gateway/test_anthropic_proxy.py -> 50 passed' and 'ruff check + ruff format --check clean'. Pre-patch test count in the file was 46 \u2014 adding 4 new tests brings it to 50 passed (math checks out). No tests_execution_blocked indicator; tester has actually run the suite.\n\n### Contract coverage (task-1-3)\nContract required three tests; tester provided four (three mandatory + one extra for the retry-exhausted 502 path):\n\n1. **test_streaming_send_reset_retries_once** \u2014 task-1-3(a): client.send() raises ReadError once then succeeds on retry.\n   Asserts send called exactly twice (bounded retry), 200 status, body contains message_start/message_stop, no 'event: error' frame present (retry-success path).\n\n2. **test_streaming_first_chunk_reset_retries_once** \u2014 task-1-3(b): first iter_bytes() pull raises ReadError, retry succeeds.\n   Uses _iter_then_raise([], ReadError) for empty-before-raise \u2014 exactly matches contract language 'simulating a reset before any byte is forwarded downstream.' Asserts bad_response.close() before good_response.close() (no half-open conn leaking into httpx keepalive pool). This is a stronger check than the contract required and catches a real class of connection-pool-leak regressions.\n\n3. **test_streaming_midstream_reset_yields_synthetic_error_frame** \u2014 task-1-3(c): iter_bytes raises RemoteProtocolError after one chunk.\n   Good depth: asserts no retry attempted (mock_client.send.call_count == 1), asserts upstream.close() still runs via finally, verifies first_chunk precedes error frame (ordering), asserts body.endswith(b'\\n\\n') (proper SSE terminator \u2014 the exact property that the downstream SDK's parser depends on to treat this as a complete event instead of a truncation), parses the synthetic frame as JSON to catch malformed output (type='error', error.type='api_error', message field present). Covers both JSON space formats ('\"type\": \"api_error\"' and '\"type\":\"api_error\"') so the test isn't brittle to json.dumps separators changing.\n\n4. **test_streaming_send_reset_retry_exhausted_returns_502** \u2014 Extra defense-in-depth.\n   Both attempts raise different exception types (ReadError on first, RemoteProtocolError on second); asserts send called exactly twice (bounded), 502 status, body contains 'api_error'. Guards against infinite-loop regression if someone accidentally widens the retry bound.\n\n### Helper\n_iter_then_raise(chunks, exc) static method is the 'small helper to wrap an iterator so it raises after N yielded chunks' the contract calls for. Passing chunks=[] causes raise on first next() (empty-body-then-raise), matching the first-chunk-reset scenario. Passing [chunk1] causes raise on second next() (one-chunk-then-raise), matching the mid-stream scenario. Idiomatic and minimal.\n\n### Pattern fit\nTest mocking style is consistent with pre-existing TestStreamingResponse tests (MagicMock with .status_code / .headers / .iter_bytes / .close; httpx.Headers for response headers; json.dumps body; client.post to the Flask test client; body = b''.join(response.response) to materialize the streamed body). No new fixture machinery required.\n\n### Regression coverage\nAll pre-existing streaming tests (test_streaming_request_detected, test_streaming_content_type_forwarded) still pass per commit message \u2014 46 prior tests + 4 new = 50 passed, matches the reported count.\n\n### Non-blocking observations\n- **test_anthropic_proxy.py:762** The midstream test asserts 'b\"upstream connection reset\" in body' \u2014 fine today because the synthetic message is a fixed literal, but if the error message becomes parameterized (e.g., include bytes_seen in the user-facing message), this assertion tightens into a regression trap. Consider a more abstract check ('error' in body's payload dict) if the message shape ever becomes dynamic.\n- Test classes import httpx and httpx.Headers inside each function rather than at module scope. Pre-existing pattern in this file, so consistent \u2014 just noting.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "tests/gateway/test_anthropic_proxy.py",
+          "dda1f2ad7"
+        ],
+        "reason": "\nReviewed tests/gateway/test_anthropic_proxy.py additions at commit dda1f2ad7 (lines 542-813 in TestStreamingResponse, +269 lines total). Verified all tests trace to contract task-1-3 acceptance and that the test-execution evidence in the commit message is credible.\n\n### Test-execution evidence\nCommit message reports 'pytest tests/gateway/test_anthropic_proxy.py -> 50 passed' and 'ruff check + ruff format --check clean'. Pre-patch test count in the file was 46 \u2014 adding 4 new tests brings it to 50 passed (math checks out). No tests_execution_blocked indicator; tester has actually run the suite.\n\n### Contract coverage (task-1-3)\nContract required three tests; tester provided four (three mandatory + one extra for the retry-exhausted 502 path):\n\n1. **test_streaming_send_reset_retries_once** \u2014 task-1-3(a): client.send() raises ReadError once then succeeds on retry.\n   Asserts send called exactly twice (bounded retry), 200 status, body contains message_start/message_stop, no 'event: error' frame present (retry-success path).\n\n2. **test_streaming_first_chunk_reset_retries_once** \u2014 task-1-3(b): first iter_bytes() pull raises ReadError, retry succeeds.\n   Uses _iter_then_raise([], ReadError) for empty-before-raise \u2014 exactly matches contract language 'simulating a reset before any byte is forwarded downstream.' Asserts bad_response.close() before good_response.close() (no half-open conn leaking into httpx keepalive pool). This is a stronger check than the contract required and catches a real class of connection-pool-leak regressions.\n\n3. **test_streaming_midstream_reset_yields_synthetic_error_frame** \u2014 task-1-3(c): iter_bytes raises RemoteProtocolError after one chunk.\n   Good depth: asserts no retry attempted (mock_client.send.call_count == 1), asserts upstream.close() still runs via finally, verifies first_chunk precedes error frame (ordering), asserts body.endswith(b'\\n\\n') (proper SSE terminator \u2014 the exact property that the downstream SDK's parser depends on to treat this as a complete event instead of a truncation), parses the synthetic frame as JSON to catch malformed output (type='error', error.type='api_error', message field present). Covers both JSON space formats ('\"type\": \"api_error\"' and '\"type\":\"api_error\"') so the test isn't brittle to json.dumps separators changing.\n\n4. **test_streaming_send_reset_retry_exhausted_returns_502** \u2014 Extra defense-in-depth.\n   Both attempts raise different exception types (ReadError on first, RemoteProtocolError on second); asserts send called exactly twice (bounded), 502 status, body contains 'api_error'. Guards against infinite-loop regression if someone accidentally widens the retry bound.\n\n### Helper\n_iter_then_raise(chunks, exc) static method is the 'small helper to wrap an iterator so it raises after N yielded chunks' the contract calls for. Passing chunks=[] causes raise on first next() (empty-body-then-raise), matching the first-chunk-reset scenario. Passing [chunk1] causes raise on second next() (one-chunk-then-raise), matching the mid-stream scenario. Idiomatic and minimal.\n\n### Pattern fit\nTest mocking style is consistent with pre-existing TestStreamingResponse tests (MagicMock with .status_code / .headers / .iter_bytes / .close; httpx.Headers for response headers; json.dumps body; client.post to the Flask test client; body = b''.join(response.response) to materialize the streamed body). No new fixture machinery required.\n\n### Regression coverage\nAll pre-existing streaming tests (test_streaming_request_detected, test_streaming_content_type_forwarded) still pass per commit message \u2014 46 prior tests + 4 new = 50 passed, matches the reported count.\n\n### Non-blocking observations\n- **test_anthropic_proxy.py:762** The midstream test asserts 'b\"upstream connection reset\" in body' \u2014 fine today because the synthetic message is a fixed literal, but if the error message becomes parameterized (e.g., include bytes_seen in the user-facing message), this assertion tightens into a regression trap. Consider a more abstract check ('error' in body's payload dict) if the message shape ever becomes dynamic.\n- Test classes import httpx and httpx.Headers inside each function rather than at module scope. Pre-existing pattern in this file, so consistent \u2014 just noting.\n"
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-23T05:52:30.470465+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "f97d1463-7f31-4b",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "orchestrator",
+    "to_role": "tester",
+    "message_type": "STATUS",
+    "subject": "All reviewers have ACKed \u2014 ready to confirm",
+    "body": "All assigned reviewers have ACKed your proposal (version 1). Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "fully_acked": true,
+      "version": 1
+    },
+    "timestamp": "2026-04-23T05:52:30.470481+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "0006d9b1-aee9-45",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by tester",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-23T05:52:34.275233+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5747dbbe-a6c4-4f",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_code",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-23T05:52:36.417891+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a7434659-b746-46",
+    "pipeline_id": "issue-1907-v2",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by coder",
+    "body": "",
+    "metadata": {
+      "consensus_reached": true
+    },
+    "timestamp": "2026-04-23T05:54:22.772637+00:00",
+    "phase": "implement"
+  }
+]

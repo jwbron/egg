@@ -9,6 +9,11 @@
 #   GITHUB_REPOSITORY  — owner/repo
 #   RUNNER_TEMP        — Temp directory for prompt file
 #   LAST_REVIEW_COMMIT — (Optional) Commit SHA of last bot review, for re-reviews
+#   BASE_REF           — (Optional) PR base branch name for re-review delta
+#                        (defaults to "main"). Used to exclude base-branch
+#                        commits from the delta via
+#                        `git log ... --not origin/${BASE_REF} -p`
+#                        so reviewers see only PR-authored changes (#1758).
 #
 # Output:
 #   Sets 'prompt-file' and 'model' in $GITHUB_OUTPUT
@@ -73,6 +78,7 @@ build_prompt() {
 
     local prompt
     local is_rereview=false
+    local base_ref="${BASE_REF:-main}"
 
     # Check if this is a re-review (we have a previous review commit)
     if [[ -n "${LAST_REVIEW_COMMIT:-}" ]]; then
@@ -89,7 +95,7 @@ This is a specialized design review, NOT a general code review. A separate bot h
 
 ## Re-review Task
 
-1. Use \`git diff ${LAST_REVIEW_COMMIT}..HEAD\` to see changes since your last review.
+1. First run \`git fetch origin ${base_ref}\` to ensure the base branch ref is available, then use \`git log ${LAST_REVIEW_COMMIT}..HEAD --not origin/${base_ref} -p\` to see changes since your last review. This excludes any \`${base_ref}\` commits that were merged into the PR branch, so you see only PR-authored changes.
 2. Use \`gh pr view ${PR_NUMBER} --comments\` to check if previous feedback was addressed.
 3. Focus only on the delta — don't re-review unchanged code.
 

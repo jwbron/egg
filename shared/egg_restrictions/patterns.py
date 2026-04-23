@@ -139,6 +139,44 @@ class AgentFilePattern:
         file_path = file_path.lstrip("./")
         pattern = pattern.lstrip("./")
 
+        # Directory patterns containing ** (e.g., "**/tests/", "**/test/")
+        # must be handled BEFORE the bare-prefix branch because the bare-prefix
+        # branch uses `file_path.startswith(pattern)` which would miss nested
+        # files like "gateway/tests/__init__.py" against "**/tests/".
+        # Fix for #1901 — previously the ** branch's fnmatch-on-basename logic
+        # returned False for nested directory files.
+        if pattern.endswith("/") and "**" in pattern:
+            # A pattern like "**/<dir>/" matches any file under a directory of
+            # that name at any depth, including top-level (zero segments before).
+            # We strip the leading "**/" and the trailing "/" to extract the
+            # directory segment(s) to look for.
+            inner = pattern
+            if inner.startswith("**/"):
+                inner = inner[3:]
+            # Strip a single leading "**" if someone wrote "**<dir>/" (unusual)
+            elif inner.startswith("**"):
+                inner = inner[2:]
+            # inner is now e.g. "tests/" — split it into a path prefix we
+            # look for as a complete segment inside file_path.
+            dir_segment = inner.rstrip("/")
+            if not dir_segment:
+                return False
+            # Match only if dir_segment appears as a complete path segment
+            # (i.e. surrounded by / or at path start) AND there is at least
+            # one more path segment after it (it must be a directory, not a
+            # leaf filename).
+            parts = file_path.split("/")
+            # dir_segment may itself contain slashes (e.g. "a/b"); handle both.
+            seg_parts = dir_segment.split("/")
+            seg_len = len(seg_parts)
+            if seg_len == 0:
+                return False
+            # Scan each possible starting index.
+            for i in range(0, len(parts) - seg_len):
+                if parts[i : i + seg_len] == seg_parts:
+                    return True
+            return False
+
         # Prefix match (directory pattern)
         if pattern.endswith("/"):
             return file_path.startswith(pattern) or file_path + "/" == pattern
@@ -167,62 +205,37 @@ class AgentFilePattern:
 # Default agent file patterns
 # These define what each agent role can and cannot modify
 
+# TODO(#1903): keep blocked_patterns in sync with
+# shared/egg_container/__init__.py::_IMPLEMENT_READONLY_DIRS and
+# .egg/phase-permissions.json until #1903 unifies these surfaces.
 CODER_PATTERNS = AgentFilePattern(
     role=AgentRole.CODER,
-    description="Coder agent: source code and configuration",
-    allowed_patterns=[
-        # Source code
-        "**/*.py",
-        "**/*.ts",
-        "**/*.tsx",
-        "**/*.js",
-        "**/*.jsx",
-        "**/*.go",
-        "**/*.java",
-        "**/*.rb",
-        "**/*.rs",
-        "**/*.sh",
-        # Configuration
-        "**/*.yml",
-        "**/*.yaml",
-        "**/*.json",
-        "**/*.toml",
-        # Build/config files (extensionless or uncommon extensions)
-        "Makefile",
-        "**/Makefile",
-        "Dockerfile",
-        "**/Dockerfile",
-        "Procfile",
-        ".python-version",
-        ".node-version",
-        ".nvmrc",
-        ".gitignore",
-        ".gitattributes",
-        ".editorconfig",
-        # Lock files (dependency management)
-        "**/*.lock",
-        # Requirements files
-        "**/requirements*.txt",
-        # Agent config (.md files that are functional code, not docs)
-        "sandbox/agent-config/rules/*.md",
-        "sandbox/agent-config/commands/*.md",
-        # Top-level skills directory (skill definitions are functional code)
-        "skills/",
-        # Handoff output
-        ".egg-state/agent-outputs/",
-    ],
+    description=(
+        "Coder: everything except tester's test scope, documenter's "
+        "docs/markdown scope, and the pipeline-state .egg-state/ "
+        "directory (agent-outputs/ carved back)"
+    ),
+    # Catch-all allow list — coder owns every file that is NOT carved out
+    # by the blocklist below. This replaces the legacy extension-based
+    # allowlist so extensionless scripts (bin/egg, sandbox/egg, LICENSE,
+    # .dockerignore, etc.) and future file types no longer need the
+    # allowlist to be edited.  See #1901.
+    allowed_patterns=["**"],
     blocked_patterns=[
-        # Documentation (Documenter handles)
+        # Pipeline state (catch-all for every current and future subdir;
+        # .egg-state/agent-outputs/ is carved back via block_exempt_patterns)
+        ".egg-state/",
+        # Documenter scope
         "docs/",
-        "**/README.md",
         "**/*.md",
-        # Contracts (API only)
-        ".egg-state/contracts/",
-        # Test files (Tester handles)
+        "**/README.md",
+        # Tester scope — directory patterns
         "tests/",
         "test/",
         "**/tests/",
         "**/test/",
+        # Tester scope — file-name patterns (fnmatch does NOT support
+        # brace expansion, so each language/suffix is spelled out)
         "**/*_test.py",
         "**/test_*.py",
         "**/*_test.go",
@@ -235,15 +248,35 @@ CODER_PATTERNS = AgentFilePattern(
         "**/*.spec.tsx",
         "**/*.spec.js",
         "**/*.spec.jsx",
-        # Pytest infrastructure (Tester handles)
         "**/conftest.py",
+        # Defense-in-depth: CI workflows and CODEOWNERS — preserves the
+        # branch-protection invariant.
+        ".github/",
+        # Defense-in-depth: gateway credential shims — preserves the
+        # credential-routing invariant.
+        "sandbox/scripts/",
     ],
     block_exempt_patterns=[
+        # Coder's handoff directory — the only .egg-state/ subdir the coder
+        # owns.
+        ".egg-state/agent-outputs/",
+        # Per-agent anchor files. The gateway's `check_anchor_write_permission`
+        # (gateway/phase_filter.py::check_anchor_write_permission) enforces
+        # per-agent scoping — an agent may only write its own
+        # `.egg-state/agent-anchors/<AGENT_ANCHOR_ID>.json`. That downstream
+        # guard can only run if the role-level check lets the path through,
+        # so this exemption restores the pre-#1901 behavior where the legacy
+        # `**/*.json` allowlist matched anchor files. The contract task
+        # TASK-1-1 for #1901 did not enumerate this exemption — the gap was
+        # surfaced by tester's pre-existing test_push_*_anchor_write tests
+        # against the new blocklist-complement. See #1901 NACK discussion.
+        ".egg-state/agent-anchors/",
         # Agent config .md files are functional code (rules, skills, commands),
         # not documentation. See #1537. Paths are specific to avoid bypassing
         # other blocked patterns (docs/, tests/, .egg-state/contracts/).
         "sandbox/agent-config/rules/*.md",
         "sandbox/agent-config/commands/*.md",
+        # Top-level skills directory (skill definitions are functional code)
         "skills/",
     ],
 )

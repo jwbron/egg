@@ -4,8 +4,8 @@ Sandboxed Docker container. No SSH keys, cloud creds, or production access.
 
 ## Network Modes
 
-- `egg --public` (default): Full internet + public repos only. Can access PyPI, npm, web.
-- `egg --private`: Anthropic API only + private repos only. No PyPI/npm/web access — dependencies are pre-installed.
+- **Public mode** (default): Full internet + public repos only. Can access PyPI, npm, web.
+- **Private mode**: Anthropic API only + private repos only. No PyPI/npm/web access — dependencies are pre-installed.
 
 GitHub access MUST go through the gateway sidecar (not the proxy) for policy enforcement.
 

@@ -309,3 +309,159 @@ class TestPushErrorEnrichment:
                 assert resp_data["allowed_patterns"] == []
                 # remediation should still be present
                 assert "remediation" in resp_data
+
+
+class TestFileRestrictionsThreeRoleEnrichment1901:
+    """TASK-5-3 (#1901): the three new file_restrictions JSON entries
+    (coder/tester/documenter) in .egg/phase-permissions.json must produce
+    the correct enriched error response when violated.
+
+    These tests drive the real ``check_file_restrictions`` path (NOT the
+    agent_restrictions path) because the file_restrictions array is
+    enforced by gateway.gateway → phase_filter.check_file_restrictions
+    BEFORE agent_restrictions runs.
+    """
+
+    def _push_context_real_file_restrictions(self, mock_session, blocked_files):
+        """Push context that does NOT mock check_file_restrictions — the
+        real phase-permissions.json file_restrictions array drives the
+        decision.  check_agent_restrictions is mocked to allow so we can
+        exercise the file_restrictions branch in isolation.
+        """
+        import auth
+
+        mock_result = SessionValidationResult(valid=True, session=mock_session)
+        mock_policy_result = PrivateRepoPolicyResult(
+            allowed=True,
+            reason="Test mode",
+            visibility="public",
+        )
+
+        auth._session_manager = None
+        auth._rate_limiter = None
+        if "gateway.auth" in sys.modules:
+            sys.modules["gateway.auth"]._session_manager = None
+            sys.modules["gateway.auth"]._rate_limiter = None
+
+        current_sm = sys.modules.get("session_manager", session_manager)
+
+        def run_side_effect(*args, **kwargs):
+            cmd = args[0] if args else kwargs.get("args", [])
+            result = MagicMock()
+            result.returncode = 0
+            result.stderr = ""
+            if "remote" in cmd and "get-url" in cmd:
+                result.stdout = "https://github.com/owner/repo.git\n"
+            elif "branch" in cmd and "--show-current" in cmd:
+                result.stdout = "egg-feature\n"
+            elif "push" in cmd:
+                result.stdout = "Everything up-to-date\n"
+            else:
+                result.stdout = ""
+            return result
+
+        return (
+            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+            patch("subprocess.run", side_effect=run_side_effect),
+            patch.object(
+                gateway,
+                "get_policy_engine",
+                return_value=MagicMock(
+                    check_branch_ownership=MagicMock(
+                        return_value=PolicyResult(
+                            allowed=True,
+                            reason="OK",
+                            details={"branch": "egg-feature"},
+                        )
+                    ),
+                ),
+            ),
+            patch.object(gateway, "get_token_for_repo", return_value=("test-token", "bot", "")),
+            patch.object(gateway, "get_changed_files_in_push", return_value=(blocked_files, None)),
+            # Mock agent_restrictions to allow so the file_restrictions branch
+            # is the only thing that can block.
+            patch.object(
+                gateway,
+                "check_agent_restrictions",
+                return_value=FileRestrictionResult.allow("ok"),
+            ),
+            # NOT mocking check_file_restrictions — this is the path under test.
+        )
+
+    def test_coder_role_blocked_from_contracts(self, client):
+        """The coder file_restrictions entry blocks .egg-state/contracts/."""
+        session = _make_session("coder")
+        patches = self._push_context_real_file_restrictions(
+            session, [".egg-state/contracts/foo.json"]
+        )
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
+                response = _do_push(client)
+                assert response.status_code == 403
+                data = json.loads(response.data)
+                # Top-level message uses gateway phase_filter's
+                # "Role '<role>' cannot modify: <files>" format.
+                assert "coder" in data["message"]
+                assert ".egg-state/contracts/foo.json" in data["message"]
+                resp_data = data.get("data", {})
+                assert resp_data["role"] == "coder"
+                assert ".egg-state/contracts/foo.json" in resp_data["blocked_files"]
+
+    def test_tester_role_blocked_from_contracts(self, client):
+        """The tester file_restrictions entry blocks .egg-state/contracts/."""
+        session = _make_session("tester")
+        patches = self._push_context_real_file_restrictions(
+            session, [".egg-state/contracts/spec.json"]
+        )
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
+                response = _do_push(client)
+                assert response.status_code == 403
+                data = json.loads(response.data)
+                assert "tester" in data["message"]
+                assert ".egg-state/contracts/spec.json" in data["message"]
+                resp_data = data.get("data", {})
+                assert resp_data["role"] == "tester"
+                assert ".egg-state/contracts/spec.json" in resp_data["blocked_files"]
+
+    def test_documenter_role_blocked_from_contracts(self, client):
+        """The documenter file_restrictions entry blocks .egg-state/contracts/."""
+        session = _make_session("documenter")
+        patches = self._push_context_real_file_restrictions(
+            session, [".egg-state/contracts/x.json"]
+        )
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
+                response = _do_push(client)
+                assert response.status_code == 403
+                data = json.loads(response.data)
+                assert "documenter" in data["message"]
+                assert ".egg-state/contracts/x.json" in data["message"]
+                resp_data = data.get("data", {})
+                assert resp_data["role"] == "documenter"
+                assert ".egg-state/contracts/x.json" in resp_data["blocked_files"]

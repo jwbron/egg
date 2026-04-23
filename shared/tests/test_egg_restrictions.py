@@ -171,6 +171,140 @@ class TestCoderPatterns:
         assert not CODER_PATTERNS.can_write(".egg-state/contracts/spec.json")
 
 
+class TestCoderBlocklistComplement:
+    """TASK-5-1 (#1901): coder is now a blocklist-complement.
+
+    The historical coder allowlist enumerated extensions/filenames.  The
+    new model uses ``allowed_patterns=["**"]`` paired with a blocklist
+    that carves out the tester scope (test files), the documenter scope
+    (docs/markdown), and pipeline-state directories (.egg-state/, except
+    agent-outputs/ which is carved back).
+
+    These tests assert behavior, not pattern shape — they remain green
+    if patterns.py is later refactored as long as the blocklist-complement
+    contract holds (e.g. extensionless scripts and arbitrary new top-level
+    paths stay coder-writable).
+    """
+
+    # --- Allowed (TASK-5-1 True list) ---
+
+    def test_allows_extensionless_bin_egg(self):
+        """bin/egg has no extension — was blocked under the legacy allowlist."""
+        assert CODER_PATTERNS.can_write("bin/egg")
+
+    def test_allows_extensionless_bin_egg_deploy(self):
+        assert CODER_PATTERNS.can_write("bin/egg-deploy")
+
+    def test_allows_extensionless_bin_egg_status(self):
+        assert CODER_PATTERNS.can_write("bin/egg-status")
+
+    def test_allows_sandbox_egg_script(self):
+        assert CODER_PATTERNS.can_write("sandbox/egg")
+
+    def test_allows_sandbox_bin_egg_health_inspect(self):
+        assert CODER_PATTERNS.can_write("sandbox/bin/egg-health-inspect")
+
+    def test_blocks_sandbox_scripts_gh_shim(self):
+        """sandbox/scripts/ is blocked (credential-routing invariant)."""
+        assert not CODER_PATTERNS.can_write("sandbox/scripts/gh")
+
+    def test_blocks_sandbox_scripts_git_credential_helper(self):
+        """sandbox/scripts/ is blocked (credential-routing invariant)."""
+        assert not CODER_PATTERNS.can_write("sandbox/scripts/git-credential-github-token")
+
+    def test_blocks_github_workflows(self):
+        """.github/ is blocked (branch-protection invariant)."""
+        assert not CODER_PATTERNS.can_write(".github/workflows/ci.yml")
+
+    def test_blocks_github_codeowners(self):
+        """.github/ is blocked (branch-protection invariant)."""
+        assert not CODER_PATTERNS.can_write(".github/CODEOWNERS")
+
+    def test_allows_license_file(self):
+        """LICENSE — extensionless top-level metadata."""
+        assert CODER_PATTERNS.can_write("LICENSE")
+
+    def test_allows_dockerignore(self):
+        assert CODER_PATTERNS.can_write(".dockerignore")
+
+    def test_allows_arbitrary_new_path(self):
+        """New top-level paths (future tools) should not require allowlist edits."""
+        assert CODER_PATTERNS.can_write("path/to/new-thing")
+
+    def test_allows_pyproject_toml(self):
+        assert CODER_PATTERNS.can_write("pyproject.toml")
+
+    def test_allows_makefile(self):
+        assert CODER_PATTERNS.can_write("Makefile")
+
+    def test_allows_agent_outputs_handoff(self):
+        """Coder handoff lives in .egg-state/agent-outputs/ — carved back via exempt."""
+        assert CODER_PATTERNS.can_write(".egg-state/agent-outputs/coder.json")
+
+    def test_allows_agent_anchors(self):
+        """Agent anchors live in .egg-state/agent-anchors/ — carved back via exempt."""
+        assert CODER_PATTERNS.can_write(".egg-state/agent-anchors/coder.json")
+
+    def test_allows_skills_skill_md(self):
+        """skills/ is exempted from the **/*.md block (skill definitions)."""
+        assert CODER_PATTERNS.can_write("skills/my-skill/SKILL.md")
+
+    def test_allows_skills_handler_py(self):
+        """Non-md files in skills/ are also coder-owned."""
+        assert CODER_PATTERNS.can_write("skills/my-skill/handler.py")
+
+    def test_allows_agent_config_rules_md(self):
+        """sandbox/agent-config/rules/*.md exempted from **/*.md block."""
+        assert CODER_PATTERNS.can_write("sandbox/agent-config/rules/foo.md")
+
+    def test_allows_agent_config_commands_md(self):
+        assert CODER_PATTERNS.can_write("sandbox/agent-config/commands/bar.md")
+
+    # --- Blocked (TASK-5-1 False list) ---
+
+    def test_blocks_docs_md(self):
+        assert not CODER_PATTERNS.can_write("docs/foo.md")
+
+    def test_blocks_root_readme(self):
+        assert not CODER_PATTERNS.can_write("README.md")
+
+    def test_blocks_tests_dir_test_file(self):
+        assert not CODER_PATTERNS.can_write("tests/test_x.py")
+
+    def test_blocks_singular_test_dir(self):
+        assert not CODER_PATTERNS.can_write("test/test_y.py")
+
+    def test_blocks_nested_tests_init(self):
+        """gateway/tests/__init__.py — exercises the matcher fix from TASK-2-1."""
+        assert not CODER_PATTERNS.can_write("gateway/tests/__init__.py")
+
+    def test_blocks_root_conftest(self):
+        # Root-level conftest matches **/conftest.py under the fixed matcher —
+        # the ** branch matches zero or more path segments, so naive readers
+        # expecting a subdirectory should see this explicit case.
+        assert not CODER_PATTERNS.can_write("conftest.py")
+
+    def test_blocks_egg_state_contracts(self):
+        assert not CODER_PATTERNS.can_write(".egg-state/contracts/spec.json")
+
+    def test_blocks_egg_state_drafts(self):
+        assert not CODER_PATTERNS.can_write(".egg-state/drafts/1901-plan.md")
+
+    def test_blocks_egg_state_reviews(self):
+        assert not CODER_PATTERNS.can_write(".egg-state/reviews/verdict.json")
+
+    def test_blocks_egg_state_future_subdir(self):
+        """Hypothetical future .egg-state subdir — blocklist is catch-all."""
+        assert not CODER_PATTERNS.can_write(".egg-state/secrets/key")
+
+    def test_blocks_path_traversal_via_can_write(self):
+        # Path-traversal regression — this assertion MUST go through
+        # CODER_PATTERNS.can_write (NOT _matches_pattern) because the
+        # traversal guard lives in _normalize_path and is only invoked
+        # by can_write.
+        assert not CODER_PATTERNS.can_write("../../etc/passwd")
+
+
 class TestTesterPatterns:
     def test_allows_test_dirs(self):
         assert TESTER_PATTERNS.can_write("tests/test_foo.py")

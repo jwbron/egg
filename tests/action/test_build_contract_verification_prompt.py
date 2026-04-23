@@ -16,6 +16,7 @@ def run_build_contract_prompt(
     github_repository: str,
     last_review_commit: str = "",
     runner_temp: str = "",
+    base_ref: str = "",
 ) -> tuple[int, str, str]:
     """Run build-contract-verification-prompt.sh with the given environment variables.
 
@@ -28,6 +29,9 @@ def run_build_contract_prompt(
 
     if last_review_commit:
         env["LAST_REVIEW_COMMIT"] = last_review_commit
+
+    if base_ref:
+        env["BASE_REF"] = base_ref
 
     if not runner_temp:
         runner_temp = tempfile.gettempdir()
@@ -117,7 +121,7 @@ class TestReVerification:
     """Tests for re-verification (with LAST_REVIEW_COMMIT)."""
 
     def test_generates_rereview_prompt(self) -> None:
-        """Re-verification uses git diff from last reviewed commit."""
+        """Re-verification uses git log from last reviewed commit."""
         with tempfile.TemporaryDirectory() as tmpdir:
             returncode, stdout, stderr = run_build_contract_prompt(
                 pr_number="50",
@@ -133,8 +137,13 @@ class TestReVerification:
             assert "Re-verify" in prompt or "re-review" in prompt.lower()
             assert "abc123def456" in prompt
 
-    def test_includes_git_diff_instruction(self) -> None:
-        """Re-verification instructs to use git diff from last commit."""
+    def test_includes_git_log_instruction(self) -> None:
+        """Re-verification instructs to use git log that excludes base-branch commits.
+
+        See issue #1758: the old `git diff <sha>..HEAD` form wrongly attributed
+        merged-in base-branch work to the PR author. The new
+        `git log --not origin/<base> -p` form explicitly excludes them.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             returncode, _, _ = run_build_contract_prompt(
                 pr_number="50",
@@ -145,7 +154,27 @@ class TestReVerification:
 
             assert returncode == 0
             prompt = read_prompt_file(tmpdir, "50")
-            assert "git diff abc123def456..HEAD" in prompt
+            assert "git log abc123def456..HEAD --not origin/main -p" in prompt
+            assert "git fetch origin main" in prompt
+            assert "git diff abc123def456..HEAD" not in prompt
+
+    def test_custom_base_ref_threaded_through(self) -> None:
+        """Non-default base ref (e.g. `develop`) is plumbed into the prompt."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            returncode, _, stderr = run_build_contract_prompt(
+                pr_number="50",
+                github_repository="owner/repo",
+                last_review_commit="abc123def456",
+                runner_temp=tmpdir,
+                base_ref="develop",
+            )
+
+            assert returncode == 0, f"Script failed: {stderr}"
+            prompt = read_prompt_file(tmpdir, "50")
+            assert "git fetch origin develop" in prompt
+            assert "git log abc123def456..HEAD --not origin/develop -p" in prompt
+            assert "origin/main" not in prompt
+            assert "git diff abc123def456..HEAD" not in prompt
 
 
 class TestRequiredVariables:

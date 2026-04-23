@@ -172,8 +172,7 @@ Each check has:
 Checks run sequentially during the implement phase tester step. If not configured, the tester falls back to auto-discovery (scanning for Makefile, package.json, pyproject.toml, etc.).
 
 **Configuration:**
-- Setup flow: Run `egg --setup` and answer "yes" to "Configure SDLC check commands?"
-- Manual: Edit `~/.config/egg/repositories.yaml` and add `checks` under `repo_settings.{repo}`
+- Edit `~/.config/egg/repositories.yaml` and add `checks` under `repo_settings.{repo}`
 
 ### Per-Repo Build Commands (Dependency Caching)
 
