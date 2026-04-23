@@ -655,7 +655,7 @@ class TestOrchCliConsensusProposePush:
                 "--role",
                 "coder",
                 "--commit-sha",
-                "abc123",
+                "abc1234",
                 "--summary",
                 "test",
                 "--push",
@@ -681,7 +681,7 @@ class TestOrchCliConsensusProposePush:
                 "--role",
                 "coder",
                 "--commit-sha",
-                "abc123",
+                "abc1234",
                 "--summary",
                 "test",
                 "--push",
@@ -705,7 +705,7 @@ class TestOrchCliConsensusProposePush:
                 "--role",
                 "coder",
                 "--commit-sha",
-                "abc123",
+                "abc1234",
                 "--summary",
                 "test",
                 "--push",
@@ -725,7 +725,7 @@ class TestOrchCliConsensusProposePush:
         legacy ``egg_lib.orch_cli.orch_request`` because
         cmd_consensus_propose now delegates through the handler.
         """
-        mock_subprocess.return_value = "abc123\n"
+        mock_subprocess.return_value = "abc1234\n"
         mock_request.return_value = {"success": True, "data": {}}
 
         args = self._parse_args(
@@ -736,7 +736,7 @@ class TestOrchCliConsensusProposePush:
                 "--role",
                 "coder",
                 "--commit-sha",
-                "abc123",
+                "abc1234",
                 "--summary",
                 "test",
             ]

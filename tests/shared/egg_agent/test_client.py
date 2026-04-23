@@ -139,7 +139,7 @@ except ImportError:
         return {"__mock__": name, "version": version, "tools": tools}
 
     _mock_sdk.create_sdk_mcp_server = _mock_create_sdk_mcp_server  # type: ignore[attr-defined]
-    _mock_sdk.tool = lambda name, description, input_schema, annotations=None: (lambda fn: fn)  # type: ignore[attr-defined]
+    _mock_sdk.tool = lambda name, description, input_schema, annotations=None: lambda fn: fn  # type: ignore[attr-defined]
 
     sys.modules["claude_agent_sdk"] = _mock_sdk
 
