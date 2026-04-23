@@ -274,13 +274,13 @@ class TestSendMessage:
                     "to_role": "tester",
                     "body": "check status",
                     "subject": "Status check",
-                    "message_type": "QUESTION",
+                    "message_type": "STATUS",
                 },
             )
 
         data = mock_req.call_args[1]["data"]
         assert data["subject"] == "Status check"
-        assert data["message_type"] == "QUESTION"
+        assert data["message_type"] == "STATUS"
 
 
 class TestGetConsensusStatus:

@@ -253,6 +253,19 @@ test: venv
 	@echo "==> Running unit tests..."
 	$(PYTEST) tests/ gateway/tests/ orchestrator/tests/ shared/tests/ -v $(PYTEST_ARGS)
 
+smoketest-long-poll: export PYTHONPATH := shared:gateway:orchestrator
+smoketest-long-poll: venv  ## Smoke-test the long-poll / event-driven wait infrastructure
+	$(PYTEST) \
+		orchestrator/tests/test_messages.py::TestWaitEndpoint \
+		orchestrator/tests/test_messages.py::TestLongPolling \
+		orchestrator/tests/test_messages.py::TestInflightLongPollGauge \
+		orchestrator/tests/test_messages.py::TestWaitTimeoutFloorRegression \
+		orchestrator/tests/test_message_store.py::TestWaitForTypesFilter \
+		orchestrator/tests/test_message_store.py::TestNotifyMultipleWaiters \
+		orchestrator/tests/test_cli.py::TestWaitressSizing \
+		orchestrator/tests/test_concurrent_integration.py::TestEventDrivenConsensusWait \
+		-v --timeout=60
+
 security:
 	@echo "==> Running security scan..."
 	@if command -v $(BANDIT) >/dev/null 2>&1; then \
