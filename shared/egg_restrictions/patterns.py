@@ -254,6 +254,17 @@ CODER_PATTERNS = AgentFilePattern(
         # Coder's handoff directory — the only .egg-state/ subdir the coder
         # owns.
         ".egg-state/agent-outputs/",
+        # Per-agent anchor files. The gateway's `check_anchor_write_permission`
+        # (gateway/phase_filter.py::check_anchor_write_permission) enforces
+        # per-agent scoping — an agent may only write its own
+        # `.egg-state/agent-anchors/<AGENT_ANCHOR_ID>.json`. That downstream
+        # guard can only run if the role-level check lets the path through,
+        # so this exemption restores the pre-#1901 behavior where the legacy
+        # `**/*.json` allowlist matched anchor files. The contract task
+        # TASK-1-1 for #1901 did not enumerate this exemption — the gap was
+        # surfaced by tester's pre-existing test_push_*_anchor_write tests
+        # against the new blocklist-complement. See #1901 NACK discussion.
+        ".egg-state/agent-anchors/",
         # Agent config .md files are functional code (rules, skills, commands),
         # not documentation. See #1537. Paths are specific to avoid bypassing
         # other blocked patterns (docs/, tests/, .egg-state/contracts/).
