@@ -137,6 +137,23 @@ class TestAdvancePhaseReasonCodes:
         assert "health_results" in body["details"]
 
     @patch("routes.phases.get_state_store_for_pipeline")
+    def test_version_conflict(self, mock_get_store, client):
+        pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
+        mock_store = MagicMock(repo_path=Path("/tmp/repo"))
+        # load_pipeline is called inside the lock — return a second
+        # pipeline that will pass re-validation but fail on save.
+        mock_store.load_pipeline.return_value = _make_pipeline(phase=PipelinePhase.PLAN)
+        mock_store.save_pipeline.side_effect = VersionConflictError("boom")
+        mock_get_store.return_value = (mock_store, pipeline)
+
+        resp = client.post(
+            "/api/v1/pipelines/issue-42/phase",
+            json={"target_phase": "implement"},
+        )
+        assert resp.status_code == 409
+        assert _body(resp)["reason"] == "version_conflict"
+
+    @patch("routes.phases.get_state_store_for_pipeline")
     def test_invalid_pipeline_id(self, mock_get_store, client):
         mock_get_store.side_effect = InvalidPipelineIdError("bad id")
         resp = client.post(
@@ -279,6 +296,95 @@ class TestCompletePhaseReasonCodes:
         resp = client.post("/api/v1/pipelines/issue-99/phase/complete")
         assert resp.status_code == 404
         assert _body(resp)["reason"] == "pipeline_not_found"
+
+
+class TestGetCurrentPhaseReasonCodes:
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_invalid_pipeline_id(self, mock_get_store, client):
+        mock_get_store.side_effect = InvalidPipelineIdError("bad id")
+        resp = client.get("/api/v1/pipelines/bad-id/phase")
+        assert resp.status_code == 400
+        assert _body(resp)["reason"] == "invalid_pipeline_id"
+
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_pipeline_not_found(self, mock_get_store, client):
+        mock_get_store.side_effect = PipelineNotFoundError("issue-99")
+        resp = client.get("/api/v1/pipelines/issue-99/phase")
+        assert resp.status_code == 404
+        assert _body(resp)["reason"] == "pipeline_not_found"
+
+
+class TestFailPhaseReasonCodes:
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_missing_error_message(self, mock_get_store, client):
+        resp = client.post("/api/v1/pipelines/issue-42/phase/fail", json={})
+        assert resp.status_code == 400
+        assert _body(resp)["reason"] == "missing_error_message"
+        mock_get_store.assert_not_called()
+
+    @patch("routes.phases._clear_concurrent_state")
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_version_conflict(self, mock_get_store, _mock_clear, client):
+        pipeline = _make_pipeline(
+            phase=PipelinePhase.IMPLEMENT, phase_status=PipelineStatus.RUNNING
+        )
+        mock_store = MagicMock()
+        mock_store.save_pipeline.side_effect = VersionConflictError("boom")
+        mock_get_store.return_value = (mock_store, pipeline)
+
+        resp = client.post(
+            "/api/v1/pipelines/issue-42/phase/fail",
+            json={"error": "something broke"},
+        )
+        assert resp.status_code == 409
+        assert _body(resp)["reason"] == "version_conflict"
+
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_invalid_pipeline_id(self, mock_get_store, client):
+        mock_get_store.side_effect = InvalidPipelineIdError("bad id")
+        resp = client.post(
+            "/api/v1/pipelines/bad-id/phase/fail",
+            json={"error": "something broke"},
+        )
+        assert resp.status_code == 400
+        assert _body(resp)["reason"] == "invalid_pipeline_id"
+
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_pipeline_not_found(self, mock_get_store, client):
+        mock_get_store.side_effect = PipelineNotFoundError("issue-99")
+        resp = client.post(
+            "/api/v1/pipelines/issue-99/phase/fail",
+            json={"error": "something broke"},
+        )
+        assert resp.status_code == 404
+        assert _body(resp)["reason"] == "pipeline_not_found"
+
+
+class TestPopulateContractReasonCodes:
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_invalid_pipeline_id(self, mock_get_store, client):
+        mock_get_store.side_effect = InvalidPipelineIdError("bad id")
+        resp = client.post("/api/v1/pipelines/bad-id/phase/populate-contract")
+        assert resp.status_code == 400
+        assert _body(resp)["reason"] == "invalid_pipeline_id"
+
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_pipeline_not_found(self, mock_get_store, client):
+        mock_get_store.side_effect = PipelineNotFoundError("issue-99")
+        resp = client.post("/api/v1/pipelines/issue-99/phase/populate-contract")
+        assert resp.status_code == 404
+        assert _body(resp)["reason"] == "pipeline_not_found"
+
+    @patch("routes.phases.get_state_store_for_pipeline")
+    def test_populate_contract_failed(self, mock_get_store, client):
+        pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
+        mock_store = MagicMock(repo_path=Path("/tmp/repo"))
+        mock_get_store.return_value = (mock_store, pipeline)
+
+        with patch("routes.resolve_worktree_path", side_effect=RuntimeError("boom")):
+            resp = client.post("/api/v1/pipelines/issue-42/phase/populate-contract")
+        assert resp.status_code == 500
+        assert _body(resp)["reason"] == "populate_contract_failed"
 
 
 class TestTwo409sAreDistinguishable:

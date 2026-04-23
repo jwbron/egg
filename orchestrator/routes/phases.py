@@ -75,7 +75,7 @@ def make_error_response(
     ``message``. See #1939.
     """
     response: dict[str, Any] = {"success": False, "message": message}
-    if reason:
+    if reason is not None:
         response["reason"] = reason
     if details:
         response["details"] = details
