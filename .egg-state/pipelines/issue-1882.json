@@ -257,16 +257,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-23T06:32:04.113141Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-23T06:34:03.140271Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Other: the gateway does NOT trust git log email fields (author, committer, or both) for this decision. Per decision-2 (B3 — gateway-side commit registry), the gateway maintains a durable {commit_sha → authored_by_role} registry populated at commit time by the post-agent-commit hook, which is authenticated by session token (session-to-role mapping is owned by the gateway, not sandbox-reported). At push time the gateway consults the registry to determine whether each commit is pulled (authored by a different role than the pushing role → exempt from pushing role's file restrictions) or own-authored (same role or unregistered → apply restrictions, with decision-9 fail-closed for unregistered). Git log author/committer fields may be surfaced in audit logs for human readability but must not drive the pulled-vs-own decision. Flag for plan phase: this decision being asked at all suggests the refiner's Axis B analysis still frames B1/B2 as the primary options with B3 as an outlier; the plan phase should lead with the registry mechanism and prune any code paths that infer attribution from git log emails.\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:21:58.997312Z",
-  "updated_at": "2026-04-23T06:32:04.208958Z",
+  "updated_at": "2026-04-23T06:34:03.150671Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -280,5 +280,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:31:28.068349Z",
-  "version": 29
+  "version": 30
 }
