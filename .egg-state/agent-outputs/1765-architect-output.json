@@ -1,0 +1,351 @@
+{
+  "pipeline_id": "issue-1765",
+  "phase": "plan",
+  "role": "architect",
+  "issue": 1765,
+  "title": "Make egg-internal tools discoverable to sandbox agents via an in-process SDK MCP server",
+  "generated_at": "2026-04-23T07:00:00Z",
+
+  "summary": "Implement an in-process Claude Agent SDK MCP server (Option D + prompt nudge) that exposes ~15 semantic-verb tools (BRC lifecycle, HITL registration, progress/heartbeat, task completion, phase orientation) to sandbox agents. The server is created in shared/egg_agent/client.py via create_sdk_mcp_server() and wired into ClaudeAgentOptions.mcp_servers. Tool handlers reuse extracted pure-Python functions from sandbox/egg_lib/contract_cli.py and orch_cli.py so CLIs and MCP tools share one source of truth. A short (~150-word) bootstrap paragraph is appended to every concurrent-mode agent prompt pointing agents at mcp__sdlc__*, mcp__brc__*, mcp__phase__*, and mcp__progress__* tools. Works identically in public and private network modes (no network). claude_agent_sdk harness only; egg harness deferred to a follow-up.",
+
+  "hitl_decisions_incorporated": {
+    "decision-1_mechanism": "Hybrid D + prompt nudge (in-process SDK MCP server + short system-prompt pointer)",
+    "decision-2_handler_derivation": "Hybrid: auto-derive skeleton from existing argparse-style handler signatures, per-tool hand overrides for descriptions and schemas where needed",
+    "decision-3_harness_coverage": "claude_agent_sdk harness only for iteration 1; defer experimental EGG_HARNESS=egg to a follow-up",
+    "decision-4_cli_retention": "Keep sandbox/bin/egg-* CLIs indefinitely; MCP tools are additive",
+    "decision-7_naming": "Semantic verbs grouped by function (mcp__sdlc__*, mcp__brc__*, mcp__phase__*, mcp__progress__*, mcp__checkpoint__*)",
+    "decision-8_iter1_scope": "BRC + HITL + phase-context + progress core (~15 verbs). Full ~30-verb audit tracked separately in issue #1917."
+  },
+
+  "architecture_overview": {
+    "shape": "In-process SDK MCP server registered at agent spawn time. Server is a singleton instantiated once per agent process. Tools are async Python functions decorated with @tool; their handlers delegate to a pure-Python handler layer that is also dispatched into by the existing shell CLIs.",
+    "control_flow": [
+      "1. Orchestrator spawns a sandbox Job (kubernetes_spawner.py / container_spawner.py) which runs `python3 -m egg_agent <prompt>`",
+      "2. shared/egg_agent/__main__.py calls shared/egg_agent/client.py::run_agent_async",
+      "3. run_agent_async builds ClaudeAgentOptions. **NEW**: it calls sandbox.egg_agent_tools.build_mcp_servers() to construct in-process SDK MCP servers and assigns them to options.mcp_servers",
+      "4. **NEW**: run_agent_async appends a short bootstrap paragraph (sandbox.egg_agent_tools.BOOTSTRAP_NUDGE) to the effective system_prompt (or user prompt preamble if system_prompt is None) so the agent sees the mcp__* tool surface in its first turn",
+      "5. claude_agent_sdk.query() surfaces the mcp__<server>__<tool> names to Claude alongside Bash/Read/Edit/etc.",
+      "6. When Claude invokes a tool, the SDK dispatches in-process to the handler async function in the same Python process (no network, same PID, same env vars)",
+      "7. The handler calls a shared pure-function (e.g. contract_handlers.add_decision(question, options, phase)) that returns a structured dict. The existing CLI cmd_add_decision also calls this same function, now with argparse.Namespace -> kwargs glue. One code path, two entry points."
+    ],
+    "private_mode_behavior": "Zero network. All tools execute in the sandbox container's own Python interpreter. Tools that call the orchestrator or gateway (e.g. brc_propose -> POST /consensus) reuse existing urllib round-trips through the gateway sidecar, which is already the supported path for both modes. Public vs private is irrelevant to tool discovery and tool invocation.",
+    "authz_model": "Authz is by construction: the sandbox agent process imports only the sandbox-scoped tool module. It physically cannot name submit_task or cancel_task because those symbols don't exist in its import path. Gateway-enforced role restrictions (existing today for the CLI commands) continue to apply to the HTTP calls the handlers make."
+  },
+
+  "component_breakdown": {
+    "new_package_sandbox_egg_agent_tools": {
+      "path": "sandbox/egg_agent_tools/",
+      "purpose": "Sandbox-process-only module that defines the agent-facing MCP tool surface and the short bootstrap nudge. Lives in sandbox/ (not shared/) because only the sandbox agent imports it. Reviewer feedback from the refine cycle explicitly recommended sandbox/ over shared/.",
+      "submodules": {
+        "__init__.py": "Exports build_mcp_servers(), BOOTSTRAP_NUDGE, and tool registrations. Called from shared/egg_agent/client.py.",
+        "servers.py": "build_mcp_servers() returns dict[str, McpSdkServerConfig] suitable for ClaudeAgentOptions.mcp_servers. Creates one or more servers (one per namespace: sdlc, brc, phase, progress, checkpoint) via create_sdk_mcp_server(name=..., tools=[...]).",
+        "bootstrap.py": "BOOTSTRAP_NUDGE: a const ~150-word markdown block listing the exposed mcp__* tools and telling the agent to prefer them over Bash CLI invocations. Generated at module load time from the tool registry so adding a tool automatically updates the nudge text.",
+        "schemas.py": "TypedDict classes for each tool's input schema. Hand-curated from capability audit + cross-referenced with existing argparse signatures to satisfy decision-2 (hybrid auto/override).",
+        "handlers_sdlc.py": "Async wrappers over contract_handlers.* (add_decision, request_feedback, check_answers, complete_task). Each @tool-decorated function unwraps args, calls the sync handler via asyncio.to_thread, wraps the result in {content: [{type: 'text', text: ...}]}.",
+        "handlers_brc.py": "Async wrappers for propose/ack/nack/confirm/get_state/list_blocking. brc_get_state and brc_list_blocking are new pure functions (no CLI counterpart yet) that read the same consensus data source the CLI status command scrapes.",
+        "handlers_phase.py": "Async wrappers for phase_get_context / get_assigned_tasks. get_context is a new synthesizer that packages {role, pipeline_id, phase, issue_number, branch, repo, assigned_tasks[], prior_artifact_paths[], network_mode} into a single dict — replaces the agent's manual env-var / file sleuthing on boot.",
+        "handlers_progress.py": "Async wrappers for progress_emit / signal_error / signal_heartbeat.",
+        "util.py": "Shared helpers: run_sync (asyncio.to_thread wrapper with a budget cap), wrap_content(dict_result) -> {content: [...]}, error_content(msg) -> {content: [...], is_error: True}."
+      }
+    },
+    "refactor_contract_handlers": {
+      "path": "sandbox/egg_lib/contract_handlers.py (new)",
+      "purpose": "Pure-Python functions extracted from contract_cli.py's cmd_* functions. Each cmd_X(args: Namespace) -> int becomes X(**kwargs) -> dict. The existing cmd_X now becomes a 4-line adapter: parse Namespace -> kwargs, call handler, print result, return exit code.",
+      "extracted_functions": [
+        "add_decision(question: str, options: list[str] | None, phase: str | None, format: str = 'json') -> dict",
+        "add_feedback(questions: list[str], format: str = 'json') -> dict",
+        "complete_task(task: str, commit: str | None) -> dict",
+        "complete_phase(phase: str, commit: str | None) -> dict",
+        "add_commit(task: str, commit: str) -> dict",
+        "update_notes(task: str, notes: str) -> dict",
+        "show_contract() -> dict",
+        "check_decision_answers(decision_ids: list[str] | None) -> dict (new capability; no CLI counterpart yet)"
+      ],
+      "rationale": "Satisfies decision-2 hybrid handler derivation: one source of truth. Also satisfies AC 'new egg CLI shows up automatically' because the MCP-facing registry can iterate these handlers by convention once the extraction is done."
+    },
+    "refactor_orch_handlers": {
+      "path": "sandbox/egg_lib/orch_handlers.py (new)",
+      "purpose": "Same pattern for orch_cli.py. Extracts the BRC and progress functions.",
+      "extracted_functions": [
+        "consensus_propose(summary, artifacts, files_changed, tests_run, tasks, commit_sha, push) -> dict",
+        "consensus_ack(producer, summary, commit_sha) -> dict",
+        "consensus_nack(producer, summary, reasons, artifact_refs) -> dict",
+        "consensus_confirmed() -> dict",
+        "consensus_status() -> dict  # returns FULL structured JSON, not the human-readable text",
+        "consensus_list_blocking() -> dict  # new: who is blocking consensus right now",
+        "progress_emit(step, state, detail, blocker) -> dict",
+        "signal_error(error, recoverable) -> dict",
+        "signal_heartbeat() -> dict"
+      ],
+      "rationale": "`consensus_status` in the current CLI returns human-readable text. The handler layer returns structured JSON; the CLI's text output is produced from that JSON by a pretty-printer in the thin adapter."
+    },
+    "shared_egg_agent_client_changes": {
+      "path": "shared/egg_agent/client.py",
+      "changes": [
+        "Add `from sandbox.egg_agent_tools import build_mcp_servers, BOOTSTRAP_NUDGE` at the top of the claude_agent_sdk path (with ImportError guard so tests that don't mock the sandbox package still work)",
+        "After `options = ClaudeAgentOptions(...)` at line 194, add `options.mcp_servers = build_mcp_servers()`",
+        "After `if system_prompt is not None: options.system_prompt = system_prompt` at line 208, unconditionally append BOOTSTRAP_NUDGE to `options.system_prompt` (creating it if None). Gate on an env var `EGG_DISABLE_AGENT_TOOLS=1` so tests and the non-concurrent code paths can opt out.",
+        "Log tool registration to the structured event logger so checkpoint browsing shows `agent_tools_registered` at session init"
+      ],
+      "minimal_diff_estimate": "~25 lines added, no existing lines changed"
+    },
+    "phase_context_data_model": {
+      "purpose": "phase_get_context is the new orientation tool. It reads env vars (EGG_PIPELINE_ID, EGG_AGENT_ROLE, EGG_ISSUE_NUMBER, EGG_BRANCH, EGG_REPO_PATH, EGG_NETWORK_MODE) plus the contract JSON and returns a single dict the agent reads on its first turn.",
+      "returned_fields": [
+        "role, pipeline_id, phase, issue_number, repo, branch, base_branch, network_mode",
+        "assigned_tasks: list of tasks owned by this role (filtered from contract.phases[current].tasks)",
+        "prior_artifact_paths: list of .egg-state/drafts/<pipeline_id>-<kind>.md paths that the previous phase produced",
+        "active_peers: list of {role, readiness_state} from BRC state",
+        "reviewer_peers: who will review this agent's work (from review_graph.get_review_graph_for_phase)",
+        "hitl_pending: list of unresolved decisions/feedback the agent may need to check"
+      ],
+      "replaces": "Replaces the agent's manual reconstruction via `echo $EGG_PIPELINE_ID`, `egg-contract show`, `egg-orch consensus status`, `ls .egg-state/drafts/` — a major source of tool-call burn on every agent's first few turns."
+    }
+  },
+
+  "key_files": {
+    "must_modify": [
+      "shared/egg_agent/client.py — wire create_sdk_mcp_server into ClaudeAgentOptions.mcp_servers; append BOOTSTRAP_NUDGE to system_prompt",
+      "sandbox/egg_lib/contract_cli.py — refactor cmd_* functions into thin adapters around new sandbox/egg_lib/contract_handlers.py",
+      "sandbox/egg_lib/orch_cli.py — refactor cmd_* functions into thin adapters around new sandbox/egg_lib/orch_handlers.py",
+      "sandbox/pyproject.toml — ensure `mcp` is a runtime dep (it is transitively via claude-agent-sdk; verify no extras gating)",
+      "sandbox/Dockerfile — if the new sandbox/egg_agent_tools package requires a new directory to be COPY-ed into /opt/egg-runtime, add it"
+    ],
+    "must_create": [
+      "sandbox/egg_agent_tools/__init__.py",
+      "sandbox/egg_agent_tools/servers.py",
+      "sandbox/egg_agent_tools/bootstrap.py",
+      "sandbox/egg_agent_tools/schemas.py",
+      "sandbox/egg_agent_tools/handlers_sdlc.py",
+      "sandbox/egg_agent_tools/handlers_brc.py",
+      "sandbox/egg_agent_tools/handlers_phase.py",
+      "sandbox/egg_agent_tools/handlers_progress.py",
+      "sandbox/egg_agent_tools/util.py",
+      "sandbox/egg_lib/contract_handlers.py",
+      "sandbox/egg_lib/orch_handlers.py",
+      "sandbox/tests/test_egg_agent_tools_registration.py",
+      "sandbox/tests/test_egg_agent_tools_handlers.py",
+      "sandbox/tests/test_contract_handlers.py",
+      "sandbox/tests/test_orch_handlers.py",
+      "sandbox/tests/test_bootstrap_nudge.py",
+      "integration_tests/test_sandbox_mcp_tools_e2e.py (exercises a real agent session with the MCP tools enabled)",
+      "docs/architecture/sandbox-mcp-tools.md (brief architecture doc)"
+    ],
+    "must_read_not_modify": [
+      "orchestrator/mcp_server.py (reference implementation, leave untouched)",
+      "orchestrator/mcp_tools.py (reference implementation, leave untouched — this is the orchestrator-side host-Claude surface)",
+      "sandbox/agent-config/rules/*.md (these concatenate into CLAUDE.md; we do NOT add a new rule file — the nudge goes into the system_prompt)",
+      "orchestrator/routes/pipelines.py::_build_agent_prompt (the orchestrator-side prompt assembly — we do NOT modify; the nudge lives client-side so it stays coupled to the actual tool registrations)"
+    ]
+  },
+
+  "dependencies_and_constraints": {
+    "runtime_dependencies": {
+      "mcp": "Already present in the sandbox image transitively via claude-agent-sdk>=0.1.65. Verified by pip list in the sandbox Dockerfile build step.",
+      "claude_agent_sdk": "Already present. Exposes tool(), create_sdk_mcp_server(), and ClaudeAgentOptions.mcp_servers.",
+      "asyncio.to_thread": "Used to wrap the synchronous argparse-backed handler functions. Requires Python 3.9+; we're on 3.13."
+    },
+    "no_new_pypi_dependencies": "Satisfies AC 'works in both public and private network modes' — no new pip install step is needed inside the sandbox at runtime; all required packages are already baked into the image.",
+    "system_prompt_budget": "Bootstrap nudge is a static ~150-word block (~200 input tokens/turn). Acceptable trade-off; budget-gated by the EGG_DISABLE_AGENT_TOOLS env var for A/B comparison in dev.",
+    "no_new_ports": "In-process means no listening socket. No new firewall rule, no new k8s Service, no new ingress. Cluster ops footprint is zero.",
+    "no_authz_changes_required": "Sandbox-scoped tools never include submit_task / cancel_task / restart_phase. Orchestrator-side authz (gateway) continues to validate all HTTP calls the handlers make, unchanged from today.",
+    "harness_coverage": "claude_agent_sdk only. EGG_HARNESS=egg path (shared/egg_harness/tools/) will call CLI subprocess as today until iteration 2 registers the same handlers against its tool registry. Caveat will be documented in docs/architecture/sandbox-mcp-tools.md.",
+    "backward_compatibility": {
+      "shell_clis": "All existing sandbox/bin/egg-* binaries continue to work unchanged — they are thin argparse adapters over the extracted handlers. Human operators, tests, entrypoint scripts, and bash recovery wrappers unaffected.",
+      "checkpoint_browser": "Bash calls become mcp__<server>__<tool> tool_use blocks. The checkpoint browser groups tool_use by name already (see sandbox/egg_lib/checkpoint_cli.py); no schema change. egg-checkpoint list --tool mcp__brc__propose will work out of the box."
+    }
+  },
+
+  "alternatives_considered": {
+    "option_A_aggregated_docs": "Rejected at HITL (decision-1). Does not change the tool-call shape — agent still pays the argparse round-trip. Mitigates 'I don't know what exists' but not 'I don't know how to invoke it'.",
+    "option_B_tool_manifest_in_prompt": "Rejected at HITL as standalone; partially adopted as the nudge component of the hybrid. Full manifest injection would spend ~2k tokens/turn on a surface that exists anyway via mcp_servers discovery.",
+    "option_C_second_mcp_server": "Rejected at HITL. Adds a network dependency and a second long-running process. Tools execute outside the sandbox so they lose the agent's env vars (EGG_PIPELINE_ID, cwd); every tool would need to accept those as explicit args, more boilerplate. In-process wins on every criterion that matters (network neutrality, authz by construction, latency, ops burden).",
+    "alternative_naming_cli_mirrored": "Rejected at HITL decision-7. CLI taxonomy (egg_contract, egg_orch) leaks binary organization into the agent's mental model. Semantic verbs are stable under CLI refactors and allow new capabilities (brc_get_state, brc_list_blocking) that don't map to any existing binary to slot in naturally.",
+    "alternative_scope_everything": "Rejected at HITL decision-8. ~30 tools in iteration 1 is large surface area to get right; the BRC+HITL+phase-context+progress core (~15) covers every agent role's critical-path actions and is tracked iteratively (iteration 2 → #1917).",
+    "inside_sandbox_mcp_server_daemon": "Explicitly rejected by the issue itself (Option C variant). Would add a long-running process inside the untrusted sandbox — architectural outlier. In-process is the right shape for this."
+  },
+
+  "recommended_approach": {
+    "one_line": "In-process Claude Agent SDK MCP server (create_sdk_mcp_server) with semantic-verb tools that share backing handlers with the existing CLIs, wired via shared/egg_agent/client.py and complemented by a short system-prompt nudge.",
+    "why_this_wins": [
+      "Architectural consistency: the codepath already builds ClaudeAgentOptions; adding mcp_servers is the smallest possible new surface (~25 LOC in client.py).",
+      "Single source of truth: CLI cmd_X and @tool handler_X both dispatch into the same pure function, so adding a capability to one automatically makes it available to the other once the thin adapter is written.",
+      "Network-mode neutrality: in-process means public and private modes are identical; no egress decision.",
+      "Authz by construction: the sandbox process cannot name tools that don't exist in its imports. No new trust boundary.",
+      "Capability-audit-driven tool names: agents see `register_open_question` instead of `add-decision`, matching their mental model.",
+      "Bootstrap nudge closes the 'agents default to Bash even when a structured tool exists' failure mode at minimal input-token cost.",
+      "No new long-running process, no new port, no new k8s Service, no new auth token."
+    ],
+    "iteration_1_tool_list": [
+      {"name": "mcp__sdlc__register_open_question", "backs": "egg-contract add-decision"},
+      {"name": "mcp__sdlc__request_feedback", "backs": "egg-contract add-feedback"},
+      {"name": "mcp__sdlc__check_answers", "backs": "NEW — poll for resolved decisions/feedback"},
+      {"name": "mcp__sdlc__complete_task", "backs": "egg-contract complete-task"},
+      {"name": "mcp__brc__propose", "backs": "egg-orch consensus propose"},
+      {"name": "mcp__brc__ack", "backs": "egg-orch consensus ack"},
+      {"name": "mcp__brc__nack", "backs": "egg-orch consensus nack"},
+      {"name": "mcp__brc__confirm", "backs": "egg-orch consensus confirmed"},
+      {"name": "mcp__brc__get_state", "backs": "NEW — structured JSON of full BRC state"},
+      {"name": "mcp__brc__list_blocking", "backs": "NEW — which roles are blocking consensus right now"},
+      {"name": "mcp__phase__get_context", "backs": "NEW — orientation bundle (role, phase, tasks, artifacts, peers)"},
+      {"name": "mcp__phase__get_assigned_tasks", "backs": "derived from egg-contract show"},
+      {"name": "mcp__progress__emit", "backs": "egg-orch progress emit"},
+      {"name": "mcp__progress__heartbeat", "backs": "egg-orch signal heartbeat"},
+      {"name": "mcp__progress__signal_error", "backs": "egg-orch signal error"}
+    ]
+  },
+
+  "implementation_phases": {
+    "phase_1_handler_extraction": {
+      "description": "Extract pure-Python handler functions from cmd_* functions in contract_cli.py and orch_cli.py. Each cmd_X becomes a thin adapter around handler X. Existing CLI tests pass unchanged.",
+      "files_touched": ["sandbox/egg_lib/contract_cli.py", "sandbox/egg_lib/orch_cli.py"],
+      "files_created": ["sandbox/egg_lib/contract_handlers.py", "sandbox/egg_lib/orch_handlers.py", "sandbox/tests/test_contract_handlers.py", "sandbox/tests/test_orch_handlers.py"],
+      "test_approach": "One unit test per extracted handler covering happy path, missing-env-var path, gateway-error path. CLI regression tests under sandbox/tests/test_brc_cli_args.py must continue to pass unchanged.",
+      "estimated_scope": "~5 tasks (one per cmd_* group)"
+    },
+    "phase_2_new_capability_handlers": {
+      "description": "Write new handlers for capabilities with no current CLI: check_answers, brc_get_state, brc_list_blocking, phase_get_context, phase_get_assigned_tasks.",
+      "files_touched": [],
+      "files_created": ["code for the new handlers inside sandbox/egg_lib/contract_handlers.py and orch_handlers.py"],
+      "test_approach": "Unit tests against mocked gateway responses; integration test against a live orchestrator in sandbox/tests/.",
+      "estimated_scope": "~3 tasks"
+    },
+    "phase_3_mcp_tool_registration": {
+      "description": "Build the sandbox/egg_agent_tools/ package: schemas (TypedDict), @tool-decorated async wrappers, build_mcp_servers() entry point, BOOTSTRAP_NUDGE.",
+      "files_touched": [],
+      "files_created": ["sandbox/egg_agent_tools/** (8 files)", "sandbox/tests/test_egg_agent_tools_registration.py", "sandbox/tests/test_egg_agent_tools_handlers.py", "sandbox/tests/test_bootstrap_nudge.py"],
+      "test_approach": "Registration test asserts every handler is exposed as a tool with a matching schema and a non-empty description. Handler round-trip test uses create_sdk_mcp_server's returned config to verify a TextContent response for each verb (using a MockAnthropicClient pattern from shared/tests).",
+      "estimated_scope": "~4 tasks (one per namespace: sdlc, brc, phase, progress)"
+    },
+    "phase_4_client_wiring": {
+      "description": "Wire build_mcp_servers() and BOOTSTRAP_NUDGE into shared/egg_agent/client.py::run_agent_async.",
+      "files_touched": ["shared/egg_agent/client.py"],
+      "files_created": [],
+      "test_approach": "Existing shared/tests/test_egg_harness/test_client.py must continue to pass. New assertion: when EGG_DISABLE_AGENT_TOOLS is unset and claude_agent_sdk path is taken, options.mcp_servers is non-empty and options.system_prompt contains the BOOTSTRAP_NUDGE marker.",
+      "estimated_scope": "~1 task"
+    },
+    "phase_5_integration_and_docs": {
+      "description": "End-to-end integration test that spawns a sandbox agent in a real-orchestrator test pipeline and asserts the agent used at least one mcp__* tool in its first 3 turns. Docs under docs/architecture/sandbox-mcp-tools.md describing the mechanism, the tool list, and the harness-coverage caveat for EGG_HARNESS=egg.",
+      "files_touched": [],
+      "files_created": ["integration_tests/test_sandbox_mcp_tools_e2e.py", "docs/architecture/sandbox-mcp-tools.md"],
+      "test_approach": "E2E: spawn a refiner agent in a test pipeline, assert `mcp__sdlc__register_open_question` shows up in the checkpoint log for the BRC cycle.",
+      "estimated_scope": "~2 tasks"
+    }
+  },
+
+  "acceptance_criteria_mapping": {
+    "AC1_fresh_agent_knows_tools_without_exploration": "Met by (a) mcp__* tools appearing in the SDK's native tool-discovery surface on agent spawn, and (b) BOOTSTRAP_NUDGE listing them explicitly in the system prompt.",
+    "AC2_refine_first_12_min_pattern_disappears": "Met by mcp__phase__get_context returning role/phase/tasks/artifacts in one structured call — replaces the 5-tool-call archaeology with 1.",
+    "AC3_new_cli_surfaces_automatically": "Partially met: when a new verb is added, adding a handler function + a @tool-decorated wrapper in sandbox/egg_agent_tools is two-line-diff colocated in one PR. Hybrid auto-generation (decision-2) means TypedDict schemas can be derived from function signatures for the common case; a CI test (phase 5) asserts every exported handler has a matching tool registration.",
+    "AC4_argument_validation_at_boundary": "Met by create_sdk_mcp_server's _build_schema pipeline, which converts TypedDict / dict input schemas into JSON Schema consumed by the agent harness. Missing required fields are rejected before the handler runs.",
+    "AC5_works_in_public_and_private": "Met by in-process architecture — zero network dependency for tool dispatch. Handler HTTP calls go through the same gateway sidecar they do today.",
+    "AC6_existing_clis_keep_working": "Met by refactor-with-extraction: cmd_X becomes a thin adapter around handler X; existing CLI tests pass unchanged; human / entrypoint / bash-recovery invocations unaffected."
+  },
+
+  "risks_and_mitigations": {
+    "risk_handler_extraction_regressions": {
+      "severity": "medium",
+      "description": "Splitting cmd_X into adapter + handler could regress the shell CLI if arg-shape edge cases are mis-handled.",
+      "mitigation": "Phase 1 lands the extraction as a pure refactor with no behaviour change. Existing test_brc_cli_args.py and test_overseer_alert_cli.py are the regression net. CI must stay green through phase 1 before phase 2 starts."
+    },
+    "risk_prompt_nudge_token_cost": {
+      "severity": "low",
+      "description": "Bootstrap nudge adds ~200 input tokens per turn across the agent's entire session. For a 100-turn agent that's ~20k extra input tokens.",
+      "mitigation": "Keep the nudge short (<=200 words, <=250 tokens). Gate with EGG_DISABLE_AGENT_TOOLS for A/B. Observability check in phase 5 measures per-turn input token cost before/after."
+    },
+    "risk_egg_harness_divergence": {
+      "severity": "low",
+      "description": "EGG_HARNESS=egg path doesn't see the new tools. Experimental-harness users continue to pay the shell-CLI burn.",
+      "mitigation": "Document in docs/architecture/sandbox-mcp-tools.md. Per decision-3, parallel registration tracked for when the egg harness graduates. The harness is opt-in and not used in production today."
+    },
+    "risk_tool_schema_drift": {
+      "severity": "low",
+      "description": "Hand-curated schemas (decision-2 hybrid) could drift from handler signatures over time.",
+      "mitigation": "Registration test (phase 3) asserts every declared @tool has a registered handler and every exported handler has a matching @tool. A second test (phase 5) inspects the handler's Python signature against the TypedDict fields."
+    },
+    "risk_mcp_server_init_latency": {
+      "severity": "low",
+      "description": "Creating the MCP server at each agent spawn adds startup time.",
+      "mitigation": "create_sdk_mcp_server is pure Python and fast (no network, no subprocess). Phase 5 e2e test measures spawn-to-first-tool latency; budget <=100ms overhead."
+    },
+    "risk_in_process_blocking_handlers": {
+      "severity": "medium",
+      "description": "Handlers that do blocking HTTP to gateway will block the event loop if not wrapped in asyncio.to_thread.",
+      "mitigation": "util.run_sync helper wraps every sync handler in asyncio.to_thread by default. Unit test asserts no handler uses urllib.request.urlopen directly in its async wrapper (only via the thread pool)."
+    },
+    "risk_mcp_servers_field_private_mode_leakage": {
+      "severity": "low",
+      "description": "If a future tool is added that tries to reach orchestrator-side URLs bypassing the gateway, it would work in public mode and fail in private mode, creating a mode-dependent behaviour gap.",
+      "mitigation": "Handlers always use GATEWAY_URL (already the pattern in contract_cli.py). Unit test grep asserts no direct orchestrator-URL construction in sandbox/egg_agent_tools/ or sandbox/egg_lib/*_handlers.py."
+    }
+  },
+
+  "technical_decisions": {
+    "TD1_server_namespacing": {
+      "question": "One SDK MCP server with all ~15 tools flat, or one server per semantic namespace (sdlc/brc/phase/progress)?",
+      "decision": "One server per namespace.",
+      "rationale": "Naming `mcp__sdlc__register_open_question` (server=sdlc, tool=register_open_question) is what decision-7 picked. Per-namespace servers produce exactly that pattern without gymnastics in the tool-name string. Also lets us selectively disable a namespace (e.g. future: disable mcp__checkpoint__* for reviewer-only roles) via a role-specific build_mcp_servers() branch."
+    },
+    "TD2_handler_location": {
+      "question": "Where do the pure handler functions live? sandbox/egg_lib/ (current CLI dir), or a new shared/egg_sdlc_ops/ (cross-cutting)?",
+      "decision": "sandbox/egg_lib/*_handlers.py.",
+      "rationale": "Handlers call GATEWAY_URL and read EGG_* env vars that only exist in the sandbox container. They are not generically reusable from the orchestrator side (the orchestrator has its own internal contract_store / peer_consensus). Keeping them in sandbox/egg_lib/ also keeps the 'one file PR' nice property: cmd_X and X() live side-by-side in contract_cli.py + contract_handlers.py."
+    },
+    "TD3_bootstrap_nudge_location": {
+      "question": "Is the nudge generated at orchestrator-side prompt assembly (_build_agent_prompt) or at sandbox-side client construction (run_agent_async)?",
+      "decision": "Sandbox-side in shared/egg_agent/client.py.",
+      "rationale": "The nudge content is derived from the tool registry (the module that actually creates the servers). Coupling it to the orchestrator's prompt builder would require exporting the tool list across the k8s boundary and risks drift between 'what we told the agent exists' and 'what actually registered'. Client-side generation means the nudge is always accurate to whatever was registered."
+    },
+    "TD4_schema_style": {
+      "question": "TypedDict schemas or dict-of-types schemas?",
+      "decision": "TypedDict with Annotated[...] descriptions.",
+      "rationale": "create_sdk_mcp_server's _python_type_to_json_schema supports Annotated strings as field descriptions. TypedDict gives us per-tool static types in the handler body (args['question'] is recognized as str by mypy). A dict-style schema {'question': str} works but loses type checking on the handler side."
+    },
+    "TD5_sync_vs_async_handlers": {
+      "question": "Should handlers be natively async (aiohttp) or sync-wrapped-in-to_thread (urllib)?",
+      "decision": "Sync with asyncio.to_thread wrap.",
+      "rationale": "The existing CLI handlers use urllib.request.urlopen (sync). Rewriting them to aiohttp is out of scope and adds a new runtime dep. asyncio.to_thread is cheap and doesn't block the event loop. Tool latency is dominated by gateway round-trip, not Python overhead."
+    },
+    "TD6_disable_switch": {
+      "question": "Should there be an env var to disable the MCP tool surface?",
+      "decision": "Yes: EGG_DISABLE_AGENT_TOOLS=1 skips build_mcp_servers() and the nudge.",
+      "rationale": "Observability A/B (measure tool-call rate and turn count with/without the new tools). Escape hatch if a tool bug surfaces in production. Cheap to implement (one if-branch in client.py)."
+    },
+    "TD7_error_surfacing": {
+      "question": "When a handler raises, does the tool return {content: error_text, is_error: True} or let the exception propagate?",
+      "decision": "Catch and wrap: return {content: [...], is_error: True}.",
+      "rationale": "Letting exceptions propagate breaks the agent session — the SDK treats unhandled exceptions as terminal. Wrapping as an MCP tool error lets the agent read the error and recover (e.g. retry with different args). Consistent with how create_sdk_mcp_server examples in the SDK docs handle errors (division-by-zero example in __init__.py:203)."
+    },
+    "TD8_reviewer_access_to_producer_artifacts": {
+      "question": "Should `brc_peer_read_artifact` be in iteration 1 or iteration 2?",
+      "decision": "Iteration 2 (per decision-8). Reviewers still use Read/Glob/Grep on .egg-state/brc-history/ in iteration 1.",
+      "rationale": "The capability is real (reviewer wants the producer's proposal artifact) but reviewers have working Bash/Read tools for it today; the burn is 1 or 2 tool calls, not 5+. Scope discipline: iteration 1 covers the BRC + HITL + orientation hot path, not everything."
+    }
+  },
+
+  "open_questions_for_plan_reviewers": [
+    "Should phase_1 (handler extraction) be its own PR separate from phase_3 (tool registration)? Argument for: pure refactor is safer to review separately. Argument against: handler extraction without a consumer is dead code under YAGNI. Recommendation: merge them into one PR but keep the commits separated for reviewability.",
+    "Should the BOOTSTRAP_NUDGE text be checked into the repo as a markdown file and loaded at import time, or live as a Python string constant? Recommendation: markdown file under sandbox/egg_agent_tools/BOOTSTRAP_NUDGE.md — easier to edit without a code PR, and the module load reads it as a resource.",
+    "Integration test harness: should the e2e test spawn a real claude_agent_sdk session (costs API tokens in CI) or use a VCR/replay pattern? Recommendation: VCR for CI, real session gated behind a `pytest --integration-live` marker.",
+    "Does the existing shared/tests/test_egg_harness/test_client.py need new assertions for the mcp_servers wiring, or should sandbox/tests/ own that? Recommendation: sandbox/tests/ owns the registration-level assertions; shared/tests/ asserts only that options.mcp_servers is propagated correctly through run_agent_async."
+  ],
+
+  "explicit_non_goals": [
+    "Deprecating any sandbox/bin/egg-* CLI (decision-4: keep indefinitely).",
+    "Registering tools in the EGG_HARNESS=egg path (decision-3: deferred).",
+    "Exposing orchestrator-admin tools (submit_task / cancel_task / restart_phase) to sandbox agents — these must remain unreachable.",
+    "Shipping the full ~30-tool capability audit — iteration 2 is #1917.",
+    "Changing the orchestrator's mcp_server.py or mcp_tools.py — different surface, different consumer.",
+    "Adding a new network port, sidecar, or k8s Service — in-process is the whole point.",
+    "Auto-generating tool schemas from CLI argparse reflection end-to-end — hybrid means we inspect argparse where useful but hand-write the final schema (decision-2)."
+  ],
+
+  "success_criteria": [
+    "A fresh sandbox agent on a refine phase issues a single mcp__phase__get_context call in its first 3 turns (vs the 5-tool-call archaeology baseline).",
+    "mcp__* tool_use events appear in checkpoint logs with distinct tool names (observable via egg-checkpoint list --tool mcp__brc__propose).",
+    "All existing sandbox/tests/ and integration_tests/ tests pass unchanged.",
+    "No new long-running process, no new port, no new k8s Service.",
+    "Private mode agent successfully invokes every iteration-1 tool end-to-end (verified in integration_tests/test_sandbox_mcp_tools_e2e.py).",
+    "EGG_DISABLE_AGENT_TOOLS=1 restores pre-feature behaviour exactly (baseline A/B)."
+  ]
+}
