@@ -4,7 +4,7 @@
   "phase": "plan",
   "agent_role": "risk_analyst",
   "pipeline_id": "issue-1901",
-  "summary": "Risk assessment for the coder file-boundary rewrite (extension allowlist -> blocklist-complement using explicit '**' catch-all) plus the in-scope matcher bug fix for '**/<dir>/' patterns. The change is surgical but flips the coder's default posture from allow-by-extension to allow-by-default-within-non-blocked. The blocklist becomes load-bearing: any gap lets coder write to files that were previously unreachable (CI config, top-level dotfiles, /bin scripts, .egg-state/ state dirs other than agent-outputs). The matcher bug fix is shared by every role that uses patterns.py — it can both tighten currently-leaky blocks and, if the regex/prefix logic is off by one, loosen blocks that other roles rely on. The third sync surface (.egg/phase-permissions.json) has cross-cutting implications because gateway/gateway.py calls check_file_restrictions(session_role,...), and session.agent_role for the implement phase is now literally 'coder'/'tester'/'documenter' — not 'implementer'. If the role split is done wrong, that enforcement layer silently becomes a no-op for the three new roles (no matching FileRestriction entries => allow-all). External research skipped: this is an internal Python refactor with no new third-party dependencies and no security advisories in play.",
+  "summary": "Risk assessment v2 for the coder file-boundary rewrite (extension allowlist -> blocklist-complement using explicit '**' catch-all) plus the in-scope matcher bug fix for '**/<dir>/' patterns. Three high-severity risks remain: R-1 (blocklist becomes load-bearing for security), R-2 (matcher fix has cross-role blast radius affecting tester/documenter/conflict_resolver patterns), and R-3 (phase-permissions.json role-split could silently disable enforcement if implementer->coder/tester/documenter split replaces instead of adds). Medium-severity: R-4 three-surface drift, R-5 extensionless files retroactively coder-editable, R-7 skills/ over-exempt (promoted from low — recommend tightening to skills/**/*.md), R-10 sandbox/scripts/ shim replacement, R-11 .github/ polarity (downgraded from high — most CI yml files were already coder-editable via '**/*.yml' allowlist entry, only extensionless CODEOWNERS flips). Low-severity: R-6 (path-traversal guard already exists at patterns.py:83-85 — regression test only), R-8 test invariant preservation, R-9 perf (net-neutral), R-12 in-flight pipeline compat. Incorporates reviewer_plan's non-blocking feedback (2026-04-23T00:01:57): R-6 factual correction, R-7 promoted skills/**/*.md as primary mitigation, R-8 named specific invariants to preserve (can_write('README.md')==False etc.), R-11 severity reconciled to medium. External research skipped: pure internal Python refactor with no third-party deps or security advisories.",
   "scope": {
     "in_scope_changes": [
       "Rewrite CODER_PATTERNS in shared/egg_restrictions/patterns.py: allowed_patterns=['**'], expand blocked_patterns to cover .egg-state/, docs/, tests/, plus file-name test patterns, keep block_exempt_patterns={.egg-state/agent-outputs/, sandbox/agent-config/rules/*.md, sandbox/agent-config/commands/*.md, skills/}.",
@@ -120,54 +120,60 @@
     },
     {
       "id": "R-6",
-      "title": "['**'] catch-all + path-traversal defense interaction",
+      "title": "['**'] catch-all + path-traversal defense interaction (regression test only — guard already exists)",
       "category": "security",
       "severity": "low",
       "likelihood": "low",
-      "impact": "_normalize_path rejects paths containing '..' by returning a sentinel that matches no pattern. With allowed_patterns=['**'], the sentinel '__INVALID_PATH_TRAVERSAL__' must NOT match '**'. Check _matches_pattern: for pattern='**' the split gives parts=['','']; prefix='' (always matches), suffix='' (since suffix.lstrip('/') == ''); suffix_match=True (because `not suffix` short-circuits). Reading the code: fnmatch.fnmatch(file_path, '*' + suffix) is called only if suffix.startswith('*'), which it doesn't when suffix=''. Result: '**' matches EVERY path including the sentinel. The deliberate can_write short-circuit on normalized=='__INVALID_PATH_TRAVERSAL__' is not present today (lines 83-85 only check the sentinel indirectly by returning a non-matching path). Need to verify the sentinel is actually unmatchable.",
+      "impact": "_normalize_path rejects paths containing '..' by returning a sentinel '__INVALID_PATH_TRAVERSAL__'. Verification on the live code: shared/egg_restrictions/patterns.py:83-85 DOES already contain an explicit early return `if normalized == \"__INVALID_PATH_TRAVERSAL__\": return False` immediately after `_normalize_path`, BEFORE the blocked/allowed_patterns loops. Spot-check confirmed by running CODER_PATTERNS.can_write('../../etc/passwd') with allowed_patterns=['**'] returns False. So the defense is already in place — this risk is an invariant-preservation concern, not a new mitigation requirement. Under the ['**'] catch-all rewrite, any future refactor that moves the sentinel check below the pattern loops would silently convert '../../etc/passwd' from denied to allowed. This item exists to lock in that invariant.",
       "evidence": [
-        "shared/egg_restrictions/patterns.py:81-85: normalized = self._normalize_path(file_path); no explicit if normalized=='__INVALID_PATH_TRAVERSAL__': return False.",
-        "shared/egg_restrictions/patterns.py:108-111: _normalize_path returns the literal string '__INVALID_PATH_TRAVERSAL__' for '..' paths.",
-        "shared/egg_restrictions/patterns.py:149-161: the '**' branch of _matches_pattern returns True broadly — traces suggest '**' matches the sentinel too."
+        "shared/egg_restrictions/patterns.py:83-85 (verified 2026-04-23): explicit early return on sentinel, placed before blocked/allowed_patterns checks.",
+        "shared/egg_restrictions/patterns.py:108-111: _normalize_path returns '__INVALID_PATH_TRAVERSAL__' whenever posixpath.normpath yields a segment '..'.",
+        "reviewer_plan ACK (2026-04-23T00:01:57) independently verified the guard's presence and correctness."
       ],
       "mitigations": [
-        "Add an explicit early return in can_write when normalized == '__INVALID_PATH_TRAVERSAL__' (defense in depth) — this is a cheap, non-semantic-changing safety rail.",
-        "Add a unit test: pattern with allowed_patterns=['**'], attempt to write '../../etc/passwd', assert can_write returns False.",
-        "The blocked_patterns check runs FIRST, so if the sentinel also doesn't match any blocked pattern (which today it doesn't — all current blocked patterns are prefixes), the path would pass if allowed_patterns includes '**'."
+        "Add a regression test in shared/tests/test_egg_restrictions.py: with CODER_PATTERNS (after rewrite to allowed_patterns=['**']), assert can_write('../../etc/passwd') == False and can_write('foo/../bar') == False. This test exists ONLY to catch a future refactor that drops the sentinel short-circuit.",
+        "No code change needed. If a contributor later moves or deletes the sentinel check during an unrelated refactor, the regression test will fail.",
+        "Document inline (comment next to lines 83-85) that this short-circuit is load-bearing under the blocklist-complement model and must precede the pattern loops."
       ],
-      "rollback": "Revert the added explicit sentinel check if a test regression appears."
+      "rollback": "N/A — test-only change."
     },
     {
       "id": "R-7",
-      "title": "block_exempt for 'skills/' could over-exempt",
+      "title": "block_exempt for 'skills/' over-exempts (recommend tightening to skills/**/*.md)",
       "category": "security",
-      "severity": "low",
+      "severity": "medium",
       "likelihood": "low",
-      "impact": "block_exempt_patterns contains 'skills/' (prefix match). This exempts ANY file under skills/ from ALL blocked_patterns — including the proposed '**/*.md' and '**/tests/' and even '.egg-state/'. If a contributor ever creates skills/.egg-state/ or skills/tests/, the exempt would bypass the blocks. Low likelihood, but worth noting.",
+      "impact": "block_exempt_patterns contains 'skills/' (prefix match). can_write treats ANY file under skills/ as exempt from ALL blocked_patterns simultaneously — this includes the proposed '**/*.md' (docs), '**/tests/' (tests), '.egg-state/' (pipeline state), and the matcher-fix-enabled nested test patterns. If a contributor ever nests skills/tests/foo.py or skills/docs/ under skills/, coder would gain write access where tester/documenter should own the path — silently breaking the three-role mutual-exclusion invariant the rewrite exists to establish. Reviewer_plan (2026-04-23T00:01:57) flagged this as worth promoting from 'alternative' to 'primary' mitigation.",
       "evidence": [
         "shared/egg_restrictions/patterns.py:241-248 (current): block_exempt_patterns=['sandbox/agent-config/rules/*.md', 'sandbox/agent-config/commands/*.md', 'skills/'].",
-        "can_write line 89-91: if any blocked match AND NO block_exempt match => deny. The 'AND NO exempt' check applies across ALL blocked patterns together."
+        "can_write line 89-91: if any blocked match AND NO block_exempt match => deny. The 'AND NO exempt' check applies across ALL blocked patterns together, so one exempt hit bypasses EVERY block for that path.",
+        "Today skills/ contains only .md files (skills/*/SKILL.md + metadata); the prefix exempt has been operationally equivalent to a markdown-only exempt."
       ],
       "mitigations": [
-        "Accept the risk: skills/ is a top-level directory and contributors are unlikely to nest .egg-state/ under it. Document the semantic in a comment near block_exempt_patterns.",
-        "Alternative (more surgical): replace the 'skills/' exempt with 'skills/**/*.md' to restrict the carve-out to markdown specifically."
+        "PRIMARY: Tighten block_exempt_patterns from 'skills/' to 'skills/**/*.md' (or equivalent specific glob for the known file types under skills/). This preserves the functional-markdown carve-out that makes skills/ coder-owned while restoring three-role mutual exclusion for any nested non-markdown files a future contributor might add.",
+        "Add a regression test: CODER_PATTERNS.can_write('skills/foo/SKILL.md') == True (preserved), CODER_PATTERNS.can_write('skills/foo/tests/bar.py') == False (newly enforced), CODER_PATTERNS.can_write('skills/foo/.egg-state/x') == False (newly enforced).",
+        "ALTERNATIVE (accept the risk): leave 'skills/' as-is and document that skills/ is a special carve-out and contributors must not nest .egg-state/, tests/, or docs/ paths under it. Less robust; relies on human discipline.",
+        "If adopting the PRIMARY mitigation, audit the actual contents of skills/ today (ls skills/**/*) and ensure every currently-committed file matches the new narrower exempt pattern to avoid breaking existing agent behavior."
       ],
-      "rollback": "Revert patterns.py."
+      "rollback": "Revert the exempt change in patterns.py. If the PRIMARY mitigation breaks an in-flight pipeline, restore 'skills/' as the exempt."
     },
     {
       "id": "R-8",
-      "title": "Test invariant test_no_allowed_patterns_denies_all unchanged but test_empty_blocked_allows_through may need revisiting",
+      "title": "Test invariants must be preserved by polarity-flipping individual assertions, not mass-rewriting",
       "category": "compatibility",
       "severity": "low",
       "likelihood": "low",
-      "impact": "The issue's proposed blocklist-complement model could have been implemented via Option B (flip empty-allowed semantics). Because the resolution picks Option A (['**'] catch-all), test_no_allowed_patterns_denies_all at gateway/tests/test_agent_restrictions_patterns.py:139 stays green. But coder-specific tests that asserted blocked extensionless files are blocked (e.g. 'cannot write to LICENSE') need to flip polarity to 'can write to LICENSE'. If any such test exists and is only updated to match the new semantic without understanding it, we may lose coverage of the 'can't accidentally rewrite LICENSE' invariant.",
+      "impact": "The issue's proposed blocklist-complement model could have been implemented via Option B (flip empty-allowed semantics). Because the resolution picks Option A (['**'] catch-all), test_no_allowed_patterns_denies_all at gateway/tests/test_agent_restrictions_patterns.py:139 stays green — the 'empty allowlist denies all' invariant is intentionally preserved. But coder-specific tests that assert blocked extensionless files are blocked (e.g. 'cannot write to bin/egg') need to flip polarity to 'can write to bin/egg'. If those tests are mass-rewritten to match the new semantic without auditing each assertion, we may silently lose coverage of preserved invariants — specifically: root-level README.md must stay documenter-owned, top-level .egg-state/contracts/ must stay blocked, and nested tests/ must still block.",
       "evidence": [
         "shared/tests/test_egg_restrictions.py (664 lines) has extensive coder-path assertions.",
-        "gateway/tests/test_agent_restrictions_comprehensive.py (552 lines)."
+        "gateway/tests/test_agent_restrictions_comprehensive.py (552 lines).",
+        "gateway/tests/test_agent_restrictions_patterns.py:139 test_no_allowed_patterns_denies_all (the allow-nothing-if-empty invariant we want to preserve)."
       ],
       "mitigations": [
-        "Task list should explicitly call out: update coder tests by 'adding new allow cases and updating existing deny cases' rather than 'mass-rewriting'. Reviewer should confirm every changed assertion corresponds to the new intended policy.",
-        "Add a 'README.md invariant' test: coder cannot write to ./README.md (**/*.md blocks it). Ensures the blocklist carveout for skills/ and sandbox/agent-config/ doesn't accidentally expand."
+        "Task list should explicitly call out: update coder tests by 'adding new allow cases and polarity-flipping existing deny cases that were previously blocked only by the extension allowlist' rather than 'mass-rewriting'. Reviewer should confirm every changed assertion corresponds to the new intended policy.",
+        "Named invariant tests the plan MUST preserve (reviewer_plan feedback 2026-04-23T00:01:57): (a) can_write('README.md') == False — root markdown stays documenter-owned; (b) can_write('docs/anything.md') == False; (c) can_write('tests/test_x.py') == False; (d) can_write('.egg-state/contracts/x.json') == False; (e) can_write('../../etc/passwd') == False (path-traversal sentinel, see R-6).",
+        "Add a 'README.md invariant' test explicitly: CODER_PATTERNS.can_write('README.md') == False. Ensures the blocklist carveout for skills/ and sandbox/agent-config/ doesn't accidentally expand to root-level markdown.",
+        "Keep test_no_allowed_patterns_denies_all green — do not 'fix' it to match the new ['**'] default. Other roles rely on empty allowlist denying all."
       ],
       "rollback": "Revert tests."
     },
@@ -208,10 +214,10 @@
     },
     {
       "id": "R-11",
-      "title": "'.github/' not currently in coder blocklist — CI config becomes coder-editable",
+      "title": "'.github/' polarity under new blocklist (most CI config was already coder-editable)",
       "category": "security",
-      "severity": "high",
-      "likelihood": "medium",
+      "severity": "medium",
+      "likelihood": "low",
       "impact": "Today's CODER_PATTERNS allowlist does not include '.github/' paths — allowlist entries like '**/*.yml' and '**/*.yaml' match workflow files inside .github/workflows/ so coder CAN currently edit CI workflows. Wait — let me re-verify: '**/*.yml' matches .github/workflows/ci.yml today, so coder already has write access. But .github/actions/<name>/action.yml and .github/dependabot.yml also already allowed. So the proposed rewrite does NOT expand coder's access to .github/ files that are .yml/.yaml — those were already in scope. However, files like .github/CODEOWNERS (extensionless) are newly editable. Severity downgraded after verification: the only .github/ files that change polarity are extensionless (CODEOWNERS, PULL_REQUEST_TEMPLATE if extensionless) and .github/*.md (still blocked via **/*.md). Still worth listing explicitly.",
       "evidence": [
         "CODER_PATTERNS.allowed_patterns today includes '**/*.yml' and '**/*.yaml' => .github/workflows/*.yml already coder-editable today.",
