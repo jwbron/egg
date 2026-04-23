@@ -32,10 +32,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option A: REST-only gateway endpoints (recommended \u2014 mirrors gh wrapper, no binary to secure)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T23:19:05.010156Z",
       "debounce_until": null
     },
     {
@@ -65,10 +65,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option A: API token / Basic auth (recommended \u2014 matches existing secrets.template.env, bot identity, headless bootstrap)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T23:20:55.930818Z",
       "debounce_until": null
     },
     {
@@ -98,10 +98,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option A: Per-route check of g.session_mode + a @require_private_mode decorator (recommended \u2014 consistent with existing gh endpoints)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T23:23:22.408356Z",
       "debounce_until": null
     },
     {
@@ -131,10 +131,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option A: Three narrow verbs (ticket/get, search, ticket/comments) + regex-filtered /api/v1/jira/execute passthrough (recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T23:25:03.348181Z",
       "debounce_until": null
     },
     {
@@ -164,10 +164,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option A: New jira: section in config/context-filters.yaml (recommended \u2014 reuses a file operators already edit)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T23:26:13.884434Z",
       "debounce_until": null
     },
     {
@@ -192,10 +192,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option A: Use /rest/api/3/search/jql (recommended \u2014 the only non-deprecated search verb on Jira Cloud)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T23:28:04.733377Z",
       "debounce_until": null
     },
     {
@@ -220,10 +220,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Gateway accepts an API token via secrets.env, same pattern as GitHub. The token can be either a bot account or a user account \u2014 don't constrain identity in the gateway code; that's an operator choice.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T23:29:50.591515Z",
       "debounce_until": null
     },
     {
@@ -248,10 +248,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"No redaction needed. Jira endpoints are private-mode only \u2014 sessions in private mode are a constrained, trusted context, so passing accountId/emailAddress/attachment URLs through verbatim is acceptable.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T23:31:11.351429Z",
       "debounce_until": null
     },
     {
@@ -276,10 +276,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option A: Advisory only; project allowlist is the only hard boundary (recommended \u2014 search and cross-ticket reads work naturally)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T23:32:16.803213Z",
       "debounce_until": null
     },
     {
@@ -304,10 +304,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option A: Single site in v1; keep the client architecture ready for multi-site (recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T23:32:57.068530Z",
       "debounce_until": null
     }
   ],
@@ -797,57 +797,57 @@
       {
         "id": "Q1",
         "question": "Which Atlassian projects should be on the v1 allowlist? (Provide project keys, comma-separated, e.g. `ENG,WEBAPP,INFRA`.)",
-        "answer": null
+        "answer": "Configurable \u2014 project allowlist lives in the new `jira:` section of `config/context-filters.yaml`; ops populate it at setup time. Gateway ships with an empty allowlist (fails closed on any project)."
       },
       {
         "id": "Q2",
         "question": "What is the expected request volume per pipeline (peak JQL searches/min, peak ticket reads/min)? This feeds rate-limit defaults.",
-        "answer": null
+        "answer": "Low (<10/min each) for v1. Rate-limit defaults should be conservative and tunable via gateway config."
       },
       {
         "id": "Q3",
         "question": "Is there a preferred Atlassian bot-account naming / identity convention (display name, email, avatar) we should align with, or is this greenfield?",
-        "answer": null
+        "answer": "Greenfield \u2014 pick at setup; no existing convention to align with."
       },
       {
         "id": "Q4",
         "question": "Beyond `accountId`, `emailAddress`, and attachment URLs, are there custom fields or other response fields we should redact before sandbox-visible responses?",
-        "answer": null
+        "answer": "N/A \u2014 no redaction. Jira is private-mode only, and in that mode the session is already a constrained, trusted context (matches earlier decision on redaction)."
       },
       {
         "id": "Q5",
         "question": "On Atlassian 429 (rate-limited) responses with `Retry-After`: pass the 429 through verbatim to the sandbox, or have the gateway swallow + retry once with honoured backoff?",
-        "answer": null
+        "answer": "Gateway swallows + retries once, honouring `Retry-After`. If the retry also fails, pass the 429 through so the failure still surfaces to the agent."
       },
       {
         "id": "Q6",
         "question": "Should Jira audit logs ship to the same sink as existing gateway audit logs, or a separate Jira-scoped sink?",
-        "answer": null
+        "answer": "Same sink as existing gateway audit logs. Jira ops are tagged in structured log entries so they can be filtered at query time."
       },
       {
         "id": "Q7",
         "question": "For the `/api/v1/jira/execute` passthrough, is there any path pattern outside `GET /rest/api/3/issue/...`, `GET /rest/api/3/search/...`, and `GET /rest/api/3/project/...` you want permitted in v1?",
-        "answer": null
+        "answer": "No \u2014 only `GET /rest/api/3/issue/...`, `GET /rest/api/3/search/...`, and `GET /rest/api/3/project/...`. Anything outside those three families requires a narrow route (future work)."
       },
       {
         "id": "Q8",
         "question": "How should the gateway handle deleted / archived tickets in responses \u2014 404 passthrough, or synthesize a `{\"status\":\"not_found\"}` envelope for consistency with other gateway endpoints?",
-        "answer": null
+        "answer": "Synthesize `{\"status\":\"not_found\"}` envelope \u2014 consistent with how other gateway endpoints shape errors."
       },
       {
         "id": "Q9",
         "question": "Looking ahead to the future write scope (create ticket / update ticket / create comment, out of scope here but informing v1 design): should the gateway enforce idempotency (e.g., refuse duplicate `comment create` within N seconds), or leave that to Atlassian's own semantics?",
-        "answer": null
+        "answer": "Out of scope for v1 (which is read-only). When writes land, start by relying on Atlassian's own semantics + operator discipline rather than gateway-enforced idempotency; revisit only if duplicate-write issues surface."
       },
       {
         "id": "Q10",
         "question": "Is the intent strictly \"private mode only\" for Jira, or do you anticipate a hypothetical \"internal-dev\" mode (trusted agents, locked-down network) that should also see Jira endpoints? (No such mode exists today.)",
-        "answer": null
+        "answer": "Private mode only. No internal-dev mode exists today, and inventing one just to widen Jira reachability is out of scope for #1556. If such a mode is added later, reachability for Jira can be reconsidered then."
       }
     ],
-    "submitted": false,
-    "submitted_by": null,
-    "submitted_at": null,
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-04-23T23:35:58.555502Z",
     "comment_id": null,
     "debounce_until": null
   },
