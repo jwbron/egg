@@ -411,6 +411,17 @@ def _push_context_real_check(mock_session, changed_files):
     )
 
 
+def _make_role_session(role):
+    """Create a mock session with the given agent role."""
+    mock_session = MagicMock()
+    mock_session.mode = "public"
+    mock_session.container_id = "test-container"
+    mock_session.expires_at = None
+    mock_session.agent_role = role
+    mock_session.phase = None
+    return mock_session
+
+
 class TestCoderEndToEndPushRejection1901:
     """TASK-5-3 (#1901): end-to-end push rejection via the real
     check_agent_restrictions code path for session_role='coder'.
@@ -510,3 +521,133 @@ class TestCoderEndToEndPushRejection1901:
                 assert "coder" in msg
                 assert "cannot modify" in msg
                 assert ".egg-state/contracts/foo.json" in data["message"]
+
+
+class TestTesterEndToEndPushRejection1901:
+    """TASK-5-3 (#1901): end-to-end push rejection via the real
+    check_agent_restrictions code path for session_role='tester'.
+    """
+
+    def test_tester_can_push_test_files(self, client):
+        """Tester is allowed to push test files."""
+        session = _make_role_session("tester")
+        patches = _push_context_real_check(session, ["tests/test_foo.py"])
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
+                response = _do_push(client)
+                assert response.status_code == 200, response.data
+
+    def test_tester_blocked_from_source_code(self, client):
+        """Tester cannot push source code files."""
+        session = _make_role_session("tester")
+        patches = _push_context_real_check(session, ["shared/egg_restrictions/patterns.py"])
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
+                response = _do_push(client)
+                assert response.status_code == 403
+                data = json.loads(response.data)
+                msg = data["message"].lower()
+                assert "tester" in msg
+                assert "cannot modify" in msg
+
+    def test_tester_blocked_from_docs(self, client):
+        """Tester cannot push documentation files."""
+        session = _make_role_session("tester")
+        patches = _push_context_real_check(session, ["docs/guide.md"])
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
+                response = _do_push(client)
+                assert response.status_code == 403
+                data = json.loads(response.data)
+                msg = data["message"].lower()
+                assert "tester" in msg
+                assert "cannot modify" in msg
+
+
+class TestDocumenterEndToEndPushRejection1901:
+    """TASK-5-3 (#1901): end-to-end push rejection via the real
+    check_agent_restrictions code path for session_role='documenter'.
+    """
+
+    def test_documenter_can_push_docs(self, client):
+        """Documenter is allowed to push documentation files."""
+        session = _make_role_session("documenter")
+        patches = _push_context_real_check(session, ["docs/guide.md"])
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
+                response = _do_push(client)
+                assert response.status_code == 200, response.data
+
+    def test_documenter_blocked_from_source_code(self, client):
+        """Documenter cannot push source code files."""
+        session = _make_role_session("documenter")
+        patches = _push_context_real_check(session, ["gateway/auth.py"])
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
+                response = _do_push(client)
+                assert response.status_code == 403
+                data = json.loads(response.data)
+                msg = data["message"].lower()
+                assert "documenter" in msg
+                assert "cannot modify" in msg
+
+    def test_documenter_blocked_from_tests(self, client):
+        """Documenter cannot push test files."""
+        session = _make_role_session("documenter")
+        patches = _push_context_real_check(session, ["tests/test_x.py"])
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
+                response = _do_push(client)
+                assert response.status_code == 403
+                data = json.loads(response.data)
+                msg = data["message"].lower()
+                assert "documenter" in msg
+                assert "cannot modify" in msg

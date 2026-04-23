@@ -567,7 +567,6 @@ class TestThreeRoleBehavior1901:
         "path",
         [
             "bin/egg",  # extensionless script
-            "sandbox/scripts/gh",  # extensionless shim
             "LICENSE",  # top-level metadata
             "path/to/new-thing",  # arbitrary new file
             "pyproject.toml",  # config
@@ -591,6 +590,9 @@ class TestThreeRoleBehavior1901:
             ".egg-state/contracts/spec.json",
             ".egg-state/drafts/1901-plan.md",
             ".egg-state/secrets/key",  # future subdir
+            ".github/workflows/ci.yml",  # branch-protection invariant
+            ".github/CODEOWNERS",  # branch-protection invariant
+            "sandbox/scripts/gh",  # credential-routing invariant
         ],
     )
     def test_coder_blocked_blocklist_complement(self, path):

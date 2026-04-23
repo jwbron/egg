@@ -193,6 +193,9 @@
       "role": "coder",
       "blocked_patterns": [
         ".egg-state/contracts/",
+        ".egg-state/drafts/",
+        ".egg-state/pipelines/",
+        ".egg-state/reviews/",
         "docs/",
         "**/*.md",
         "tests/",
@@ -211,10 +214,12 @@
         "**/*.spec.tsx",
         "**/*.spec.js",
         "**/*.spec.jsx",
-        "**/conftest.py"
+        "**/conftest.py",
+        ".github/",
+        "sandbox/scripts/"
       ],
-      "blocked_reason": "Coder cannot modify tests, docs, or pipeline-state contracts; see #1901.",
-      "description": "TODO(#1903): keep in sync with CODER_PATTERNS / TESTER_PATTERNS / DOCUMENTER_PATTERNS in shared/egg_restrictions/patterns.py. Coder: everything except tester, documenter, and .egg-state/ scopes."
+      "blocked_reason": "Coder cannot modify tests, docs, pipeline-state, CI workflows, or credential shims; see #1901.",
+      "description": "TODO(#1903): keep in sync with CODER_PATTERNS / TESTER_PATTERNS / DOCUMENTER_PATTERNS in shared/egg_restrictions/patterns.py. Coder: everything except tester, documenter, .egg-state/, .github/, and sandbox/scripts/ scopes."
     },
     {
       "role": "tester",

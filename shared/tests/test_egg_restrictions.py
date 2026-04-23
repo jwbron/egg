@@ -204,12 +204,21 @@ class TestCoderBlocklistComplement:
     def test_allows_sandbox_bin_egg_health_inspect(self):
         assert CODER_PATTERNS.can_write("sandbox/bin/egg-health-inspect")
 
-    def test_allows_sandbox_scripts_gh_shim(self):
-        """sandbox/scripts/gh is a shim script with no extension."""
-        assert CODER_PATTERNS.can_write("sandbox/scripts/gh")
+    def test_blocks_sandbox_scripts_gh_shim(self):
+        """sandbox/scripts/ is blocked (credential-routing invariant)."""
+        assert not CODER_PATTERNS.can_write("sandbox/scripts/gh")
 
-    def test_allows_sandbox_scripts_git_credential_helper(self):
-        assert CODER_PATTERNS.can_write("sandbox/scripts/git-credential-github-token")
+    def test_blocks_sandbox_scripts_git_credential_helper(self):
+        """sandbox/scripts/ is blocked (credential-routing invariant)."""
+        assert not CODER_PATTERNS.can_write("sandbox/scripts/git-credential-github-token")
+
+    def test_blocks_github_workflows(self):
+        """.github/ is blocked (branch-protection invariant)."""
+        assert not CODER_PATTERNS.can_write(".github/workflows/ci.yml")
+
+    def test_blocks_github_codeowners(self):
+        """.github/ is blocked (branch-protection invariant)."""
+        assert not CODER_PATTERNS.can_write(".github/CODEOWNERS")
 
     def test_allows_license_file(self):
         """LICENSE — extensionless top-level metadata."""

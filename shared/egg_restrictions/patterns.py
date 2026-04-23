@@ -249,6 +249,12 @@ CODER_PATTERNS = AgentFilePattern(
         "**/*.spec.js",
         "**/*.spec.jsx",
         "**/conftest.py",
+        # Defense-in-depth: CI workflows and CODEOWNERS — preserves the
+        # branch-protection invariant.
+        ".github/",
+        # Defense-in-depth: gateway credential shims — preserves the
+        # credential-routing invariant.
+        "sandbox/scripts/",
     ],
     block_exempt_patterns=[
         # Coder's handoff directory — the only .egg-state/ subdir the coder
