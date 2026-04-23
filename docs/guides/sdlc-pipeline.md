@@ -587,8 +587,8 @@ Agents are organized into five categories (execution, analysis, review, utility,
 | Role | Category | Purpose | File Access |
 |------|----------|---------|-------------|
 | **Coder** | Execution | Implements code changes | All files except docs, tests, `.egg-state/`, `.github/`, `sandbox/scripts/` (blocklist-complement; see [Agent Roles Reference](../reference/agent-roles.md#coder)) |
-| **Tester** | Execution | Finds gaps, writes tests, runs linters and reports issues to coder | `tests/`, `test_*.py`, `*.test.ts`, `**/conftest.py` |
-| **Documenter** | Execution | Updates documentation | `docs/`, `*.md`, `README*` |
+| **Tester** | Execution | Finds gaps, writes tests, runs linters and reports issues to coder | Test files and infrastructure only: `tests/`, `**/test_*.py`, `**/*_test.go`, `**/*.test.{ts,tsx}`, `**/*.spec.*`, `**/conftest.py` (see [Agent Roles Reference](../reference/agent-roles.md#tester)) |
+| **Documenter** | Execution | Updates documentation | Documentation and markdown only: `docs/`, `**/*.md`, `**/README.md` (see [Agent Roles Reference](../reference/agent-roles.md#documenter)) |
 | **Autofixer** | Utility | Auto-fixes lint/format/type-check issues | Source and config files (no docs or contracts) |
 | **Conflict Resolver** | Utility | Resolves merge and inter-agent conflicts | Source, test, doc, and config files (no `.egg-state/`) |
 | **Reviewer (Code)** | Review | Reviews code for security, correctness | Review verdicts only |
