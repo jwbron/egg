@@ -113,7 +113,7 @@ test-collection time rather than silently breaking every sandbox.
 - [Agent MCP Tools reference](../reference/agent-tools.md) — full
   15-verb surface, schemas, architecture, testing matrix.
 - [SDLC Pipeline Guide — Agent MCP tools section](../guides/sdlc-pipeline.md#agent-mcp-tools-egg_mcp_tools-flag)
-  — per-pipeline opt-in recipe.
+  — per-pipeline configuration.
 - [Sandbox environment rules](../../sandbox/agent-config/rules/environment.md)
   — `EGG_MCP_TOOLS` alongside other sandbox env flags.
 - [`.egg-state/drafts/1765-plan.md`](../../.egg-state/drafts/1765-plan.md)
