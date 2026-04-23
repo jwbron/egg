@@ -8,7 +8,7 @@ through the MCP server instead of dropping into a sandboxed interactive
 Claude session.
 
 > Issue: [#1762](https://github.com/jwbron/egg/issues/1762).
-> Status: new in this PR. See also
+> See also
 > [SDLC Pipeline Guide](sdlc-pipeline.md),
 > [Babysit-PR Guide](babysit-pr.md),
 > [Agent Roles Reference](../reference/agent-roles.md).

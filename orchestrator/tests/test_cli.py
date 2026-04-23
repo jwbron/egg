@@ -398,3 +398,130 @@ class TestGatewayCommand:
             data = json.loads(captured.out)
             assert data["healthy"] is True
             assert data["status"] == "healthy"
+
+
+class TestWaitressSizing:
+    """Issue #1897 Phase 4 (plan revision 4, TASK-4-1): EGG_ORCH_WAITRESS_THREADS
+    sizes the waitress thread pool (default 16), refuses to boot below 4
+    (sys.exit(78) per sysexits EX_CONFIG), and channel_timeout is
+    derived from EGG_MESSAGE_POLL_MAX_WAIT so long-polls do not hit
+    the socket idle-timeout before the request's own timeout.
+    """
+
+    def test_default_threads_is_16(self, monkeypatch):
+        """Plan-mandated default of 16 threads (TASK-4-1 / reviewer_plan
+        blocker 1). Raising this requires an explicit EGG_ORCH_WAITRESS_THREADS
+        value — keeps baseline memory footprint predictable.
+        """
+        monkeypatch.delenv("EGG_ORCH_WAITRESS_THREADS", raising=False)
+        monkeypatch.delenv("EGG_MESSAGE_POLL_MAX_WAIT", raising=False)
+        with patch("os.getuid", return_value=1000):
+            with patch.dict("sys.modules", {"api": MagicMock()}):
+                with patch("waitress.serve") as mock_serve:
+                    with patch("cli.logger"):
+                        main(["serve"])
+                        kwargs = mock_serve.call_args.kwargs
+                        assert kwargs["threads"] == 16
+
+    def test_thread_count_honors_env_var(self, monkeypatch):
+        """Operator can raise above the default for high long-poll loads."""
+        monkeypatch.setenv("EGG_ORCH_WAITRESS_THREADS", "128")
+        monkeypatch.delenv("EGG_MESSAGE_POLL_MAX_WAIT", raising=False)
+        with patch("os.getuid", return_value=1000):
+            with patch.dict("sys.modules", {"api": MagicMock()}):
+                with patch("waitress.serve") as mock_serve:
+                    with patch("cli.logger"):
+                        main(["serve"])
+                        kwargs = mock_serve.call_args.kwargs
+                        assert kwargs["threads"] == 128
+
+    def test_refuse_to_boot_when_threads_lt_4(self, monkeypatch, caplog):
+        """Plan TASK-4-1: values < 4 MUST refuse to boot with sys.exit(78)
+        (sysexits.h EX_CONFIG) so a silently-saturated pool doesn't
+        mask operator misconfiguration. The operator should see an
+        ERROR log line naming the env var and the minimum.
+        """
+        import logging
+
+        monkeypatch.setenv("EGG_ORCH_WAITRESS_THREADS", "2")
+        monkeypatch.delenv("EGG_MESSAGE_POLL_MAX_WAIT", raising=False)
+        caplog.set_level(logging.ERROR, logger="orchestrator.env_config")
+        with patch("os.getuid", return_value=1000):
+            with patch.dict("sys.modules", {"api": MagicMock()}):
+                with patch("waitress.serve"):
+                    with patch("cli.logger"):
+                        with pytest.raises(SystemExit) as exc_info:
+                            main(["serve"])
+                        # EX_CONFIG per sysexits.h
+                        assert exc_info.value.code == 78
+        # ERROR line should mention both the env var and the minimum.
+        combined = " ".join(r.message for r in caplog.records)
+        assert "EGG_ORCH_WAITRESS_THREADS" in combined
+        assert "4" in combined  # minimum value
+
+    def test_refuse_to_boot_at_boundary_three(self, monkeypatch):
+        """Boundary: 3 should still trip refuse-to-boot (strict <4)."""
+        monkeypatch.setenv("EGG_ORCH_WAITRESS_THREADS", "3")
+        monkeypatch.delenv("EGG_MESSAGE_POLL_MAX_WAIT", raising=False)
+        with patch("os.getuid", return_value=1000):
+            with patch.dict("sys.modules", {"api": MagicMock()}):
+                with patch("waitress.serve"):
+                    with patch("cli.logger"):
+                        with pytest.raises(SystemExit) as exc_info:
+                            main(["serve"])
+                        assert exc_info.value.code == 78
+
+    def test_accepts_minimum_four_threads(self, monkeypatch):
+        """Boundary: 4 is the minimum acceptable value."""
+        monkeypatch.setenv("EGG_ORCH_WAITRESS_THREADS", "4")
+        monkeypatch.delenv("EGG_MESSAGE_POLL_MAX_WAIT", raising=False)
+        with patch("os.getuid", return_value=1000):
+            with patch.dict("sys.modules", {"api": MagicMock()}):
+                with patch("waitress.serve") as mock_serve:
+                    with patch("cli.logger"):
+                        main(["serve"])
+                        kwargs = mock_serve.call_args.kwargs
+                        assert kwargs["threads"] == 4
+
+    def test_malformed_threads_falls_back_to_default(self, monkeypatch):
+        """Non-integer values fall back to default rather than crashing.
+
+        Malformed values are a different failure mode than "too small" —
+        they indicate an operator typo, not an intentional misconfiguration
+        of the pool size. Falling back keeps the server booting with a
+        safe default and logs a warning.
+        """
+        monkeypatch.setenv("EGG_ORCH_WAITRESS_THREADS", "not-a-number")
+        monkeypatch.delenv("EGG_MESSAGE_POLL_MAX_WAIT", raising=False)
+        with patch("os.getuid", return_value=1000):
+            with patch.dict("sys.modules", {"api": MagicMock()}):
+                with patch("waitress.serve") as mock_serve:
+                    with patch("cli.logger"):
+                        main(["serve"])
+                        kwargs = mock_serve.call_args.kwargs
+                        assert kwargs["threads"] == 16
+
+    def test_channel_timeout_derived_from_poll_max_wait(self, monkeypatch):
+        """channel_timeout must be >= 2 × poll_cap + 30 so waitress does
+        not close the socket before the request finishes."""
+        monkeypatch.setenv("EGG_MESSAGE_POLL_MAX_WAIT", "90")
+        with patch("os.getuid", return_value=1000):
+            with patch.dict("sys.modules", {"api": MagicMock()}):
+                with patch("waitress.serve") as mock_serve:
+                    with patch("cli.logger"):
+                        main(["serve"])
+                        kwargs = mock_serve.call_args.kwargs
+                        # 2*90+30 = 210
+                        assert kwargs["channel_timeout"] == 210
+
+    def test_channel_timeout_min_120(self, monkeypatch):
+        """With the default 60s cap, channel_timeout should be at least 120s."""
+        monkeypatch.delenv("EGG_MESSAGE_POLL_MAX_WAIT", raising=False)
+        with patch("os.getuid", return_value=1000):
+            with patch.dict("sys.modules", {"api": MagicMock()}):
+                with patch("waitress.serve") as mock_serve:
+                    with patch("cli.logger"):
+                        main(["serve"])
+                        kwargs = mock_serve.call_args.kwargs
+                        # 2*60+30 = 150
+                        assert kwargs["channel_timeout"] >= 120

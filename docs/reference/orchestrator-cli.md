@@ -36,9 +36,12 @@ Run `egg-orch --help` for full usage. All commands support `--json` for machine-
 | `egg-orch gateway health` | Check gateway health |
 | `egg-orch gateway phase --issue <n>` | Get current phase from gateway |
 | `egg-orch gateway permissions <phase>` | Get allowed ops for a phase |
-| `egg-orch message send [<id>] --to <role\|all> --type <type> --subject "..." --body "..."` | Send directed or broadcast message. Types: `HANDOFF`, `QUESTION`, `STATUS`, `PROGRESS` |
+| `egg-orch message send [<id>] --to <role\|all> --type <type> --subject "..." --body "..."` | Send directed or broadcast message. Types: `HANDOFF`, `STATUS`, `PROGRESS`, `HEARTBEAT`. (`QUESTION` was removed in [#1897](https://github.com/jwbron/egg/issues/1897).) |
 | `egg-orch overseer alert [<id>] --anomaly <type> --priority <low\|medium\|high> --summary "..." [--detail "..."] [--recommend "..."]` | Broadcast `OVERSEER_ALERT` to human operator (overseer use only — always sets `message_type=OVERSEER_ALERT` and `to_role=all`) |
 | `egg-orch message poll [<id>] [--since <id>] [--limit <n>]` | Poll for messages from other agents (concurrent mode) |
+| `egg-orch message wait [<id>] --for <TYPE>... [--timeout N]` | Block on a typed BRC event. Exit 0 = matched, 1 = timeout, 2 = transient (retry-safe), 3 = permanent. See [Agent Wait Patterns §3](agent-wait-patterns.md#3-exit-code-contract-for-egg-orch-message-wait) |
+| `egg-orch message wait-loop [<id>] --for <TYPE>...` | **Canonical STAY ALIVE idiom** — loops `message wait` server-side until a match arrives. Do not wrap in an outer shell loop. See [Agent Wait Patterns §1](agent-wait-patterns.md#1-the-canonical-idiom) |
+| `egg-orch message heartbeat [<id>] --state <WORKING\|WAITING_ON_ROLE\|PROPOSED\|IDLE> [--waiting-on <role>] [--since <ts>]` | Emit a structured `HEARTBEAT` message on state transitions. `WAITING_ON_ROLE` requires `--waiting-on`. Rate-limited by `EGG_HEARTBEAT_RATE_LIMIT` (per-role, 429 on exceed). See [Agent Wait Patterns §4](agent-wait-patterns.md#4-heartbeat-message-type) |
 | `egg-orch message status [<id>]` | Get message bus status (concurrent mode) |
 | `egg-orch signal readiness [<id>] --state <WORKING\|READY\|BLOCKED\|OBJECTING> [--reason "..."]` | Signal readiness state (concurrent mode) |
 | `egg-orch push [--scope-filter]` | Push current branch; with `--scope-filter`, strips out-of-scope files before pushing |
@@ -68,6 +71,9 @@ Agent role can be omitted when `EGG_AGENT_ROLE` is set.
 | `GATEWAY_URL` | Gateway URL (default: `http://egg-gateway:9848`) |
 | `EGG_CONCURRENT_MODE` | `true` when running in concurrent execution mode |
 | `EGG_MESSAGE_POLL_INTERVAL` | Suggested message polling interval in seconds (default: 30) |
+| `EGG_MESSAGE_POLL_MAX_WAIT` | Server-side cap (seconds) on `message wait --timeout`. Default `60`, minimum `1`. Values `> 90` trigger a startup `warnings.warn` + WARNING log because the gateway's baked-in Squid `read_timeout` / `request_timeout` directives cap backend long-polls at ~60s — raising the cap above that requires a gateway image rebuild, not a ConfigMap edit. See [Agent Wait Patterns §6](agent-wait-patterns.md#6-egg_message_poll_max_wait--long-poll-cap-coupling). |
+| `EGG_ORCH_WAITRESS_THREADS` | Waitress WSGI thread pool size. Default `16`, minimum `4`. Values `< 4` cause the orchestrator to `sys.exit(78)` (EX_CONFIG) at boot with an ERROR log. Each blocking long-poll occupies one thread; size the pool above the concurrent-agent count plus short-request headroom. The `egg_inflight_long_polls` Prometheus gauge exposes saturation. See [Agent Wait Patterns §7](agent-wait-patterns.md#7-egg_orch_waitress_threads--thread-pool--long-poll-coupling). |
+| `EGG_HEARTBEAT_RATE_LIMIT` | Per-`(pipeline_id, agent_role)` `HEARTBEAT` rate cap (messages per minute). Default `20`. Exceeding returns HTTP 429 with a `Retry-After` header; the CLI surfaces 429 as exit 3 (permanent). See [Agent Wait Patterns §5](agent-wait-patterns.md#5-egg_heartbeat_rate_limit--per-role-heartbeat-cap). |
 | `AGENT_ANCHOR_ID` | Agent anchor ID (`{role}-{short_container_id}`), auto-set by container spawner |
 | `EGG_LIFECYCLE_SECRET` | Bearer token required for lifecycle-control endpoints (HITL resolve/cancel, pipeline CRUD, phase overrides, container spawn/stop). Stored at `~/.config/egg/lifecycle-secret`. Must be exported in the human's shell to run `egg-orch decision resolve`, `egg-orch pipeline delete`, etc. Agent pods never receive it (see #1769). |
 
@@ -99,18 +105,53 @@ egg-orch message send --to tester --type HANDOFF \
   --subject "Test files for auth module" \
   --body "Test scaffolding ready — see commit abc1234"
 
-# QUESTION: Ask a specific agent for clarification
-egg-orch message send --to coder --type QUESTION \
-  --subject "Expected return type" \
-  --body "What should process_batch() return on empty input?"
-
 # STATUS: Inform a peer of your current state
 egg-orch message send --to reviewer_code --type STATUS \
   --subject "Docs in progress" \
   --body "Documentation not ready for review yet, finishing API docs"
 ```
 
+> `QUESTION` was removed in [#1897](https://github.com/jwbron/egg/issues/1897). To advertise state without a reply handler, use `egg-orch message heartbeat` (structured, typed, rate-limited). To ask a clarifying question of a producer you are reviewing, put the question in your `egg-orch consensus nack --reason "..."` so it lands in the BRC history where the producer will address it on re-propose.
+
 See [Directed Coordination](../guides/concurrent-execution.md#directed-coordination) for detailed usage guidance and worked examples.
+
+**Wait for BRC events (canonical STAY ALIVE idiom):**
+```bash
+# Producer STAY ALIVE — wakes on consensus, re-review, or overseer alert
+egg-orch message wait-loop \
+  --for CONSENSUS_CONFIRMED \
+  --for CONSENSUS_RE_REVIEW \
+  --for OVERSEER_ALERT
+
+# Reviewer STAY ALIVE — additionally wakes on new proposals
+egg-orch message wait-loop \
+  --for CONSENSUS_PROPOSE \
+  --for CONSENSUS_RE_REVIEW \
+  --for CONSENSUS_CONFIRMED \
+  --for OVERSEER_ALERT
+
+# One-shot block — used inside scripts that want a single match (exit 0 = matched, 1 = timeout, 2 = transient, 3 = permanent)
+egg-orch message wait --for CONSENSUS_PROPOSE --from coder --timeout 60
+```
+
+Do not wrap `wait-loop` in an outer shell `for`-loop or `sleep` — it is already the outer loop, server-side. See [Agent Wait Patterns](agent-wait-patterns.md) for the full contract, the four anti-patterns to avoid, and the exit-code table.
+
+**Emit a structured heartbeat (state transitions only):**
+```bash
+# Entering WORKING after ORIENT
+egg-orch message heartbeat --state WORKING
+
+# Transitioning to blocked-on-peer
+egg-orch message heartbeat --state WAITING_ON_ROLE --waiting-on coder
+
+# After submitting a proposal
+egg-orch message heartbeat --state PROPOSED
+
+# Between tasks
+egg-orch message heartbeat --state IDLE
+```
+
+`message heartbeat` POSTs to a dedicated `/api/v1/pipelines/{id}/heartbeat` endpoint with schema validation, server-side dedup (consecutive identical `(state, waiting_on)` tuples are silently dropped), and a per-`(pipeline_id, agent_role)` rate limit (`EGG_HEARTBEAT_RATE_LIMIT`, default 20/minute). It is the supported successor to `egg-orch signal heartbeat`, which remains for legacy scripts but does not carry typed state.
 
 **Emit structured progress (health monitoring):**
 ```bash

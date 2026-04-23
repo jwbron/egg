@@ -167,14 +167,15 @@ Not all messages need the same rigor:
 | Message type | Signal cost | Rationale |
 |-------------|-------------|-----------|
 | STATUS, PROGRESS | Cheap talk | Low overhead, informative when interests are aligned |
-| HANDOFF, QUESTION | Cheap talk | Directed coordination — low overhead, enables role-boundary artifact transfers and clarification requests |
+| HANDOFF | Cheap talk | Directed coordination — low overhead, enables role-boundary artifact transfers |
+| HEARTBEAT | Cheap talk | Typed agent-state transition (`WORKING`/`WAITING_ON_ROLE`/`PROPOSED`/`IDLE`) — schema-validated and rate-limited, consumed by the overseer for stall detection (see [Agent Wait Patterns §4](../reference/agent-wait-patterns.md#4-heartbeat-message-type)) |
 | CONSENSUS_PROPOSE | Costly signal | Attestations are harder to produce without doing the work |
 | CONSENSUS_ACK | Costly signal | Must reference specific artifacts reviewed (prevents rubber-stamping) |
 | CONSENSUS_NACK | Costly signal | Must include specific, actionable objection with artifact references |
 
 This distinction comes from game theory: cheap talk (Crawford & Sobel, 1982) works when interests are fully aligned, but LLM agents are *unreliable communicators* — they may genuinely believe bad work is good. Costly signals (requiring verifiable evidence) address this.
 
-> **Directed coordination messages** (`HANDOFF`, `QUESTION`, `STATUS`, `PROGRESS`) are cheap talk by design — they carry no attestation burden and serve to keep agents unblocked. The critical distinction is that they flow *outside* the BRC consensus protocol: a `HANDOFF` message does not replace a `CONSENSUS_PROPOSE`, and a `QUESTION` does not replace a `CONSENSUS_NACK`. See [Concurrent Execution — Directed Coordination](concurrent-execution.md#directed-coordination) for the CLI syntax, message type guidance, and worked examples.
+> **Directed coordination messages** (`HANDOFF`, `STATUS`, `PROGRESS`, `HEARTBEAT`) are cheap talk by design — they carry no attestation burden and serve to keep agents unblocked. The critical distinction is that they flow *outside* the BRC consensus protocol: a `HANDOFF` message does not replace a `CONSENSUS_PROPOSE`, and clarification questions do not flow as free-form messages. `QUESTION` was removed in [#1897](https://github.com/jwbron/egg/issues/1897) because it had no reliable respondent; reviewer questions now live inside `CONSENSUS_NACK` rationales (where the producer is obligated to address them on re-propose), and "I'm blocked on peer X" is advertised via `HEARTBEAT --state WAITING_ON_ROLE`. See [Concurrent Execution — Directed Coordination](concurrent-execution.md#directed-coordination) for the CLI syntax, message type guidance, and worked examples.
 
 #### Anti-Sycophancy Measures
 

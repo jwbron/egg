@@ -104,3 +104,81 @@ class TestResolveAlertsEndpoint:
         assert data["success"] is True
         assert data["resolved"] is True
         mock_monitor.resolve_alerts.assert_called_once_with("coder", "heartbeat_timeout")
+
+
+class TestHealthEndpointIsolationFromMessageStore:
+    """Issue #1897 TASK-4-3 (regression lock): ``GET /api/v1/health`` MUST
+    NOT import or invoke any ``MessageStore.*`` method.
+
+    Motivation: the health endpoint is the operator's fast path to detect
+    that the orchestrator is up. If it ever starts touching the message
+    store, a Redis outage or a saturated long-poll gauge would silently
+    make the pipeline "look unhealthy" to load balancers and trigger
+    cascading restarts. Separating the two concerns (liveness vs
+    application data plane) is a well-known SRE pattern; this test is
+    the regression lock so a future "helpful" refactor can't drop the
+    separation silently.
+
+    The test patches ``get_message_store`` to raise on ANY call and
+    confirms /api/v1/health still returns 200. If the endpoint is
+    refactored to call into MessageStore, the patched exception will
+    propagate and this test will fail — which is exactly the regression
+    signal we want.
+    """
+
+    @pytest.fixture
+    def client(self):
+        """Fresh test client with the health blueprint."""
+        from flask import Flask
+        from routes.health import health_bp
+
+        app = Flask(__name__)
+        app.register_blueprint(health_bp)
+        app.config["TESTING"] = True
+        return app.test_client()
+
+    def test_health_endpoint_does_not_touch_message_store(self, client):
+        """Patch MessageStore.* to raise; /api/v1/health must still 200.
+
+        Uses ``side_effect=RuntimeError`` on the singleton accessor so
+        any attempt to call into the message store (whether via
+        ``get_message_store()`` at module level or a direct
+        ``MessageStore()`` construction) surfaces as a crash.
+        """
+        err = RuntimeError(
+            "MessageStore MUST NOT be called from /api/v1/health — "
+            "see plan TASK-4-3 and test_health_endpoint_does_not_touch_message_store."
+        )
+        with (
+            patch("message_store.get_message_store", side_effect=err),
+            patch("message_store.MessageStore", side_effect=err),
+        ):
+            response = client.get("/api/v1/health")
+            assert response.status_code == 200, (
+                f"Health endpoint returned {response.status_code}; "
+                "it should not be affected by MessageStore failures."
+            )
+            # Body should be the standard liveness shape.
+            data = response.get_json()
+            assert data is not None
+            # At minimum a status field — exact shape is owned by the
+            # health route and may evolve; the invariant we're locking
+            # is "health works regardless of MessageStore".
+            assert "status" in data or "success" in data
+
+    def test_health_endpoint_does_not_block_on_inflight_long_polls(self, client):
+        """Defense in depth (plan TASK-4-3 related): /api/v1/health
+        must not depend on the in-flight-long-polls metric either.
+
+        If a load balancer probes /health every 5s but the metric gauge
+        is blocked waiting for a lock held by a long-poll, the whole
+        orchestrator would look unhealthy to load balancers. The health
+        endpoint must be fully independent of the long-poll tracking
+        path.
+        """
+        with patch(
+            "routes.messages._track_long_poll_start",
+            side_effect=RuntimeError("_track_long_poll_start MUST NOT be called from /health"),
+        ):
+            response = client.get("/api/v1/health")
+            assert response.status_code == 200

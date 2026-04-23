@@ -328,13 +328,29 @@ class HealthMonitor:
                 logger.error("Escalation callback error", error=str(e))
 
     def _on_message_sent(self, event: Event) -> None:
-        """Handle MESSAGE_SENT event — track message rate."""
+        """Handle MESSAGE_SENT event — track message rate and HEARTBEAT.
+
+        Issue #1897: HEARTBEAT is a first-class heartbeat signal, equivalent
+        to the legacy PROGRESS-type=heartbeat path in ``_on_progress``.  When
+        an agent emits a HEARTBEAT message we reset ``last_heartbeat`` and
+        clear ``heartbeat_escalated`` so Tier-1 alarms do not falsely trip
+        on agents that adopt the new heartbeat type (RISK-2 mitigation).
+
+        The legacy PROGRESS-heartbeat path remains as a fallback so existing
+        agents that haven't migrated keep working — follow-up issue will
+        remove it once HEARTBEAT adoption is 100%.
+        """
         if event.pipeline_id != self._pipeline_id:
             return
 
-        agent_id = event.data.get("agent_id")
+        # Accept both agent_id and from_role for compatibility — routes/messages.py
+        # emits MESSAGE_SENT events with ``from_role`` but the health monitor's
+        # per-agent state is keyed by ``agent_id``. Use from_role as fallback.
+        agent_id = event.data.get("agent_id") or event.data.get("from_role")
         if not agent_id:
             return
+
+        message_type = event.data.get("message_type", "")
 
         now = time.time()
         rate_limit = self._config.orchestrator_message_rate_limit
@@ -348,6 +364,12 @@ class HealthMonitor:
             agent.message_timestamps = [ts for ts in agent.message_timestamps if ts >= cutoff]
 
             count = len(agent.message_timestamps)
+
+            # HEARTBEAT resets last_heartbeat + clears escalation flag.
+            if message_type == "HEARTBEAT":
+                agent.last_heartbeat = now
+                self._last_heartbeat[agent_id] = now
+                agent.heartbeat_escalated = False
 
         if count > rate_limit:
             throttle_data = {

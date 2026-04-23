@@ -281,13 +281,46 @@ def cmd_serve(args: argparse.Namespace) -> int:
         # Use Flask's built-in server for development
         app.run(host=host, port=port, debug=True)
     else:
-        # Use waitress for production.
-        # 16 threads handles concurrent requests including Redis XREAD BLOCK
-        # long-polling (capped at 60s per request in messages.py). Waitress
-        # thread pool accommodates blocking I/O without requiring async workers.
+        # Use waitress for production.  Thread count comes from
+        # ``EGG_ORCH_WAITRESS_THREADS`` (default 16) via env_config —
+        # same place ``EGG_MESSAGE_POLL_MAX_WAIT`` is read from, so the
+        # two knobs stay in sync.  Values < 4 cause refuse-to-boot
+        # (sys.exit(EX_CONFIG)) so a silently-saturated pool doesn't
+        # mask the misconfiguration.  See plan TASK-4-1 and
+        # docs/reference/agent-wait-patterns.md §7.
+        #
+        # ``channel_timeout`` is set to 2× EGG_MESSAGE_POLL_MAX_WAIT so
+        # waitress does not close a long-poll socket before the
+        # request's own timeout fires.
         from waitress import serve
 
-        serve(app, host=host, port=port, threads=16)
+        try:
+            from env_config import (
+                get_message_poll_max_wait,
+                get_waitress_threads,
+            )
+        except ImportError:  # pragma: no cover
+            from .env_config import (  # type: ignore[no-redef,import-not-found]
+                get_message_poll_max_wait,
+                get_waitress_threads,
+            )
+        threads = get_waitress_threads()
+        poll_cap = get_message_poll_max_wait()
+        channel_timeout = max(poll_cap * 2 + 30, 120)
+        logger.info(
+            "Starting waitress server",
+            host=host,
+            port=port,
+            threads=threads,
+            channel_timeout=channel_timeout,
+        )
+        serve(
+            app,
+            host=host,
+            port=port,
+            threads=threads,
+            channel_timeout=channel_timeout,
+        )
 
     return 0
 

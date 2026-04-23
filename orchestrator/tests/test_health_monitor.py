@@ -2259,3 +2259,138 @@ class TestGraceAndBRCProgressInteraction:
         # Producer should NOT be escalated yet (within BRC timeout)
         brc_actions = [a for a in actions if a.get("alert_type") == "brc_confirmation_timeout"]
         assert len(brc_actions) == 0, "Producer within BRC timeout should not escalate"
+
+
+# ---------------------------------------------------------------------------
+# Tests: HEARTBEAT message wiring (issue #1897)
+# ---------------------------------------------------------------------------
+
+
+class TestHeartbeatMessageWiring:
+    """Issue #1897 RISK-2: a HEARTBEAT message must reset ``last_heartbeat``
+    and clear ``heartbeat_escalated`` so Tier-1 alarms do not falsely trip
+    when an agent migrates off the legacy PROGRESS-heartbeat path.
+
+    These tests exercise ``_on_message_sent`` — the new subscription that
+    treats ``message_type=HEARTBEAT`` as a heartbeat signal.  See
+    ``orchestrator/health_monitor.py``.
+    """
+
+    def test_heartbeat_message_resets_last_heartbeat(self):
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        # Prime the agent state via a legacy heartbeat so the agent is
+        # tracked.
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        # Fast-forward 61s — the agent should be escalatable.
+        with patch("health_monitor.time") as mock_time:
+            future = time.time() + 61
+            mock_time.time.return_value = future
+            # Emit a HEARTBEAT message — should reset last_heartbeat.
+            bus.emit(
+                EventType.MESSAGE_SENT,
+                pipeline_id=PIPELINE_ID,
+                data={
+                    "agent_id": AGENT_ID,
+                    "message_type": "HEARTBEAT",
+                    "from_role": AGENT_ID,
+                },
+            )
+            actions = monitor.check_heartbeats()
+        # No escalation after the HEARTBEAT reset last_heartbeat.
+        assert actions == []
+
+    def test_non_heartbeat_message_does_not_reset(self):
+        """A plain PROGRESS message should NOT reset the heartbeat clock
+        (otherwise normal bus traffic would silently mask stalls)."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        with patch("health_monitor.time") as mock_time:
+            future = time.time() + 61
+            mock_time.time.return_value = future
+            # Emit a PROGRESS message — should NOT reset last_heartbeat.
+            bus.emit(
+                EventType.MESSAGE_SENT,
+                pipeline_id=PIPELINE_ID,
+                data={
+                    "agent_id": AGENT_ID,
+                    "message_type": "PROGRESS",
+                    "from_role": AGENT_ID,
+                },
+            )
+            actions = monitor.check_heartbeats()
+        # Escalation must still fire because heartbeat is still stale.
+        assert len(actions) == 1
+        assert actions[0]["action"] == "escalate"
+
+    def test_heartbeat_message_clears_escalation_flag(self):
+        """After HEARTBEAT resets the clock, a new stall must re-escalate
+        (i.e. ``heartbeat_escalated`` was cleared by the HEARTBEAT)."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        # 1) agent is tracked.
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        # 2) first stall → escalate; sets heartbeat_escalated=True.
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 61
+            first = monitor.check_heartbeats()
+        assert len(first) == 1
+
+        # 3) HEARTBEAT arrives — should clear escalation flag.
+        t_after = time.time() + 70
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = t_after
+            bus.emit(
+                EventType.MESSAGE_SENT,
+                pipeline_id=PIPELINE_ID,
+                data={
+                    "agent_id": AGENT_ID,
+                    "message_type": "HEARTBEAT",
+                    "from_role": AGENT_ID,
+                },
+            )
+
+        # 4) stall again after another 61s — escalate again (flag was cleared).
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = t_after + 61
+            second = monitor.check_heartbeats()
+        assert len(second) == 1
+
+    def test_heartbeat_event_accepts_from_role_alias(self):
+        """routes/messages.py emits MESSAGE_SENT with ``from_role`` — the
+        health monitor must accept it as an ``agent_id`` alias so the
+        per-agent heartbeat state is keyed correctly regardless of
+        which field the emitter populates (see
+        orchestrator/health_monitor.py RISK-2 fallback)."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        # First tracking via legacy path so an entry exists.
+        _emit_heartbeat(bus, agent_id="coder")
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 61
+            bus.emit(
+                EventType.MESSAGE_SENT,
+                pipeline_id=PIPELINE_ID,
+                data={
+                    # Only from_role populated — no agent_id — simulating
+                    # the route's emit payload shape.
+                    "from_role": "coder",
+                    "message_type": "HEARTBEAT",
+                },
+            )
+            # No escalation because HEARTBEAT reset the clock.
+            actions = monitor.check_heartbeats()
+        assert actions == []

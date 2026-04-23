@@ -92,7 +92,7 @@ class TestFetchInterAgentMessagesSuccess:
                 "id": "msg-2",
                 "from_role": "tester",
                 "to_role": "coder",
-                "message_type": "QUESTION",
+                "message_type": "STATUS",
                 "subject": "Expected status?",
                 "body": "What HTTP code?",
                 "timestamp": "2026-03-11T10:05:00+00:00",
@@ -110,7 +110,7 @@ class TestFetchInterAgentMessagesSuccess:
         # Second message: received by coder
         assert result[1].direction == "received"
         assert result[1].from_role == "tester"
-        assert result[1].message_type == "QUESTION"
+        assert result[1].message_type == "STATUS"
 
     @patch.dict(os.environ, {"EGG_CONCURRENT_MODE": "true"}, clear=False)
     @patch("urllib.request.urlopen")

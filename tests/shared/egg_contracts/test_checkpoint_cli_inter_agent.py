@@ -74,7 +74,7 @@ class TestPrintCheckpointDetailsInterAgentMessages:
                 pipeline_id="issue-999",
                 from_role="tester",
                 to_role="coder",
-                message_type="QUESTION",
+                message_type="STATUS",
                 subject="Expected status?",
                 body="What code?",
                 timestamp=datetime(2026, 3, 11, 10, 5, 0, tzinfo=UTC),
@@ -117,7 +117,7 @@ class TestPrintCheckpointDetailsInterAgentMessages:
                 pipeline_id="issue-999",
                 from_role="tester",
                 to_role="coder",
-                message_type="QUESTION",
+                message_type="STATUS",
                 subject="Need help",
                 body="",
                 timestamp=datetime(2026, 3, 11, 10, 0, 0, tzinfo=UTC),
@@ -128,7 +128,7 @@ class TestPrintCheckpointDetailsInterAgentMessages:
         print_checkpoint_details(ckpt)
 
         output = capsys.readouterr().out
-        assert "<- tester: [QUESTION] Need help" in output
+        assert "<- tester: [STATUS] Need help" in output
 
     def test_message_type_grouping(self, capsys):
         """Should group messages by type with counts."""
@@ -150,7 +150,7 @@ class TestPrintCheckpointDetailsInterAgentMessages:
                 pipeline_id="issue-999",
                 from_role="tester",
                 to_role="coder",
-                message_type="QUESTION",
+                message_type="STATUS",
                 subject="Clarify",
                 timestamp=datetime(2026, 3, 11, 10, 5, 0, tzinfo=UTC),
                 direction="received",
@@ -161,7 +161,7 @@ class TestPrintCheckpointDetailsInterAgentMessages:
 
         output = capsys.readouterr().out
         assert "PROGRESS: 3" in output
-        assert "QUESTION: 1" in output
+        assert "STATUS: 1" in output
 
     def test_unknown_direction_shows_arrow_left(self, capsys):
         """Messages with unknown direction should show <- arrow."""

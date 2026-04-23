@@ -32,6 +32,9 @@ Commands:
     egg-orch container logs <pid> <cid>          Get container logs
     egg-orch message send <pid> --to <role> ...  Send inter-agent message (concurrent mode)
     egg-orch message poll <pid> ...              Poll for messages (concurrent mode)
+    egg-orch message wait <pid> --for TYPE ...   Block until typed event arrives
+    egg-orch message wait-loop <pid> --for TYPE  Loop message wait until match / cap
+    egg-orch message heartbeat <pid> --state X   Emit structured HEARTBEAT
     egg-orch message status <pid>                Get message bus status (concurrent mode)
     egg-orch signal readiness <pid> --state ...  Signal readiness state (concurrent mode)
     egg-orch consensus propose <pid> ...         Send BRC consensus proposal
@@ -1072,6 +1075,239 @@ def cmd_message_poll(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_message_wait(args: argparse.Namespace) -> int:
+    """Event-driven wait for a message of one or more types.
+
+    Issue #1897: the canonical blocking primitive for BRC coordination.
+    Agents should prefer this over ``message poll --wait`` with shell-level
+    retry loops.
+
+    Exit codes (contract):
+        0 — one or more matching messages returned (printed to stdout).
+        1 — timeout elapsed with no match.
+        2 — transient error (5xx, network hiccup, JSON parse failure).
+            Retrying is safe.
+        3 — permanent error (4xx other than 408, bad pipeline id,
+            argparse/config failure). Retrying will not help.
+    """
+    try:
+        pid = require_pipeline_id(args)
+    except SystemExit:
+        return 3
+    # require_pipeline_id validates but exits(1) — wrap semantics into 3.
+
+    role = args.role or get_agent_role_from_env()
+    params: list[tuple[str, str]] = []
+    for t in args.for_:
+        params.append(("for", t))
+    if role:
+        params.append(("role", role))
+    if getattr(args, "from_", None):
+        params.append(("from", args.from_))
+    if args.since:
+        params.append(("since_id", args.since))
+    if args.timeout is not None:
+        params.append(("timeout", str(args.timeout)))
+    if args.limit:
+        params.append(("limit", str(args.limit)))
+
+    endpoint = f"/api/v1/pipelines/{pid}/messages/wait"
+    if params:
+        endpoint += "?" + urlencode(params)
+
+    # Client timeout: add a generous buffer over the server's timeout so we
+    # don't time out the socket before the server answers.
+    server_timeout = args.timeout if args.timeout is not None else 60
+    client_timeout = server_timeout + 10
+
+    try:
+        result = api_request(get_orchestrator_url(), endpoint, "GET", None, client_timeout)
+    except ApiError as e:
+        if e.status_code is not None and 400 <= e.status_code < 500 and e.status_code != 408:
+            print(f"Error: {e.message}", file=sys.stderr)
+            return 3
+        # Transient (5xx, 408, connection errors)
+        print(f"Transient error: {e.message}", file=sys.stderr)
+        return 2
+    except Exception as e:  # pragma: no cover - defensive
+        print(f"Unexpected error: {e}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        print_json(result)
+    data = result.get("data", {}) if isinstance(result, dict) else {}
+    messages = data.get("messages", [])
+    matched = bool(data.get("matched")) or bool(messages)
+
+    if not args.json:
+        if matched:
+            for msg in messages:
+                ts = msg.get("timestamp", "")[:19]
+                from_r = msg.get("from_role", "?")
+                to_r = msg.get("to_role", "?")
+                mtype = msg.get("message_type", "?")
+                subject = msg.get("subject", "")
+                print(f"  [{ts}] {from_r} -> {to_r} ({mtype}): {subject}")
+                body = msg.get("body", "")
+                if body:
+                    indented = body.replace("\n", "\n    ")
+                    print(f"    {indented}")
+            print(f"\n{len(messages)} message(s) matched")
+
+    return 0 if matched else 1
+
+
+def cmd_message_wait_loop(args: argparse.Namespace) -> int:
+    """Canonical wait-loop convenience command (issue #1897).
+
+    Loops **forever** until a matching message arrives (exit 0, prints
+    the message) OR a permanent error occurs (exit 1).  The outer
+    timeout is intentional — BRC consensus can legitimately take hours
+    on long phases, and an agent wrapping this in its own outer loop
+    would defeat the purpose.
+
+    Exit codes (wrapper contract, DIFFERENT from ``message wait``):
+
+      * 0 — a matching message arrived; it is printed to stdout.
+      * 1 — a permanent error occurred (bad pipeline id, auth, argparse
+        misuse propagated from an inner ``message wait`` rc=3).
+        Callers should NOT retry.
+
+    Transient errors (rc=2 from the inner call) are retried with short
+    exponential backoff (cap 5s).  Timeouts (rc=1) re-enter the loop
+    with a fresh inner call so the agent keeps blocking on the next
+    event.
+
+    ``--max-iterations`` is a safety valve only — its default is
+    effectively unbounded (``sys.maxsize``) so normal BRC consensus
+    never trips it.  The CLI help advertises it as "loops forever by
+    default".
+    """
+    import time as _time
+
+    # --json is not supported on wait-loop (produces concatenated JSON
+    # objects on stdout across iterations). Force it off so the inner
+    # cmd_message_wait call doesn't try to print JSON.
+    args.json = False
+
+    max_iter = args.max_iterations
+    if max_iter is None or max_iter <= 0:
+        max_iter = sys.maxsize
+    backoff = 1.0
+    for _ in range(max_iter):
+        rc = cmd_message_wait(args)
+        if rc == 0:
+            return 0
+        if rc == 3:
+            # Inner permanent failure — surface as outer rc=1. The
+            # wait-loop wrapper owns the 0/1 outward contract per plan
+            # TASK-2-4 and the tester fixture at
+            # sandbox/tests/test_message_wait_cli.py::test_exits_one_on_permanent_error.
+            # Callers that need to distinguish permanent from timeout
+            # should use `egg-orch message wait` directly (not the loop).
+            return 1
+        if rc == 2:
+            _time.sleep(min(backoff, 5.0))
+            backoff = min(backoff * 2, 5.0)
+            continue
+        # rc == 1: timeout — keep looping.
+        backoff = 1.0
+    # Safety cap tripped — extraordinarily unlikely with the default
+    # sys.maxsize cap. Return 1 (no match) so callers behave the same
+    # as a bounded-retry timeout.
+    return 1
+
+
+def cmd_message_heartbeat(args: argparse.Namespace) -> int:
+    """Emit a structured HEARTBEAT message (issue #1897).
+
+    POSTs to the dedicated ``/api/v1/pipelines/{id}/heartbeat`` endpoint
+    which handles schema validation, per-role dedup, and the
+    ``EGG_HEARTBEAT_RATE_LIMIT`` 429 response.  HTTP 429 is treated as
+    a rate-limit error (exit 3 per the CLI contract — caller should
+    honour the server's suggested ``retry_after``).
+    """
+    try:
+        pid = require_pipeline_id(args)
+    except SystemExit:
+        return 3
+
+    role = args.role or get_agent_role_from_env()
+    if not role:
+        print("Error: --role required or set EGG_AGENT_ROLE", file=sys.stderr)
+        return 3
+
+    if args.state not in {"WORKING", "WAITING_ON_ROLE", "PROPOSED", "IDLE"}:
+        print(f"Error: invalid --state={args.state!r}", file=sys.stderr)
+        return 3
+    if args.state == "WAITING_ON_ROLE" and not args.waiting_on:
+        print(
+            "Error: --state=WAITING_ON_ROLE requires --waiting-on <role>",
+            file=sys.stderr,
+        )
+        return 3
+
+    # Body schema: flat ``{from_role, state, waiting_on?, since?, body?}``.
+    # This is what the dedicated ``POST /heartbeat`` route expects
+    # (routes/messages.py) and matches the tester fixtures at
+    # sandbox/tests/test_message_wait_cli.py::TestHeartbeat. The earlier
+    # nested ``metadata`` form was dead bytes on the wire (the server
+    # never read it) — reviewer_code blocker 3 on #1897 proposal v4.
+    data: dict[str, Any] = {
+        "from_role": role,
+        "state": args.state,
+    }
+    if args.waiting_on:
+        data["waiting_on"] = args.waiting_on
+    if args.since:
+        data["since"] = args.since
+    if args.body:
+        data["body"] = args.body
+
+    try:
+        result = api_request(
+            get_orchestrator_url(),
+            f"/api/v1/pipelines/{pid}/heartbeat",
+            "POST",
+            data,
+            15,
+        )
+    except ApiError as e:
+        # 429 rate-limit is a permanent error from this invocation's
+        # perspective — caller should honour retry_after and try again
+        # later.
+        if e.status_code == 429:
+            retry_after = 60
+            try:
+                if e.details and isinstance(e.details, dict):
+                    retry_after = int(e.details.get("retry_after", 60))
+            except (TypeError, ValueError):
+                pass
+            print(
+                f"Error: HEARTBEAT rate limit exceeded; retry after {retry_after}s.",
+                file=sys.stderr,
+            )
+            return 3
+        if e.status_code and 400 <= e.status_code < 500 and e.status_code != 408:
+            print(f"Error: {e.message}", file=sys.stderr)
+            return 3
+        print(f"Transient error: {e.message}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        print_json(result)
+        return 0 if result.get("success") else 1
+    if result.get("success"):
+        deduped = bool(result.get("data", {}).get("deduped"))
+        if deduped:
+            print(f"HEARTBEAT deduped (unchanged state {args.state})")
+        else:
+            print(f"HEARTBEAT sent: {args.state}")
+        return 0
+    print(f"Error: {result.get('message')}", file=sys.stderr)
+    return 1
+
+
 def cmd_message_status(args: argparse.Namespace) -> int:
     """Get message bus status."""
     pid = require_pipeline_id(args)
@@ -1859,8 +2095,16 @@ def create_parser() -> argparse.ArgumentParser:
     msg_send.add_argument(
         "--type",
         required=True,
-        choices=["PROGRESS", "QUESTION", "STATUS", "HANDOFF"],
-        help="Message type (PROGRESS, QUESTION, STATUS, HANDOFF)",
+        choices=["PROGRESS", "STATUS", "HANDOFF", "HEARTBEAT"],
+        help=(
+            "Message type (PROGRESS, STATUS, HANDOFF, HEARTBEAT). "
+            "QUESTION was removed in issue #1897 — put clarifying "
+            "questions in a NACK --reason block marked "
+            '"### Non-blocking" so the producer sees them with the '
+            "verdict.  For HEARTBEAT prefer the dedicated "
+            "`message heartbeat` subcommand (schema validation + "
+            "rate limit + dedup)."
+        ),
     )
     msg_send.add_argument("--subject", help="Message subject")
     msg_send.add_argument("--body", help="Message body")
@@ -1878,6 +2122,116 @@ def create_parser() -> argparse.ArgumentParser:
     )
     _add_json_flag(msg_poll)
     msg_poll.set_defaults(func=cmd_message_poll)
+
+    # message wait — typed event-driven blocking primitive (issue #1897)
+    msg_wait = msg_sub.add_parser(
+        "wait",
+        help="Block until a message of one or more types arrives",
+        description=(
+            "Block on a typed BRC event.  Exit 0 = matched, "
+            "1 = timeout, 2 = transient (retry ok), "
+            "3 = permanent.  Prefer this over shell retry loops."
+        ),
+    )
+    msg_wait.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    msg_wait.add_argument(
+        "--for",
+        dest="for_",
+        action="append",
+        required=True,
+        help="Message type to wait for (repeatable, required)",
+    )
+    msg_wait.add_argument("--role", help="Filter for role (default: EGG_AGENT_ROLE)")
+    msg_wait.add_argument("--from", dest="from_", help="Filter by sender role")
+    msg_wait.add_argument("--since", help="Return messages after this ID")
+    msg_wait.add_argument("--limit", type=int, help="Max messages")
+    msg_wait.add_argument(
+        "--timeout",
+        type=int,
+        default=60,
+        help="Server-side block timeout in seconds (clamped by "
+        "EGG_MESSAGE_POLL_MAX_WAIT, default 60)",
+    )
+    _add_json_flag(msg_wait)
+    msg_wait.set_defaults(func=cmd_message_wait)
+
+    # message wait-loop — canonical idiom for BRC stay-alive polling
+    msg_wait_loop = msg_sub.add_parser(
+        "wait-loop",
+        help="Loop message wait until matched or max iterations reached",
+        description=(
+            "Convenience wrapper: call `message wait` in a loop until a "
+            "match arrives (exit 0), max-iterations is hit (exit 1), or a "
+            "permanent error occurs (exit 3).  Agents should invoke this "
+            "instead of shelling out their own while-loop."
+        ),
+    )
+    msg_wait_loop.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    msg_wait_loop.add_argument(
+        "--for",
+        dest="for_",
+        action="append",
+        required=True,
+        help="Message type to wait for (repeatable, required)",
+    )
+    msg_wait_loop.add_argument("--role", help="Filter for role (default: EGG_AGENT_ROLE)")
+    msg_wait_loop.add_argument("--from", dest="from_", help="Filter by sender role")
+    msg_wait_loop.add_argument("--since", help="Return messages after this ID")
+    msg_wait_loop.add_argument("--limit", type=int, help="Max messages")
+    msg_wait_loop.add_argument(
+        "--timeout",
+        type=int,
+        default=60,
+        help="Per-call block timeout in seconds",
+    )
+    msg_wait_loop.add_argument(
+        "--max-iterations",
+        type=int,
+        default=None,
+        help=(
+            "Safety cap on outer-loop iterations.  **Loops forever by "
+            "default** (value is effectively unbounded unless set) so "
+            "normal BRC consensus never trips it.  Set to a positive "
+            "integer only for test harnesses or deterministic "
+            "reproductions."
+        ),
+    )
+    # --json is intentionally NOT supported on wait-loop: the loop calls
+    # cmd_message_wait repeatedly, and each timeout iteration would print
+    # a JSON object to stdout, producing concatenated invalid JSON.
+    # Use ``egg-orch message wait --json`` directly for single-shot JSON.
+    msg_wait_loop.set_defaults(func=cmd_message_wait_loop)
+
+    # message heartbeat — emit a structured HEARTBEAT (issue #1897)
+    msg_hb = msg_sub.add_parser(
+        "heartbeat",
+        help="Emit a structured HEARTBEAT state message",
+        description=(
+            "Emit a HEARTBEAT with a required --state "
+            "(WORKING|WAITING_ON_ROLE|PROPOSED|IDLE). "
+            "--state WAITING_ON_ROLE requires --waiting-on."
+        ),
+    )
+    msg_hb.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    msg_hb.add_argument("--role", help="Sender role (default: EGG_AGENT_ROLE)")
+    msg_hb.add_argument(
+        "--state",
+        required=True,
+        choices=["WORKING", "WAITING_ON_ROLE", "PROPOSED", "IDLE"],
+        help="Agent state",
+    )
+    msg_hb.add_argument(
+        "--waiting-on",
+        dest="waiting_on",
+        help="Peer role the agent is waiting on (required for WAITING_ON_ROLE)",
+    )
+    msg_hb.add_argument(
+        "--since",
+        help="Optional ISO-8601 / epoch timestamp naming when the current state began",
+    )
+    msg_hb.add_argument("--body", help="Free-form body text")
+    _add_json_flag(msg_hb)
+    msg_hb.set_defaults(func=cmd_message_heartbeat)
 
     # message status
     msg_status = msg_sub.add_parser("status", help="Message bus status")
