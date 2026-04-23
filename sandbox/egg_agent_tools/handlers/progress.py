@@ -15,9 +15,7 @@ from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 def _require_pipeline_id(req: dict[str, Any]) -> str:
     pid = req.get("pipeline_id") or get_pipeline_id()
     if not pid:
-        raise HandlerError(
-            "pipeline_id required. Set EGG_PIPELINE_ID or pass 'pipeline_id'."
-        )
+        raise HandlerError("pipeline_id required. Set EGG_PIPELINE_ID or pass 'pipeline_id'.")
     return pid
 
 
@@ -65,9 +63,7 @@ def progress_emit(req: dict[str, Any]) -> dict[str, Any]:
     if req.get("blocker"):
         data["blocker"] = req["blocker"]
 
-    result = orchestrator_request(
-        f"/api/v1/pipelines/{pid}/progress", method="POST", data=data
-    )
+    result = orchestrator_request(f"/api/v1/pipelines/{pid}/progress", method="POST", data=data)
     if not result.get("success"):
         raise GatewayError(result.get("message", "progress emit failed"))
     event = result.get("data", {}).get("event", {})
@@ -102,9 +98,7 @@ def progress_signal_error(req: dict[str, Any]) -> dict[str, Any]:
         "error": error,
         "recoverable": recoverable,
     }
-    result = orchestrator_request(
-        f"/api/v1/pipelines/{pid}/signal", method="POST", data=data
-    )
+    result = orchestrator_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
     if not result.get("success"):
         raise GatewayError(result.get("message", "error signal failed"))
     return {"ok": True, "role": role, "signal": result}
@@ -120,9 +114,7 @@ def progress_heartbeat(req: dict[str, Any]) -> dict[str, Any]:
     role = _require_role(req)
 
     data = {"signal_type": "heartbeat", "agent_role": role}
-    result = orchestrator_request(
-        f"/api/v1/pipelines/{pid}/signal", method="POST", data=data
-    )
+    result = orchestrator_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
     if not result.get("success"):
         raise GatewayError(result.get("message", "heartbeat failed"))
     return {"ok": True, "role": role, "signal": result}

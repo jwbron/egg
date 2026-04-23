@@ -51,21 +51,15 @@ def _group_by_namespace() -> dict[str, list[str]]:
 TOOL_NAMESPACES: dict[str, list[str]] = _group_by_namespace()
 
 NAMESPACE_DESCRIPTIONS: dict[str, str] = {
-    "sdlc": (
-        "register a HITL decision, request open-ended feedback, "
-        "and check for human answers"
-    ),
+    "sdlc": ("register a HITL decision, request open-ended feedback, and check for human answers"),
     "brc": (
-        "drive Broadcast-Review-Converge consensus: propose, ACK, "
-        "NACK, confirm, and inspect state"
+        "drive Broadcast-Review-Converge consensus: propose, ACK, NACK, confirm, and inspect state"
     ),
     "phase": (
         "look up your phase context (role, pipeline, assigned tasks, "
         "prior-phase artifacts) and task list"
     ),
-    "progress": (
-        "emit structured progress updates, error signals, or heartbeats"
-    ),
+    "progress": ("emit structured progress updates, error signals, or heartbeats"),
     "task": "mark a contract task complete and link a commit",
 }
 

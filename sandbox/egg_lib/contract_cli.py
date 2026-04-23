@@ -38,6 +38,7 @@ from egg_lib.config import GATEWAY_PORT
 try:
     from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 except ImportError:  # pragma: no cover - only during partial bootstraps
+
     class HandlerError(Exception):  # type: ignore[no-redef]
         def __init__(self, message: str, *, details: Any = None, exit_code: int = 1) -> None:
             super().__init__(message)
@@ -57,6 +58,7 @@ except ImportError:  # pragma: no cover - only during partial bootstraps
             super().__init__(message, details=details)
             self.status_code = status_code
             self.hint = hint
+
 
 # Regex for validating git commit SHAs (7-40 hex characters)
 COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
@@ -329,9 +331,7 @@ def _render_gateway_error_and_exit(err: GatewayError) -> int:
     print(f"Error: {err.message}", file=sys.stderr)
     if err.details:
         try:
-            print(
-                f"Details: {json.dumps(err.details, indent=2)}", file=sys.stderr
-            )
+            print(f"Details: {json.dumps(err.details, indent=2)}", file=sys.stderr)
         except (TypeError, ValueError):
             pass
     if err.hint:

@@ -1364,9 +1364,7 @@ def cmd_consensus_propose(args: argparse.Namespace) -> int:
         }
         # Resolve commit SHA fallback even for --file so the handler
         # can default to HEAD when the payload omits it.
-        commit_sha = file_payload.get("commit_sha") or getattr(
-            args, "commit_sha", None
-        )
+        commit_sha = file_payload.get("commit_sha") or getattr(args, "commit_sha", None)
         if commit_sha:
             req["commit_sha"] = commit_sha
     else:

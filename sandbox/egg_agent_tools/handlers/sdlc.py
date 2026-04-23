@@ -40,9 +40,7 @@ def _fetch_contract(identifier: int | str, repo_path: str | None) -> dict[str, A
     if cid:
         params["container_id"] = cid
 
-    result = gateway_request(
-        f"/api/v1/contract/{identifier}", params=params or None
-    )
+    result = gateway_request(f"/api/v1/contract/{identifier}", params=params or None)
     if not result.get("success"):
         raise GatewayError(result.get("message", "contract fetch failed"))
     return result.get("data", {})  # type: ignore[no-any-return]
@@ -68,9 +66,7 @@ def register_open_question(req: dict[str, Any]) -> dict[str, Any]:
         raise HandlerError("'question' is required")
     phase = req.get("phase")
     if phase is not None and phase not in _VALID_PHASES:
-        raise HandlerError(
-            f"'phase' must be one of {sorted(_VALID_PHASES)}; got {phase!r}"
-        )
+        raise HandlerError(f"'phase' must be one of {sorted(_VALID_PHASES)}; got {phase!r}")
     options = list(req.get("options") or [])
     repo_path = req.get("repo_path") or get_repo_path()
 
@@ -105,10 +101,7 @@ def register_open_question(req: dict[str, Any]) -> dict[str, Any]:
         "debounce_until": None,
     }
 
-    reason = (
-        f"Created HITL decision: {question[:50]}"
-        + ("..." if len(question) > 50 else "")
-    )
+    reason = f"Created HITL decision: {question[:50]}" + ("..." if len(question) > 50 else "")
     result = gateway_request(
         "/api/v1/contract/mutate",
         method="POST",

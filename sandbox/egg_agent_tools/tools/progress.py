@@ -21,9 +21,7 @@ _PROGRESS_SCHEMA: dict[str, Any] = {
         "state": {
             "type": "string",
             "enum": ["working", "blocked", "complete"],
-            "description": (
-                "Progress state — one of working/blocked/complete"
-            ),
+            "description": ("Progress state — one of working/blocked/complete"),
         },
         "detail": {"type": "string", "description": "Optional free-form detail"},
         "blocker": {
@@ -83,8 +81,7 @@ async def progress_signal_error(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "heartbeat",
-    "Send a heartbeat signal to the orchestrator. Prefer this over "
-    "'egg-orch signal heartbeat'.",
+    "Send a heartbeat signal to the orchestrator. Prefer this over 'egg-orch signal heartbeat'.",
     _HEARTBEAT_SCHEMA,
 )
 async def progress_heartbeat(args: dict[str, Any]) -> dict[str, Any]:

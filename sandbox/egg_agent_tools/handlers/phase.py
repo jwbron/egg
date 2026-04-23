@@ -38,9 +38,7 @@ def _fetch_contract(identifier: int | str, repo_path: str | None) -> dict[str, A
     cid = get_container_id()
     if cid:
         params["container_id"] = cid
-    result = gateway_request(
-        f"/api/v1/contract/{identifier}", params=params or None
-    )
+    result = gateway_request(f"/api/v1/contract/{identifier}", params=params or None)
     if not result.get("success"):
         raise GatewayError(result.get("message", "contract fetch failed"))
     return result.get("data", {})  # type: ignore[no-any-return]

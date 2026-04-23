@@ -244,9 +244,7 @@ async def run_agent_async(
             # append semantics are not defined).
             existing_prompt = options.system_prompt
             if isinstance(existing_prompt, str) and existing_prompt:
-                options.system_prompt = (
-                    existing_prompt.rstrip() + "\n\n" + SYSTEM_PROMPT_NUDGE
-                )
+                options.system_prompt = existing_prompt.rstrip() + "\n\n" + SYSTEM_PROMPT_NUDGE
             else:
                 options.system_prompt = SYSTEM_PROMPT_NUDGE
             logger.info(

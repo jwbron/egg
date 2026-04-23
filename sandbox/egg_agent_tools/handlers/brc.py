@@ -17,18 +17,14 @@ from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 def _require_pipeline_id(req: dict[str, Any]) -> str:
     pid = req.get("pipeline_id") or get_pipeline_id()
     if not pid:
-        raise HandlerError(
-            "pipeline_id required. Set EGG_PIPELINE_ID or pass 'pipeline_id'."
-        )
+        raise HandlerError("pipeline_id required. Set EGG_PIPELINE_ID or pass 'pipeline_id'.")
     return pid
 
 
 def _require_role(req: dict[str, Any]) -> str:
     role = req.get("role") or get_agent_role()
     if not role:
-        raise HandlerError(
-            "role required. Set EGG_AGENT_ROLE or pass 'role'."
-        )
+        raise HandlerError("role required. Set EGG_AGENT_ROLE or pass 'role'.")
     return role
 
 
@@ -47,9 +43,7 @@ def _resolve_head_sha() -> str:
             stderr=subprocess.DEVNULL,
         ).strip()
     except (subprocess.CalledProcessError, FileNotFoundError) as exc:
-        raise HandlerError(
-            "'commit_sha' not provided and could not resolve HEAD"
-        ) from exc
+        raise HandlerError("'commit_sha' not provided and could not resolve HEAD") from exc
 
 
 def brc_propose(req: dict[str, Any]) -> dict[str, Any]:
@@ -81,9 +75,7 @@ def brc_propose(req: dict[str, Any]) -> dict[str, Any]:
     if raw_payload and not isinstance(raw_payload, dict):
         raise HandlerError("'raw_payload' must be a dict if provided")
 
-    summary = req.get("summary") or (
-        raw_payload.get("summary") if raw_payload else None
-    )
+    summary = req.get("summary") or (raw_payload.get("summary") if raw_payload else None)
     if not summary or not isinstance(summary, str):
         raise HandlerError("'summary' is required")
 
@@ -99,12 +91,8 @@ def brc_propose(req: dict[str, Any]) -> dict[str, Any]:
     payload.update(
         {
             "summary": summary,
-            "attestation": req.get("attestation")
-            or payload.get("attestation")
-            or {},
-            "artifacts": list(
-                req.get("artifacts") or payload.get("artifacts") or []
-            ),
+            "attestation": req.get("attestation") or payload.get("attestation") or {},
+            "artifacts": list(req.get("artifacts") or payload.get("artifacts") or []),
             "risk_considered": (
                 req.get("risk_considered")
                 or req.get("risk")
@@ -113,12 +101,8 @@ def brc_propose(req: dict[str, Any]) -> dict[str, Any]:
                 or ""
             ),
             "commit_sha": commit_sha,
-            "files_changed": list(
-                req.get("files_changed") or payload.get("files_changed") or []
-            ),
-            "tests_run": list(
-                req.get("tests_run") or payload.get("tests_run") or []
-            ),
+            "files_changed": list(req.get("files_changed") or payload.get("files_changed") or []),
+            "tests_run": list(req.get("tests_run") or payload.get("tests_run") or []),
             "tasks_satisfied": list(
                 req.get("tasks")
                 or req.get("tasks_satisfied")
@@ -136,9 +120,7 @@ def brc_propose(req: dict[str, Any]) -> dict[str, Any]:
     if req.get("changed_artifacts"):
         data["changed_artifacts"] = list(req["changed_artifacts"])
 
-    result = orchestrator_request(
-        f"/api/v1/pipelines/{pid}/signal", method="POST", data=data
-    )
+    result = orchestrator_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
     if not result.get("success"):
         raise GatewayError(result.get("message", "propose failed"))
 
@@ -174,9 +156,7 @@ def brc_ack(req: dict[str, Any]) -> dict[str, Any]:
             "reason": reason,
         },
     }
-    result = orchestrator_request(
-        f"/api/v1/pipelines/{pid}/signal", method="POST", data=data
-    )
+    result = orchestrator_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
     if not result.get("success"):
         raise GatewayError(result.get("message", "ack failed"))
     return {"ok": True, "role": role, "producer_role": producer_role, "signal": result}
@@ -209,9 +189,7 @@ def brc_nack(req: dict[str, Any]) -> dict[str, Any]:
             "artifact_references": list(req.get("files_reviewed") or []),
         },
     }
-    result = orchestrator_request(
-        f"/api/v1/pipelines/{pid}/signal", method="POST", data=data
-    )
+    result = orchestrator_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
     if not result.get("success"):
         raise GatewayError(result.get("message", "nack failed"))
     return {"ok": True, "role": role, "producer_role": producer_role, "signal": result}
@@ -234,9 +212,7 @@ def brc_confirm(req: dict[str, Any]) -> dict[str, Any]:
         "signal_type": "consensus_confirmed",
         "agent_role": role,
     }
-    result = orchestrator_request(
-        f"/api/v1/pipelines/{pid}/signal", method="POST", data=data
-    )
+    result = orchestrator_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
     if not result.get("success"):
         raise GatewayError(result.get("message", "confirm failed"))
     body = result.get("data", {})
@@ -286,8 +262,6 @@ def brc_list_blocking(req: dict[str, Any]) -> dict[str, Any]:
     """
     pid = _require_pipeline_id(req)
     result = orchestrator_request(f"/api/v1/pipelines/{pid}/status")
-    consensus = (
-        result.get("data", {}).get("concurrent", {}).get("consensus", {})
-    )
+    consensus = result.get("data", {}).get("concurrent", {}).get("consensus", {})
     blocking = list(consensus.get("blocking_agents", []) or [])
     return {"ok": True, "blocking_agents": blocking}

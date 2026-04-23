@@ -45,9 +45,7 @@ def _render_nudge() -> str:
         "Available tool namespaces:",
     ]
     for namespace in sorted(TOOL_NAMESPACES):
-        desc = NAMESPACE_DESCRIPTIONS.get(
-            namespace, f"operations in the {namespace} namespace"
-        )
+        desc = NAMESPACE_DESCRIPTIONS.get(namespace, f"operations in the {namespace} namespace")
         lines.append(f"- `mcp__{namespace}__*` — {desc}.")
     lines.append("")
     lines.append(
@@ -65,11 +63,7 @@ SYSTEM_PROMPT_NUDGE: str = _render_nudge()
 
 def _tools_for_namespace(namespace: str) -> list[Any]:
     """Collect the SDK tool objects registered under a namespace."""
-    return [
-        reg.sdk_tool
-        for reg in TOOL_REGISTRY.values()
-        if reg.namespace == namespace
-    ]
+    return [reg.sdk_tool for reg in TOOL_REGISTRY.values() if reg.namespace == namespace]
 
 
 def build_sandbox_mcp_server(

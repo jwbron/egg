@@ -423,9 +423,7 @@ class TestConsensusProposeWithPush:
 
         with (
             patch("egg_lib.orch_cli._consensus_push", return_value=1),
-            patch(
-                "egg_agent_tools.handlers.brc.orchestrator_request"
-            ) as mock_request,
+            patch("egg_agent_tools.handlers.brc.orchestrator_request") as mock_request,
         ):
             result = cmd_consensus_propose(args)
             assert result == 1

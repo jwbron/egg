@@ -34,9 +34,7 @@ def _parse_task_id(task_id: str) -> tuple[int, int]:
     lower = task_id.lower()
     stripped = lower.removeprefix("task-")
     if stripped == lower:
-        raise HandlerError(
-            f"Invalid task ID '{task_id}': expected format 'task-N' or 'task-P-T'"
-        )
+        raise HandlerError(f"Invalid task ID '{task_id}': expected format 'task-N' or 'task-P-T'")
     parts = stripped.split("-")
     try:
         if len(parts) == 1:
@@ -56,9 +54,7 @@ def _parse_task_id(task_id: str) -> tuple[int, int]:
 
 def _validate_commit_sha(commit: str) -> str:
     if not _COMMIT_SHA_PATTERN.match(commit):
-        raise HandlerError(
-            f"Invalid commit SHA '{commit}': expected 7-40 hexadecimal characters"
-        )
+        raise HandlerError(f"Invalid commit SHA '{commit}': expected 7-40 hexadecimal characters")
     return commit
 
 

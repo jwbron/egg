@@ -132,8 +132,7 @@ async def brc_propose(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "ack",
-    "ACK a producer's proposal (reviewer side). Prefer this over "
-    "'egg-orch consensus ack'.",
+    "ACK a producer's proposal (reviewer side). Prefer this over 'egg-orch consensus ack'.",
     _ACK_SCHEMA,
 )
 async def brc_ack(args: dict[str, Any]) -> dict[str, Any]:
@@ -173,8 +172,7 @@ async def brc_get_state(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "list_blocking",
-    "Return the agent roles currently blocking consensus. Derived view of the "
-    "BRC state.",
+    "Return the agent roles currently blocking consensus. Derived view of the BRC state.",
     _LIST_BLOCKING_SCHEMA,
 )
 async def brc_list_blocking(args: dict[str, Any]) -> dict[str, Any]:
