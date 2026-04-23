@@ -5241,14 +5241,67 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
     try:
         if is_streaming:
             # Stream SSE response using httpx's send() with stream=True
-            # This gives us direct control over the response lifecycle
-            http_request = client.build_request(
-                "POST",
-                "/v1/messages",
-                headers=headers,
-                content=request_body,
-            )
-            upstream = client.send(http_request, stream=True)
+            # This gives us direct control over the response lifecycle.
+            #
+            # Resilience against upstream ECONNRESET (see #1907):
+            #
+            #   (A) Pre-stream retry: open the stream and peek the first body
+            #       chunk eagerly. If httpx.ReadError / RemoteProtocolError
+            #       fires before any byte has reached downstream (typical for
+            #       stale keepalive connections the pool hands us), we close
+            #       the failed upstream and retry once with a fresh request.
+            #       This is transparent to the agent.
+            #
+            #   (B) Mid-stream graceful close: handled inside generate()
+            #       below — once bytes have flowed, retrying would produce
+            #       duplicate partial output (no resume semantics), so we
+            #       instead emit a terminating `event: error` SSE envelope so
+            #       the agent sees a well-formed error instead of a truncated
+            #       stream + fatal socket-closed crash.
+            MAX_PRE_STREAM_RETRIES = 1
+            upstream = None
+            iterator = None
+            first_chunk: bytes = b""
+            attempts = 0
+            while True:
+                http_request = client.build_request(
+                    "POST",
+                    "/v1/messages",
+                    headers=headers,
+                    content=request_body,
+                )
+                try:
+                    upstream = client.send(http_request, stream=True)
+                    iterator = upstream.iter_bytes()
+                    try:
+                        first_chunk = next(iterator)
+                    except StopIteration:
+                        first_chunk = b""
+                    break
+                except (httpx.ReadError, httpx.RemoteProtocolError) as e:
+                    if upstream is not None:
+                        try:
+                            upstream.close()
+                        except Exception:
+                            pass
+                        upstream = None
+                        iterator = None
+                    if attempts < MAX_PRE_STREAM_RETRIES:
+                        attempts += 1
+                        logger.info(
+                            "upstream_reset_retry",
+                            attempt=attempts,
+                            error=str(e),
+                            error_type=type(e).__name__,
+                        )
+                        continue
+                    # Exhausted retries — re-raise so the outer handler
+                    # returns a 502 JSON error payload instead of a
+                    # truncated stream.
+                    raise
+
+            assert upstream is not None and iterator is not None
+
             response_headers = _filter_response_headers(upstream.headers)
             # Forward actual Content-Type from upstream (usually text/event-stream)
             content_type = upstream.headers.get("content-type", "text/event-stream")
@@ -5267,24 +5320,60 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
             bytes_seen = 0
             capture_truncated = False
 
-            def generate() -> Any:
+            # SSE terminator emitted when the upstream resets mid-stream.
+            # Matches Anthropic's `event: error` envelope convention so the
+            # SDK routes it through its normal error path instead of the
+            # fatal "connection closed unexpectedly" path.
+            MIDSTREAM_RESET_SSE = (
+                b"event: error\n"
+                b'data: {"type":"error","error":{"type":"api_error",'
+                b'"message":"upstream connection reset"}}\n\n'
+            )
+
+            def _feed_and_track(chunk: bytes) -> None:
                 nonlocal bytes_seen, capture_truncated
+                if not chunk:
+                    return
+                if accumulator is not None and not capture_truncated:
+                    if bytes_seen + len(chunk) <= MAX_CAPTURE_SIZE:
+                        accumulator.feed(chunk)
+                        bytes_seen += len(chunk)
+                    else:
+                        capture_truncated = True
+                        logger.debug(
+                            "Streaming capture truncated due to size limit",
+                            container_id=container_id,
+                            size_limit=MAX_CAPTURE_SIZE,
+                        )
+
+            def generate() -> Any:
                 try:
-                    for chunk in upstream.iter_bytes():
-                        if accumulator is not None and not capture_truncated:
-                            if bytes_seen + len(chunk) <= MAX_CAPTURE_SIZE:
-                                accumulator.feed(chunk)
-                                bytes_seen += len(chunk)
-                            else:
-                                capture_truncated = True
-                                logger.debug(
-                                    "Streaming capture truncated due to size limit",
-                                    container_id=container_id,
-                                    size_limit=MAX_CAPTURE_SIZE,
-                                )
-                        yield chunk
+                    # Yield the peeked first chunk first so downstream sees
+                    # an unbroken stream despite the eager peek.
+                    if first_chunk:
+                        _feed_and_track(first_chunk)
+                        yield first_chunk
+                    try:
+                        for chunk in iterator:
+                            _feed_and_track(chunk)
+                            yield chunk
+                    except (httpx.ReadError, httpx.RemoteProtocolError) as e:
+                        # Mid-stream reset: re-issuing would duplicate partial
+                        # output (Anthropic has no resume semantics), so emit
+                        # a well-formed terminating error event and return.
+                        logger.warning(
+                            "upstream_reset_midstream",
+                            error=str(e),
+                            error_type=type(e).__name__,
+                            bytes_transferred=bytes_seen,
+                        )
+                        yield MIDSTREAM_RESET_SSE
+                        return
                 finally:
-                    upstream.close()
+                    try:
+                        upstream.close()
+                    except Exception:
+                        pass
                     if accumulator is not None and container_id:
                         try:
                             _capture_streaming_response(
@@ -5351,6 +5440,22 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
                 }
             }
         ), 504
+
+    except (httpx.ReadError, httpx.RemoteProtocolError) as e:
+        # Reached only when pre-stream retries are exhausted (see #1907).
+        logger.error(
+            "Anthropic API connection reset",
+            error=str(e),
+            error_type=type(e).__name__,
+        )
+        return jsonify(
+            {
+                "error": {
+                    "type": "api_error",
+                    "message": f"Anthropic API connection reset: {e}",
+                }
+            }
+        ), 502
 
     except Exception as e:
         logger.exception("Anthropic API proxy error")
