@@ -770,8 +770,8 @@ When a pipeline phase fails (container exit code non-zero), the orchestrator:
 
 When automatic restart is insufficient (e.g., phase stuck in transition, HITL gate not created), use the phase management MCP tools for manual intervention:
 - `advance_phase` with `force=true` — force-advance past a stuck phase (stops running containers first to prevent SIGTERM cascading)
-- `start_phase` — start a phase that is in state but has no running containers
-- `complete_phase` — manually mark a stuck phase as complete
+- `start_phase` — mark a phase RUNNING (does not spawn agents — agent spawning is driven by the `_run_pipeline` loop)
+- `complete_phase` — mark a phase COMPLETE (does not advance the pipeline — call `advance_phase` next)
 - `populate_contract` — populate the contract from plan artifacts when it's empty after manual phase setup
 
 See [Phase Management MCP Tools](../reference/orchestrator-cli.md#phase-management-mcp-tools) for full parameter reference and recovery workflow examples.
