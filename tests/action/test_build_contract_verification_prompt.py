@@ -121,7 +121,7 @@ class TestReVerification:
     """Tests for re-verification (with LAST_REVIEW_COMMIT)."""
 
     def test_generates_rereview_prompt(self) -> None:
-        """Re-verification uses git diff from last reviewed commit."""
+        """Re-verification uses git log from last reviewed commit."""
         with tempfile.TemporaryDirectory() as tmpdir:
             returncode, stdout, stderr = run_build_contract_prompt(
                 pr_number="50",
