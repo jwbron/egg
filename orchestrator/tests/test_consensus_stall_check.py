@@ -1,6 +1,7 @@
 """Tests for ConsensusStallCheck health check."""
 
 import sys
+from collections import namedtuple
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -327,6 +328,60 @@ def _make_monitor():
     return ContainerMonitor(docker_client=mock_docker)
 
 
+AggressiveRecoveryFixture = namedtuple(
+    "AggressiveRecoveryFixture",
+    [
+        "monitor",
+        "pipeline",
+        "result",
+        "fresh_pipeline",
+        "store",
+        "mock_pc",
+        "mock_graph",
+        "patches",
+    ],
+)
+
+
+def _setup_aggressive_recovery() -> AggressiveRecoveryFixture:
+    """Common setup for aggressive-recovery tests.
+
+    Returns a named tuple with the monitor, pipelines, result, mock store,
+    and the sys.modules patch dict ready for use as a context manager.
+    """
+    monitor = _make_monitor()
+    pipeline = _make_concurrent_pipeline()
+    result = _make_degraded_result()
+
+    fresh_pipeline = _make_concurrent_pipeline()
+    mock_store = MagicMock()
+    mock_store.load_pipeline.return_value = fresh_pipeline
+
+    mock_pc = MagicMock()
+    mock_pc.get_peer_consensus_tracker.return_value = None
+    mock_pc.reconstruct_tracker_from_messages.return_value = None
+    mock_graph = MagicMock()
+
+    patches = patch.dict(
+        "sys.modules",
+        {
+            "peer_consensus": mock_pc,
+            "review_graph": mock_graph,
+        },
+    )
+
+    return AggressiveRecoveryFixture(
+        monitor=monitor,
+        pipeline=pipeline,
+        result=result,
+        fresh_pipeline=fresh_pipeline,
+        store=mock_store,
+        mock_pc=mock_pc,
+        mock_graph=mock_graph,
+        patches=patches,
+    )
+
+
 class TestHandleConsensusStallRecovery:
     def test_skips_non_consensus_results(self):
         """Non-consensus results are ignored."""
@@ -606,3 +661,118 @@ class TestHandleConsensusStallRecovery:
         phase_exec = fresh_pipeline.phases.get("implement")
         assert phase_exec is not None
         assert phase_exec.status == PipelineStatus.COMPLETE
+
+    def test_aggressive_recovery_marks_containers_exited(self):
+        """Containers must be marked EXITED synthetically so the pod
+        reconciler doesn't flip the pipeline to FAILED when pods are
+        stopped below (#1294 pattern extended to aggressive recovery
+        for #1935)."""
+        f = _setup_aggressive_recovery()
+        with f.patches:
+            f.monitor._handle_consensus_stall_recovery([f.result], f.pipeline, f.store)
+
+        phase_exec = f.fresh_pipeline.phases.get("implement")
+        assert phase_exec is not None
+        for ci in phase_exec.containers:
+            assert ci.status == ContainerStatus.EXITED
+            assert ci.exit_code == 0
+            assert ci.exited_at is not None
+
+    def test_aggressive_recovery_stops_running_pods(self):
+        """Aggressive recovery must call k8s_client.stop_container so the
+        polling loop in _run_concurrent_phase detects the exits and
+        returns — otherwise the pipeline stays stuck with
+        phase.completed_at=null until a human intervenes (#1935)."""
+        f = _setup_aggressive_recovery()
+        with f.patches:
+            f.monitor._handle_consensus_stall_recovery([f.result], f.pipeline, f.store)
+
+        stopped_ids = {call.args[0] for call in f.monitor.k8s_client.stop_container.call_args_list}
+        expected_ids = {"container-coder", "container-tester"}
+        assert stopped_ids == expected_ids
+
+    def test_aggressive_recovery_closes_open_cycle(self):
+        """Aggressive recovery must close the latest open cycle_timings so
+        get_phase reports reflect actual phase duration (#1935)."""
+        from models import CycleTiming
+
+        f = _setup_aggressive_recovery()
+        phase_exec = f.fresh_pipeline.phases.get("implement")
+        assert phase_exec is not None
+        phase_exec.cycle_timings.append(
+            CycleTiming(cycle=0, started_at=datetime.now(UTC) - timedelta(seconds=60))
+        )
+
+        with f.patches:
+            f.monitor._handle_consensus_stall_recovery([f.result], f.pipeline, f.store)
+
+        assert phase_exec.cycle_timings[-1].completed_at is not None
+
+    def test_aggressive_recovery_preserves_already_closed_cycle(self):
+        """Already-closed cycle_timings must not be overwritten."""
+        from models import CycleTiming
+
+        f = _setup_aggressive_recovery()
+        phase_exec = f.fresh_pipeline.phases.get("implement")
+        assert phase_exec is not None
+        earlier = datetime.now(UTC) - timedelta(seconds=30)
+        phase_exec.cycle_timings.append(
+            CycleTiming(
+                cycle=0,
+                started_at=datetime.now(UTC) - timedelta(seconds=60),
+                completed_at=earlier,
+            )
+        )
+
+        with f.patches:
+            f.monitor._handle_consensus_stall_recovery([f.result], f.pipeline, f.store)
+
+        assert phase_exec.cycle_timings[-1].completed_at == earlier
+
+    def test_version_conflict_skips_pod_stop(self):
+        """On VersionConflictError the save didn't land — aggressive
+        recovery must not stop pods, since another writer owns the
+        transition and will drive it itself."""
+        from state_store import VersionConflictError
+
+        f = _setup_aggressive_recovery()
+        f.store.save_pipeline.side_effect = VersionConflictError("conflict")
+
+        with f.patches:
+            f.monitor._handle_consensus_stall_recovery([f.result], f.pipeline, f.store)
+
+        f.monitor.k8s_client.stop_container.assert_not_called()
+
+    def test_stop_container_error_does_not_propagate(self):
+        """If k8s_client.stop_container raises, aggressive recovery must
+        continue stopping the remaining pods and not re-raise."""
+        f = _setup_aggressive_recovery()
+        f.monitor.k8s_client.stop_container.side_effect = [RuntimeError("boom"), None]
+
+        with f.patches:
+            f.monitor._handle_consensus_stall_recovery([f.result], f.pipeline, f.store)
+
+        # Both pods attempted despite the first failing
+        assert f.monitor.k8s_client.stop_container.call_count == 2
+
+    def test_aggressive_recovery_includes_failed_agents(self):
+        """FAILED agents (e.g. via signal API while container is still
+        running) must also be completed and their pods stopped, matching
+        the canonical _update_agents_complete path in routes/pipelines.py."""
+        f = _setup_aggressive_recovery()
+        # Mark one agent as FAILED (container still running)
+        phase_exec = f.fresh_pipeline.phases.get("implement")
+        assert phase_exec is not None
+        phase_exec.agents[1].status = AgentExecutionStatus.FAILED
+
+        with f.patches:
+            f.monitor._handle_consensus_stall_recovery([f.result], f.pipeline, f.store)
+
+        # Both agents should be COMPLETE
+        for agent in phase_exec.agents:
+            assert agent.status == AgentExecutionStatus.COMPLETE
+            assert agent.completed_at is not None
+
+        # Both containers should be stopped
+        stopped_ids = {call.args[0] for call in f.monitor.k8s_client.stop_container.call_args_list}
+        assert stopped_ids == {"container-coder", "container-tester"}
