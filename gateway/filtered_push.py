@@ -432,13 +432,26 @@ def execute_filtered_push(
         for p in allowed_here:
             pushed_paths.add(p)
         if not blocked_here:
-            # No filtering needed — commit passes through.  Still
-            # re-parent if the chain shifted underneath.  Preserve ALL
-            # parents (merge commits keep their 2nd+ parents).
+            # No filtering needed for THIS commit's files — but its
+            # tree may inherit blocked files from earlier commits.
+            # Still re-parent if the chain shifted underneath.
+            # Preserve ALL parents (merge commits keep 2nd+ parents).
             tree_sha = _tree_of(exec_path, sha)
             if tree_sha is None:
                 _rollback(exec_path, original_head, branch)
                 return FilteredPushResult(success=False, error=f"Missing tree for {sha}")
+            # Strip inherited blocked files from the tree.
+            tree_changed = False
+            if blocked_own_files:
+                filtered_tree, filter_err = _filter_tree(
+                    exec_path, tree_sha, sorted(blocked_own_files)
+                )
+                if filter_err:
+                    _rollback(exec_path, original_head, branch)
+                    return FilteredPushResult(success=False, error=filter_err)
+                if filtered_tree and filtered_tree != tree_sha:
+                    tree_sha = filtered_tree
+                    tree_changed = True
             parents_orig = meta.get("parents", "")
             orig_parent_list = [p for p in parents_orig.split() if p]
             any_merge_parent_rewritten = any(
@@ -446,7 +459,8 @@ def execute_filtered_push(
             )
             new_sha_passthrough: str
             if (
-                orig_parent_list
+                not tree_changed
+                and orig_parent_list
                 and orig_parent_list[0] == new_parent
                 and not any_merge_parent_rewritten
             ):
