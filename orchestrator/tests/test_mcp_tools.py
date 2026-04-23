@@ -1667,7 +1667,7 @@ class TestStartPhase:
         with patch.object(handler, "_make_request") as mock_req:
             mock_req.return_value = {
                 "success": True,
-                "message": "Phase started",
+                "message": "Phase 'implement' marked running (does not spawn agents)",
                 "data": {"phase": "implement", "status": "running"},
             }
             result = handler.handle_tool_call("start_phase", {"task_id": "issue-42"})
@@ -1709,8 +1709,8 @@ class TestCompletePhase:
         with patch.object(handler, "_make_request") as mock_req:
             mock_req.return_value = {
                 "success": True,
-                "message": "Phase completed",
-                "data": {"phase": "implement", "next_phase": "pr"},
+                "message": "Phase 'implement' marked complete; call advance_phase to transition",
+                "data": {"phase": "implement", "current_phase": "implement", "next_phase": "pr"},
             }
             result = handler.handle_tool_call("complete_phase", {"task_id": "issue-42"})
 
@@ -1720,6 +1720,7 @@ class TestCompletePhase:
             data=None,
         )
         assert result["success"] is True
+        assert result["data"]["current_phase"] == "implement"
         assert result["data"]["next_phase"] == "pr"
 
     def test_complete_with_artifacts(self, handler):
@@ -1728,8 +1729,8 @@ class TestCompletePhase:
         with patch.object(handler, "_make_request") as mock_req:
             mock_req.return_value = {
                 "success": True,
-                "message": "Phase completed",
-                "data": {"phase": "implement", "next_phase": "pr"},
+                "message": "Phase 'implement' marked complete; call advance_phase to transition",
+                "data": {"phase": "implement", "current_phase": "implement", "next_phase": "pr"},
             }
             result = handler.handle_tool_call(
                 "complete_phase",

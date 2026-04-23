@@ -663,9 +663,7 @@ def cmd_phase_advance(args: argparse.Namespace) -> int:
         return 0
 
     if result.get("success"):
-        phase_data = result.get("data", {})
-        new_phase = phase_data.get("current_phase", phase_data.get("phase", "?"))
-        print(f"Advanced to phase: {new_phase}")
+        print(result.get("message", "Phase advanced"))
         return 0
     print(f"Error: {result.get('message')}", file=sys.stderr)
     return 1
@@ -681,7 +679,7 @@ def cmd_phase_start(args: argparse.Namespace) -> int:
         return 0
 
     if result.get("success"):
-        print("Phase started")
+        print(result.get("message", "Phase started"))
         return 0
     print(f"Error: {result.get('message')}", file=sys.stderr)
     return 1
@@ -701,7 +699,12 @@ def cmd_phase_complete(args: argparse.Namespace) -> int:
         return 0
 
     if result.get("success"):
-        print("Phase completed")
+        msg = result.get("message", "Phase completed")
+        phase_data = result.get("data", {})
+        next_phase = phase_data.get("next_phase")
+        if next_phase:
+            msg += f"\nRun: egg-orch phase advance --target-phase {next_phase}"
+        print(msg)
         return 0
     print(f"Error: {result.get('message')}", file=sys.stderr)
     return 1
