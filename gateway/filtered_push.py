@@ -178,11 +178,16 @@ def _filter_tree(
 def _commit_tree(
     exec_path: str,
     tree_sha: str,
-    parent_sha: str | None,
+    parent_shas: list[str] | str | None,
     meta: dict[str, str],
     message: str,
 ) -> tuple[str | None, str | None]:
-    """Create a new commit from ``tree_sha`` with ``meta`` env. Returns (sha, error)."""
+    """Create a new commit from ``tree_sha`` with ``meta`` env. Returns (sha, error).
+
+    ``parent_shas`` may be a single SHA (back-compat), a list of SHAs
+    (multi-parent merge commit — emits one ``-p`` flag per entry, in
+    order), or ``None``/empty (root commit with no parents).
+    """
     env = dict(os.environ)
     env["GIT_AUTHOR_NAME"] = meta["author_name"]
     env["GIT_AUTHOR_EMAIL"] = meta["author_email"]
@@ -191,14 +196,72 @@ def _commit_tree(
     env["GIT_COMMITTER_EMAIL"] = meta["committer_email"]
     env["GIT_COMMITTER_DATE"] = meta["committer_date"]
 
+    # Normalise to a list of non-empty parent SHAs.
+    if parent_shas is None:
+        parents: list[str] = []
+    elif isinstance(parent_shas, str):
+        parents = [parent_shas] if parent_shas else []
+    else:
+        parents = [p for p in parent_shas if p]
+
     args = ["commit-tree", tree_sha]
-    if parent_sha:
-        args.extend(["-p", parent_sha])
+    for p in parents:
+        args.extend(["-p", p])
     args.extend(["-m", message])
     result = _git(exec_path, *args, env=env)
     if result.returncode != 0:
         return None, f"commit-tree failed: {(result.stderr or '').strip()}"
     return (result.stdout or "").strip() or None, None
+
+
+def _translate_parents(
+    orig_parents: list[str], parent_lookup: dict[str, str], new_parent: str | None
+) -> list[str]:
+    """Map original parent SHAs to their rewritten counterparts.
+
+    - If the first original parent matches ``new_parent``, it's preserved
+      as-is (no-op chain shift).
+    - Otherwise the first parent is replaced with ``new_parent`` (the
+      commit is re-parented onto the running chain).
+    - Any additional (merge) parents are translated via ``parent_lookup``
+      if present; otherwise they fall through unchanged (e.g. a merge
+      into ``main`` whose second parent predates our walk).
+
+    Returns a list of non-empty parent SHAs suitable for ``_commit_tree``.
+    """
+    if not orig_parents:
+        return []
+    translated: list[str] = []
+    # First parent: running-chain semantics.
+    first = orig_parents[0]
+    if new_parent and first != new_parent:
+        translated.append(new_parent)
+    elif first:
+        translated.append(first)
+    # Merge parents: preserve via lookup.
+    for p in orig_parents[1:]:
+        mapped = parent_lookup.get(p, p)
+        if mapped:
+            translated.append(mapped)
+    return translated
+
+
+def _compose_filtered_message(orig_message: str, suffix: str) -> str:
+    """Append the ``[auto-filtered]`` marker without mangling trailers.
+
+    Git trailers (Signed-off-by, Co-Authored-By, DCO, etc.) are parsed
+    from the *last paragraph* of the commit message.  Naive
+    ``rstrip() + suffix`` glues the marker into the last trailer line,
+    breaking ``git interpret-trailers``, GitHub's Co-Authored-By
+    rendering, and DCO validation.  Emit the marker as its own paragraph
+    (separated by a blank line) so the trailer block survives intact.
+    """
+    stripped = (orig_message or "").rstrip("\n")
+    marker = suffix.strip()
+    if not marker:
+        return stripped + "\n"
+    # One blank line before the marker paragraph, plus a final newline.
+    return stripped + "\n\n" + marker + "\n"
 
 
 def execute_filtered_push(
@@ -305,8 +368,10 @@ def execute_filtered_push(
 
         if not is_own:
             # Pulled cross-role commit: re-parent onto the running chain
-            # but preserve its tree and message.  If re-parenting would
-            # produce the same SHA (parents unchanged), skip.
+            # but preserve its tree, message, and ALL parents (merge
+            # commits must keep their 2nd+ parents).  If nothing changes
+            # — first parent already matches ``new_parent`` and no merge
+            # parent got rewritten — we can reuse the original SHA.
             tree_sha = _tree_of(exec_path, sha)
             if tree_sha is None:
                 _rollback(exec_path, original_head, branch)
@@ -315,11 +380,29 @@ def execute_filtered_push(
                 )
             parents_orig = meta.get("parents", "")
             orig_parent_list = [p for p in parents_orig.split() if p]
-            if orig_parent_list and orig_parent_list[0] == new_parent:
+            # Chain is unchanged iff the first parent already matches
+            # the running tip AND no merge parent got rewritten by an
+            # earlier own-commit rewrite.
+            any_merge_parent_rewritten = any(
+                p in parent_lookup and parent_lookup[p] != p
+                for p in orig_parent_list[1:]
+            )
+            if (
+                orig_parent_list
+                and orig_parent_list[0] == new_parent
+                and not any_merge_parent_rewritten
+            ):
                 new_sha = sha
             else:
+                translated_parents = _translate_parents(
+                    orig_parent_list, parent_lookup, new_parent or None
+                )
                 new_sha, err = _commit_tree(
-                    exec_path, tree_sha, new_parent or None, meta, meta["message"]
+                    exec_path,
+                    tree_sha,
+                    translated_parents or None,
+                    meta,
+                    meta["message"],
                 )
                 if err or new_sha is None:
                     _rollback(exec_path, original_head, branch)
@@ -349,7 +432,8 @@ def execute_filtered_push(
             pushed_paths.add(p)
         if not blocked_here:
             # No filtering needed — commit passes through.  Still
-            # re-parent if the chain shifted underneath.
+            # re-parent if the chain shifted underneath.  Preserve ALL
+            # parents (merge commits keep their 2nd+ parents).
             tree_sha = _tree_of(exec_path, sha)
             if tree_sha is None:
                 _rollback(exec_path, original_head, branch)
@@ -358,11 +442,26 @@ def execute_filtered_push(
                 )
             parents_orig = meta.get("parents", "")
             orig_parent_list = [p for p in parents_orig.split() if p]
-            if orig_parent_list and orig_parent_list[0] == new_parent:
+            any_merge_parent_rewritten = any(
+                p in parent_lookup and parent_lookup[p] != p
+                for p in orig_parent_list[1:]
+            )
+            if (
+                orig_parent_list
+                and orig_parent_list[0] == new_parent
+                and not any_merge_parent_rewritten
+            ):
                 new_sha = sha
             else:
+                translated_parents = _translate_parents(
+                    orig_parent_list, parent_lookup, new_parent or None
+                )
                 new_sha, err = _commit_tree(
-                    exec_path, tree_sha, new_parent or None, meta, meta["message"]
+                    exec_path,
+                    tree_sha,
+                    translated_parents or None,
+                    meta,
+                    meta["message"],
                 )
                 if err or new_sha is None:
                     _rollback(exec_path, original_head, branch)
@@ -394,12 +493,18 @@ def execute_filtered_push(
             dropped_commits.append(sha)
             parent_lookup[sha] = new_parent  # points to upstream anchor
             continue
-        # Build new commit with suffix.
-        new_message = meta["message"].rstrip() + auto_filter_suffix
+        # Build new commit with trailer-safe suffix and preserved
+        # merge parents.
+        new_message = _compose_filtered_message(meta["message"], auto_filter_suffix)
+        parents_orig = meta.get("parents", "")
+        orig_parent_list = [p for p in parents_orig.split() if p]
+        translated_parents = _translate_parents(
+            orig_parent_list, parent_lookup, new_parent or None
+        )
         new_sha, err = _commit_tree(
             exec_path,
             new_tree or base_tree,
-            new_parent or None,
+            translated_parents or None,
             meta,
             new_message,
         )
@@ -488,9 +593,13 @@ def execute_filtered_push(
                 branch=branch,
             )
         except Exception:
-            logger.debug(
+            # Elevated from DEBUG to WARNING so operators see it — a
+            # subsequent cross-role push would correctly fail-closed
+            # for these SHAs but without any audit-trail signal.
+            logger.warning(
                 "filtered_push_register_rewritten_swallowed",
                 new_sha=new_sha,
+                branch=branch,
                 exc_info=True,
             )
 

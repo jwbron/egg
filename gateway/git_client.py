@@ -1751,6 +1751,25 @@ def get_attributed_changed_files_in_push(
                 )
                 attribution = {}
 
+    # Distinguish full-coverage lookup from partial coverage.  Missing
+    # SHAs fall through to fail-closed (``None`` → own-authored) below,
+    # so a flaky registry would silently subject every cross-role push
+    # to restriction checks without any operator-visible signal.  Log
+    # partial responses at WARNING with counts so operators can spot
+    # the drift.
+    if commits:
+        requested_shas = set(commits)
+        received_shas = {sha for sha in attribution if sha in requested_shas}
+        if received_shas and received_shas != requested_shas:
+            logger.warning(
+                "commit_authorship_partial_lookup",
+                repo_path=repo_path,
+                branch=branch,
+                requested=len(requested_shas),
+                received=len(received_shas),
+                missing=len(requested_shas - received_shas),
+            )
+
     for f in files:
         f.authored_by = attribution.get(f.commit_sha)
 

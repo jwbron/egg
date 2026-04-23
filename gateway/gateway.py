@@ -1300,6 +1300,9 @@ def git_push() -> tuple[Response, int] | Response:
             )
         elif blocked_own and not enforce:
             # Warn-only mode: log but let the plain push proceed.
+            # Explicitly flag ``enforce=false`` so operators scanning
+            # audit logs during a kill-switch window can distinguish
+            # this from the enforced paths.
             logger.warning(
                 "Agent-role file restriction would block push (warn-only)",
                 event_type="agent_role_restriction_warning",
@@ -1307,6 +1310,7 @@ def git_push() -> tuple[Response, int] | Response:
                 branch=branch,
                 role=session_role,
                 blocked_files=blocked_own,
+                enforce=False,
             )
             # Observability parity (#1882 TASK-3-3): even the warn-
             # only passthrough must surface pulled_commits and the

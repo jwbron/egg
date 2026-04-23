@@ -144,6 +144,10 @@ def _validate_sha(sha: str) -> str:
 
 def _validate_role(role: str) -> str:
     role_s = (role or "").strip().lower()
+    if not role_s:
+        # Direct Python callers (not through HTTP) would otherwise get a
+        # confusing regex-mismatch error for an empty/whitespace role.
+        raise CommitAuthorshipStoreError("Role is required (got empty string)")
     if not _ROLE_RE.match(role_s):
         raise CommitAuthorshipStoreError(f"Invalid role: {role!r}")
     return role_s
@@ -215,13 +219,18 @@ class CommitAuthorshipStore:
         pid = _validate_pipeline_id(pipeline_id)
         path = self._substore_dir / f"{pid}.json"
         # Guard against path traversal — the validated pipeline_id should
-        # already make this impossible, but belt-and-braces.
+        # already make this impossible, but belt-and-braces.  Use
+        # ``relative_to`` (path-aware) rather than ``str.startswith``
+        # which would wrongly prefix-match a sister directory like
+        # ``commit-authorship-evil`` against ``commit-authorship``.
         resolved = path.resolve()
         base_resolved = self._substore_dir.resolve()
-        if not str(resolved).startswith(str(base_resolved)):
+        try:
+            resolved.relative_to(base_resolved)
+        except ValueError as exc:
             raise CommitAuthorshipStoreError(
                 f"Path traversal detected in pipeline ID: {pipeline_id!r}"
-            )
+            ) from exc
         return path
 
     def _ensure_substore_dir(self) -> None:
