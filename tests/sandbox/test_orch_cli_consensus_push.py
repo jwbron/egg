@@ -34,7 +34,7 @@ def _make_args(
     push: bool = False,
     summary: str = "test proposal",
     artifacts: list[str] | None = None,
-    commit_sha: str = "abc123",
+    commit_sha: str = "abc1234",
     risk: str = "",
     file: str | None = None,
     changed_artifacts: list[str] | None = None,
