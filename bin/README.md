@@ -19,7 +19,7 @@ Launch the full SDLC pipeline with DAG visualization and HITL checkpoints.
 | `egg-sdlc -r <repo> -p "prompt"` | Local mode — non-interactive with prompt |
 | `egg-sdlc -r <repo> -i <issue> --concurrent` | Concurrent mode — all agents run simultaneously within each phase |
 
-Also available as `/sdlc` inside an interactive egg session.
+Also available as a `/sdlc` slash command inside sandboxed agent sessions.
 
 ## egg-deploy
 
