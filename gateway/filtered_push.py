@@ -298,7 +298,7 @@ def execute_filtered_push(
     registry_register: Callable[..., Any],
     pipeline_id: str | None = None,
     repo: str | None = None,
-    auto_filter_suffix: bool = True,
+    add_auto_filter_trailer: bool = True,
 ) -> FilteredPushResult:
     """Rewrite and push the commit range.
 
@@ -525,7 +525,7 @@ def execute_filtered_push(
             continue
         # Build new commit with trailer-safe suffix and preserved
         # merge parents.
-        new_message = _compose_filtered_message(meta["message"], add_trailer=auto_filter_suffix)
+        new_message = _compose_filtered_message(meta["message"], add_trailer=add_auto_filter_trailer)
         parents_orig = meta.get("parents", "")
         orig_parent_list = [p for p in parents_orig.split() if p]
         translated_parents = _translate_parents(orig_parent_list, parent_lookup, new_parent or None)
