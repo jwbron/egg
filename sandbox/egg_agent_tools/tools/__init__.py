@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Any
 
 from egg_agent_tools.tools import brc as _brc_tools
+from egg_agent_tools.tools import message as _message_tools
 from egg_agent_tools.tools import phase as _phase_tools
 from egg_agent_tools.tools import progress as _progress_tools
 from egg_agent_tools.tools import sdlc as _sdlc_tools
@@ -30,7 +31,14 @@ TOOL_REGISTRY: dict[str, ToolRegistration] = {}
 
 def _register_all() -> None:
     """Populate TOOL_REGISTRY from the per-namespace modules."""
-    for module in (_sdlc_tools, _brc_tools, _phase_tools, _progress_tools, _task_tools):
+    for module in (
+        _sdlc_tools,
+        _brc_tools,
+        _message_tools,
+        _phase_tools,
+        _progress_tools,
+        _task_tools,
+    ):
         for reg in module.REGISTRATIONS:
             TOOL_REGISTRY[reg.name] = reg
 
@@ -53,7 +61,8 @@ TOOL_NAMESPACES: dict[str, list[str]] = _group_by_namespace()
 NAMESPACE_DESCRIPTIONS: dict[str, str] = {
     "sdlc": ("register a HITL decision, request open-ended feedback, and check for human answers"),
     "brc": (
-        "drive Broadcast-Review-Converge consensus: propose, ACK, NACK, confirm, and inspect state"
+        "drive Broadcast-Review-Converge consensus: propose, ACK, NACK, confirm, "
+        "inspect state, and block on typed events / emit heartbeats"
     ),
     "phase": (
         "look up your phase context (role, pipeline, assigned tasks, "

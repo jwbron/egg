@@ -1105,12 +1105,22 @@ def cmd_message_poll(args: argparse.Namespace) -> int:
     return 0
 
 
+def _classify_gateway_error_rc(status: int | None) -> int:
+    """Map a GatewayError status onto message-wait's transient/permanent rc."""
+    if status is not None and 400 <= status < 500 and status != 408:
+        return 3
+    # 5xx, 408, connection / timeout failures
+    return 2
+
+
 def cmd_message_wait(args: argparse.Namespace) -> int:
     """Event-driven wait for a message of one or more types.
 
     Issue #1897: the canonical blocking primitive for BRC coordination.
     Agents should prefer this over ``message poll --wait`` with shell-level
     retry loops.
+
+    Delegates to :func:`egg_agent_tools.handlers.message.message_wait`.
 
     Exit codes (contract):
         0 — one or more matching messages returned (printed to stdout).
@@ -1120,6 +1130,9 @@ def cmd_message_wait(args: argparse.Namespace) -> int:
         3 — permanent error (4xx other than 408, bad pipeline id,
             argparse/config failure). Retrying will not help.
     """
+    from egg_agent_tools.handlers import message as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
     try:
         pid = require_pipeline_id(args)
     except SystemExit:
@@ -1127,49 +1140,41 @@ def cmd_message_wait(args: argparse.Namespace) -> int:
     # require_pipeline_id validates but exits(1) — wrap semantics into 3.
 
     role = args.role or get_agent_role_from_env()
-    params: list[tuple[str, str]] = []
-    for t in args.for_:
-        params.append(("for", t))
-    if role:
-        params.append(("role", role))
+    req: dict[str, Any] = {
+        "pipeline_id": pid,
+        "role": role,
+        "for_types": list(args.for_ or []),
+        "timeout": args.timeout if args.timeout is not None else 60,
+    }
     if getattr(args, "from_", None):
-        params.append(("from", args.from_))
+        req["from_role"] = args.from_
     if args.since:
-        params.append(("since_id", args.since))
-    if args.timeout is not None:
-        params.append(("timeout", str(args.timeout)))
+        req["since"] = args.since
     if args.limit:
-        params.append(("limit", str(args.limit)))
-
-    endpoint = f"/api/v1/pipelines/{pid}/messages/wait"
-    if params:
-        endpoint += "?" + urlencode(params)
-
-    # Client timeout: add a generous buffer over the server's timeout so we
-    # don't time out the socket before the server answers.
-    server_timeout = args.timeout if args.timeout is not None else 60
-    client_timeout = server_timeout + 10
+        req["limit"] = args.limit
 
     try:
-        result = api_request(get_orchestrator_url(), endpoint, "GET", None, client_timeout)
-    except ApiError as e:
-        if e.status_code is not None and 400 <= e.status_code < 500 and e.status_code != 408:
-            print(f"Error: {e.message}", file=sys.stderr)
-            return 3
-        # Transient (5xx, 408, connection errors)
-        print(f"Transient error: {e.message}", file=sys.stderr)
+        resp = _handlers.message_wait(req)
+    except GatewayError as err:
+        # GatewayError subclasses HandlerError — match it first so
+        # transient (5xx/408/network) failures map to rc=2, not rc=3.
+        rc = _classify_gateway_error_rc(err.status_code)
+        prefix = "Error" if rc == 3 else "Transient error"
+        print(f"{prefix}: {err.message}", file=sys.stderr)
+        return rc
+    except HandlerError as err:
+        print(f"Error: {err.message}", file=sys.stderr)
+        return 3
+    except Exception as err:  # pragma: no cover - defensive
+        print(f"Unexpected error: {err}", file=sys.stderr)
         return 2
-    except Exception as e:  # pragma: no cover - defensive
-        print(f"Unexpected error: {e}", file=sys.stderr)
-        return 2
+
+    messages = list(resp.get("messages") or [])
+    matched = bool(resp.get("matched"))
 
     if args.json:
-        print_json(result)
-    data = result.get("data", {}) if isinstance(result, dict) else {}
-    messages = data.get("messages", [])
-    matched = bool(data.get("matched")) or bool(messages)
-
-    if not args.json:
+        print_json(resp.get("raw", {}))
+    else:
         if matched:
             for msg in messages:
                 ts = msg.get("timestamp", "")[:19]
@@ -1212,36 +1217,69 @@ def cmd_message_wait_loop(args: argparse.Namespace) -> int:
     effectively unbounded (``sys.maxsize``) so normal BRC consensus
     never trips it.  The CLI help advertises it as "loops forever by
     default".
+
+    Delegates to
+    :func:`egg_agent_tools.handlers.message.message_wait_loop`.
     """
-    import time as _time
+    from egg_agent_tools.handlers import message as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
     # --json is not supported on wait-loop (produces concatenated JSON
-    # objects on stdout across iterations). Force it off so the inner
-    # cmd_message_wait call doesn't try to print JSON.
+    # objects on stdout across iterations).  Force it off so downstream
+    # renders match the legacy behaviour.
     args.json = False
 
-    max_iter = args.max_iterations
-    if max_iter is None or max_iter <= 0:
-        max_iter = sys.maxsize
-    backoff = 1.0
-    for _ in range(max_iter):
-        rc = cmd_message_wait(args)
-        if rc == 0:
-            return 0
-        if rc == 3:
-            # Inner permanent failure — surface as outer rc=1. The
-            # wait-loop wrapper owns the 0/1 outward contract per plan
-            # TASK-2-4 and the tester fixture at
-            # sandbox/tests/test_message_wait_cli.py::test_exits_one_on_permanent_error.
-            # Callers that need to distinguish permanent from timeout
-            # should use `egg-orch message wait` directly (not the loop).
-            return 1
-        if rc == 2:
-            _time.sleep(min(backoff, 5.0))
-            backoff = min(backoff * 2, 5.0)
-            continue
-        # rc == 1: timeout — keep looping.
-        backoff = 1.0
+    try:
+        pid = require_pipeline_id(args)
+    except SystemExit:
+        return 1
+
+    role = args.role or get_agent_role_from_env()
+    req: dict[str, Any] = {
+        "pipeline_id": pid,
+        "role": role,
+        "for_types": list(args.for_ or []),
+        "timeout": args.timeout if args.timeout is not None else 60,
+    }
+    if getattr(args, "from_", None):
+        req["from_role"] = args.from_
+    if args.since:
+        req["since"] = args.since
+    if args.limit:
+        req["limit"] = args.limit
+    if args.max_iterations is not None and args.max_iterations > 0:
+        req["max_iterations"] = args.max_iterations
+
+    try:
+        resp = _handlers.message_wait_loop(req)
+    except GatewayError as err:
+        # GatewayError subclasses HandlerError — match it first.  The
+        # handler reclassifies 4xx (non-408) as permanent and re-raises;
+        # the wait-loop contract collapses both GatewayError and
+        # HandlerError to rc=1 so callers can't confuse them with
+        # transient misses.
+        print(f"Error: {err.message}", file=sys.stderr)
+        return 1
+    except HandlerError as err:
+        print(f"Error: {err.message}", file=sys.stderr)
+        return 1
+
+    messages = list(resp.get("messages") or [])
+    matched = bool(resp.get("matched"))
+    if matched:
+        for msg in messages:
+            ts = msg.get("timestamp", "")[:19]
+            from_r = msg.get("from_role", "?")
+            to_r = msg.get("to_role", "?")
+            mtype = msg.get("message_type", "?")
+            subject = msg.get("subject", "")
+            print(f"  [{ts}] {from_r} -> {to_r} ({mtype}): {subject}")
+            body = msg.get("body", "")
+            if body:
+                indented = body.replace("\n", "\n    ")
+                print(f"    {indented}")
+        print(f"\n{len(messages)} message(s) matched")
+        return 0
     # Safety cap tripped — extraordinarily unlikely with the default
     # sys.maxsize cap. Return 1 (no match) so callers behave the same
     # as a bounded-retry timeout.
@@ -1251,12 +1289,17 @@ def cmd_message_wait_loop(args: argparse.Namespace) -> int:
 def cmd_message_heartbeat(args: argparse.Namespace) -> int:
     """Emit a structured HEARTBEAT message (issue #1897).
 
-    POSTs to the dedicated ``/api/v1/pipelines/{id}/heartbeat`` endpoint
-    which handles schema validation, per-role dedup, and the
-    ``EGG_HEARTBEAT_RATE_LIMIT`` 429 response.  HTTP 429 is treated as
-    a rate-limit error (exit 3 per the CLI contract — caller should
-    honour the server's suggested ``retry_after``).
+    Delegates to
+    :func:`egg_agent_tools.handlers.message.message_heartbeat`.  The
+    handler POSTs to the dedicated ``/api/v1/pipelines/{id}/heartbeat``
+    endpoint which handles schema validation, per-role dedup, and the
+    ``EGG_HEARTBEAT_RATE_LIMIT`` 429 response.  HTTP 429 is treated as a
+    rate-limit error (exit 3 per the CLI contract — caller should honour
+    the server's suggested ``retry_after``).
     """
+    from egg_agent_tools.handlers import message as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
     try:
         pid = require_pipeline_id(args)
     except SystemExit:
@@ -1267,50 +1310,32 @@ def cmd_message_heartbeat(args: argparse.Namespace) -> int:
         print("Error: --role required or set EGG_AGENT_ROLE", file=sys.stderr)
         return 3
 
-    if args.state not in {"WORKING", "WAITING_ON_ROLE", "PROPOSED", "IDLE"}:
-        print(f"Error: invalid --state={args.state!r}", file=sys.stderr)
-        return 3
-    if args.state == "WAITING_ON_ROLE" and not args.waiting_on:
-        print(
-            "Error: --state=WAITING_ON_ROLE requires --waiting-on <role>",
-            file=sys.stderr,
-        )
-        return 3
-
-    # Body schema: flat ``{from_role, state, waiting_on?, since?, body?}``.
-    # This is what the dedicated ``POST /heartbeat`` route expects
-    # (routes/messages.py) and matches the tester fixtures at
-    # sandbox/tests/test_message_wait_cli.py::TestHeartbeat. The earlier
-    # nested ``metadata`` form was dead bytes on the wire (the server
-    # never read it) — reviewer_code blocker 3 on #1897 proposal v4.
-    data: dict[str, Any] = {
-        "from_role": role,
+    req: dict[str, Any] = {
+        "pipeline_id": pid,
+        "role": role,
         "state": args.state,
     }
     if args.waiting_on:
-        data["waiting_on"] = args.waiting_on
+        req["waiting_on"] = args.waiting_on
     if args.since:
-        data["since"] = args.since
+        req["since"] = args.since
     if args.body:
-        data["body"] = args.body
+        req["body"] = args.body
 
     try:
-        result = api_request(
-            get_orchestrator_url(),
-            f"/api/v1/pipelines/{pid}/heartbeat",
-            "POST",
-            data,
-            15,
-        )
-    except ApiError as e:
+        resp = _handlers.message_heartbeat(req)
+    except GatewayError as err:
+        # GatewayError subclasses HandlerError — match it first so we
+        # can distinguish transport failures (rc=2/3 by status) from
+        # user input errors (rc=3).
         # 429 rate-limit is a permanent error from this invocation's
         # perspective — caller should honour retry_after and try again
         # later.
-        if e.status_code == 429:
+        if err.status_code == 429:
             retry_after = 60
             try:
-                if e.details and isinstance(e.details, dict):
-                    retry_after = int(e.details.get("retry_after", 60))
+                if err.details and isinstance(err.details, dict):
+                    retry_after = int(err.details.get("retry_after", 60))
             except (TypeError, ValueError):
                 pass
             print(
@@ -1318,24 +1343,22 @@ def cmd_message_heartbeat(args: argparse.Namespace) -> int:
                 file=sys.stderr,
             )
             return 3
-        if e.status_code and 400 <= e.status_code < 500 and e.status_code != 408:
-            print(f"Error: {e.message}", file=sys.stderr)
-            return 3
-        print(f"Transient error: {e.message}", file=sys.stderr)
-        return 2
+        rc = _classify_gateway_error_rc(err.status_code)
+        prefix = "Error" if rc == 3 else "Transient error"
+        print(f"{prefix}: {err.message}", file=sys.stderr)
+        return rc
+    except HandlerError as err:
+        print(f"Error: {err.message}", file=sys.stderr)
+        return 3
 
     if args.json:
-        print_json(result)
-        return 0 if result.get("success") else 1
-    if result.get("success"):
-        deduped = bool(result.get("data", {}).get("deduped"))
-        if deduped:
-            print(f"HEARTBEAT deduped (unchanged state {args.state})")
-        else:
-            print(f"HEARTBEAT sent: {args.state}")
+        print_json(resp.get("signal", {}))
         return 0
-    print(f"Error: {result.get('message')}", file=sys.stderr)
-    return 1
+    if resp.get("deduped"):
+        print(f"HEARTBEAT deduped (unchanged state {args.state})")
+    else:
+        print(f"HEARTBEAT sent: {args.state}")
+    return 0
 
 
 def cmd_message_status(args: argparse.Namespace) -> int:

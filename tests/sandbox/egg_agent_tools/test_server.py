@@ -1,7 +1,9 @@
 """Tests for egg_agent_tools.server (factory + system prompt nudge).
 
 Covers:
-- build_sandbox_mcp_server registers the expected iteration-1 tools (15).
+- build_sandbox_mcp_server registers the expected iteration-1 tools (18:
+  the original 15 plus the three message-primitive wrappers added in
+  #1922: wait_for_event, wait_loop, send_heartbeat).
 - SYSTEM_PROMPT_NUDGE stays <=200 words.
 - Symmetric drift test: every mcp__<namespace>__ substring in the nudge
   corresponds to a registered namespace, and every registered namespace
@@ -31,6 +33,9 @@ EXPECTED_TOOL_NAMES = {
     "mcp__brc__confirm",
     "mcp__brc__get_state",
     "mcp__brc__list_blocking",
+    "mcp__brc__wait_for_event",
+    "mcp__brc__wait_loop",
+    "mcp__brc__send_heartbeat",
     "mcp__phase__get_context",
     "mcp__phase__get_assigned_tasks",
     "mcp__progress__emit",
@@ -41,8 +46,10 @@ EXPECTED_TOOL_NAMES = {
 
 
 class TestToolRegistry:
-    def test_fifteen_tools_registered(self):
-        assert len(TOOL_LIST) == 15
+    def test_eighteen_tools_registered(self):
+        # 15 iteration-1 verbs + 3 #1897 message primitives exposed in
+        # #1922 (wait_for_event, wait_loop, send_heartbeat).
+        assert len(TOOL_LIST) == 18
 
     def test_expected_names_present(self):
         # ToolRegistration.name carries the Claude-visible full name
