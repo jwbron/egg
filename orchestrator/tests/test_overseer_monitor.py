@@ -557,6 +557,19 @@ class TestPhaseScoping:
 class TestPostConsensusStall:
     """Test detection of post-consensus stalls."""
 
+    @pytest.fixture(autouse=True)
+    def _insulate_from_state_store(self):
+        """Prevent the transition-completion short-circuit from reaching a
+        real state store when EGG_REPO_PATH happens to be set in the test
+        environment.  Returning None makes the detector fall through to the
+        grace-period logic that these tests exercise."""
+        with patch.object(
+            OverseerMonitor,
+            "_load_pipeline_for_transition_check",
+            return_value=None,
+        ):
+            yield
+
     def test_detects_post_consensus_stall_after_grace_period(self) -> None:
         """After grace period, consensus stall creates HITL and sends Slack."""
         monitor = OverseerMonitor(
@@ -710,7 +723,7 @@ class TestPostConsensusStallTransitionCompletionShortcircuit:
         pipeline.phases = phases
         return pipeline
 
-    def _monitor_with_store(self, pipeline, pipeline_id: str) -> "OverseerMonitor":
+    def _monitor_with_store(self, pipeline, pipeline_id: str) -> tuple["OverseerMonitor", MagicMock]:
         """Build a monitor with HITL/broadcast/Slack stubbed and a store
         patched in that returns ``pipeline`` from load_pipeline."""
         monitor = OverseerMonitor(pipeline_id=pipeline_id, config=_MockConfig())
@@ -728,13 +741,7 @@ class TestPostConsensusStallTransitionCompletionShortcircuit:
         """Invoke the detector with consensus complete + running status,
         patching the state store resolution to return our fake store."""
         consensus = {"is_complete": True}
-        # Patch both the likely import sites — the coder may import
-        # ``get_state_store`` at module scope or resolve it lazily inside
-        # the function.  Patching both is harmless either way.
-        with (
-            patch("overseer.monitor.get_state_store", return_value=store, create=True),
-            patch("state_store.get_state_store", return_value=store, create=True),
-        ):
+        with patch("overseer.monitor._get_state_store", return_value=store):
             _run(monitor._check_post_consensus_stall(consensus, "running"))
 
     def test_shortcircuits_when_phase_already_advanced(self) -> None:
@@ -799,10 +806,7 @@ class TestPostConsensusStallTransitionCompletionShortcircuit:
         store.load_pipeline.side_effect = RuntimeError("transient storage error")
         consensus = {"is_complete": True}
 
-        with (
-            patch("overseer.monitor.get_state_store", return_value=store, create=True),
-            patch("state_store.get_state_store", return_value=store, create=True),
-        ):
+        with patch("overseer.monitor._get_state_store", return_value=store):
             _run(monitor._check_post_consensus_stall(consensus, "running"))
 
         # Grace period elapsed + no short-circuit applied — existing

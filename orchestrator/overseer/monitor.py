@@ -34,6 +34,11 @@ from overseer.decision_maker import (
 from overseer.issue_filer import file_diagnostic_issue
 from overseer.self_monitor import OverseerSelfMonitor
 
+try:
+    from state_store import get_state_store as _get_state_store
+except ImportError:
+    _get_state_store = None
+
 logger = logging.getLogger(__name__)
 
 # Keywords for the escalation safety net — match common LLM phrasings
@@ -1070,31 +1075,15 @@ class OverseerMonitor:
         so a missing env var or missing state-store module degrades
         gracefully to ``None`` — the detector then falls through to the
         existing grace-period logic (fail open).  Tests patch
-        ``overseer.monitor.get_state_store`` or
-        ``state_store.get_state_store`` (both with ``create=True``) to
-        inject a fake store.
+        ``overseer.monitor._get_state_store`` to inject a fake store.
         """
         try:
-            # Look up the resolver at call-time via globals() so tests
-            # that patch ``overseer.monitor.get_state_store`` with
-            # ``create=True`` can inject a stub without the module
-            # needing to import it at module scope (which would trigger
-            # the sys.path-dependent ``state_store`` import eagerly).
-            gss = globals().get("get_state_store")
-            if gss is None:
-                try:
-                    from state_store import get_state_store as gss
-                except ImportError:
-                    return None
-            # Tests patch ``get_state_store`` directly and don't
-            # depend on the env var; production needs a real repo_path.
-            # When unset in production, return None cleanly rather than
-            # relying on ``get_state_store`` to raise and be swallowed
-            # by the fail-open handler below.
+            if _get_state_store is None:
+                return None
             repo_path = os.environ.get("EGG_REPO_PATH")
             if not repo_path:
                 return None
-            store = gss(repo_path)
+            store = _get_state_store(repo_path)
             return store.load_pipeline(self.pipeline_id)
         except Exception:
             # Fail open — see the caller's docstring.  Any failure to

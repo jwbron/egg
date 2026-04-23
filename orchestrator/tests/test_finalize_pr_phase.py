@@ -320,6 +320,7 @@ class TestFinalizePrPhaseStateWriteback:
         # the durable part of the contract.  pr_number stays None because
         # we couldn't parse it.
         assert failed is False
+        mock_fetch.assert_not_called()
         assert reloaded.pr_number is None
         assert reloaded.pr_head_sha is None
         phase_execution = reloaded.get_phase_execution(PipelinePhase.PR)
