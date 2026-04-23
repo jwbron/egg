@@ -94,6 +94,25 @@ All concurrent agent containers are wrapped with a shell script defined in `orch
 
 Agents communicate with each other during concurrent execution via the orchestrator message bus (`orchestrator/message_store.py`). In production, messages are stored in Redis Streams, surviving orchestrator restarts. Messages are cleared at phase transition. In test environments, an in-memory fallback is used when Redis is not available.
 
+### How to Wait
+
+Agents wait for BRC messages with a single canonical command — `egg-orch message wait-loop` — which long-polls the bus server-side and exits only on a terminal match or a permanent error. The full contract (the one-liner for producers and reviewers, the four anti-patterns to avoid, the `egg-orch message wait` exit codes, the `HEARTBEAT` schema, and the `EGG_MESSAGE_POLL_MAX_WAIT` ↔ gateway-Squid coupling) is in [Agent Wait Patterns](../reference/agent-wait-patterns.md) — read it before writing an outer `for`-loop, a `sleep`, or a multi-call poll sequence.
+
+```bash
+# Producer STAY ALIVE — exits on consensus, re-review, or overseer alert
+egg-orch message wait-loop \
+  --for CONSENSUS_CONFIRMED \
+  --for CONSENSUS_RE_REVIEW \
+  --for OVERSEER_ALERT
+
+# Reviewer STAY ALIVE — also wakes on new proposals
+egg-orch message wait-loop \
+  --for CONSENSUS_PROPOSE \
+  --for CONSENSUS_RE_REVIEW \
+  --for CONSENSUS_CONFIRMED \
+  --for OVERSEER_ALERT
+```
+
 ### Sending Messages
 
 ```
@@ -106,12 +125,14 @@ Request body:
 {
   "from_role": "coder",
   "to_role": "tester",          // or "all" for broadcast
-  "message_type": "PROGRESS",   // PROGRESS, QUESTION, STATUS, AGENT_FAILED, HANDOFF
+  "message_type": "PROGRESS",   // PROGRESS, STATUS, HANDOFF, HEARTBEAT, AGENT_FAILED
   "subject": "Implemented auth module",
   "body": "auth.py is complete, tests can begin",
   "metadata": {}
 }
 ```
+
+> `QUESTION` was removed in [#1897](https://github.com/jwbron/egg/issues/1897) — it encouraged off-protocol chatter with no handler. Use `HANDOFF` when you need a peer to act, `HEARTBEAT` to advertise state, and typed NACK rationale to ask clarifying questions of a producer you're reviewing.
 
 The pipeline's current phase is automatically attached to each message. This applies to both the general message endpoint and the consensus signal handlers — all `CONSENSUS_*` messages (propose, ACK, NACK, withdraw, confirmed, re-review) and other BRC-adjacent types (`STATUS`, `HANDOFF`, `AGENT_FAILED`, etc.) include the phase field so that downstream consumers like BRC history persistence and PR summary generation can correctly group messages by phase.
 
@@ -144,10 +165,10 @@ Returns total message count and a breakdown by message type.
 | Type | Purpose |
 |------|---------|
 | `PROGRESS` | Agent progress updates for other agents |
-| `QUESTION` | Agent asking another agent a question |
 | `STATUS` | General status announcements |
-| `AGENT_FAILED` | Orchestrator notifying agents of a peer failure |
 | `HANDOFF` | Agent signaling completion of a handoff artifact |
+| `HEARTBEAT` | Agent state transition (`WORKING`, `WAITING_ON_ROLE`, `PROPOSED`, `IDLE`) — resets the orchestrator's `last_heartbeat` without emitting a free-form `PROGRESS` entry. See [Agent Wait Patterns — HEARTBEAT](../reference/agent-wait-patterns.md#4-heartbeat-message-type) for the metadata schema. |
+| `AGENT_FAILED` | Orchestrator notifying agents of a peer failure |
 | `CONSENSUS_PROPOSE` | Producer broadcasting its proposal for review |
 | `CONSENSUS_ACK` | Reviewer approving a producer's proposal |
 | `CONSENSUS_NACK` | Reviewer rejecting a producer's proposal (with reason) |
@@ -156,11 +177,15 @@ Returns total message count and a breakdown by message type.
 | `CONSENSUS_RE_REVIEW` | Orchestrator notifying a reviewer that their prior confirmation is stale and they must re-review the producer's new proposal version |
 | `OVERSEER_ALERT` | Health anomaly or lifecycle alert. Sent by the overseer agent for health anomalies (always with explicit `pipeline_id` and `from_role: overseer`), and by the orchestrator when the overseer is auto-respawned (with diagnostic metadata including exit code, log tail, and container IDs) |
 
+> **Removed in #1897**: `QUESTION` was dropped from the type vocabulary because it had no delivery semantics and was only used as informal free-form chatter. Agents that need a peer to act should use `HANDOFF`; agents that need to advertise state should use `HEARTBEAT`; reviewers with clarifying questions should put them in the `NACK` rationale so the producer sees them and can address them on re-propose.
+
 ### Message Store Backend
 
 The message store uses Redis Streams when Redis is available, falling back to an in-memory store for tests or unconfigured environments. The backend is selected via the `EGG_MESSAGE_STORE_BACKEND` environment variable (`"auto"` by default, `"redis"` to require Redis, `"memory"` to force in-memory).
 
-**Note:** Long-poll (`?wait=<s>`) only blocks with the Redis Streams backend. The in-memory store silently falls back to a non-blocking poll, so agents in test environments may see immediate empty responses instead of blocking.
+**Long-poll semantics (both backends):** `GET /messages/wait?for=<TYPE>&timeout=<s>` blocks on both backends until a matching message arrives or the timeout elapses. The in-memory store implements blocking via a per-pipeline `threading.Condition`; the Redis backend uses `XREAD BLOCK` with a server-side type-filter loop. The silent non-blocking fallback that previously lived in `routes/messages.py` was removed in [#1897](https://github.com/jwbron/egg/issues/1897) so backend misconfiguration fails loudly in CI instead of returning empty results. See [Agent Wait Patterns](../reference/agent-wait-patterns.md#3-exit-code-contract-for-egg-orch-message-wait) for the full exit-code contract and the `EGG_MESSAGE_POLL_MAX_WAIT` cap.
+
+**Clear-on-phase-transition safety:** When the store is cleared at phase boundaries, all blocked waits wake and return an empty list (within ~100 ms). This prevents blocked agents from staying stuck across a phase transition.
 
 ### Per-Phase Cleanup
 
