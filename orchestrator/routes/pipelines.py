@@ -1425,7 +1425,14 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
             def _background_cleanup(pid: str, status_value: str) -> None:
                 try:
                     spawner = _get_spawner()
-                    removed = spawner.cleanup_pipeline(pid, force=True)
+                    # Preserve worktrees for CANCELLED pipelines so that
+                    # restart_phase/restart_agent can resume with local
+                    # committed work intact (see #1725).
+                    removed = spawner.cleanup_pipeline(
+                        pid,
+                        force=True,
+                        preserve_worktrees=(status_value == "cancelled"),
+                    )
                     if removed > 0:
                         logger.info(
                             "Cleaned up pipeline containers after status change",

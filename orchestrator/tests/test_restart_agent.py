@@ -529,6 +529,8 @@ class TestRestartAgentEndpoint:
         assert response.status_code == 200
         assert pipeline.status == PipelineStatus.RUNNING
         assert pipeline.phases["implement"].status == PipelineStatus.RUNNING
+        # Verify the CANCELLED -> RUNNING transition was persisted
+        assert mock_store.update_pipeline.call_count >= 1
 
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines.get_container_spawner")
@@ -639,6 +641,45 @@ class TestRestartAgentEndpoint:
         assert pipeline.phases["implement"].status == PipelineStatus.FAILED
         # Verify update_pipeline was called at least twice:
         # once for the early RUNNING update, once for the FAILED revert
+        assert mock_store.update_pipeline.call_count >= 2
+
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_cancelled_spawner_failure_reverts_status_to_failed(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
+    ):
+        """Spawn failure on a CANCELLED pipeline reverts status to FAILED.
+
+        When restart_agent is called on a CANCELLED pipeline and the spawn
+        fails, the revert unconditionally sets FAILED (not back to CANCELLED).
+        This is intentional: FAILED is also restartable, and it accurately
+        reflects that the restart attempt failed.
+        """
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+        pipeline.status = PipelineStatus.CANCELLED
+        pipeline.phases["implement"].status = PipelineStatus.CANCELLED
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner.restart_agent_container.side_effect = ContainerSpawnError("Failed")
+        mock_spawner_fn.return_value = mock_spawner
+
+        response = client.post(
+            "/api/v1/pipelines/issue-100/agents/coder/restart",
+            json={},
+        )
+
+        assert response.status_code == 500
+        # Spawn failure reverts to FAILED (not back to CANCELLED)
+        assert pipeline.status == PipelineStatus.FAILED
+        assert pipeline.phases["implement"].status == PipelineStatus.FAILED
         assert mock_store.update_pipeline.call_count >= 2
 
     @patch("routes.pipelines._resolve_pipeline")

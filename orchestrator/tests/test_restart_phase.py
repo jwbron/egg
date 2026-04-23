@@ -312,6 +312,9 @@ class TestRestartPhaseEndpoint:
 
         assert response.status_code == 200
         assert pipeline.status == PipelineStatus.RUNNING
+        assert pipeline.phases["implement"].status == PipelineStatus.PENDING
+        # Verify the CANCELLED -> RUNNING transition was persisted
+        assert mock_store.update_pipeline.call_count >= 1
 
     @patch("routes.pipelines.threading.Thread")
     @patch("routes.pipelines.get_container_spawner")
