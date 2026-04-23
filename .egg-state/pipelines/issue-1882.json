@@ -5,7 +5,7 @@
   "branch": "egg/issue-1882",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "complete",
   "current_phase": "pr",
   "config": {
     "auto_create_pr": true,
@@ -868,7 +868,7 @@
     }
   ],
   "created_at": "2026-04-23T05:21:58.997312Z",
-  "updated_at": "2026-04-23T21:25:31.677066Z",
+  "updated_at": "2026-04-23T21:25:38.379652Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -882,5 +882,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T21:24:47.257602Z",
-  "version": 113
+  "version": 114
 }
