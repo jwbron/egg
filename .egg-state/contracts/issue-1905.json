@@ -12,7 +12,7 @@
     {
       "id": "phase-1",
       "name": "Implement",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -21,8 +21,8 @@
         {
           "id": "task-1-1",
           "description": "In `skills/sdlc/SKILL.md` Phase 4, insert a new `### Resolved Questions Map` subsection above the `### For phase_gate decisions:` header defining `resolved_questions_map` as a session-scoped `{normalized_question_text -> answer}` dict with lowercase+strip normalization, and update Step 5 of the phase_gate handler to record each captured answer into this map alongside the existing Resolved Questions display block.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "e60048adf",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "SKILL.md Phase 4 defines `resolved_questions_map` once with normalization rules stated, and Step 5 of the phase_gate handler explicitly instructs to populate it as each answer is collected.",
@@ -37,8 +37,8 @@
         {
           "id": "task-1-2",
           "description": "In the `### For choice type decisions:` section of `skills/sdlc/SKILL.md`, prepend a `Before prompting` paragraph: normalize the decision's question, look it up in `resolved_questions_map`, compare the stored answer against each `decision.options` entry with the same normalization; on match, auto-submit `{\"action\": \"select\", \"selected\": \"<matched option verbatim>\"}` via `provide_input` and print a one-line note `Auto-resolved <decision_id>: selected '<option>' from captured context.`; otherwise fall through to the existing prompt flow.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "e60048adf",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "The choice handler section documents the consult-before-prompt lookup, the option-compatibility check, the `provide_input` payload, the fall-through to prompting on no-match or incompatible-option, and the user-facing auto-resolution note.",
@@ -53,8 +53,8 @@
         {
           "id": "task-1-3",
           "description": "In the `### For feedback type decisions:` section of `skills/sdlc/SKILL.md`, prepend a `Before prompting` paragraph: for each question in the decision's `questions` array, normalize and look up `resolved_questions_map`, collect matches into a prefilled `answers` dict keyed by the question's `id` (or the existing `q-<1-based index>` fallback); if all are prefilled, skip `AskUserQuestion` and submit directly; otherwise present only the unmatched questions, merge the new answers into the prefilled dict, and submit a single merged `{\"action\": \"submit_feedback\", \"answers\": {...}}` via `provide_input`; print a one-line note naming the decision ID and which question IDs were auto-resolved.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "e60048adf",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "The feedback handler section documents per-question lookup, partial-match merging, the all-matched fast path, the single merged `provide_input` call after merging, and the user-facing auto-resolution note.",
@@ -68,13 +68,168 @@
         }
       ],
       "dependencies": [],
-      "commit": null,
+      "commit": "c0c57a55df345d06186fa8500ff13428e10395c2",
       "review_feedback": []
     }
   ],
   "decisions": [],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-04-23T00:12:45.602482Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T00:12:45.607178Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": null,
+      "new_value": "c0c57a55df345d06186fa8500ff13428e10395c2",
+      "reason": "Linked commit c0c57a5 to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T00:12:45.781364Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T00:12:45.787462Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": null,
+      "new_value": "c0c57a55df345d06186fa8500ff13428e10395c2",
+      "reason": "Linked commit c0c57a5 to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T00:12:45.990344Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T00:12:46.002631Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.commit",
+      "old_value": null,
+      "new_value": "c0c57a55df345d06186fa8500ff13428e10395c2",
+      "reason": "Linked commit c0c57a5 to task-1-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T00:12:51.362520Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked phase-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T00:12:51.370059Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.commit",
+      "old_value": null,
+      "new_value": "c0c57a55df345d06186fa8500ff13428e10395c2",
+      "reason": "Linked commit c0c57a5 to phase-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T00:13:44.055885Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": "c0c57a55df345d06186fa8500ff13428e10395c2",
+      "new_value": "5d41669bb",
+      "reason": "Linked commit 5d41669 to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T00:13:44.232572Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": "c0c57a55df345d06186fa8500ff13428e10395c2",
+      "new_value": "5d41669bb",
+      "reason": "Linked commit 5d41669 to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T00:13:44.403033Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.commit",
+      "old_value": "c0c57a55df345d06186fa8500ff13428e10395c2",
+      "new_value": "5d41669bb",
+      "reason": "Linked commit 5d41669 to task-1-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T00:21:18.458807Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": "5d41669bb",
+      "new_value": "e60048adf",
+      "reason": "Linked commit e60048a to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T00:21:18.639926Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": "5d41669bb",
+      "new_value": "e60048adf",
+      "reason": "Linked commit e60048a to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T00:21:18.833235Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.commit",
+      "old_value": "5d41669bb",
+      "new_value": "e60048adf",
+      "reason": "Linked commit e60048a to task-1-3",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
