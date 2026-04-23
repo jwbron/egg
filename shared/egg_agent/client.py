@@ -208,6 +208,41 @@ async def run_agent_async(
     if system_prompt is not None:
         options.system_prompt = system_prompt
 
+    # --- Opt-in: register in-process SDK MCP server with egg's agent tools ---
+    # Gated on EGG_MCP_TOOLS so non-opt-in pipelines pay zero cost (no
+    # extra import, no prompt-weight change).  See issue #1765.
+    _mcp_flag_raw = os.environ.get("EGG_MCP_TOOLS", "")
+    if _mcp_flag_raw.strip().lower() in ("true", "1", "yes", "on"):
+        try:
+            from egg_agent_tools import (  # noqa: PLC0415
+                SYSTEM_PROMPT_NUDGE,
+                build_sandbox_mcp_server,
+            )
+
+            mcp_server = build_sandbox_mcp_server()
+            options.mcp_servers = {"egg": mcp_server}
+            # Preserve any caller-supplied system_prompt; append the nudge.
+            existing_prompt = options.system_prompt or ""
+            if existing_prompt:
+                options.system_prompt = (
+                    existing_prompt.rstrip() + "\n\n" + SYSTEM_PROMPT_NUDGE
+                )
+            else:
+                options.system_prompt = SYSTEM_PROMPT_NUDGE
+            logger.info(
+                "Registered egg MCP tools",
+                event_type="system",
+                event_subtype="mcp_tools_enabled",
+                flag="EGG_MCP_TOOLS",
+            )
+        except Exception as e:  # pragma: no cover - defensive
+            logger.warning(
+                "Failed to register egg MCP tools; continuing without them",
+                event_type="system",
+                event_subtype="mcp_tools_error",
+                error=str(e),
+            )
+
     stdout_parts: list[str] = []
     actual_model: str | None = None
     result_meta: dict[str, Any] = {}

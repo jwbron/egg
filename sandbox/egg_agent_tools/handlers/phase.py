@@ -130,14 +130,19 @@ def phase_get_context(req: dict[str, Any]) -> dict[str, Any]:
 
     tasks: list[dict[str, Any]] = []
     contract_present = False
+    contract: dict[str, Any] = {}
     try:
         identifier = _resolve_identifier(req)
+    except HandlerError:
+        # No identifier in env/args — still return environment context
+        # rather than failing the whole tool.  This is the "fallback"
+        # branch; we do NOT catch gateway failures here because those
+        # indicate infrastructure problems the agent needs to see.
+        identifier = None
+    if identifier is not None:
         contract = _fetch_contract(identifier, repo_path)
         contract_present = True
         tasks = _tasks_for_role(contract, role)
-    except HandlerError:
-        # No contract available; still return environment context.
-        contract = {}
 
     artifacts: list[str] = []
     if include_artifacts:

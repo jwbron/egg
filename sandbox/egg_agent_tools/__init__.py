@@ -37,11 +37,15 @@ from egg_agent_tools.server import (  # noqa: F401
 from egg_agent_tools.tools import (  # noqa: F401
     TOOL_LIST,
     TOOL_NAMESPACES,
+    TOOL_REGISTRY,
+    ToolRegistration,
 )
 
 __all__ = [
     "SYSTEM_PROMPT_NUDGE",
     "TOOL_LIST",
     "TOOL_NAMESPACES",
+    "TOOL_REGISTRY",
+    "ToolRegistration",
     "build_sandbox_mcp_server",
 ]
