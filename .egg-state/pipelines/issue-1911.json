@@ -204,10 +204,10 @@
     },
     "pr": {
       "phase": "pr",
-      "status": "running",
+      "status": "complete",
       "started_at": "2026-04-23T06:18:46.177978Z",
       "work_started_at": "2026-04-23T06:18:48.530567Z",
-      "completed_at": null,
+      "completed_at": "2026-04-23T06:20:02.802350Z",
       "containers": [],
       "agents": [],
       "review_cycles": 0,
@@ -223,7 +223,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-23T05:16:10.856774Z",
-  "updated_at": "2026-04-23T06:20:02.787962Z",
+  "updated_at": "2026-04-23T06:20:02.802553Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -237,5 +237,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T06:18:46.177979Z",
-  "version": 30
+  "version": 31
 }
