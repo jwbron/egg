@@ -41,7 +41,16 @@ import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+# Ensure ``gateway/`` is on sys.path so module-top imports below work
+# even when pytest collects this file in isolation (the other tests
+# that insert the path happen to run before us in full-suite collection
+# but not in narrow pytest invocations).
+_gateway_path = Path(__file__).parent.parent
+if str(_gateway_path) not in sys.path:
+    sys.path.insert(0, str(_gateway_path))
 
 import filtered_push
 import git_client

@@ -214,7 +214,12 @@ class TestSingleOwnCommitMixed:
         new_sha = result.rewritten_commits[0]["new_sha"]
         assert new_sha != sha
         assert result.pushed_commits == [new_sha]
-        assert _message(repo, new_sha).endswith("[auto-filtered]")
+        # The marker must sit on its own paragraph so trailers parse
+        # cleanly — the message ends with ``\n[auto-filtered]`` rather
+        # than ``...suffix-glued-to-last-line [auto-filtered]``.
+        new_message = _message(repo, new_sha)
+        assert new_message.endswith("[auto-filtered]")
+        assert "\n\n[auto-filtered]" in new_message
         # The rewritten tree must NOT contain the blocked path.
         tree_listing = _run(repo, "ls-tree", "-r", new_sha)
         assert "docs/README.md" not in tree_listing
