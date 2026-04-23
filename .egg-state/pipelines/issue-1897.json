@@ -438,7 +438,7 @@
       "phase": "pr",
       "status": "running",
       "started_at": "2026-04-23T08:58:45.924925Z",
-      "work_started_at": null,
+      "work_started_at": "2026-04-23T08:58:46.143070Z",
       "completed_at": null,
       "containers": [],
       "agents": [],
@@ -666,7 +666,7 @@
     }
   ],
   "created_at": "2026-04-22T23:27:22.582974Z",
-  "updated_at": "2026-04-23T08:58:45.925594Z",
+  "updated_at": "2026-04-23T08:58:46.143152Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -680,5 +680,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T07:27:44.037815Z",
-  "version": 81
+  "version": 82
 }
