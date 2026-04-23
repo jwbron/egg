@@ -311,10 +311,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Superseded by decision-7 in the v5 analysis draft: semantic verbs grouped by function (what the agent is DOING), not CLI taxonomy. Names like mcp__sdlc__register_open_question, mcp__brc__propose, mcp__phase__get_context. This decision (decision-5) was framed around CLI-mirroring options and is obsolete.\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-9",
+      "question": "What is the tool-surface scope — all subcommands of every egg CLI, or a curated high-value subset?",
+      "context": "Open contract question decision-6, registered by an agent during the refine phase.",
+      "options": [
+        "Everything — every subcommand of egg-contract, egg-orch, egg-checkpoint, egg-pipeline-watch, egg-sdlc, egg-health-inspect, egg-onboarding-docs becomes an MCP tool (maximizes discoverability, matches AC 'new CLI shows up automatically')",
+        "High-value subset first — only the subcommands agents hit in their BRC lifecycle (consensus propose/ack/nack/confirmed, message send/poll, contract add-decision/add-feedback/complete-task/update-notes, decision resolve, phase get/advance, anchor ops); expand iteratively (Recommended)",
+        "BRC-only — just the subcommands the PROPOSE/ACK/NACK/CONFIRM lifecycle depends on; all others stay shell-only",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-23T06:53:40.015194Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:22:09.201730Z",
-  "updated_at": "2026-04-23T06:53:35.633075Z",
+  "updated_at": "2026-04-23T06:53:40.028742Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -328,5 +347,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:32:00.470351Z",
-  "version": 48
+  "version": 49
 }
