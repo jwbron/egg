@@ -157,21 +157,21 @@ class TestConcurrentMessageExchange:
         assert received[0]["message_type"] == "PROGRESS"
         assert received[0]["subject"] == "API complete"
 
-        # Tester sends question to coder
+        # Tester sends status query to coder
         send_message(
             "issue-999",
             "tester",
             "coder",
-            "QUESTION",
+            "STATUS",
             "Test expectations",
             "What is expected return code?",
         )
 
-        # Coder polls and gets broadcast + targeted question
+        # Coder polls and gets broadcast + targeted status
         received = poll_messages("issue-999", "coder")
-        assert len(received) == 2  # Broadcast PROGRESS + targeted QUESTION
+        assert len(received) == 2  # Broadcast PROGRESS + targeted STATUS
         assert received[0]["message_type"] == "PROGRESS"  # broadcast to "all"
-        assert received[1]["message_type"] == "QUESTION"  # targeted to "coder"
+        assert received[1]["message_type"] == "STATUS"  # targeted to "coder"
 
     def test_broadcast_message_received_by_all(self):
         """Broadcast messages (to_role='all') are received by all agents."""
@@ -421,7 +421,7 @@ class TestConcurrentEndToEnd:
         send_msg("coder", "tester", "PROGRESS", "API tests can start")
 
         # Step 3: Tester starts testing, sends question
-        send_msg("tester", "coder", "QUESTION", "Expected HTTP status for invalid input?")
+        send_msg("tester", "coder", "STATUS", "Expected HTTP status for invalid input?")
         send_msg("coder", "tester", "RESPONSE", "400 Bad Request")
 
         # Step 4: Documenter tracks changes
@@ -448,8 +448,8 @@ class TestConcurrentEndToEnd:
         assert len(messages) == 6
         progress_msgs = [m for m in messages if m["message_type"] == "PROGRESS"]
         assert len(progress_msgs) == 2
-        question_msgs = [m for m in messages if m["message_type"] == "QUESTION"]
-        assert len(question_msgs) == 1
+        status_msgs = [m for m in messages if m["message_type"] == "STATUS"]
+        assert len(status_msgs) == 3  # tester + documenter + reviewer STATUS
 
 
 class TestGetAgentRoles:
@@ -619,9 +619,7 @@ class TestConcurrentPromptLifecycle:
         # Lower-case match because the prompt uses ``**don't**`` for
         # emphasis, not the formal ``Do NOT`` marker.
         low = prompt.lower()
-        assert "for i in" in low or "don't" in low, (
-            "Producer stay-alive must call out the for-loop anti-pattern"
-        )
+        assert "for i in" in low, "Producer stay-alive must call out the for-loop anti-pattern"
         assert "sleep" in low, "Producer stay-alive must call out the sleep anti-pattern"
 
     def test_reviewer_stay_alive_uses_canonical_for_list(self):

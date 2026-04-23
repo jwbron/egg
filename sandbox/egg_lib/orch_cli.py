@@ -1222,7 +1222,11 @@ def cmd_message_heartbeat(args: argparse.Namespace) -> int:
     a rate-limit error (exit 3 per the CLI contract — caller should
     honour the server's suggested ``retry_after``).
     """
-    pid = require_pipeline_id(args)
+    try:
+        pid = require_pipeline_id(args)
+    except SystemExit:
+        return 3
+
     role = args.role or get_agent_role_from_env()
     if not role:
         print("Error: --role required or set EGG_AGENT_ROLE", file=sys.stderr)

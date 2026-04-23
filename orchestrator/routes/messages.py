@@ -482,7 +482,15 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
 
     coordinator = get_heartbeat_coordinator()
 
-    # Rate limit first — cheap check, bounds load.
+    # Dedup first — duplicates are no-ops and should not consume rate
+    # budget (review NB1, issue #1897).
+    if coordinator.is_duplicate(pipeline_id, from_role, state, waiting_on):
+        return _make_success(
+            "HEARTBEAT deduped (unchanged state)",
+            data={"deduped": True},
+        )
+
+    # Rate limit — cheap check, bounds load.
     #
     # The 429 response shape is specified in issue #1897 reviewer_contract
     # blocker 5: the body MUST carry ``error: "rate_limited"`` and
@@ -507,14 +515,6 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
         )
         resp.headers["Retry-After"] = str(retry_after)
         return resp, 429
-
-    # Dedup: silently drop if the role's (state, waiting_on) hasn't
-    # changed since the last heartbeat.
-    if coordinator.is_duplicate(pipeline_id, from_role, state, waiting_on):
-        return _make_success(
-            "HEARTBEAT deduped (unchanged state)",
-            data={"deduped": True},
-        )
 
     # Emit as a normal HEARTBEAT message on the bus so downstream
     # consumers (HealthMonitor, overseer, UI) see it.

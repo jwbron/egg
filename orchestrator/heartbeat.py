@@ -85,7 +85,8 @@ class HeartbeatCoordinator:
         successfully delivering the heartbeat.
         """
         key = (pipeline_id, role)
-        prev = self._last_state.get(key)
+        with self._lock:
+            prev = self._last_state.get(key)
         cur = (state, waiting_on or "")
         return prev is not None and prev == cur
 

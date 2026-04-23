@@ -305,6 +305,12 @@ class RedisMessageStore:
 
             inner_loops += 1
             if inner_loops >= self._WAIT_FOR_TYPES_MAX_INNER_LOOPS:
+                logger.warning(
+                    "wait_for_types inner-loop cap reached",
+                    pipeline_id=pipeline_id,
+                    cap=self._WAIT_FOR_TYPES_MAX_INNER_LOOPS,
+                    type_filter=list(want_types),
+                )
                 return []
 
     def get_status(self, pipeline_id: str) -> dict[str, Any]:

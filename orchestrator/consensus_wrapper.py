@@ -444,7 +444,10 @@ check_confirmed_and_wait() {{
                     --for CONSENSUS_RE_REVIEW \
                     --timeout "$poll_interval" >/dev/null 2>&1
                 rc=$?
-                if [ "$rc" -eq 3 ]; then
+                if [ "$rc" -eq 2 ]; then
+                    # Transient error — short backoff to avoid tight-loop
+                    sleep 2
+                elif [ "$rc" -eq 3 ]; then
                     # Permanent egg-orch error — sleep fallback
                     sleep "$poll_interval"
                 fi
