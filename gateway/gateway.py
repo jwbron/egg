@@ -1062,13 +1062,17 @@ def git_push() -> tuple[Response, int] | Response:
         )
 
         # When the per-commit attribution can't be computed (e.g. the
-        # caller mocked only the legacy file-detection path), fall back
-        # to treating every file in ``changed_files`` as own-authored
-        # and unregistered — the fail-closed direction.  partition
-        # still runs below and the "all-blocked" short-circuit fires
-        # so the behavioural difference is a 200 + nothing_to_push
-        # instead of the legacy 403; this matches #1882's design.
-        if attributed_push.error or not attributed_push.commits:
+        # caller mocked only the legacy file-detection path, or git
+        # rev-list returned zero commits but there are staged-but-not-
+        # pushed changes we can't walk with commit-tree), we FAIL
+        # CLOSED on the rewrite path.  Treat every file in
+        # ``changed_files`` as own-authored and unregistered; if any
+        # file is blocked, return 200 nothing_to_push=true with the
+        # blocked set surfaced as excluded_files — *without* calling
+        # ``execute_filtered_push`` (it would walk an empty commit
+        # list and push HEAD unchanged, leaking blocked files).
+        attribution_fallback = bool(attributed_push.error or not attributed_push.commits)
+        if attribution_fallback:
             own_files = list(dict.fromkeys(changed_files))
             pulled_files = []
             unregistered_files = list(own_files)
@@ -1118,7 +1122,13 @@ def git_push() -> tuple[Response, int] | Response:
 
         if blocked_own and enforce:
             # Decide between "all blocked" (nothing to push) and mixed rewrite.
-            if not allowed_own and not pulled_files:
+            # IMPORTANT: when we have no commit range to walk
+            # (attribution_fallback), treat the whole push as blocked
+            # and do NOT invoke execute_filtered_push — it would walk
+            # an empty commit list and push HEAD unchanged, leaking
+            # blocked files through.  This preserves the fail-closed
+            # invariant when attribution is unavailable (#1882 review).
+            if (not allowed_own and not pulled_files) or attribution_fallback:
                 audit_log(
                     "push_all_blocked_no_op",
                     "git_push",
@@ -1129,10 +1139,16 @@ def git_push() -> tuple[Response, int] | Response:
                         "role": session_role,
                         "excluded_files": blocked_own,
                         "pulled_commits": pulled_commits_summary,
+                        "attribution_fallback": attribution_fallback,
                     },
                 )
                 return make_success(
-                    "Push skipped: every own-authored file is out of scope for this role",
+                    (
+                        "Push skipped: attribution unavailable and out-of-scope "
+                        "files detected (fail-closed)."
+                        if attribution_fallback
+                        else "Push skipped: every own-authored file is out of scope for this role"
+                    ),
                     {
                         "repo": repo,
                         "branch": branch,
@@ -1292,6 +1308,16 @@ def git_push() -> tuple[Response, int] | Response:
                 role=session_role,
                 blocked_files=blocked_own,
             )
+            # Observability parity (#1882 TASK-3-3): even the warn-
+            # only passthrough must surface pulled_commits and the
+            # filtered=false flag in the success response so
+            # downstream tooling sees a consistent schema.
+            auto_filter_response = {
+                "filtered": False,
+                "excluded_files": [],
+                "pushed_files": own_files + pulled_files,
+                "pulled_commits": pulled_commits_summary,
+            }
         else:
             # All own-files are allowed.  No rewrite needed.  We still
             # stash the pulled_commits summary so the success path can

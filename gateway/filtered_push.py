@@ -531,23 +531,53 @@ def _rollback(exec_path: str, original_head: str, branch: str) -> None:
         )
 
 
+def _git_raw(
+    exec_path: str, *args: str, timeout: int = 60
+) -> subprocess.CompletedProcess[bytes]:
+    """Variant of ``_git`` that returns raw bytes — used for ``git show``
+    on potentially-binary blobs where ``text=True`` would corrupt the
+    content via UTF-8 decoding.
+    """
+    cmd = [
+        "/usr/bin/git",
+        "-c",
+        "safe.directory=*",
+        "-c",
+        "core.hooksPath=/dev/null",
+        *args,
+    ]
+    return subprocess.run(
+        cmd,
+        cwd=exec_path,
+        capture_output=True,
+        check=False,
+        timeout=timeout,
+    )
+
+
 def _restage_blocked_files(
     exec_path: str, blocked_paths: list[str], source_sha: str
 ) -> None:
-    """Re-introduce the blocked files into the worktree as *uncommitted* changes.
+    """Re-introduce the blocked files as *staged* uncommitted changes.
 
-    After a filtered push the origin tip lacks the blocked paths.  Most
-    agents will want them back as staged changes so the next role can
-    pick them up (HITL decision-6).  Best-effort: any failure here is
-    logged at WARNING and swallowed — the push itself already
-    succeeded.
+    After a filtered push the origin tip lacks the blocked paths.
+    Per HITL decision-6 the next role needs them back as staged
+    changes they can pick up.  We write the blob contents as raw
+    bytes (binary-safe) into the worktree, then ``git add`` the
+    path so the index actually contains the content — unlike
+    ``--intent-to-add`` which only records the filename.
+
+    Best-effort: any failure here is logged at WARNING and swallowed
+    because the push itself already succeeded.
     """
     if not blocked_paths:
         return
     try:
         for path in blocked_paths:
-            # Fetch the blob from the pre-filter tip.
-            show = _git(exec_path, "show", f"{source_sha}:{path}")
+            # Fetch the blob from the pre-filter tip as raw bytes so
+            # binary files (png, pdf, compiled artefacts) aren't
+            # mangled by UTF-8 decoding.
+            show = _git_raw(exec_path, "show", f"{source_sha}:{path}")
             if show.returncode != 0:
                 logger.debug(
                     "filtered_push_restage_missing_blob",
@@ -555,13 +585,16 @@ def _restage_blocked_files(
                     source_sha=source_sha,
                 )
                 continue
-            content = show.stdout
-            # Write the file content back to the worktree.
+            content = show.stdout  # bytes
             full_path = os.path.join(exec_path, path)
             os.makedirs(os.path.dirname(full_path) or exec_path, exist_ok=True)
-            with open(full_path, "w") as f:
+            with open(full_path, "wb") as f:
                 f.write(content)
-            _git(exec_path, "add", "--intent-to-add", "--", path)
+            # ``git add`` (no --intent-to-add) actually stages the
+            # content so ``git diff --cached`` shows the restored
+            # file and a subsequent ``git commit`` picks it up
+            # without another add.
+            _git(exec_path, "add", "--", path)
     except Exception:  # pragma: no cover
         logger.warning("filtered_push_restage_failed", exc_info=True)
 
