@@ -369,10 +369,65 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"BRC + HITL + phase-context core (~15 tools): brc_propose/ack/nack/confirm/get_state/list_blocking; hitl_register_decision/request_feedback/check_answers; phase_get_context/get_assigned_tasks; progress_emit/signal_error/heartbeat; task_complete (Recommended — covers every agent role's BRC lifecycle + HITL + orientation on day one, without boiling the ocean)\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-12",
+      "question": "Open feedback request feedback-1",
+      "context": "Open contract feedback feedback-1, registered by an agent during the refine phase.",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [
+        {
+          "id": "Q1",
+          "question": "Access-control slice: if we DO add a separate sandbox-facing MCP server (Option C), what's the minimum tool set we want exposed, and which orchestrator-side tools (submit_task / cancel_task / restart_phase / advance_phase / get_consensus_status) should NEVER be reachable from inside a sandbox? Is there a concrete threat model you want us to design against?",
+          "answer": ""
+        },
+        {
+          "id": "Q2",
+          "question": "Drift-prevention contract: what's the acceptable mechanism for keeping the CLI and the tool schemas in sync? Options: (a) CI test that parses each CLI's argparse and diffs against the @tool registry; (b) single source of truth (argparse) with tools derived at import time; (c) make the CLI a thin wrapper over the @tool functions (CLI calls the same handler internally). Which flavour of 'no drift' do you want?",
+          "answer": ""
+        },
+        {
+          "id": "Q3",
+          "question": "Bootstrap guidance: even after MCP tools are registered, should we inject a short (<=200 word) 'these tools exist, prefer them over Bash' paragraph into the system prompt, or trust the SDK's native tool-discovery without a prompt nudge? Past experience suggests agents sometimes default to Bash even when a structured tool exists.",
+          "answer": ""
+        },
+        {
+          "id": "Q4",
+          "question": "Output shape for diagnostic subcommands: commands like 'egg-orch pipeline status' emit rich terminal tables/JSON. Should the MCP tool return (a) the JSON payload verbatim, (b) a compact text summary for token economy, or (c) both as multi-content blocks? This affects tool-call token cost and agent comprehension.",
+          "answer": ""
+        },
+        {
+          "id": "Q5",
+          "question": "Authn/authz for network-transport MCP (if Option C lands instead of D): sandbox agents currently authenticate to the gateway via EGG_SESSION_TOKEN. Should a sandbox-facing MCP server reuse that token, introduce a new per-agent token, or piggyback on the existing EGG_LIFECYCLE_SECRET? What's the expected token lifecycle across agent restarts?",
+          "answer": ""
+        },
+        {
+          "id": "Q6",
+          "question": "Observability: should MCP tool calls generate distinct log events / checkpoints separate from the SDK's built-in tool_use stream? Today, Bash calls to egg CLIs show up as 'Bash' tool_use blocks in checkpoints; if they become first-class MCP tools they'll show up under distinct names — does the checkpoint browser need any changes to group or search them?",
+          "answer": ""
+        },
+        {
+          "id": "Q7",
+          "question": "Timeouts and cancellation: SDK MCP server tool calls default to 60s connection timeout; some egg subcommands (e.g. 'egg-pipeline-watch', 'egg-checkpoint search') can run longer. What's the right timeout envelope, and should long-running operations be split into start/poll tool pairs rather than blocking?",
+          "answer": ""
+        },
+        {
+          "id": "Q8",
+          "question": "Rollout plan preference: should the MCP tool surface be enabled for all roles simultaneously, or gated behind a feature flag (e.g. EGG_MCP_TOOLS=true) during a burn-in window where we compare token/turn-count between the two modes?",
+          "answer": ""
+        }
+      ],
+      "status": "pending",
+      "created_at": "2026-04-23T06:55:40.743691Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:22:09.201730Z",
-  "updated_at": "2026-04-23T06:55:37.134130Z",
+  "updated_at": "2026-04-23T06:55:40.766936Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -386,5 +441,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:32:00.470351Z",
-  "version": 54
+  "version": 55
 }
