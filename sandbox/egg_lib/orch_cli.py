@@ -2238,8 +2238,8 @@ def create_parser() -> argparse.ArgumentParser:
         help="Loop message wait until matched or max iterations reached",
         description=(
             "Convenience wrapper: call `message wait` in a loop until a "
-            "match arrives (exit 0), max-iterations is hit (exit 1), or a "
-            "permanent error occurs (exit 3).  Agents should invoke this "
+            "match arrives (exit 0) or max-iterations / permanent error "
+            "occurs (exit 1).  Agents should invoke this "
             "instead of shelling out their own while-loop."
         ),
     )
