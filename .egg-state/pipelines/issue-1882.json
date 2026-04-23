@@ -282,10 +282,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Gateway rewrites the agent's local HEAD to match what it pushed (fast-forward on origin). No divergence, but the blocked files are returned as uncommitted staged changes instead.\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-8",
+      "question": "What happens to the client-side egg-orch push --scope-filter workaround once the gateway handles auto-filtering?",
+      "context": "Open contract question decision-7, registered by an agent during the refine phase.",
+      "options": [
+        "Keep it as a fallback — remains callable, useful for offline/manual rewriting, but agent-facing docs point to the gateway as primary",
+        "Deprecate with a warning — emit a message telling users the gateway handles this now, remove in a later release",
+        "Remove it entirely in this change — the gateway auto-filter fully supersedes it and keeping dead code adds maintenance burden",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-23T06:37:31.913529Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:21:58.997312Z",
-  "updated_at": "2026-04-23T06:37:29.186668Z",
+  "updated_at": "2026-04-23T06:37:31.923638Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -299,5 +318,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:31:28.068349Z",
-  "version": 32
+  "version": 33
 }
