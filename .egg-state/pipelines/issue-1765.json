@@ -214,10 +214,31 @@
       "resolution": "{\"action\": \"approve\", \"context\": \"## Resolved Questions (captured for downstream phases)\\n\\n**decision-1 (mechanism)**: Hybrid D + prompt nudge — in-process SDK MCP server via create_sdk_mcp_server + @tool, wired into egg_agent.client, plus a short system-prompt paragraph pointing agents at the mcp__* tools.\\n\\n**decision-2 (handler derivation)**: Hybrid — auto-derive the skeleton from existing CLI/argparse-style signatures, allow per-tool overrides for descriptions/schemas where auto-derivation is insufficient.\\n\\n**decision-3 (harness coverage)**: claude_agent_sdk harness only for iteration 1. Defer parallel registration for experimental EGG_HARNESS=egg until that harness graduates.\\n\\n**decision-4 (CLI retention)**: Keep the sandbox/bin/egg-* CLIs indefinitely. Humans, tests, entrypoint scripts, and bash recovery wrappers depend on them; MCP tools are additive for agents. Do not deprecate.\\n\\n**decision-7 (naming; supersedes decision-5)**: Semantic verbs grouped by function (what the agent is DOING). Examples: mcp__sdlc__register_open_question, mcp__brc__propose, mcp__phase__get_context. Rationale: agent's mental model is verbs; tool names are stable under CLI refactoring; capabilities with no CLI counterpart slot in naturally.\\n\\n**decision-8 (scope; supersedes decision-6)**: BRC + HITL core for iteration 1 (~15 verbs): producer/reviewer lifecycle, HITL registration, heartbeat/progress, task completion, phase context orientation. Full capability audit (~30 verbs) is scoped to iteration 2 — tracked separately in issue #1917.\\n\\n## Related issues filed during this refine\\n\\n- #1915 — change_approach feedback via provide_input never reaches agents (found during this refine; workaround is direct send_message after reset)\\n- #1917 — iteration 2 follow-up for the remaining ~15 verbs from the full capability audit\\n\\n## Notes for the plan phase\\n\\nThe agent-first framing is the authoritative frame; do not regress to CLI-taxonomy-based thinking. Name tools from the agent's perspective. If plan surfaces a verb that was missed in the refine capability audit, add it to the iteration-1 scope (if clearly core) or defer to #1917 (if optional).\"}",
       "phase": "refine",
       "content_changed": true
+    },
+    {
+      "id": "decision-4",
+      "question": "Which approach should we adopt for exposing egg CLIs to sandbox agents?",
+      "context": "Open contract question decision-1, registered by an agent during the refine phase.",
+      "options": [
+        "A: Auto-generated AGENT-TOOLS.md + improved --help (status quo polish)",
+        "B: Tool manifest rendered into system prompt at spawn time",
+        "C: Second orchestrator-hosted MCP server (streamable HTTP) scoped to sandbox agents",
+        "D: In-process SDK MCP server via create_sdk_mcp_server + @tool decorators, wired into egg_agent.client (Recommended)",
+        "Hybrid D+B: in-process SDK tools as primary surface, plus a short tool index injected into the system prompt",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-23T06:50:13.623328Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:22:09.201730Z",
-  "updated_at": "2026-04-23T06:50:08.723708Z",
+  "updated_at": "2026-04-23T06:50:13.632947Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -231,5 +252,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:32:00.470351Z",
-  "version": 38
+  "version": 39
 }
