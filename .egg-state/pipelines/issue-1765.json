@@ -185,16 +185,16 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-23T06:26:13.307556Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-23T06:28:16.345165Z",
+      "resolution": "{\"action\": \"change_approach\", \"feedback\": \"STRONG NUDGE: your v3 analysis is byte-identical to v2. The orchestrator reports content_changed=false and the refiner's commit SHA (aa60d83138...) is unchanged. The change-approach feedback I sent was NOT applied. This is a rejection of v3 on the grounds that no re-grounding occurred.\\n\\nBefore re-proposing, the refiner MUST do the following, in order:\\n\\nSTEP 1 — Acknowledge the reframe. The issue is NOT 'wrap the existing CLIs as MCP tools.' The issue is 'design the right agent-facing tool surface.' The current CLI taxonomy is an implementation detail of how humans currently drive the system, not a blueprint for what agents need. Any section of the analysis that starts from 'egg-contract has these subcommands, egg-orch has these subcommands, so the MCP surface should mirror them' is wrong-headed and must be rewritten.\\n\\nSTEP 2 — Add a new section: 'Agent Capability Audit.' For each phase the SDLC agents run in (refine, plan, implement, and the BRC lifecycle within each), enumerate what the agent actually needs to DO: 'propose a consensus version,' 'acknowledge a peer proposal,' 'register an open decision for the human gate,' 'record a completed task,' 'fetch the current phase state,' 'push the agent's work branch,' etc. Name the capabilities from the agent's perspective (verbs it performs), not from the CLI's perspective (subcommands it happens to have). Then map each capability to the right MCP tool — some will be 1:1 with existing CLI subcommands, some will compose multiple CLI subcommands into a single higher-level tool, some will be brand new (e.g. 'get BRC state as structured JSON'), and some existing subcommands will have no mapping because only humans need them.\\n\\nSTEP 3 — Rewrite decisions 5 and 6 with the agent-first frame.\\n\\n  - Decision-5 (naming): remove 'Recommended' from the CLI-mirroring option 'mcp__egg_contract__add_decision.' Add a NEW option that is the actual recommendation: 'Semantic names from the agent's perspective — e.g. mcp__sdlc__register_open_question, mcp__brc__propose, mcp__phase__get_state — grouped by what the agent is DOING, not by which binary happens to host the code.' Mark that new option as Recommended. Explain why CLI-mirroring is the wrong default.\\n\\n  - Decision-6 (scope): delete the current question 'all subcommands vs curated subset.' Replace with: 'What is the agent-facing tool set?' with options driven by the capability audit from step 2 — e.g. 'Full agent capability set as enumerated above,' 'BRC-lifecycle subset first with iterative expansion,' 'Minimum viable set for refine phase only.' None of the options should be framed as a subset of CLI subcommands.\\n\\nSTEP 4 — Rewrite the 'Options Considered' section opener. Today it frames A/B/C/D as 'mechanisms for exposing the existing CLI surface to agents.' Reframe it to 'mechanisms for giving agents a first-class tool surface' and note that the question of WHAT tools to expose is separate from (and logically prior to) the question of HOW to expose them. Keep the A/B/C/D mechanism comparison — that analysis is still valid. Just strip the CLI-wrapping framing from its introduction.\\n\\nSTEP 5 — Update the Recommended Approach section to name the two separate decisions it's making: (a) mechanism = Option D + short prompt nudge, UNCHANGED, this analysis holds; (b) tool surface = the capability audit from step 2, NEW.\\n\\nWhat you DO NOT need to change:\\n\\n  - The architectural/network-mode analysis of options A/B/C/D — still valid.\\n  - The handler-sharing / drift-prevention idea — still valid.\\n  - The decision-1 recommendation (Option D) — still valid.\\n  - The decision-2 recommendation (hybrid auto+override for how schemas are derived) — still valid.\\n  - The decision-3 recommendation (claude_agent_sdk harness only for now) — still valid.\\n  - The decision-4 recommendation (keep CLIs indefinitely for humans/tests/scripts) — still valid.\\n  - The complexity assessment can stay 'medium' unless the capability audit surfaces significantly more scope.\\n\\nIf you understand this feedback, your next proposal should be materially different from aa60d83138. If you find yourself producing the same content, something is wrong — escalate before re-proposing.\\n\\nThis is the second cycle of this reframe. Do not confirm v4 unless you can point to specific paragraphs that changed and explain why.\"}",
       "phase": "refine",
       "content_changed": false
     }
   ],
   "created_at": "2026-04-23T05:22:09.201730Z",
-  "updated_at": "2026-04-23T06:26:13.348347Z",
+  "updated_at": "2026-04-23T06:28:16.356016Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -208,5 +208,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:32:00.470351Z",
-  "version": 28
+  "version": 29
 }
