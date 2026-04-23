@@ -70,6 +70,7 @@ class TestCompletePhaseEndpoint:
         data = json.loads(resp.data)
         assert data["success"] is True
         assert data["data"]["phase"] == "implement"
+        assert data["data"]["current_phase"] == "implement"
         assert data["data"]["next_phase"] == "pr"
 
         phase_exec = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)

@@ -445,12 +445,17 @@ def start_phase(pipeline_id: str) -> tuple[Response, int]:
     Response:
         {
             "success": true,
-            "message": "Phase started",
+            "message": "Phase 'implement' marked running (does not spawn agents)",
             "data": {
                 "phase": "implement",
                 "status": "running"
             }
         }
+
+    Note: this endpoint only flips phase_execution.status to RUNNING. It
+    does NOT spawn agents — agent spawning is driven by the _run_pipeline
+    loop. Intended for operator recovery; not the way to advance a
+    completed phase — use advance_phase for that.
     """
     try:
         store, pipeline = get_state_store_for_pipeline(pipeline_id)
@@ -475,7 +480,7 @@ def start_phase(pipeline_id: str) -> tuple[Response, int]:
         )
 
         return make_success_response(
-            "Phase started",
+            f"Phase '{pipeline.current_phase.value}' marked running (does not spawn agents)",
             data={
                 "phase": pipeline.current_phase.value,
                 "status": phase_execution.status.value,
