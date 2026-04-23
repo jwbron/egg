@@ -438,16 +438,16 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-23T00:28:22.888387Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-23T03:03:34.267874Z",
+      "resolution": "{\"action\": \"approve\", \"context\": \"Plan approved. Covers all scope agreed in refine HITL (Option A catch-all, matcher bug fix, phase-permissions.json three-role split, TODO(#1903) annotations, docs update). Defense-in-depth additions (.github/ + sandbox/scripts/ blocks) accepted — reasonable given CI rewrite / credential-shim-bypass risks. TASK-5-4 drift-detection test accepted — good belt-and-suspenders for the three-surface sync.\"}",
       "phase": "plan",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-22T23:25:22.973469Z",
-  "updated_at": "2026-04-23T00:28:22.917482Z",
+  "updated_at": "2026-04-23T03:03:34.282004Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -460,5 +460,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T00:10:48.673750Z",
-  "version": 44
+  "version": 45
 }
