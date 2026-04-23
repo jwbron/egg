@@ -273,10 +273,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"claude_agent_sdk harness only — the egg harness is opt-in and experimental; parallel registration can be added later when it graduates (Recommended)\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-7",
+      "question": "Should the existing shell CLIs under sandbox/bin/egg-* remain as first-class, or be deprecated once the MCP tool surface lands?",
+      "context": "Open contract question decision-4, registered by an agent during the refine phase.",
+      "options": [
+        "Keep both indefinitely — CLIs are used by humans, tests, entrypoint scripts, and bash wrappers; MCP tools are additive for agents (Recommended — matches AC 'existing CLIs keep working')",
+        "Keep CLIs, but soft-deprecate with a banner that points agents at the MCP tool when one is available",
+        "Remove CLIs as we finish each MCP tool; force agents onto the structured surface",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-23T06:52:14.462931Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:22:09.201730Z",
-  "updated_at": "2026-04-23T06:52:11.199481Z",
+  "updated_at": "2026-04-23T06:52:14.473018Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -290,5 +309,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:32:00.470351Z",
-  "version": 44
+  "version": 45
 }
