@@ -352,16 +352,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-23T06:40:38.542156Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-23T06:41:33.080158Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Rewrite each commit individually, preserving commit structure\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:21:58.997312Z",
-  "updated_at": "2026-04-23T06:40:38.551509Z",
+  "updated_at": "2026-04-23T06:41:33.089958Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -375,5 +375,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:31:28.068349Z",
-  "version": 39
+  "version": 40
 }
