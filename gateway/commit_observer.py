@@ -174,8 +174,6 @@ def observe(
         get_client = getattr(_crc_mod, "get_client", None) if _crc_mod else None
         if get_client is None:
             try:
-                # mypy: the dynamic loader below is a fallback path; the
-                # primary path finds the module already imported.
                 import commit_registry_client as _crc  # type: ignore[import-untyped]
 
                 get_client = _crc.get_client

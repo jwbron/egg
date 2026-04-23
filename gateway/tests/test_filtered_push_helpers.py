@@ -29,36 +29,33 @@ from filtered_push import (  # type: ignore[import-not-found]
 
 
 class TestComposeFilteredMessage:
-    """The auto-filter suffix must never glue into a trailer line.
+    """The auto-filter marker must be emitted as a git trailer.
 
-    Git parses trailers from the *last paragraph*.  If we append
-    `` [auto-filtered]`` to the last non-blank line, a message with a
-    Signed-off-by / Co-Authored-By / DCO trailer gets its trailer line
-    corrupted into ``Signed-off-by: alice <a@x> [auto-filtered]``, which
-    breaks ``git interpret-trailers`` and GitHub's Co-Authored-By
-    rendering.  The composer must emit the marker as its own paragraph.
+    Git parses trailers from the *last paragraph*.  The marker is now
+    ``Auto-Filtered: true`` — a proper trailer — so it joins an existing
+    trailer block (single newline) or starts a new trailer paragraph
+    (double newline) when none exists.  This preserves ``git
+    interpret-trailers``, GitHub's Co-Authored-By rendering, and DCO.
     """
 
     def test_simple_one_line_message(self):
         result = _compose_filtered_message("feat: add widget", " [auto-filtered]")
-        assert result == "feat: add widget\n\n[auto-filtered]\n"
+        assert result == "feat: add widget\n\nAuto-Filtered: true\n"
 
     def test_multi_paragraph_message(self):
         msg = "feat: add widget\n\nLonger explanation of why.\n"
         result = _compose_filtered_message(msg, " [auto-filtered]")
-        assert result == "feat: add widget\n\nLonger explanation of why.\n\n[auto-filtered]\n"
+        assert result == "feat: add widget\n\nLonger explanation of why.\n\nAuto-Filtered: true\n"
 
     def test_preserves_signed_off_by_trailer(self):
-        """Signed-off-by must end up on its own paragraph, not glued."""
+        """Signed-off-by stays in the last paragraph; Auto-Filtered joins it."""
         msg = "feat: foo\n\nSigned-off-by: alice <a@x>\n"
         result = _compose_filtered_message(msg, " [auto-filtered]")
-        # The trailer block remains its own paragraph and the marker is
-        # a separate paragraph — two blank lines between them.
-        assert "Signed-off-by: alice <a@x>\n\n[auto-filtered]" in result
+        # The trailer block stays as the last paragraph with Auto-Filtered
+        # appended directly (single newline, no blank line).
+        assert "Signed-off-by: alice <a@x>\nAuto-Filtered: true" in result
         # The trailer is NOT glued.
         assert "Signed-off-by: alice <a@x> [auto-filtered]" not in result
-        # The trailer still ends cleanly so ``git interpret-trailers``
-        # can find it.
         assert "Signed-off-by: alice <a@x>" in result
 
     def test_preserves_co_authored_by_trailer(self):
@@ -67,17 +64,17 @@ class TestComposeFilteredMessage:
         result = _compose_filtered_message(msg, " [auto-filtered]")
         assert "Co-authored-by: bob <b@x>" in result
         assert "Co-authored-by: carol <c@x>" in result
-        # Marker paragraph is appended after the trailer block.
-        assert "Co-authored-by: carol <c@x>\n\n[auto-filtered]" in result
-        # NOT glued.
+        # Auto-Filtered joins the trailer block (single newline).
+        assert "Co-authored-by: carol <c@x>\nAuto-Filtered: true" in result
+        # NOT glued into the trailer value.
         assert "carol <c@x> [auto-filtered]" not in result
 
     def test_message_with_trailing_whitespace(self):
         """Extra trailing newlines collapse; the composer still emits a
-        single separator paragraph before the marker."""
+        proper trailer paragraph."""
         msg = "feat: foo\n\n\n\n"
         result = _compose_filtered_message(msg, " [auto-filtered]")
-        assert result == "feat: foo\n\n[auto-filtered]\n"
+        assert result == "feat: foo\n\nAuto-Filtered: true\n"
 
     def test_empty_suffix_is_noop(self):
         """If the suffix is empty the message just gets a final
@@ -88,17 +85,14 @@ class TestComposeFilteredMessage:
 
     def test_empty_message_only_emits_marker(self):
         result = _compose_filtered_message("", " [auto-filtered]")
-        # An empty message with only the marker paragraph.
-        assert result.endswith("[auto-filtered]\n")
+        assert result.endswith("Auto-Filtered: true\n")
 
-    def test_suffix_is_stripped_of_outer_whitespace(self):
-        """Suffix `` [auto-filtered]`` (with leading space) must be
-        trimmed before becoming a paragraph — a paragraph cannot start
-        with whitespace."""
+    def test_suffix_value_is_ignored_always_emits_trailer(self):
+        """Regardless of the suffix content, the output is always the
+        ``Auto-Filtered: true`` trailer."""
         result = _compose_filtered_message("feat: foo", "    [auto-filtered]    ")
-        # No indented whitespace before the marker.
-        assert "\n[auto-filtered]\n" in result
-        assert "\n    [auto-filtered]" not in result
+        assert "\nAuto-Filtered: true\n" in result
+        assert "[auto-filtered]" not in result
 
 
 # ---------------------------------------------------------------------------

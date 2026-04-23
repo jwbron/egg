@@ -457,3 +457,42 @@ class TestResponseSchemaInvariants:
             body = _body(_do_push(client))
             assert "pulled_commits" in body
             assert body["nothing_to_push"] is True
+
+
+# ---------------------------------------------------------------------------
+# Scenario 9: attribution-lookup exception → fail-closed (nothing_to_push).
+# ---------------------------------------------------------------------------
+
+
+def test_scenario_9_attribution_lookup_exception_fails_closed(client):
+    """When get_attributed_changed_files_in_push raises, the push handler
+    catches the exception and fails closed (attribution_fallback=True)
+    rather than crashing with a 500."""
+    session = _make_session("coder")
+    files = ["docs/guide.md"]  # blocked for coder
+    # The attributed_range is unused because the side_effect raises first,
+    # but _patches_for still needs a valid object for its mock setup.
+    attributed = AttributedPushRange(
+        files=[AttributedFile(path=files[0], commit_sha=_OWN_SHA, authored_by="coder")],
+        commits=[_OWN_SHA],
+        attribution={_OWN_SHA: "coder"},
+    )
+    with contextlib.ExitStack() as _stack:
+        for _p in _patches_for(session, files, attributed):
+            _stack.enter_context(_p)
+        # Override the attribution mock to raise an exception.
+        _stack.enter_context(
+            patch.object(
+                git_client,
+                "get_attributed_changed_files_in_push",
+                side_effect=RuntimeError("unexpected registry failure"),
+            )
+        )
+        _stack.enter_context(patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}))
+        response = _do_push(client)
+        # Should NOT be a 500; the handler catches the exception and
+        # falls back to treating all files as own-authored.
+        assert response.status_code == 200
+        body = _body(response)
+        assert body["nothing_to_push"] is True
+        assert body["excluded_files"] == files

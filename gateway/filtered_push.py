@@ -250,22 +250,40 @@ def _translate_parents(
     return translated
 
 
+_TRAILER_LINE_RE = __import__("re").compile(r"^[A-Za-z][A-Za-z0-9_-]*\s*:\s")
+
+
 def _compose_filtered_message(orig_message: str, suffix: str) -> str:
-    """Append the ``[auto-filtered]`` marker without mangling trailers.
+    """Append an auto-filter marker without mangling git trailers.
 
     Git trailers (Signed-off-by, Co-Authored-By, DCO, etc.) are parsed
-    from the *last paragraph* of the commit message.  Naive
-    ``rstrip() + suffix`` glues the marker into the last trailer line,
-    breaking ``git interpret-trailers``, GitHub's Co-Authored-By
-    rendering, and DCO validation.  Emit the marker as its own paragraph
-    (separated by a blank line) so the trailer block survives intact.
+    from the *last paragraph* of the commit message.  Appending a free-
+    text marker after trailers moves them out of the last-paragraph
+    position, breaking ``git interpret-trailers``, GitHub's
+    Co-Authored-By rendering, and DCO validation.
+
+    Instead we emit ``Auto-Filtered: true`` as a proper git trailer.
+    When the last paragraph already contains trailers, the new line
+    joins that block.  Otherwise it starts a new trailer paragraph.
     """
     stripped = (orig_message or "").rstrip("\n")
-    marker = suffix.strip()
-    if not marker:
+    if not (suffix or "").strip():
         return stripped + "\n"
-    # One blank line before the marker paragraph, plus a final newline.
-    return stripped + "\n\n" + marker + "\n"
+
+    trailer = "Auto-Filtered: true"
+
+    # Detect whether the last paragraph is a trailer block so we can
+    # append to it (single newline) rather than starting a new
+    # paragraph (double newline).
+    parts = stripped.rsplit("\n\n", 1)
+    if len(parts) == 2:
+        last_para = parts[1]
+        last_lines = [line for line in last_para.splitlines() if line.strip()]
+        if last_lines and all(_TRAILER_LINE_RE.match(line) for line in last_lines):
+            return stripped + "\n" + trailer + "\n"
+
+    # No existing trailer block — start a new trailer paragraph.
+    return stripped + "\n\n" + trailer + "\n"
 
 
 def execute_filtered_push(

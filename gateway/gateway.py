@@ -1065,7 +1065,27 @@ def git_push() -> tuple[Response, int] | Response:
                 _get_attributed_fn = _imported_attr
 
         # Resolve attribution for every commit in the push range.
-        attributed_push = _get_attributed_fn(exec_path, remote, branch, session_role=session_role)
+        try:
+            attributed_push = _get_attributed_fn(
+                exec_path, remote, branch, session_role=session_role
+            )
+        except Exception as exc:
+            logger.warning("attribution_lookup_exception", error=str(exc), exc_info=True)
+            # Fail-closed: an unexpected exception is treated as
+            # attribution-unavailable so the rewrite path never
+            # pushes unvetted files.
+            _apr_cls = getattr(_gc_mod, "AttributedPushRange", None) if _gc_mod else None
+            if _apr_cls is not None:
+                attributed_push = _apr_cls(error=f"Attribution lookup failed: {exc}")
+            else:
+                from types import SimpleNamespace
+
+                attributed_push = SimpleNamespace(
+                    error=f"Attribution lookup failed: {exc}",
+                    commits=[],
+                    files=[],
+                    attribution={},
+                )
 
         # When the per-commit attribution can't be computed (e.g. the
         # caller mocked only the legacy file-detection path, or git
@@ -1123,6 +1143,8 @@ def git_push() -> tuple[Response, int] | Response:
                     "branch": branch,
                     "role": session_role,
                     "unregistered_files": unregistered_files,
+                    "excluded_files": blocked_own,
+                    "pulled_commits": pulled_commits_summary,
                 },
             )
 
@@ -1923,6 +1945,7 @@ def git_execute() -> tuple[Response, int] | Response:
     _observer_repo: str | None = None
     _observer_branch: str | None = None
     _observer_before_head: str | None = None
+    _observer_armed: bool = False
     _session_for_observer = getattr(g, "session", None)
     if _session_for_observer is not None:
         _observer_role = getattr(_session_for_observer, "agent_role", None)
@@ -1933,6 +1956,11 @@ def git_execute() -> tuple[Response, int] | Response:
         _observer_branch = getattr(_session_for_observer, "assigned_branch", None) or getattr(
             _session_for_observer, "branch", None
         )
+    # Intentionally exhaustive list of commit-creating operations.
+    # ``stash`` and ``pull`` can also create commit objects, but agents
+    # do not use them — all pushes go through the gateway's push handler
+    # which resolves attribution independently.  Extend this list if
+    # agent workflows ever include stash or pull.
     if _observer_role and operation in (
         "commit",
         "merge",
@@ -1941,11 +1969,14 @@ def git_execute() -> tuple[Response, int] | Response:
         "rebase",
         "am",
     ):
+        _observer_armed = True
         _capture_head = _lookup_commit_observer_fn("capture_head")
         if _capture_head is not None:
             try:
                 _observer_before_head = _capture_head(exec_path)
             except Exception:  # pragma: no cover - defensive
+                # before_head stays None; observe handles the
+                # unborn-branch case via its [after_head] fallback.
                 _observer_before_head = None
 
     try:
@@ -1960,13 +1991,14 @@ def git_execute() -> tuple[Response, int] | Response:
         )
 
         if result.returncode == 0:
-            # Fire the observer only when we captured a pre-op HEAD —
-            # i.e., only on the narrow list of ref-mutating operations
-            # that triggered ``capture_head`` above.  For all other
+            # Fire the observer only on the narrow list of ref-mutating
+            # operations that armed the observer above.  For all other
             # operations (status, checkout, restore, ...) we skip the
             # post-op rev-parse entirely so callers' subprocess
-            # mocking isn't perturbed.
-            if _observer_role and _observer_before_head is not None:
+            # mocking isn't perturbed.  Note: _observer_before_head
+            # may be None on unborn branches — observe() handles that
+            # via its [after_head] fallback.
+            if _observer_role and _observer_armed:
                 try:
                     _observe_after = _lookup_commit_observer_fn("observe_after_git_execute")
                     if _observe_after is not None:

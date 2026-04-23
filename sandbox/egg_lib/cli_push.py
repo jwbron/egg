@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import argparse
 import os
-import subprocess as subprocess
+import subprocess
 import sys
 
 
