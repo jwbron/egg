@@ -153,6 +153,8 @@ class TestSourceLevelRemoval:
 class TestPushPassthrough:
     def test_plain_push_calls_git_push(self, monkeypatch):
         """``cmd_push`` must call ``git push`` (or ``git push origin HEAD:<branch>``)."""
+        import subprocess
+
         from egg_lib import cli_push
 
         captured: list[list[str]] = []
@@ -166,7 +168,7 @@ class TestPushPassthrough:
             captured.append(list(cmd))
             return _Result()
 
-        monkeypatch.setattr(cli_push.subprocess, "run", fake_run)
+        monkeypatch.setattr(subprocess, "run", fake_run)
         monkeypatch.delenv("EGG_BRANCH", raising=False)
         with pytest.raises(SystemExit) as exc_info:
             cli_push.cmd_push(argparse.Namespace())
@@ -177,6 +179,8 @@ class TestPushPassthrough:
 
     def test_push_retargets_to_assigned_branch(self, monkeypatch):
         """When EGG_BRANCH differs from HEAD, push must retarget to HEAD:<branch>."""
+        import subprocess
+
         from egg_lib import cli_push
 
         captured: list[list[str]] = []
@@ -192,7 +196,7 @@ class TestPushPassthrough:
                 return _Result()
             return _Result()
 
-        monkeypatch.setattr(cli_push.subprocess, "run", fake_run)
+        monkeypatch.setattr(subprocess, "run", fake_run)
         monkeypatch.setenv("EGG_BRANCH", "egg/issue-1882")
         with pytest.raises(SystemExit):
             cli_push.cmd_push(argparse.Namespace())
