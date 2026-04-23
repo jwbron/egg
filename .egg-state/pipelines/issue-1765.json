@@ -229,16 +229,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-23T06:50:13.623328Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-23T06:50:56.867043Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Hybrid D+B: in-process SDK tools as primary surface, plus a short tool index injected into the system prompt\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:22:09.201730Z",
-  "updated_at": "2026-04-23T06:50:13.632947Z",
+  "updated_at": "2026-04-23T06:50:56.878622Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -252,5 +252,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:32:00.470351Z",
-  "version": 39
+  "version": 40
 }
