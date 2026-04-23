@@ -129,6 +129,18 @@ except ImportError:
     _mock_sdk.PermissionResultDeny = PermissionResultDeny  # type: ignore[attr-defined]
     _mock_sdk.ToolPermissionContext = ToolPermissionContext  # type: ignore[attr-defined]
     _mock_sdk.query = None  # type: ignore[attr-defined]  # Patched in tests
+
+    # Stubs for the in-process MCP server surface used by egg_agent_tools.
+    # build_sandbox_mcp_server() lazily imports create_sdk_mcp_server and
+    # _tool_compat.py imports tool — both from claude_agent_sdk.  Without
+    # these stubs, EGG_MCP_TOOLS=true tests and the SDK-surface smoke
+    # tests fail because the mock module is missing the expected symbols.
+    def _mock_create_sdk_mcp_server(*, name: str, version: str, tools: list):  # type: ignore[no-untyped-def]
+        return {"__mock__": name, "version": version, "tools": tools}
+
+    _mock_sdk.create_sdk_mcp_server = _mock_create_sdk_mcp_server  # type: ignore[attr-defined]
+    _mock_sdk.tool = lambda name, description, input_schema, annotations=None: (lambda fn: fn)  # type: ignore[attr-defined]
+
     sys.modules["claude_agent_sdk"] = _mock_sdk
 
 
