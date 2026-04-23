@@ -279,16 +279,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-23T00:04:31.452861Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-23T00:05:40.838337Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Yes — add explicit don'ts: 'Do NOT use ; do NOT call  to wait; rely on --wait blocking semantics'\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-22T23:27:22.582974Z",
-  "updated_at": "2026-04-23T00:04:31.472077Z",
+  "updated_at": "2026-04-23T00:05:40.847579Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -301,5 +301,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 23
+  "version": 24
 }
