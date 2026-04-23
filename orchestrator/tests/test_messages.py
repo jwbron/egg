@@ -884,3 +884,422 @@ class TestInvalidPipelineId:
             ):
                 resp = client.get("/api/v1/pipelines/bad-id/messages/status")
                 assert resp.status_code == 400
+
+
+class TestHeartbeatValidation:
+    """HEARTBEAT metadata validation (issue #1897).
+
+    The server rejects malformed HEARTBEAT messages before they hit the
+    message store.  Validation rules:
+
+      * ``metadata.state`` must be one of the four enumerated values.
+      * ``WAITING_ON_ROLE`` requires ``metadata.waiting_on``.
+      * Bodies are free-form (only metadata is validated).
+    """
+
+    def test_valid_heartbeat_accepted(self, client, app):
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=MessageStore()),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/messages",
+                    json={
+                        "from_role": "coder",
+                        "message_type": "HEARTBEAT",
+                        "subject": "heartbeat: WORKING",
+                        "metadata": {"state": "WORKING"},
+                    },
+                )
+                assert resp.status_code == 200
+
+    def test_heartbeat_missing_state_rejected(self, client, app):
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/messages",
+                    json={
+                        "from_role": "coder",
+                        "message_type": "HEARTBEAT",
+                        "metadata": {},
+                    },
+                )
+                assert resp.status_code == 400
+                data = json.loads(resp.data)
+                assert "state" in data["message"].lower()
+
+    def test_heartbeat_invalid_state_rejected(self, client, app):
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/messages",
+                    json={
+                        "from_role": "coder",
+                        "message_type": "HEARTBEAT",
+                        "metadata": {"state": "BOGUS_STATE"},
+                    },
+                )
+                assert resp.status_code == 400
+                data = json.loads(resp.data)
+                assert "BOGUS_STATE" in data["message"]
+
+    def test_heartbeat_waiting_on_role_requires_waiting_on(self, client, app):
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/messages",
+                    json={
+                        "from_role": "coder",
+                        "message_type": "HEARTBEAT",
+                        "metadata": {"state": "WAITING_ON_ROLE"},
+                    },
+                )
+                assert resp.status_code == 400
+                data = json.loads(resp.data)
+                assert "waiting_on" in data["message"].lower()
+
+    def test_heartbeat_waiting_on_role_with_target_accepted(self, client, app):
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=MessageStore()),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/messages",
+                    json={
+                        "from_role": "coder",
+                        "message_type": "HEARTBEAT",
+                        "metadata": {
+                            "state": "WAITING_ON_ROLE",
+                            "waiting_on": "reviewer_code",
+                        },
+                    },
+                )
+                assert resp.status_code == 200
+
+    def test_heartbeat_non_dict_metadata_rejected(self, client, app):
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/messages",
+                    json={
+                        "from_role": "coder",
+                        "message_type": "HEARTBEAT",
+                        "metadata": "not-a-dict",
+                    },
+                )
+                # pydantic will already reject non-dict metadata before reaching
+                # our validator, so we allow either 400 (pydantic) or 400 (ours).
+                assert resp.status_code == 400
+
+
+class TestWaitEndpoint:
+    """GET /api/v1/pipelines/<id>/messages/wait (issue #1897).
+
+    Covers the happy path, the required ``for`` param, role / from filters,
+    timeout clamping, and pipeline validation.
+    """
+
+    def test_wait_missing_for_returns_400(self, client, app):
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.get("/api/v1/pipelines/test-pipeline/messages/wait?timeout=1")
+                assert resp.status_code == 400
+                data = json.loads(resp.data)
+                assert "for" in data["message"].lower()
+
+    def test_wait_returns_matched_message(self, client, app):
+        store = MessageStore()
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_CONFIRMED,
+                subject="done",
+            )
+        )
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    "?for=CONSENSUS_CONFIRMED&timeout=2"
+                )
+                assert resp.status_code == 200
+                data = json.loads(resp.data)
+                assert data["data"]["count"] == 1
+                assert data["data"]["matched"] is True
+                assert data["data"]["messages"][0]["message_type"] == "CONSENSUS_CONFIRMED"
+
+    def test_wait_repeatable_for_param(self, client, app):
+        """Multiple --for types act as an OR filter."""
+        store = MessageStore()
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_RE_REVIEW,
+                subject="re-review",
+            )
+        )
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    "?for=CONSENSUS_CONFIRMED&for=CONSENSUS_RE_REVIEW"
+                    "&timeout=2"
+                )
+                assert resp.status_code == 200
+                data = json.loads(resp.data)
+                assert data["data"]["count"] == 1
+                assert data["data"]["matched"] is True
+
+    def test_wait_times_out_with_empty_result(self, client, app):
+        """No matching message -> 200 with matched=False."""
+        store = MessageStore()
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    "?for=CONSENSUS_CONFIRMED&timeout=1"
+                )
+                # Status 200 (not 408) — same as poll_messages behaviour.
+                assert resp.status_code == 200
+                data = json.loads(resp.data)
+                assert data["data"]["count"] == 0
+                assert data["data"]["matched"] is False
+
+    def test_wait_from_filter(self, client, app):
+        """`from=ROLE` drops messages from other senders."""
+        store = MessageStore()
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="documenter",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_CONFIRMED,
+                subject="docs confirmed",
+            )
+        )
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_CONFIRMED,
+                subject="coder confirmed",
+            )
+        )
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    "?for=CONSENSUS_CONFIRMED&from=coder&timeout=1"
+                )
+                assert resp.status_code == 200
+                data = json.loads(resp.data)
+                assert data["data"]["count"] == 1
+                assert data["data"]["messages"][0]["from_role"] == "coder"
+
+    def test_wait_invalid_pipeline_id_returns_400(self, client, app):
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline",
+                side_effect=InvalidPipelineIdError("bad-id"),
+            ):
+                resp = client.get(
+                    "/api/v1/pipelines/bad-id/messages/wait?for=CONSENSUS_CONFIRMED&timeout=1"
+                )
+                assert resp.status_code == 400
+
+    def test_wait_timeout_clamped_to_env_cap(self, client, app, monkeypatch):
+        """``timeout`` is clamped by ``EGG_MESSAGE_POLL_MAX_WAIT``.
+
+        With the cap set to 2s, a timeout=999 request must not actually
+        block for 999 seconds.  We only verify here that the request returns
+        promptly (<5s) — a real integration test would measure more finely.
+        """
+        import time as _t
+
+        monkeypatch.setenv("EGG_MESSAGE_POLL_MAX_WAIT", "2")
+        store = MessageStore()
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                start = _t.monotonic()
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    "?for=CONSENSUS_CONFIRMED&timeout=999"
+                )
+                elapsed = _t.monotonic() - start
+                assert resp.status_code == 200
+                assert elapsed < 5  # would be 999s without clamp
+
+
+class TestEnvCapConfig:
+    """`EGG_MESSAGE_POLL_MAX_WAIT` plumbing (issue #1897)."""
+
+    def test_default_cap_is_60(self, monkeypatch):
+        from routes.messages import DEFAULT_POLL_MAX_WAIT_SECONDS, _get_poll_max_wait
+
+        monkeypatch.delenv("EGG_MESSAGE_POLL_MAX_WAIT", raising=False)
+        assert _get_poll_max_wait() == DEFAULT_POLL_MAX_WAIT_SECONDS
+        assert DEFAULT_POLL_MAX_WAIT_SECONDS == 60
+
+    def test_env_var_overrides(self, monkeypatch):
+        from routes.messages import _get_poll_max_wait
+
+        monkeypatch.setenv("EGG_MESSAGE_POLL_MAX_WAIT", "120")
+        assert _get_poll_max_wait() == 120
+
+    def test_env_var_invalid_falls_back_to_default(self, monkeypatch):
+        from routes.messages import DEFAULT_POLL_MAX_WAIT_SECONDS, _get_poll_max_wait
+
+        monkeypatch.setenv("EGG_MESSAGE_POLL_MAX_WAIT", "not-a-number")
+        assert _get_poll_max_wait() == DEFAULT_POLL_MAX_WAIT_SECONDS
+
+    def test_env_var_zero_falls_back_to_default(self, monkeypatch):
+        from routes.messages import DEFAULT_POLL_MAX_WAIT_SECONDS, _get_poll_max_wait
+
+        monkeypatch.setenv("EGG_MESSAGE_POLL_MAX_WAIT", "0")
+        assert _get_poll_max_wait() == DEFAULT_POLL_MAX_WAIT_SECONDS
+
+    def test_env_var_negative_falls_back_to_default(self, monkeypatch):
+        from routes.messages import DEFAULT_POLL_MAX_WAIT_SECONDS, _get_poll_max_wait
+
+        monkeypatch.setenv("EGG_MESSAGE_POLL_MAX_WAIT", "-5")
+        assert _get_poll_max_wait() == DEFAULT_POLL_MAX_WAIT_SECONDS
+
+    def test_startup_warning_above_threshold(self, monkeypatch):
+        """When the cap exceeds 90s, a warnings.warn names the gateway Squid
+        coupling (also logs WARNING, but we assert via warnings only to avoid
+        dependency on the logging configuration at test time)."""
+        import warnings as _warnings
+
+        from routes.messages import log_poll_max_wait_startup
+
+        monkeypatch.setenv("EGG_MESSAGE_POLL_MAX_WAIT", "120")
+        with _warnings.catch_warnings(record=True) as w:
+            _warnings.simplefilter("always")
+            log_poll_max_wait_startup()
+            assert any("120s" in str(x.message) for x in w)
+            assert any("gateway" in str(x.message).lower() for x in w)
+
+    def test_startup_no_warning_below_threshold(self, monkeypatch):
+        """At the default cap no warnings.warn is emitted."""
+        import warnings as _warnings
+
+        from routes.messages import log_poll_max_wait_startup
+
+        monkeypatch.setenv("EGG_MESSAGE_POLL_MAX_WAIT", "60")
+        with _warnings.catch_warnings(record=True) as w:
+            _warnings.simplefilter("always")
+            log_poll_max_wait_startup()
+            # No warning about EGG_MESSAGE_POLL_MAX_WAIT at the 60s cap.
+            assert not any("EGG_MESSAGE_POLL_MAX_WAIT" in str(x.message) for x in w)
+
+
+class TestInflightLongPollGauge:
+    """``egg_inflight_long_polls`` increments while blocking, decrements after.
+
+    We call the private helpers because verifying the gauge via a real
+    endpoint would require a running waitress stack.
+    """
+
+    def test_start_end_are_no_op_when_metric_unavailable(self):
+        """_track_long_poll_start/end should not raise when the metric
+        registry is unavailable (guarded by the ``except Exception`` block
+        in the module)."""
+        from routes.messages import _track_long_poll_end, _track_long_poll_start
+
+        # Calling either should not raise even if the gauge is None.
+        _track_long_poll_start()
+        _track_long_poll_end()

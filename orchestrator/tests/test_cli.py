@@ -398,3 +398,58 @@ class TestGatewayCommand:
             data = json.loads(captured.out)
             assert data["healthy"] is True
             assert data["status"] == "healthy"
+
+
+class TestWaitressSizing:
+    """Issue #1897 Phase 4: EGG_ORCHESTRATOR_WORKER_THREADS sizes the
+    waitress thread pool and channel_timeout is derived from
+    EGG_MESSAGE_POLL_MAX_WAIT so long-polls do not hit the socket
+    idle-timeout before the request's own timeout."""
+
+    def test_default_threads_is_64(self, monkeypatch):
+        """Default threads bumped from 16 → 64 (RISK-3)."""
+        monkeypatch.delenv("EGG_ORCHESTRATOR_WORKER_THREADS", raising=False)
+        monkeypatch.delenv("EGG_MESSAGE_POLL_MAX_WAIT", raising=False)
+        with patch("os.getuid", return_value=1000):
+            with patch.dict("sys.modules", {"api": MagicMock()}):
+                with patch("waitress.serve") as mock_serve:
+                    with patch("cli.logger"):
+                        main(["serve"])
+                        kwargs = mock_serve.call_args.kwargs
+                        assert kwargs["threads"] == 64
+
+    def test_thread_count_honors_env_var(self, monkeypatch):
+        monkeypatch.setenv("EGG_ORCHESTRATOR_WORKER_THREADS", "128")
+        monkeypatch.delenv("EGG_MESSAGE_POLL_MAX_WAIT", raising=False)
+        with patch("os.getuid", return_value=1000):
+            with patch.dict("sys.modules", {"api": MagicMock()}):
+                with patch("waitress.serve") as mock_serve:
+                    with patch("cli.logger"):
+                        main(["serve"])
+                        kwargs = mock_serve.call_args.kwargs
+                        assert kwargs["threads"] == 128
+
+    def test_channel_timeout_derived_from_poll_max_wait(self, monkeypatch):
+        """channel_timeout must be >= 2 × poll_cap + 30 so waitress does
+        not close the socket before the request finishes."""
+        monkeypatch.setenv("EGG_MESSAGE_POLL_MAX_WAIT", "90")
+        with patch("os.getuid", return_value=1000):
+            with patch.dict("sys.modules", {"api": MagicMock()}):
+                with patch("waitress.serve") as mock_serve:
+                    with patch("cli.logger"):
+                        main(["serve"])
+                        kwargs = mock_serve.call_args.kwargs
+                        # 2*90+30 = 210
+                        assert kwargs["channel_timeout"] == 210
+
+    def test_channel_timeout_min_120(self, monkeypatch):
+        """With the default 60s cap, channel_timeout should be at least 120s."""
+        monkeypatch.delenv("EGG_MESSAGE_POLL_MAX_WAIT", raising=False)
+        with patch("os.getuid", return_value=1000):
+            with patch.dict("sys.modules", {"api": MagicMock()}):
+                with patch("waitress.serve") as mock_serve:
+                    with patch("cli.logger"):
+                        main(["serve"])
+                        kwargs = mock_serve.call_args.kwargs
+                        # 2*60+30 = 150
+                        assert kwargs["channel_timeout"] >= 120

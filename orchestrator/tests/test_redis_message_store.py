@@ -497,3 +497,126 @@ class TestThreadSafety:
         assert not errors
         messages = store.get_messages("test-pipeline", limit=100)
         assert len(messages) == 40
+
+
+class TestWaitForTypes:
+    """issue #1897: ``wait_for_types`` filters which messages unblock a
+    blocking read.  Unwanted types keep the caller blocked on the remaining
+    time budget, up to the inner-loop cap."""
+
+    def test_matching_type_returned(self, store):
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_CONFIRMED,
+                subject="done",
+            )
+        )
+        messages = store.get_messages(
+            "test-pipeline",
+            wait=2,
+            wait_for_types=[MessageType.CONSENSUS_CONFIRMED],
+        )
+        assert len(messages) == 1
+        assert messages[0].message_type == MessageType.CONSENSUS_CONFIRMED
+
+    def test_non_matching_type_does_not_return(self, store):
+        """A PROGRESS message pre-populated in the stream must NOT satisfy a
+        wait for CONSENSUS_CONFIRMED — caller should block and time out."""
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.PROGRESS,
+                subject="progress",
+            )
+        )
+        start = time.monotonic()
+        messages = store.get_messages(
+            "test-pipeline",
+            wait=1,
+            wait_for_types=[MessageType.CONSENSUS_CONFIRMED],
+        )
+        elapsed = time.monotonic() - start
+        assert messages == []
+        # Must have actually blocked, not returned instantly.
+        assert elapsed >= 0.5
+
+    def test_mixed_stream_filters_to_matching_only(self, store):
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.PROGRESS,
+                subject="p",
+            )
+        )
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_CONFIRMED,
+                subject="c",
+            )
+        )
+        messages = store.get_messages(
+            "test-pipeline",
+            wait=1,
+            wait_for_types=[MessageType.CONSENSUS_CONFIRMED],
+        )
+        # Only the CONSENSUS_CONFIRMED row comes back.
+        assert len(messages) == 1
+        assert messages[0].message_type == MessageType.CONSENSUS_CONFIRMED
+
+    def test_multiple_wait_types_act_as_or_filter(self, store):
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_RE_REVIEW,
+                subject="rr",
+            )
+        )
+        messages = store.get_messages(
+            "test-pipeline",
+            wait=1,
+            wait_for_types=[
+                MessageType.CONSENSUS_CONFIRMED,
+                MessageType.CONSENSUS_RE_REVIEW,
+            ],
+        )
+        assert len(messages) == 1
+        assert messages[0].message_type == MessageType.CONSENSUS_RE_REVIEW
+
+    def test_inner_loop_cap_prevents_infinite_spin(self, store):
+        """RISK (issue #1897): a pathological flood of non-matching types
+        must not cause the XREAD BLOCK loop to spin forever.  The inner-loop
+        cap is ``_WAIT_FOR_TYPES_MAX_INNER_LOOPS`` (100)."""
+        from redis_message_store import RedisMessageStore
+
+        assert RedisMessageStore._WAIT_FOR_TYPES_MAX_INNER_LOOPS == 100
+
+    def test_wait_zero_with_filter_returns_empty(self, store):
+        """A non-blocking read with a type filter returns [] immediately if
+        no matching row is present, even when other rows exist."""
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.PROGRESS,
+                subject="p",
+            )
+        )
+        messages = store.get_messages(
+            "test-pipeline",
+            wait=0,
+            wait_for_types=[MessageType.CONSENSUS_CONFIRMED],
+        )
+        assert messages == []

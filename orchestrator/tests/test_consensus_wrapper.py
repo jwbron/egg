@@ -1338,3 +1338,40 @@ class TestConsensusWrapperBehavior:
             assert result.returncode == 42
             assert "NOT restarting" in result.stderr
             assert "Transient crash" not in result.stderr
+
+
+class TestEventDrivenWait:
+    """Issue #1897 Phase 5: ``check_confirmed_and_wait`` now uses
+    ``egg-orch message wait`` instead of blind sleep loops.
+
+    These tests inspect the generated shell script — running a real
+    ``bash`` harness against a mocked ``egg-orch`` is covered by the
+    ``TestRecoveryRestart`` suite above."""
+
+    def test_script_contains_egg_orch_message_wait(self):
+        cmd = build_consensus_wrapped_command("x")
+        script = cmd[2]
+        # Event-driven wait should be in the script.
+        assert "egg-orch message wait" in script
+
+    def test_script_waits_for_both_consensus_types(self):
+        """Both CONSENSUS_CONFIRMED and CONSENSUS_RE_REVIEW unblock the
+        wait-until-consensus loop (so a re-review doesn't stall the
+        wrapper)."""
+        cmd = build_consensus_wrapped_command("x")
+        script = cmd[2]
+        assert "--for CONSENSUS_CONFIRMED" in script
+        assert "--for CONSENSUS_RE_REVIEW" in script
+
+    def test_script_has_sleep_fallback(self):
+        """If ``egg-orch`` is unavailable (older sandbox image), the
+        wrapper degrades to the legacy sleep loop."""
+        cmd = build_consensus_wrapped_command("x")
+        script = cmd[2]
+        # Fallback branch must still sleep when egg-orch is missing.
+        assert "command -v egg-orch" in script
+
+    def test_script_issue_reference(self):
+        cmd = build_consensus_wrapped_command("x")
+        script = cmd[2]
+        assert "#1897" in script

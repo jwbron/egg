@@ -582,7 +582,13 @@ class TestConcurrentPromptLifecycle:
         assert "BRC Consensus Protocol" not in prompt
 
     def test_concurrent_phase_completion_includes_polling_loop(self):
-        """Concurrent prompts should have stay-alive instructions in Phase Completion."""
+        """Concurrent prompts should have stay-alive instructions in Phase Completion.
+
+        Issue #1897 replaced the ``egg-orch message poll`` shell idiom
+        with the event-driven ``egg-orch message wait-loop`` primitive
+        so we assert the new idiom here.  The anti-pattern ban is also
+        asserted so we catch any future regression that re-introduces
+        a ``sleep N &&`` or ``for i in ... do message poll`` pattern."""
         from routes.pipelines import _build_agent_prompt
 
         prompt = _build_agent_prompt(
@@ -593,8 +599,11 @@ class TestConcurrentPromptLifecycle:
             concurrent=True,
         )
         assert "egg-orch signal readiness --state READY" in prompt
-        assert "egg-orch message poll" in prompt
+        # New canonical idiom (issue #1897).
+        assert "egg-orch message wait-loop" in prompt
         assert "Do NOT exit" in prompt
+        # Anti-pattern ban.
+        assert "Do NOT wrap" in prompt or "do NOT" in prompt.lower()
 
     def test_non_concurrent_phase_completion_says_exit(self):
         """Non-concurrent prompts should tell agents to exit normally."""
