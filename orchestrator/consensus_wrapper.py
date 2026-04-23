@@ -327,36 +327,65 @@ check_confirmed_and_wait() {{
 
     if [ "$agent_confirmed" = "True" ]; then
         cw_log "Agent already CONFIRMED in BRC protocol. Waiting for consensus..."
-        # Event-driven wait (issue #1897): instead of sleep-looping over
-        # pipeline status, block on the first CONSENSUS_CONFIRMED message
-        # from any peer via ``egg-orch message wait``.  Any delivered
-        # CONSENSUS_CONFIRMED triggers a pipeline-status re-check, so
-        # consensus completion is noticed within seconds of the final
-        # confirmation rather than on the next 30s poll boundary.
+        # Event-driven wait (issue #1897, TASK-5-1): instead of
+        # sleep-looping over pipeline status, block on the SSE event
+        # stream and parse for the ``consensus.reached`` event-name.
+        # Any peer confirmation that completes consensus triggers the
+        # event within milliseconds, so consensus completion is
+        # noticed immediately rather than on the next 30s poll
+        # boundary.
         #
-        # Fallback: if ``message wait`` is unavailable (older sandbox
-        # image, transient network hiccup), degrade to the legacy shell
-        # sleep loop so local-dev without the new CLI still works.
-        local poll_interval wait_count
+        # Fallback: if curl is unavailable or the SSE endpoint
+        # returns 5xx, degrade to the legacy sleep+status loop so
+        # local-dev without full SSE infrastructure still works
+        # (RISK-7 — keep the zero-Redis path viable).
+        local poll_interval wait_count sse_url
         poll_interval="${{EGG_MESSAGE_POLL_INTERVAL:-30}}"
+        sse_url="${{EGG_ORCHESTRATOR_URL:-http://egg-orchestrator:9849}}/api/v1/pipelines/${{EGG_PIPELINE_ID:-unknown}}/stream"
         wait_count=0
-        while [ "$wait_count" -lt "$MAX_READY_POLLS" ]; do
-            wait_count=$((wait_count + 1))
-            # Block on the next CONSENSUS_CONFIRMED (or timeout).  Exit
-            # codes: 0 matched, 1 timeout, 2 transient, 3 permanent.
-            if command -v egg-orch >/dev/null 2>&1; then
-                egg-orch message wait \
-                    --for CONSENSUS_CONFIRMED \
-                    --for CONSENSUS_RE_REVIEW \
-                    --timeout "$poll_interval" >/dev/null 2>&1
-                local rc=$?
-                if [ "$rc" -eq 3 ]; then
-                    # Permanent error — fall back to sleep
-                    sleep "$poll_interval"
+
+        # Try SSE path if curl is available.
+        if command -v curl >/dev/null 2>&1 && [ -n "${{EGG_PIPELINE_ID:-}}" ]; then
+            cw_log "Waiting on SSE event 'consensus.reached' at $sse_url"
+            # --no-buffer so we see events live; -m sets an overall
+            # time cap (MAX_READY_POLLS × poll_interval).  When the
+            # curl socket closes (SIGTERM, hangup, server EOF) we
+            # fall through to the final status check.
+            local max_seconds
+            max_seconds=$(( MAX_READY_POLLS * poll_interval ))
+            # The -m max-time flag bounds the overall stream.  When
+            # the server emits the consensus.reached event we grep
+            # for it and break via `exit` inside the pipeline.
+            if curl --no-buffer -sf -m "$max_seconds" "$sse_url" 2>/dev/null | \
+                python3 -c '
+import sys
+for line in sys.stdin:
+    if line.startswith("event:") and "consensus.reached" in line:
+        sys.exit(0)
+sys.exit(1)
+'; then
+                cw_log "SSE delivered consensus.reached. Verifying via status..."
+                local resp is_complete
+                resp=$(egg-orch pipeline status --json 2>/dev/null || echo "{{}}")
+                is_complete=$(echo "$resp" | python3 -c \
+                    "import sys,json; d=json.load(sys.stdin); print(d.get('data',{{}}).get('concurrent',{{}}).get('consensus',{{}}).get('is_complete',False))" \
+                    2>/dev/null || echo "False")
+                if [ "$is_complete" = "True" ]; then
+                    cw_log "Consensus reached. Exiting."
+                    exit 0
                 fi
             else
-                sleep "$poll_interval"
+                cw_log "SSE stream ended without consensus.reached; falling back to status loop"
             fi
+        else
+            cw_log "curl or EGG_PIPELINE_ID unavailable; using status-poll fallback"
+        fi
+
+        # Fallback sleep+status loop — also used when SSE disconnects
+        # before consensus.reached fires.
+        while [ "$wait_count" -lt "$MAX_READY_POLLS" ]; do
+            wait_count=$((wait_count + 1))
+            sleep "$poll_interval"
             local resp is_complete
             resp=$(egg-orch pipeline status --json 2>/dev/null || echo "{{}}")
             is_complete=$(echo "$resp" | python3 -c \

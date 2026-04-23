@@ -1162,44 +1162,65 @@ def cmd_message_wait(args: argparse.Namespace) -> int:
 def cmd_message_wait_loop(args: argparse.Namespace) -> int:
     """Canonical wait-loop convenience command (issue #1897).
 
-    Repeatedly calls ``message wait`` with the same ``--for`` types until
-    one of:
+    Loops **forever** until a matching message arrives (exit 0, prints
+    the message) OR a permanent error occurs (exit 1).  The outer
+    timeout is intentional — BRC consensus can legitimately take hours
+    on long phases, and an agent wrapping this in its own outer loop
+    would defeat the purpose.
 
-      - A matching message arrives (exit 0, print the message).
-      - ``--max-iterations`` is reached (exit 1).
-      - A permanent error occurs (exit 3).
+    Exit codes (wrapper contract, DIFFERENT from ``message wait``):
 
-    Transient errors (exit 2 from ``message wait``) are retried with a
-    short backoff, bounded by ``--max-iterations``.
+      * 0 — a matching message arrived; it is printed to stdout.
+      * 1 — a permanent error occurred (bad pipeline id, auth, argparse
+        misuse propagated from an inner ``message wait`` rc=3).
+        Callers should NOT retry.
 
-    The prompt shows agents this one-liner so they do not have to write
-    their own ``while true; do ... case $? ... done`` shell loop.
+    Transient errors (rc=2 from the inner call) are retried with short
+    exponential backoff (cap 5s).  Timeouts (rc=1) re-enter the loop
+    with a fresh inner call so the agent keeps blocking on the next
+    event.
+
+    ``--max-iterations`` is a safety valve only — its default is
+    effectively unbounded (``sys.maxsize``) so normal BRC consensus
+    never trips it.  The CLI help advertises it as "loops forever by
+    default".
     """
     import time as _time
 
     max_iter = args.max_iterations
+    if max_iter is None or max_iter <= 0:
+        max_iter = sys.maxsize
     backoff = 1.0
-    for i in range(max_iter):
+    for _ in range(max_iter):
         rc = cmd_message_wait(args)
         if rc == 0:
             return 0
         if rc == 3:
-            return 3
+            # Inner permanent failure — surface as outer rc=1 (wrapper
+            # owns the 0/1 outward contract; rc=3 is an internal-only
+            # code and would confuse callers that adopted the
+            # "rc=0 match / rc=1 no-match" convention).
+            return 1
         if rc == 2:
-            # Transient — sleep and retry.
             _time.sleep(min(backoff, 5.0))
             backoff = min(backoff * 2, 5.0)
             continue
-        # rc == 1: timeout — continue the loop until max_iterations.
+        # rc == 1: timeout — keep looping.
         backoff = 1.0
+    # Safety cap tripped — extraordinarily unlikely with the default
+    # sys.maxsize cap. Return 1 (no match) so callers behave the same
+    # as a permanent-error case.
     return 1
 
 
 def cmd_message_heartbeat(args: argparse.Namespace) -> int:
     """Emit a structured HEARTBEAT message (issue #1897).
 
-    Wraps ``message send --type HEARTBEAT`` with client-side schema
-    validation so agents don't have to hand-roll the metadata body.
+    POSTs to the dedicated ``/api/v1/pipelines/{id}/heartbeat`` endpoint
+    which handles schema validation, per-role dedup, and the
+    ``EGG_HEARTBEAT_RATE_LIMIT`` 429 response.  HTTP 429 is treated as
+    a rate-limit error (exit 3 per the CLI contract — caller should
+    honour the server's suggested ``retry_after``).
     """
     pid = require_pipeline_id(args)
     role = args.role or get_agent_role_from_env()
@@ -1217,25 +1238,42 @@ def cmd_message_heartbeat(args: argparse.Namespace) -> int:
         )
         return 3
 
-    metadata: dict[str, Any] = {"state": args.state}
-    if args.waiting_on:
-        metadata["waiting_on"] = args.waiting_on
-    if args.since:
-        metadata["since"] = args.since
-
     data: dict[str, Any] = {
         "from_role": role,
-        "to_role": "all",
-        "message_type": "HEARTBEAT",
-        "subject": f"heartbeat: {args.state}",
-        "body": args.body or "",
-        "metadata": metadata,
+        "state": args.state,
     }
+    if args.waiting_on:
+        data["waiting_on"] = args.waiting_on
+    if args.since:
+        data["since"] = args.since
+    if args.body:
+        data["body"] = args.body
+
     try:
         result = api_request(
-            get_orchestrator_url(), f"/api/v1/pipelines/{pid}/messages", "POST", data, 15
+            get_orchestrator_url(),
+            f"/api/v1/pipelines/{pid}/heartbeat",
+            "POST",
+            data,
+            15,
         )
     except ApiError as e:
+        # 429 rate-limit is a permanent error from this invocation's
+        # perspective — caller should honour retry_after and try again
+        # later.
+        if e.status_code == 429:
+            retry_after = 60
+            try:
+                if e.details and isinstance(e.details, dict):
+                    retry_after = int(e.details.get("retry_after", 60))
+            except (TypeError, ValueError):
+                pass
+            print(
+                f"Error: HEARTBEAT rate limit exceeded; retry after "
+                f"{retry_after}s.",
+                file=sys.stderr,
+            )
+            return 3
         if e.status_code and 400 <= e.status_code < 500 and e.status_code != 408:
             print(f"Error: {e.message}", file=sys.stderr)
             return 3
@@ -1246,7 +1284,11 @@ def cmd_message_heartbeat(args: argparse.Namespace) -> int:
         print_json(result)
         return 0 if result.get("success") else 1
     if result.get("success"):
-        print(f"HEARTBEAT sent: {args.state}")
+        deduped = bool(result.get("data", {}).get("deduped"))
+        if deduped:
+            print(f"HEARTBEAT deduped (unchanged state {args.state})")
+        else:
+            print(f"HEARTBEAT sent: {args.state}")
         return 0
     print(f"Error: {result.get('message')}", file=sys.stderr)
     return 1
@@ -2039,12 +2081,15 @@ def create_parser() -> argparse.ArgumentParser:
     msg_send.add_argument(
         "--type",
         required=True,
-        choices=["PROGRESS", "QUESTION", "STATUS", "HANDOFF", "HEARTBEAT"],
+        choices=["PROGRESS", "STATUS", "HANDOFF", "HEARTBEAT"],
         help=(
             "Message type (PROGRESS, STATUS, HANDOFF, HEARTBEAT). "
-            "QUESTION is DEPRECATED — see #1897; use the dedicated "
-            "`message heartbeat` subcommand for HEARTBEAT instead of "
-            "raw --type HEARTBEAT."
+            "QUESTION was removed in issue #1897 — put clarifying "
+            "questions in a NACK --reason block marked "
+            '"### Non-blocking" so the producer sees them with the '
+            "verdict.  For HEARTBEAT prefer the dedicated "
+            "`message heartbeat` subcommand (schema validation + "
+            "rate limit + dedup)."
         ),
     )
     msg_send.add_argument("--subject", help="Message subject")
@@ -2128,8 +2173,14 @@ def create_parser() -> argparse.ArgumentParser:
     msg_wait_loop.add_argument(
         "--max-iterations",
         type=int,
-        default=120,
-        help="Maximum outer-loop iterations before giving up (default 120)",
+        default=None,
+        help=(
+            "Safety cap on outer-loop iterations.  **Loops forever by "
+            "default** (value is effectively unbounded unless set) so "
+            "normal BRC consensus never trips it.  Set to a positive "
+            "integer only for test harnesses or deterministic "
+            "reproductions."
+        ),
     )
     _add_json_flag(msg_wait_loop)
     msg_wait_loop.set_defaults(func=cmd_message_wait_loop)

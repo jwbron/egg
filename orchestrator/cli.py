@@ -281,20 +281,31 @@ def cmd_serve(args: argparse.Namespace) -> int:
         # Use Flask's built-in server for development
         app.run(host=host, port=port, debug=True)
     else:
-        # Use waitress for production.
-        # Thread count is now configurable via EGG_ORCHESTRATOR_WORKER_THREADS
-        # (default 64) to absorb the new long-poll volume from the
-        # ``egg-orch message wait`` primitive (issue #1897, RISK-3).  The
-        # previous hard-coded 16 threads could saturate under a modest
-        # number of concurrently blocked wait requests.
+        # Use waitress for production.  Thread count comes from
+        # ``EGG_ORCH_WAITRESS_THREADS`` (default 16) via env_config —
+        # same place ``EGG_MESSAGE_POLL_MAX_WAIT`` is read from, so the
+        # two knobs stay in sync.  Values < 4 cause refuse-to-boot
+        # (sys.exit(EX_CONFIG)) so a silently-saturated pool doesn't
+        # mask the misconfiguration.  See plan TASK-4-1 and
+        # docs/reference/agent-wait-patterns.md §7.
         #
-        # ``channel_timeout`` is set to 2× the effective
-        # ``EGG_MESSAGE_POLL_MAX_WAIT`` so the server does not close a
-        # long-poll socket before the request's own timeout fires.
+        # ``channel_timeout`` is set to 2× EGG_MESSAGE_POLL_MAX_WAIT so
+        # waitress does not close a long-poll socket before the
+        # request's own timeout fires.
         from waitress import serve
 
-        threads = int(os.environ.get("EGG_ORCHESTRATOR_WORKER_THREADS", "64"))
-        poll_cap = int(os.environ.get("EGG_MESSAGE_POLL_MAX_WAIT", "60") or 60)
+        try:
+            from env_config import (
+                get_message_poll_max_wait,
+                get_waitress_threads,
+            )
+        except ImportError:  # pragma: no cover
+            from .env_config import (  # type: ignore[no-redef,import-not-found]
+                get_message_poll_max_wait,
+                get_waitress_threads,
+            )
+        threads = get_waitress_threads()
+        poll_cap = get_message_poll_max_wait()
         channel_timeout = max(poll_cap * 2 + 30, 120)
         logger.info(
             "Starting waitress server",

@@ -34,7 +34,9 @@ class MessageType:
     # times out, and will then remove this member entirely.
     QUESTION = "QUESTION"
     # Structured per-agent state heartbeat (issue #1897).
-    # Body is a JSON document with {"state": ..., "waiting_on": ..., "since": ...}.
+    # ``metadata`` is a JSON object with
+    # ``{"state": ..., "waiting_on": ..., "since": ...}``;
+    # ``body`` is a short human-readable summary (or empty string).
     # See docs/reference/agent-wait-patterns.md.
     HEARTBEAT = "HEARTBEAT"
     # Consensus protocol (BRC)
@@ -115,15 +117,6 @@ class MessageStore:
         self._cond: dict[str, threading.Condition] = {}
         self._lock = threading.RLock()
 
-    def _get_cond(self, pipeline_id: str) -> threading.Condition:
-        """Get or create the per-pipeline condition variable."""
-        with self._lock:
-            cv = self._cond.get(pipeline_id)
-            if cv is None:
-                cv = threading.Condition(self._lock)
-                self._cond[pipeline_id] = cv
-            return cv
-
     def add_message(self, message: Message) -> Message:
         """Add a message to the store.
 
@@ -156,6 +149,7 @@ class MessageStore:
         limit: int = 100,
         wait: int = 0,
         wait_for_types: Sequence[str] | None = None,
+        from_role: str | None = None,
     ) -> list[Message]:
         """Get messages for a pipeline, optionally filtered.
 
@@ -175,6 +169,10 @@ class MessageStore:
                 "matched" when at least one message of these types is
                 available after applying role/since_id filters. Unwanted types
                 are left in the store and do not unblock the caller.
+            from_role: If set, further filter to only messages whose
+                ``from_role`` equals this value.  Applied inside the blocking
+                loop so a message from the wrong sender does NOT unblock the
+                wait (prevents spinning — issue #1897 reviewer_code non-blocker).
 
         Returns:
             List of matching messages, oldest first. Empty list on timeout.
@@ -199,6 +197,11 @@ class MessageStore:
                             "since_id": since_id,
                         },
                     )
+
+            # from_role filter — applied here so it participates in the
+            # wait-for-match decision (wrong sender does not unblock).
+            if from_role:
+                msgs = [m for m in msgs if m.from_role == from_role]
 
             # Filter by role (messages targeted to this role or broadcast)
             if role:
@@ -286,13 +289,15 @@ class MessageStore:
         per-pipeline condition variable so any threads currently blocked
         on ``get_messages(..., wait=N)`` wake up, observe the empty/absent
         pipeline, and return [] — rather than hanging until the timeout.
+        The condition variable is also popped so long-lived orchestrators
+        with many pipelines don't accumulate stale ``_cond`` entries.
 
         Returns:
             Number of messages cleared.
         """
         with self._lock:
             msgs = self._messages.pop(pipeline_id, [])
-            cv = self._cond.get(pipeline_id)
+            cv = self._cond.pop(pipeline_id, None)
             if cv is not None:
                 cv.notify_all()
             return len(msgs)

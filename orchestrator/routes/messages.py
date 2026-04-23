@@ -4,7 +4,6 @@ Provides REST endpoints for agents to send, poll, and check status of
 messages during concurrent phase execution.
 """
 
-import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -37,11 +36,35 @@ from state_store import InvalidPipelineIdError, PipelineNotFoundError
 
 logger = get_logger("orchestrator.messages")
 
+# Delegate env-var reads to the central ``env_config`` module (issue
+# #1897) so routes and the CLI agree on a single source of truth.
+try:
+    from env_config import (
+        MESSAGE_POLL_MAX_WAIT_WARN_THRESHOLD_SECONDS,
+        get_heartbeat_rate_limit,
+        get_message_poll_max_wait,
+        log_message_poll_max_wait_startup,
+    )
+    from heartbeat import get_heartbeat_coordinator
+except ImportError:  # pragma: no cover
+    from ..env_config import (  # type: ignore[no-redef,import-not-found]
+        MESSAGE_POLL_MAX_WAIT_WARN_THRESHOLD_SECONDS,
+        get_heartbeat_rate_limit,
+        get_message_poll_max_wait,
+        log_message_poll_max_wait_startup,
+    )
+    from ..heartbeat import get_heartbeat_coordinator  # type: ignore[no-redef]
+
+# Back-compat aliases (the helpers below are re-exported so existing
+# callers and tests continue to work).
+_get_poll_max_wait = get_message_poll_max_wait
+log_poll_max_wait_startup = log_message_poll_max_wait_startup
+POLL_MAX_WAIT_WARN_THRESHOLD_SECONDS = MESSAGE_POLL_MAX_WAIT_WARN_THRESHOLD_SECONDS
+
 # In-flight long-poll gauge (RISK-3, issue #1897). Incremented when a
 # caller enters a blocking read and decremented when the call returns.
-# Used by operators to detect worker-pool saturation — when this number
-# approaches the configured thread count, raise
-# ``EGG_ORCHESTRATOR_WORKER_THREADS``.
+# Operators alert when this approaches the configured
+# ``EGG_ORCH_WAITRESS_THREADS`` value.
 try:
     from metrics import get_metrics_registry
 
@@ -71,62 +94,6 @@ def _track_long_poll_end() -> None:
 
 messages_bp = Blueprint("messages", __name__, url_prefix="/api/v1/pipelines")
 
-# Default cap on the ``wait`` query parameter.  Operators can raise this via
-# the ``EGG_MESSAGE_POLL_MAX_WAIT`` env var; doing so REQUIRES raising the
-# gateway's Squid idle timeout in lockstep or long polls will return 504.
-# See docs/reference/agent-wait-patterns.md.
-DEFAULT_POLL_MAX_WAIT_SECONDS = 60
-
-# Threshold above which we log a WARNING at startup (and each lookup) naming
-# the gateway coupling.  RISK-4 in issue #1897.
-POLL_MAX_WAIT_WARN_THRESHOLD_SECONDS = 90
-
-
-def _get_poll_max_wait() -> int:
-    """Return the effective ``wait=`` cap in seconds.
-
-    Reads ``EGG_MESSAGE_POLL_MAX_WAIT`` (default 60). Values <= 0 fall back to
-    the default. Coupled with the gateway's Squid idle timeout —
-    see ``log_poll_max_wait_startup`` for the warning and
-    ``docs/reference/agent-wait-patterns.md`` for the operator checklist.
-    """
-    raw = os.environ.get("EGG_MESSAGE_POLL_MAX_WAIT", "").strip()
-    if not raw:
-        return DEFAULT_POLL_MAX_WAIT_SECONDS
-    try:
-        val = int(raw)
-    except (TypeError, ValueError):
-        return DEFAULT_POLL_MAX_WAIT_SECONDS
-    if val <= 0:
-        return DEFAULT_POLL_MAX_WAIT_SECONDS
-    return val
-
-
-def log_poll_max_wait_startup() -> None:
-    """Emit a startup log line for the effective poll cap.
-
-    Called by the orchestrator app at import time. When the cap exceeds
-    ``POLL_MAX_WAIT_WARN_THRESHOLD_SECONDS`` we escalate to WARNING and
-    name the gateway Squid coupling so the operator has a fighting chance
-    of not stepping on the 504 rake.
-    """
-    import warnings as _warnings
-
-    cap = _get_poll_max_wait()
-    if cap > POLL_MAX_WAIT_WARN_THRESHOLD_SECONDS:
-        msg = (
-            f"EGG_MESSAGE_POLL_MAX_WAIT={cap}s exceeds the safe threshold "
-            f"({POLL_MAX_WAIT_WARN_THRESHOLD_SECONDS}s); ensure the gateway "
-            "Squid idle timeout ConfigMap key is raised in lockstep or long "
-            "polls will return 504. See docs/reference/agent-wait-patterns.md."
-        )
-        logger.warning(msg)
-        _warnings.warn(msg, stacklevel=2)
-    else:
-        logger.info(
-            "EGG_MESSAGE_POLL_MAX_WAIT effective cap: %ds", cap
-        )
-
 
 def _make_error(message: str, status_code: int = 400) -> tuple[Response, int]:
     return jsonify({"success": False, "message": message}), status_code
@@ -147,11 +114,15 @@ def send_message(pipeline_id: str) -> tuple[Response, int]:
         {
             "from_role": "coder",
             "to_role": "tester" | "all",
-            "message_type": "PROGRESS" | "QUESTION" | "STATUS" | ...,
+            "message_type": "PROGRESS" | "STATUS" | "HANDOFF" | "HEARTBEAT" | ...,
             "subject": "Implementation update",
             "body": "Completed task 1-1",
             "metadata": {}
         }
+
+    Note: the ``QUESTION`` message type was removed in issue #1897.
+    Prefer the NACK ``--reason`` channel (``### Non-blocking``) to ask
+    questions atomically with the review verdict.
     """
     body = request.get_json()
     if not body:
@@ -418,6 +389,9 @@ def wait_messages(pipeline_id: str) -> tuple[Response, int]:
 
     _track_long_poll_start()
     try:
+        # from_role is applied INSIDE the blocking read (message_store
+        # level) so a message with a matching TYPE but the wrong
+        # sender does not unblock us — prevents client-side spin.
         messages = message_store.get_messages(
             pipeline_id,
             role=role,
@@ -425,13 +399,10 @@ def wait_messages(pipeline_id: str) -> tuple[Response, int]:
             limit=limit,
             wait=timeout,
             wait_for_types=wait_for_types,
+            from_role=from_role,
         )
     finally:
         _track_long_poll_end()
-
-    # Apply the from-role filter last (server-side; cheap).
-    if from_role:
-        messages = [m for m in messages if m.from_role == from_role]
 
     messages = _apply_delphi_filter(pipeline_id, role, messages)
 
@@ -442,6 +413,130 @@ def wait_messages(pipeline_id: str) -> tuple[Response, int]:
             "count": len(messages),
             "matched": bool(messages),
         },
+    )
+
+
+@messages_bp.route("/<pipeline_id>/heartbeat", methods=["POST"])
+def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
+    """Dedicated HEARTBEAT endpoint with per-role dedup + rate limit.
+
+    Request body::
+
+        {
+            "from_role": "coder",
+            "state": "WORKING" | "WAITING_ON_ROLE" | "PROPOSED" | "IDLE",
+            "waiting_on": "tester",  # required when state=WAITING_ON_ROLE
+            "since": "2026-04-23T07:00:00Z",  # optional
+            "body": "short human-readable summary"  # optional
+        }
+
+    Responses:
+        200 — heartbeat stored (or silently deduped).
+        400 — missing / invalid field.
+        404 — pipeline not found.
+        429 — rate limit exceeded; response body carries
+              ``retry_after`` seconds.
+
+    Implementation notes:
+        * ``(state, waiting_on)`` tuples that match the role's
+          most-recent heartbeat are **silently deduped** (no bus
+          message written) so re-entering the same state twice is
+          idempotent.  See plan TASK-3-2.
+        * Rate limit: ``EGG_HEARTBEAT_RATE_LIMIT`` per minute per
+          ``(pipeline_id, role)``, default 20/min.  See plan
+          TASK-3-4.
+    """
+    body = request.get_json() or {}
+
+    from_role = body.get("from_role")
+    if not from_role:
+        return _make_error("Missing from_role")
+
+    state = body.get("state")
+    if state not in HEARTBEAT_STATES:
+        return _make_error(
+            "state must be one of "
+            f"{sorted(HEARTBEAT_STATES)} (got {state!r})."
+        )
+    waiting_on = body.get("waiting_on")
+    if state == "WAITING_ON_ROLE" and not waiting_on:
+        return _make_error(
+            "state=WAITING_ON_ROLE requires waiting_on (the role this "
+            "agent is waiting on)."
+        )
+
+    # Validate pipeline.
+    try:
+        _store, pipeline = get_state_store_for_pipeline(pipeline_id)
+    except InvalidPipelineIdError as e:
+        return _make_error(str(e), 400)
+    except PipelineNotFoundError as e:
+        return _make_error(str(e), 404)
+
+    coordinator = get_heartbeat_coordinator()
+
+    # Rate limit first — cheap check, bounds load.
+    limit = get_heartbeat_rate_limit()
+    decision = coordinator.check_rate_limit(pipeline_id, from_role, limit)
+    if not decision.allowed:
+        resp = jsonify(
+            {
+                "success": False,
+                "message": (
+                    f"HEARTBEAT rate limit exceeded "
+                    f"({limit}/min per role); retry after "
+                    f"{decision.retry_after_seconds}s."
+                ),
+                "retry_after": decision.retry_after_seconds,
+            }
+        )
+        return resp, 429
+
+    # Dedup: silently drop if the role's (state, waiting_on) hasn't
+    # changed since the last heartbeat.
+    if coordinator.is_duplicate(pipeline_id, from_role, state, waiting_on):
+        return _make_success(
+            "HEARTBEAT deduped (unchanged state)",
+            data={"deduped": True},
+        )
+
+    # Emit as a normal HEARTBEAT message on the bus so downstream
+    # consumers (HealthMonitor, overseer, UI) see it.
+    metadata = {"state": state}
+    if waiting_on:
+        metadata["waiting_on"] = waiting_on
+    if body.get("since"):
+        metadata["since"] = body["since"]
+
+    msg = Message(
+        pipeline_id=pipeline_id,
+        from_role=from_role,
+        to_role="all",
+        message_type=MessageType.HEARTBEAT,
+        subject=f"heartbeat: {state}",
+        body=body.get("body", ""),
+        metadata=metadata,
+        phase=pipeline.current_phase.value,
+    )
+    store = get_message_store()
+    store.add_message(msg)
+    coordinator.record_state(pipeline_id, from_role, state, waiting_on)
+
+    # Emit an event so SSE consumers and HealthMonitor see it.
+    emit_event(
+        EventType.MESSAGE_SENT,
+        pipeline_id,
+        data={
+            "message_id": msg.id,
+            "from_role": from_role,
+            "to_role": msg.to_role,
+            "message_type": MessageType.HEARTBEAT,
+        },
+    )
+
+    return _make_success(
+        "HEARTBEAT stored",
+        data={"message": msg.to_dict(), "deduped": False},
     )
 
 

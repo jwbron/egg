@@ -5044,15 +5044,15 @@ BRC_HISTORY_TYPES = frozenset(
         "CONSENSUS_RE_REVIEW",
         "STATUS",
         "HANDOFF",
-        # QUESTION is deprecated in issue #1897 but retained in the BRC
-        # history set until the tester updates test_brc_history fixtures
-        # in a follow-up commit.  See MessageType.QUESTION.
-        "QUESTION",
         "AGENT_FAILED",
         "NUDGE",
         "OVERSEER_ALERT",
         # HEARTBEAT (issue #1897) — structured per-agent state messages.
         "HEARTBEAT",
+        # QUESTION removed per issue #1897 Phase 7.  The enum member
+        # remains for backward-compat until the tester updates
+        # test_brc_history / test_checkpoint fixtures; see
+        # MessageType.QUESTION.
     }
 )
 
@@ -6234,14 +6234,14 @@ def _build_brc_preamble(
                 "Handle NACKs by fixing issues and re-proposing.",
                 "5. **CONFIRM**: When all reviewers ACK: `egg-orch consensus confirmed`",
                 "6. **STAY ALIVE**: Block on the next BRC event with "
-                "`egg-orch message wait-loop --for CONSENSUS_RE_REVIEW "
-                "--for CONSENSUS_CONFIRMED --timeout 60` until the "
-                "orchestrator stops you. **Don't** wrap this in a shell "
-                "`for i in 1..N` loop; **don't** prefix it with `sleep N`.  "
-                "The wait-loop blocks server-side and returns the moment "
-                "a BRC event arrives — exit code 0 means act on it, "
-                "1 means keep looping, 2 is a transient hiccup (retry), "
-                "3 is permanent and you should surface it. See "
+                "`egg-orch message wait-loop --for CONSENSUS_CONFIRMED "
+                "--for CONSENSUS_RE_REVIEW --for OVERSEER_ALERT "
+                "--timeout 60` until the orchestrator stops you. "
+                "**Don't** wrap this in a shell `for i in 1..N` loop; "
+                "**don't** prefix it with `sleep N`.  The wait-loop "
+                "blocks server-side and returns the moment a BRC "
+                "event arrives — exit code 0 means act on it, 1 means "
+                "the wrapper exhausted retries (surface it). See "
                 "docs/reference/agent-wait-patterns.md.",
                 "7. **HANDLE RE-REVIEW**: If you receive a `CONSENSUS_RE_REVIEW` message "
                 "while staying alive, you MUST act on it — failure to do so will stall "
@@ -6306,12 +6306,13 @@ def _build_brc_preamble(
                 "6. **CONFIRM**: When all assigned producers reviewed: "
                 "`egg-orch consensus confirmed`",
                 "7. **STAY ALIVE**: Block on the next BRC event with "
-                "`egg-orch message wait-loop --for CONSENSUS_RE_REVIEW "
-                "--for CONSENSUS_CONFIRMED --timeout 60` until the "
-                "orchestrator stops you. **Don't** wrap this in a shell "
-                "`for i in 1..N` loop; **don't** prefix it with `sleep N`.  "
-                "The wait-loop blocks server-side and returns the moment "
-                "a BRC event arrives. See "
+                "`egg-orch message wait-loop --for CONSENSUS_PROPOSE "
+                "--for CONSENSUS_RE_REVIEW --for CONSENSUS_CONFIRMED "
+                "--for OVERSEER_ALERT --timeout 60` until the "
+                "orchestrator stops you. **Don't** wrap this in a "
+                "shell `for i in 1..N` loop; **don't** prefix it with "
+                "`sleep N`.  The wait-loop blocks server-side and "
+                "returns the moment a BRC event arrives. See "
                 "docs/reference/agent-wait-patterns.md.",
                 "8. **HANDLE RE-REVIEW**: If you receive a `CONSENSUS_RE_REVIEW` message "
                 "while staying alive, you MUST act on it — failure to do so will stall "
@@ -6356,18 +6357,16 @@ def _build_brc_preamble(
     if is_reviewer:
         lines.extend(
             [
-                "**As a reviewer**, use directed messages to request clarification:",
-                "- **QUESTION**: Ask a producer for clarification before or during your "
-                "review. This avoids unnecessary NACKs for ambiguities that can be "
-                "resolved with a quick exchange.  **Deprecated (issue #1897)** — the "
-                "QUESTION message type will be replaced by a structured REQUEST/REPLY "
-                "subsystem in a follow-up issue.  For new code, prefer putting the "
-                "question in a NACK `--reason` block marked \"### Non-blocking\" so the "
-                "producer sees it atomically with the verdict.",
-                "  ```",
-                '  egg-orch message send --to coder --type QUESTION --subject "Clarify auth flow" '
-                '--body "Is the token refresh handled in auth.py or middleware?"',
-                "  ```\n",
+                "**As a reviewer**, when you need clarification before "
+                "ACK/NACKing, put the question in your NACK `--reason` "
+                "block under `### Non-blocking`.  The producer sees it "
+                "atomically with the review verdict and the audit "
+                "trail is preserved.  The legacy QUESTION message "
+                "type was removed in issue #1897; off-protocol chatter "
+                "is no longer advertised.  A follow-up issue will "
+                "introduce a structured REQUEST/REPLY subsystem that "
+                "names a target peer and times out.",
+                "",
             ]
         )
 
@@ -7379,13 +7378,15 @@ def _build_agent_prompt(
                 "and do NOT `sleep N` — use the server-side blocking primitive:",
                 "```bash",
                 "egg-orch message wait-loop \\",
-                "  --for CONSENSUS_RE_REVIEW \\",
                 "  --for CONSENSUS_CONFIRMED \\",
+                "  --for CONSENSUS_RE_REVIEW \\",
+                "  --for OVERSEER_ALERT \\",
                 "  --timeout 60",
                 "```",
-                "`wait-loop` blocks server-side until a matching BRC event "
-                "arrives (exit 0) or max-iterations is reached (exit 1) or a "
-                "permanent error occurs (exit 3).  See "
+                "`wait-loop` blocks server-side and loops forever until a "
+                "matching BRC event arrives (exit 0) or a permanent error "
+                "occurs (exit 1).  There is no outer timeout — the wrapper "
+                "owns the 0/1 contract.  See "
                 "`docs/reference/agent-wait-patterns.md` for the full "
                 "exit-code contract and the four anti-patterns to avoid.",
                 "4. If `wait-loop` returns with a message that affects your work, "
