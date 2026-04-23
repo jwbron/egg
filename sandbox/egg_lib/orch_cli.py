@@ -1185,6 +1185,11 @@ def cmd_message_wait_loop(args: argparse.Namespace) -> int:
     """
     import time as _time
 
+    # --json is not supported on wait-loop (produces concatenated JSON
+    # objects on stdout across iterations). Force it off so the inner
+    # cmd_message_wait call doesn't try to print JSON.
+    args.json = False
+
     max_iter = args.max_iterations
     if max_iter is None or max_iter <= 0:
         max_iter = sys.maxsize
@@ -2191,7 +2196,10 @@ def create_parser() -> argparse.ArgumentParser:
             "reproductions."
         ),
     )
-    _add_json_flag(msg_wait_loop)
+    # --json is intentionally NOT supported on wait-loop: the loop calls
+    # cmd_message_wait repeatedly, and each timeout iteration would print
+    # a JSON object to stdout, producing concatenated invalid JSON.
+    # Use ``egg-orch message wait --json`` directly for single-shot JSON.
     msg_wait_loop.set_defaults(func=cmd_message_wait_loop)
 
     # message heartbeat — emit a structured HEARTBEAT (issue #1897)

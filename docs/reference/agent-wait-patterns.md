@@ -220,34 +220,34 @@ It replaces ad-hoc `QUESTION` / `PROGRESS`-based heartbeat patterns and
 complements the legacy `PROGRESS`-heartbeat event path (both paths are
 recognised by `HealthMonitor` in this release).
 
-### Metadata schema
+### Body schema
 
-The structured payload lives in `metadata`. The `body` field stays a
-short human-readable summary or empty string (same convention as every
-other message type — see `orchestrator/message_store.py`).
+The heartbeat uses a flat JSON body posted to `POST /api/v1/pipelines/<id>/heartbeat`.
+The `from_role` field identifies the sender; `state` carries the
+machine-actionable status. There is no nested `metadata` envelope.
 
 ```json
 {
-  "message_type": "HEARTBEAT",
-  "body": "(optional human-readable summary)",
-  "metadata": {
-    "state": "WORKING | WAITING_ON_ROLE | PROPOSED | IDLE",
-    "waiting_on": "coder",
-    "since": "2026-04-23T06:29:00Z"
-  }
+  "from_role": "coder",
+  "state": "WORKING",
+  "waiting_on": "coder",
+  "since": "2026-04-23T06:29:00Z",
+  "body": "(optional human-readable summary)"
 }
 ```
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
+| `from_role` | string | Yes | The agent role emitting the heartbeat. |
 | `state` | enum string | Yes | One of `WORKING`, `WAITING_ON_ROLE`, `PROPOSED`, `IDLE`. |
 | `waiting_on` | string | Required **iff** `state == WAITING_ON_ROLE` | The agent role this agent is blocked on. Server-side validation rejects `WAITING_ON_ROLE` with a missing or empty `waiting_on`. |
 | `since` | ISO-8601 string | Optional | When the agent entered this state. Useful for stall detection. |
+| `body` | string | Optional | Human-readable summary. |
 
-Constructing a `WAITING_ON_ROLE` heartbeat without `metadata.waiting_on`
-raises `ValueError` at the dataclass layer, and a malformed `HEARTBEAT`
-POST returns HTTP 400. This is intentional: heartbeats are load-bearing
-for stall detection, so malformed ones must fail loudly, not silently.
+Posting a `WAITING_ON_ROLE` heartbeat without `waiting_on` returns
+HTTP 400, and a malformed `HEARTBEAT` POST also returns HTTP 400. This
+is intentional: heartbeats are load-bearing for stall detection, so
+malformed ones must fail loudly, not silently.
 
 ### When to emit
 
@@ -287,16 +287,16 @@ channel for peers. `HEARTBEAT` exists specifically to:
 
 ```bash
 # WORKING — default entry heartbeat
-egg-orch heartbeat WORKING
+egg-orch message heartbeat --state WORKING
 
 # WAITING_ON_ROLE — waiting_on is required
-egg-orch heartbeat WAITING_ON_ROLE --waiting-on coder
+egg-orch message heartbeat --state WAITING_ON_ROLE --waiting-on coder
 
 # PROPOSED — after submitting a proposal
-egg-orch heartbeat PROPOSED
+egg-orch message heartbeat --state PROPOSED
 
 # IDLE — between tasks
-egg-orch heartbeat IDLE
+egg-orch message heartbeat --state IDLE
 ```
 
 Errors return CLI exit 3 (permanent) so callers do not retry in a tight

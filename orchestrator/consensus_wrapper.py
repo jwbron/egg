@@ -339,7 +339,7 @@ check_confirmed_and_wait() {{
         # returns 5xx, degrade to the legacy sleep+status loop so
         # local-dev without full SSE infrastructure still works
         # (RISK-7 — keep the zero-Redis path viable).
-        local poll_interval wait_count sse_url
+        local poll_interval wait_count sse_url rc
         poll_interval="${{EGG_MESSAGE_POLL_INTERVAL:-30}}"
         sse_url="${{EGG_ORCHESTRATOR_URL:-http://egg-orchestrator:9849}}/api/v1/pipelines/${{EGG_PIPELINE_ID:-unknown}}/stream"
         wait_count=0
