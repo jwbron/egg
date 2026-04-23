@@ -305,16 +305,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-23T06:52:49.660338Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-23T06:53:35.616740Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Superseded by decision-7 in the v5 analysis draft: semantic verbs grouped by function (what the agent is DOING), not CLI taxonomy. Names like mcp__sdlc__register_open_question, mcp__brc__propose, mcp__phase__get_context. This decision (decision-5) was framed around CLI-mirroring options and is obsolete.\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:22:09.201730Z",
-  "updated_at": "2026-04-23T06:52:49.670196Z",
+  "updated_at": "2026-04-23T06:53:35.633075Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -328,5 +328,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:32:00.470351Z",
-  "version": 47
+  "version": 48
 }
