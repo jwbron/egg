@@ -1,8 +1,9 @@
-"""Tests for ``_brc_history_identifier`` babysit-aware behaviour.
+"""Tests for ``_brc_history_identifier`` babysit and CUSTOM+PR behaviour.
 
-These tests verify that babysit-pr pipelines get a ``pr-{pr}-{short_sha}``
-namespace for BRC-history artifacts, while issue-mode pipelines continue to
-use ``_pipeline_identifier`` (favouring the issue number).
+These tests verify that babysit-pr and CUSTOM+PR pipelines get a
+``pr-{pr}-{short_sha}`` namespace for BRC-history artifacts, while
+issue-mode pipelines continue to use ``_pipeline_identifier``
+(favouring the issue number).
 """
 
 import sys
@@ -221,3 +222,89 @@ class TestPipelineWithoutMode:
         result = _brc_history_identifier(pipeline)
         assert result == 555
         assert isinstance(result, int)
+
+
+def _make_custom_pr_pipeline(
+    *,
+    pr_number: int | None = 42,
+    pr_head_sha: str | None = "abc1234deadbeef",
+    pipeline_id: str = "pr-42",
+    issue_number: int | None = None,
+) -> Pipeline:
+    """Construct a CUSTOM-mode Pipeline with PR metadata."""
+    return Pipeline(
+        id=pipeline_id,
+        repo="owner/repo",
+        mode=PipelineMode.CUSTOM,
+        pr_number=pr_number,
+        pr_head_sha=pr_head_sha,
+        branch="feature-x",
+        has_contract=False,
+        issue_number=issue_number,
+    )
+
+
+class TestCustomPrHistoryIdentifierFormat:
+    """CUSTOM+PR pipelines produce ``pr-{pr}-{short_sha}`` identifiers,
+    matching BABYSIT behaviour (subsumption parity — #1762)."""
+
+    def test_basic_custom_pr_with_short_sha(self):
+        pipeline = _make_custom_pr_pipeline(pr_number=42, pr_head_sha="abc1234deadbeef")
+        assert _brc_history_identifier(pipeline) == "pr-42-abc1234"
+
+    def test_custom_pr_large_number_with_full_sha(self):
+        full_sha = "0000000abcdef1234567890abcdef1234567890a"
+        pipeline = _make_custom_pr_pipeline(pr_number=12345, pr_head_sha=full_sha)
+        assert _brc_history_identifier(pipeline) == "pr-12345-0000000"
+
+    def test_custom_pr_matches_babysit_output(self):
+        """Same PR metadata should yield the same identifier regardless of mode."""
+        pr_number = 99
+        sha = "deadbeef1234567890"
+        babysit = _make_babysit_pipeline(pr_number=pr_number, pr_head_sha=sha)
+        custom = _make_custom_pr_pipeline(pr_number=pr_number, pr_head_sha=sha)
+        assert _brc_history_identifier(babysit) == _brc_history_identifier(custom)
+
+
+class TestCustomPrNamespacingPerSha:
+    """Different head SHAs for the same PR yield distinct identifiers in CUSTOM mode."""
+
+    def test_two_shas_same_pr_yield_distinct_identifiers(self):
+        sha_a = "aaaaaaa1111111111111111111111111111aaaaa"
+        sha_b = "bbbbbbb2222222222222222222222222222bbbbb"
+        p1 = _make_custom_pr_pipeline(pr_number=42, pr_head_sha=sha_a)
+        p2 = _make_custom_pr_pipeline(pr_number=42, pr_head_sha=sha_b)
+        assert _brc_history_identifier(p1) == "pr-42-aaaaaaa"
+        assert _brc_history_identifier(p2) == "pr-42-bbbbbbb"
+        assert _brc_history_identifier(p1) != _brc_history_identifier(p2)
+
+
+class TestCustomWithoutPrFallsBack:
+    """CUSTOM-mode pipelines without pr_number use the generic path."""
+
+    def test_custom_no_pr_falls_back_to_pipeline_id(self):
+        pipeline = Pipeline(
+            id="custom-task-abc",
+            repo="owner/repo",
+            mode=PipelineMode.CUSTOM,
+            issue_number=None,
+            branch="feature-x",
+        )
+        assert _brc_history_identifier(pipeline) == "custom-task-abc"
+
+    def test_custom_with_issue_number_no_pr_uses_pipeline_id(self):
+        """CUSTOM mode always keys by pipeline_id (not issue_number) to avoid
+        collision with concurrent ISSUE-mode pipelines on the same issue."""
+        pipeline = Pipeline(
+            id="issue-77-qualifier",
+            repo="owner/repo",
+            mode=PipelineMode.CUSTOM,
+            issue_number=77,
+            branch="feature-x",
+        )
+        result = _brc_history_identifier(pipeline)
+        assert result == "issue-77-qualifier"
+
+    def test_custom_pr_missing_sha_falls_back(self):
+        pipeline = _make_custom_pr_pipeline(pr_number=42, pr_head_sha=None, pipeline_id="pr-42")
+        assert _brc_history_identifier(pipeline) == "pr-42"

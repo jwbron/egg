@@ -1906,92 +1906,6 @@ def _chdir_to_single_repo(config: Config) -> None:
         _exclude_from_git(cwd_claude_md)
 
 
-def run_interactive(config: Config, logger: Logger) -> int:
-    """Launch interactive Claude Code session.
-
-    Uses subprocess.Popen() to maintain control after process exits,
-    enabling completion signaling back to orchestrator.
-
-    Returns:
-        Exit code from the subprocess
-    """
-
-    _chdir_to_single_repo(config)
-
-    # Build environment for Claude Code
-    env = os.environ.copy()
-    env.update(
-        {
-            "PYTHONPATH": "/opt/egg-runtime/sandbox:/opt/egg-runtime/shared",
-            "DISABLE_TELEMETRY": os.environ.get("DISABLE_TELEMETRY", ""),
-            "DISABLE_COST_WARNINGS": os.environ.get("DISABLE_COST_WARNINGS", ""),
-        }
-    )
-
-    # Remove proxy vars for Claude Code - it only talks to ANTHROPIC_BASE_URL (gateway)
-    # Node.js HTTP clients don't respect NO_PROXY, so we must unset the proxy entirely
-    # Other tools in the container (bash, curl) will still use the proxy from shell env
-    for proxy_var in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]:
-        env.pop(proxy_var, None)
-
-    # Remove launcher secret from Claude's environment — it's a privileged
-    # credential used only by the entrypoint (root) for orchestrator auth.
-    # Leaving it accessible would let Claude bypass SDLC token gating.
-    env.pop("EGG_LAUNCHER_SECRET", None)
-
-    # -- Harness selection --
-    # When EGG_HARNESS=egg, use the custom egg harness instead of Claude Code.
-    # The egg harness routes API calls through the gateway (ANTHROPIC_BASE_URL)
-    # and validates that ANTHROPIC_API_KEY is absent (credentials are injected
-    # by the gateway, never held by the agent).
-    harness = env.get("EGG_HARNESS", os.environ.get("EGG_HARNESS", ""))
-    if harness == "egg":
-        logger.info("Launching egg harness interactive mode...")
-
-        # Ensure gateway URL is set for the harness provider.
-        gateway_url = env.get("ANTHROPIC_BASE_URL") or env.get("GATEWAY_URL")
-        if gateway_url:
-            env["GATEWAY_URL"] = gateway_url
-
-        # Validate that ANTHROPIC_API_KEY is not in the environment —
-        # the harness asserts this at startup for zero-credential sandbox.
-        env.pop("ANTHROPIC_API_KEY", None)
-
-        _startup_timer.print_summary()
-
-        return _run_with_stderr_capture(
-            [
-                "gosu",
-                f"{config.runtime_uid}:{config.runtime_gid}",
-                "python3",
-                "-m",
-                "egg_harness",
-                "--interactive",
-            ],
-            env=env,
-            logger=logger,
-        )
-
-    logger.info("Launching Claude Code interactive mode...")
-
-    # Print timing summary right before launching LLM
-    _startup_timer.print_summary()
-
-    # Launch via gosu, capturing stderr to log file for error reporting
-    # This allows us to include stderr context in orchestrator error signals
-    return _run_with_stderr_capture(
-        [
-            "gosu",
-            f"{config.runtime_uid}:{config.runtime_gid}",
-            "python3",
-            "-c",
-            "from llm import run_interactive; run_interactive()",
-        ],
-        env=env,
-        logger=logger,
-    )
-
-
 def run_exec(config: Config, logger: Logger, args: list[str]) -> int:
     """Run a command in exec mode.
 
@@ -2127,7 +2041,10 @@ def main() -> None:
     # Remove launcher secret from process environment before launching Claude.
     os.environ.pop("EGG_LAUNCHER_SECRET", None)
 
-    # Run appropriate mode (timing summary is printed inside each mode)
+    # Run appropriate mode (timing summary is printed inside each mode).
+    # Interactive mode was removed in #1762 (replaced by the
+    # ``run_agent_task`` MCP primitive); this container now only supports
+    # --exec / orchestrator mode.
     if len(sys.argv) == 1:
         if config.is_orchestrator_mode:
             error_msg = (
@@ -2140,7 +2057,16 @@ def main() -> None:
             logger.error("")
             signal_orchestrator_completion(config, logger, exit_code=1, error_message=error_msg)
             sys.exit(1)
-        exit_code = run_interactive(config, logger)
+        error_msg = (
+            "No command provided; this container only supports --exec or "
+            "orchestrator mode. Interactive mode was removed in #1762 — "
+            "use the ``run_agent_task`` MCP tool from a host (Claude Code "
+            "or any MCP client) to run individual SDLC roles."
+        )
+        logger.error("")
+        logger.error(f"ERROR: {error_msg}")
+        logger.error("")
+        sys.exit(2)
     else:
         exit_code = run_exec(config, logger, sys.argv[1:])
 

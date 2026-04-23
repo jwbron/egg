@@ -194,25 +194,33 @@ The orchestrator exposes an MCP server (port 9850) for controlling pipelines fro
 # Clone and install
 git clone https://github.com/jwbron/egg.git
 cd egg
-pip install -e ./sandbox
 
-# Run egg (auto-setup prompts on first run)
-egg
+# Bring up the gateway + orchestrator on k3s
+bin/egg-deploy init      # Generate launcher-secret
+bin/egg-deploy up        # kubectl apply + wait for readiness
 ```
 
-`egg` starts the gateway and sandbox automatically. First run prompts for repository and credential configuration via `egg --setup`. Default is public mode (full internet); use `egg --private` for network-locked mode.
+Interactive mode (`bin/egg`, `egg --setup`, `egg --public/--private`,
+Docker Compose) was removed in [#1762](https://github.com/jwbron/egg/issues/1762).
+Drive one-off agent work through the MCP server from any
+MCP-compatible host (Claude Code, etc.):
 
-```bash
-# From inside an egg session, launch a full SDLC pipeline
-/sdlc 123                        # From a GitHub issue number
-/sdlc Add auth middleware         # From a description
-/sdlc --short Fix flaky test      # Lightweight coder+reviewer mode
-/sdlc                             # Interactive — browse issues or describe a task
+```
+submit_task(issue_number=123, repo="owner/name")
+babysit_pr(pr_number=42, repo="owner/name")
+run_agent_task(phase="refine", roles=["refiner"], repo="owner/name",
+               description="Investigate foo")
 ```
 
-Or use the MCP server directly from any MCP-compatible client (see [MCP Server](#mcp-server)).
+See:
 
-See [Local Quickstart](docs/guides/local-quickstart.md) for detailed setup and [Deployment Guide](docs/guides/deployment.md) for Docker Compose and production options.
+- [Local Quickstart](docs/guides/local-quickstart.md) for k8s-based
+  setup.
+- [Deployment Guide](docs/guides/deployment.md) for production options.
+- [Custom-Phase Guide](docs/guides/custom-phase.md) for the
+  `run_agent_task` primitive that replaces interactive mode.
+- [Babysit-PR Guide](docs/guides/babysit-pr.md) for the PR-targeted
+  BRC cycle.
 
 ## Platform Support
 

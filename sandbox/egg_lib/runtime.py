@@ -41,10 +41,9 @@ from egg_container import (
 EGG_RUNTIME = os.environ.get("EGG_RUNTIME", "docker")
 
 # Import statusbar for quiet mode
-from statusbar import status, status_finish
+from statusbar import status_finish
 
-from .auth import get_anthropic_api_key, get_anthropic_auth_method
-from .compose import ensure_compose_services
+from .auth import get_anthropic_api_key
 from .config import (
     GATEWAY_PORT,
     get_local_repos,
@@ -52,7 +51,6 @@ from .config import (
 from .container_logging import (
     extract_task_id_from_command,
     extract_thread_ts_from_task_file,
-    generate_container_id,
     get_docker_log_config,
     save_container_logs,
 )
@@ -65,7 +63,6 @@ from .gateway import (
 )
 from .output import error, get_quiet_mode, info, warn
 from .setup_flow import add_standard_mounts
-from .timing import _host_timer
 
 # Valid repo_mode values
 VALID_REPO_MODES = ("private", "public")
@@ -631,368 +628,6 @@ def _k8s_delete_job(
         warn(f"Failed to delete job {job_name}: {e}")
 
 
-def run_claude(
-    repo_mode: str | None = None,
-) -> bool:
-    """Run Claude Code CLI in the sandboxed container (interactive mode).
-
-    Args:
-        repo_mode: Optional repository visibility mode for per-container sessions.
-                   - None: Legacy mode (all repos accessible, global env vars)
-                   - "private": Only mount private/internal repos
-                   - "public": Only mount public repos
-
-    Returns:
-        True if container ran successfully, False otherwise
-
-    Raises:
-        ValueError: If repo_mode is not None and not "private" or "public"
-    """
-    # Validate repo_mode before any other work
-    _validate_repo_mode(repo_mode)
-
-    ctx = get_context()
-    quiet = get_quiet_mode()
-
-    # Check if image exists - build non-interactively if missing
-    with _host_timer.phase("check_image"):
-        if quiet:
-            status("Checking Docker image...")
-        if not image_exists():
-            info("Docker image not found. Building...")
-            create_dockerfile()
-
-    # Check repository configuration - warn but continue if missing
-    with _host_timer.phase("check_config"):
-        if not _get_repos_config_file().exists():
-            warn("No repositories configured. Run 'egg --setup' to add repositories.")
-            warn("Continuing with no mounted repositories...")
-
-    # Get Anthropic API key (used for env var passthrough, but not required with OAuth)
-    api_key = get_anthropic_api_key()
-
-    # Build/update image (Docker uses cache for unchanged layers - usually instant)
-    with _host_timer.phase("build_image"):
-        if quiet:
-            status("Building Docker image...")
-        if not build_image():
-            error("Docker build failed")
-            return False
-
-    # Start gateway + orchestrator via Docker Compose (if not already running)
-    with _host_timer.phase("start_gateway"):
-        if quiet:
-            status("Starting services...")
-        if not ensure_compose_services():
-            error("Failed to start services (gateway + orchestrator)")
-            return False
-
-    # Generate unique container ID
-    with _host_timer.phase("prepare_container"):
-        if quiet:
-            status("Preparing container...")
-        container_id = generate_container_id()
-
-        if not quiet:
-            info("Launching sandboxed Claude Code environment...")
-            print()
-            info(f"Container ID: {container_id}")
-            print()
-
-    # Build mount configuration
-    _host_timer.start_phase("configure_mounts")
-    if quiet:
-        status("Configuring mounts...")
-    else:
-        info("Configuring repository mounts...")
-        print()
-    mount_args: list[str] = []
-
-    # Track session token for cleanup and container env
-    session_token = None
-    container_ip = None
-
-    # Get network configuration based on mode (centralized in helper to prevent divergence)
-    if _is_k8s_runtime():
-        net_config = _get_k8s_network_config(repo_mode)
-    else:
-        net_config = _get_container_network_config(repo_mode)
-
-    # Choose mount strategy based on repo_mode
-    if repo_mode:
-        # Per-container session mode: allocate IP first for session binding
-        # In k8s mode, pod IPs are assigned by the cluster -- use a placeholder
-        if _is_k8s_runtime():
-            container_ip = "0.0.0.0"  # k8s assigns pod IPs dynamically
-        else:
-            container_ip = _allocate_container_ip(network=net_config.network_name)
-            if not container_ip:
-                error("Failed to allocate container IP for session mode")
-                return False
-
-        if not quiet:
-            info(f"Session mode: {repo_mode}")
-            if not _is_k8s_runtime():
-                info(f"Pre-allocated IP: {container_ip}")
-
-        # Use session-based repo setup with visibility filtering
-        # Pass pipeline phase and checkpoint metadata from environment
-        pipeline_phase = os.environ.get("EGG_PIPELINE_PHASE")
-        issue_number_str = os.environ.get("EGG_ISSUE_NUMBER")
-        try:
-            issue_number = int(issue_number_str) if issue_number_str else None
-        except ValueError:
-            warn(f"Invalid EGG_ISSUE_NUMBER: {issue_number_str!r}, ignoring")
-            issue_number = None
-        pr_number_str = os.environ.get("EGG_PR_NUMBER")
-        try:
-            pr_number = int(pr_number_str) if pr_number_str else None
-        except ValueError:
-            warn(f"Invalid EGG_PR_NUMBER: {pr_number_str!r}, ignoring")
-            pr_number = None
-        pipeline_id = os.environ.get("EGG_PIPELINE_ID")
-        agent_role = os.environ.get("EGG_AGENT_ROLE")
-        session_token, repos, _filtered_repos = _setup_session_repos(
-            container_id=container_id,
-            container_ip=container_ip,
-            mode=repo_mode,
-            mount_args=mount_args,
-            quiet=quiet,
-            phase=pipeline_phase,
-            issue_number=issue_number,
-            pr_number=pr_number,
-            pipeline_id=pipeline_id,
-            agent_role=agent_role,
-        )
-
-        if not session_token:
-            # Session creation failed - cannot proceed without a session
-            # since git/gh wrappers require EGG_SESSION_TOKEN (PR #666)
-            error("Session creation failed. Check that:")
-            error(
-                f"  1. Gateway sidecar is running: curl http://localhost:{GATEWAY_PORT}/api/v1/health"
-            )
-            error("  2. Launcher secret exists: ~/.config/egg/launcher-secret")
-            error("  Fix: Re-run 'egg --setup' to sync secrets")
-            return False
-    else:
-        # repo_mode is required since PR #669 - all containers need sessions
-        error("repo_mode is required - cannot start container without session")
-        return False
-
-    if repos and not quiet:
-        print()
-        mode_info = f" ({repo_mode} mode)" if repo_mode else ""
-        info(f"Mounted {len(repos)} repo(s){mode_info} (all git operations via gateway)")
-        print()
-
-    # Add standard mounts (shared-certs)
-    add_standard_mounts(mount_args, quiet=quiet)
-
-    # Note: Host ~/.claude is NOT mounted - container uses gateway-injected
-    # Anthropic credentials instead of host Claude configuration
-
-    if not quiet:
-        print()
-    _host_timer.end_phase()  # configure_mounts
-
-    # Remove old container if exists (cleanup any previous runs)
-    with _host_timer.phase("cleanup_old_container"):
-        subprocess.run(
-            ["docker", "rm", "-f", container_id],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-
-    # Build docker run command
-    _host_timer.start_phase("build_docker_cmd")
-
-    # Caller-specific env vars that don't belong in the shared builder
-    caller_env: dict[str, str] = {
-        "EGG_QUIET": "1" if quiet else "0",
-        "EGG_TIMING": "1" if _host_timer.enabled else "0",
-    }
-
-    # Add Anthropic auth configuration
-    anthropic_auth_method = get_anthropic_auth_method()
-    caller_env["ANTHROPIC_AUTH_METHOD"] = anthropic_auth_method
-    if api_key:
-        caller_env["ANTHROPIC_API_KEY"] = api_key
-
-    cmd = build_sandbox_docker_cmd(
-        container_name=container_id,
-        image=ctx.sandbox_image,
-        network=net_config,
-        container_ip=container_ip,
-        session_token=session_token,
-        runtime_uid=os.getuid(),
-        runtime_gid=os.getgid(),
-        extra_env=caller_env,
-    )
-
-    # Insert lifecycle flags after "docker run"
-    cmd[LIFECYCLE_FLAGS_INDEX:LIFECYCLE_FLAGS_INDEX] = ["--rm", "-it"]
-
-    # Insert mount arguments before the image name (last element)
-    cmd[-1:-1] = mount_args
-
-    # GitHub authentication is handled by the gateway sidecar
-    # The container does NOT receive GITHUB_TOKEN - all git/gh operations
-    # route through the gateway which holds the credentials
-    if not quiet:
-        info("GitHub auth: Via gateway sidecar (credentials not in container)")
-
-    if not quiet:
-        info(f"Claude auth method: {anthropic_auth_method}")
-        if repo_mode == "private":
-            info("Network mode: PRIVATE (isolated network, proxy filtering)")
-            if container_ip:
-                print(f"  Network: {net_config.network_name} (IP: {container_ip})")
-            else:
-                print(f"  Network: {net_config.network_name} (IP assigned dynamically)")
-            print(f"  Gateway: {ctx.gateway_container_name} at {net_config.gateway_ip}")
-            print(f"  Gateway API: http://{ctx.gateway_container_name}:{ctx.gateway_port}")
-            print(f"  Proxy: http://{ctx.gateway_container_name}:{ctx.gateway_proxy_port}")
-            print("  Container can: Access Claude API, GitHub (via gateway sidecar)")
-            print("  Container cannot: Access any other websites, install packages at runtime")
-        else:
-            info("Network mode: PUBLIC (direct internet access)")
-            if container_ip:
-                print(f"  Network: {net_config.network_name} (IP: {container_ip})")
-            else:
-                print(f"  Network: {net_config.network_name} (IP assigned dynamically)")
-            print(f"  Gateway: {ctx.gateway_container_name} at {net_config.gateway_ip}")
-            print(f"  Gateway API: http://{ctx.gateway_container_name}:{ctx.gateway_port}")
-            print("  Container can: Access internet directly, GitHub (via gateway sidecar)")
-            print("  Container cannot: Access private repos")
-        if session_token:
-            print(f"  Session: Active ({repo_mode} mode)")
-        print()
-
-    # End timing for command build
-    _host_timer.end_phase()  # build_docker_cmd
-
-    # Pass host timing data to container (must be after all host phases complete)
-    host_timing_json = _host_timer.to_json()
-    if host_timing_json:
-        # Insert timing env var before the image name (last element)
-        cmd.insert(-1, "-e")
-        cmd.insert(-1, f"EGG_HOST_TIMING={host_timing_json}")
-
-    # Final status update before launching
-    if quiet:
-        status_finish("Launching Claude Code...")
-
-    # Record launch timestamp for measuring docker startup time
-    # This captures the gap between host finishing and container Python starting
-    if _host_timer.enabled:
-        launch_time = time.time()
-        cmd.insert(-1, "-e")
-        cmd.insert(-1, f"EGG_HOST_LAUNCH_TIME={launch_time}")
-
-    # Run container with retry on IP address conflicts.
-    # When multiple egg processes start concurrently, they may race to claim
-    # the same IP address, causing Docker to fail with "Address already in use".
-    max_ip_retries = 3
-    failed_ips: set[str] = set()
-    try:
-        for ip_attempt in range(max_ip_retries):
-            try:
-                result = subprocess.run(cmd, check=False, capture_output=(ip_attempt > 0))
-                if result.returncode == 0:
-                    return True
-                # Check if this is an IP conflict error
-                is_ip_conflict = False
-                if ip_attempt > 0 and result.stderr:
-                    stderr_text = result.stderr.decode("utf-8", errors="replace")
-                    if "Address already in use" in stderr_text:
-                        is_ip_conflict = True
-                    else:
-                        # Different error on retry — print stderr and give up
-                        sys.stderr.write(stderr_text)
-                        return False
-                elif result.returncode == 125 and container_ip and ip_attempt == 0:
-                    # First attempt: stderr went to terminal so we can't inspect
-                    # the error message. Exit code 125 covers all Docker daemon
-                    # errors (not just IP conflicts), so this is an imprecise
-                    # heuristic — a non-IP error will trigger one unnecessary
-                    # retry cycle before failing on the second attempt.
-                    is_ip_conflict = True
-
-                if not is_ip_conflict:
-                    return False
-                warn("Container start failed (IP address conflict), retrying...")
-            except KeyboardInterrupt:
-                print()
-                warn("Interrupted by user")
-                return False
-            except Exception as e:
-                error(f"Failed to run container: {e}")
-                return False
-
-            # Re-allocate IP and rebuild command for retry
-            if container_ip:
-                failed_ips.add(container_ip)
-            # Clean up the old session before creating a new one
-            if repos:
-                _cleanup_session(session_token, container_id)
-            # Remove failed container
-            subprocess.run(
-                ["docker", "rm", "-f", container_id],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
-            # Re-allocate a different IP
-            container_ip = _allocate_container_ip(
-                network=net_config.network_name, exclude_ips=failed_ips
-            )
-            if not container_ip:
-                error("Failed to allocate a new container IP after conflict")
-                return False
-            info(f"Retrying with new IP: {container_ip}")
-            # Re-create session with new IP
-            mount_args_retry: list[str] = []
-            session_token, repos, _filtered_repos = _setup_session_repos(
-                container_id=container_id,
-                container_ip=container_ip,
-                mode=repo_mode,
-                mount_args=mount_args_retry,
-                quiet=True,
-                phase=pipeline_phase,
-                issue_number=issue_number,
-                pr_number=pr_number,
-                pipeline_id=pipeline_id,
-                agent_role=agent_role,
-            )
-            if not session_token:
-                error("Failed to re-create session for retry")
-                return False
-            add_standard_mounts(mount_args_retry, quiet=True)
-            # Rebuild docker command with new IP and session token
-            cmd = build_sandbox_docker_cmd(
-                container_name=container_id,
-                image=ctx.sandbox_image,
-                network=net_config,
-                container_ip=container_ip,
-                session_token=session_token,
-                runtime_uid=os.getuid(),
-                runtime_gid=os.getgid(),
-                extra_env=caller_env,
-            )
-            cmd[LIFECYCLE_FLAGS_INDEX:LIFECYCLE_FLAGS_INDEX] = ["--rm", "-it"]
-            cmd[-1:-1] = mount_args_retry
-            time.sleep(0.5)  # Brief pause before retry
-
-        error("Failed to start container after IP conflict retries")
-        return False
-    finally:
-        # Clean up session and worktrees when container exits
-        if repos:
-            _cleanup_session(session_token, container_id)
-
-
 def exec_in_new_container(
     command: list[str],
     timeout_minutes: int = 30,
@@ -1053,13 +688,11 @@ def exec_in_new_container(
         error("Docker build failed")
         return False
 
-    # Start gateway + orchestrator via Docker Compose (if not already running).
-    # Skip in ephemeral mode (GHA) — gha_exec() starts the gateway directly
-    # and the orchestrator image is not available in CI.
-    if not ctx.ephemeral:
-        if not ensure_compose_services():
-            error("Failed to start services (gateway + orchestrator)")
-            return False
+    # Compose-based service bring-up was removed in #1762; operators
+    # running locally are expected to have the gateway + orchestrator
+    # already running (e.g. via ``kubectl apply -f k8s/``). GHA's
+    # ``gha_exec()`` flow continues to start the gateway container
+    # directly earlier in its own orchestration.
 
     # Generate unique container ID for this exec
     container_id = f"egg-exec-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{os.getpid()}"

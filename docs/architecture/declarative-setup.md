@@ -51,21 +51,31 @@ github_sync_interval: 5
 
 ## CLI Interface
 
+> **Removal note:** The `egg --setup` / `egg --setup --full` flags and
+> the `egg_lib.setup_flow` wizard they drove were removed in
+> [#1762](https://github.com/jwbron/egg/issues/1762) along with the
+> rest of interactive mode. The sections below are retained for
+> historical reference.
+>
+> Replace with `bin/egg-deploy init` (generates `launcher-secret`) and
+> fill in the rest of `~/.config/egg/` by hand — see the
+> [Deployment Guide](../guides/deployment.md).
+
 ```bash
-egg --setup                      # Minimal setup (prompts for essentials only)
-egg --setup --full               # Full setup including optional components
+egg --setup                      # [removed in #1762]
+egg --setup --full               # [removed in #1762]
 ```
 
 ## Minimal Setup Flow
 
-The default mode prompts for:
+The default mode prompted for:
 1. **GitHub username** (auto-detected from `gh` CLI)
 2. **Bot name** (must match your GitHub App name)
 3. **Slack tokens** (validated for xoxb-/xapp- prefixes)
 4. **GitHub App** or PAT configuration
 5. **Writable/readable repositories**
 
-All other settings use sensible defaults. Users can run `--full` later for optional components.
+All other settings use sensible defaults.
 
 ## Service Management
 
@@ -92,13 +102,19 @@ Services are categorized into **core** (enabled by default) and **LLM-based** (o
 
 ## Implementation Status
 
-Setup is integrated into `egg_lib/setup_flow.py` and invoked via `egg --setup`:
+> The `egg_lib/setup_flow.py` wizard module was removed in
+> [#1762](https://github.com/jwbron/egg/issues/1762) along with
+> `bin/egg`, `egg_lib/cli.py`, and `egg_lib/compose.py`. The
+> paragraph below describes the historical state.
+
+Setup was integrated into `egg_lib/setup_flow.py` and invoked via `egg --setup`:
 - Interactive wizard for `secrets.env` and `config.yaml` creation
-- The old `setup.sh` bash script has been removed
+- The old `setup.sh` bash script had been removed
 - Standalone `setup.py` entry point and service management flags (`--enable-services`, `--disable-services`) were deferred
 
 ## Related Documentation
 
 - [Architecture Overview](README.md) — System design
-- [egg script](../../sandbox/egg) — Current egg launcher
+- [Deployment Guide](../guides/deployment.md) — Current `bin/egg-deploy` based deployment
+- [Custom-Phase Guide](../guides/custom-phase.md) — `run_agent_task` MCP primitive (replaces the `egg` CLI entry)
 - [repo_config.py](../../config/repo_config.py) — Repository config loader
