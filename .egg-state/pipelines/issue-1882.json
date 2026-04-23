@@ -491,10 +491,65 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Treat as own-commit, enforce restrictions (fail closed)\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-19",
+      "question": "Open feedback request feedback-1",
+      "context": "Open contract feedback feedback-1, registered by an agent during the refine phase.",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [
+        {
+          "id": "Q1",
+          "question": "What attack model should drive the choice between author-email vs signed commits? Is there a documented threat where an agent forges another role's identity, or is the trust model 'the sandbox is the boundary' (so matching that for push authorship is acceptable)?",
+          "answer": ""
+        },
+        {
+          "id": "Q2",
+          "question": "Should the gateway treat pulled commits authored by utility roles (e.g. conflict_resolver, autofixer) as exempt from the pushing role's file restrictions, the same as pulled commits from other execution roles?",
+          "answer": ""
+        },
+        {
+          "id": "Q3",
+          "question": "If per-role signed commits are introduced later (future B2 option), is it acceptable that git reset --soft + git commit in the auto-filter path would drop signatures on the squashed commit?",
+          "answer": ""
+        },
+        {
+          "id": "Q4",
+          "question": "Should the post_agent_commit hook run against the original pre-filter tip commit, or against the gateway-rewritten auto-filtered commit? Their semantics and audit trail differ.",
+          "answer": ""
+        },
+        {
+          "id": "Q5",
+          "question": "Should the audit log distinguish 'auto-filtered' pushes from 'filtered due to pulled-commit exemption' pushes? They represent two different operational situations.",
+          "answer": ""
+        },
+        {
+          "id": "Q6",
+          "question": "Are there roles whose file patterns we should explicitly exclude from the auto-filter path (e.g. autofixer, conflict_resolver given their cross-cutting scope), or should auto-filter apply uniformly?",
+          "answer": ""
+        },
+        {
+          "id": "Q7",
+          "question": "What's the expected behavior when the gateway's rewrite collides with a server-side pre-push hook (e.g. branch protection rules that inspect commit message format)?",
+          "answer": ""
+        },
+        {
+          "id": "Q8",
+          "question": "Should EGG_AGENT_FILE_PATTERNS (env var consumed by cli_push) be kept in lockstep with the gateway's source of truth, or is some duplication between the sandbox env and gateway patterns acceptable?",
+          "answer": ""
+        }
+      ],
+      "status": "pending",
+      "created_at": "2026-04-23T06:46:11.043335Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:21:58.997312Z",
-  "updated_at": "2026-04-23T06:46:09.263475Z",
+  "updated_at": "2026-04-23T06:46:11.052256Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -508,5 +563,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:31:28.068349Z",
-  "version": 54
+  "version": 55
 }
