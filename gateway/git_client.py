@@ -1507,6 +1507,220 @@ def get_changed_files_in_push(
         return [], f"Error determining changed files: {e}"
 
 
+# ---------------------------------------------------------------------------
+# Per-commit attribution for the gateway auto-filter (issue #1882)
+# ---------------------------------------------------------------------------
+
+
+from dataclasses import dataclass, field  # noqa: E402 - colocated with the API it supports
+
+
+@dataclass
+class AttributedFile:
+    """One file in a push, tagged with the commit that introduced it and its author role.
+
+    ``authored_by`` is the role string the commit-authorship registry
+    returned for ``commit_sha`` (e.g. ``"coder"``), or ``None`` when the
+    commit is unregistered.  The push handler treats ``None`` as
+    fail-closed (own-authored for the pushing role's restriction check).
+    """
+
+    path: str
+    commit_sha: str
+    authored_by: str | None = None
+
+
+@dataclass
+class AttributedPushRange:
+    """Result of ``get_attributed_changed_files_in_push``.
+
+    Bundles the per-file attribution with the ordered list of commits
+    that produced the range and the full set of SHAs we handed to the
+    registry lookup.  The push handler consumes:
+
+    - ``files``:                per-file attribution
+    - ``commits``:              oldest-first SHA list (topological order)
+    - ``attribution``:          raw sha → role map returned by the registry
+    - ``error``:                non-None fail-closed message when the
+                                underlying diff detection failed.
+    """
+
+    files: list[AttributedFile] = field(default_factory=list)
+    commits: list[str] = field(default_factory=list)
+    attribution: dict[str, str | None] = field(default_factory=dict)
+    error: str | None = None
+
+
+def _enumerate_push_commits(
+    repo_path: str, remote: str, branch: str
+) -> tuple[list[str], str | None]:
+    """Return (commits_oldest_first, error).
+
+    Mirrors ``get_changed_files_in_push`` rev-list logic: prefers
+    ``<remote>/<branch>..HEAD``, then falls back to merge-base with
+    main/master for new-branch pushes.  On any error, returns
+    ``([], "...")`` — the caller then fails closed.
+    """
+    import subprocess
+
+    # Best-effort fetch so origin/<branch> is up to date.
+    try:
+        subprocess.run(
+            git_cmd("fetch", remote, branch),
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except Exception:
+        pass
+
+    def _rev_list(base: str) -> list[str] | None:
+        result = subprocess.run(
+            git_cmd("rev-list", "--reverse", f"{base}..HEAD"),
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if result.returncode != 0:
+            return None
+        return [line.strip() for line in (result.stdout or "").splitlines() if line.strip()]
+
+    primary = _rev_list(f"{remote}/{branch}")
+    if primary is not None:
+        return primary, None
+
+    for default_branch in ("main", "master"):
+        mb = subprocess.run(
+            git_cmd("merge-base", f"{remote}/{default_branch}", "HEAD"),
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if mb.returncode != 0:
+            continue
+        fork_point = (mb.stdout or "").strip()
+        if not fork_point:
+            continue
+        rl = _rev_list(fork_point)
+        if rl is not None:
+            return rl, None
+
+    return [], "Could not determine push commit range - push blocked for security"
+
+
+def _files_for_commit(repo_path: str, sha: str) -> tuple[list[str], str | None]:
+    """diff-tree one commit; returns (files, error)."""
+    import subprocess
+
+    result = subprocess.run(
+        git_cmd("diff-tree", "--no-commit-id", "--name-only", "-r", sha),
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    if result.returncode != 0:
+        return [], (
+            f"diff-tree failed for {sha}: "
+            f"rc={result.returncode} stderr={(result.stderr or '').strip()}"
+        )
+    return [
+        line.strip() for line in (result.stdout or "").splitlines() if line.strip()
+    ], None
+
+
+def get_attributed_changed_files_in_push(
+    repo_path: str,
+    remote: str,
+    branch: str,
+    session_role: str | None = None,
+    registry_client: object | None = None,
+) -> AttributedPushRange:
+    """Return attributed files + commit range for a planned push.
+
+    ``session_role`` is advisory (currently used only for audit logging
+    in the caller); the function itself does not filter on it.
+
+    The caller supplies a ``registry_client`` with a ``lookup_bulk``
+    method so the gateway's push handler can mock the client in tests
+    and avoid the network round-trip when it already knows the
+    attribution (e.g. for internal pushes).  When ``None`` we
+    lazily import the module-level client.
+
+    On any detection failure, returns an ``AttributedPushRange`` with
+    ``error`` set and ``files`` empty — the caller MUST fail closed.
+    """
+    commits, err = _enumerate_push_commits(repo_path, remote, branch)
+    if err:
+        logger.error(
+            "get_attributed_changed_files_in_push enumeration failed — failing closed",
+            repo_path=repo_path,
+            remote=remote,
+            branch=branch,
+            error=err,
+            session_role=session_role,
+        )
+        return AttributedPushRange(error=err)
+
+    files: list[AttributedFile] = []
+    for sha in commits:
+        file_list, file_err = _files_for_commit(repo_path, sha)
+        if file_err:
+            logger.error(
+                "get_attributed_changed_files_in_push diff-tree failed — failing closed",
+                repo_path=repo_path,
+                remote=remote,
+                branch=branch,
+                sha=sha,
+                error=file_err,
+                session_role=session_role,
+            )
+            return AttributedPushRange(error=file_err, commits=commits)
+        for path in file_list:
+            files.append(AttributedFile(path=path, commit_sha=sha))
+
+    # Bulk-lookup every distinct SHA in the range, then tag each file.
+    attribution: dict[str, str | None] = {}
+    if commits:
+        if registry_client is None:
+            try:
+                from commit_registry_client import get_client  # type: ignore[import-not-found]
+            except ImportError:  # pragma: no cover
+                try:
+                    from .commit_registry_client import get_client  # type: ignore[no-redef]
+                except ImportError:
+                    get_client = None  # type: ignore[assignment]
+            if get_client is not None:
+                registry_client = get_client()
+        if registry_client is not None:
+            try:
+                attribution = dict(registry_client.lookup_bulk(list(commits)))  # type: ignore[attr-defined]
+            except Exception:
+                logger.warning(
+                    "commit_authorship_lookup_exception",
+                    repo_path=repo_path,
+                    branch=branch,
+                    exc_info=True,
+                )
+                attribution = {}
+
+    for f in files:
+        f.authored_by = attribution.get(f.commit_sha)
+
+    return AttributedPushRange(
+        files=files,
+        commits=commits,
+        attribution=attribution,
+    )
+
+
 def is_branch_switch(operation: str, args: list[str]) -> bool:
     """Detect if a checkout/switch invocation changes branches.
 
