@@ -448,10 +448,10 @@
     },
     "pr": {
       "phase": "pr",
-      "status": "running",
+      "status": "complete",
       "started_at": "2026-04-23T09:15:12.023484Z",
       "work_started_at": "2026-04-23T09:15:12.838167Z",
-      "completed_at": null,
+      "completed_at": "2026-04-23T09:15:57.686658Z",
       "containers": [],
       "agents": [],
       "review_cycles": 0,
@@ -746,7 +746,7 @@
     }
   ],
   "created_at": "2026-04-23T05:22:09.201730Z",
-  "updated_at": "2026-04-23T09:15:57.653853Z",
+  "updated_at": "2026-04-23T09:15:57.687637Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -760,5 +760,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T07:27:32.480571Z",
-  "version": 92
+  "version": 93
 }
