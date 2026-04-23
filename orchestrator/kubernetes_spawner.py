@@ -662,11 +662,14 @@ class KubernetesSpawner:
                         continue
                     environment[key] = value
 
-            # Build hostPath mounts so the agent pod sees the same repos
-            # and worktrees that the orchestrator does. repo_volumes maps
-            # owner/repo → host_path (from EGG_HOST_REPO_MAP).
-            # EGG_HOST_WORKTREES_PATH is the host directory that the
-            # orchestrator's /home/egg/.egg-worktrees points at.
+            # Build hostPath mounts so the agent pod sees its worktree at
+            # /home/egg/repos/<repo>. repo_volumes maps owner/repo →
+            # host_path of the per-agent worktree (returned by the
+            # gateway's create_worktrees). The sandbox does not get a
+            # mount of the full /home/egg/.egg-worktrees tree — the
+            # worktree content it needs is already reachable at
+            # /home/egg/repos/<repo>, and exposing the sibling tree
+            # confused agents into hunting across both paths (see #1954).
             host_path_mounts: list[dict[str, Any]] = []
             for owner_repo, host_path in (repo_volumes or {}).items():
                 # Include the owner in the k8s volume name so two repos
@@ -688,16 +691,6 @@ class KubernetesSpawner:
                         "name": volume_name,
                         "host_path": host_path,
                         "container_path": f"/home/egg/repos/{owner_repo.split('/')[-1]}",
-                        "read_only": False,
-                    }
-                )
-            worktrees_host = os.environ.get("EGG_HOST_WORKTREES_PATH")
-            if worktrees_host:
-                host_path_mounts.append(
-                    {
-                        "name": "worktrees",
-                        "host_path": worktrees_host,
-                        "container_path": "/home/egg/.egg-worktrees",
                         "read_only": False,
                     }
                 )
