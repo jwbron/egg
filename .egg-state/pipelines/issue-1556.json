@@ -186,10 +186,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Option A: REST-only gateway endpoints (recommended — mirrors gh wrapper, no binary to secure)\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Jira v1 — auth flavor: Atlassian Cloud API token (email + token, Basic), OAuth 2.0 3LO, or pluggable from day one?",
+      "context": "Open contract question decision-2, registered by an agent during the refine phase.",
+      "options": [
+        "Option A: API token / Basic auth (recommended — matches existing secrets.template.env, bot identity, headless bootstrap)",
+        "Option B: OAuth 2.0 3LO (granular scopes, rotating refresh tokens, but user-attributed and consent flow)",
+        "Option C: Pluggable from day one (both strategies)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-23T23:19:05.025430Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-23T22:57:38.750100Z",
-  "updated_at": "2026-04-23T23:19:01.035093Z",
+  "updated_at": "2026-04-23T23:19:05.039096Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -203,5 +222,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 14
+  "version": 15
 }
