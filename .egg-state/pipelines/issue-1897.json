@@ -298,16 +298,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-23T00:05:41.804224Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-23T00:06:33.842479Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Yes — add explicit Don'ts: \\\"Do NOT use for-loops to wrap message poll; do NOT call sleep N to wait; rely on --wait blocking semantics\\\"\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-22T23:27:22.582974Z",
-  "updated_at": "2026-04-23T00:05:41.818812Z",
+  "updated_at": "2026-04-23T00:06:33.852130Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -320,5 +320,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 25
+  "version": 26
 }
