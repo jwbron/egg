@@ -474,6 +474,7 @@ gateway/
 ├── agent_restrictions.py   # Agent role-based file access restrictions (patterns for all 15+ roles, plus partition_files_by_role helper for the push auto-filter)
 ├── commit_observer.py      # Inline observer for /api/v1/git/execute — registers every new commit SHA with the orchestrator commit-authorship registry (#1882)
 ├── commit_registry_client.py  # Shared-secret HTTP client for the orchestrator /api/v1/commit-authorship/{register,lookup} routes
+├── filtered_push.py        # Per-commit rewriter for the push auto-filter — git commit-tree / update-ref walk, pulled-commit pass-through, own-commit blocked-path stripping (#1882)
 ├── checkpoint_handler.py   # Session checkpoint handling
 ├── transcript_buffer.py    # Transcript buffering for agent sessions
 ├── Dockerfile              # Gateway container image

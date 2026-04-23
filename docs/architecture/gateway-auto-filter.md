@@ -63,7 +63,7 @@ Both endpoints require the existing gateway↔orchestrator shared-secret header.
 2. **Partition**: files with `authored_by == push_role` **or** `authored_by is None` (fail-closed) are treated as own-authored and subject to restrictions. Files with `authored_by == <known other role>` are pulled and exempt.
 3. **Dispatch**:
    - All own-files allowed → plain push. Response adds `pulled_commits` if any commit in the range was cross-role.
-   - Mixed own-allowed + own-blocked → `_execute_filtered_push` (see below). Response includes `filtered: true`, `excluded_files`, `pushed_files`, `pushed_commits`, `pulled_commits`.
+   - Mixed own-allowed + own-blocked → `gateway/filtered_push.py::execute_filtered_push` (see below). Response includes `filtered: true`, `excluded_files`, `pushed_files`, `pushed_commits`, `pulled_commits`.
    - All own-files blocked → `200 nothing_to_push: true` with `excluded_files` and `pulled_commits`. No ref update, no remote push, worktree unchanged.
 
 Three distinct audit events are emitted: `push_auto_filtered`, `push_all_blocked_no_op`, and `push_authorship_unregistered_fallback` (the last fires whenever any commit in the range had `authored_by=None`).
@@ -72,7 +72,7 @@ Non-agent sessions (no `g.session.agent_role`) skip attribution entirely and tak
 
 ## Per-commit rewrite algorithm
 
-`_execute_filtered_push` walks the unpushed range in topological order (oldest first). For each commit:
+`gateway/filtered_push.py::execute_filtered_push` walks the unpushed range in topological order (oldest first). For each commit:
 
 - **Pulled** (`authored_by` is a known other role): re-parent onto the previous loop's `new_sha` and reuse the commit verbatim. If the parent chain is unchanged, no new SHA is created.
 - **Own** (`authored_by == push_role` or `None`): read the original tree via `git ls-tree -r <commit>`, remove blocked paths, `git write-tree` → `new_tree`. If `new_tree` equals the parent's tree (commit becomes empty after filtering), **drop the commit** and continue with the same `new_parent`. Otherwise `git commit-tree new_tree -p new_parent -m "<orig_msg> [auto-filtered]"` reusing the original author / date; record the returned SHA as `new_sha`.
