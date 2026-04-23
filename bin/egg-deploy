@@ -101,9 +101,6 @@ host_gid: $host_gid
 git_name: egg
 git_email: egg@localhost
 
-# Docker Compose project name (prefixes container/network names)
-compose_project_name: egg
-
 # Network ports
 gateway_api_port: 9848
 gateway_proxy_port: 3129
@@ -170,7 +167,7 @@ SECRETS_EOF
     echo "  1. Set your GitHub token: echo 'YOUR_TOKEN' > $config_dir/github-token && chmod 600 $config_dir/github-token"
     echo "     Or edit $secrets_file and set GITHUB_USER_TOKEN"
     echo "  2. Create repositories.yaml (see config/repositories.yaml.example)"
-    echo "  3. Run: egg-deploy up"
+    echo "  3. Deploy via Kubernetes (see docs/guides/deployment.md)"
 }
 
 # Command handlers — compose-based commands are deprecated (#1762)
