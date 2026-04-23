@@ -39,60 +39,63 @@ class TestComposeFilteredMessage:
     """
 
     def test_simple_one_line_message(self):
-        result = _compose_filtered_message("feat: add widget", " [auto-filtered]")
+        result = _compose_filtered_message("feat: add widget")
         assert result == "feat: add widget\n\nAuto-Filtered: true\n"
 
     def test_multi_paragraph_message(self):
         msg = "feat: add widget\n\nLonger explanation of why.\n"
-        result = _compose_filtered_message(msg, " [auto-filtered]")
+        result = _compose_filtered_message(msg)
         assert result == "feat: add widget\n\nLonger explanation of why.\n\nAuto-Filtered: true\n"
 
     def test_preserves_signed_off_by_trailer(self):
         """Signed-off-by stays in the last paragraph; Auto-Filtered joins it."""
         msg = "feat: foo\n\nSigned-off-by: alice <a@x>\n"
-        result = _compose_filtered_message(msg, " [auto-filtered]")
+        result = _compose_filtered_message(msg)
         # The trailer block stays as the last paragraph with Auto-Filtered
         # appended directly (single newline, no blank line).
         assert "Signed-off-by: alice <a@x>\nAuto-Filtered: true" in result
-        # The trailer is NOT glued.
-        assert "Signed-off-by: alice <a@x> [auto-filtered]" not in result
         assert "Signed-off-by: alice <a@x>" in result
 
     def test_preserves_co_authored_by_trailer(self):
         """Co-Authored-By (multi-line trailer block) survives."""
         msg = "feat: foo\n\nCo-authored-by: bob <b@x>\nCo-authored-by: carol <c@x>\n"
-        result = _compose_filtered_message(msg, " [auto-filtered]")
+        result = _compose_filtered_message(msg)
         assert "Co-authored-by: bob <b@x>" in result
         assert "Co-authored-by: carol <c@x>" in result
         # Auto-Filtered joins the trailer block (single newline).
         assert "Co-authored-by: carol <c@x>\nAuto-Filtered: true" in result
-        # NOT glued into the trailer value.
-        assert "carol <c@x> [auto-filtered]" not in result
 
     def test_message_with_trailing_whitespace(self):
         """Extra trailing newlines collapse; the composer still emits a
         proper trailer paragraph."""
         msg = "feat: foo\n\n\n\n"
-        result = _compose_filtered_message(msg, " [auto-filtered]")
+        result = _compose_filtered_message(msg)
         assert result == "feat: foo\n\nAuto-Filtered: true\n"
 
-    def test_empty_suffix_is_noop(self):
-        """If the suffix is empty the message just gets a final
+    def test_add_trailer_false_is_noop(self):
+        """When add_trailer is False the message just gets a final
         newline — the marker is not appended."""
         msg = "feat: foo"
-        result = _compose_filtered_message(msg, "")
+        result = _compose_filtered_message(msg, add_trailer=False)
         assert result == "feat: foo\n"
 
     def test_empty_message_only_emits_marker(self):
-        result = _compose_filtered_message("", " [auto-filtered]")
+        result = _compose_filtered_message("")
         assert result.endswith("Auto-Filtered: true\n")
 
-    def test_suffix_value_is_ignored_always_emits_trailer(self):
-        """Regardless of the suffix content, the output is always the
-        ``Auto-Filtered: true`` trailer."""
-        result = _compose_filtered_message("feat: foo", "    [auto-filtered]    ")
-        assert "\nAuto-Filtered: true\n" in result
-        assert "[auto-filtered]" not in result
+    def test_body_key_value_lines_treated_as_trailers(self):
+        """Document behavior: body lines matching 'Key: value' pattern
+        (e.g. 'Problem: ...', 'Reason: ...') in the last paragraph are
+        detected as trailers by ``_TRAILER_LINE_RE``.  The Auto-Filtered
+        line joins that paragraph (single newline) rather than starting
+        a new one.  The practical impact is cosmetic — the trailer still
+        lands in the message — but the behavior is worth documenting."""
+        msg = "fix: session expiry\n\nProblem: the session expired too early\nReason: migration failed\n"
+        result = _compose_filtered_message(msg)
+        # The regex treats Problem/Reason as trailer lines, so
+        # Auto-Filtered joins with a single newline (no blank line).
+        assert "Reason: migration failed\nAuto-Filtered: true\n" in result
+        assert "\n\nAuto-Filtered: true" not in result
 
 
 # ---------------------------------------------------------------------------

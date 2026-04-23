@@ -8,7 +8,7 @@ The gateway inspects every commit in the unpushed range, partitions files by aut
 
 - **All your own files are in scope.** Plain push. Nothing to do.
 - **Your files mix allowed and blocked.** The gateway rewrites the unpushed range using `git commit-tree` / `git update-ref`:
-  - Blocked files are dropped from your commits; the commit message gets an `[auto-filtered]` suffix.
+  - Blocked files are dropped from your commits; the commit message gets an `Auto-Filtered: true` git trailer.
   - Commits that become empty after filtering are dropped entirely.
   - Commits authored by other roles (pulled via merge/rebase) pass through **bitwise-unchanged**.
   - After the push, your local `HEAD` is fast-forwarded to match origin, and the blocked files are **re-staged as uncommitted changes** in your worktree so another role can pick them up.

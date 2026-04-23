@@ -237,7 +237,7 @@ Phase / anchor / protected-file / branch-ownership / private-mode / concurrent-m
 On a mixed push, the gateway walks the unpushed range in topological order using `git commit-tree` / `git update-ref`:
 
 - **Pulled cross-role commits** (authored by another known role, per the registry) pass through **bitwise-unchanged** — tree, author, committer, message, trailers preserved. Parents are re-targeted only if an earlier commit in the walk was rewritten.
-- **Own-role commits** with blocked paths are rewritten: blocked blobs are removed from the tree, a new tree is written, and a new commit is created with an `[auto-filtered]` suffix appended to the original message (original author and date preserved). Own-commits whose filtered tree is empty are **dropped** and their children re-parented onto the previous new SHA.
+- **Own-role commits** with blocked paths are rewritten: blocked blobs are removed from the tree, a new tree is written, and a new commit is created with an `Auto-Filtered: true` git trailer appended to the original message (original author and date preserved). Own-commits whose filtered tree is empty are **dropped** and their children re-parented onto the previous new SHA.
 - **Unregistered commits** (no authorship entry for the SHA) are treated as own-authored per the fail-closed invariant — the registry cannot be suppressed to bypass restrictions.
 
 After a successful filtered push, the local `HEAD` is fast-forwarded to match `origin/<branch>` via `git read-tree --reset -u`, and the blocked files are **re-staged as uncommitted changes** so a peer role can pick them up without re-authoring from scratch.

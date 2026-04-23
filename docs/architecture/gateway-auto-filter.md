@@ -14,7 +14,7 @@ Role-based file restrictions ([#1494](https://github.com/jwbron/egg/issues/1494)
 After #1882:
 
 - The gateway auto-filters disallowed files on push. Agents no longer see `403` for agent-role file violations.
-- Pulled cross-role commits pass through **bitwise-unchanged** — tree, author, committer, message, trailers preserved — while own-authored commits with blocked paths are individually rewritten with `[auto-filtered]` appended to the message.
+- Pulled cross-role commits pass through **bitwise-unchanged** — tree, author, committer, message, trailers preserved — while own-authored commits with blocked paths are individually rewritten with an `Auto-Filtered: true` git trailer appended to the message.
 - Push responses gain `pushed_commits` (SHAs actually pushed) and `pulled_commits: [{sha, author_role}, ...]` (cross-role commits observed). Filtered / short-circuit paths add `filtered`, `excluded_files`, `pushed_files`, and `nothing_to_push` as appropriate.
 - `sandbox/egg_lib/cli_push.py --scope-filter`, its `_filter_files` helper, and the `EGG_AGENT_FILE_PATTERNS` env-var injection were deleted in the same PR.
 - Phase / anchor / protected-file / branch-ownership / private-mode / concurrent-mode checks keep their `403` behavior — the auto-filter is scoped narrowly to agent-role file restrictions.
@@ -79,7 +79,7 @@ Non-agent sessions (no `g.session.agent_role`) skip attribution entirely and tak
 `gateway/filtered_push.py::execute_filtered_push` walks the unpushed range in topological order (oldest first). For each commit:
 
 - **Pulled** (`authored_by` is a known other role): re-parent onto the previous loop's `new_sha` and reuse the commit verbatim. If the parent chain is unchanged, no new SHA is created.
-- **Own** (`authored_by == push_role` or `None`): read the original tree via `git ls-tree -r <commit>`, remove blocked paths, `git write-tree` → `new_tree`. If `new_tree` equals the parent's tree (commit becomes empty after filtering), **drop the commit** and continue with the same `new_parent`. Otherwise `git commit-tree new_tree -p new_parent -m "<orig_msg> [auto-filtered]"` reusing the original author / date; record the returned SHA as `new_sha`.
+- **Own** (`authored_by == push_role` or `None`): read the original tree via `git ls-tree -r <commit>`, remove blocked paths, `git write-tree` → `new_tree`. If `new_tree` equals the parent's tree (commit becomes empty after filtering), **drop the commit** and continue with the same `new_parent`. Otherwise `git commit-tree new_tree -p new_parent` with the original message plus an `Auto-Filtered: true` git trailer, reusing the original author / date; record the returned SHA as `new_sha`.
 
 After the walk:
 

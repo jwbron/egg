@@ -253,7 +253,7 @@ def _translate_parents(
 _TRAILER_LINE_RE = __import__("re").compile(r"^[A-Za-z][A-Za-z0-9_-]*\s*:\s")
 
 
-def _compose_filtered_message(orig_message: str, suffix: str) -> str:
+def _compose_filtered_message(orig_message: str, add_trailer: bool = True) -> str:
     """Append an auto-filter marker without mangling git trailers.
 
     Git trailers (Signed-off-by, Co-Authored-By, DCO, etc.) are parsed
@@ -267,7 +267,7 @@ def _compose_filtered_message(orig_message: str, suffix: str) -> str:
     joins that block.  Otherwise it starts a new trailer paragraph.
     """
     stripped = (orig_message or "").rstrip("\n")
-    if not (suffix or "").strip():
+    if not add_trailer:
         return stripped + "\n"
 
     trailer = "Auto-Filtered: true"
@@ -298,7 +298,7 @@ def execute_filtered_push(
     registry_register: Callable[..., Any],
     pipeline_id: str | None = None,
     repo: str | None = None,
-    auto_filter_suffix: str = " [auto-filtered]",
+    auto_filter_suffix: bool = True,
 ) -> FilteredPushResult:
     """Rewrite and push the commit range.
 
@@ -525,7 +525,7 @@ def execute_filtered_push(
             continue
         # Build new commit with trailer-safe suffix and preserved
         # merge parents.
-        new_message = _compose_filtered_message(meta["message"], auto_filter_suffix)
+        new_message = _compose_filtered_message(meta["message"], add_trailer=auto_filter_suffix)
         parents_orig = meta.get("parents", "")
         orig_parent_list = [p for p in parents_orig.split() if p]
         translated_parents = _translate_parents(orig_parent_list, parent_lookup, new_parent or None)
@@ -651,7 +651,7 @@ def _rollback(exec_path: str, original_head: str, branch: str) -> None:
     try:
         _git(exec_path, "update-ref", f"refs/heads/{branch}", original_head)
     except Exception:  # pragma: no cover
-        logger.warning(
+        logger.error(
             "filtered_push_rollback_update_ref_failed",
             branch=branch,
             exc_info=True,

@@ -496,3 +496,7 @@ def test_scenario_9_attribution_lookup_exception_fails_closed(client):
         body = _body(response)
         assert body["nothing_to_push"] is True
         assert body["excluded_files"] == files
+        assert body["filtered"] is True
+        assert body["pushed_files"] == []
+        assert body["pushed_commits"] == []
+        assert "pulled_commits" in body
