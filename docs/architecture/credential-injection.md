@@ -71,7 +71,7 @@ The gateway's `proxy_anthropic_messages()` handles this in two complementary way
 
 **Why not full stream resumption?** Anthropic's API exposes no resume tokens, and the partial generation on the wire is orphaned once the upstream socket dies. Mid-stream retry would risk double-charging and interleaving two divergent generations on the downstream wire. Pre-stream retry is safe because by definition no downstream bytes have been committed yet.
 
-**Bounded retry.** The pre-stream retry is capped at one attempt and is gated on `bytes_seen == 0`. Second-failure cases fall through to the pre-existing `except httpx.ConnectError / TimeoutException / Exception` handlers, preserving their 502/504 error contracts.
+**Bounded retry.** The pre-stream retry is capped at one attempt and is gated on the first chunk not yet having been yielded downstream (enforced structurally by `_send_and_prime()`, which raises before `generate()` begins). Second-failure cases fall through to the pre-existing `except httpx.ConnectError / TimeoutException / Exception` handlers, preserving their 502/504 error contracts.
 
 **Scope.** This fix lives entirely inside the gateway. It is distinct from [#1883](https://github.com/jwbron/egg/issues/1883) (gateway pod restart — gateway *process* is gone) and [#1873](https://github.com/jwbron/egg/issues/1873) (turn-1 transient retry in `consensus-wrapper`). Those handle cases where the gateway itself cannot re-issue the upstream request; this handles the far more common case where the gateway is healthy and only a single upstream connection died.
 

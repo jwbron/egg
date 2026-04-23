@@ -5282,9 +5282,12 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
                     except StopIteration:
                         first = None
                     return upstream_resp, iterator, first
-                except (httpx.ReadError, httpx.RemoteProtocolError):
+                except BaseException:
                     # Close the failed upstream so the caller's retry can
                     # open a fresh connection without leaking the old one.
+                    # Broad catch ensures cleanup on *any* exception from
+                    # iter_bytes() / next(), not just the two transport
+                    # errors we expect.
                     try:
                         upstream_resp.close()
                     except Exception:
@@ -5345,7 +5348,6 @@ def proxy_anthropic_messages() -> tuple[Response, int] | Response:
                         )
 
             def generate() -> Any:
-                nonlocal bytes_seen
                 try:
                     try:
                         if first_chunk is not None:
