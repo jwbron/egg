@@ -218,8 +218,11 @@ async def run_agent_async(
     # its namespace is what produces the decision-7 visible names
     # ``mcp__sdlc__register_open_question`` etc.  A single aggregate
     # server would double-prefix (``mcp__egg__mcp__sdlc__...``).
+    # Accept the documented truthy values only — "true"/"1"/"yes".
+    # A narrower set keeps the docs/config surface aligned across
+    # operators and avoids surprises for future maintainers.
     _mcp_flag_raw = os.environ.get("EGG_MCP_TOOLS", "")
-    if _mcp_flag_raw.strip().lower() in ("true", "1", "yes", "on"):
+    if _mcp_flag_raw.strip().lower() in ("true", "1", "yes"):
         try:
             from egg_agent_tools import (  # noqa: PLC0415
                 SYSTEM_PROMPT_NUDGE,

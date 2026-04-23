@@ -86,6 +86,8 @@ def task_complete(req: dict[str, Any]) -> dict[str, Any]:
     identifier = _resolve_identifier(req)
 
     status_path = f"phases.{phase_idx}.tasks.{task_idx}.status"
+    # On failure here, gateway_request raises GatewayError; the CLI
+    # shim prepends "Error setting status: " for legacy parity.
     result = gateway_request(
         "/api/v1/contract/mutate",
         method="POST",

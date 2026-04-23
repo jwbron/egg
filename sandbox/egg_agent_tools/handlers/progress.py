@@ -29,42 +29,56 @@ def _require_role(req: dict[str, Any]) -> str:
 
 
 def progress_emit(req: dict[str, Any]) -> dict[str, Any]:
-    """Signal a progress update for the current agent.
+    """Emit a structured progress event (orch_cli cmd_progress_emit).
 
     Request:
-        percent (int): 0-100. Required.
-        task (str): optional current task ID.
-        message (str): optional free-form message.
+        step (str): required — name of the current step.
+        state (str): required — ``working``/``blocked``/``complete``
+            (handler does not enforce the enum; orchestrator does).
+        detail (str): optional free-form detail.
+        blocker (str): optional blocker identifier.
         pipeline_id, role: overrides.
+
+    Note: this wraps the structured-event endpoint
+    (``POST /api/v1/pipelines/<pid>/progress``), not the legacy
+    signal-progress endpoint.  The tool name ``mcp__progress__emit``
+    matches the structured-event semantic.  For the percent-based
+    progress signal, use a direct CLI call to
+    ``egg-orch signal progress``.
     """
     pid = _require_pipeline_id(req)
     role = _require_role(req)
-    percent = req.get("percent")
-    if percent is None:
-        raise HandlerError("'percent' is required (0-100)")
-    try:
-        percent_int = int(percent)
-    except (TypeError, ValueError) as exc:
-        raise HandlerError("'percent' must be an integer") from exc
-    if not 0 <= percent_int <= 100:
-        raise HandlerError("'percent' must be between 0 and 100")
+    step = req.get("step")
+    state = req.get("state")
+    if not step or not isinstance(step, str):
+        raise HandlerError("'step' is required")
+    if not state or not isinstance(state, str):
+        raise HandlerError("'state' is required")
 
     data: dict[str, Any] = {
-        "signal_type": "progress",
         "agent_role": role,
-        "progress_percent": percent_int,
+        "step": step,
+        "state": state,
     }
-    if req.get("task"):
-        data["current_task"] = req["task"]
-    if req.get("message"):
-        data["message"] = req["message"]
+    if req.get("detail"):
+        data["detail"] = req["detail"]
+    if req.get("blocker"):
+        data["blocker"] = req["blocker"]
 
     result = orchestrator_request(
-        f"/api/v1/pipelines/{pid}/signal", method="POST", data=data
+        f"/api/v1/pipelines/{pid}/progress", method="POST", data=data
     )
     if not result.get("success"):
-        raise GatewayError(result.get("message", "progress signal failed"))
-    return {"ok": True, "role": role, "percent": percent_int, "signal": result}
+        raise GatewayError(result.get("message", "progress emit failed"))
+    event = result.get("data", {}).get("event", {})
+    return {
+        "ok": True,
+        "role": role,
+        "step": step,
+        "state": state,
+        "event_id": event.get("id"),
+        "signal": result,
+    }
 
 
 def progress_signal_error(req: dict[str, Any]) -> dict[str, Any]:

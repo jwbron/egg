@@ -542,37 +542,35 @@ def cmd_signal_complete(args: argparse.Namespace) -> int:
 
 
 def cmd_signal_progress(args: argparse.Namespace) -> int:
-    """Signal progress update.
+    """Signal percent-based progress update (legacy /signal endpoint).
 
-    Delegates to :func:`egg_agent_tools.handlers.progress.progress_emit`
-    so the MCP ``mcp__progress__emit`` tool and the CLI share one
-    handler.  Stdout / exit-code parity preserved.
+    This is a separate code path from ``mcp__progress__emit``, which
+    hits the structured-event endpoint (``/progress``, step/state).
+    Kept inline for CLI parity; no MCP tool ever exposed this verb.
     """
-    from egg_agent_tools.handlers import progress as _handlers
-    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
-
     pid = require_pipeline_id(args)
     role = _require_role(args)
-    req: dict[str, Any] = {
-        "pipeline_id": pid,
-        "role": role,
-        "percent": args.percent,
+    data: dict[str, Any] = {
+        "signal_type": "progress",
+        "agent_role": role,
+        "progress_percent": args.percent,
     }
     if args.task:
-        req["task"] = args.task
+        data["current_task"] = args.task
     if args.message:
-        req["message"] = args.message
+        data["message"] = args.message
 
-    try:
-        resp = _handlers.progress_emit(req)
-    except (GatewayError, HandlerError) as err:
-        return _render_handler_error(err)
+    result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
 
     if args.json:
-        print_json(resp.get("signal", {}))
+        print_json(result)
         return 0
-    print(f"Progress: {args.percent}%")
-    return 0
+
+    if result.get("success"):
+        print(f"Progress: {args.percent}%")
+        return 0
+    print(f"Error: {result.get('message')}", file=sys.stderr)
+    return 1
 
 
 def cmd_signal_error(args: argparse.Namespace) -> int:
@@ -1352,28 +1350,23 @@ def cmd_consensus_propose(args: argparse.Namespace) -> int:
 
     req: dict[str, Any]
     if getattr(args, "file", None):
-        # File-based payload: the handler expects structured fields. We
-        # pass the parsed dict through as kwargs so users who pre-build a
-        # payload file (for reproducible re-proposes) keep working.
+        # File-based payload: forward the parsed dict VERBATIM to the
+        # handler via the ``raw_payload`` key so unknown/custom schema
+        # fields are not silently dropped.  The handler still layers
+        # our structured request on top for required defaults
+        # (pipeline_id / role / commit_sha fallback).
         with open(args.file) as f:
             file_payload: dict[str, Any] = json.load(f)
-        # Resolve commit SHA fallback so the handler can skip subprocess.
-        commit_sha = file_payload.get("commit_sha") or getattr(
-            args, "commit_sha", None
-        )
         req = {
             "pipeline_id": pid,
             "role": role,
-            "summary": file_payload.get("summary", ""),
-            "attestation": file_payload.get("attestation") or {},
-            "artifacts": file_payload.get("artifacts") or [],
-            "risk_considered": file_payload.get("risk_considered")
-            or file_payload.get("risk", ""),
-            "files_changed": file_payload.get("files_changed") or [],
-            "tests_run": file_payload.get("tests_run") or [],
-            "tasks": file_payload.get("tasks_satisfied")
-            or file_payload.get("tasks", []),
+            "raw_payload": file_payload,
         }
+        # Resolve commit SHA fallback even for --file so the handler
+        # can default to HEAD when the payload omits it.
+        commit_sha = file_payload.get("commit_sha") or getattr(
+            args, "commit_sha", None
+        )
         if commit_sha:
             req["commit_sha"] = commit_sha
     else:
@@ -1603,35 +1596,44 @@ def cmd_env(args: argparse.Namespace) -> int:
 
 
 def cmd_progress_emit(args: argparse.Namespace) -> int:
-    """Emit a structured progress event."""
+    """Emit a structured progress event.
+
+    Delegates to :func:`egg_agent_tools.handlers.progress.progress_emit`
+    so the MCP ``mcp__progress__emit`` tool and the CLI share one
+    handler.  Stdout / exit-code parity preserved.
+    """
+    from egg_agent_tools.handlers import progress as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
     pid = require_pipeline_id(args)
     role = args.role or get_agent_role_from_env()
     if not role:
         print("Error: --role required or set EGG_AGENT_ROLE", file=sys.stderr)
         sys.exit(1)
 
-    data: dict[str, Any] = {
-        "agent_role": role,
+    req: dict[str, Any] = {
+        "pipeline_id": pid,
+        "role": role,
         "step": args.step,
         "state": args.state,
     }
     if args.detail:
-        data["detail"] = args.detail
+        req["detail"] = args.detail
     if args.blocker:
-        data["blocker"] = args.blocker
+        req["blocker"] = args.blocker
 
-    result = orch_request(f"/api/v1/pipelines/{pid}/progress", method="POST", data=data)
+    try:
+        resp = _handlers.progress_emit(req)
+    except (GatewayError, HandlerError) as err:
+        return _render_handler_error(err)
 
     if args.json:
-        print_json(result)
+        print_json(resp.get("signal", {}))
         return 0
 
-    if result.get("success"):
-        event = result.get("data", {}).get("event", {})
-        print(f"Progress emitted: {event.get('id', 'unknown')} [{args.state}] {args.step}")
-        return 0
-    print(f"Error: {result.get('message')}", file=sys.stderr)
-    return 1
+    event_id = resp.get("event_id") or "unknown"
+    print(f"Progress emitted: {event_id} [{args.state}] {args.step}")
+    return 0
 
 
 def cmd_progress_query(args: argparse.Namespace) -> int:

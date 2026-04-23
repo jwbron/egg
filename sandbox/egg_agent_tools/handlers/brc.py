@@ -39,6 +39,11 @@ def _resolve_head_sha() -> str:
             ["git", "rev-parse", "HEAD"],
             text=True,
             cwd=cwd,
+            # stdin=DEVNULL defensively avoids the subprocess inheriting
+            # a non-tty parent's stdio and blocking on an interactive
+            # prompt.  Covers the edge case where the handler runs
+            # inside a cron / systemd-style parent.
+            stdin=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         ).strip()
     except (subprocess.CalledProcessError, FileNotFoundError) as exc:
@@ -51,7 +56,8 @@ def brc_propose(req: dict[str, Any]) -> dict[str, Any]:
     """Send a CONSENSUS_PROPOSE signal.
 
     Request (all optional unless noted):
-        summary (str): proposal summary (required; ≥50 chars recommended).
+        summary (str): proposal summary (required; ≥50 chars recommended)
+            unless ``raw_payload`` already carries it.
         artifacts (list[str]): artifact references.
         risk_considered (str): risk summary.
         commit_sha (str): commit SHA; defaults to ``git rev-parse HEAD``.
@@ -60,6 +66,9 @@ def brc_propose(req: dict[str, Any]) -> dict[str, Any]:
         tasks (list[str]): tasks_satisfied
         attestation (dict): attestation payload.
         changed_artifacts (list[str]): optional re-proposal delta.
+        raw_payload (dict): pre-built payload dict — every key is
+            forwarded verbatim to the orchestrator.  Structured
+            ``req`` keys take precedence when both are supplied.
         pipeline_id, role: contract/role overrides.
 
     Response:
@@ -68,22 +77,57 @@ def brc_propose(req: dict[str, Any]) -> dict[str, Any]:
     pid = _require_pipeline_id(req)
     role = _require_role(req)
 
-    summary = req.get("summary")
+    raw_payload = req.get("raw_payload")
+    if raw_payload and not isinstance(raw_payload, dict):
+        raise HandlerError("'raw_payload' must be a dict if provided")
+
+    summary = req.get("summary") or (
+        raw_payload.get("summary") if raw_payload else None
+    )
     if not summary or not isinstance(summary, str):
         raise HandlerError("'summary' is required")
 
-    commit_sha = req.get("commit_sha") or _resolve_head_sha()
+    commit_sha = (
+        req.get("commit_sha")
+        or (raw_payload.get("commit_sha") if raw_payload else None)
+        or _resolve_head_sha()
+    )
 
-    payload: dict[str, Any] = {
-        "summary": summary,
-        "attestation": req.get("attestation") or {},
-        "artifacts": list(req.get("artifacts") or []),
-        "risk_considered": req.get("risk_considered") or req.get("risk") or "",
-        "commit_sha": commit_sha,
-        "files_changed": list(req.get("files_changed") or []),
-        "tests_run": list(req.get("tests_run") or []),
-        "tasks_satisfied": list(req.get("tasks") or req.get("tasks_satisfied") or []),
-    }
+    # Start from raw_payload (if any) so unknown/custom schema fields
+    # are preserved verbatim; structured kwargs layer on top.
+    payload: dict[str, Any] = dict(raw_payload) if raw_payload else {}
+    payload.update(
+        {
+            "summary": summary,
+            "attestation": req.get("attestation")
+            or payload.get("attestation")
+            or {},
+            "artifacts": list(
+                req.get("artifacts") or payload.get("artifacts") or []
+            ),
+            "risk_considered": (
+                req.get("risk_considered")
+                or req.get("risk")
+                or payload.get("risk_considered")
+                or payload.get("risk")
+                or ""
+            ),
+            "commit_sha": commit_sha,
+            "files_changed": list(
+                req.get("files_changed") or payload.get("files_changed") or []
+            ),
+            "tests_run": list(
+                req.get("tests_run") or payload.get("tests_run") or []
+            ),
+            "tasks_satisfied": list(
+                req.get("tasks")
+                or req.get("tasks_satisfied")
+                or payload.get("tasks_satisfied")
+                or payload.get("tasks")
+                or []
+            ),
+        }
+    )
     data: dict[str, Any] = {
         "signal_type": "consensus_propose",
         "agent_role": role,

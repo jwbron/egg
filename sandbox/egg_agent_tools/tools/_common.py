@@ -16,10 +16,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from collections.abc import Callable
 from typing import Any
 
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
+_logger = logging.getLogger("egg_agent_tools.tool")
 
 
 def _format_error(exc: BaseException) -> str:
@@ -74,5 +77,13 @@ async def invoke_handler(
     except HandlerError as exc:
         return _error_payload(exc)
     except Exception as exc:  # pragma: no cover - defensive
+        # Log full traceback so operators can diagnose unknown faults
+        # from checkpoint logs; the structured tool-result only carries
+        # the message.
+        _logger.exception(
+            "Unhandled handler exception in %s: %s",
+            getattr(handler, "__name__", "<unknown>"),
+            exc,
+        )
         return _error_payload(exc)
     return _success_payload(response)

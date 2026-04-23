@@ -541,8 +541,15 @@ def cmd_complete_task(args: argparse.Namespace) -> int:
     so the MCP ``mcp__task__complete`` tool and the shell CLI share a
     single handler.  Stdout text and exit code are byte-identical to
     the pre-refactor CLI behaviour.
+
+    The handler raises :class:`GatewayError` with a message prefixed
+    ``"Task marked complete but failed to link commit: "`` on
+    commit-link failure; we catch that and render the legacy stderr
+    *without* the generic ``"Error:"`` prefix.  Status-mutation
+    failures render as ``"Error setting status: <msg>"``.
     """
     from egg_agent_tools.handlers import task as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError
 
     identifier = get_contract_identifier(args)
     if identifier is None:
@@ -564,7 +571,17 @@ def cmd_complete_task(args: argparse.Namespace) -> int:
     if args.commit:
         req["commit"] = args.commit
 
-    resp = _handlers.task_complete(req)
+    try:
+        resp = _handlers.task_complete(req)
+    except GatewayError as err:
+        msg = err.message or str(err)
+        if msg.startswith("Task marked complete but failed to link commit: "):
+            # Preserve the original no-"Error:"-prefix "Warning:" wording
+            print(f"Warning: {msg}", file=sys.stderr)
+        else:
+            print(f"Error setting status: {msg}", file=sys.stderr)
+        return err.exit_code
+
     commit = resp.get("commit")
     if commit:
         print(f"Completed {args.task} (commit {commit[:7]})")

@@ -31,18 +31,26 @@ NAMESPACE = "progress"
 _PROGRESS_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "percent": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 100,
-            "description": "Completion percent (0-100)",
+        "step": {
+            "type": "string",
+            "description": "Name of the current step (e.g. 'refactor handlers')",
         },
-        "task": {"type": "string", "description": "Optional current task ID"},
-        "message": {"type": "string", "description": "Optional free-form message"},
+        "state": {
+            "type": "string",
+            "enum": ["working", "blocked", "complete"],
+            "description": (
+                "Progress state — one of working/blocked/complete"
+            ),
+        },
+        "detail": {"type": "string", "description": "Optional free-form detail"},
+        "blocker": {
+            "type": "string",
+            "description": "Optional blocker identifier when state=='blocked'",
+        },
         "pipeline_id": {"type": "string"},
         "role": {"type": "string"},
     },
-    "required": ["percent"],
+    "required": ["step", "state"],
 }
 
 _ERROR_SCHEMA: dict[str, Any] = {
@@ -71,8 +79,9 @@ _HEARTBEAT_SCHEMA: dict[str, Any] = {
 
 @tool(
     "emit",
-    "Signal a structured progress update to the orchestrator. Prefer this over "
-    "'egg-orch signal progress'.",
+    "Emit a structured progress event to the orchestrator's progress "
+    "bus (step/state/detail/blocker). Prefer this over "
+    "'egg-orch progress emit'.",
     _PROGRESS_SCHEMA,
 )
 async def progress_emit(args: dict[str, Any]) -> dict[str, Any]:
@@ -105,7 +114,7 @@ REGISTRATIONS: list[ToolRegistration] = [
         namespace=NAMESPACE,
         handler=handlers.progress_emit,
         sdk_tool=progress_emit,
-        cli_command=("egg-orch", "signal", "progress"),
+        cli_command=("egg-orch", "progress", "emit"),
     ),
     ToolRegistration(
         name="mcp__progress__signal_error",
