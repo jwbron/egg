@@ -285,10 +285,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Yes — add explicit don'ts: 'Do NOT use ; do NOT call  to wait; rely on --wait blocking semantics'\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-8",
+      "question": "Should agent prompt changes regress-protect with explicit anti-pattern bans?",
+      "context": "Open contract question decision-7, registered by an agent during the refine phase.",
+      "options": [
+        "Yes — add explicit Don'ts: \"Do NOT use for-loops to wrap message poll; do NOT call sleep N to wait; rely on --wait blocking semantics\"",
+        "No — positive guidance only (\"use a single while loop with --wait 30\")",
+        "Yes plus a sandbox-side guard: gateway rejects bash commands containing \"sleep [0-9]+ &&\" followed by orch CLI",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-23T00:05:41.804224Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-22T23:27:22.582974Z",
-  "updated_at": "2026-04-23T00:05:40.847579Z",
+  "updated_at": "2026-04-23T00:05:41.818812Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -301,5 +320,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 24
+  "version": 25
 }
