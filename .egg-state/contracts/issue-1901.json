@@ -21,8 +21,8 @@
         {
           "id": "task-1-1",
           "description": "Rewrite CODER_PATTERNS in shared/egg_restrictions/patterns.py\nas follows: allowed_patterns=[\"**\"]; blocked_patterns covers\n.egg-state/, docs/, **/*.md, **/README.md, tests/, test/,\n**/tests/, **/test/, the test-file-name patterns\n(**/*_test.py, **/test_*.py, **/*_test.go, **/test_*.go,\n**/*.test.{ts,tsx,js,jsx}, **/*.spec.{ts,tsx,js,jsx}),\n**/conftest.py; block_exempt_patterns covers\n.egg-state/agent-outputs/, sandbox/agent-config/rules/*.md,\nsandbox/agent-config/commands/*.md, skills/. Update the\ndescription string to \"Coder: everything except tester's\ntest scope, documenter's docs/markdown scope, and the\npipeline-state .egg-state/ directory (agent-outputs/\ncarved back)\".\n",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "e4672c29ff430586564fab59943ab07d555f1611",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "Diff shows CODER_PATTERNS.allowed_patterns=[\"**\"] and the\nnew blocklist/exempt lists. `python -c \"from\nshared.egg_restrictions.patterns import CODER_PATTERNS;\nprint(CODER_PATTERNS.can_write('bin/egg'),\nCODER_PATTERNS.can_write('docs/x.md'),\nCODER_PATTERNS.can_write('tests/test_x.py'),\nCODER_PATTERNS.can_write('.egg-state/agent-outputs/x.json'),\nCODER_PATTERNS.can_write('.egg-state/drafts/1901-plan.md'))\"`\nprints `True False False True False`.\n",
@@ -37,8 +37,8 @@
         {
           "id": "task-1-2",
           "description": "Add a comment immediately above CODER_PATTERNS in\nshared/egg_restrictions/patterns.py:\n`# TODO(#1903): keep blocked_patterns in sync with\nshared/egg_container/__init__.py::_IMPLEMENT_READONLY_DIRS\nand .egg/phase-permissions.json until #1903 unifies these\nsurfaces.`\n",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "90cf6e0f075a2e48467e82a2fbd6ac99cc0fc3f2",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "`rg -n \"TODO\\\\(#1903\\\\)\" shared/egg_restrictions/patterns.py`\nfinds exactly one occurrence on the line immediately\npreceding `CODER_PATTERNS = AgentFilePattern(`.\n",
@@ -67,8 +67,8 @@
         {
           "id": "task-2-1",
           "description": "In shared/egg_restrictions/patterns.py, fix\nAgentFilePattern._matches_pattern: when a pattern ends\nwith '/' under the ** branch, treat it as a directory\nprefix and match any file whose path contains that\ndirectory segment (for `**/<dir>/`) or starts with it\n(for bare `<dir>/`). File-name patterns (**/*.py,\n**/*.test.ts, \u2026) must keep current behavior.\nPreserve the _normalize_path path-traversal guard.\n",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "90cf6e0f075a2e48467e82a2fbd6ac99cc0fc3f2",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "`AgentFilePattern._matches_pattern(\"gateway/tests/__init__.py\", \"**/tests/\")`\nreturns True;\n`AgentFilePattern._matches_pattern(\"src/foo.py\", \"**/tests/\")`\nreturns False;\n`AgentFilePattern._matches_pattern(\"pkg/bar.py\", \"**/*.py\")`\nreturns True (regression).\n(Note: path-traversal rejection lives in `_normalize_path`\nwhich is called by `can_write`, NOT by `_matches_pattern`.\nThe `can_write(\"../../etc/passwd\")` regression moves to\nTASK-5-1 / TASK-5-2.)\n",
@@ -97,8 +97,8 @@
         {
           "id": "task-3-1",
           "description": "In .egg/phase-permissions.json, replace the single\n`implementer` entry in the top-level `file_restrictions`\narray with three entries:\n(a) role=coder, blocked_patterns=[\n    \".egg-state/contracts/\", \"docs/\", \"**/*.md\",\n    \"tests/\", \"test/\", \"**/tests/\", \"**/test/\",\n    \"**/*_test.py\", \"**/test_*.py\", \"**/*_test.go\",\n    \"**/test_*.go\", \"**/*.test.ts\", \"**/*.test.tsx\",\n    \"**/*.test.js\", \"**/*.test.jsx\", \"**/*.spec.ts\",\n    \"**/*.spec.tsx\", \"**/*.spec.js\", \"**/*.spec.jsx\",\n    \"**/conftest.py\"\n  ], blocked_reason=\"Coder cannot modify tests, docs, or\n  pipeline-state contracts; see #1901.\",\n  description=\"Coder: everything except tester, documenter,\n  and .egg-state/ scopes.\";\n(b) role=tester, blocked_patterns=[\n    \"docs/\", \"**/*.md\", \".egg-state/contracts/\"\n  ], blocked_reason=\"Tester cannot modify docs or\n  pipeline-state contracts.\",\n  description=\"Tester: tests and test infrastructure only.\";\n(c) role=documenter, blocked_patterns=[\n    \"**/*.py\", \"**/*.ts\", \"**/*.tsx\", \"**/*.js\",\n    \"**/*.jsx\", \"**/*.go\", \"**/*.java\", \"**/*.rb\",\n    \"**/*.rs\", \"tests/\", \"test/\", \"**/tests/\",\n    \"**/test/\", \".egg-state/contracts/\"\n  ], blocked_reason=\"Documenter cannot modify source,\n  tests, or contracts.\",\n  description=\"Documenter: docs and markdown only.\".\nPrefix each entry's `description` string with\n`\"TODO(#1903): keep in sync with CODER_PATTERNS / TESTER_PATTERNS /\nDOCUMENTER_PATTERNS in shared/egg_restrictions/patterns.py.\"`\n(JSON does not permit comments; prefixing `description`\nis the chosen in-file marker).\n**Keep the legacy `implementer` entry unchanged**\n(blocked_patterns=[\".egg-state/contracts/\"]). Rationale:\nthe gateway's `check_file_restrictions` (phase_filter.py:591)\nmatches role names exactly, and sessions carry the\nfine-grained role (`coder`/`tester`/`documenter`) from\n`g.session.agent_role` (gateway.py:911) \u2014 NOT the coarse\n`implementer` \u2014 so the `implementer` entry is effectively\na dead-weight back-compat record. Retaining it costs\nnothing and guards any future call-site that still\npasses `\"implementer\"`. The new three entries are what\nwill actually enforce at push time.\n",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "90cf6e0f075a2e48467e82a2fbd6ac99cc0fc3f2",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "`jq '.file_restrictions | map(.role) | sort'` on\n`.egg/phase-permissions.json` prints\n`[\"coder\", \"documenter\", \"implementer\", \"tester\"]`.\nAll three new entries (coder/tester/documenter) have\nnon-empty `blocked_patterns`, a `blocked_reason`\nfield, and a `description` field prefixed with\n`TODO(#1903):`. The existing `implementer` entry is\nunchanged byte-for-byte. JSON is valid:\n`python -c \"import json; json.load(open('.egg/phase-permissions.json'))\"`\nexits 0.\n",
@@ -127,8 +127,8 @@
         {
           "id": "task-4-1",
           "description": "In shared/egg_container/__init__.py, add a comment\nimmediately above the `_IMPLEMENT_READONLY_DIRS = (...)`\ntuple (near line 131):\n`# TODO(#1903): keep in sync with CODER_PATTERNS.blocked_patterns\nin shared/egg_restrictions/patterns.py and the\nfile_restrictions section of .egg/phase-permissions.json\nuntil #1903 makes patterns.py the single source of truth.`\n",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "90cf6e0f075a2e48467e82a2fbd6ac99cc0fc3f2",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "`rg -n \"TODO\\\\(#1903\\\\)\" shared/egg_container/__init__.py`\nfinds exactly one occurrence on the line immediately\npreceding the `_IMPLEMENT_READONLY_DIRS = (...)` line.\nNo behavior change; existing tests still pass.\n",
@@ -223,7 +223,7 @@
           "id": "task-6-1",
           "description": "In `docs/reference/agent-roles.md`, rewrite the File\naccess sections of `### coder`, `### tester`, and\n`### documenter` (lines ~129\u2013175). The existing coder\nFile access bullet at line 134 enumerates the legacy\nallowlist extensions and MUST be replaced; see the\nbefore/after sketch below.\n\nBEFORE (current line 134):\n",
           "status": "pending",
-          "commit": null,
+          "commit": "e87696616abac7785d229e741f1b15b5b00161db",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "",
@@ -721,6 +721,138 @@
       },
       "reason": "Created feedback request with 4 question(s)",
       "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T03:07:17.845624Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.commit",
+      "old_value": null,
+      "new_value": "e87696616abac7785d229e741f1b15b5b00161db",
+      "reason": "Linked commit e876966 to task-6-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T03:10:33.550847Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T03:10:33.563955Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": null,
+      "new_value": "90cf6e0f075a2e48467e82a2fbd6ac99cc0fc3f2",
+      "reason": "Linked commit 90cf6e0 to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T03:10:33.747286Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T03:10:33.760949Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": null,
+      "new_value": "90cf6e0f075a2e48467e82a2fbd6ac99cc0fc3f2",
+      "reason": "Linked commit 90cf6e0 to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T03:10:34.039823Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-2-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T03:10:34.066456Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.commit",
+      "old_value": null,
+      "new_value": "90cf6e0f075a2e48467e82a2fbd6ac99cc0fc3f2",
+      "reason": "Linked commit 90cf6e0 to task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T03:10:34.247280Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-3-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T03:10:34.263978Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.commit",
+      "old_value": null,
+      "new_value": "90cf6e0f075a2e48467e82a2fbd6ac99cc0fc3f2",
+      "reason": "Linked commit 90cf6e0 to task-3-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T03:10:34.445697Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-4-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T03:10:34.458641Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.commit",
+      "old_value": null,
+      "new_value": "90cf6e0f075a2e48467e82a2fbd6ac99cc0fc3f2",
+      "reason": "Linked commit 90cf6e0 to task-4-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T03:32:19.952450Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": "90cf6e0f075a2e48467e82a2fbd6ac99cc0fc3f2",
+      "new_value": "e4672c29ff430586564fab59943ab07d555f1611",
+      "reason": "Linked commit e4672c2 to task-1-1",
+      "checkpoint_id": null
     }
   ],
   "refine_review_cycles": 0,
@@ -765,5 +897,45 @@
     "debounce_until": null
   },
   "phase_configs": null,
-  "agent_executions": []
+  "agent_executions": [
+    {
+      "role": "coder",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": null,
+      "completed_at": "2026-04-23T04:20:08.694551Z",
+      "commit": "e4672c29f",
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "tester",
+      "phase_id": null,
+      "status": "complete",
+      "started_at": null,
+      "completed_at": "2026-04-23T04:27:39.376590Z",
+      "commit": "02046b746",
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    },
+    {
+      "role": "documenter",
+      "phase_id": null,
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "commit": null,
+      "checkpoint_id": null,
+      "outputs": {},
+      "error": null,
+      "retry_count": 0,
+      "conflicts": []
+    }
+  ]
 }
