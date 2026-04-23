@@ -2,35 +2,9 @@
 
 CLI entry points. Most are symlinks to the actual implementations in `gateway/` and `sandbox/`.
 
-## egg
-
-Start and manage egg sandbox sessions.
-
-| Command | Description |
-|---------|-------------|
-| `egg` | Start interactive sandbox session (public mode, auto-setup on first run) |
-| `egg --public` | Explicit public mode (full internet access, default) |
-| `egg --private` | Private mode (Anthropic API only, network lockdown) |
-| `egg --setup` | Run interactive setup wizard |
-| `egg --reset` | Reset configuration and start over |
-| `egg --exec <cmd>` | Execute command in ephemeral container |
-| `egg --compose` | Start gateway via Docker Compose (auto-rebuilds images when code changes) |
-| `egg --compose --down` | Stop the Docker Compose stack (gateway + orchestrator) |
-
-**Common flags:**
-
-| Flag | Description |
-|------|-------------|
-| `--private` / `--public` | Network mode (private locks down to Anthropic API + private GitHub repos) |
-| `--compose` | Use Docker Compose to manage the gateway stack |
-| `--down` | Stop the Docker Compose stack (use with `--compose`) |
-| `--build` | Rebuild compose images before starting (no-op — `--compose` auto-rebuilds by default) |
-| `--exec <cmd>` | Execute command in new ephemeral container |
-| `--timeout <min>` | Timeout for `--exec` commands (default: 30) |
-| `--auth <method>` | Anthropic auth method for `--exec`: `oauth-token` (default) or `api-key` |
-| `--rebuild` | Force rebuild Docker image |
-| `--time` | Show startup timing breakdown for debugging |
-| `-v, --verbose` | Show detailed output instead of progress bar |
+> **Note:** `bin/egg` (interactive mode) was removed in [#1762](https://github.com/jwbron/egg/issues/1762).
+> Use `bin/egg-deploy` for k3s deployments and the `run_agent_task` MCP primitive for one-off agent work.
+> See the [Custom-Phase Guide](../docs/guides/custom-phase.md) for details.
 
 ## egg-sdlc
 
