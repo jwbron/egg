@@ -187,6 +187,7 @@ class MessageStore:
         wait: int = 0,
         wait_for_types: Sequence[str] | None = None,
         from_role: str | None = None,
+        from_tip: bool = False,
     ) -> list[Message]:
         """Get messages for a pipeline, optionally filtered.
 
@@ -210,17 +211,31 @@ class MessageStore:
                 ``from_role`` equals this value.  Applied inside the blocking
                 loop so a message from the wrong sender does NOT unblock the
                 wait (prevents spinning — issue #1897 reviewer_code non-blocker).
+            from_tip: If True AND ``since_id`` is not set AND ``wait > 0``, snap
+                the starting cursor to ``len(messages)`` at call entry so only
+                messages added *after* this call starts can unblock the wait.
+                Required by the ``/messages/wait`` endpoint's event-driven
+                contract (issue #1925).
 
         Returns:
             List of matching messages, oldest first. Empty list on timeout.
         """
+        # Snapshot the tip index at call entry under the lock below so
+        # from_tip semantics are race-free against concurrent add_message
+        # calls.
+        tip_index: int | None = None
+        use_tip = from_tip and not since_id and wait > 0
 
         def _filter(all_msgs: list[Message]) -> list[Message]:
             msgs = list(all_msgs)
+            # from_tip takes precedence over since_id (since_id is unset
+            # when we enter the tip branch; guard above).
+            if use_tip and tip_index is not None:
+                msgs = msgs[tip_index:]
             # Filter by since_id. If the cursor is unknown, degrade to
             # "return all" instead of returning empty, so a stale cursor
             # doesn't silently hide new messages from a polling agent.
-            if since_id:
+            elif since_id:
                 found_idx = next((i for i, m in enumerate(msgs) if m.id == since_id), None)
                 if found_idx is not None:
                     msgs = msgs[found_idx + 1 :]
@@ -246,6 +261,8 @@ class MessageStore:
 
         # Fast path: check once under the lock.
         with self._lock:
+            if use_tip:
+                tip_index = len(self._messages.get(pipeline_id, []))
             matches = _filter(self._messages.get(pipeline_id, []))
             if wait_for_types:
                 typed = [m for m in matches if m.message_type in set(wait_for_types)]

@@ -1052,16 +1052,30 @@ class TestWaitEndpoint:
                 assert "for" in data["message"].lower()
 
     def test_wait_returns_matched_message(self, client, app):
+        """A matching message added *after* the wait starts unblocks it.
+
+        Issue #1925: the wait endpoint now starts from the stream tip,
+        so pre-existing messages do NOT satisfy a cursor-less wait. This
+        test uses a background thread to inject the match while the
+        endpoint is blocking.
+        """
+        import threading
+        import time as _t
+
         store = MessageStore()
-        store.add_message(
-            Message(
-                pipeline_id="test-pipeline",
-                from_role="coder",
-                to_role="all",
-                message_type=MessageType.CONSENSUS_CONFIRMED,
-                subject="done",
+
+        def _add_after_delay() -> None:
+            _t.sleep(0.15)
+            store.add_message(
+                Message(
+                    pipeline_id="test-pipeline",
+                    from_role="coder",
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_CONFIRMED,
+                    subject="done",
+                )
             )
-        )
+
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
@@ -1073,10 +1087,15 @@ class TestWaitEndpoint:
                     MagicMock(),
                     _make_pipeline_mock(),
                 )
-                resp = client.get(
-                    "/api/v1/pipelines/test-pipeline/messages/wait"
-                    "?for=CONSENSUS_CONFIRMED&timeout=2"
-                )
+                t = threading.Thread(target=_add_after_delay)
+                t.start()
+                try:
+                    resp = client.get(
+                        "/api/v1/pipelines/test-pipeline/messages/wait"
+                        "?for=CONSENSUS_CONFIRMED&timeout=3"
+                    )
+                finally:
+                    t.join(timeout=2)
                 assert resp.status_code == 200
                 data = json.loads(resp.data)
                 assert data["data"]["count"] == 1
@@ -1085,16 +1104,23 @@ class TestWaitEndpoint:
 
     def test_wait_repeatable_for_param(self, client, app):
         """Multiple --for types act as an OR filter."""
+        import threading
+        import time as _t
+
         store = MessageStore()
-        store.add_message(
-            Message(
-                pipeline_id="test-pipeline",
-                from_role="coder",
-                to_role="all",
-                message_type=MessageType.CONSENSUS_RE_REVIEW,
-                subject="re-review",
+
+        def _add_after_delay() -> None:
+            _t.sleep(0.15)
+            store.add_message(
+                Message(
+                    pipeline_id="test-pipeline",
+                    from_role="coder",
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_RE_REVIEW,
+                    subject="re-review",
+                )
             )
-        )
+
         with app.test_request_context():
             with (
                 patch("routes.messages.get_message_store", return_value=store),
@@ -1106,11 +1132,16 @@ class TestWaitEndpoint:
                     MagicMock(),
                     _make_pipeline_mock(),
                 )
-                resp = client.get(
-                    "/api/v1/pipelines/test-pipeline/messages/wait"
-                    "?for=CONSENSUS_CONFIRMED&for=CONSENSUS_RE_REVIEW"
-                    "&timeout=2"
-                )
+                t = threading.Thread(target=_add_after_delay)
+                t.start()
+                try:
+                    resp = client.get(
+                        "/api/v1/pipelines/test-pipeline/messages/wait"
+                        "?for=CONSENSUS_CONFIRMED&for=CONSENSUS_RE_REVIEW"
+                        "&timeout=3"
+                    )
+                finally:
+                    t.join(timeout=2)
                 assert resp.status_code == 200
                 data = json.loads(resp.data)
                 assert data["data"]["count"] == 1
@@ -1142,6 +1173,68 @@ class TestWaitEndpoint:
 
     def test_wait_from_filter(self, client, app):
         """`from=ROLE` drops messages from other senders."""
+        import threading
+        import time as _t
+
+        store = MessageStore()
+
+        def _add_after_delay() -> None:
+            _t.sleep(0.15)
+            # Wrong-sender message first — must NOT unblock the wait.
+            store.add_message(
+                Message(
+                    pipeline_id="test-pipeline",
+                    from_role="documenter",
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_CONFIRMED,
+                    subject="docs confirmed",
+                )
+            )
+            _t.sleep(0.1)
+            store.add_message(
+                Message(
+                    pipeline_id="test-pipeline",
+                    from_role="coder",
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_CONFIRMED,
+                    subject="coder confirmed",
+                )
+            )
+
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                t = threading.Thread(target=_add_after_delay)
+                t.start()
+                try:
+                    resp = client.get(
+                        "/api/v1/pipelines/test-pipeline/messages/wait"
+                        "?for=CONSENSUS_CONFIRMED&from=coder&timeout=3"
+                    )
+                finally:
+                    t.join(timeout=2)
+                assert resp.status_code == 200
+                data = json.loads(resp.data)
+                assert data["data"]["count"] == 1
+                assert data["data"]["messages"][0]["from_role"] == "coder"
+
+    def test_wait_ignores_pre_existing_messages(self, client, app):
+        """Issue #1925 regression: a cursor-less wait must NOT return a
+        matching message that was added before the call started.
+
+        Before the fix, repeated wait-loop invocations re-matched the same
+        already-seen CONSENSUS_CONFIRMED on every call because the store
+        scanned from stream tail = 0. After the fix, the wait endpoint
+        starts from the stream tip, so pre-existing messages are ignored.
+        """
         store = MessageStore()
         store.add_message(
             Message(
@@ -1149,16 +1242,7 @@ class TestWaitEndpoint:
                 from_role="documenter",
                 to_role="all",
                 message_type=MessageType.CONSENSUS_CONFIRMED,
-                subject="docs confirmed",
-            )
-        )
-        store.add_message(
-            Message(
-                pipeline_id="test-pipeline",
-                from_role="coder",
-                to_role="all",
-                message_type=MessageType.CONSENSUS_CONFIRMED,
-                subject="coder confirmed",
+                subject="already seen — must not match",
             )
         )
         with app.test_request_context():
@@ -1174,12 +1258,60 @@ class TestWaitEndpoint:
                 )
                 resp = client.get(
                     "/api/v1/pipelines/test-pipeline/messages/wait"
-                    "?for=CONSENSUS_CONFIRMED&from=coder&timeout=1"
+                    "?for=CONSENSUS_CONFIRMED&timeout=1"
+                )
+                assert resp.status_code == 200
+                data = json.loads(resp.data)
+                assert data["data"]["count"] == 0
+                assert data["data"]["matched"] is False
+
+    def test_wait_honors_explicit_since_id(self, client, app):
+        """Passing ``since_id=<id>`` opts out of from_tip behavior and
+        returns matching messages added after that cursor.
+
+        This is the race-safety pattern callers use when they've already
+        observed an event and want to wait for the NEXT event after it.
+        """
+        store = MessageStore()
+        cursor = store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="documenter",
+                to_role="all",
+                message_type=MessageType.PROGRESS,
+                subject="cursor anchor",
+            )
+        )
+        # A matching message added AFTER the cursor but BEFORE the wait
+        # call — with since_id passed, this must still be returned.
+        store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="coder",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_CONFIRMED,
+                subject="after cursor",
+            )
+        )
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    f"?for=CONSENSUS_CONFIRMED&since_id={cursor.id}&timeout=1"
                 )
                 assert resp.status_code == 200
                 data = json.loads(resp.data)
                 assert data["data"]["count"] == 1
-                assert data["data"]["messages"][0]["from_role"] == "coder"
+                assert data["data"]["messages"][0]["subject"] == "after cursor"
 
     def test_wait_invalid_pipeline_id_returns_400(self, client, app):
         with app.test_request_context():
