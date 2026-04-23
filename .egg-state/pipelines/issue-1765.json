@@ -457,7 +457,9 @@
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [],
-      "artifacts": {},
+      "artifacts": {
+        "pr_url": "https://github.com/jwbron/egg/pull/1920"
+      },
       "error": null,
       "hitl_feedback": null,
       "phase_start_sha": "ff1b3dc5a3f6d4511c8fd0b2ee6fc90ad12faf8b"
@@ -744,7 +746,7 @@
     }
   ],
   "created_at": "2026-04-23T05:22:09.201730Z",
-  "updated_at": "2026-04-23T09:15:12.839581Z",
+  "updated_at": "2026-04-23T09:15:57.653853Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -758,5 +760,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T07:27:32.480571Z",
-  "version": 91
+  "version": 92
 }
