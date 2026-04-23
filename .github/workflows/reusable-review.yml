@@ -362,6 +362,7 @@ jobs:
             echo "head-ref=$(echo "$pr_json" | jq -r '.head.ref')"
             echo "head-repo=$(echo "$pr_json" | jq -r '.head.repo.full_name')"
             echo "head-sha=${current_sha}"
+            echo "base-ref=$(echo "$pr_json" | jq -r '.base.ref')"
           } >> "$GITHUB_OUTPUT"
 
       # Capture last bot review info before dismissing (for re-review context)
@@ -492,6 +493,7 @@ jobs:
           PR_NUMBER: ${{ env.PR_NUMBER }}
           LAST_REVIEW_COMMIT: ${{ steps.last-review.outputs.commit-sha }}
           COMMIT_SHA: ${{ steps.pr-meta.outputs.head-sha }}
+          BASE_REF: ${{ steps.pr-meta.outputs.base-ref }}
 
       - name: Checkout PR code for review
         uses: actions/checkout@v4

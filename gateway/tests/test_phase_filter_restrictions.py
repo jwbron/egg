@@ -541,3 +541,88 @@ class TestPhaseFilterFormatBlockedMessage:
         assert "implement" in msg
         assert "Not allowed in implement" in msg
         assert "pr create" in msg
+
+
+class TestThreeRoleFileRestrictions:
+    """TASK-5-3 (#1901): coverage for the three new file_restrictions
+    entries (coder/tester/documenter) added to .egg/phase-permissions.json
+    in TASK-3-1.
+
+    These tests exercise ``check_file_restrictions("<role>", [...])``
+    against representative allowed/blocked paths.  They guard against
+    silent regressions where a role's blocklist entry gets dropped or
+    an unintended allow-through.
+
+    Note: ``FileRestriction.is_file_blocked`` uses ``startswith``
+    semantics, so glob patterns in the JSON are dead entries at this
+    layer — only the prefix-shaped patterns (e.g. ``.egg-state/contracts/``)
+    actually block here.  The glob-shaped patterns are enforced at the
+    higher patterns.py layer (covered by other test files).
+    """
+
+    @pytest.fixture(autouse=True)
+    def reset_filter(self):
+        reset_phase_filter()
+        yield
+        reset_phase_filter()
+
+    # --- coder role ---
+
+    def test_coder_blocked_from_contracts(self):
+        result = check_file_restrictions("coder", [".egg-state/contracts/foo.json"])
+        assert result.allowed is False
+        assert ".egg-state/contracts/foo.json" in result.blocked_files
+
+    def test_coder_allowed_for_source(self):
+        """Source files are not blocked by the coder file_restrictions
+        entry (only the glob entries would catch them, and those are
+        no-ops at this layer)."""
+        result = check_file_restrictions("coder", ["gateway/server.py"])
+        assert result.allowed is True
+
+    def test_coder_allowed_for_extensionless_script(self):
+        """bin/egg now passes both layers — TASK-1-1 removed it from the
+        old extension-allowlist gate and the new file_restrictions entry
+        does not block it either."""
+        result = check_file_restrictions("coder", ["bin/egg"])
+        assert result.allowed is True
+
+    # --- tester role ---
+
+    def test_tester_blocked_from_contracts(self):
+        result = check_file_restrictions("tester", [".egg-state/contracts/spec.json"])
+        assert result.allowed is False
+        assert ".egg-state/contracts/spec.json" in result.blocked_files
+
+    def test_tester_allowed_for_test_file(self):
+        result = check_file_restrictions("tester", ["tests/test_x.py"])
+        assert result.allowed is True
+
+    def test_tester_allowed_for_conftest(self):
+        result = check_file_restrictions("tester", ["conftest.py"])
+        assert result.allowed is True
+
+    # --- documenter role ---
+
+    def test_documenter_blocked_from_contracts(self):
+        result = check_file_restrictions("documenter", [".egg-state/contracts/x.json"])
+        assert result.allowed is False
+        assert ".egg-state/contracts/x.json" in result.blocked_files
+
+    def test_documenter_allowed_for_docs(self):
+        result = check_file_restrictions("documenter", ["docs/guide.md"])
+        assert result.allowed is True
+
+    def test_documenter_allowed_for_readme(self):
+        result = check_file_restrictions("documenter", ["README.md"])
+        assert result.allowed is True
+
+    # --- legacy implementer entry preserved ---
+
+    def test_legacy_implementer_still_blocks_contracts(self):
+        """The legacy ``implementer`` entry is retained as back-compat per
+        TASK-3-1 — verify it still works alongside the new three-role
+        entries."""
+        result = check_file_restrictions("implementer", [".egg-state/contracts/x.json"])
+        assert result.allowed is False
+        assert ".egg-state/contracts/x.json" in result.blocked_files

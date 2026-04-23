@@ -16,6 +16,7 @@ def run_build_review_prompt(
     github_repository: str,
     last_review_commit: str = "",
     runner_temp: str = "",
+    base_ref: str = "",
 ) -> tuple[int, str, str]:
     """Run build-review-prompt.sh with the given environment variables.
 
@@ -28,6 +29,9 @@ def run_build_review_prompt(
 
     if last_review_commit:
         env["LAST_REVIEW_COMMIT"] = last_review_commit
+
+    if base_ref:
+        env["BASE_REF"] = base_ref
 
     # Use a temp directory if not specified
     if not runner_temp:
@@ -136,7 +140,7 @@ class TestReReview:
     """Tests for re-review (with LAST_REVIEW_COMMIT)."""
 
     def test_generates_rereview_prompt(self) -> None:
-        """Re-review uses git diff from last reviewed commit."""
+        """Re-review uses git log from last reviewed commit."""
         with tempfile.TemporaryDirectory() as tmpdir:
             returncode, stdout, stderr = run_build_review_prompt(
                 pr_number="123",
@@ -154,8 +158,13 @@ class TestReReview:
             assert "This is a **re-review**" in prompt
             assert "abc123def456" in prompt
 
-    def test_includes_git_diff_instruction(self) -> None:
-        """Re-review instructs to use git diff from last commit."""
+    def test_includes_git_log_instruction(self) -> None:
+        """Re-review instructs to use git log that excludes base-branch commits.
+
+        See issue #1758: two-dot `git diff <sha>..HEAD` wrongly attributes
+        base-branch merges to the PR author. The replacement `git log` with
+        `--not origin/<base>` explicitly excludes base-branch commits.
+        """
         with tempfile.TemporaryDirectory() as tmpdir:
             returncode, stdout, stderr = run_build_review_prompt(
                 pr_number="123",
@@ -166,7 +175,32 @@ class TestReReview:
 
             assert returncode == 0
             prompt = read_prompt_file(tmpdir, "123")
-            assert "git diff abc123def456..HEAD" in prompt
+            # New command form excludes base-branch commits
+            assert "git log abc123def456..HEAD --not origin/main -p" in prompt
+            # Shallow-checkout nudge
+            assert "git fetch origin main" in prompt
+            # Old two-dot diff form must not appear on the re-review path
+            assert "git diff abc123def456..HEAD" not in prompt
+
+    def test_custom_base_ref_threaded_through(self) -> None:
+        """Non-default base ref (e.g. `develop`) is plumbed into the prompt."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            returncode, stdout, stderr = run_build_review_prompt(
+                pr_number="123",
+                github_repository="owner/repo",
+                last_review_commit="abc123def456",
+                runner_temp=tmpdir,
+                base_ref="develop",
+            )
+
+            assert returncode == 0, f"Script failed: {stderr}"
+            prompt = read_prompt_file(tmpdir, "123")
+            assert "git fetch origin develop" in prompt
+            assert "git log abc123def456..HEAD --not origin/develop -p" in prompt
+            # Default `main` shouldn't leak when an explicit non-main base is set
+            assert "origin/main" not in prompt
+            # Old form still absent
+            assert "git diff abc123def456..HEAD" not in prompt
 
     def test_includes_check_previous_feedback(self) -> None:
         """Re-review instructs to check previous review comments."""

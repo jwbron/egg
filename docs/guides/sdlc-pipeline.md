@@ -129,6 +129,8 @@ Once a pull request is created during the PR phase, two additional fields appear
 
 This avoids a separate `gh pr list` call by monitoring clients.
 
+> **Pipeline record fields (issue #1911).** The auto-PR path also writes `pipeline.pr_number` and (best-effort) `pipeline.pr_head_sha` onto the pipeline record itself, not only the `pr_url` phase artifact. Consumers that load the pipeline via `get_pipeline_snapshot` / the pipeline JSON can rely on `pipeline.pr_number` directly — the overseer's `post-consensus-push-stall` detector uses this as one of the three signals that the post-consensus transition succeeded. `pipeline.pr_head_sha` is populated when `gh pr view` returns a valid hex SHA; if the `gh` call fails or propagation is still in flight, the field is left `None` and the PR phase still succeeds.
+
 When `pending_decisions > 0`, the `data` object includes an additional `pending_decision` field with the first pending decision's details, so consumers don't need a second round-trip to fetch it:
 
 ```json
@@ -586,9 +588,9 @@ Agents are organized into five categories (execution, analysis, review, utility,
 
 | Role | Category | Purpose | File Access |
 |------|----------|---------|-------------|
-| **Coder** | Execution | Implements code changes | `src/`, `lib/`, `shared/` |
-| **Tester** | Execution | Finds gaps, writes tests, runs linters and reports issues to coder | `tests/`, `test_*.py`, `*.test.ts`, `**/conftest.py` |
-| **Documenter** | Execution | Updates documentation | `docs/`, `*.md`, `README*` |
+| **Coder** | Execution | Implements code changes | All files except docs, tests, `.egg-state/`, `.github/`, `sandbox/scripts/` (blocklist-complement; see [Agent Roles Reference](../reference/agent-roles.md#coder)) |
+| **Tester** | Execution | Finds gaps, writes tests, runs linters and reports issues to coder | Test files and infrastructure only: `tests/`, `test/`, `**/test_*.py`, `**/*_test.go`, `**/*.test.{ts,tsx,js,jsx}`, `**/*.spec.{ts,tsx,js,jsx}`, `**/conftest.py` (see [Agent Roles Reference](../reference/agent-roles.md#tester)) |
+| **Documenter** | Execution | Updates documentation | Documentation and markdown only: `docs/`, `**/*.md`, `**/README.md` (see [Agent Roles Reference](../reference/agent-roles.md#documenter)) |
 | **Autofixer** | Utility | Auto-fixes lint/format/type-check issues | Source and config files (no docs or contracts) |
 | **Conflict Resolver** | Utility | Resolves merge and inter-agent conflicts | Source, test, doc, and config files (no `.egg-state/`) |
 | **Reviewer (Code)** | Review | Reviews code for security, correctness | Review verdicts only |
@@ -1041,7 +1043,7 @@ Use `--base <branch>` to target a non-default base branch for the auto-created P
 - Universal options on every checkpoint: general feedback (`[f]`), change approach (`[a]`), cancel (`[c]`)
 - JSON resolution payloads for structured intent parsing (see [HITL Decisions](../hitl-decisions.md))
 - Automatic reconnection on SSE timeouts
-- Works both inside containers and from the host (via `egg --exec`)
+- Works both inside containers and from the host
 
 **Host-side:** `bin/egg-sdlc` launches a container with TTY passthrough for interactive features.
 

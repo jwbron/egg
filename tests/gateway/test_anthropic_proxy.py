@@ -542,6 +542,275 @@ class TestStreamingResponse:
 
             assert "text/event-stream" in response.content_type
 
+    # ------------------------------------------------------------------
+    # Upstream TCP-reset resilience tests (issue #1907).
+    #
+    # The gateway's /v1/messages proxy wraps the upstream stream with two
+    # complementary pieces of resilience machinery in proxy_anthropic_messages():
+    #
+    #   (A) Pre-stream bounded (1x) retry around ``client.send()`` and the
+    #       first-chunk prime — if httpx raises ReadError or
+    #       RemoteProtocolError before any byte has flowed downstream, the
+    #       gateway tears down the failed upstream and reissues the request
+    #       transparently. The SDK never sees the reset.
+    #
+    #   (B) Mid-stream synthetic error frame — if the reset arrives after a
+    #       chunk has already been yielded downstream, the gateway catches
+    #       the exception inside ``generate()``, emits an Anthropic-style
+    #       ``event: error`` SSE frame, and closes the stream cleanly so the
+    #       downstream SDK fails gracefully instead of dying on a truncated
+    #       socket.
+    #
+    # Each scenario below drives the exact failure mode that triggered the
+    # original crash (pipeline issue-1901 lost 282s / 32 turns / $1.33 of
+    # context to a bare ReadError propagated from httpcore).
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _iter_then_raise(chunks, exc):
+        """Yield each chunk in order, then raise ``exc``.
+
+        Small helper for simulating upstream TCP resets during SSE streaming.
+        Passing an empty ``chunks`` list causes ``exc`` to be raised on the
+        very first ``next()`` pull (simulating a reset before any byte is
+        forwarded downstream). Passing N chunks causes the raise to land on
+        pull N+1 (simulating a mid-stream reset after N chunks have been
+        yielded).
+        """
+        yield from chunks
+        raise exc
+
+    def test_streaming_send_reset_retries_once(self, client, mock_credentials):
+        """(a) client.send() raises ReadError once; retry succeeds with clean 200 SSE.
+
+        Covers task-1-1 acceptance: ``When client.send() raises ReadError
+        once, the retry succeeds and downstream sees a clean 200 SSE response.``
+        """
+        import httpx
+        from httpx import Headers
+
+        with patch("gateway.gateway.get_anthropic_client") as mock_get:
+            mock_client = MagicMock()
+            mock_get.return_value = mock_client
+
+            good_chunks = [
+                b'event: message_start\ndata: {"type":"message_start"}\n\n',
+                b'event: content_block_delta\ndata: {"type":"content_block_delta"}\n\n',
+                b'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+            ]
+            good_response = MagicMock()
+            good_response.status_code = 200
+            good_response.headers = Headers([("content-type", "text/event-stream")])
+            good_response.iter_bytes = MagicMock(return_value=iter(good_chunks))
+            good_response.close = MagicMock()
+
+            mock_client.build_request.return_value = MagicMock()
+            # First send() raises ReadError; second returns the good response.
+            mock_client.send.side_effect = [
+                httpx.ReadError("connection reset by peer"),
+                good_response,
+            ]
+
+            response = client.post(
+                "/v1/messages",
+                data=json.dumps({"model": "claude-3", "stream": True}),
+                content_type="application/json",
+            )
+
+            # The gateway retried exactly once (bounded 1x retry).
+            assert mock_client.send.call_count == 2
+            # Downstream saw a clean 200 with the full good response body.
+            assert response.status_code == 200
+            body = b"".join(response.response)
+            assert b"message_start" in body
+            assert b"message_stop" in body
+            # Retry succeeded, so no synthetic error frame should be emitted.
+            assert b"event: error" not in body
+            # Upstream released via the finally: branch.
+            good_response.close.assert_called()
+
+    def test_streaming_first_chunk_reset_retries_once(self, client, mock_credentials):
+        """(b) iter_bytes() raises on first pull once; retry succeeds.
+
+        Covers task-1-1 acceptance: ``When the first iter_bytes() call
+        raises ReadError, the gateway re-primes and produces a normal stream.``
+        Simulates an upstream reset that happens after the TCP connection
+        established but before the first SSE byte — a common
+        connection-pool-staleness failure mode at Anthropic's edge.
+        """
+        import httpx
+        from httpx import Headers
+
+        with patch("gateway.gateway.get_anthropic_client") as mock_get:
+            mock_client = MagicMock()
+            mock_get.return_value = mock_client
+
+            # First upstream: iter_bytes returns a generator that raises on
+            # the first next() pull — i.e., no chunk is ever yielded downstream.
+            bad_response = MagicMock()
+            bad_response.status_code = 200
+            bad_response.headers = Headers([("content-type", "text/event-stream")])
+            bad_response.iter_bytes = MagicMock(
+                return_value=self._iter_then_raise(
+                    [], httpx.ReadError("peer reset during first-chunk prime")
+                )
+            )
+            bad_response.close = MagicMock()
+
+            # Second upstream: healthy normal stream.
+            good_chunks = [
+                b'event: message_start\ndata: {"type":"message_start"}\n\n',
+                b'event: message_stop\ndata: {"type":"message_stop"}\n\n',
+            ]
+            good_response = MagicMock()
+            good_response.status_code = 200
+            good_response.headers = Headers([("content-type", "text/event-stream")])
+            good_response.iter_bytes = MagicMock(return_value=iter(good_chunks))
+            good_response.close = MagicMock()
+
+            mock_client.build_request.return_value = MagicMock()
+            mock_client.send.side_effect = [bad_response, good_response]
+
+            response = client.post(
+                "/v1/messages",
+                data=json.dumps({"model": "claude-3", "stream": True}),
+                content_type="application/json",
+            )
+
+            # Exactly one retry happened.
+            assert mock_client.send.call_count == 2
+            # The failed upstream must be closed so the connection isn't leaked
+            # back into the httpx connection pool in a half-open state.
+            bad_response.close.assert_called()
+            # Downstream saw a clean 200 with the healthy stream body.
+            assert response.status_code == 200
+            body = b"".join(response.response)
+            assert b"message_start" in body
+            assert b"message_stop" in body
+            assert b"event: error" not in body
+            good_response.close.assert_called()
+
+    def test_streaming_midstream_reset_yields_synthetic_error_frame(self, client, mock_credentials):
+        """(c) RemoteProtocolError after first chunk; body ends with synthetic error frame.
+
+        Covers task-1-2 acceptance: ``When iter_bytes() raises after one
+        chunk has been yielded, the downstream body contains the original
+        chunk followed by a well-formed `event: error` SSE frame, the
+        stream closes without raising, and _capture_streaming_response
+        still runs.`` No retry is attempted here because a byte has already
+        flowed downstream — the gateway cannot re-issue idempotently once
+        the SDK has begun parsing SSE events.
+        """
+        import httpx
+        from httpx import Headers
+
+        with patch("gateway.gateway.get_anthropic_client") as mock_get:
+            mock_client = MagicMock()
+            mock_get.return_value = mock_client
+
+            first_chunk = (
+                b"event: message_start\n"
+                b'data: {"type":"message_start","message":'
+                b'{"id":"msg_abc","model":"claude-3","role":"assistant"}}\n\n'
+            )
+            mid_reset_response = MagicMock()
+            mid_reset_response.status_code = 200
+            mid_reset_response.headers = Headers([("content-type", "text/event-stream")])
+            # Yield one valid SSE chunk, then simulate Anthropic's edge
+            # dropping the connection mid-stream (the exact failure mode
+            # from #1901 — httpx surfaces it as RemoteProtocolError when
+            # the peer closes without sending a complete body).
+            mid_reset_response.iter_bytes = MagicMock(
+                return_value=self._iter_then_raise(
+                    [first_chunk],
+                    httpx.RemoteProtocolError(
+                        "peer closed connection without sending complete message body"
+                    ),
+                )
+            )
+            mid_reset_response.close = MagicMock()
+
+            mock_client.build_request.return_value = MagicMock()
+            mock_client.send.return_value = mid_reset_response
+
+            response = client.post(
+                "/v1/messages",
+                data=json.dumps({"model": "claude-3", "stream": True}),
+                content_type="application/json",
+            )
+
+            # No retry — a chunk was already forwarded downstream.
+            assert mock_client.send.call_count == 1
+
+            assert response.status_code == 200
+            # Consume the body first — the finally: branch that calls
+            # upstream.close() runs when the streaming generator is
+            # exhausted, not when Flask returns the Response object.
+            body = b"".join(response.response)
+
+            # Upstream still released via the finally: branch even though
+            # iter_bytes raised.
+            mid_reset_response.close.assert_called()
+
+            # The original (pre-reset) chunk is preserved intact.
+            assert first_chunk in body
+
+            # The body ends with a well-formed Anthropic-style SSE error frame.
+            assert b"event: error" in body
+            # The error event must carry an ``api_error`` type and a message
+            # field — the shape the Claude SDK's error handler understands.
+            assert b'"type": "api_error"' in body or b'"type":"api_error"' in body
+            assert b"upstream connection reset" in body
+            # And the SSE frame terminator is the last thing on the wire so
+            # the downstream parser sees a complete event, not a truncation.
+            assert body.endswith(b"\n\n")
+            # Synthetic error frame must come AFTER the original chunk, not
+            # interleaved or before it.
+            assert body.index(first_chunk) < body.index(b"event: error")
+
+            # Parse the synthetic frame as JSON to catch any malformed output.
+            error_frame_start = body.index(b"event: error")
+            error_frame = body[error_frame_start:]
+            assert error_frame.startswith(b"event: error\ndata: ")
+            data_start = len(b"event: error\ndata: ")
+            data_end = error_frame.index(b"\n\n")
+            payload = json.loads(error_frame[data_start:data_end].decode("utf-8"))
+            assert payload["type"] == "error"
+            assert payload["error"]["type"] == "api_error"
+            assert "message" in payload["error"]
+
+    def test_streaming_send_reset_retry_exhausted_returns_502(self, client, mock_credentials):
+        """Both attempts raise — retry exhausted, falls through to 502.
+
+        Covers the ``On second failure, fall through to the existing
+        error-return path`` clause of task-1-1. Exhaustion must not loop
+        infinitely and must not leak an unclosed upstream.
+        """
+        import httpx
+
+        with patch("gateway.gateway.get_anthropic_client") as mock_get:
+            mock_client = MagicMock()
+            mock_get.return_value = mock_client
+
+            mock_client.build_request.return_value = MagicMock()
+            mock_client.send.side_effect = [
+                httpx.ReadError("reset #1"),
+                httpx.RemoteProtocolError("reset #2"),
+            ]
+
+            response = client.post(
+                "/v1/messages",
+                data=json.dumps({"model": "claude-3", "stream": True}),
+                content_type="application/json",
+            )
+
+            # Exactly two attempts — retry is bounded to 1x.
+            assert mock_client.send.call_count == 2
+            # Falls through to the generic exception handler → 502.
+            assert response.status_code == 502
+            body = response.get_data()
+            assert b"api_error" in body
+
 
 class TestFilterBlockedTools:
     """Test _filter_blocked_tools helper for private mode security."""
