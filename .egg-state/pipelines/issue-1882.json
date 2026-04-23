@@ -434,10 +434,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Enable both by default in the same release (recommended)\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-16",
+      "question": "Where should the new partition-files-by-role helper live?",
+      "context": "Open contract question decision-15, registered by an agent during the refine phase.",
+      "options": [
+        "shared/egg_restrictions/checker.py (cross-component, reused by gateway and cli_push)",
+        "gateway/agent_restrictions.py (gateway-local, matches #1470 original location)",
+        "New module gateway/push_filter.py (separation-of-concerns)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-23T06:44:20.292926Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:21:58.997312Z",
-  "updated_at": "2026-04-23T06:44:16.895855Z",
+  "updated_at": "2026-04-23T06:44:20.301829Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -451,5 +470,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:31:28.068349Z",
-  "version": 48
+  "version": 49
 }
