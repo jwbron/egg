@@ -184,9 +184,9 @@ class TestAdvancePhasePopulatesOnPlanExit:
         assert "populate" in call_order, "populate was never called"
         populate_idx = call_order.index("populate")
         commit_indices = [i for i, v in enumerate(call_order) if v == "commit"]
-        assert any(
-            ci > populate_idx for ci in commit_indices
-        ), f"no commit followed populate; call_order={call_order}"
+        assert any(ci > populate_idx for ci in commit_indices), (
+            f"no commit followed populate; call_order={call_order}"
+        )
 
     @patch("routes.phases.threading.Thread")
     @patch("routes.pipelines._commit_statefiles_to_worktree")
