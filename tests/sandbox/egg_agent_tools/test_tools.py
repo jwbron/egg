@@ -184,7 +184,6 @@ class TestToolWrapperSuccess:
     """Spot-check a wrapper end-to-end, with the handler patched out."""
 
     def test_register_open_question_wrapper_success(self):
-
         with patch(
             "egg_agent_tools.handlers.sdlc.register_open_question",
             return_value={"ok": True, "id": "decision-7"},
