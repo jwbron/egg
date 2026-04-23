@@ -171,7 +171,7 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 - Documentation commits on the worktree branch
 - `.egg-state/agent-outputs/{identifier}-documenter-output.json` — Handoff data
 
-**Directed coordination**: The documenter may receive `STATUS` or `PROGRESS` messages from the coder about API changes, new features, or breaking changes that require documentation updates. Use `QUESTION` messages (`egg-orch message send --to coder --type QUESTION`) to ask for clarification about implementation details when the code diff is ambiguous. See [Directed Coordination](../guides/concurrent-execution.md#directed-coordination).
+**Directed coordination**: The documenter may receive `STATUS` or `PROGRESS` messages from the coder about API changes, new features, or breaking changes that require documentation updates. When the code diff is ambiguous, first read the coder's proposal summary + commit messages (they are the intended documentation of intent); if still unclear, wait for the reviewer pass to raise the ambiguity as a `NACK` rationale (which the coder addresses on re-propose) rather than sending a free-form peer question. The `QUESTION` type was removed in [#1897](https://github.com/jwbron/egg/issues/1897) because it had no reliable respondent. See [Directed Coordination](../guides/concurrent-execution.md#directed-coordination).
 
 **Prompt context**: Summarized background, task list, pointers to relevant docs.
 
