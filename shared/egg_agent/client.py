@@ -251,8 +251,7 @@ async def run_agent_async(
                 # and skip the nudge to avoid silent data loss.
                 logger.warning(
                     "Cannot append MCP tool nudge to non-string system_prompt "
-                    "(type=%s); MCP tools are registered but the nudge is omitted",
-                    type(existing_prompt).__name__,
+                    f"(type={type(existing_prompt).__name__}); MCP tools are registered but the nudge is omitted",
                     event_type="system",
                     event_subtype="mcp_nudge_skipped",
                 )

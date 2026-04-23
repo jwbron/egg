@@ -71,6 +71,17 @@ class TestBrcPropose:
             with pytest.raises(HandlerError):
                 brc.brc_propose({"pipeline_id": "p", "summary": "x" * 60})
 
+    def test_invalid_commit_sha_raises(self):
+        with pytest.raises(HandlerError, match="Invalid commit SHA"):
+            brc.brc_propose(
+                {
+                    "pipeline_id": "p",
+                    "role": "coder",
+                    "summary": "x" * 60,
+                    "commit_sha": "not-a-hex-sha",
+                }
+            )
+
     def test_gateway_500_raises_gateway_error(self):
         def boom(*a, **kw):
             raise GatewayError("upstream down", status_code=500)
