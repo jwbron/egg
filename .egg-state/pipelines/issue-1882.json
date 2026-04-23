@@ -396,10 +396,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Yes - debugging breadcrumb, matches #1470\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-14",
+      "question": "Should the push response include a pulled_commits field listing non-own-authored commits?",
+      "context": "Open contract question decision-13, registered by an agent during the refine phase.",
+      "options": [
+        "Yes - list of {sha, author} pairs for each pulled commit (transparency for agents + audit tooling)",
+        "No - keep response minimal, log pulled commits to audit log only",
+        "Only on filtered pushes (i.e. when auto-filter engaged)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-23T06:42:54.721772Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:21:58.997312Z",
-  "updated_at": "2026-04-23T06:42:54.341431Z",
+  "updated_at": "2026-04-23T06:42:54.731432Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -413,5 +432,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:31:28.068349Z",
-  "version": 44
+  "version": 45
 }
