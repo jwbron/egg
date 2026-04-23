@@ -1,0 +1,394 @@
+[
+  {
+    "id": "87fac59d-d332-4a",
+    "pipeline_id": "issue-1905",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from coder",
+    "body": "Skill-only implementation of /sdlc auto-resolution for phase_gate follow-up decisions (issue #1905, Option 1). Added a session-scoped resolved_questions_map to skills/sdlc/SKILL.md Phase 4, with lowercase+strip normalization. The phase_gate handler's Step 5 now populates the map as it collects answers to draft-embedded questions. The choice handler consults the map before prompting: on a compatible option match it auto-submits {\"action\":\"select\",\"selected\":...} and prints a one-line auto-resolution note; on no match or free-text answer it falls through to the normal prompt. The feedback handler consults the map per question, prefills matched answers, prompts only unmatched questions, merges into a single submit_feedback payload, and prints a one-line note. No code or tests change \u2014 SKILL.md is a behavior spec. Verification is manual per plan test plan. Satisfies contract tasks task-1-1, task-1-2, task-1-3.",
+    "metadata": {
+      "payload": {
+        "summary": "Skill-only implementation of /sdlc auto-resolution for phase_gate follow-up decisions (issue #1905, Option 1). Added a session-scoped resolved_questions_map to skills/sdlc/SKILL.md Phase 4, with lowercase+strip normalization. The phase_gate handler's Step 5 now populates the map as it collects answers to draft-embedded questions. The choice handler consults the map before prompting: on a compatible option match it auto-submits {\"action\":\"select\",\"selected\":...} and prints a one-line auto-resolution note; on no match or free-text answer it falls through to the normal prompt. The feedback handler consults the map per question, prefills matched answers, prompts only unmatched questions, merges into a single submit_feedback payload, and prints a one-line note. No code or tests change \u2014 SKILL.md is a behavior spec. Verification is manual per plan test plan. Satisfies contract tasks task-1-1, task-1-2, task-1-3.",
+        "attestation": {},
+        "artifacts": [
+          "skills/sdlc/SKILL.md"
+        ],
+        "risk_considered": "",
+        "commit_sha": "c0c57a55df345d06186fa8500ff13428e10395c2",
+        "files_changed": [
+          "skills/sdlc/SKILL.md"
+        ],
+        "tests_run": [
+          "none-markdown-only"
+        ],
+        "tasks_satisfied": [
+          "task-1-1",
+          "task-1-2",
+          "task-1-3"
+        ]
+      },
+      "version": 1,
+      "commit_sha": "c0c57a55df345d06186fa8500ff13428e10395c2"
+    },
+    "timestamp": "2026-04-23T00:13:03.825130+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "c6b10979-b220-44",
+    "pipeline_id": "issue-1905",
+    "from_role": "coder",
+    "to_role": "tester",
+    "message_type": "HANDOFF",
+    "subject": "SKILL.md ready for test/verification",
+    "body": "skills/sdlc/SKILL.md has been updated with the resolved_questions_map subsection in Phase 4, the Step 5 populate instruction, and Before prompting paragraphs in the choice and feedback handlers. Commit c0c57a5. Since this is a markdown behavior spec (no executable code), verification is manual per the plan test plan: run /sdlc on an issue (e.g. #1901) whose refiner embeds multiple egg-hitl-decision markers and confirm (1) phase_gate Step 5 surfaces questions and records them, (2) subsequent choice decisions auto-resolve with the Auto-resolved note, (3) feedback groups prefill matches and only prompt for unmatched, (4) rephrased/non-matching questions still prompt, (5) free-text answers fall through to prompting.",
+    "metadata": {},
+    "timestamp": "2026-04-23T00:13:11.908869+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "5c3503d5-3fd3-4a",
+    "pipeline_id": "issue-1905",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from documenter",
+    "body": "Documenter update: added a new 'Auto-Resolving Repeated Questions' section to docs/hitl-decisions.md covering the session-scoped resolved_questions_map introduced in #1905, the choice and feedback auto-resolution flows (including the exact one-line user-visible note format and the option-compatibility fall-through), the transparency requirement, and the scope/non-goals (skill-only, exact-match only, session-scoped, egg-sdlc terminal mode unaffected). Added a cross-reference paragraph in docs/guides/sdlc-pipeline.md's HITL section and listed skills/sdlc/SKILL.md in the hitl-decisions.md Related Files list. Verified wording matches the coder's SKILL.md diff (normalization rule, option-match behavior, 'Auto-resolved <decision_id>: selected ...' note format, q-<index> fallback). Covers tasks 1-1, 1-2, 1-3.",
+    "metadata": {
+      "payload": {
+        "summary": "Documenter update: added a new 'Auto-Resolving Repeated Questions' section to docs/hitl-decisions.md covering the session-scoped resolved_questions_map introduced in #1905, the choice and feedback auto-resolution flows (including the exact one-line user-visible note format and the option-compatibility fall-through), the transparency requirement, and the scope/non-goals (skill-only, exact-match only, session-scoped, egg-sdlc terminal mode unaffected). Added a cross-reference paragraph in docs/guides/sdlc-pipeline.md's HITL section and listed skills/sdlc/SKILL.md in the hitl-decisions.md Related Files list. Verified wording matches the coder's SKILL.md diff (normalization rule, option-match behavior, 'Auto-resolved <decision_id>: selected ...' note format, q-<index> fallback). Covers tasks 1-1, 1-2, 1-3.",
+        "attestation": {},
+        "artifacts": [
+          "docs/hitl-decisions.md",
+          "docs/guides/sdlc-pipeline.md"
+        ],
+        "risk_considered": "",
+        "commit_sha": "5d41669bba851d26afa7d09bce2f6b33536abc9a",
+        "files_changed": [
+          "docs/hitl-decisions.md",
+          "docs/guides/sdlc-pipeline.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "task-1-1",
+          "task-1-2",
+          "task-1-3"
+        ]
+      },
+      "version": 1,
+      "commit_sha": "5d41669bba851d26afa7d09bce2f6b33536abc9a"
+    },
+    "timestamp": "2026-04-23T00:13:57.947725+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "effe836d-46a6-42",
+    "pipeline_id": "issue-1905",
+    "from_role": "reviewer_contract",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_contract for coder",
+    "body": "\nReviewed commit c0c57a55d against all 3 tasks + acceptance criteria in contract issue-1905. Re-read the full Phase 4 section (SKILL.md L583-810) after fast-forwarding to origin/egg/issue-1905. This is a markdown-only skill spec change; no code/tests expected per the PR test_plan.\n\n### Criterion-by-criterion verification\n\n**task-1-1** \u2014 Resolved Questions Map defined + Step 5 populates it\nAC: 'SKILL.md Phase 4 defines resolved_questions_map once with normalization rules stated, and Step 5 of the phase_gate handler explicitly instructs to populate it as each answer is collected.'\nVerified \u2705:\n- L589-598: New '### Resolved Questions Map' subsection is inserted **above** '### For phase_gate decisions:' (L600) \u2014 exactly where the contract requires.\n- L591: Defines it as session-scoped in-memory dict mapping normalized_question_text \u2192 answer.\n- L593: Normalization rule stated: 'question.strip().lower() \u2014 trim leading/trailing whitespace and lowercase. Use the same rule on every read and every write so lookups are symmetric.' Also correctly notes the answer value is stored verbatim (needed for later option comparison).\n- L598: Safe default ('treat it as empty and fall through') handles first-use.\n- L667: Step 5 of phase_gate handler adds 'As you collect each answer, also store it in resolved_questions_map keyed by the normalized question text (question.strip().lower()) with the user's answer as the value. This happens in addition to building the Resolved Questions display block \u2014 both must be populated.' \u2014 populates the map alongside the existing display block, exactly as required.\n\n**task-1-2** \u2014 choice handler 'Before prompting' block\nAC: 'The choice handler section documents the consult-before-prompt lookup, the option-compatibility check, the provide_input payload, the fall-through to prompting on no-match or incompatible-option, and the user-facing auto-resolution note.'\nVerified \u2705:\n- L732-746: 'Before prompting \u2014 check resolved_questions_map for a captured answer' block is prepended to '### For choice type decisions:' (section header at L730).\n- L734: Step 1 computes normalized_q = decision.question.strip().lower() \u2014 same normalization as writer.\n- L735: Step 2 lookup, absent-key fall-through documented.\n- L736: Step 3 option-compatibility check via option.strip().lower() == stored_answer.strip().lower() \u2014 symmetric normalization, first-match policy.\n- L737-740: Step 4 auto-submits {\"action\": \"select\", \"selected\": \"<matched option verbatim>\"} via provide_input, explicitly noting 'use the option text from decision.options, not the normalized form' (correct per contract: match verbatim).\n- L742-744: Exact note text required by contract: 'Auto-resolved <decision_id>: selected '<option>' from captured context.'\n- L746: Step 5 fall-through covers both no-match and free-text/Other incompatible-option cases ('Do not force an invalid selection') \u2014 matches contract.\n\n**task-1-3** \u2014 feedback handler 'Before prompting' block\nAC: 'The feedback handler section documents per-question lookup, partial-match merging, the all-matched fast path, the single merged provide_input call after merging, and the user-facing auto-resolution note.'\nVerified \u2705:\n- L766-790: 'Before prompting \u2014 consult resolved_questions_map for each question' block is prepended to '### For feedback type decisions:' (section header at L764).\n- L768-772: Per-question lookup with id fallback documented \u2014 'use the question's id field if present, otherwise fall back to q-<1-based index>' matches the existing fallback convention at L804.\n- L771: Same normalization rule applied on lookup.\n- L773-781: All-matched fast path \u2014 skips AskUserQuestion entirely, single provide_input with {\"action\": \"submit_feedback\", \"answers\": {...}}, plus auto-resolution note naming decision_id and listed question IDs.\n- L782-789: Partial-match branch \u2014 presents only unmatched questions (with the existing up-to-4-per-call grouping rule), merges prefilled + new answers, submits a single merged provide_input payload (explicitly 'single merged payload'), and prints note naming decision_id + which IDs were prefilled vs prompted.\n- L790: No-match fallthrough preserves existing prompt flow silently.\n\n### Contract integrity / other checks\n- files_affected: only skills/sdlc/SKILL.md as required by all three tasks. \u2705\n- Diff is +55 lines, markdown-only, consistent with PR title/description 'Skill-only change (Option 1 from the issue); orchestrator protocol is untouched'. \u2705\n- Placement: all three insertions are positioned exactly where the contract specifies (Resolved Questions Map above phase_gate section; Before prompting blocks prepended to choice/feedback sections respectively). \u2705\n- Symmetric normalization: writer (L667) and both readers (L734, L736, L771) use identical question.strip().lower() \u2014 lookups will match. Answer is stored verbatim so downstream exact-option comparison works. \u2705\n- Commit atomicity: single commit c0c57a55d closes all three tasks cohesively; commit message enumerates the changes and references tasks 1-1, 1-2, 1-3. \u2705\n- No regressions: existing Step 5 display block, existing choice/feedback prompt flows, and existing 'Submitting choice/feedback responses' section (L806+) are preserved \u2014 the new blocks only *prepend* fast-paths. \u2705\n\n### Non-blocking\n- L775, L784: Use JS-style spread syntax ({ ...prefilled_answers }) in the illustrative JSON. It's clearly pseudocode in a spec document, but a stricter '{\"q-1\": \"answer1\", \"q-2\": \"answer2\"}' example would be slightly less ambiguous for implementers.\n- L788 example note says 'prefilled [q-1] from captured context; prompted for [q-2, q-3]' while L779 uses 'answers for [q-1, q-2] prefilled from captured context'. Two slightly different phrasings for the auto-resolution note across the all-matched vs partial-match branches \u2014 both satisfy the AC ('naming decision ID and which question IDs were auto-resolved'), just minor cosmetic inconsistency.\n- L746 goes slightly beyond the contract by explicitly calling out 'free-text / \"Other\" value' as an incompatible-option case \u2014 this is a helpful clarification and still within the 'fall through on no-match or incompatible option' AC bucket.\n\nAll acceptance criteria met. No blocking issues.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "skills/sdlc/SKILL.md"
+        ],
+        "reason": "\nReviewed commit c0c57a55d against all 3 tasks + acceptance criteria in contract issue-1905. Re-read the full Phase 4 section (SKILL.md L583-810) after fast-forwarding to origin/egg/issue-1905. This is a markdown-only skill spec change; no code/tests expected per the PR test_plan.\n\n### Criterion-by-criterion verification\n\n**task-1-1** \u2014 Resolved Questions Map defined + Step 5 populates it\nAC: 'SKILL.md Phase 4 defines resolved_questions_map once with normalization rules stated, and Step 5 of the phase_gate handler explicitly instructs to populate it as each answer is collected.'\nVerified \u2705:\n- L589-598: New '### Resolved Questions Map' subsection is inserted **above** '### For phase_gate decisions:' (L600) \u2014 exactly where the contract requires.\n- L591: Defines it as session-scoped in-memory dict mapping normalized_question_text \u2192 answer.\n- L593: Normalization rule stated: 'question.strip().lower() \u2014 trim leading/trailing whitespace and lowercase. Use the same rule on every read and every write so lookups are symmetric.' Also correctly notes the answer value is stored verbatim (needed for later option comparison).\n- L598: Safe default ('treat it as empty and fall through') handles first-use.\n- L667: Step 5 of phase_gate handler adds 'As you collect each answer, also store it in resolved_questions_map keyed by the normalized question text (question.strip().lower()) with the user's answer as the value. This happens in addition to building the Resolved Questions display block \u2014 both must be populated.' \u2014 populates the map alongside the existing display block, exactly as required.\n\n**task-1-2** \u2014 choice handler 'Before prompting' block\nAC: 'The choice handler section documents the consult-before-prompt lookup, the option-compatibility check, the provide_input payload, the fall-through to prompting on no-match or incompatible-option, and the user-facing auto-resolution note.'\nVerified \u2705:\n- L732-746: 'Before prompting \u2014 check resolved_questions_map for a captured answer' block is prepended to '### For choice type decisions:' (section header at L730).\n- L734: Step 1 computes normalized_q = decision.question.strip().lower() \u2014 same normalization as writer.\n- L735: Step 2 lookup, absent-key fall-through documented.\n- L736: Step 3 option-compatibility check via option.strip().lower() == stored_answer.strip().lower() \u2014 symmetric normalization, first-match policy.\n- L737-740: Step 4 auto-submits {\"action\": \"select\", \"selected\": \"<matched option verbatim>\"} via provide_input, explicitly noting 'use the option text from decision.options, not the normalized form' (correct per contract: match verbatim).\n- L742-744: Exact note text required by contract: 'Auto-resolved <decision_id>: selected '<option>' from captured context.'\n- L746: Step 5 fall-through covers both no-match and free-text/Other incompatible-option cases ('Do not force an invalid selection') \u2014 matches contract.\n\n**task-1-3** \u2014 feedback handler 'Before prompting' block\nAC: 'The feedback handler section documents per-question lookup, partial-match merging, the all-matched fast path, the single merged provide_input call after merging, and the user-facing auto-resolution note.'\nVerified \u2705:\n- L766-790: 'Before prompting \u2014 consult resolved_questions_map for each question' block is prepended to '### For feedback type decisions:' (section header at L764).\n- L768-772: Per-question lookup with id fallback documented \u2014 'use the question's id field if present, otherwise fall back to q-<1-based index>' matches the existing fallback convention at L804.\n- L771: Same normalization rule applied on lookup.\n- L773-781: All-matched fast path \u2014 skips AskUserQuestion entirely, single provide_input with {\"action\": \"submit_feedback\", \"answers\": {...}}, plus auto-resolution note naming decision_id and listed question IDs.\n- L782-789: Partial-match branch \u2014 presents only unmatched questions (with the existing up-to-4-per-call grouping rule), merges prefilled + new answers, submits a single merged provide_input payload (explicitly 'single merged payload'), and prints note naming decision_id + which IDs were prefilled vs prompted.\n- L790: No-match fallthrough preserves existing prompt flow silently.\n\n### Contract integrity / other checks\n- files_affected: only skills/sdlc/SKILL.md as required by all three tasks. \u2705\n- Diff is +55 lines, markdown-only, consistent with PR title/description 'Skill-only change (Option 1 from the issue); orchestrator protocol is untouched'. \u2705\n- Placement: all three insertions are positioned exactly where the contract specifies (Resolved Questions Map above phase_gate section; Before prompting blocks prepended to choice/feedback sections respectively). \u2705\n- Symmetric normalization: writer (L667) and both readers (L734, L736, L771) use identical question.strip().lower() \u2014 lookups will match. Answer is stored verbatim so downstream exact-option comparison works. \u2705\n- Commit atomicity: single commit c0c57a55d closes all three tasks cohesively; commit message enumerates the changes and references tasks 1-1, 1-2, 1-3. \u2705\n- No regressions: existing Step 5 display block, existing choice/feedback prompt flows, and existing 'Submitting choice/feedback responses' section (L806+) are preserved \u2014 the new blocks only *prepend* fast-paths. \u2705\n\n### Non-blocking\n- L775, L784: Use JS-style spread syntax ({ ...prefilled_answers }) in the illustrative JSON. It's clearly pseudocode in a spec document, but a stricter '{\"q-1\": \"answer1\", \"q-2\": \"answer2\"}' example would be slightly less ambiguous for implementers.\n- L788 example note says 'prefilled [q-1] from captured context; prompted for [q-2, q-3]' while L779 uses 'answers for [q-1, q-2] prefilled from captured context'. Two slightly different phrasings for the auto-resolution note across the all-matched vs partial-match branches \u2014 both satisfy the AC ('naming decision ID and which question IDs were auto-resolved'), just minor cosmetic inconsistency.\n- L746 goes slightly beyond the contract by explicitly calling out 'free-text / \"Other\" value' as an incompatible-option case \u2014 this is a helpful clarification and still within the 'fall through on no-match or incompatible option' AC bucket.\n\nAll acceptance criteria met. No blocking issues.\n"
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-23T00:14:27.923644+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "019dd6f1-9654-40",
+    "pipeline_id": "issue-1905",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_contract (pending_acks)",
+    "body": "Agent reviewer_contract cannot confirm: producers ['tester'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-23T00:14:30.600301+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e4423367-407e-4d",
+    "pipeline_id": "issue-1905",
+    "from_role": "reviewer_code",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for coder",
+    "body": "\n## Review Summary\n\nReviewed the single changed source file (**skills/sdlc/SKILL.md**, +55 lines). The change is markdown-only (behavior spec); no code paths, no tests, no security-sensitive surfaces. I verified each insertion against the three tasks in the contract, traced the normalization contract end-to-end between writer and readers, and checked interaction with the existing Step 5 'Deduplication' paragraph.\n\n### File-by-file analysis\n\n**skills/sdlc/SKILL.md** \u2014 4 hunks:\n\n1. **New `### Resolved Questions Map` subsection (lines 589\u2013598)** \u2014 task-1-1 first half. Correctly placed above `### For phase_gate decisions:` (line 600). Defines session-scoped dict, states normalization (`strip().lower()`) with a symmetry requirement on reads and writes, specifies the answer value is stored verbatim (critical for the downstream option match), names writers/readers, and handles the 'map doesn't exist yet' edge case by treating it as empty. \u2714\n\n2. **Step 5 addition (line 667)** \u2014 task-1-1 second half. Instruction to store each captured answer in the map keyed by normalized question text runs alongside (not instead of) the existing Resolved Questions display block. The wording 'both must be populated' is explicit. \u2714\n\n3. **`choice` handler \"Before prompting\" block (lines 732\u2013746)** \u2014 task-1-2. Prepended above the prompt flow. Normalizes with `decision.question.strip().lower()`, matches each option using the same normalization, sends the verbatim option text (not the normalized form) in `{\"action\": \"select\", \"selected\": \u2026}`, prints the exact note format required by the contract: `Auto-resolved <decision_id>: selected '<option>' from captured context.`, and explicitly falls through on no-match or free-text/'Other' answers that have no compatible option. Sending the verbatim option (rather than the stored answer's casing) is important for the orchestrator's resolution matching \u2014 the implementation gets this right. \u2714\n\n4. **`feedback` handler \"Before prompting\" block (lines 766\u2013790)** \u2014 task-1-3. Per-question lookup, correct `id` \u2192 `q-<1-based index>` fallback matching the existing fallback paragraph, all-matched fast path (skip AskUserQuestion), partial-match path (present only unmatched, merge with `prefilled_answers` first then `new_answers`, single merged `provide_input`), and a 'no-matches' case added for robustness. Notes name the decision ID and the affected question IDs; the partial-match note also lists the prompted IDs for transparency. \u2714\n\n### Correctness checks\n\n- **Normalization symmetry**: writer (step 5) uses `question.strip().lower()` as the key; reader for choice uses `decision.question.strip().lower()`; reader for feedback uses `question.question.strip().lower()`. Option comparison on the choice side uses the same rule on both operands (`option.strip().lower() == stored_answer.strip().lower()`). Consistent \u2014 no asymmetric-normalization bug.\n- **Interaction with the existing Step 5 \"Deduplication\" paragraph (line 652)**: if a draft question collides with a pending_decision in the same batch, Step 5 skips it and no map entry is written. The choice/feedback handler in that batch then consults the empty map and falls through to prompting \u2014 correct, preserves the existing same-batch dedup behavior and avoids double-prompting in the across-batch scenario that #1905 targets.\n- **Overwrite semantics**: explicitly documented ('newer answers overwrite older ones at the same normalized key') matching the analysis.\n- **Auto-submission payload shapes** match the existing handler payloads exactly (`{\"action\": \"select\", ...}` and `{\"action\": \"submit_feedback\", \"answers\": {...}}`), so orchestrator `_parse_resolution` parsing is unchanged. No protocol change.\n- **Transparency requirement** from the issue ('A message is logged/displayed to the user summarizing which decisions were auto-resolved'): satisfied by the one-line note on every auto-resolution path (choice full-match, feedback all-matched, feedback partial). No silent auto-resolutions.\n- **Fall-through on unsupported match**: free-text 'Other' answers that don't appear in `decision.options` fall through \u2014 avoids forcing an invalid selection.\n- **No clearing between /sdlc invocations in the same session**: acknowledged and in-scope per the analysis; theoretical cross-pipeline collision on identical normalized question text is a documented non-goal.\n\n### Security / robustness\n\nNo security surface changed \u2014 this is a markdown behavior spec, not executable code. No new inputs, no new network calls, no credentials. Robustness is fine: the 'map doesn't exist' defensive check and the fall-through paths mean the worst-case behavior is exactly the current behavior (prompt the user).\n\n### Non-blocking\n\n- **skills/sdlc/SKILL.md:746** \u2014 The '(or the map doesn't exist yet)' clause in choice step 2 already covers the case where the map is uninitialized; step 5 restating the 'Other' fall-through is slightly redundant with the option-matching rule in step 3 (which would naturally fail to find a match). Minor prose overlap; not a correctness issue.\n- **skills/sdlc/SKILL.md:779** \u2014 The all-matched feedback note example uses the literal token `[q-1, q-2]`; if a decision uses explicit `id`s (e.g., 'Q1' from `egg-contract add-feedback`) the skill should substitute those rather than the fallback form. The 'for example' caveat makes this clear to the model, but a one-line note that 'use whichever key form was chosen at lookup time' would remove ambiguity.\n- **skills/sdlc/SKILL.md:732** \u2014 Auto-resolved choice decisions skip displaying `draft_content`. This is correct (the user already answered the question, no need to re-show context), but worth an explicit sentence in the 'Before prompting' block if someone later wonders why the draft isn't shown for auto-resolutions.\n- **Session hygiene** \u2014 nothing clears the map between separate `/sdlc` invocations in the same interactive session. In practice collisions on identical normalized question text across unrelated issues are unlikely, but a future enhancement could clear the map at `submit_task` time. Out of scope for this PR.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "skills/sdlc/SKILL.md"
+        ],
+        "reason": "\n## Review Summary\n\nReviewed the single changed source file (**skills/sdlc/SKILL.md**, +55 lines). The change is markdown-only (behavior spec); no code paths, no tests, no security-sensitive surfaces. I verified each insertion against the three tasks in the contract, traced the normalization contract end-to-end between writer and readers, and checked interaction with the existing Step 5 'Deduplication' paragraph.\n\n### File-by-file analysis\n\n**skills/sdlc/SKILL.md** \u2014 4 hunks:\n\n1. **New `### Resolved Questions Map` subsection (lines 589\u2013598)** \u2014 task-1-1 first half. Correctly placed above `### For phase_gate decisions:` (line 600). Defines session-scoped dict, states normalization (`strip().lower()`) with a symmetry requirement on reads and writes, specifies the answer value is stored verbatim (critical for the downstream option match), names writers/readers, and handles the 'map doesn't exist yet' edge case by treating it as empty. \u2714\n\n2. **Step 5 addition (line 667)** \u2014 task-1-1 second half. Instruction to store each captured answer in the map keyed by normalized question text runs alongside (not instead of) the existing Resolved Questions display block. The wording 'both must be populated' is explicit. \u2714\n\n3. **`choice` handler \"Before prompting\" block (lines 732\u2013746)** \u2014 task-1-2. Prepended above the prompt flow. Normalizes with `decision.question.strip().lower()`, matches each option using the same normalization, sends the verbatim option text (not the normalized form) in `{\"action\": \"select\", \"selected\": \u2026}`, prints the exact note format required by the contract: `Auto-resolved <decision_id>: selected '<option>' from captured context.`, and explicitly falls through on no-match or free-text/'Other' answers that have no compatible option. Sending the verbatim option (rather than the stored answer's casing) is important for the orchestrator's resolution matching \u2014 the implementation gets this right. \u2714\n\n4. **`feedback` handler \"Before prompting\" block (lines 766\u2013790)** \u2014 task-1-3. Per-question lookup, correct `id` \u2192 `q-<1-based index>` fallback matching the existing fallback paragraph, all-matched fast path (skip AskUserQuestion), partial-match path (present only unmatched, merge with `prefilled_answers` first then `new_answers`, single merged `provide_input`), and a 'no-matches' case added for robustness. Notes name the decision ID and the affected question IDs; the partial-match note also lists the prompted IDs for transparency. \u2714\n\n### Correctness checks\n\n- **Normalization symmetry**: writer (step 5) uses `question.strip().lower()` as the key; reader for choice uses `decision.question.strip().lower()`; reader for feedback uses `question.question.strip().lower()`. Option comparison on the choice side uses the same rule on both operands (`option.strip().lower() == stored_answer.strip().lower()`). Consistent \u2014 no asymmetric-normalization bug.\n- **Interaction with the existing Step 5 \"Deduplication\" paragraph (line 652)**: if a draft question collides with a pending_decision in the same batch, Step 5 skips it and no map entry is written. The choice/feedback handler in that batch then consults the empty map and falls through to prompting \u2014 correct, preserves the existing same-batch dedup behavior and avoids double-prompting in the across-batch scenario that #1905 targets.\n- **Overwrite semantics**: explicitly documented ('newer answers overwrite older ones at the same normalized key') matching the analysis.\n- **Auto-submission payload shapes** match the existing handler payloads exactly (`{\"action\": \"select\", ...}` and `{\"action\": \"submit_feedback\", \"answers\": {...}}`), so orchestrator `_parse_resolution` parsing is unchanged. No protocol change.\n- **Transparency requirement** from the issue ('A message is logged/displayed to the user summarizing which decisions were auto-resolved'): satisfied by the one-line note on every auto-resolution path (choice full-match, feedback all-matched, feedback partial). No silent auto-resolutions.\n- **Fall-through on unsupported match**: free-text 'Other' answers that don't appear in `decision.options` fall through \u2014 avoids forcing an invalid selection.\n- **No clearing between /sdlc invocations in the same session**: acknowledged and in-scope per the analysis; theoretical cross-pipeline collision on identical normalized question text is a documented non-goal.\n\n### Security / robustness\n\nNo security surface changed \u2014 this is a markdown behavior spec, not executable code. No new inputs, no new network calls, no credentials. Robustness is fine: the 'map doesn't exist' defensive check and the fall-through paths mean the worst-case behavior is exactly the current behavior (prompt the user).\n\n### Non-blocking\n\n- **skills/sdlc/SKILL.md:746** \u2014 The '(or the map doesn't exist yet)' clause in choice step 2 already covers the case where the map is uninitialized; step 5 restating the 'Other' fall-through is slightly redundant with the option-matching rule in step 3 (which would naturally fail to find a match). Minor prose overlap; not a correctness issue.\n- **skills/sdlc/SKILL.md:779** \u2014 The all-matched feedback note example uses the literal token `[q-1, q-2]`; if a decision uses explicit `id`s (e.g., 'Q1' from `egg-contract add-feedback`) the skill should substitute those rather than the fallback form. The 'for example' caveat makes this clear to the model, but a one-line note that 'use whichever key form was chosen at lookup time' would remove ambiguity.\n- **skills/sdlc/SKILL.md:732** \u2014 Auto-resolved choice decisions skip displaying `draft_content`. This is correct (the user already answered the question, no need to re-show context), but worth an explicit sentence in the 'Before prompting' block if someone later wonders why the draft isn't shown for auto-resolutions.\n- **Session hygiene** \u2014 nothing clears the map between separate `/sdlc` invocations in the same interactive session. In practice collisions on identical normalized question text across unrelated issues are unlikely, but a future enhancement could clear the map at `submit_task` time. Out of scope for this PR.\n"
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-23T00:15:41.495573+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "58b9377c-8a95-49",
+    "pipeline_id": "issue-1905",
+    "from_role": "reviewer_code",
+    "to_role": "documenter",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for documenter",
+    "body": "\n## Review Summary\n\nReviewed both documentation files in the documenter's proposal: `docs/guides/sdlc-pipeline.md` (+2) and `docs/hitl-decisions.md` (+52, +1 entry in Related Files). Cross-checked every cross-reference anchor, verified technical accuracy against the SKILL.md changes in commit c0c57a55d, and confirmed referenced symbols exist in the orchestrator codebase.\n\n### File-by-file analysis\n\n**docs/guides/sdlc-pipeline.md** \u2014 1 paragraph inserted at line 677, immediately after the existing paragraph about `_queue_and_await_contract_decisions()`. Logical placement: this is exactly where the reader learns that contract-embedded decisions get promoted post-gate, so the skill's auto-resolution behavior is the natural next beat. Content correctly identifies:\n\n- The refiner's `<!-- egg-hitl-decision id=decision-N -->` marker convention\n- Step 5 of the phase_gate handler as the capture point\n- The promotion mechanism (`_queue_and_await_contract_decisions()` \u2014 verified to exist at `orchestrator/routes/pipelines.py:8751`)\n- The auto-resolution behavior and the exact one-line note format (`Auto-resolved <decision_id>: selected '<option>' from captured context.`) matching the SKILL.md spec verbatim\n- Fall-through on rephrasings or option-incompatible answers \u2014 consistent with SKILL.md:746\n\nCross-reference `[HITL Decisions \u00a7 `/sdlc` Skill: Auto-Resolving Repeated Questions](../hitl-decisions.md#sdlc-skill-auto-resolving-repeated-questions)` \u2014 anchor matches the heading `## `/sdlc` Skill: Auto-Resolving Repeated Questions` (GitHub's slugification: strip `/`, lowercase, hyphenate \u2192 `sdlc-skill-auto-resolving-repeated-questions`). \u2714\n\n**docs/hitl-decisions.md** \u2014 New `## `/sdlc` Skill: Auto-Resolving Repeated Questions` section (lines 307\u2013356) plus an entry in `## Related Files` for `skills/sdlc/SKILL.md`. Content verified:\n\n- **Opening paragraph** correctly frames the problem (draft-embedded decisions + standalone contract decisions = double prompt) and links to `#contract-decision-bridge` \u2014 verified that `### Contract Decision Bridge` exists at line 231 (anchor `contract-decision-bridge` \u2714).\n- **Resolved Questions Map table**: normalization rule (`question.strip().lower()`), verbatim-answer storage \u2014 both match SKILL.md:593 exactly.\n- **Auto-Resolution Flow**: the `choice` subsection reproduces the exact JSON payload `{\"action\": \"select\", \"selected\": \"<matched option>\"}` and the exact note format from SKILL.md:739\u2013744. The `feedback` subsection correctly describes the per-question lookup, the `id` \u2192 `q-<1-based index>` fallback, the all-matched fast path, the prefilled+unmatched merge, and the single merged `provide_input` \u2014 all consistent with SKILL.md:768\u2013790.\n- **Transparency** \u2014 framed as a hard requirement (correctly reflects SKILL.md's treatment), notes that an unexpected auto-resolution can be corrected at the next phase_gate via `request_changes` / `change_approach` \u2014 accurate.\n- **Scope and Non-Goals** \u2014 four bullets, all accurate:\n  - Skill-only change (orchestrator protocol untouched) \u2714\n  - Refiner-side rephrasing not handled (fuzzy match is an explicit non-goal) \u2714\n  - Map is session-scoped, not persisted; overwrite-on-duplicate semantics documented \u2714\n  - Prompt-driven mode (`egg-sdlc`, `sandbox/egg_lib/sdlc_hitl.py`) is unaffected \u2014 verified: `sdlc_hitl.py` is the terminal-UI dispatcher (referenced at line 221 of this same doc) and the SKILL.md change does not touch Python code. \u2714\n\n**Related Files addition** \u2014 The new entry for `skills/sdlc/SKILL.md` is inserted in the existing list; placement is reasonable (alongside the other file-level pointers).\n\n### Accuracy / fidelity checks\n\n- JSON payloads in the docs match the JSON payloads in SKILL.md byte-for-byte (same field names, same ordering, same matched-option-verbatim wording).\n- Note-format strings match (`Auto-resolved <decision_id>: selected '<option>' from captured context.`).\n- The claim \"promoted to the orchestrator queue by `_queue_and_await_contract_decisions()`\" matches the function's actual role (verified via grep: `orchestrator/routes/pipelines.py:8751` and test coverage in `test_contract_decision_bridge.py`).\n- No public API surface is misrepresented \u2014 the docs explicitly say the orchestrator protocol and `_parse_resolution` are unchanged, matching reality.\n- No stale or broken cross-references.\n\n### Non-blocking\n\n- **docs/hitl-decisions.md:309** \u2014 The paragraph says 'Once those same questions subsequently register as standalone contract decisions, which the server-side bridge promotes to the orchestrator's decision queue after the phase_gate resolves.' This is a fused sentence \u2014 readable, but a period before 'which' would be clearer. Style nit.\n- **docs/hitl-decisions.md:355** \u2014 'Across multiple phase_gates in the same session the map accumulates; newer answers for a duplicate normalized question overwrite older ones.' Consider clarifying that 'session' means a single `/sdlc` invocation (the preceding bullet already implies this, but a reader skipping bullets might miss it). Minor.\n- **docs/guides/sdlc-pipeline.md:677** \u2014 The paragraph lives inside the 'Decision Sync to Contract' subsection, which is technically about the contract\u2194orchestrator bridge. The new material is about the skill's in-memory reuse of answers, which is only indirectly related. Placement is still defensible (the bridge is what surfaces the duplicate decisions), but a separate subsection under a different heading could also work. Not a blocker.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "docs/guides/sdlc-pipeline.md",
+          "docs/hitl-decisions.md"
+        ],
+        "reason": "\n## Review Summary\n\nReviewed both documentation files in the documenter's proposal: `docs/guides/sdlc-pipeline.md` (+2) and `docs/hitl-decisions.md` (+52, +1 entry in Related Files). Cross-checked every cross-reference anchor, verified technical accuracy against the SKILL.md changes in commit c0c57a55d, and confirmed referenced symbols exist in the orchestrator codebase.\n\n### File-by-file analysis\n\n**docs/guides/sdlc-pipeline.md** \u2014 1 paragraph inserted at line 677, immediately after the existing paragraph about `_queue_and_await_contract_decisions()`. Logical placement: this is exactly where the reader learns that contract-embedded decisions get promoted post-gate, so the skill's auto-resolution behavior is the natural next beat. Content correctly identifies:\n\n- The refiner's `<!-- egg-hitl-decision id=decision-N -->` marker convention\n- Step 5 of the phase_gate handler as the capture point\n- The promotion mechanism (`_queue_and_await_contract_decisions()` \u2014 verified to exist at `orchestrator/routes/pipelines.py:8751`)\n- The auto-resolution behavior and the exact one-line note format (`Auto-resolved <decision_id>: selected '<option>' from captured context.`) matching the SKILL.md spec verbatim\n- Fall-through on rephrasings or option-incompatible answers \u2014 consistent with SKILL.md:746\n\nCross-reference `[HITL Decisions \u00a7 `/sdlc` Skill: Auto-Resolving Repeated Questions](../hitl-decisions.md#sdlc-skill-auto-resolving-repeated-questions)` \u2014 anchor matches the heading `## `/sdlc` Skill: Auto-Resolving Repeated Questions` (GitHub's slugification: strip `/`, lowercase, hyphenate \u2192 `sdlc-skill-auto-resolving-repeated-questions`). \u2714\n\n**docs/hitl-decisions.md** \u2014 New `## `/sdlc` Skill: Auto-Resolving Repeated Questions` section (lines 307\u2013356) plus an entry in `## Related Files` for `skills/sdlc/SKILL.md`. Content verified:\n\n- **Opening paragraph** correctly frames the problem (draft-embedded decisions + standalone contract decisions = double prompt) and links to `#contract-decision-bridge` \u2014 verified that `### Contract Decision Bridge` exists at line 231 (anchor `contract-decision-bridge` \u2714).\n- **Resolved Questions Map table**: normalization rule (`question.strip().lower()`), verbatim-answer storage \u2014 both match SKILL.md:593 exactly.\n- **Auto-Resolution Flow**: the `choice` subsection reproduces the exact JSON payload `{\"action\": \"select\", \"selected\": \"<matched option>\"}` and the exact note format from SKILL.md:739\u2013744. The `feedback` subsection correctly describes the per-question lookup, the `id` \u2192 `q-<1-based index>` fallback, the all-matched fast path, the prefilled+unmatched merge, and the single merged `provide_input` \u2014 all consistent with SKILL.md:768\u2013790.\n- **Transparency** \u2014 framed as a hard requirement (correctly reflects SKILL.md's treatment), notes that an unexpected auto-resolution can be corrected at the next phase_gate via `request_changes` / `change_approach` \u2014 accurate.\n- **Scope and Non-Goals** \u2014 four bullets, all accurate:\n  - Skill-only change (orchestrator protocol untouched) \u2714\n  - Refiner-side rephrasing not handled (fuzzy match is an explicit non-goal) \u2714\n  - Map is session-scoped, not persisted; overwrite-on-duplicate semantics documented \u2714\n  - Prompt-driven mode (`egg-sdlc`, `sandbox/egg_lib/sdlc_hitl.py`) is unaffected \u2014 verified: `sdlc_hitl.py` is the terminal-UI dispatcher (referenced at line 221 of this same doc) and the SKILL.md change does not touch Python code. \u2714\n\n**Related Files addition** \u2014 The new entry for `skills/sdlc/SKILL.md` is inserted in the existing list; placement is reasonable (alongside the other file-level pointers).\n\n### Accuracy / fidelity checks\n\n- JSON payloads in the docs match the JSON payloads in SKILL.md byte-for-byte (same field names, same ordering, same matched-option-verbatim wording).\n- Note-format strings match (`Auto-resolved <decision_id>: selected '<option>' from captured context.`).\n- The claim \"promoted to the orchestrator queue by `_queue_and_await_contract_decisions()`\" matches the function's actual role (verified via grep: `orchestrator/routes/pipelines.py:8751` and test coverage in `test_contract_decision_bridge.py`).\n- No public API surface is misrepresented \u2014 the docs explicitly say the orchestrator protocol and `_parse_resolution` are unchanged, matching reality.\n- No stale or broken cross-references.\n\n### Non-blocking\n\n- **docs/hitl-decisions.md:309** \u2014 The paragraph says 'Once those same questions subsequently register as standalone contract decisions, which the server-side bridge promotes to the orchestrator's decision queue after the phase_gate resolves.' This is a fused sentence \u2014 readable, but a period before 'which' would be clearer. Style nit.\n- **docs/hitl-decisions.md:355** \u2014 'Across multiple phase_gates in the same session the map accumulates; newer answers for a duplicate normalized question overwrite older ones.' Consider clarifying that 'session' means a single `/sdlc` invocation (the preceding bullet already implies this, but a reader skipping bullets might miss it). Minor.\n- **docs/guides/sdlc-pipeline.md:677** \u2014 The paragraph lives inside the 'Decision Sync to Contract' subsection, which is technically about the contract\u2194orchestrator bridge. The new material is about the skill's in-memory reuse of answers, which is only indirectly related. Placement is still defensible (the bridge is what surfaces the duplicate decisions), but a separate subsection under a different heading could also work. Not a blocker.\n"
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-23T00:17:21.535362+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "9ac50d24-84b9-4a",
+    "pipeline_id": "issue-1905",
+    "from_role": "orchestrator",
+    "to_role": "documenter",
+    "message_type": "STATUS",
+    "subject": "All reviewers have ACKed \u2014 ready to confirm",
+    "body": "All assigned reviewers have ACKed your proposal (version 1). Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "fully_acked": true,
+      "version": 1
+    },
+    "timestamp": "2026-04-23T00:17:21.535400+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "67706208-4a28-4e",
+    "pipeline_id": "issue-1905",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by documenter (pending_acks)",
+    "body": "Agent documenter cannot confirm: producers ['tester'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-23T00:17:27.132647+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "31fe79f3-b59a-4c",
+    "pipeline_id": "issue-1905",
+    "from_role": "tester",
+    "to_role": "coder",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from tester for coder",
+    "body": "Reviewed skills/sdlc/SKILL.md diff at c0c57a55df (commit cb7d54770 \u2192 ea8d5fde7). Verified all three contract tasks.\n\ntask-1-1 (### Resolved Questions Map + Step 5 populate)\n- New ### Resolved Questions Map subsection sits at line 589 above ### For `phase_gate` decisions: as specified, and defines `resolved_questions_map` as a session-scoped in-memory dict with `question.strip().lower()` normalization, explicit no-persistence scope, and both writers/readers named.\n- Step 5 (line 667) adds the populate instruction adjacent to the existing `## Resolved Questions` display block, keyed by the normalized question text with the user's answer verbatim. \"Both must be populated\" is called out explicitly.\n- Also covers the \"map doesn't exist yet\" fallthrough for defensive reads.\n\ntask-1-2 (### For `choice` type decisions: \u2014 Before prompting)\n- Paragraph is prepended to the choice handler (line 732), before the legacy AskUserQuestion flow.\n- Documents the full chain: normalized_q = decision.question.strip().lower(); lookup; compare stored answer against each decision.options entry with the same normalization; auto-submit `{\"action\": \"select\", \"selected\": \"<matched option verbatim>\"}` via provide_input; print `Auto-resolved <decision_id>: selected '<option>' from captured context.`; fall through on no match, missing map, or stored free-text / \"Other\" that isn't in options. \"Use the option text from decision.options, not the normalized form\" is explicit \u2014 good call.\n\ntask-1-3 (### For `feedback` type decisions: \u2014 Before prompting)\n- Paragraph is prepended to the feedback handler (line 766).\n- Initializes prefilled_answers dict + unmatched_questions list; iterates the decision's questions; uses question.id or q-<1-based index> as key; checks `resolved_questions_map[normalized_q]`; stores matches verbatim.\n- All-matched fast path skips AskUserQuestion and submits directly.\n- Partial match path presents only unmatched questions via AskUserQuestion, merges into a single `{\"action\": \"submit_feedback\", \"answers\": {...}}` provide_input call.\n- Auto-resolution note names the decision_id and the prefilled/prompted question IDs.\n- Falls back silently (no note) when prefilled_answers is empty.\n\nChecks run on the merged branch (5d41669bb + my test commit e60048adf):\n- make lint-python \u2192 ruff + ruff format + mypy all clean.\n- make lint \u2192 shellcheck + custom checks clean (yamllint/hadolint/actionlint intentionally unavailable in sandbox).\n- HITL-focused pytest slice (tests/sandbox/test_sdlc_hitl.py, tests/sandbox/test_sdlc_cli.py, tests/workflows/test_hitl_integration.py) \u2192 199 passed.\n- New tests/test_sdlc_skill_resolved_questions_map.py \u2192 26 passed.\n- Full pytest run shows 50 failures / 27 errors in orchestrator/tests/test_kubernetes_client.py + test_gateway_client.py, all pre-existing (AttributeError: module 'kubernetes.client' has no attribute 'V1SecurityContext') \u2014 unrelated to this markdown-only change.\n\n### Non-blocking\n- skills/sdlc/SKILL.md:746 \u2014 the fall-through clause bundles no-match and free-text/\"Other\" in one bullet. If a future refiner wants to distinguish them (e.g. log \"no compatible option\" vs. \"no captured answer\"), splitting would help; as-is it's fine because both paths do the same thing (fall through, no note).\n- skills/sdlc/SKILL.md:790 \u2014 \"No matches: if prefilled_answers is empty after the scan, fall through ... without any auto-resolution note.\" Slightly inconsistent with the partial-match bullet which prints a note; that's intentional here (empty = nothing to report) but a one-line \"logically: nothing was auto-resolved, so no note\" comment would prevent a future reader from 'fixing' it.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "skills/sdlc/SKILL.md"
+        ],
+        "reason": "Reviewed skills/sdlc/SKILL.md diff at c0c57a55df (commit cb7d54770 \u2192 ea8d5fde7). Verified all three contract tasks.\n\ntask-1-1 (### Resolved Questions Map + Step 5 populate)\n- New ### Resolved Questions Map subsection sits at line 589 above ### For `phase_gate` decisions: as specified, and defines `resolved_questions_map` as a session-scoped in-memory dict with `question.strip().lower()` normalization, explicit no-persistence scope, and both writers/readers named.\n- Step 5 (line 667) adds the populate instruction adjacent to the existing `## Resolved Questions` display block, keyed by the normalized question text with the user's answer verbatim. \"Both must be populated\" is called out explicitly.\n- Also covers the \"map doesn't exist yet\" fallthrough for defensive reads.\n\ntask-1-2 (### For `choice` type decisions: \u2014 Before prompting)\n- Paragraph is prepended to the choice handler (line 732), before the legacy AskUserQuestion flow.\n- Documents the full chain: normalized_q = decision.question.strip().lower(); lookup; compare stored answer against each decision.options entry with the same normalization; auto-submit `{\"action\": \"select\", \"selected\": \"<matched option verbatim>\"}` via provide_input; print `Auto-resolved <decision_id>: selected '<option>' from captured context.`; fall through on no match, missing map, or stored free-text / \"Other\" that isn't in options. \"Use the option text from decision.options, not the normalized form\" is explicit \u2014 good call.\n\ntask-1-3 (### For `feedback` type decisions: \u2014 Before prompting)\n- Paragraph is prepended to the feedback handler (line 766).\n- Initializes prefilled_answers dict + unmatched_questions list; iterates the decision's questions; uses question.id or q-<1-based index> as key; checks `resolved_questions_map[normalized_q]`; stores matches verbatim.\n- All-matched fast path skips AskUserQuestion and submits directly.\n- Partial match path presents only unmatched questions via AskUserQuestion, merges into a single `{\"action\": \"submit_feedback\", \"answers\": {...}}` provide_input call.\n- Auto-resolution note names the decision_id and the prefilled/prompted question IDs.\n- Falls back silently (no note) when prefilled_answers is empty.\n\nChecks run on the merged branch (5d41669bb + my test commit e60048adf):\n- make lint-python \u2192 ruff + ruff format + mypy all clean.\n- make lint \u2192 shellcheck + custom checks clean (yamllint/hadolint/actionlint intentionally unavailable in sandbox).\n- HITL-focused pytest slice (tests/sandbox/test_sdlc_hitl.py, tests/sandbox/test_sdlc_cli.py, tests/workflows/test_hitl_integration.py) \u2192 199 passed.\n- New tests/test_sdlc_skill_resolved_questions_map.py \u2192 26 passed.\n- Full pytest run shows 50 failures / 27 errors in orchestrator/tests/test_kubernetes_client.py + test_gateway_client.py, all pre-existing (AttributeError: module 'kubernetes.client' has no attribute 'V1SecurityContext') \u2014 unrelated to this markdown-only change.\n\n### Non-blocking\n- skills/sdlc/SKILL.md:746 \u2014 the fall-through clause bundles no-match and free-text/\"Other\" in one bullet. If a future refiner wants to distinguish them (e.g. log \"no compatible option\" vs. \"no captured answer\"), splitting would help; as-is it's fine because both paths do the same thing (fall through, no note).\n- skills/sdlc/SKILL.md:790 \u2014 \"No matches: if prefilled_answers is empty after the scan, fall through ... without any auto-resolution note.\" Slightly inconsistent with the partial-match bullet which prints a note; that's intentional here (empty = nothing to report) but a one-line \"logically: nothing was auto-resolved, so no note\" comment would prevent a future reader from 'fixing' it."
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-23T00:21:46.781827+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "3e81682b-a3e9-4a",
+    "pipeline_id": "issue-1905",
+    "from_role": "orchestrator",
+    "to_role": "coder",
+    "message_type": "STATUS",
+    "subject": "All reviewers have ACKed \u2014 ready to confirm",
+    "body": "All assigned reviewers have ACKed your proposal (version 1). Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "fully_acked": true,
+      "version": 1
+    },
+    "timestamp": "2026-04-23T00:21:46.781840+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "041a6af1-6349-4a",
+    "pipeline_id": "issue-1905",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by coder (pending_acks)",
+    "body": "Agent coder cannot confirm: producers ['tester'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-23T00:21:54.660185+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e21ed620-26d9-4b",
+    "pipeline_id": "issue-1905",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from tester",
+    "body": "Tester attestation for issue-1905 (SKILL.md auto-resolve phase_gate follow-ups).\n\nAdded tests/test_sdlc_skill_resolved_questions_map.py (26 tests, all passing) \u2014 structural assertions that lock in the three contract tasks against the coder's commit c0c57a55d on skills/sdlc/SKILL.md:\n\n- task-1-1: `### Resolved Questions Map` subsection exists above the phase_gate handler, documents `resolved_questions_map` as session-scoped, spells out the `strip + lowercase` normalization, and Step 5 of the phase_gate handler populates the map adjacent to the Resolved Questions display block.\n- task-1-2: `### For choice type decisions:` begins with a `Before prompting` paragraph covering the lookup, option-compatibility check against decision.options with the same normalization, the `{\"action\": \"select\"}` provide_input payload, the `Auto-resolved <decision_id>: selected '<option>' from captured context.` note, and fall-through on no match / free-text / missing map.\n- task-1-3: `### For feedback type decisions:` begins with a `Before prompting` paragraph covering per-question lookup with id-or-`q-<n>` keys, prefilled-vs-unmatched split, all-matched fast path, single merged `{\"action\": \"submit_feedback\"}` provide_input call, and the auto-resolution note naming decision_id + prefilled IDs.\n\nSince SKILL.md is a markdown behavior spec executed by Claude at runtime (no Python to import), the tests operate on the file's text \u2014 they catch structural regression if a future refiner drops the required elements. The `_section()` helper skips fenced code blocks so embedded ``` ### ... ``` snippets are not mistaken for real section boundaries (a bug I hit on first run and fixed).\n\nChecks passed:\n- lint: `make lint` \u2014 ruff check + ruff format + mypy (187 source files) + shellcheck + custom checks all clean. yamllint/hadolint/actionlint are sandbox-unavailable and deliberately SKIP.\n- test: new tests/test_sdlc_skill_resolved_questions_map.py (26 passed) + HITL-focused slice tests/sandbox/test_sdlc_hitl.py + tests/sandbox/test_sdlc_cli.py + tests/workflows/test_hitl_integration.py (199 passed).\n\nFull suite: 12329 passed, 108 skipped, 50 failed + 27 errors. All failures/errors are pre-existing and environmental \u2014 `orchestrator/tests/test_kubernetes_client.py` and `test_gateway_client.py` fail with `AttributeError: module 'kubernetes.client' has no attribute 'V1SecurityContext'` (kubernetes library version mismatch in the sandbox). Zero of the failures touch skills/sdlc/, HITL, or sdlc_hitl code paths; a markdown-only change plus a new structural test file cannot plausibly have introduced them.\n\nACK sent to coder for commit c0c57a55d (all three tasks satisfied).",
+    "metadata": {
+      "payload": {
+        "summary": "Tester attestation for issue-1905 (SKILL.md auto-resolve phase_gate follow-ups).\n\nAdded tests/test_sdlc_skill_resolved_questions_map.py (26 tests, all passing) \u2014 structural assertions that lock in the three contract tasks against the coder's commit c0c57a55d on skills/sdlc/SKILL.md:\n\n- task-1-1: `### Resolved Questions Map` subsection exists above the phase_gate handler, documents `resolved_questions_map` as session-scoped, spells out the `strip + lowercase` normalization, and Step 5 of the phase_gate handler populates the map adjacent to the Resolved Questions display block.\n- task-1-2: `### For choice type decisions:` begins with a `Before prompting` paragraph covering the lookup, option-compatibility check against decision.options with the same normalization, the `{\"action\": \"select\"}` provide_input payload, the `Auto-resolved <decision_id>: selected '<option>' from captured context.` note, and fall-through on no match / free-text / missing map.\n- task-1-3: `### For feedback type decisions:` begins with a `Before prompting` paragraph covering per-question lookup with id-or-`q-<n>` keys, prefilled-vs-unmatched split, all-matched fast path, single merged `{\"action\": \"submit_feedback\"}` provide_input call, and the auto-resolution note naming decision_id + prefilled IDs.\n\nSince SKILL.md is a markdown behavior spec executed by Claude at runtime (no Python to import), the tests operate on the file's text \u2014 they catch structural regression if a future refiner drops the required elements. The `_section()` helper skips fenced code blocks so embedded ``` ### ... ``` snippets are not mistaken for real section boundaries (a bug I hit on first run and fixed).\n\nChecks passed:\n- lint: `make lint` \u2014 ruff check + ruff format + mypy (187 source files) + shellcheck + custom checks all clean. yamllint/hadolint/actionlint are sandbox-unavailable and deliberately SKIP.\n- test: new tests/test_sdlc_skill_resolved_questions_map.py (26 passed) + HITL-focused slice tests/sandbox/test_sdlc_hitl.py + tests/sandbox/test_sdlc_cli.py + tests/workflows/test_hitl_integration.py (199 passed).\n\nFull suite: 12329 passed, 108 skipped, 50 failed + 27 errors. All failures/errors are pre-existing and environmental \u2014 `orchestrator/tests/test_kubernetes_client.py` and `test_gateway_client.py` fail with `AttributeError: module 'kubernetes.client' has no attribute 'V1SecurityContext'` (kubernetes library version mismatch in the sandbox). Zero of the failures touch skills/sdlc/, HITL, or sdlc_hitl code paths; a markdown-only change plus a new structural test file cannot plausibly have introduced them.\n\nACK sent to coder for commit c0c57a55d (all three tasks satisfied).",
+        "attestation": {},
+        "artifacts": [
+          "tests/test_sdlc_skill_resolved_questions_map.py"
+        ],
+        "risk_considered": "",
+        "commit_sha": "e60048adffaf601f8d0c9eb7ee72072dc7e47349",
+        "files_changed": [
+          "tests/test_sdlc_skill_resolved_questions_map.py"
+        ],
+        "tests_run": [
+          "tests/test_sdlc_skill_resolved_questions_map.py",
+          "tests/sandbox/test_sdlc_hitl.py",
+          "tests/sandbox/test_sdlc_cli.py",
+          "tests/workflows/test_hitl_integration.py"
+        ],
+        "tasks_satisfied": [
+          "task-1-1",
+          "task-1-2",
+          "task-1-3"
+        ]
+      },
+      "version": 1,
+      "commit_sha": "e60048adffaf601f8d0c9eb7ee72072dc7e47349"
+    },
+    "timestamp": "2026-04-23T00:22:40.889573+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "d2130976-6cf1-4f",
+    "pipeline_id": "issue-1905",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by coder",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-23T00:22:48.046724+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "03fa9e15-357a-4f",
+    "pipeline_id": "issue-1905",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by documenter",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-23T00:22:48.059804+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "410af8f3-e4a6-4b",
+    "pipeline_id": "issue-1905",
+    "from_role": "reviewer_contract",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_contract",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-23T00:22:49.685968+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "e3e9ce33-a4e9-43",
+    "pipeline_id": "issue-1905",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by tester (pending_acks)",
+    "body": "Producer tester cannot confirm: not fully ACKed. Pending reviewers: ['reviewer_code']",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-23T00:22:59.162716+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "79db329e-6b28-44",
+    "pipeline_id": "issue-1905",
+    "from_role": "reviewer_code",
+    "to_role": "tester",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_code for tester",
+    "body": "\n## Review Summary\n\nReviewed the single added file `tests/test_sdlc_skill_resolved_questions_map.py` (378 lines, 26 test cases across 4 classes). **Executed the suite locally against the current SKILL.md \u2014 all 26 tests pass** (`python3 -m pytest tests/test_sdlc_skill_resolved_questions_map.py -v`: 26 passed in 0.34s). The suite is structural, not runtime \u2014 appropriate given SKILL.md is a markdown behavior spec interpreted by the `/sdlc` skill at runtime inside Claude Code, with no Python runtime to exercise.\n\n### File-by-file analysis\n\n**tests/test_sdlc_skill_resolved_questions_map.py** \u2014 placed at the repo-root `tests/` level alongside `test_anchor_schema.py`, `test_yaml_tasks_schema.py`, etc. Convention-consistent (pyproject.toml's pytest config discovers this path; the file uses `Path(__file__).resolve().parent.parent` to locate the project root matching existing tests).\n\nCoverage against contract tasks:\n\n- **task-1-1** (`TestResolvedQuestionsMapSection`, 6 tests):\n  - Subsection header exists\n  - Positioned before `### For phase_gate decisions` (so the definition is in scope before the handlers that use it)\n  - Names the `resolved_questions_map` identifier (backticked)\n  - Documents the normalization rule \u2014 accepts canonical `.strip().lower()` or a described equivalent (\"lowercase\" + \"strip\"/\"trim\"), which is a reasonable tolerance for future rewrites that preserve semantics\n  - Describes the map as session-scoped\n  - Step 5 references `resolved_questions_map` within 2000 characters of the existing \"Resolved Questions\" display block (anti-drift \u2014 prevents a future editor from putting the populate instruction somewhere unrelated)\n- **task-1-2** (`TestChoiceHandlerBeforePrompting`, 7 tests):\n  - Section exists\n  - `Before prompting` paragraph present\n  - Prepended (appears before `AskUserQuestion` and before the `<chosen option text>` legacy example)\n  - References `resolved_questions_map`\n  - Option compatibility check documented (either `decision.options` literal or \"options\" + \"normaliz\")\n  - Auto-submit payload `{\"action\": \"select\", \"selected\": ...}` via `provide_input`\n  - Auto-resolved note: both \"Auto-resolved\" and \"captured context\" substrings\n  - Fall-through on no match (\"fall through\" / \"fall back\" / \"fallback\")\n- **task-1-3** (`TestFeedbackHandlerBeforePrompting`, 9 tests):\n  - Section exists; `Before prompting` present and prepended before the legacy \"Feedback decisions include a `questions` array\" paragraph\n  - References `resolved_questions_map`\n  - Per-question iteration phrasing (\"for each\" / \"each entry\") + `q-` fallback\n  - Prefilled-answers and unmatched-questions collection both named\n  - All-matched fast path (accepts multiple phrasings \u2014 good)\n  - Single merged submit (\"merge\" + `\"action\": \"submit_feedback\"` + `provide_input`)\n  - Auto-resolved note present with \"captured context\" attribution\n- **File integrity** (`TestSkillFileIntegrity`, 3 tests): non-empty file, Phase 4 header survives, all three handler section headers survive. Catches accidental truncation or handler-section deletion.\n\n### Robustness of the `_section()` helper\n\nThe helper that slices SKILL.md sections is a potential source of false positives/negatives. Reviewed it carefully:\n- It tracks fenced code blocks via an `in_fence` flag that toggles on lines whose lstripped form starts with ```, so `##`/`###` headings inside fenced examples do NOT terminate sections. This is important because Step 5 of the phase_gate handler contains a formatting example with `## Resolved Questions` inside a fence \u2014 without the fence tracking, `_section()` would prematurely stop there.\n- `stop_at` defaults to `(\"### \", \"## \")`, correctly matching section boundaries at the same or higher level.\n- The helper is not exercised with a test of its own (it's an internal utility), but the 26 tests that depend on it all pass against SKILL.md \u2014 a reasonable indirect validation.\n\n### Execution verification\n\nRan the suite locally:\n```\n26 passed in 0.34s\n```\nNo skipped tests, no flakiness. Dependencies (`pytest`) available in system Python. The test suite is deterministic \u2014 pure string matching against a static file \u2014 so flakiness is not a concern.\n\n### Security / robustness\n\nNo security surface: the test reads SKILL.md read-only via a `Path.read_text()`. No subprocess, no network, no state. Robustness is fine.\n\n### Non-blocking\n\n- **tests/test_sdlc_skill_resolved_questions_map.py:273** \u2014 `legacy_idx_2 = section.find('\"submit_feedback\"')` is computed but the value is not referenced in the final assertion (only `legacy_idx_1` is compared against `bp_idx`). The `assert legacy_idx_2 != -1` line still exercises the find, but the variable is effectively dead. Minor cleanup.\n- **tests/test_sdlc_skill_resolved_questions_map.py:147** \u2014 The 2000-character proximity check between `resolved_questions_map` and `resolved questions` in Step 5 is a heuristic anti-drift rail. If a future edit legitimately moves the two references apart (e.g., one moves to an earlier step and the other stays in Step 5), this will false-positive. Arguably a feature (forces the editor to revisit the test), arguably brittle. Non-blocking.\n- **Functional coverage is out of scope** \u2014 these tests lock in the presence of contract-required text in SKILL.md; they do not exercise the runtime behavior (Claude Code interprets the spec at inference time). That is acknowledged in the module docstring and is the right call here. A future enhancement could mock a `/sdlc` session to validate the skill's behavior end-to-end, but that requires infrastructure not available in this PR's scope.\n- **No integration with pre-commit / CI wiring** changes needed \u2014 the file lives under `tests/` which is already part of `make test`, so the suite runs automatically in CI.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          "tests/test_sdlc_skill_resolved_questions_map.py"
+        ],
+        "reason": "\n## Review Summary\n\nReviewed the single added file `tests/test_sdlc_skill_resolved_questions_map.py` (378 lines, 26 test cases across 4 classes). **Executed the suite locally against the current SKILL.md \u2014 all 26 tests pass** (`python3 -m pytest tests/test_sdlc_skill_resolved_questions_map.py -v`: 26 passed in 0.34s). The suite is structural, not runtime \u2014 appropriate given SKILL.md is a markdown behavior spec interpreted by the `/sdlc` skill at runtime inside Claude Code, with no Python runtime to exercise.\n\n### File-by-file analysis\n\n**tests/test_sdlc_skill_resolved_questions_map.py** \u2014 placed at the repo-root `tests/` level alongside `test_anchor_schema.py`, `test_yaml_tasks_schema.py`, etc. Convention-consistent (pyproject.toml's pytest config discovers this path; the file uses `Path(__file__).resolve().parent.parent` to locate the project root matching existing tests).\n\nCoverage against contract tasks:\n\n- **task-1-1** (`TestResolvedQuestionsMapSection`, 6 tests):\n  - Subsection header exists\n  - Positioned before `### For phase_gate decisions` (so the definition is in scope before the handlers that use it)\n  - Names the `resolved_questions_map` identifier (backticked)\n  - Documents the normalization rule \u2014 accepts canonical `.strip().lower()` or a described equivalent (\"lowercase\" + \"strip\"/\"trim\"), which is a reasonable tolerance for future rewrites that preserve semantics\n  - Describes the map as session-scoped\n  - Step 5 references `resolved_questions_map` within 2000 characters of the existing \"Resolved Questions\" display block (anti-drift \u2014 prevents a future editor from putting the populate instruction somewhere unrelated)\n- **task-1-2** (`TestChoiceHandlerBeforePrompting`, 7 tests):\n  - Section exists\n  - `Before prompting` paragraph present\n  - Prepended (appears before `AskUserQuestion` and before the `<chosen option text>` legacy example)\n  - References `resolved_questions_map`\n  - Option compatibility check documented (either `decision.options` literal or \"options\" + \"normaliz\")\n  - Auto-submit payload `{\"action\": \"select\", \"selected\": ...}` via `provide_input`\n  - Auto-resolved note: both \"Auto-resolved\" and \"captured context\" substrings\n  - Fall-through on no match (\"fall through\" / \"fall back\" / \"fallback\")\n- **task-1-3** (`TestFeedbackHandlerBeforePrompting`, 9 tests):\n  - Section exists; `Before prompting` present and prepended before the legacy \"Feedback decisions include a `questions` array\" paragraph\n  - References `resolved_questions_map`\n  - Per-question iteration phrasing (\"for each\" / \"each entry\") + `q-` fallback\n  - Prefilled-answers and unmatched-questions collection both named\n  - All-matched fast path (accepts multiple phrasings \u2014 good)\n  - Single merged submit (\"merge\" + `\"action\": \"submit_feedback\"` + `provide_input`)\n  - Auto-resolved note present with \"captured context\" attribution\n- **File integrity** (`TestSkillFileIntegrity`, 3 tests): non-empty file, Phase 4 header survives, all three handler section headers survive. Catches accidental truncation or handler-section deletion.\n\n### Robustness of the `_section()` helper\n\nThe helper that slices SKILL.md sections is a potential source of false positives/negatives. Reviewed it carefully:\n- It tracks fenced code blocks via an `in_fence` flag that toggles on lines whose lstripped form starts with ```, so `##`/`###` headings inside fenced examples do NOT terminate sections. This is important because Step 5 of the phase_gate handler contains a formatting example with `## Resolved Questions` inside a fence \u2014 without the fence tracking, `_section()` would prematurely stop there.\n- `stop_at` defaults to `(\"### \", \"## \")`, correctly matching section boundaries at the same or higher level.\n- The helper is not exercised with a test of its own (it's an internal utility), but the 26 tests that depend on it all pass against SKILL.md \u2014 a reasonable indirect validation.\n\n### Execution verification\n\nRan the suite locally:\n```\n26 passed in 0.34s\n```\nNo skipped tests, no flakiness. Dependencies (`pytest`) available in system Python. The test suite is deterministic \u2014 pure string matching against a static file \u2014 so flakiness is not a concern.\n\n### Security / robustness\n\nNo security surface: the test reads SKILL.md read-only via a `Path.read_text()`. No subprocess, no network, no state. Robustness is fine.\n\n### Non-blocking\n\n- **tests/test_sdlc_skill_resolved_questions_map.py:273** \u2014 `legacy_idx_2 = section.find('\"submit_feedback\"')` is computed but the value is not referenced in the final assertion (only `legacy_idx_1` is compared against `bp_idx`). The `assert legacy_idx_2 != -1` line still exercises the find, but the variable is effectively dead. Minor cleanup.\n- **tests/test_sdlc_skill_resolved_questions_map.py:147** \u2014 The 2000-character proximity check between `resolved_questions_map` and `resolved questions` in Step 5 is a heuristic anti-drift rail. If a future edit legitimately moves the two references apart (e.g., one moves to an earlier step and the other stays in Step 5), this will false-positive. Arguably a feature (forces the editor to revisit the test), arguably brittle. Non-blocking.\n- **Functional coverage is out of scope** \u2014 these tests lock in the presence of contract-required text in SKILL.md; they do not exercise the runtime behavior (Claude Code interprets the spec at inference time). That is acknowledged in the module docstring and is the right call here. A future enhancement could mock a `/sdlc` session to validate the skill's behavior end-to-end, but that requires infrastructure not available in this PR's scope.\n- **No integration with pre-commit / CI wiring** changes needed \u2014 the file lives under `tests/` which is already part of `make test`, so the suite runs automatically in CI.\n"
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-23T00:24:31.562399+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "a83f126c-3b17-4f",
+    "pipeline_id": "issue-1905",
+    "from_role": "orchestrator",
+    "to_role": "tester",
+    "message_type": "STATUS",
+    "subject": "All reviewers have ACKed \u2014 ready to confirm",
+    "body": "All assigned reviewers have ACKed your proposal (version 1). Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "fully_acked": true,
+      "version": 1
+    },
+    "timestamp": "2026-04-23T00:24:31.562413+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "97e2a09a-fcbf-4c",
+    "pipeline_id": "issue-1905",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by tester",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-23T00:24:35.176400+00:00",
+    "phase": "implement"
+  },
+  {
+    "id": "fcd8bf64-7672-40",
+    "pipeline_id": "issue-1905",
+    "from_role": "reviewer_code",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_code",
+    "body": "",
+    "metadata": {
+      "consensus_reached": true
+    },
+    "timestamp": "2026-04-23T00:24:38.221386+00:00",
+    "phase": "implement"
+  }
+]
