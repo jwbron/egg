@@ -439,16 +439,26 @@ asynchronous generator is already running` crashes that killed the Job
 
 The gateway now applies two complementary defenses in `proxy_anthropic_messages`:
 
-1. **Pre-stream retry (transparent to the agent)** — the streaming branch pre-reads
-   the first upstream chunk inside a bounded retry loop (max 1 retry). If the
-   initial `client.send(..., stream=True)` or first-chunk read raises
-   `httpx.ReadError` / `httpx.RemoteProtocolError`, the gateway closes the failed
-   upstream, rebuilds the request from the original headers + body, and retries
-   once. The peeked first chunk is re-prepended onto the downstream stream so
-   the agent sees the full response. Retries emit a structured
-   `upstream_reset_retry` log at INFO. Exhausted retries fall through to the
-   existing 502 `api_error` handler — the agent receives a well-formed JSON
-   error payload, not a truncated stream.
+1. **Pre-stream retry (transparent to the agent)** — the streaming branch
+   eagerly peeks the first upstream chunk (`next(upstream.iter_bytes())`)
+   inside a bounded retry loop (`MAX_PRE_STREAM_RETRIES = 1`). If the initial
+   `client.send(..., stream=True)` or the first-chunk peek raises
+   `httpx.ReadError` / `httpx.RemoteProtocolError`, the gateway closes the
+   failed upstream, rebuilds the request from the original headers + body, and
+   retries once. The peeked first chunk is re-prepended onto the downstream
+   stream (yielded before iterating the rest) so the agent sees an unbroken
+   response. The retry window closes as soon as that first chunk is forwarded
+   downstream — any reset after that point is handled by defense (2) below,
+   never by another retry (replaying a request whose response has partially
+   reached the downstream SSE parser has no resume semantics and would
+   desync the stream). Retries emit a structured `upstream_reset_retry` log at
+   INFO with `attempt`, `error`, and `error_type` fields. When retries are
+   exhausted, the exception re-raises out of the streaming branch and is
+   caught by a dedicated top-level
+   `except (httpx.ReadError, httpx.RemoteProtocolError)` handler that returns
+   an HTTP 502 JSON payload (`{"error": {"type": "api_error", "message":
+   "Anthropic API connection reset: ..."}}`). The agent never sees a truncated
+   stream.
 
 2. **Mid-stream SSE error envelope** — once bytes have flowed downstream, the
    retry window is closed (the agent's SSE parser already holds partial
@@ -467,10 +477,14 @@ are unchanged — upstream resets on those paths continue to surface through the
 existing `httpx.ConnectError` / `httpx.TimeoutException` / generic `Exception`
 handlers as 502/504 JSON payloads.
 
-**Observability:** both log events are structured and carry the session's
-`container_id` where known. Sustained volume of either event likely indicates
-an upstream issue worth investigating (network flakiness, connection pool
-staleness, upstream rate-limiting).
+**Observability:** both log events are structured and include per-event
+context — `attempt` / `error` / `error_type` on `upstream_reset_retry`, and
+`error` / `error_type` / `bytes_transferred` on `upstream_reset_midstream`.
+Cross-correlation to a specific session / container requires joining on
+request-adjacent log lines (the Anthropic proxy handler does not currently
+stamp `container_id` onto either event). Sustained volume of either event
+likely indicates an upstream issue worth investigating (network flakiness,
+connection pool staleness, upstream rate-limiting).
 
 ### Health
 
