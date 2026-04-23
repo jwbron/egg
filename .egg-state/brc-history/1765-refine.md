@@ -1,37 +1,19 @@
 # BRC Consensus History — refine phase
 
-Generated: 2026-04-23T05:55:33Z
+Generated: 2026-04-23T06:25:36Z
 Pipeline: issue-1765
 
-### [2026-04-23T05:27:39Z] orchestrator (AGENT_FAILED): Agent reviewer_refine failed
+### [2026-04-23T06:22:08Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
 
-Container exited with code 1
-
-````yaml
-id: d2a919c1-df95-4d
-phase: refine
-````
-
-### [2026-04-23T05:40:42Z] overseer (STATUS): Overseer: AGENT_FAILED escalation reviewed — self-healed, monitoring
-
-Reviewed AGENT_FAILED escalation for reviewer_refine (05:27:39). Root cause: race condition — reviewer_refine spawned before refiner produced 1765-analysis.md draft. Self-healing confirmed: new reviewer_refine container started at 05:32:06 and is now in stable polling loop awaiting the draft. Refiner is actively working (currently inspecting egg_agent/command.py and related MCP tooling). No intervention required. Pipeline is healthy — all 4 containers running. Continuing to monitor.
+Refine analysis for #1765 (make egg CLIs discoverable to sandbox agents). Draft at .egg-state/drafts/1765-analysis.md (526 lines) evaluates four shapes — A (AGENT-TOOLS.md polish), B (system-prompt manifest), C (second orchestrator-hosted MCP server), D (in-process SDK MCP server via create_sdk_mcp_server + @tool) — against the issue's criteria (architectural consistency, long-term maintainability, discoverability, composition). Recommends D with a short hybrid prompt nudge; rationale cites current codepath already running claude_agent_sdk.query() in shared/egg_agent/client.py with mcp_servers unset, mcp[cli]>=1.20.0 already on the dep tree, authz-by-construction split from orchestrator/mcp_server.py, network-mode neutrality by being in-process. Surfaces 6 multi-choice decisions (approach, auto-gen vs curation, harness coverage, CLI retention, tool naming, scope) with inline <!-- egg-hitl-decision --> markers and 8 open-ended feedback questions (authz, drift prevention, prompt nudge, output shape, token strategy, observability, timeouts, rollout) under a <!-- egg-feedback --> marker. V2 addressed prior NACK: HITL markers inlined, CLI table line counts fixed, cmd_add_decision function name corrected. Did not implement — refine phase only.
 
 ````yaml
-id: bccf32a7-69d9-49
-phase: refine
-````
-
-### [2026-04-23T05:46:07Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
-
-Refine analysis for #1765 (make egg CLIs discoverable to sandbox agents). Draft at .egg-state/drafts/1765-analysis.md (424 lines) evaluates four shapes — A (AGENT-TOOLS.md polish), B (system-prompt manifest), C (second orchestrator-hosted MCP server), D (in-process SDK MCP server via create_sdk_mcp_server + @tool) — against the issue's criteria (architectural consistency, long-term maintainability, discoverability, composition). Recommends D with a short hybrid prompt nudge; rationale cites current codepath already running claude_agent_sdk.query() in shared/egg_agent/client.py with mcp_servers unset, mcp[cli]>=1.20.0 already on the dep tree, authz-by-construction split from orchestrator/mcp_server.py, network-mode neutrality by being in-process. Surfaces 6 multi-choice decisions (approach, auto-gen vs curation, harness coverage, CLI retention, tool naming, scope) and 8 open-ended feedback questions (authz, drift prevention, prompt nudge, output shape, token strategy, observability, timeouts, rollout) via egg-contract. Did not implement — refine phase only.
-
-````yaml
-id: 00e7a03e-c9d5-48
+id: 2d6b04bb-751c-45
 phase: refine
 metadata:
   payload:
     summary: "Refine analysis for #1765 (make egg CLIs discoverable to sandbox agents).\
-      \ Draft at .egg-state/drafts/1765-analysis.md (424 lines) evaluates four shapes\
+      \ Draft at .egg-state/drafts/1765-analysis.md (526 lines) evaluates four shapes\
       \ \u2014 A (AGENT-TOOLS.md polish), B (system-prompt manifest), C (second orchestrator-hosted\
       \ MCP server), D (in-process SDK MCP server via create_sdk_mcp_server + @tool)\
       \ \u2014 against the issue's criteria (architectural consistency, long-term\
@@ -41,352 +23,11 @@ metadata:
       \ on the dep tree, authz-by-construction split from orchestrator/mcp_server.py,\
       \ network-mode neutrality by being in-process. Surfaces 6 multi-choice decisions\
       \ (approach, auto-gen vs curation, harness coverage, CLI retention, tool naming,\
-      \ scope) and 8 open-ended feedback questions (authz, drift prevention, prompt\
-      \ nudge, output shape, token strategy, observability, timeouts, rollout) via\
-      \ egg-contract. Did not implement \u2014 refine phase only."
-    attestation: {}
-    artifacts:
-    - .egg-state/drafts/1765-analysis.md
-    risk_considered: ''
-    commit_sha: f8118bb50ec58c65bda349a4ba48c9bcb87a2f32
-    files_changed:
-    - .egg-state/drafts/1765-analysis.md
-    tests_run: []
-    tasks_satisfied:
-    - refine-analysis
-  version: 1
-  commit_sha: f8118bb50ec58c65bda349a4ba48c9bcb87a2f32
-````
-
-### [2026-04-23T05:48:07Z] reviewer_agent_design → refiner (CONSENSUS_ACK): ACK from reviewer_agent_design for refiner
-
-
-Reviewed .egg-state/drafts/1765-analysis.md in full (424 lines) against the agent-mode design criteria in docs/guides/agent-mode-design.md. Scope of this review: agent-mode design principles only (not general correctness, security, or code quality).
-
-### Alignment with agent-mode design
-
-The draft's recommendation — Option D (in-process SDK MCP server via create_sdk_mcp_server) with a small hybrid nudge in the system prompt — is strongly aligned with the guideline set. Positive observations:
-
-- **Uses the Agent SDK, not direct API calls** (lines 232–249, 306–310): Recommends create_sdk_mcp_server + @tool decorators, exposing tools as mcp__egg_*__* surfaced by the SDK. Satisfies the 'Use the Agent SDK, not direct API calls' convention (principle #7 in criteria).
-- **Authz by construction, not by prompt** (lines 341–344): 'Sandbox agents physically cannot see submit_task because the handler doesn't exist in their process. No trust boundary to re-enforce.' This is exactly the 'extend the sandbox' pattern the guide prescribes over 'prompt-level security.'
-- **Explicit rejection of prompt-bloat pre-fetching** (lines 143–146): The Constraints section calls out 'Injecting a full tool manifest into the system prompt is tempting but expensive — every CLI, every subcommand, every flag burns input tokens on every turn.' Correctly identifies system-prompt pre-fetching as anti-pattern #1 in the guide.
-- **Orienting vs. constraining bootstrap nudge** (lines 290–304): The hybrid D+B proposal adds ~150 words (~200 input tokens/turn) nudging agents to prefer MCP tools over Bash. This is framed as 'a nudge, not a hard constraint' and sits in the orienting camp per the guide's 'What's fine to include' list. Not a pre-fetching violation.
-- **Network-mode neutrality** (lines 336–340, 252–259): In-process execution sidesteps public/private routing questions entirely — preserves the sandbox as the constraint without duplicating network paths.
-- **First-class typed tools over shell-mediated access** (lines 247–249, 331–335): Typed schemas + argument validation at tool boundary directly addresses the 'agent doesn't know how to invoke it' half of the problem without adding rigid procedures.
-
-### No blocking issues
-
-None of the clear anti-patterns listed in the review criteria apply:
-1. Excessive pre-fetching — explicitly rejected (lines 143–146); hybrid nudge is small and orienting.
-2. Structured-output-for-humans — N/A (task concerns tool surfacing, not human output).
-3. Post-processing pipelines — N/A; recommendation is to let the agent call structured tools directly.
-4. Rigid procedures — N/A; recommendation removes procedural shell archaeology in favor of tool discovery.
-5. Prompt-level security — explicitly avoided via authz-by-construction (lines 341–344).
-6. Direct LLM API calls outside sandbox — N/A.
-7. Direct API calls bypassing Agent SDK — recommendation uses create_sdk_mcp_server via the SDK.
-8. Hardcoded model identifiers — N/A for an analysis doc.
-
-### Non-blocking observations
-
-- **shared/egg_agent_tools/ module placement** (line 410): The draft places the new tools package under shared/. Since handlers execute in the sandbox process and import existing sandbox/egg_lib handlers, consider whether sandbox/egg_agent_tools/ is a better fit. shared/ is read by orchestrator/gateway code too, and placing LLM-adjacent handler glue there risks later drift toward orchestrator-side imports that would trip EGG200. Not blocking at analysis stage — worth flagging for the plan phase.
-- **Option C threat-model framing** (lines 198–231): If the workflow-owner selects Option C at decision-1, the plan phase should explicitly re-verify the authz story — an orchestrator-hosted server exposing CLI tools is precisely the kind of boundary where prompt-level authz would be tempting. Draft already hints at this via feedback-Q1/Q5. Non-blocking because decision-1 hasn't been resolved.
-- **Decision-2 (auto-generated vs. curated)**: Per the guide's 'share common infrastructure' principle, a CLI-thin-wrapper-over-handlers design (where argparse dispatchers share the same @tool handler functions) would give both discoverability and drift-resistance in one shot. The draft surfaces this as Q2 and implies it in the recommendation's point 2 — good call-out for the human-decision gate.
-
-Overall: the draft makes the agent-mode-design-correct recommendation, explicitly reasons about the guide's trade-offs (orienting vs. constraining, sandbox as the constraint, authz by construction), and cleanly defers the open design questions to the decision/feedback channels rather than pre-committing.
-
-
-````yaml
-id: a883dfff-68e2-48
-phase: refine
-metadata:
-  payload:
-    artifact_references:
-    - .egg-state/drafts/1765-analysis.md
-    - docs/guides/agent-mode-design.md
-    reason: "\nReviewed .egg-state/drafts/1765-analysis.md in full (424 lines) against\
-      \ the agent-mode design criteria in docs/guides/agent-mode-design.md. Scope\
-      \ of this review: agent-mode design principles only (not general correctness,\
-      \ security, or code quality).\n\n### Alignment with agent-mode design\n\nThe\
-      \ draft's recommendation \u2014 Option D (in-process SDK MCP server via create_sdk_mcp_server)\
-      \ with a small hybrid nudge in the system prompt \u2014 is strongly aligned\
-      \ with the guideline set. Positive observations:\n\n- **Uses the Agent SDK,\
-      \ not direct API calls** (lines 232\u2013249, 306\u2013310): Recommends create_sdk_mcp_server\
-      \ + @tool decorators, exposing tools as mcp__egg_*__* surfaced by the SDK. Satisfies\
-      \ the 'Use the Agent SDK, not direct API calls' convention (principle #7 in\
-      \ criteria).\n- **Authz by construction, not by prompt** (lines 341\u2013344):\
-      \ 'Sandbox agents physically cannot see submit_task because the handler doesn't\
-      \ exist in their process. No trust boundary to re-enforce.' This is exactly\
-      \ the 'extend the sandbox' pattern the guide prescribes over 'prompt-level security.'\n\
-      - **Explicit rejection of prompt-bloat pre-fetching** (lines 143\u2013146):\
-      \ The Constraints section calls out 'Injecting a full tool manifest into the\
-      \ system prompt is tempting but expensive \u2014 every CLI, every subcommand,\
-      \ every flag burns input tokens on every turn.' Correctly identifies system-prompt\
-      \ pre-fetching as anti-pattern #1 in the guide.\n- **Orienting vs. constraining\
-      \ bootstrap nudge** (lines 290\u2013304): The hybrid D+B proposal adds ~150\
-      \ words (~200 input tokens/turn) nudging agents to prefer MCP tools over Bash.\
-      \ This is framed as 'a nudge, not a hard constraint' and sits in the orienting\
-      \ camp per the guide's 'What's fine to include' list. Not a pre-fetching violation.\n\
-      - **Network-mode neutrality** (lines 336\u2013340, 252\u2013259): In-process\
-      \ execution sidesteps public/private routing questions entirely \u2014 preserves\
-      \ the sandbox as the constraint without duplicating network paths.\n- **First-class\
-      \ typed tools over shell-mediated access** (lines 247\u2013249, 331\u2013335):\
-      \ Typed schemas + argument validation at tool boundary directly addresses the\
-      \ 'agent doesn't know how to invoke it' half of the problem without adding rigid\
-      \ procedures.\n\n### No blocking issues\n\nNone of the clear anti-patterns listed\
-      \ in the review criteria apply:\n1. Excessive pre-fetching \u2014 explicitly\
-      \ rejected (lines 143\u2013146); hybrid nudge is small and orienting.\n2. Structured-output-for-humans\
-      \ \u2014 N/A (task concerns tool surfacing, not human output).\n3. Post-processing\
-      \ pipelines \u2014 N/A; recommendation is to let the agent call structured tools\
-      \ directly.\n4. Rigid procedures \u2014 N/A; recommendation removes procedural\
-      \ shell archaeology in favor of tool discovery.\n5. Prompt-level security \u2014\
-      \ explicitly avoided via authz-by-construction (lines 341\u2013344).\n6. Direct\
-      \ LLM API calls outside sandbox \u2014 N/A.\n7. Direct API calls bypassing Agent\
-      \ SDK \u2014 recommendation uses create_sdk_mcp_server via the SDK.\n8. Hardcoded\
-      \ model identifiers \u2014 N/A for an analysis doc.\n\n### Non-blocking observations\n\
-      \n- **shared/egg_agent_tools/ module placement** (line 410): The draft places\
-      \ the new tools package under shared/. Since handlers execute in the sandbox\
-      \ process and import existing sandbox/egg_lib handlers, consider whether sandbox/egg_agent_tools/\
-      \ is a better fit. shared/ is read by orchestrator/gateway code too, and placing\
-      \ LLM-adjacent handler glue there risks later drift toward orchestrator-side\
-      \ imports that would trip EGG200. Not blocking at analysis stage \u2014 worth\
-      \ flagging for the plan phase.\n- **Option C threat-model framing** (lines 198\u2013\
-      231): If the workflow-owner selects Option C at decision-1, the plan phase should\
-      \ explicitly re-verify the authz story \u2014 an orchestrator-hosted server\
-      \ exposing CLI tools is precisely the kind of boundary where prompt-level authz\
-      \ would be tempting. Draft already hints at this via feedback-Q1/Q5. Non-blocking\
-      \ because decision-1 hasn't been resolved.\n- **Decision-2 (auto-generated vs.\
-      \ curated)**: Per the guide's 'share common infrastructure' principle, a CLI-thin-wrapper-over-handlers\
-      \ design (where argparse dispatchers share the same @tool handler functions)\
-      \ would give both discoverability and drift-resistance in one shot. The draft\
-      \ surfaces this as Q2 and implies it in the recommendation's point 2 \u2014\
-      \ good call-out for the human-decision gate.\n\nOverall: the draft makes the\
-      \ agent-mode-design-correct recommendation, explicitly reasons about the guide's\
-      \ trade-offs (orienting vs. constraining, sandbox as the constraint, authz by\
-      \ construction), and cleanly defers the open design questions to the decision/feedback\
-      \ channels rather than pre-committing.\n"
-  version: 1
-````
-
-### [2026-04-23T05:48:11Z] reviewer_agent_design (CONSENSUS_CONFIRMED): Confirmed by reviewer_agent_design
-
-````yaml
-id: 7ccf0fa1-e69c-42
-phase: refine
-metadata:
-  consensus_reached: false
-````
-
-### [2026-04-23T05:51:21Z] reviewer_refine → refiner (CONSENSUS_NACK): NACK from reviewer_refine for refiner
-
-
-Reviewed the 424-line analysis draft plus verified all file/line references in the current repo. Overall the analysis is *substantively* strong — this NACK is narrow: a missing mechanical artifact (HITL decision/feedback markers) plus two factual errors in referenced paths. Re-propose once those are fixed.
-
-## Section-by-section evaluation
-
-### 1. Problem Understanding — strong
-- Problem Statement (lines 5-22) captures the exact symptom (tooling archaeology, 5 tool calls before productive work), the desired outcome (first-class typed tools, auto-surfacing new CLIs, dual network-mode support), and ties directly to the issue's acceptance criteria.
-
-### 2. Research Quality — strong, with two factual errors
-- Current Behavior (lines 24-117) is thorough: correct file paths and line ranges for build_agent_command, run_agent_async, ClaudeAgentOptions (lines 194-205 actual, claim 194-209 includes max_turns/system_prompt assignments — fair). Verified mcp[cli]>=1.20.0 in pyproject.toml:33. Verified EGG_LIFECYCLE_SECRET usage in orchestrator/lifecycle_auth.py and kubernetes_spawner.py:95. Verified orchestrator/mcp_server.py DEFAULT_MCP_PORT=9850. Verified shared/egg_harness/tools/ exists (bash.py, read.py, registry.py, etc.).
-- EGG_HARNESS routing in client.py:99-127 correctly characterized (experimental, egg_harness_integration.harness_factory).
-
-### 3. Options Analysis — strong
-- Four distinct options (A/B/C/D) plus D+B hybrid. Pros/cons clearly articulated per option. Trade-offs framed against the issue's explicit criteria (architectural consistency, network-mode neutrality, authz, drift).
-
-### 4. Constraints & Dependencies — strong
-- Lines 119-149 cover dual-harness, private-mode isolation, backward compat, role-based authz, drift risk, system-prompt budget, and the explicit 'MCP inside sandbox is off the table' constraint.
-
-### 5. Recommendation Quality — strong
-- Option D + hybrid D+B nudge, justified point-by-point against the issue's named criteria (lines 312-348). Alignment with analysis is solid.
-
-### 6. Complexity Assessment — appropriate (medium)
-
-## Blocking
-
-1. **.egg-state/drafts/1765-analysis.md:368-405 — Missing `<!-- egg-hitl-decision id=decision-N -->` and `<!-- egg-hitl-feedback id=feedback-1 -->` markers.** The Open Questions section lists six decisions and eight feedback questions as short prose summaries (e.g. 'decision-1 — Which of the four options (A / B / C / D / Hybrid) to adopt.') without the required HITL markers. Compare with the known-good .egg-state/drafts/1759-analysis.md, which places `<!-- egg-hitl-decision id=decision-1 -->` inline above each full-text question. The review criteria explicitly require these markers and direct needs_revision when absent. The decisions ARE registered in the contract (verified via `egg-contract show --json` — 6 decisions with options + feedback-1 with Q1-Q8), so the refiner does not need to re-register; it needs to surface the markers inline in the draft. **Fix:** for each of decision-1..6, add a line `<!-- egg-hitl-decision id=decision-N -->` followed by the bolded question text and a bullet list of the options as they are registered in the contract; for the feedback block, add `<!-- egg-hitl-feedback id=feedback-1 -->` and expand Q1-Q8 to the full question text (not just the short topic labels currently on lines 392-405).
-
-## Non-blocking
-
-- **.egg-state/drafts/1765-analysis.md:75-76 (CLI table) — line counts swapped for egg-checkpoint and egg-pipeline-watch.** Actual: `wc -l sandbox/bin/egg-checkpoint` → 50 (thin); `wc -l sandbox/bin/egg-pipeline-watch` → 514. The table has them reversed ('egg-checkpoint | 514' and 'egg-pipeline-watch | (thin)'). Swap them. Other line counts (egg-contract 1577, egg-orch 2238, egg-sdlc 27, egg-health-inspect 163, egg-onboarding-docs 151) verified correct.
-- **.egg-state/drafts/1765-analysis.md:242 — function name mismatch.** The analysis says handlers would call `sandbox/egg_lib/contract_cli.py::add_decision_handler()`. The actual function is `cmd_add_decision` at contract_cli.py:736. Fix: refer to the actual name (`cmd_add_decision`) or clarify you are proposing a future rename. The substantive point (CLI dispatch can be shared with @tool-decorated functions) is unaffected.
-- **.egg-state/drafts/1765-analysis.md:357-366 — Recommendation pre-selects decision-3 and decision-6.** The prose recommends 'starting with a curated high-value subset (decision-6)' and 'deferring parallel registration until the egg harness graduates (decision-3)'. Because these are still open HITL questions, consider framing them as 'our recommendation, pending human confirmation' rather than as decided sub-choices. Minor stylistic issue; does not block.
-- **.egg-state/drafts/1765-analysis.md:369-372 — the 'All decisions and feedback have been registered... The decision/feedback comments will appear on the GitHub issue' paragraph is not a substitute for inlining the marker+question text.** Once blocking item 1 is fixed this sentence can stay as an additional pointer, but the markers must be present regardless.
-
-
-````yaml
-id: e69fcc9e-590d-47
-phase: refine
-metadata:
-  payload:
-    reason: "\nReviewed the 424-line analysis draft plus verified all file/line references\
-      \ in the current repo. Overall the analysis is *substantively* strong \u2014\
-      \ this NACK is narrow: a missing mechanical artifact (HITL decision/feedback\
-      \ markers) plus two factual errors in referenced paths. Re-propose once those\
-      \ are fixed.\n\n## Section-by-section evaluation\n\n### 1. Problem Understanding\
-      \ \u2014 strong\n- Problem Statement (lines 5-22) captures the exact symptom\
-      \ (tooling archaeology, 5 tool calls before productive work), the desired outcome\
-      \ (first-class typed tools, auto-surfacing new CLIs, dual network-mode support),\
-      \ and ties directly to the issue's acceptance criteria.\n\n### 2. Research Quality\
-      \ \u2014 strong, with two factual errors\n- Current Behavior (lines 24-117)\
-      \ is thorough: correct file paths and line ranges for build_agent_command, run_agent_async,\
-      \ ClaudeAgentOptions (lines 194-205 actual, claim 194-209 includes max_turns/system_prompt\
-      \ assignments \u2014 fair). Verified mcp[cli]>=1.20.0 in pyproject.toml:33.\
-      \ Verified EGG_LIFECYCLE_SECRET usage in orchestrator/lifecycle_auth.py and\
-      \ kubernetes_spawner.py:95. Verified orchestrator/mcp_server.py DEFAULT_MCP_PORT=9850.\
-      \ Verified shared/egg_harness/tools/ exists (bash.py, read.py, registry.py,\
-      \ etc.).\n- EGG_HARNESS routing in client.py:99-127 correctly characterized\
-      \ (experimental, egg_harness_integration.harness_factory).\n\n### 3. Options\
-      \ Analysis \u2014 strong\n- Four distinct options (A/B/C/D) plus D+B hybrid.\
-      \ Pros/cons clearly articulated per option. Trade-offs framed against the issue's\
-      \ explicit criteria (architectural consistency, network-mode neutrality, authz,\
-      \ drift).\n\n### 4. Constraints & Dependencies \u2014 strong\n- Lines 119-149\
-      \ cover dual-harness, private-mode isolation, backward compat, role-based authz,\
-      \ drift risk, system-prompt budget, and the explicit 'MCP inside sandbox is\
-      \ off the table' constraint.\n\n### 5. Recommendation Quality \u2014 strong\n\
-      - Option D + hybrid D+B nudge, justified point-by-point against the issue's\
-      \ named criteria (lines 312-348). Alignment with analysis is solid.\n\n### 6.\
-      \ Complexity Assessment \u2014 appropriate (medium)\n\n## Blocking\n\n1. **.egg-state/drafts/1765-analysis.md:368-405\
-      \ \u2014 Missing `<!-- egg-hitl-decision id=decision-N -->` and `<!-- egg-hitl-feedback\
-      \ id=feedback-1 -->` markers.** The Open Questions section lists six decisions\
-      \ and eight feedback questions as short prose summaries (e.g. 'decision-1 \u2014\
-      \ Which of the four options (A / B / C / D / Hybrid) to adopt.') without the\
-      \ required HITL markers. Compare with the known-good .egg-state/drafts/1759-analysis.md,\
-      \ which places `<!-- egg-hitl-decision id=decision-1 -->` inline above each\
-      \ full-text question. The review criteria explicitly require these markers and\
-      \ direct needs_revision when absent. The decisions ARE registered in the contract\
-      \ (verified via `egg-contract show --json` \u2014 6 decisions with options +\
-      \ feedback-1 with Q1-Q8), so the refiner does not need to re-register; it needs\
-      \ to surface the markers inline in the draft. **Fix:** for each of decision-1..6,\
-      \ add a line `<!-- egg-hitl-decision id=decision-N -->` followed by the bolded\
-      \ question text and a bullet list of the options as they are registered in the\
-      \ contract; for the feedback block, add `<!-- egg-hitl-feedback id=feedback-1\
-      \ -->` and expand Q1-Q8 to the full question text (not just the short topic\
-      \ labels currently on lines 392-405).\n\n## Non-blocking\n\n- **.egg-state/drafts/1765-analysis.md:75-76\
-      \ (CLI table) \u2014 line counts swapped for egg-checkpoint and egg-pipeline-watch.**\
-      \ Actual: `wc -l sandbox/bin/egg-checkpoint` \u2192 50 (thin); `wc -l sandbox/bin/egg-pipeline-watch`\
-      \ \u2192 514. The table has them reversed ('egg-checkpoint | 514' and 'egg-pipeline-watch\
-      \ | (thin)'). Swap them. Other line counts (egg-contract 1577, egg-orch 2238,\
-      \ egg-sdlc 27, egg-health-inspect 163, egg-onboarding-docs 151) verified correct.\n\
-      - **.egg-state/drafts/1765-analysis.md:242 \u2014 function name mismatch.**\
-      \ The analysis says handlers would call `sandbox/egg_lib/contract_cli.py::add_decision_handler()`.\
-      \ The actual function is `cmd_add_decision` at contract_cli.py:736. Fix: refer\
-      \ to the actual name (`cmd_add_decision`) or clarify you are proposing a future\
-      \ rename. The substantive point (CLI dispatch can be shared with @tool-decorated\
-      \ functions) is unaffected.\n- **.egg-state/drafts/1765-analysis.md:357-366\
-      \ \u2014 Recommendation pre-selects decision-3 and decision-6.** The prose recommends\
-      \ 'starting with a curated high-value subset (decision-6)' and 'deferring parallel\
-      \ registration until the egg harness graduates (decision-3)'. Because these\
-      \ are still open HITL questions, consider framing them as 'our recommendation,\
-      \ pending human confirmation' rather than as decided sub-choices. Minor stylistic\
-      \ issue; does not block.\n- **.egg-state/drafts/1765-analysis.md:369-372 \u2014\
-      \ the 'All decisions and feedback have been registered... The decision/feedback\
-      \ comments will appear on the GitHub issue' paragraph is not a substitute for\
-      \ inlining the marker+question text.** Once blocking item 1 is fixed this sentence\
-      \ can stay as an additional pointer, but the markers must be present regardless.\n"
-    artifact_references:
-    - .egg-state/drafts/1765-analysis.md
-  reason: "\nReviewed the 424-line analysis draft plus verified all file/line references\
-    \ in the current repo. Overall the analysis is *substantively* strong \u2014 this\
-    \ NACK is narrow: a missing mechanical artifact (HITL decision/feedback markers)\
-    \ plus two factual errors in referenced paths. Re-propose once those are fixed.\n\
-    \n## Section-by-section evaluation\n\n### 1. Problem Understanding \u2014 strong\n\
-    - Problem Statement (lines 5-22) captures the exact symptom (tooling archaeology,\
-    \ 5 tool calls before productive work), the desired outcome (first-class typed\
-    \ tools, auto-surfacing new CLIs, dual network-mode support), and ties directly\
-    \ to the issue's acceptance criteria.\n\n### 2. Research Quality \u2014 strong,\
-    \ with two factual errors\n- Current Behavior (lines 24-117) is thorough: correct\
-    \ file paths and line ranges for build_agent_command, run_agent_async, ClaudeAgentOptions\
-    \ (lines 194-205 actual, claim 194-209 includes max_turns/system_prompt assignments\
-    \ \u2014 fair). Verified mcp[cli]>=1.20.0 in pyproject.toml:33. Verified EGG_LIFECYCLE_SECRET\
-    \ usage in orchestrator/lifecycle_auth.py and kubernetes_spawner.py:95. Verified\
-    \ orchestrator/mcp_server.py DEFAULT_MCP_PORT=9850. Verified shared/egg_harness/tools/\
-    \ exists (bash.py, read.py, registry.py, etc.).\n- EGG_HARNESS routing in client.py:99-127\
-    \ correctly characterized (experimental, egg_harness_integration.harness_factory).\n\
-    \n### 3. Options Analysis \u2014 strong\n- Four distinct options (A/B/C/D) plus\
-    \ D+B hybrid. Pros/cons clearly articulated per option. Trade-offs framed against\
-    \ the issue's explicit criteria (architectural consistency, network-mode neutrality,\
-    \ authz, drift).\n\n### 4. Constraints & Dependencies \u2014 strong\n- Lines 119-149\
-    \ cover dual-harness, private-mode isolation, backward compat, role-based authz,\
-    \ drift risk, system-prompt budget, and the explicit 'MCP inside sandbox is off\
-    \ the table' constraint.\n\n### 5. Recommendation Quality \u2014 strong\n- Option\
-    \ D + hybrid D+B nudge, justified point-by-point against the issue's named criteria\
-    \ (lines 312-348). Alignment with analysis is solid.\n\n### 6. Complexity Assessment\
-    \ \u2014 appropriate (medium)\n\n## Blocking\n\n1. **.egg-state/drafts/1765-analysis.md:368-405\
-    \ \u2014 Missing `<!-- egg-hitl-decision id=decision-N -->` and `<!-- egg-hitl-feedback\
-    \ id=feedback-1 -->` markers.** The Open Questions section lists six decisions\
-    \ and eight feedback questions as short prose summaries (e.g. 'decision-1 \u2014\
-    \ Which of the four options (A / B / C / D / Hybrid) to adopt.') without the required\
-    \ HITL markers. Compare with the known-good .egg-state/drafts/1759-analysis.md,\
-    \ which places `<!-- egg-hitl-decision id=decision-1 -->` inline above each full-text\
-    \ question. The review criteria explicitly require these markers and direct needs_revision\
-    \ when absent. The decisions ARE registered in the contract (verified via `egg-contract\
-    \ show --json` \u2014 6 decisions with options + feedback-1 with Q1-Q8), so the\
-    \ refiner does not need to re-register; it needs to surface the markers inline\
-    \ in the draft. **Fix:** for each of decision-1..6, add a line `<!-- egg-hitl-decision\
-    \ id=decision-N -->` followed by the bolded question text and a bullet list of\
-    \ the options as they are registered in the contract; for the feedback block,\
-    \ add `<!-- egg-hitl-feedback id=feedback-1 -->` and expand Q1-Q8 to the full\
-    \ question text (not just the short topic labels currently on lines 392-405).\n\
-    \n## Non-blocking\n\n- **.egg-state/drafts/1765-analysis.md:75-76 (CLI table)\
-    \ \u2014 line counts swapped for egg-checkpoint and egg-pipeline-watch.** Actual:\
-    \ `wc -l sandbox/bin/egg-checkpoint` \u2192 50 (thin); `wc -l sandbox/bin/egg-pipeline-watch`\
-    \ \u2192 514. The table has them reversed ('egg-checkpoint | 514' and 'egg-pipeline-watch\
-    \ | (thin)'). Swap them. Other line counts (egg-contract 1577, egg-orch 2238,\
-    \ egg-sdlc 27, egg-health-inspect 163, egg-onboarding-docs 151) verified correct.\n\
-    - **.egg-state/drafts/1765-analysis.md:242 \u2014 function name mismatch.** The\
-    \ analysis says handlers would call `sandbox/egg_lib/contract_cli.py::add_decision_handler()`.\
-    \ The actual function is `cmd_add_decision` at contract_cli.py:736. Fix: refer\
-    \ to the actual name (`cmd_add_decision`) or clarify you are proposing a future\
-    \ rename. The substantive point (CLI dispatch can be shared with @tool-decorated\
-    \ functions) is unaffected.\n- **.egg-state/drafts/1765-analysis.md:357-366 \u2014\
-    \ Recommendation pre-selects decision-3 and decision-6.** The prose recommends\
-    \ 'starting with a curated high-value subset (decision-6)' and 'deferring parallel\
-    \ registration until the egg harness graduates (decision-3)'. Because these are\
-    \ still open HITL questions, consider framing them as 'our recommendation, pending\
-    \ human confirmation' rather than as decided sub-choices. Minor stylistic issue;\
-    \ does not block.\n- **.egg-state/drafts/1765-analysis.md:369-372 \u2014 the 'All\
-    \ decisions and feedback have been registered... The decision/feedback comments\
-    \ will appear on the GitHub issue' paragraph is not a substitute for inlining\
-    \ the marker+question text.** Once blocking item 1 is fixed this sentence can\
-    \ stay as an additional pointer, but the markers must be present regardless.\n"
-  revision_count: 1
-````
-
-### [2026-04-23T05:51:24Z] reviewer_refine (CONSENSUS_CONFIRMED): Confirmed by reviewer_refine (pending_acks)
-
-Reviewer reviewer_refine cannot confirm: unresolved NACKs. Wait for these producers to re-propose before confirming: ['refiner']
-
-````yaml
-id: e30d7ab3-f538-4e
-phase: refine
-metadata:
-  pending_acks: true
-````
-
-### [2026-04-23T05:54:21Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
-
-Re-propose after addressing reviewer_refine NACK on v1. Changes: (1) inlined <!-- egg-hitl-decision id=decision-N --> markers for all 6 decisions and <!-- egg-feedback id=feedback-1 --> marker for the feedback block, each followed by full bolded question text and checkbox option lists, following the known-good 1759-analysis pattern required by reviewer criteria; (2) fixed CLI inventory table — egg-checkpoint is 50 lines (thin wrapper around shared/egg_contracts/checkpoint_cli.py), egg-pipeline-watch is 514 lines (the two were swapped in v1); (3) replaced invented function name add_decision_handler with the actual name cmd_add_decision (sandbox/egg_lib/contract_cli.py:736); (4) reframed two recommended sub-choices (scope in decision-6, harness coverage in decision-3) as 'pending human confirmation at the HITL gate' rather than pre-decided, per reviewer stylistic note. Substantive recommendation (Option D in-process SDK MCP server via create_sdk_mcp_server + @tool, with hybrid D+B prompt nudge) is unchanged; reviewer_agent_design already ACKed the architectural choice. Commit aa60d8313 pushed.
-
-````yaml
-id: bf50b1ff-3a49-49
-phase: refine
-metadata:
-  payload:
-    summary: "Re-propose after addressing reviewer_refine NACK on v1. Changes: (1)\
-      \ inlined <!-- egg-hitl-decision id=decision-N --> markers for all 6 decisions\
-      \ and <!-- egg-feedback id=feedback-1 --> marker for the feedback block, each\
-      \ followed by full bolded question text and checkbox option lists, following\
-      \ the known-good 1759-analysis pattern required by reviewer criteria; (2) fixed\
-      \ CLI inventory table \u2014 egg-checkpoint is 50 lines (thin wrapper around\
-      \ shared/egg_contracts/checkpoint_cli.py), egg-pipeline-watch is 514 lines (the\
-      \ two were swapped in v1); (3) replaced invented function name add_decision_handler\
-      \ with the actual name cmd_add_decision (sandbox/egg_lib/contract_cli.py:736);\
-      \ (4) reframed two recommended sub-choices (scope in decision-6, harness coverage\
-      \ in decision-3) as 'pending human confirmation at the HITL gate' rather than\
-      \ pre-decided, per reviewer stylistic note. Substantive recommendation (Option\
-      \ D in-process SDK MCP server via create_sdk_mcp_server + @tool, with hybrid\
-      \ D+B prompt nudge) is unchanged; reviewer_agent_design already ACKed the architectural\
-      \ choice. Commit aa60d8313 pushed."
+      \ scope) with inline <!-- egg-hitl-decision --> markers and 8 open-ended feedback\
+      \ questions (authz, drift prevention, prompt nudge, output shape, token strategy,\
+      \ observability, timeouts, rollout) under a <!-- egg-feedback --> marker. V2\
+      \ addressed prior NACK: HITL markers inlined, CLI table line counts fixed, cmd_add_decision\
+      \ function name corrected. Did not implement \u2014 refine phase only."
     attestation: {}
     artifacts:
     - .egg-state/drafts/1765-analysis.md
@@ -397,205 +38,268 @@ metadata:
     tests_run: []
     tasks_satisfied:
     - refine-analysis
-  version: 2
+  version: 1
   commit_sha: aa60d83138a98d8b8485f71dae637c3cf619231c
 ````
 
-### [2026-04-23T05:54:21Z] orchestrator → reviewer_agent_design (CONSENSUS_RE_REVIEW): Re-review required: refiner submitted new proposal v2
-
-Producer refiner has submitted a new proposal (version 2) after withdrawal. Your previous confirmation was on an earlier version. Please re-review and ACK/NACK the new proposal.
-
-````yaml
-id: f652cd1f-3b9a-4f
-phase: refine
-metadata:
-  producer_role: refiner
-  version: 2
-````
-
-### [2026-04-23T05:55:12Z] reviewer_agent_design → refiner (CONSENSUS_ACK): ACK from reviewer_agent_design for refiner
+### [2026-04-23T06:23:11Z] reviewer_agent_design → refiner (CONSENSUS_ACK): ACK from reviewer_agent_design for refiner
 
 
-Re-reviewed v2 of .egg-state/drafts/1765-analysis.md (now 526 lines, +152 lines from v1) against the agent-mode design criteria. The changes from v1 are primarily formatting/structure:
+Reviewed .egg-state/drafts/1765-analysis.md (526 lines, commit aa60d8313) in full against the agent-mode design criteria in docs/guides/agent-mode-design.md. Scope: agent-mode design principles only. Proposal is the same v2 artifact I previously validated in the prior consensus cycle; re-verified against the live file.
 
-### What changed in v2 (agent-design-relevant delta)
-- **Lines 73–75**: Corrected CLI line-count entries (egg-checkpoint now noted as a 50-line thin wrapper around shared/egg_contracts/checkpoint_cli.py; egg-pipeline-watch moved to 514 lines). Factual correction only.
-- **Lines 241–244**: Updated the backing-handler reference from the fictitious add_decision_handler() to the actual cmd_add_decision() at sandbox/egg_lib/contract_cli.py line ~736. Factual correction; strengthens the 'one source of truth' argument without changing the recommendation.
-- **Lines 358–370**: New sub-choices section explicitly marking scope (decision-6) and harness coverage (decision-3) as 'pending human confirmation at the HITL gate.' This is a structural improvement — the refiner is surfacing choices to the human gate rather than pre-committing.
-- **Lines 379–446**: New HITL decision sections with  markers and checkbox-style options (decisions 1–6). Each decision lists the recommended default. This is the mechanism by which the human gate picks an option.
-- **Lines 455–506**: New structured  section with Q1–Q8 as editable answers and a 'Submit feedback' checkbox. Again, a structural improvement for the human gate.
+### Alignment with agent-mode design (confirmed)
 
-### Agent-design evaluation (unchanged conclusion)
-
-All the points from my v1 review still hold:
-- Recommendation is still Option D (in-process SDK MCP server via create_sdk_mcp_server) with hybrid D+B (lines 307–311).
-- Authz by construction (lines 342–345): 'Sandbox agents physically cannot see submit_task because the handler doesn't exist in their process.'
-- Explicit rejection of prompt-bloat pre-fetching (lines 143–146): system-prompt manifest correctly identified as expensive.
-- Orienting-not-constraining bootstrap nudge (lines 293–299): <=200 tokens/turn, nudge-not-constraint framing.
-- Uses the Agent SDK (lines 232–249): create_sdk_mcp_server + @tool decorators is the 'Use the Agent SDK, not direct API calls' pattern.
-- Network-mode neutrality by being in-process (lines 337–341).
-- First-class typed tools with validation at boundary (lines 247–250).
+- **Uses the Agent SDK, not direct API calls** (lines 232-250, 307-311): Recommendation is create_sdk_mcp_server + @tool decorators, exposing tools as mcp__egg_*__* through the SDK. Satisfies criterion #7 (SDK over raw HTTP).
+- **Authz by construction, not prompt-level security** (lines 342-345): 'Sandbox agents physically cannot see submit_task because the handler doesn't exist in their process. No trust boundary to re-enforce.' This is the 'extend the sandbox' pattern the guide prescribes, and directly avoids anti-pattern #5 (prompt-level security).
+- **Explicit rejection of pre-fetching into prompt** (lines 143-146): Constraints section calls out that injecting a full tool manifest into the system prompt 'burns input tokens on every turn.' Correctly identifies anti-pattern #1.
+- **Orienting-not-constraining bootstrap nudge** (lines 292-305, hybrid D+B): ~150 words / <200 input tokens per turn, framed as a nudge ('prefer MCP tools over Bash') rather than a hard constraint. Sits in the 'what's fine to include' camp of the guide.
+- **Network-mode neutrality** (lines 338-341): In-process execution sidesteps public/private mode entirely — no gateway/proxy routing needed, preserves the sandbox as the constraint without duplicating transport paths.
+- **First-class typed tools over shell-mediated access** (lines 248-250, 332-336): Typed schemas with argument validation at the tool boundary address the 'I don't know how to invoke it' half of the problem without adding rigid procedures (anti-pattern #4 avoided).
+- **No hardcoded model IDs** — N/A for an analysis doc; criterion #8 not applicable.
+- **No direct LLM API calls** — N/A; recommendation stays within the SDK surface and in the sandbox. Criteria #6 and #7 satisfied.
 
 ### No blocking issues
 
-None of the eight anti-patterns in the review criteria apply. The v2 additions (HITL decision markers and feedback Q&A structure) are a net-positive for the agent-mode design stance:
-- By explicitly deferring decision-2 (auto-gen vs curated vs hybrid) and decision-6 (scope) to the human gate, v2 avoids pre-committing to a specific drift-prevention mechanism — which is a judgement the workflow-owner should make.
-- The HITL markers let the agent (and the human) keep the draft as the source of truth rather than shelling out to an external scheduler or post-processing script.
+None of the eight anti-patterns apply:
+1. Excessive pre-fetching — explicitly rejected (lines 143-146); hybrid nudge is small and orienting.
+2. Structured output for humans — N/A (tool surface, not human output).
+3. Post-processing pipelines — N/A; agent calls structured tools directly rather than a script parsing shell output.
+4. Rigid procedures — N/A; recommendation removes procedural shell archaeology in favor of tool discovery.
+5. Prompt-level security — explicitly avoided via authz-by-construction (lines 342-345).
+6. Direct LLM API calls outside sandbox — N/A.
+7. Direct API calls bypassing Agent SDK — uses create_sdk_mcp_server via the SDK.
+8. Hardcoded model identifiers — N/A.
 
-### Non-blocking observations (carried forward from v1)
+### Non-blocking observations (carry-forward for plan phase)
 
-- **shared/egg_agent_tools/ module placement** (line 511): still worth revisiting at the plan phase — placing LLM-adjacent handler glue in shared/ risks later drift toward orchestrator-side imports that trip EGG200. Consider sandbox/egg_agent_tools/ instead.
-- **Decision-5 'Recommended: per-CLI servers'** (lines 431–434): per-CLI servers (mcp__egg_contract__add_decision) mirror the shell surface humans know — good for discoverability. The flat-namespace option (mcp__egg__contract_add_decision) would work too. Both are orienting-not-constraining; neither is an anti-pattern.
-- **Decision-2 Recommended: Hybrid argparse-derived skeleton + per-tool overrides** (line 400): aligns with the guide's 'share common infrastructure' principle — CLI dispatchers and @tool handlers share code, drift is prevented structurally.
+- **shared/egg_agent_tools/ module placement** (line 511): still worth revisiting in the plan phase. Handlers execute in the sandbox process and import sandbox/egg_lib handlers; placing LLM-adjacent handler glue in shared/ risks later drift toward orchestrator-side imports that would trip EGG200. Consider sandbox/egg_agent_tools/ instead.
+- **Decision-5 ('per-CLI servers' recommended, lines 431-435)**: mcp__egg_contract__add_decision mirrors the shell surface humans already know — good for discoverability. Flat-namespace alternative is also orienting-not-constraining; neither would be an anti-pattern.
+- **Decision-2 ('Hybrid argparse-derived skeleton + per-tool overrides' recommended, line 400)**: aligns with the guide's 'share common infrastructure' principle — CLI dispatchers and @tool handlers share code, drift is prevented structurally rather than by a separate doc-update step.
+- **Option C threat-model framing** (lines 198-231): if decision-1 lands on C instead of D, the plan phase should explicitly re-verify the authz story; an orchestrator-hosted server exposing CLI tools is exactly where prompt-level authz would be tempting. The draft already hints at this via Q1/Q5 in feedback-1.
 
-No changes requested. V2 preserves the architectural correctness of v1 and improves the human-gate ergonomics.
+Overall: the draft makes the agent-mode-design-correct recommendation (Option D + hybrid D+B nudge), explicitly reasons about the guide's trade-offs (orienting vs constraining, sandbox as the constraint, authz by construction, SDK over direct API), and defers the open design questions to the HITL decision/feedback channels rather than pre-committing — matching exactly the pattern the guide prescribes.
 
 
 ````yaml
-id: 1f4a050f-a5e2-48
+id: 546da947-47d2-4b
 phase: refine
 metadata:
   payload:
     artifact_references:
     - .egg-state/drafts/1765-analysis.md
-    reason: "\nRe-reviewed v2 of .egg-state/drafts/1765-analysis.md (now 526 lines,\
-      \ +152 lines from v1) against the agent-mode design criteria. The changes from\
-      \ v1 are primarily formatting/structure:\n\n### What changed in v2 (agent-design-relevant\
-      \ delta)\n- **Lines 73\u201375**: Corrected CLI line-count entries (egg-checkpoint\
-      \ now noted as a 50-line thin wrapper around shared/egg_contracts/checkpoint_cli.py;\
-      \ egg-pipeline-watch moved to 514 lines). Factual correction only.\n- **Lines\
-      \ 241\u2013244**: Updated the backing-handler reference from the fictitious\
-      \ add_decision_handler() to the actual cmd_add_decision() at sandbox/egg_lib/contract_cli.py\
-      \ line ~736. Factual correction; strengthens the 'one source of truth' argument\
-      \ without changing the recommendation.\n- **Lines 358\u2013370**: New sub-choices\
-      \ section explicitly marking scope (decision-6) and harness coverage (decision-3)\
-      \ as 'pending human confirmation at the HITL gate.' This is a structural improvement\
-      \ \u2014 the refiner is surfacing choices to the human gate rather than pre-committing.\n\
-      - **Lines 379\u2013446**: New HITL decision sections with  markers and checkbox-style\
-      \ options (decisions 1\u20136). Each decision lists the recommended default.\
-      \ This is the mechanism by which the human gate picks an option.\n- **Lines\
-      \ 455\u2013506**: New structured  section with Q1\u2013Q8 as editable answers\
-      \ and a 'Submit feedback' checkbox. Again, a structural improvement for the\
-      \ human gate.\n\n### Agent-design evaluation (unchanged conclusion)\n\nAll the\
-      \ points from my v1 review still hold:\n- Recommendation is still Option D (in-process\
-      \ SDK MCP server via create_sdk_mcp_server) with hybrid D+B (lines 307\u2013\
-      311).\n- Authz by construction (lines 342\u2013345): 'Sandbox agents physically\
-      \ cannot see submit_task because the handler doesn't exist in their process.'\n\
-      - Explicit rejection of prompt-bloat pre-fetching (lines 143\u2013146): system-prompt\
-      \ manifest correctly identified as expensive.\n- Orienting-not-constraining\
-      \ bootstrap nudge (lines 293\u2013299): <=200 tokens/turn, nudge-not-constraint\
-      \ framing.\n- Uses the Agent SDK (lines 232\u2013249): create_sdk_mcp_server\
-      \ + @tool decorators is the 'Use the Agent SDK, not direct API calls' pattern.\n\
-      - Network-mode neutrality by being in-process (lines 337\u2013341).\n- First-class\
-      \ typed tools with validation at boundary (lines 247\u2013250).\n\n### No blocking\
-      \ issues\n\nNone of the eight anti-patterns in the review criteria apply. The\
-      \ v2 additions (HITL decision markers and feedback Q&A structure) are a net-positive\
-      \ for the agent-mode design stance:\n- By explicitly deferring decision-2 (auto-gen\
-      \ vs curated vs hybrid) and decision-6 (scope) to the human gate, v2 avoids\
-      \ pre-committing to a specific drift-prevention mechanism \u2014 which is a\
-      \ judgement the workflow-owner should make.\n- The HITL markers let the agent\
-      \ (and the human) keep the draft as the source of truth rather than shelling\
-      \ out to an external scheduler or post-processing script.\n\n### Non-blocking\
-      \ observations (carried forward from v1)\n\n- **shared/egg_agent_tools/ module\
-      \ placement** (line 511): still worth revisiting at the plan phase \u2014 placing\
-      \ LLM-adjacent handler glue in shared/ risks later drift toward orchestrator-side\
-      \ imports that trip EGG200. Consider sandbox/egg_agent_tools/ instead.\n- **Decision-5\
-      \ 'Recommended: per-CLI servers'** (lines 431\u2013434): per-CLI servers (mcp__egg_contract__add_decision)\
-      \ mirror the shell surface humans know \u2014 good for discoverability. The\
-      \ flat-namespace option (mcp__egg__contract_add_decision) would work too. Both\
-      \ are orienting-not-constraining; neither is an anti-pattern.\n- **Decision-2\
-      \ Recommended: Hybrid argparse-derived skeleton + per-tool overrides** (line\
-      \ 400): aligns with the guide's 'share common infrastructure' principle \u2014\
-      \ CLI dispatchers and @tool handlers share code, drift is prevented structurally.\n\
-      \nNo changes requested. V2 preserves the architectural correctness of v1 and\
-      \ improves the human-gate ergonomics.\n"
-  version: 2
+    - docs/guides/agent-mode-design.md
+    reason: "\nReviewed .egg-state/drafts/1765-analysis.md (526 lines, commit aa60d8313)\
+      \ in full against the agent-mode design criteria in docs/guides/agent-mode-design.md.\
+      \ Scope: agent-mode design principles only. Proposal is the same v2 artifact\
+      \ I previously validated in the prior consensus cycle; re-verified against the\
+      \ live file.\n\n### Alignment with agent-mode design (confirmed)\n\n- **Uses\
+      \ the Agent SDK, not direct API calls** (lines 232-250, 307-311): Recommendation\
+      \ is create_sdk_mcp_server + @tool decorators, exposing tools as mcp__egg_*__*\
+      \ through the SDK. Satisfies criterion #7 (SDK over raw HTTP).\n- **Authz by\
+      \ construction, not prompt-level security** (lines 342-345): 'Sandbox agents\
+      \ physically cannot see submit_task because the handler doesn't exist in their\
+      \ process. No trust boundary to re-enforce.' This is the 'extend the sandbox'\
+      \ pattern the guide prescribes, and directly avoids anti-pattern #5 (prompt-level\
+      \ security).\n- **Explicit rejection of pre-fetching into prompt** (lines 143-146):\
+      \ Constraints section calls out that injecting a full tool manifest into the\
+      \ system prompt 'burns input tokens on every turn.' Correctly identifies anti-pattern\
+      \ #1.\n- **Orienting-not-constraining bootstrap nudge** (lines 292-305, hybrid\
+      \ D+B): ~150 words / <200 input tokens per turn, framed as a nudge ('prefer\
+      \ MCP tools over Bash') rather than a hard constraint. Sits in the 'what's fine\
+      \ to include' camp of the guide.\n- **Network-mode neutrality** (lines 338-341):\
+      \ In-process execution sidesteps public/private mode entirely \u2014 no gateway/proxy\
+      \ routing needed, preserves the sandbox as the constraint without duplicating\
+      \ transport paths.\n- **First-class typed tools over shell-mediated access**\
+      \ (lines 248-250, 332-336): Typed schemas with argument validation at the tool\
+      \ boundary address the 'I don't know how to invoke it' half of the problem without\
+      \ adding rigid procedures (anti-pattern #4 avoided).\n- **No hardcoded model\
+      \ IDs** \u2014 N/A for an analysis doc; criterion #8 not applicable.\n- **No\
+      \ direct LLM API calls** \u2014 N/A; recommendation stays within the SDK surface\
+      \ and in the sandbox. Criteria #6 and #7 satisfied.\n\n### No blocking issues\n\
+      \nNone of the eight anti-patterns apply:\n1. Excessive pre-fetching \u2014 explicitly\
+      \ rejected (lines 143-146); hybrid nudge is small and orienting.\n2. Structured\
+      \ output for humans \u2014 N/A (tool surface, not human output).\n3. Post-processing\
+      \ pipelines \u2014 N/A; agent calls structured tools directly rather than a\
+      \ script parsing shell output.\n4. Rigid procedures \u2014 N/A; recommendation\
+      \ removes procedural shell archaeology in favor of tool discovery.\n5. Prompt-level\
+      \ security \u2014 explicitly avoided via authz-by-construction (lines 342-345).\n\
+      6. Direct LLM API calls outside sandbox \u2014 N/A.\n7. Direct API calls bypassing\
+      \ Agent SDK \u2014 uses create_sdk_mcp_server via the SDK.\n8. Hardcoded model\
+      \ identifiers \u2014 N/A.\n\n### Non-blocking observations (carry-forward for\
+      \ plan phase)\n\n- **shared/egg_agent_tools/ module placement** (line 511):\
+      \ still worth revisiting in the plan phase. Handlers execute in the sandbox\
+      \ process and import sandbox/egg_lib handlers; placing LLM-adjacent handler\
+      \ glue in shared/ risks later drift toward orchestrator-side imports that would\
+      \ trip EGG200. Consider sandbox/egg_agent_tools/ instead.\n- **Decision-5 ('per-CLI\
+      \ servers' recommended, lines 431-435)**: mcp__egg_contract__add_decision mirrors\
+      \ the shell surface humans already know \u2014 good for discoverability. Flat-namespace\
+      \ alternative is also orienting-not-constraining; neither would be an anti-pattern.\n\
+      - **Decision-2 ('Hybrid argparse-derived skeleton + per-tool overrides' recommended,\
+      \ line 400)**: aligns with the guide's 'share common infrastructure' principle\
+      \ \u2014 CLI dispatchers and @tool handlers share code, drift is prevented structurally\
+      \ rather than by a separate doc-update step.\n- **Option C threat-model framing**\
+      \ (lines 198-231): if decision-1 lands on C instead of D, the plan phase should\
+      \ explicitly re-verify the authz story; an orchestrator-hosted server exposing\
+      \ CLI tools is exactly where prompt-level authz would be tempting. The draft\
+      \ already hints at this via Q1/Q5 in feedback-1.\n\nOverall: the draft makes\
+      \ the agent-mode-design-correct recommendation (Option D + hybrid D+B nudge),\
+      \ explicitly reasons about the guide's trade-offs (orienting vs constraining,\
+      \ sandbox as the constraint, authz by construction, SDK over direct API), and\
+      \ defers the open design questions to the HITL decision/feedback channels rather\
+      \ than pre-committing \u2014 matching exactly the pattern the guide prescribes.\n"
+  version: 1
 ````
 
-### [2026-04-23T05:55:28Z] reviewer_refine → refiner (CONSENSUS_ACK): ACK from reviewer_refine for refiner
-
-
-Reviewed the updated draft at commit aa60d8313 against every point from the prior NACK. All blocking and non-blocking items are resolved.
-
-### Blocking resolution verification
-
-1. **HITL markers now inlined (lines 381-445, 455).** Verified six `<!-- egg-hitl-decision id=decision-N -->` markers (decision-1..6) each followed by the full bolded question text and a checkbox list of the registered options — matching verbatim what `egg-contract show --json` returns for each decision. The feedback block at line 455 uses `<!-- egg-feedback id=feedback-1 -->`, which matches the convention used in the known-good .egg-state/drafts/1759-analysis.md and .egg-state/drafts/1762-analysis.md (I incorrectly suggested `egg-hitl-feedback` in my NACK — the refiner correctly followed the actual convention instead). Checkbox markers and the 'Submit feedback' closer are also present.
-
-### Non-blocking resolution verification
-
-- **CLI table line counts (line 75-76) corrected.** egg-checkpoint now shows '50 (thin wrapper around shared/egg_contracts/checkpoint_cli.py)', egg-pipeline-watch now shows '514'. Re-verified: `wc -l sandbox/bin/egg-checkpoint` → 50; `wc -l sandbox/bin/egg-pipeline-watch` → 514. Correct.
-- **Function name (line 242) corrected.** 'sandbox/egg_lib/contract_cli.py::cmd_add_decision() (the function at line ~736 that the shell CLI's add-decision subparser already dispatches to)'. Matches the actual dispatch target at contract_cli.py:736.
-- **Recommendation sub-choices (lines 358-371) reframed.** The prose now explicitly says 'Two sub-choices inside the above are pending human confirmation at the HITL gate, not decided here — we offer them as a recommended default in each decision', then bullets the recommendations for decision-2/decision-6 (scope) and decision-3 (harness coverage). Good — the recommendation is still strong but no longer reads as pre-deciding open HITL questions.
-
-### Substantive re-verification
-
-The core analysis is unchanged (Option D + hybrid D+B, same pros/cons, same constraints, same complexity assessment). All file/line references I spot-checked during the first review remain accurate after the diff. No new factual errors introduced.
-
+### [2026-04-23T06:23:14Z] reviewer_agent_design (CONSENSUS_CONFIRMED): Confirmed by reviewer_agent_design
 
 ````yaml
-id: 427db70a-bf7e-46
-phase: refine
-metadata:
-  payload:
-    artifact_references:
-    - .egg-state/drafts/1765-analysis.md
-    reason: "\nReviewed the updated draft at commit aa60d8313 against every point\
-      \ from the prior NACK. All blocking and non-blocking items are resolved.\n\n\
-      ### Blocking resolution verification\n\n1. **HITL markers now inlined (lines\
-      \ 381-445, 455).** Verified six `<!-- egg-hitl-decision id=decision-N -->` markers\
-      \ (decision-1..6) each followed by the full bolded question text and a checkbox\
-      \ list of the registered options \u2014 matching verbatim what `egg-contract\
-      \ show --json` returns for each decision. The feedback block at line 455 uses\
-      \ `<!-- egg-feedback id=feedback-1 -->`, which matches the convention used in\
-      \ the known-good .egg-state/drafts/1759-analysis.md and .egg-state/drafts/1762-analysis.md\
-      \ (I incorrectly suggested `egg-hitl-feedback` in my NACK \u2014 the refiner\
-      \ correctly followed the actual convention instead). Checkbox markers and the\
-      \ 'Submit feedback' closer are also present.\n\n### Non-blocking resolution\
-      \ verification\n\n- **CLI table line counts (line 75-76) corrected.** egg-checkpoint\
-      \ now shows '50 (thin wrapper around shared/egg_contracts/checkpoint_cli.py)',\
-      \ egg-pipeline-watch now shows '514'. Re-verified: `wc -l sandbox/bin/egg-checkpoint`\
-      \ \u2192 50; `wc -l sandbox/bin/egg-pipeline-watch` \u2192 514. Correct.\n-\
-      \ **Function name (line 242) corrected.** 'sandbox/egg_lib/contract_cli.py::cmd_add_decision()\
-      \ (the function at line ~736 that the shell CLI's add-decision subparser already\
-      \ dispatches to)'. Matches the actual dispatch target at contract_cli.py:736.\n\
-      - **Recommendation sub-choices (lines 358-371) reframed.** The prose now explicitly\
-      \ says 'Two sub-choices inside the above are pending human confirmation at the\
-      \ HITL gate, not decided here \u2014 we offer them as a recommended default\
-      \ in each decision', then bullets the recommendations for decision-2/decision-6\
-      \ (scope) and decision-3 (harness coverage). Good \u2014 the recommendation\
-      \ is still strong but no longer reads as pre-deciding open HITL questions.\n\
-      \n### Substantive re-verification\n\nThe core analysis is unchanged (Option\
-      \ D + hybrid D+B, same pros/cons, same constraints, same complexity assessment).\
-      \ All file/line references I spot-checked during the first review remain accurate\
-      \ after the diff. No new factual errors introduced.\n"
-  version: 2
-````
-
-### [2026-04-23T05:55:28Z] orchestrator → refiner (STATUS): All reviewers have ACKed — ready to confirm
-
-All assigned reviewers have ACKed your proposal (version 2). Run `egg-orch consensus confirmed` to confirm.
-
-````yaml
-id: 6b7b36f4-d06b-46
-phase: refine
-metadata:
-  fully_acked: true
-  version: 2
-````
-
-### [2026-04-23T05:55:32Z] reviewer_refine (CONSENSUS_CONFIRMED): Confirmed by reviewer_refine
-
-````yaml
-id: 585ff071-64f8-48
+id: a17b8c08-3b17-48
 phase: refine
 metadata:
   consensus_reached: false
 ````
 
-### [2026-04-23T05:55:33Z] refiner (CONSENSUS_CONFIRMED): Confirmed by refiner
+### [2026-04-23T06:24:41Z] reviewer_refine → refiner (CONSENSUS_ACK): ACK from reviewer_refine for refiner
+
+
+Reviewed the refine analysis (525 lines) end-to-end and cross-checked every material claim against the current worktree. This is cycle 1 — the refiner addressed the four blocking items from my cycle-0 NACK (inline HITL markers, egg-checkpoint/pipeline-watch row swap, cmd_add_decision function name, sub-choice framing). Consensus status confirms refiner has PROPOSED at commit aa60d83138.
+
+### Verification walk
+- **HITL registration (the cycle-0 blocker):** egg-contract show lists all six pending decisions (decision-1..6). The contract JSON feedback object contains feedback-1 with 8 questions (Q1..Q8). Draft includes inline <!-- egg-hitl-decision id=decision-N --> markers for every decision and <!-- egg-feedback id=feedback-1 --> for the feedback block — consistent with .egg-state/drafts/1759-analysis.md (known-good pattern). No prose-only open questions.
+- **File/line citations:** client.py:194 (options = ClaudeAgentOptions(...)), :202 (setting_sources=['project','user']), :204 (can_use_tool), :246 (stream = query(...)) all confirmed in the live file. Analysis's claim that mcp_servers is NOT set is verified — grep 'create_sdk_mcp_server|mcp_servers' shared/ returns zero matches. command.py:42-54 cmd assembly confirmed. contract_cli.py:736 cmd_add_decision confirmed (was the invented add_decision_handler in cycle 0).
+- **CLI inventory (the cycle-0 row-swap bug):** wc -l on sandbox/bin/ yields egg-contract 1577, egg-orch 2238, egg-checkpoint 50, egg-pipeline-watch 514, egg-sdlc 27, egg-health-inspect 163, egg-onboarding-docs 151 — the table is now correct.
+- **MCP context:** orchestrator/mcp_server.py:35 DEFAULT_MCP_PORT=9850 confirmed; mcp_tools.py PIPELINE_TOOLS contains submit_task, run_agent_task, babysit_pr, get_status, cancel_task, get_consensus_status, restart_phase — matches the analysis's authz-by-construction argument for a separate sandbox-facing surface.
+- **SDK availability:** 'from claude_agent_sdk import create_sdk_mcp_server' resolves and returns the documented in-process server factory. Option D is technically viable without new runtime deps (pyproject.toml already has mcp[cli]>=1.20.0, as claimed).
+
+### Criterion-by-criterion assessment
+1. **Problem Understanding** — Strong. Core problem ('tooling archaeology', 5 tool calls before productive work), current behavior (SDK options object missing mcp_servers, rules/ mounts tables not schemas), and desired outcome (typed tools with auto-surfacing on new CLI adds) are all crisply stated.
+2. **Research Quality** — Thorough and accurate; every claim spot-checked held up. The dual-harness reality, the network-mode split, and the existing orchestrator MCP server are all grounded in actual code paths.
+3. **Options Analysis** — Four meaningfully different options (A docs-only, B prompt-manifest, C second HTTP server, D in-process SDK) plus a hybrid. Trade-offs articulated on both sides — C's cons explicitly include env-visibility, latency, and operator burden; D's cons explicitly include egg-harness coverage gap and sync-handler wrapping. No strawmen.
+4. **Constraints and Dependencies** — Dual-harness, private-mode network reachability, backward compatibility, role-based authz, drift risk, system-prompt budget, and 'not on the table' (in-sandbox daemon) are all surfaced.
+5. **Open Questions** — 6 decisions cover the real forks (approach, generation strategy, harness scope, CLI retention, naming, surface scope); 8 feedback questions cover orthogonal design contract items (threat model, drift-prevention mechanism, bootstrap paragraph, output shape, authn/authz, observability, timeouts, rollout). Recommended options marked.
+6. **Recommendation Quality** — Option D + prompt nudge, justified against each of the six criteria the issue raised (arch consistency, maintainability, discoverability, network neutrality, authz-by-construction, composition). Accepted limitation (egg-harness parallel registration deferred) is explicit and tied to decision-3.
+7. **HITL Registration** — egg-contract show confirms every prose decision/feedback item has a live contract entry.
+
+### Non-blocking
+- **.egg-state/drafts/1765-analysis.md:85** — 'Each CLI's own top-level --help is reasonable' is true for egg-contract/egg-orch, but egg-sdlc (27 lines, TUI launcher) and egg-pipeline-watch (single positional) don't have subcommands at all. The sentence could acknowledge that those two CLIs are flat, not subcommand trees, which slightly shifts how D's per-CLI server model applies to them. Minor nit for the planner — not a refine-phase blocker.
+- **.egg-state/drafts/1765-analysis.md:287** — 'the legacy interactive-mode CLI was removed in #1762, so this is a non-issue today' is consistent with CLAUDE.md. Worth noting for the planner: any future egg-harness parallel registration (decision-3) still needs to avoid resurrecting that nested-claude scenario.
+- **decision-3 recommendation** — 'claude_agent_sdk harness only' is pragmatic, but the planner should verify the egg harness's tool-registry shape (shared/egg_harness/tools/) before treating 'add parallel registration later' as cheap.
+- **Q7 (timeouts)** — The 60s default for SDK MCP tools is stated without a citation; the plan phase should confirm the current SDK version's actual default before designing start/poll tool pairs.
+
+Analysis is ready to advance to plan.
+
 
 ````yaml
-id: b69d1a77-1363-44
+id: caf753ee-bed3-4e
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/1765-analysis.md
+    - .egg-state/contracts/issue-1765.json
+    - shared/egg_agent/client.py
+    - shared/egg_agent/command.py
+    - sandbox/bin/egg-contract
+    - sandbox/egg_lib/contract_cli.py
+    - orchestrator/mcp_server.py
+    - orchestrator/mcp_tools.py
+    reason: "\nReviewed the refine analysis (525 lines) end-to-end and cross-checked\
+      \ every material claim against the current worktree. This is cycle 1 \u2014\
+      \ the refiner addressed the four blocking items from my cycle-0 NACK (inline\
+      \ HITL markers, egg-checkpoint/pipeline-watch row swap, cmd_add_decision function\
+      \ name, sub-choice framing). Consensus status confirms refiner has PROPOSED\
+      \ at commit aa60d83138.\n\n### Verification walk\n- **HITL registration (the\
+      \ cycle-0 blocker):** egg-contract show lists all six pending decisions (decision-1..6).\
+      \ The contract JSON feedback object contains feedback-1 with 8 questions (Q1..Q8).\
+      \ Draft includes inline <!-- egg-hitl-decision id=decision-N --> markers for\
+      \ every decision and <!-- egg-feedback id=feedback-1 --> for the feedback block\
+      \ \u2014 consistent with .egg-state/drafts/1759-analysis.md (known-good pattern).\
+      \ No prose-only open questions.\n- **File/line citations:** client.py:194 (options\
+      \ = ClaudeAgentOptions(...)), :202 (setting_sources=['project','user']), :204\
+      \ (can_use_tool), :246 (stream = query(...)) all confirmed in the live file.\
+      \ Analysis's claim that mcp_servers is NOT set is verified \u2014 grep 'create_sdk_mcp_server|mcp_servers'\
+      \ shared/ returns zero matches. command.py:42-54 cmd assembly confirmed. contract_cli.py:736\
+      \ cmd_add_decision confirmed (was the invented add_decision_handler in cycle\
+      \ 0).\n- **CLI inventory (the cycle-0 row-swap bug):** wc -l on sandbox/bin/\
+      \ yields egg-contract 1577, egg-orch 2238, egg-checkpoint 50, egg-pipeline-watch\
+      \ 514, egg-sdlc 27, egg-health-inspect 163, egg-onboarding-docs 151 \u2014 the\
+      \ table is now correct.\n- **MCP context:** orchestrator/mcp_server.py:35 DEFAULT_MCP_PORT=9850\
+      \ confirmed; mcp_tools.py PIPELINE_TOOLS contains submit_task, run_agent_task,\
+      \ babysit_pr, get_status, cancel_task, get_consensus_status, restart_phase \u2014\
+      \ matches the analysis's authz-by-construction argument for a separate sandbox-facing\
+      \ surface.\n- **SDK availability:** 'from claude_agent_sdk import create_sdk_mcp_server'\
+      \ resolves and returns the documented in-process server factory. Option D is\
+      \ technically viable without new runtime deps (pyproject.toml already has mcp[cli]>=1.20.0,\
+      \ as claimed).\n\n### Criterion-by-criterion assessment\n1. **Problem Understanding**\
+      \ \u2014 Strong. Core problem ('tooling archaeology', 5 tool calls before productive\
+      \ work), current behavior (SDK options object missing mcp_servers, rules/ mounts\
+      \ tables not schemas), and desired outcome (typed tools with auto-surfacing\
+      \ on new CLI adds) are all crisply stated.\n2. **Research Quality** \u2014 Thorough\
+      \ and accurate; every claim spot-checked held up. The dual-harness reality,\
+      \ the network-mode split, and the existing orchestrator MCP server are all grounded\
+      \ in actual code paths.\n3. **Options Analysis** \u2014 Four meaningfully different\
+      \ options (A docs-only, B prompt-manifest, C second HTTP server, D in-process\
+      \ SDK) plus a hybrid. Trade-offs articulated on both sides \u2014 C's cons explicitly\
+      \ include env-visibility, latency, and operator burden; D's cons explicitly\
+      \ include egg-harness coverage gap and sync-handler wrapping. No strawmen.\n\
+      4. **Constraints and Dependencies** \u2014 Dual-harness, private-mode network\
+      \ reachability, backward compatibility, role-based authz, drift risk, system-prompt\
+      \ budget, and 'not on the table' (in-sandbox daemon) are all surfaced.\n5. **Open\
+      \ Questions** \u2014 6 decisions cover the real forks (approach, generation\
+      \ strategy, harness scope, CLI retention, naming, surface scope); 8 feedback\
+      \ questions cover orthogonal design contract items (threat model, drift-prevention\
+      \ mechanism, bootstrap paragraph, output shape, authn/authz, observability,\
+      \ timeouts, rollout). Recommended options marked.\n6. **Recommendation Quality**\
+      \ \u2014 Option D + prompt nudge, justified against each of the six criteria\
+      \ the issue raised (arch consistency, maintainability, discoverability, network\
+      \ neutrality, authz-by-construction, composition). Accepted limitation (egg-harness\
+      \ parallel registration deferred) is explicit and tied to decision-3.\n7. **HITL\
+      \ Registration** \u2014 egg-contract show confirms every prose decision/feedback\
+      \ item has a live contract entry.\n\n### Non-blocking\n- **.egg-state/drafts/1765-analysis.md:85**\
+      \ \u2014 'Each CLI's own top-level --help is reasonable' is true for egg-contract/egg-orch,\
+      \ but egg-sdlc (27 lines, TUI launcher) and egg-pipeline-watch (single positional)\
+      \ don't have subcommands at all. The sentence could acknowledge that those two\
+      \ CLIs are flat, not subcommand trees, which slightly shifts how D's per-CLI\
+      \ server model applies to them. Minor nit for the planner \u2014 not a refine-phase\
+      \ blocker.\n- **.egg-state/drafts/1765-analysis.md:287** \u2014 'the legacy\
+      \ interactive-mode CLI was removed in #1762, so this is a non-issue today' is\
+      \ consistent with CLAUDE.md. Worth noting for the planner: any future egg-harness\
+      \ parallel registration (decision-3) still needs to avoid resurrecting that\
+      \ nested-claude scenario.\n- **decision-3 recommendation** \u2014 'claude_agent_sdk\
+      \ harness only' is pragmatic, but the planner should verify the egg harness's\
+      \ tool-registry shape (shared/egg_harness/tools/) before treating 'add parallel\
+      \ registration later' as cheap.\n- **Q7 (timeouts)** \u2014 The 60s default\
+      \ for SDK MCP tools is stated without a citation; the plan phase should confirm\
+      \ the current SDK version's actual default before designing start/poll tool\
+      \ pairs.\n\nAnalysis is ready to advance to plan.\n"
+  version: 1
+````
+
+### [2026-04-23T06:24:41Z] orchestrator → refiner (STATUS): All reviewers have ACKed — ready to confirm
+
+All assigned reviewers have ACKed your proposal (version 1). Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: d2d99918-48b2-44
+phase: refine
+metadata:
+  fully_acked: true
+  version: 1
+````
+
+### [2026-04-23T06:24:48Z] reviewer_refine (CONSENSUS_CONFIRMED): Confirmed by reviewer_refine
+
+````yaml
+id: 762fbbc0-c14e-46
+phase: refine
+metadata:
+  consensus_reached: false
+````
+
+### [2026-04-23T06:25:36Z] refiner (CONSENSUS_CONFIRMED): Confirmed by refiner
+
+````yaml
+id: 6927c836-4da7-4f
 phase: refine
 metadata:
   consensus_reached: true
