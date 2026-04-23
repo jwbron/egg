@@ -341,10 +341,10 @@
         {
           "container_id": "3a72c360-426b-45be-b06e-faa0128fd8f3",
           "container_name": "egg-sandbox-egg-agent-issue-1897-documenter",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-23T06:27:52.964725Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-23T07:23:21Z",
+          "exit_code": 0,
           "agent_role": "documenter",
           "session_token": null,
           "pod_name": null,
@@ -407,11 +407,11 @@
         },
         {
           "role": "documenter",
-          "status": "running",
+          "status": "complete",
           "container_id": "3a72c360-426b-45be-b06e-faa0128fd8f3",
           "container_info": null,
           "started_at": "2026-04-23T06:27:52.964727Z",
-          "completed_at": null,
+          "completed_at": "2026-04-23T07:23:25.054948Z",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -650,7 +650,7 @@
     }
   ],
   "created_at": "2026-04-22T23:27:22.582974Z",
-  "updated_at": "2026-04-23T07:08:02.292031Z",
+  "updated_at": "2026-04-23T07:23:25.055313Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -664,5 +664,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T06:27:48.103193Z",
-  "version": 62
+  "version": 63
 }
