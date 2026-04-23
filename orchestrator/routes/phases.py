@@ -64,10 +64,20 @@ def make_error_response(
     message: str,
     status_code: int = 400,
     details: dict[str, Any] | None = None,
+    reason: str | None = None,
 ) -> tuple[Response, int]:
-    """Create an error response."""
+    """Create an error response.
+
+    ``reason`` is a stable, machine-readable enum-like code that disambiguates
+    responses sharing the same HTTP status (especially 409, where distinct
+    gates — health checks vs. unresolved HITL — would otherwise collapse into
+    one signal). Callers should switch on ``reason`` rather than parsing
+    ``message``. See #1939.
+    """
     response: dict[str, Any] = {"success": False, "message": message}
-    if details:
+    if reason is not None:
+        response["reason"] = reason
+    if details is not None:
         response["details"] = details
     return jsonify(response), status_code
 
@@ -203,11 +213,13 @@ def get_current_phase(pipeline_id: str) -> tuple[Response, int]:
         return make_error_response(
             f"Invalid pipeline ID format: {pipeline_id}",
             status_code=400,
+            reason="invalid_pipeline_id",
         )
     except PipelineNotFoundError:
         return make_error_response(
             f"Pipeline {pipeline_id} not found",
             status_code=404,
+            reason="pipeline_not_found",
         )
 
 
@@ -243,13 +255,14 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
 
     target_phase_str = data.get("target_phase")
     if not target_phase_str:
-        return make_error_response("Missing target_phase")
+        return make_error_response("Missing target_phase", reason="missing_target_phase")
 
     try:
         target_phase = PipelinePhase(target_phase_str)
     except ValueError:
         return make_error_response(
-            f"Invalid phase: {target_phase_str}. Valid phases: {[p.value for p in PipelinePhase]}"
+            f"Invalid phase: {target_phase_str}. Valid phases: {[p.value for p in PipelinePhase]}",
+            reason="invalid_phase",
         )
 
     force = data.get("force", False)
@@ -264,14 +277,17 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
         if not force:
             is_valid, error = validate_phase_transition(previous_phase, target_phase)
             if not is_valid:
-                return make_error_response(error, status_code=400)
+                return make_error_response(
+                    error, status_code=400, reason="invalid_phase_transition"
+                )
 
             # Check if current phase is complete
             current_execution = pipeline.get_phase_execution(previous_phase)
             if current_execution.status not in (PipelineStatus.COMPLETE, PipelineStatus.PENDING):
                 return make_error_response(
                     f"Current phase {previous_phase.value} is not complete "
-                    f"(status: {current_execution.status.value})"
+                    f"(status: {current_execution.status.value})",
+                    reason="previous_phase_not_complete",
                 )
 
         # Gate phase advance on health checks.  Runs all Tier 1 and Tier 2
@@ -311,6 +327,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                             details={
                                 "health_results": [r.to_dict() for r in hc_results],
                             },
+                            reason="health_checks_failed",
                         )
             except ImportError:
                 pass  # Health check module not available — proceed without gating
@@ -338,7 +355,9 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
             if not force:
                 is_valid, error = validate_phase_transition(previous_phase, target_phase)
                 if not is_valid:
-                    return make_error_response(error, status_code=400)
+                    return make_error_response(
+                        error, status_code=400, reason="invalid_phase_transition"
+                    )
                 current_execution = pipeline.get_phase_execution(previous_phase)
                 if current_execution.status not in (
                     PipelineStatus.COMPLETE,
@@ -346,7 +365,8 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
                 ):
                     return make_error_response(
                         f"Current phase {previous_phase.value} is not complete "
-                        f"(status: {current_execution.status.value})"
+                        f"(status: {current_execution.status.value})",
+                        reason="previous_phase_not_complete",
                     )
 
             # Mark previous phase as complete
@@ -387,6 +407,57 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
         # advance_phase call would be blocked by the optimistic lock above.
         _clear_concurrent_state(pipeline_id)
 
+        # When leaving the plan phase, parse the plan draft's yaml-tasks
+        # appendix into the contract's pr/phases fields.  _run_pipeline's
+        # per-phase block only runs this for the thread that owned the
+        # plan phase; a force=true advance replaces that thread before it
+        # reaches the populate step, leaving contract.pr empty and the
+        # PR phase's auto-PR path falling back to placeholder title/body
+        # (see #1941).
+        #
+        # Commit the result in-process so _sync_worktree_with_remote in
+        # the newly-spawned thread pushes rather than resets the change.
+        # Failures warn and continue — the advance-phase path is a recovery
+        # hammer; blocking it on populate failures would defeat the purpose.
+        if previous_phase == PipelinePhase.PLAN:
+            try:
+                from routes import resolve_worktree_path
+                from routes.pipelines import (
+                    _commit_statefiles_to_worktree,
+                    _pipeline_identifier,
+                    _populate_contract_from_plan_safe,
+                )
+
+                worktree_path = resolve_worktree_path(pipeline_id, store.repo_path)
+                pipeline_mode = pipeline.mode.value if pipeline.mode else "issue"
+                _populate_contract_from_plan_safe(
+                    worktree_path,
+                    pipeline_id,
+                    pipeline_mode,
+                    pipeline.issue_number,
+                )
+                try:
+                    _commit_statefiles_to_worktree(
+                        worktree_path,
+                        "Populate contract from plan on plan-phase exit",
+                        pipeline_identifier=_pipeline_identifier(
+                            pipeline.issue_number, pipeline_id
+                        ),
+                        pipeline_id=pipeline_id,
+                    )
+                except Exception as commit_err:
+                    logger.warning(
+                        "Failed to commit populated contract on plan exit (continuing)",
+                        pipeline_id=pipeline_id,
+                        error=str(commit_err),
+                    )
+            except Exception as exit_err:
+                logger.warning(
+                    "Failed to run plan-exit populate (continuing)",
+                    pipeline_id=pipeline_id,
+                    error=str(exit_err),
+                )
+
         # Launch a new _run_pipeline thread to process the target phase.
         # Without this, the pipeline stays in RUNNING state with no thread
         # driving agent spawning or consensus detection.  See #1672.
@@ -420,16 +491,19 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
         return make_error_response(
             f"Concurrent modification detected for pipeline {pipeline_id}. Please retry.",
             status_code=409,
+            reason="version_conflict",
         )
     except InvalidPipelineIdError:
         return make_error_response(
             f"Invalid pipeline ID format: {pipeline_id}",
             status_code=400,
+            reason="invalid_pipeline_id",
         )
     except PipelineNotFoundError:
         return make_error_response(
             f"Pipeline {pipeline_id} not found",
             status_code=404,
+            reason="pipeline_not_found",
         )
 
 
@@ -464,7 +538,10 @@ def start_phase(pipeline_id: str) -> tuple[Response, int]:
         phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
 
         if phase_execution.status == PipelineStatus.RUNNING:
-            return make_error_response(f"Phase {pipeline.current_phase.value} is already running")
+            return make_error_response(
+                f"Phase {pipeline.current_phase.value} is already running",
+                reason="phase_already_running",
+            )
 
         phase_execution.status = PipelineStatus.RUNNING
         phase_execution.started_at = datetime.now(UTC)
@@ -491,16 +568,19 @@ def start_phase(pipeline_id: str) -> tuple[Response, int]:
         return make_error_response(
             f"Concurrent modification detected for pipeline {pipeline_id}. Please retry.",
             status_code=409,
+            reason="version_conflict",
         )
     except InvalidPipelineIdError:
         return make_error_response(
             f"Invalid pipeline ID format: {pipeline_id}",
             status_code=400,
+            reason="invalid_pipeline_id",
         )
     except PipelineNotFoundError:
         return make_error_response(
             f"Pipeline {pipeline_id} not found",
             status_code=404,
+            reason="pipeline_not_found",
         )
 
 
@@ -627,11 +707,13 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
             return make_error_response(
                 f"artifacts must be a JSON object (got {type(artifacts).__name__})",
                 status_code=400,
+                reason="invalid_artifacts",
             )
         if not all(isinstance(k, str) and isinstance(v, str) for k, v in artifacts.items()):
             return make_error_response(
                 "artifacts must be a JSON object with string values",
                 status_code=400,
+                reason="invalid_artifacts",
             )
 
     force = bool(data.get("force", False))
@@ -640,6 +722,7 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
         return make_error_response(
             "force_reason must be a string",
             status_code=400,
+            reason="invalid_force_reason",
         )
     if isinstance(force_reason, str) and not force_reason.strip():
         # Treat empty/whitespace-only strings the same as absent — an empty
@@ -670,6 +753,7 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
                     "phase": pipeline.current_phase.value,
                     "unresolved_decision_ids": unresolved_ids,
                 },
+                reason="unresolved_hitl_decisions",
             )
 
         phase_execution = pipeline.get_phase_execution(pipeline.current_phase)
@@ -742,16 +826,19 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
         return make_error_response(
             f"Concurrent modification detected for pipeline {pipeline_id}. Please retry.",
             status_code=409,
+            reason="version_conflict",
         )
     except InvalidPipelineIdError:
         return make_error_response(
             f"Invalid pipeline ID format: {pipeline_id}",
             status_code=400,
+            reason="invalid_pipeline_id",
         )
     except PipelineNotFoundError:
         return make_error_response(
             f"Pipeline {pipeline_id} not found",
             status_code=404,
+            reason="pipeline_not_found",
         )
 
 
@@ -817,11 +904,13 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
         return make_error_response(
             f"Invalid pipeline ID format: {pipeline_id}",
             status_code=400,
+            reason="invalid_pipeline_id",
         )
     except PipelineNotFoundError:
         return make_error_response(
             f"Pipeline {pipeline_id} not found",
             status_code=404,
+            reason="pipeline_not_found",
         )
     except Exception as e:
         logger.error(
@@ -832,6 +921,7 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
         return make_error_response(
             f"Failed to populate contract: {e}",
             status_code=500,
+            reason="populate_contract_failed",
         )
 
 
@@ -861,7 +951,7 @@ def fail_phase(pipeline_id: str) -> tuple[Response, int]:
 
     error_message = data.get("error")
     if not error_message:
-        return make_error_response("Missing error message")
+        return make_error_response("Missing error message", reason="missing_error_message")
 
     try:
         store, pipeline = get_state_store_for_pipeline(pipeline_id)
@@ -899,14 +989,17 @@ def fail_phase(pipeline_id: str) -> tuple[Response, int]:
         return make_error_response(
             f"Concurrent modification detected for pipeline {pipeline_id}. Please retry.",
             status_code=409,
+            reason="version_conflict",
         )
     except InvalidPipelineIdError:
         return make_error_response(
             f"Invalid pipeline ID format: {pipeline_id}",
             status_code=400,
+            reason="invalid_pipeline_id",
         )
     except PipelineNotFoundError:
         return make_error_response(
             f"Pipeline {pipeline_id} not found",
             status_code=404,
+            reason="pipeline_not_found",
         )

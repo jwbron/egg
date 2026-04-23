@@ -3351,6 +3351,33 @@ class TestBrcPreambleSyncStep:
         assert "origin/egg/issue-456" in preamble
 
 
+class TestReviewerPollUsesWaitLoop:
+    """Reviewer POLL step must use ``wait-loop`` (issue #1943).
+
+    Background: a bare ``egg-orch message wait --timeout 60`` exits
+    rc=1 on every timeout, which the agent-facing Bash tool renders as
+    ``is_error=True``.  On a legitimately-long proposal wait the agent
+    reads that as a failure and tight-retries the exact command.
+    ``wait-loop`` blocks server-side forever and re-issues the inner
+    long-poll itself, so timeouts never surface to the caller.
+    """
+
+    def test_reviewer_poll_uses_wait_loop_not_bare_wait(self):
+        preamble = _build_brc_preamble("reviewer_code", "implement", branch="egg/issue-123")
+        # Locate the POLL block by slicing from **POLL** to the next step header.
+        poll_start = preamble.index("**POLL**")
+        poll_end = preamble.index("**SYNC**")
+        poll_block = preamble[poll_start:poll_end]
+        assert "egg-orch message wait-loop --for CONSENSUS_PROPOSE" in poll_block, (
+            "POLL step must tell reviewers to use wait-loop (blocks "
+            "forever server-side), not bare `message wait`."
+        )
+        assert "egg-orch message wait --for CONSENSUS_PROPOSE --timeout" not in poll_block, (
+            "POLL step must not reintroduce bare `message wait --timeout` "
+            "— issue #1943 documents why it causes tight retry loops."
+        )
+
+
 class TestProducerOrientationSyncNote:
     """Tests for sync note in _build_producer_orientation (issue #1565)."""
 

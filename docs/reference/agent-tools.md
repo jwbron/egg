@@ -16,26 +16,25 @@ same handler functions the `egg-contract` / `egg-orch` CLIs call. The
 work that introduces them is tracked in
 [#1765](https://github.com/jwbron/egg/issues/1765).
 
-## Opt-in — `EGG_MCP_TOOLS`
+## Flag — `EGG_MCP_TOOLS`
 
-The MCP tool surface is gated behind an environment variable:
+The MCP tool surface is **on by default** since [#1942](https://github.com/jwbron/egg/issues/1942). The env var now acts as a kill-switch:
 
-| Flag | Current default | Effect |
-|------|------------------|--------|
-| `EGG_MCP_TOOLS=true` (or `1` / `yes`) | — | Registers the 15 iteration-1 tools on `options.mcp_servers['egg']` and appends `SYSTEM_PROMPT_NUDGE` to `options.system_prompt`. |
-| `EGG_MCP_TOOLS` unset / `false` / `0` | **Default** | Code path is byte-identical to the pre-#1765 behaviour. Non-opt-in pipelines pay no import cost and see no prompt changes. |
+| Flag | Effect |
+|------|--------|
+| `EGG_MCP_TOOLS` unset or any value not listed below | **Default.** Registers the 15 iteration-1 tools (one server per namespace) on `options.mcp_servers` and appends `SYSTEM_PROMPT_NUDGE` to `options.system_prompt`. |
+| `EGG_MCP_TOOLS=false` (or `0` / `no` / `off`) | Opt-out. Code path is byte-identical to the pre-#1765 behaviour — no `mcp_servers` registration, no prompt changes, no import cost. |
 
-The default is **off** for iteration 1 so opt-in pipelines can burn in
-the surface against a subset of workloads. A follow-up PR will flip
-the default to `true` once metrics show ≥15 % reduction in
-turns-per-phase for refine/plan. A later follow-up PR will remove the
-flag entirely.
+Iteration 1 (#1765) shipped the flag default-off while the wire-up burned in.
+#1942 flipped the default to on and kept the env var as a rollback
+switch; a later follow-up will remove the flag entirely once the
+tools are considered stable.
 
-Set the flag on a pipeline via pod env, Docker Compose, or the
-`env` stanza on any submit-task payload. See
+To opt a pipeline out, set `EGG_MCP_TOOLS=false` via pod env, Docker
+Compose, or the `env` stanza on any submit-task payload. See
 [docs/guides/sdlc-pipeline.md — Agent MCP tools
 (EGG_MCP_TOOLS flag)](../guides/sdlc-pipeline.md#agent-mcp-tools-egg_mcp_tools-flag)
-for the per-pipeline opt-in recipe.
+for the per-pipeline recipe.
 
 ## Tool inventory (15 verbs)
 
@@ -50,7 +49,7 @@ The SDK renders an MCP tool in `tool_use` blocks as
 returns a `{namespace: server}` dict — one SDK MCP server per
 namespace, keyed by `sdlc`, `brc`, `phase`, `progress`, or `task` —
 and `shared/egg_agent/client.py::run_agent_async` merges that dict
-into `options.mcp_servers` when `EGG_MCP_TOOLS=true`. With raw
+into `options.mcp_servers` unless `EGG_MCP_TOOLS` is explicitly falsy. With raw
 `@tool` names declared as plain verbs, Claude's composition
 naturally produces the semantic names in the tables below:
 
@@ -153,7 +152,7 @@ never as an agent crash.
 
 ## System-prompt nudge (`SYSTEM_PROMPT_NUDGE`)
 
-When `EGG_MCP_TOOLS=true`, `run_agent_async` appends a short bootstrap
+When the flag is on (the default), `run_agent_async` appends a short bootstrap
 paragraph (`≤200` words) to `options.system_prompt`. The paragraph is
 **generated programmatically** at module import from `TOOL_NAMESPACES`
 — it is not a hand-authored string literal — so adding or renaming a
@@ -190,7 +189,7 @@ name the nudge advertises. No mental prefix-prepending required.
 │ Agent container (Python, claude_agent_sdk)                      │
 │                                                                 │
 │  shared/egg_agent/client.py::run_agent_async                    │
-│      └── EGG_MCP_TOOLS=true ──▶ build_sandbox_mcp_server()      │
+│      └── EGG_MCP_TOOLS ≠ falsy ▶ build_sandbox_mcp_server()     │
 │                                                                 │
 │                ┌─── sandbox/egg_agent_tools/ ───┐               │
 │                │  server.py    (SDK factory)    │               │
@@ -336,7 +335,7 @@ SDK release notes rather than silently breaking every sandbox.
 - [SDLC Contract](sdlc-contract.md) — full `egg-contract` shell
   surface.
 - [SDLC Pipeline Guide](../guides/sdlc-pipeline.md) — per-pipeline
-  opt-in recipe for `EGG_MCP_TOOLS`.
+  opt-out recipe for `EGG_MCP_TOOLS`.
 - [Concurrent Execution Guide](../guides/concurrent-execution.md) —
   where BRC + consensus + message-bus live, which the `mcp__brc__*`
   namespace exposes.

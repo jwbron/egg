@@ -1439,22 +1439,22 @@ file restrictions to minimize overlap.
 
 ## Agent MCP tools (`EGG_MCP_TOOLS` flag)
 
-**Default: off in iteration 1** — opt in per pipeline via the snippet below.
+**Default: on since [#1942](https://github.com/jwbron/egg/issues/1942)** — set `EGG_MCP_TOOLS=false` per pipeline to opt out.
 
-Sandbox agents can call pipeline lifecycle operations (BRC consensus, HITL decisions, phase context, progress signals, task completion) through first-class Claude Agent SDK MCP tools rather than shelling out to `egg-contract` / `egg-orch` via `Bash`. The tools run **in-process** via `claude_agent_sdk.create_sdk_mcp_server` — no new network service, no new auth layer, no new process. See the [Agent MCP Tools reference](../reference/agent-tools.md) for the full 15-verb inventory (`mcp__sdlc__*`, `mcp__brc__*`, `mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`), schemas, and architecture.
+Sandbox agents call pipeline lifecycle operations (BRC consensus, HITL decisions, phase context, progress signals, task completion) through first-class Claude Agent SDK MCP tools rather than shelling out to `egg-contract` / `egg-orch` via `Bash`. The tools run **in-process** via `claude_agent_sdk.create_sdk_mcp_server` — no new network service, no new auth layer, no new process. See the [Agent MCP Tools reference](../reference/agent-tools.md) for the full 15-verb inventory (`mcp__sdlc__*`, `mcp__brc__*`, `mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`), schemas, and architecture.
 
-**Opt in per-pipeline.** The surface is gated behind the `EGG_MCP_TOOLS` environment variable (default **off** in iteration 1 — tracked in [#1765](https://github.com/jwbron/egg/issues/1765)). Set it on your sandbox pod env to enable:
+**Opt out per-pipeline.** Iteration 1 (#1765) shipped this default-off; #1942 flipped the default after the wire-up stabilised. Set `EGG_MCP_TOOLS` to a falsy value (`false`, `0`, `no`, `off`) on your sandbox pod env to disable:
 
 ```bash
-# Per-pipeline opt-in via submit-task / pipeline-create payload
+# Per-pipeline opt-out via submit-task / pipeline-create payload
 {
   "config": {
-    "env": {"EGG_MCP_TOOLS": "true"}
+    "env": {"EGG_MCP_TOOLS": "false"}
   }
 }
 ```
 
-Or export it in a local-quickstart shell before running `egg-sdlc`. Accepted truthy values: `true`, `1`, `yes`. When the flag is unset or falsy, `shared/egg_agent/client.py::run_agent_async` runs the pre-#1765 code path verbatim — no `mcp_servers` registration, no system-prompt changes, no import cost.
+Or export it in a local-quickstart shell before running `egg-sdlc`. When the flag is opted out, `shared/egg_agent/client.py::run_agent_async` runs the pre-#1765 code path verbatim — no `mcp_servers` registration, no system-prompt changes, no import cost.
 
 The `claude_agent_sdk` harness is the only harness covered in iteration 1 (decision-3); `EGG_HARNESS=egg` does not yet register the tools. Iteration-2 verbs (peer, checkpoint, anchor, overseer, task-gap) are tracked in [#1917](https://github.com/jwbron/egg/issues/1917). The existing `sandbox/bin/egg-*` CLIs continue to work unchanged (decision-4).
 

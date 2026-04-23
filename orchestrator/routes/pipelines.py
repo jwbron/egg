@@ -6322,11 +6322,17 @@ def _build_brc_preamble(
                     pr_number=pr_number,
                 ),
                 "2. **POLL**: Block on `CONSENSUS_PROPOSE` from assigned producers "
-                "with `egg-orch message wait --for CONSENSUS_PROPOSE --timeout 60`.  "
-                "Exit code 0 means a proposal arrived (stdout has it); 1 means "
-                "timeout (re-issue the wait); 2 is transient.  Do NOT poll "
-                "in a shell `for` loop and do NOT `sleep N`.  While waiting, "
-                "continue your preparation work from step 1.",
+                "with `egg-orch message wait-loop --for CONSENSUS_PROPOSE`.  "
+                "`wait-loop` blocks server-side and returns exit 0 the moment "
+                "a proposal arrives (stdout has it); exit 1 means a permanent "
+                "error (surface it — do NOT retry).  It re-issues the inner "
+                "long-poll internally so timeouts never surface to you.  Do "
+                "NOT wrap this in a shell `for` loop, do NOT `sleep N`, and "
+                "do NOT use bare `egg-orch message wait` here — a bare `wait` "
+                "exits 1 on each timeout which the tool surface renders as an "
+                "error and invites a tight retry loop (issue #1943).  Finish "
+                "your preparation work from step 1 before entering the "
+                "wait-loop.",
                 "3. **SYNC**: Before reviewing, sync your worktree so you have the "
                 "producer's commits: `git fetch origin && git merge "
                 + _resolve_origin_ref(branch or base_branch)
@@ -6370,7 +6376,9 @@ def _build_brc_preamble(
                 "shell `for i in 1..N` loop; **don't** prefix it with "
                 "`sleep N`.  The wait-loop blocks server-side and "
                 "returns the moment a NEW BRC event arrives — events "
-                "that predate the call are skipped (issue #1925).  If "
+                "that predate the call are skipped (issue #1925).  "
+                "Exit 0 means act on the returned event; exit 1 means "
+                "the wrapper exhausted retries (surface it).  If "
                 "you need zero-drop semantics across a send→wait "
                 "boundary, capture the ID of your most recent send and "
                 "pass `--since <id>`.  See "
@@ -9045,6 +9053,31 @@ def _synthesize_plan_draft(
     )
 
 
+def _populate_contract_from_plan_safe(
+    repo_path: Path,
+    pipeline_id: str,
+    pipeline_mode: str = "issue",
+    issue_number: int | None = None,
+) -> None:
+    """Run :func:`_populate_contract_from_plan` without propagating failures.
+
+    Shared call path for the two code sites that run the populate step when a
+    pipeline leaves the ``plan`` phase: ``_run_pipeline``'s post-complete
+    block (happy path) and ``advance_phase`` (used by the MCP ``advance_phase``
+    tool, especially with ``force=true``).  Blocking the phase transition on
+    a populate failure would defeat the purpose of the advance hammer — see
+    #1941.
+    """
+    try:
+        _populate_contract_from_plan(repo_path, pipeline_id, pipeline_mode, issue_number)
+    except Exception as pop_err:
+        logger.warning(
+            "Failed to populate contract from plan (continuing)",
+            pipeline_id=pipeline_id,
+            error=str(pop_err),
+        )
+
+
 def _populate_contract_from_plan(
     repo_path: Path,
     pipeline_id: str,
@@ -10807,21 +10840,14 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # HITL revision) so the contract reflects the latest approved
             # plan, not a previously rejected draft.
             #
-            # Wrapped in try/except at the call site: #1890 showed an escape
-            # of an uncaught exception here skipped the HITL gate below,
-            # leaving the pipeline stalled until the overseer intervened.
+            # Routed through _populate_contract_from_plan_safe so a raised
+            # exception here cannot skip the HITL gate below (#1890).  The
+            # same helper is invoked from advance_phase so force-advances
+            # out of plan see the same populate step (#1941).
             if current_phase.value == "plan":
-                try:
-                    _populate_contract_from_plan(
-                        worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
-                    )
-                except Exception as pop_err:
-                    logger.warning(
-                        "Failed to populate contract from plan (continuing)",
-                        pipeline_id=pipeline_id,
-                        phase=current_phase.value,
-                        error=str(pop_err),
-                    )
+                _populate_contract_from_plan_safe(
+                    worktree_repo_path, pipeline_id, pipeline_mode, pipeline.issue_number
+                )
 
             # After refine and plan phases: sync substantive HITL decisions
             # (non-phase-gate) to the contract so implement-phase agents
