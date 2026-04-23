@@ -9,15 +9,848 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "phases": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Jira v1 \u2014 client shape: REST-only gateway endpoints mirroring `/api/v1/gh/*`, or bundle a Jira CLI (`jira-cli` / `go-jira`) in the sandbox?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Option A: REST-only gateway endpoints (recommended \u2014 mirrors gh wrapper, no binary to secure)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Option B: Bundle a Jira CLI in the sandbox",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Jira v1 \u2014 auth flavor: Atlassian Cloud API token (email + token, Basic), OAuth 2.0 3LO, or pluggable from day one?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Option A: API token / Basic auth (recommended \u2014 matches existing secrets.template.env, bot identity, headless bootstrap)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Option B: OAuth 2.0 3LO (granular scopes, rotating refresh tokens, but user-attributed and consent flow)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Option C: Pluggable from day one (both strategies)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Jira v1 \u2014 how should \"private network mode only\" be enforced at the route layer?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Option A: Per-route check of g.session_mode + a @require_private_mode decorator (recommended \u2014 consistent with existing gh endpoints)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Option B: Flask blueprint with a before_request reject (introduces blueprint usage only for Jira)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Option C: Extend @require_session_auth with a required_mode=\"private\" kwarg (touches a widely-used decorator)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Jira v1 \u2014 endpoint surface: narrow verbs + regex-filtered `execute` passthrough, one big `execute` only, or narrow verbs only with no passthrough?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Option A: Three narrow verbs (ticket/get, search, ticket/comments) + regex-filtered /api/v1/jira/execute passthrough (recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Option B: Single /api/v1/jira/execute passthrough only",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Option C: Three narrow verbs only; no execute passthrough",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Jira v1 \u2014 where should the project allowlist live?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Option A: New jira: section in config/context-filters.yaml (recommended \u2014 reuses a file operators already edit)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Option B: New dedicated config/jira.yaml",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Option C: Env var JIRA_PROJECT_ALLOWLIST on the gateway",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Jira v1 \u2014 search implementation: use Atlassian's `/rest/api/3/search/jql` directly, or build our own index over synced ticket data?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Option A: Use /rest/api/3/search/jql (recommended \u2014 the only non-deprecated search verb on Jira Cloud)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Option B: Ship our own index over synced ticket data (much bigger scope; avoids Atlassian API quirks)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-7",
+      "question": "Jira v1 \u2014 identity: should the gateway authenticate as a dedicated Atlassian bot account, or reuse the operator's personal Atlassian account?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Option A: Dedicated bot account (recommended \u2014 clean audit attribution, low-privilege role)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Option B: Operator's personal Atlassian account (simpler bootstrap, uglier audit)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-8",
+      "question": "Jira v1 \u2014 response redaction: should the gateway strip `accountId`, `emailAddress`, and attachment URLs from responses before returning them to the sandbox?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Option A: Redact accountId, emailAddress, and attachment URLs (recommended \u2014 reduces incidental PII leakage to sandbox)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Option B: Pass responses through verbatim",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-9",
+      "question": "Jira v1 \u2014 EGG_JIRA_TICKET scoping: is it advisory context (agent can hit any ticket in allowlisted projects) or an enforcement boundary (agent can only hit that specific ticket + its comments)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Option A: Advisory only; project allowlist is the only hard boundary (recommended \u2014 search and cross-ticket reads work naturally)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Option B: Enforced; agents can only access the one ticket named by EGG_JIRA_TICKET and its comments",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-10",
+      "question": "Jira v1 \u2014 multi-tenancy: should v1 assume a single Atlassian site (and leave the second-site seam open for a follow-up), or support multiple sites from day one?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Option A: Single site in v1; keep the client architecture ready for multi-site (recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Option B: Multi-site from day one (multiple JIRA_BASE_URL entries, key-scoped routing)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-04-23T23:08:28.624743Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-1",
+        "question": "Jira v1 \u2014 client shape: REST-only gateway endpoints mirroring `/api/v1/gh/*`, or bundle a Jira CLI (`jira-cli` / `go-jira`) in the sandbox?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Option A: REST-only gateway endpoints (recommended \u2014 mirrors gh wrapper, no binary to secure)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Option B: Bundle a Jira CLI in the sandbox",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Jira v1 \u2014 client shape: REST-only gateway endpoint...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T23:08:34.208897Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-2",
+        "question": "Jira v1 \u2014 auth flavor: Atlassian Cloud API token (email + token, Basic), OAuth 2.0 3LO, or pluggable from day one?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Option A: API token / Basic auth (recommended \u2014 matches existing secrets.template.env, bot identity, headless bootstrap)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Option B: OAuth 2.0 3LO (granular scopes, rotating refresh tokens, but user-attributed and consent flow)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Option C: Pluggable from day one (both strategies)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Jira v1 \u2014 auth flavor: Atlassian Cloud API token (...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T23:08:39.558473Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-3",
+        "question": "Jira v1 \u2014 how should \"private network mode only\" be enforced at the route layer?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Option A: Per-route check of g.session_mode + a @require_private_mode decorator (recommended \u2014 consistent with existing gh endpoints)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Option B: Flask blueprint with a before_request reject (introduces blueprint usage only for Jira)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Option C: Extend @require_session_auth with a required_mode=\"private\" kwarg (touches a widely-used decorator)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Jira v1 \u2014 how should \"private network mode only\" b...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T23:08:44.945302Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-4",
+        "question": "Jira v1 \u2014 endpoint surface: narrow verbs + regex-filtered `execute` passthrough, one big `execute` only, or narrow verbs only with no passthrough?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Option A: Three narrow verbs (ticket/get, search, ticket/comments) + regex-filtered /api/v1/jira/execute passthrough (recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Option B: Single /api/v1/jira/execute passthrough only",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Option C: Three narrow verbs only; no execute passthrough",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Jira v1 \u2014 endpoint surface: narrow verbs + regex-f...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T23:08:49.173108Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-5",
+        "question": "Jira v1 \u2014 where should the project allowlist live?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Option A: New jira: section in config/context-filters.yaml (recommended \u2014 reuses a file operators already edit)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Option B: New dedicated config/jira.yaml",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Option C: Env var JIRA_PROJECT_ALLOWLIST on the gateway",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Jira v1 \u2014 where should the project allowlist live?",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T23:08:53.657210Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-6",
+        "question": "Jira v1 \u2014 search implementation: use Atlassian's `/rest/api/3/search/jql` directly, or build our own index over synced ticket data?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Option A: Use /rest/api/3/search/jql (recommended \u2014 the only non-deprecated search verb on Jira Cloud)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Option B: Ship our own index over synced ticket data (much bigger scope; avoids Atlassian API quirks)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Jira v1 \u2014 search implementation: use Atlassian's `...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T23:08:58.020565Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-7",
+        "question": "Jira v1 \u2014 identity: should the gateway authenticate as a dedicated Atlassian bot account, or reuse the operator's personal Atlassian account?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Option A: Dedicated bot account (recommended \u2014 clean audit attribution, low-privilege role)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Option B: Operator's personal Atlassian account (simpler bootstrap, uglier audit)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Jira v1 \u2014 identity: should the gateway authenticat...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T23:09:10.801774Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.7",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-8",
+        "question": "Jira v1 \u2014 response redaction: should the gateway strip `accountId`, `emailAddress`, and attachment URLs from responses before returning them to the sandbox?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Option A: Redact accountId, emailAddress, and attachment URLs (recommended \u2014 reduces incidental PII leakage to sandbox)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Option B: Pass responses through verbatim",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Jira v1 \u2014 response redaction: should the gateway s...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T23:09:16.198322Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.8",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-9",
+        "question": "Jira v1 \u2014 EGG_JIRA_TICKET scoping: is it advisory context (agent can hit any ticket in allowlisted projects) or an enforcement boundary (agent can only hit that specific ticket + its comments)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Option A: Advisory only; project allowlist is the only hard boundary (recommended \u2014 search and cross-ticket reads work naturally)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Option B: Enforced; agents can only access the one ticket named by EGG_JIRA_TICKET and its comments",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Jira v1 \u2014 EGG_JIRA_TICKET scoping: is it advisory ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T23:09:20.721700Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.9",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-10",
+        "question": "Jira v1 \u2014 multi-tenancy: should v1 assume a single Atlassian site (and leave the second-site seam open for a follow-up), or support multiple sites from day one?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Option A: Single site in v1; keep the client architecture ready for multi-site (recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Option B: Multi-site from day one (multiple JIRA_BASE_URL entries, key-scoped routing)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Jira v1 \u2014 multi-tenancy: should v1 assume a single...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T23:09:50.614104Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Which Atlassian projects should be on the v1 allowlist? (Provide project keys, comma-separated, e.g. `ENG,WEBAPP,INFRA`.)",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "What is the expected request volume per pipeline (peak JQL searches/min, peak ticket reads/min)? This feeds rate-limit defaults.",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "Is there a preferred Atlassian bot-account naming / identity convention (display name, email, avatar) we should align with, or is this greenfield?",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "Beyond `accountId`, `emailAddress`, and attachment URLs, are there custom fields or other response fields we should redact before sandbox-visible responses?",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "On Atlassian 429 (rate-limited) responses with `Retry-After`: pass the 429 through verbatim to the sandbox, or have the gateway swallow + retry once with honoured backoff?",
+            "answer": null
+          },
+          {
+            "id": "Q6",
+            "question": "Should Jira audit logs ship to the same sink as existing gateway audit logs, or a separate Jira-scoped sink?",
+            "answer": null
+          },
+          {
+            "id": "Q7",
+            "question": "For the `/api/v1/jira/execute` passthrough, is there any path pattern outside `GET /rest/api/3/issue/...`, `GET /rest/api/3/search/...`, and `GET /rest/api/3/project/...` you want permitted in v1?",
+            "answer": null
+          },
+          {
+            "id": "Q8",
+            "question": "How should the gateway handle deleted / archived tickets in responses \u2014 404 passthrough, or synthesize a `{\"status\":\"not_found\"}` envelope for consistency with other gateway endpoints?",
+            "answer": null
+          },
+          {
+            "id": "Q9",
+            "question": "Looking ahead to the future write scope (create ticket / update ticket / create comment, out of scope here but informing v1 design): should the gateway enforce idempotency (e.g., refuse duplicate `comment create` within N seconds), or leave that to Atlassian's own semantics?",
+            "answer": null
+          },
+          {
+            "id": "Q10",
+            "question": "Is the intent strictly \"private mode only\" for Jira, or do you anticipate a hypothetical \"internal-dev\" mode (trusted agents, locked-down network) that should also see Jira endpoints? (No such mode exists today.)",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 10 question(s)",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
   "pr": null,
-  "feedback": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Which Atlassian projects should be on the v1 allowlist? (Provide project keys, comma-separated, e.g. `ENG,WEBAPP,INFRA`.)",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "What is the expected request volume per pipeline (peak JQL searches/min, peak ticket reads/min)? This feeds rate-limit defaults.",
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "question": "Is there a preferred Atlassian bot-account naming / identity convention (display name, email, avatar) we should align with, or is this greenfield?",
+        "answer": null
+      },
+      {
+        "id": "Q4",
+        "question": "Beyond `accountId`, `emailAddress`, and attachment URLs, are there custom fields or other response fields we should redact before sandbox-visible responses?",
+        "answer": null
+      },
+      {
+        "id": "Q5",
+        "question": "On Atlassian 429 (rate-limited) responses with `Retry-After`: pass the 429 through verbatim to the sandbox, or have the gateway swallow + retry once with honoured backoff?",
+        "answer": null
+      },
+      {
+        "id": "Q6",
+        "question": "Should Jira audit logs ship to the same sink as existing gateway audit logs, or a separate Jira-scoped sink?",
+        "answer": null
+      },
+      {
+        "id": "Q7",
+        "question": "For the `/api/v1/jira/execute` passthrough, is there any path pattern outside `GET /rest/api/3/issue/...`, `GET /rest/api/3/search/...`, and `GET /rest/api/3/project/...` you want permitted in v1?",
+        "answer": null
+      },
+      {
+        "id": "Q8",
+        "question": "How should the gateway handle deleted / archived tickets in responses \u2014 404 passthrough, or synthesize a `{\"status\":\"not_found\"}` envelope for consistency with other gateway endpoints?",
+        "answer": null
+      },
+      {
+        "id": "Q9",
+        "question": "Looking ahead to the future write scope (create ticket / update ticket / create comment, out of scope here but informing v1 design): should the gateway enforce idempotency (e.g., refuse duplicate `comment create` within N seconds), or leave that to Atlassian's own semantics?",
+        "answer": null
+      },
+      {
+        "id": "Q10",
+        "question": "Is the intent strictly \"private mode only\" for Jira, or do you anticipate a hypothetical \"internal-dev\" mode (trusted agents, locked-down network) that should also see Jira endpoints? (No such mode exists today.)",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
   "phase_configs": null,
   "agent_executions": []
 }

@@ -1,0 +1,382 @@
+# BRC Consensus History — refine phase
+
+Generated: 2026-04-23T23:14:15Z
+Pipeline: issue-1556
+
+### [2026-04-23T22:59:23Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_ON_ROLE
+
+Prepared for review; waiting on refiner CONSENSUS_PROPOSE
+
+````yaml
+id: ad86baa1-73fe-4a
+phase: refine
+metadata:
+  state: WAITING_ON_ROLE
+  waiting_on: refiner
+````
+
+### [2026-04-23T22:59:52Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_ON_ROLE
+
+Prepared context for review. Issue is Jira gateway wrapper. Awaiting draft at .egg-state/drafts/1556-analysis.md.
+
+````yaml
+id: 4a327a69-870f-42
+phase: refine
+metadata:
+  state: WAITING_ON_ROLE
+  waiting_on: refiner
+````
+
+### [2026-04-23T23:10:39Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
+
+Refine analysis for issue #1556 (Jira gateway support with credential injection). Draft at .egg-state/drafts/1556-analysis.md. Problem: sandboxed agents need read-only Jira access with zero credentials in the container, matching the zero-cred invariant enforced for GitHub today. Recommends mirroring /api/v1/gh/*: REST-only /api/v1/jira/* endpoints (ticket/get, search via /rest/api/3/search/jql, ticket/comments, regex-filtered execute passthrough), Atlassian API-token Basic auth loaded from secrets.env, per-route session_mode == "private" check with a new @require_private_mode decorator, project allowlist in a new jira: section of config/context-filters.yaml, EGG_JIRA_TICKET set by the launcher. Designed so the future-writes scope (ticket/create, ticket/update, comment/create — never transitions/worklogs/attachments/deletions) drops in as pure narrow-route extensions. Raised 10 HITL decisions (decision-1..10) covering client shape, auth flavor, network-mode enforcement, endpoint surface, allowlist location, search strategy, bot identity, redaction, EGG_JIRA_TICKET scoping, multi-tenancy; plus 10 open-ended feedback questions (feedback-1) on project allowlist values, volume, bot identity conventions, additional redactions, 429 handling, audit sink, execute passthrough paths, 404 shape, future-write idempotency, and whether any non-"private" mode should also reach Jira. No code changes — analysis draft only.
+
+````yaml
+id: 4b292479-f23a-42
+phase: refine
+metadata:
+  payload:
+    summary: "Refine analysis for issue #1556 (Jira gateway support with credential\
+      \ injection). Draft at .egg-state/drafts/1556-analysis.md. Problem: sandboxed\
+      \ agents need read-only Jira access with zero credentials in the container,\
+      \ matching the zero-cred invariant enforced for GitHub today. Recommends mirroring\
+      \ /api/v1/gh/*: REST-only /api/v1/jira/* endpoints (ticket/get, search via /rest/api/3/search/jql,\
+      \ ticket/comments, regex-filtered execute passthrough), Atlassian API-token\
+      \ Basic auth loaded from secrets.env, per-route session_mode == \"private\"\
+      \ check with a new @require_private_mode decorator, project allowlist in a new\
+      \ jira: section of config/context-filters.yaml, EGG_JIRA_TICKET set by the launcher.\
+      \ Designed so the future-writes scope (ticket/create, ticket/update, comment/create\
+      \ \u2014 never transitions/worklogs/attachments/deletions) drops in as pure\
+      \ narrow-route extensions. Raised 10 HITL decisions (decision-1..10) covering\
+      \ client shape, auth flavor, network-mode enforcement, endpoint surface, allowlist\
+      \ location, search strategy, bot identity, redaction, EGG_JIRA_TICKET scoping,\
+      \ multi-tenancy; plus 10 open-ended feedback questions (feedback-1) on project\
+      \ allowlist values, volume, bot identity conventions, additional redactions,\
+      \ 429 handling, audit sink, execute passthrough paths, 404 shape, future-write\
+      \ idempotency, and whether any non-\"private\" mode should also reach Jira.\
+      \ No code changes \u2014 analysis draft only."
+    attestation: {}
+    artifacts:
+    - .egg-state/drafts/1556-analysis.md
+    risk_considered: "Draft-only change scoped to .egg-state/drafts/. No production\
+      \ code, tests, or contract files altered. Risk: analysis could miss a dimension\
+      \ that lands on plan/implement as rework \u2014 mitigated by enumerating every\
+      \ design axis I could see (client shape, auth, network gating, endpoints, allowlist\
+      \ home, search, identity, redaction, ticket scoping, multi-tenancy) and registering\
+      \ all of them as decisions for the human. Secondary risk: the Atlassian /rest/api/3/search\
+      \ endpoint is deprecated and its replacement has known pagination defects (flagged\
+      \ in the analysis so the plan phase accounts for it)."
+    commit_sha: ba164f77dcbf4901a5aaff88472adde682faf349
+    files_changed:
+    - .egg-state/drafts/1556-analysis.md
+    tests_run: []
+    tasks_satisfied: []
+  version: 1
+  commit_sha: ba164f77dcbf4901a5aaff88472adde682faf349
+````
+
+### [2026-04-23T23:11:55Z] reviewer_agent_design → refiner (CONSENSUS_ACK): ACK from reviewer_agent_design for refiner
+
+
+Reviewed .egg-state/drafts/1556-analysis.md through the agent-mode design lens only (general correctness, security, and code quality are other reviewers' turf). No blocking agent-design anti-patterns.
+
+### What the design gets right (agent-mode perspective)
+
+1. **Infrastructure-level enforcement throughout, not prompt-level.** The draft is explicit about this — which is exactly the egg thesis:
+   - Constraints §: "Read-only in v1. The gateway must refuse Jira write verbs even if the upstream API would accept them. **Enforcement is at the gateway (infrastructure), not in agent instructions**." (line 68)
+   - "Private-mode-only: public-mode sessions must get a 403 on any `/api/v1/jira/*` endpoint. This must be enforced at the route layer, not left to downstream policy." (line 69)
+   - Recommended C1 `@require_private_mode` decorator + "fails closed" + "negative tests that assert 403 in every non-private mode" (line 246).
+   - "do **not** add `*.atlassian.net` to the allowlist. Force all traffic through the gateway REST endpoints." (line 254) — Squid-level enforcement rather than a prompt-level "please don't hit atlassian.net directly" rule.
+   - Zero-credential invariant preserved; write verbs / transitions / worklogs / attachments / deletions denied in code, not in instructions (line 72).
+
+2. **Orientation, not pre-fetching, for agent context.** `EGG_JIRA_TICKET` mirrors `EGG_REPO` (line 51, 228, 252) — the agent is told *which* ticket it owns via a small env var and then fetches what it needs through the gateway. No baked-in ticket JSON, no pre-fetched comment blobs. This matches the "small metadata that orients" bucket rather than the "large pre-fetched diffs" anti-pattern.
+
+3. **Narrow verbs + bounded `execute` passthrough** (D1, lines 204–210) is the right agent-mode shape: infrastructure enforces the verb allowlist via (a) narrow route handlers and (b) a path regex that mirrors `validate_gh_api_path`. The agent retains room to explore within the allowlist rather than being forced through three rigid verbs, and the allowlist is a data artifact (regex) rather than a procedural instruction.
+
+4. **Recommended EGG_JIRA_TICKET semantics (open question 9, Option A)** — launcher sets it from the trigger, gateway does **not** enforce per-ticket scoping, agents can query other tickets inside the allowlisted project. This correctly avoids over-constraining the agent from following backlinks/epics during refine/plan work while still relying on infrastructure (the project allowlist) for the actual security boundary.
+
+5. **Gateway-side field redaction** (recommended for Option 8, line 247, 295) rather than asking agents in-prompt to "be careful not to exfiltrate emailAddress." Again: infrastructure, not prompts.
+
+6. **No direct LLM API calls and no hardcoded model identifiers** — the work is scoped to a non-LLM REST wrapper, so EGG200/EGG201 don't apply. Nothing in the draft's recommended approach introduces raw Anthropic HTTP calls or pinned model IDs.
+
+7. **No structured-output-for-humans anti-pattern and no post-processing pipeline.** The gateway returns JSON to a sandbox wrapper (`sandbox/scripts/jira`) and to tool code, not directly to humans. The wrapper is a thin curl-and-relay (same shape as `sandbox/scripts/gh`), not a parser that takes agent actions on behalf of the agent.
+
+8. **No rigid procedural micromanagement.** The recommended approach describes *objectives and interfaces* (routes, decorators, allowlists) rather than dictating agent-facing step-by-step procedures.
+
+### Non-blocking
+
+- **lines 174–179 (C1 example)** — The example `@require_private_mode` decorator is a nice sketch. When the plan phase picks this up, consider having the decorator return a machine-checkable `error_code` (e.g. `"jira_private_mode_only"`) alongside the human message so the sandbox wrapper can surface a crisp non-retryable error to the agent instead of a free-form 403 body. Not a design violation, just a quality-of-life nudge.
+- **line 252 ("a dedicated `jira_ticket` field may be cleaner")** — If the plan phase adds `Session.jira_ticket`, keep it to orientation metadata for audit/logging. Do **not** use it as a policy gate on which ticket the agent can read — that would shift the security boundary back toward prompt-level (effectively "the launcher decides which ticket you touch") and away from the project-allowlist infrastructure boundary the rest of the design is built on. Open question 9 already flags this; just reiterating the agent-mode framing.
+- **lines 313–314 (idempotency for future write verbs)** — When writes land (#1557 scope), prefer making idempotency an infrastructure property (e.g., gateway-side de-dup keyed on pipeline_id + hash) rather than a prompt instruction to the agent. Worth pre-committing to that framing now so #1557's design doesn't drift.
+- **Option B for EGG_JIRA_TICKET (line 299)** would be an agent-design regression if picked — it narrows the agent's ability to explore related tickets during refinement without any infrastructure benefit beyond what the project allowlist already provides. The draft already recommends Option A; no change needed, just flagging the direction to steer if the HITL decision comes back ambiguous.
+
+No blocking issues. The design's core posture — gateway as the choke point, decorator-enforced private-mode gate, regex-bounded passthrough, field redaction server-side, EGG_JIRA_TICKET as orienting env var — is precisely aligned with docs/guides/agent-mode-design.md. ACK.
+
+
+````yaml
+id: 83e2bb43-0227-4f
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/1556-analysis.md
+    reason: "\nReviewed .egg-state/drafts/1556-analysis.md through the agent-mode\
+      \ design lens only (general correctness, security, and code quality are other\
+      \ reviewers' turf). No blocking agent-design anti-patterns.\n\n### What the\
+      \ design gets right (agent-mode perspective)\n\n1. **Infrastructure-level enforcement\
+      \ throughout, not prompt-level.** The draft is explicit about this \u2014 which\
+      \ is exactly the egg thesis:\n   - Constraints \xA7: \"Read-only in v1. The\
+      \ gateway must refuse Jira write verbs even if the upstream API would accept\
+      \ them. **Enforcement is at the gateway (infrastructure), not in agent instructions**.\"\
+      \ (line 68)\n   - \"Private-mode-only: public-mode sessions must get a 403 on\
+      \ any `/api/v1/jira/*` endpoint. This must be enforced at the route layer, not\
+      \ left to downstream policy.\" (line 69)\n   - Recommended C1 `@require_private_mode`\
+      \ decorator + \"fails closed\" + \"negative tests that assert 403 in every non-private\
+      \ mode\" (line 246).\n   - \"do **not** add `*.atlassian.net` to the allowlist.\
+      \ Force all traffic through the gateway REST endpoints.\" (line 254) \u2014\
+      \ Squid-level enforcement rather than a prompt-level \"please don't hit atlassian.net\
+      \ directly\" rule.\n   - Zero-credential invariant preserved; write verbs /\
+      \ transitions / worklogs / attachments / deletions denied in code, not in instructions\
+      \ (line 72).\n\n2. **Orientation, not pre-fetching, for agent context.** `EGG_JIRA_TICKET`\
+      \ mirrors `EGG_REPO` (line 51, 228, 252) \u2014 the agent is told *which* ticket\
+      \ it owns via a small env var and then fetches what it needs through the gateway.\
+      \ No baked-in ticket JSON, no pre-fetched comment blobs. This matches the \"\
+      small metadata that orients\" bucket rather than the \"large pre-fetched diffs\"\
+      \ anti-pattern.\n\n3. **Narrow verbs + bounded `execute` passthrough** (D1,\
+      \ lines 204\u2013210) is the right agent-mode shape: infrastructure enforces\
+      \ the verb allowlist via (a) narrow route handlers and (b) a path regex that\
+      \ mirrors `validate_gh_api_path`. The agent retains room to explore within the\
+      \ allowlist rather than being forced through three rigid verbs, and the allowlist\
+      \ is a data artifact (regex) rather than a procedural instruction.\n\n4. **Recommended\
+      \ EGG_JIRA_TICKET semantics (open question 9, Option A)** \u2014 launcher sets\
+      \ it from the trigger, gateway does **not** enforce per-ticket scoping, agents\
+      \ can query other tickets inside the allowlisted project. This correctly avoids\
+      \ over-constraining the agent from following backlinks/epics during refine/plan\
+      \ work while still relying on infrastructure (the project allowlist) for the\
+      \ actual security boundary.\n\n5. **Gateway-side field redaction** (recommended\
+      \ for Option 8, line 247, 295) rather than asking agents in-prompt to \"be careful\
+      \ not to exfiltrate emailAddress.\" Again: infrastructure, not prompts.\n\n\
+      6. **No direct LLM API calls and no hardcoded model identifiers** \u2014 the\
+      \ work is scoped to a non-LLM REST wrapper, so EGG200/EGG201 don't apply. Nothing\
+      \ in the draft's recommended approach introduces raw Anthropic HTTP calls or\
+      \ pinned model IDs.\n\n7. **No structured-output-for-humans anti-pattern and\
+      \ no post-processing pipeline.** The gateway returns JSON to a sandbox wrapper\
+      \ (`sandbox/scripts/jira`) and to tool code, not directly to humans. The wrapper\
+      \ is a thin curl-and-relay (same shape as `sandbox/scripts/gh`), not a parser\
+      \ that takes agent actions on behalf of the agent.\n\n8. **No rigid procedural\
+      \ micromanagement.** The recommended approach describes *objectives and interfaces*\
+      \ (routes, decorators, allowlists) rather than dictating agent-facing step-by-step\
+      \ procedures.\n\n### Non-blocking\n\n- **lines 174\u2013179 (C1 example)** \u2014\
+      \ The example `@require_private_mode` decorator is a nice sketch. When the plan\
+      \ phase picks this up, consider having the decorator return a machine-checkable\
+      \ `error_code` (e.g. `\"jira_private_mode_only\"`) alongside the human message\
+      \ so the sandbox wrapper can surface a crisp non-retryable error to the agent\
+      \ instead of a free-form 403 body. Not a design violation, just a quality-of-life\
+      \ nudge.\n- **line 252 (\"a dedicated `jira_ticket` field may be cleaner\")**\
+      \ \u2014 If the plan phase adds `Session.jira_ticket`, keep it to orientation\
+      \ metadata for audit/logging. Do **not** use it as a policy gate on which ticket\
+      \ the agent can read \u2014 that would shift the security boundary back toward\
+      \ prompt-level (effectively \"the launcher decides which ticket you touch\"\
+      ) and away from the project-allowlist infrastructure boundary the rest of the\
+      \ design is built on. Open question 9 already flags this; just reiterating the\
+      \ agent-mode framing.\n- **lines 313\u2013314 (idempotency for future write\
+      \ verbs)** \u2014 When writes land (#1557 scope), prefer making idempotency\
+      \ an infrastructure property (e.g., gateway-side de-dup keyed on pipeline_id\
+      \ + hash) rather than a prompt instruction to the agent. Worth pre-committing\
+      \ to that framing now so #1557's design doesn't drift.\n- **Option B for EGG_JIRA_TICKET\
+      \ (line 299)** would be an agent-design regression if picked \u2014 it narrows\
+      \ the agent's ability to explore related tickets during refinement without any\
+      \ infrastructure benefit beyond what the project allowlist already provides.\
+      \ The draft already recommends Option A; no change needed, just flagging the\
+      \ direction to steer if the HITL decision comes back ambiguous.\n\nNo blocking\
+      \ issues. The design's core posture \u2014 gateway as the choke point, decorator-enforced\
+      \ private-mode gate, regex-bounded passthrough, field redaction server-side,\
+      \ EGG_JIRA_TICKET as orienting env var \u2014 is precisely aligned with docs/guides/agent-mode-design.md.\
+      \ ACK.\n"
+  version: 1
+````
+
+### [2026-04-23T23:12:01Z] reviewer_agent_design (CONSENSUS_CONFIRMED): Confirmed by reviewer_agent_design
+
+````yaml
+id: 3d24dc8f-725b-4b
+phase: refine
+metadata:
+  consensus_reached: false
+````
+
+### [2026-04-23T23:14:11Z] reviewer_refine → refiner (CONSENSUS_ACK): ACK from reviewer_refine for refiner
+
+
+Reviewed `.egg-state/drafts/1556-analysis.md` (319 lines) end-to-end and cross-referenced every structural claim against the codebase, contract, and Atlassian references. No blocking issues.
+
+### Section-by-section evaluation
+
+**1. Problem Statement (lines 5–18)** — Correct and complete. Captures the six desired outcomes faithful to the issue: gateway-mediated read, zero-credential invariant, private-mode-only, project+verb allowlist, future-verb drop-in compatibility, and `EGG_JIRA_TICKET`. Explicitly preserves the "out of scope ever" set (transitions, worklogs, attachments, deletions). Nothing omitted vs. the issue text.
+
+**2. Current Behavior / Research (lines 20–59)** — Excellent. Verified factual claims:
+- `gateway/gateway.py` gh routes at 2385 (`pr/create`), 2622 (`pr/comment`), 2738 (`pr/edit`), 2857 (`pr/close`), 2961 (`execute`) — matches the 2385–3262 range in the draft.
+- `gateway/auth.py:142` sets `g.session_mode` in `require_session_auth`.
+- `gateway/private_repo_policy.py:74-77` defines `PRIVATE_MODE_VAR`.
+- `gateway/phase_filter.py:713` has `filter_operation`.
+- `gateway/anthropic_credentials.py:99-137` implements mtime-based cache invalidation (supports the reload-story claim).
+- `orchestrator/routes/pipelines.py:10351` sets `EGG_REPO`.
+- `config/secrets.template.env:106-109` scaffolds `JIRA_BASE_URL`, `JIRA_USERNAME`, `JIRA_API_TOKEN`, `JIRA_JQL_QUERY`.
+- `config/README.md:250` references `context-filters.yaml` (draft cites :252 — off-by-two, negligible).
+- `GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE` confirmed in `gateway/github_client.py:401` and used at `gateway.py:2993`.
+
+**3. Constraints (lines 61–93)** — Comprehensive. Security, operational, and external (Atlassian REST) constraints are all articulated. The Atlassian details (`/rest/api/3/search` removal in favor of `/rest/api/3/search/jql`, the Forge/Connect steering, OAuth user-attribution caveat, granular `read:issue-details:jira` scopes) are accurate and directly inform the options.
+
+**4. Options (lines 95–238)** — Five axes (client shape, auth, network-mode gate, endpoint surface, tenant config) each with 2–3 meaningfully different options and explicit trade-offs. A2 (bundle a Jira CLI) is cleanly rejected on the zero-credential invariant. C3 (extend `@require_session_auth`) correctly notes the wide-blast-radius cost. D2 (single execute) is justified-rejected on auditability. E1 vs E2 trade-off (reuse `context-filters.yaml` vs. new file) is honestly articulated — "overloading it" is acknowledged rather than hidden.
+
+**5. Recommendation (lines 240–258)** — Coherent A1+B1+C1+D1+E1 bundle. Each choice points back to a specific "preferred" block earlier. Ancillary items (sandbox env, audit log shape, Squid posture, tests, docs touch list) are enumerated rather than hand-waved. Future-write readiness is explicitly designed in and paired with the permanent deny-list.
+
+**6. Complexity (lines 260–262)** — "medium" is correct — multi-file but follows an established pattern.
+
+**7. Open Questions & HITL registration (lines 264–316)** — Verified via `egg-contract show --json`: all 10 multiple-choice questions are registered as `decisions[0..9]` with `type: "hitl"`, each carrying 2–4 labelled options plus an "Other" option. All 10 free-form questions are registered under `feedback.questions[Q1..Q10]`. Draft wording matches contract wording. Recommendation is encoded into the option labels ("Option A: … (recommended — …)"). No silent assumptions detected — every judgment call surfaces as a decision or feedback item.
+
+### Non-blocking
+
+- **`.egg-state/drafts/1556-analysis.md:67`** — The Squid-allowlist-bypass argument cites `docs/architecture/network-isolation.md:86`. Line 86 asserts "GitHub domains excluded from proxy allowlist," but the actual Squid allowlist at `network-isolation.md:298-306` includes `github.com`/`api.github.com`. In the current architecture, sandboxes DO use the gateway's Squid as `HTTP_PROXY`/`HTTPS_PROXY` (verified in `tests/shared/egg_container/test_config_builder.py:185-188` and `test_build_cmd.py:207-210`), so the argument is substantively correct but the cited line doesn't support it cleanly. Consider citing the private-mode egress lockdown (Squid narrows to anthropic-only in private mode) plus `docs/architecture/credential-injection.md`'s "force all git/gh through the wrappers" property. Same conclusion, tighter support.
+
+- **`.egg-state/drafts/1556-analysis.md:179`** — The `GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE` analogy is semantically inverted: at `gateway.py:2993` that block is "if session_mode == 'private' and command in blocklist, deny"; Jira's proposed check is "if session_mode != 'private', deny." The _pattern_ ("check `g.session_mode` at route ingress") is right; the _direction_ is opposite. Plan phase may want to name this more carefully in prose so a coder doesn't copy-paste the wrong sense.
+
+- **`.egg-state/drafts/1556-analysis.md:252`** — Reuse of `Session.issue_number` for the Jira ticket is floated but then deferred to an open question. Reasonable, but flag for the planner that `issue_number` is typed as the GitHub issue number elsewhere; a separate `Session.jira_ticket` field is probably cleaner than overloading, and that decision should land during plan, not implement.
+
+- **`.egg-state/drafts/1556-analysis.md:207`** — The ADF (Atlassian Document Format) footprint is worth a sentence in Constraints. Ticket descriptions and comments come back as ADF JSON by default; the wrapper will either need to pass ADF through (verbose) or request plain-text rendering (`expand=renderedFields` or the `?expand=body.rendered`-style fields). Not blocking — a decision or follow-up feedback Q would suffice.
+
+- **`.egg-state/drafts/1556-analysis.md:256`** — Doc touch-list is good but omits `docs/reference/` entries for the new gateway endpoints (there is precedent in the existing gh endpoint documentation). Plan-phase can pick this up.
+
+- **Decision options `decision-2`, `decision-3`, `decision-4`** — all omit the optional `description` field. The current UI presentation still works, but the `description` slot is genuinely useful for rendering trade-offs to a human. Non-blocking; cosmetic.
+
+
+````yaml
+id: 8f609c92-8b5a-4c
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/1556-analysis.md
+    - .egg-state/contracts/issue-1556.json
+    - gateway/gateway.py
+    - gateway/auth.py
+    - gateway/private_repo_policy.py
+    - gateway/phase_filter.py
+    - gateway/anthropic_credentials.py
+    - gateway/github_client.py
+    - orchestrator/routes/pipelines.py
+    - config/secrets.template.env
+    - docs/architecture/network-isolation.md
+    - docs/architecture/credential-injection.md
+    reason: "\nReviewed `.egg-state/drafts/1556-analysis.md` (319 lines) end-to-end\
+      \ and cross-referenced every structural claim against the codebase, contract,\
+      \ and Atlassian references. No blocking issues.\n\n### Section-by-section evaluation\n\
+      \n**1. Problem Statement (lines 5\u201318)** \u2014 Correct and complete. Captures\
+      \ the six desired outcomes faithful to the issue: gateway-mediated read, zero-credential\
+      \ invariant, private-mode-only, project+verb allowlist, future-verb drop-in\
+      \ compatibility, and `EGG_JIRA_TICKET`. Explicitly preserves the \"out of scope\
+      \ ever\" set (transitions, worklogs, attachments, deletions). Nothing omitted\
+      \ vs. the issue text.\n\n**2. Current Behavior / Research (lines 20\u201359)**\
+      \ \u2014 Excellent. Verified factual claims:\n- `gateway/gateway.py` gh routes\
+      \ at 2385 (`pr/create`), 2622 (`pr/comment`), 2738 (`pr/edit`), 2857 (`pr/close`),\
+      \ 2961 (`execute`) \u2014 matches the 2385\u20133262 range in the draft.\n-\
+      \ `gateway/auth.py:142` sets `g.session_mode` in `require_session_auth`.\n-\
+      \ `gateway/private_repo_policy.py:74-77` defines `PRIVATE_MODE_VAR`.\n- `gateway/phase_filter.py:713`\
+      \ has `filter_operation`.\n- `gateway/anthropic_credentials.py:99-137` implements\
+      \ mtime-based cache invalidation (supports the reload-story claim).\n- `orchestrator/routes/pipelines.py:10351`\
+      \ sets `EGG_REPO`.\n- `config/secrets.template.env:106-109` scaffolds `JIRA_BASE_URL`,\
+      \ `JIRA_USERNAME`, `JIRA_API_TOKEN`, `JIRA_JQL_QUERY`.\n- `config/README.md:250`\
+      \ references `context-filters.yaml` (draft cites :252 \u2014 off-by-two, negligible).\n\
+      - `GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE` confirmed in `gateway/github_client.py:401`\
+      \ and used at `gateway.py:2993`.\n\n**3. Constraints (lines 61\u201393)** \u2014\
+      \ Comprehensive. Security, operational, and external (Atlassian REST) constraints\
+      \ are all articulated. The Atlassian details (`/rest/api/3/search` removal in\
+      \ favor of `/rest/api/3/search/jql`, the Forge/Connect steering, OAuth user-attribution\
+      \ caveat, granular `read:issue-details:jira` scopes) are accurate and directly\
+      \ inform the options.\n\n**4. Options (lines 95\u2013238)** \u2014 Five axes\
+      \ (client shape, auth, network-mode gate, endpoint surface, tenant config) each\
+      \ with 2\u20133 meaningfully different options and explicit trade-offs. A2 (bundle\
+      \ a Jira CLI) is cleanly rejected on the zero-credential invariant. C3 (extend\
+      \ `@require_session_auth`) correctly notes the wide-blast-radius cost. D2 (single\
+      \ execute) is justified-rejected on auditability. E1 vs E2 trade-off (reuse\
+      \ `context-filters.yaml` vs. new file) is honestly articulated \u2014 \"overloading\
+      \ it\" is acknowledged rather than hidden.\n\n**5. Recommendation (lines 240\u2013\
+      258)** \u2014 Coherent A1+B1+C1+D1+E1 bundle. Each choice points back to a specific\
+      \ \"preferred\" block earlier. Ancillary items (sandbox env, audit log shape,\
+      \ Squid posture, tests, docs touch list) are enumerated rather than hand-waved.\
+      \ Future-write readiness is explicitly designed in and paired with the permanent\
+      \ deny-list.\n\n**6. Complexity (lines 260\u2013262)** \u2014 \"medium\" is\
+      \ correct \u2014 multi-file but follows an established pattern.\n\n**7. Open\
+      \ Questions & HITL registration (lines 264\u2013316)** \u2014 Verified via `egg-contract\
+      \ show --json`: all 10 multiple-choice questions are registered as `decisions[0..9]`\
+      \ with `type: \"hitl\"`, each carrying 2\u20134 labelled options plus an \"\
+      Other\" option. All 10 free-form questions are registered under `feedback.questions[Q1..Q10]`.\
+      \ Draft wording matches contract wording. Recommendation is encoded into the\
+      \ option labels (\"Option A: \u2026 (recommended \u2014 \u2026)\"). No silent\
+      \ assumptions detected \u2014 every judgment call surfaces as a decision or\
+      \ feedback item.\n\n### Non-blocking\n\n- **`.egg-state/drafts/1556-analysis.md:67`**\
+      \ \u2014 The Squid-allowlist-bypass argument cites `docs/architecture/network-isolation.md:86`.\
+      \ Line 86 asserts \"GitHub domains excluded from proxy allowlist,\" but the\
+      \ actual Squid allowlist at `network-isolation.md:298-306` includes `github.com`/`api.github.com`.\
+      \ In the current architecture, sandboxes DO use the gateway's Squid as `HTTP_PROXY`/`HTTPS_PROXY`\
+      \ (verified in `tests/shared/egg_container/test_config_builder.py:185-188` and\
+      \ `test_build_cmd.py:207-210`), so the argument is substantively correct but\
+      \ the cited line doesn't support it cleanly. Consider citing the private-mode\
+      \ egress lockdown (Squid narrows to anthropic-only in private mode) plus `docs/architecture/credential-injection.md`'s\
+      \ \"force all git/gh through the wrappers\" property. Same conclusion, tighter\
+      \ support.\n\n- **`.egg-state/drafts/1556-analysis.md:179`** \u2014 The `GH_COMMANDS_BLOCKED_IN_PRIVATE_MODE`\
+      \ analogy is semantically inverted: at `gateway.py:2993` that block is \"if\
+      \ session_mode == 'private' and command in blocklist, deny\"; Jira's proposed\
+      \ check is \"if session_mode != 'private', deny.\" The _pattern_ (\"check `g.session_mode`\
+      \ at route ingress\") is right; the _direction_ is opposite. Plan phase may\
+      \ want to name this more carefully in prose so a coder doesn't copy-paste the\
+      \ wrong sense.\n\n- **`.egg-state/drafts/1556-analysis.md:252`** \u2014 Reuse\
+      \ of `Session.issue_number` for the Jira ticket is floated but then deferred\
+      \ to an open question. Reasonable, but flag for the planner that `issue_number`\
+      \ is typed as the GitHub issue number elsewhere; a separate `Session.jira_ticket`\
+      \ field is probably cleaner than overloading, and that decision should land\
+      \ during plan, not implement.\n\n- **`.egg-state/drafts/1556-analysis.md:207`**\
+      \ \u2014 The ADF (Atlassian Document Format) footprint is worth a sentence in\
+      \ Constraints. Ticket descriptions and comments come back as ADF JSON by default;\
+      \ the wrapper will either need to pass ADF through (verbose) or request plain-text\
+      \ rendering (`expand=renderedFields` or the `?expand=body.rendered`-style fields).\
+      \ Not blocking \u2014 a decision or follow-up feedback Q would suffice.\n\n\
+      - **`.egg-state/drafts/1556-analysis.md:256`** \u2014 Doc touch-list is good\
+      \ but omits `docs/reference/` entries for the new gateway endpoints (there is\
+      \ precedent in the existing gh endpoint documentation). Plan-phase can pick\
+      \ this up.\n\n- **Decision options `decision-2`, `decision-3`, `decision-4`**\
+      \ \u2014 all omit the optional `description` field. The current UI presentation\
+      \ still works, but the `description` slot is genuinely useful for rendering\
+      \ trade-offs to a human. Non-blocking; cosmetic.\n"
+  version: 1
+````
+
+### [2026-04-23T23:14:11Z] orchestrator → refiner (STATUS): All reviewers have ACKed — ready to confirm
+
+All assigned reviewers have ACKed your proposal (version 1). Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: 6a0c0277-b826-49
+phase: refine
+metadata:
+  fully_acked: true
+  version: 1
+````
+
+### [2026-04-23T23:14:13Z] reviewer_refine (CONSENSUS_CONFIRMED): Confirmed by reviewer_refine
+
+````yaml
+id: 8d6bafee-baab-49
+phase: refine
+metadata:
+  consensus_reached: false
+````
+
+### [2026-04-23T23:14:15Z] refiner (CONSENSUS_CONFIRMED): Confirmed by refiner
+
+````yaml
+id: dca754ab-7e5d-4a
+phase: refine
+metadata:
+  consensus_reached: true
+````
