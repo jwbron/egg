@@ -188,6 +188,64 @@
         ".egg-state/contracts/"
       ],
       "blocked_reason": "Contract files can only be modified through the contract API"
+    },
+    {
+      "role": "coder",
+      "blocked_patterns": [
+        ".egg-state/contracts/",
+        "docs/",
+        "**/*.md",
+        "tests/",
+        "test/",
+        "**/tests/",
+        "**/test/",
+        "**/*_test.py",
+        "**/test_*.py",
+        "**/*_test.go",
+        "**/test_*.go",
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/*.test.js",
+        "**/*.test.jsx",
+        "**/*.spec.ts",
+        "**/*.spec.tsx",
+        "**/*.spec.js",
+        "**/*.spec.jsx",
+        "**/conftest.py"
+      ],
+      "blocked_reason": "Coder cannot modify tests, docs, or pipeline-state contracts; see #1901.",
+      "description": "TODO(#1903): keep in sync with CODER_PATTERNS / TESTER_PATTERNS / DOCUMENTER_PATTERNS in shared/egg_restrictions/patterns.py. Coder: everything except tester, documenter, and .egg-state/ scopes."
+    },
+    {
+      "role": "tester",
+      "blocked_patterns": [
+        "docs/",
+        "**/*.md",
+        ".egg-state/contracts/"
+      ],
+      "blocked_reason": "Tester cannot modify docs or pipeline-state contracts.",
+      "description": "TODO(#1903): keep in sync with CODER_PATTERNS / TESTER_PATTERNS / DOCUMENTER_PATTERNS in shared/egg_restrictions/patterns.py. Tester: tests and test infrastructure only."
+    },
+    {
+      "role": "documenter",
+      "blocked_patterns": [
+        "**/*.py",
+        "**/*.ts",
+        "**/*.tsx",
+        "**/*.js",
+        "**/*.jsx",
+        "**/*.go",
+        "**/*.java",
+        "**/*.rb",
+        "**/*.rs",
+        "tests/",
+        "test/",
+        "**/tests/",
+        "**/test/",
+        ".egg-state/contracts/"
+      ],
+      "blocked_reason": "Documenter cannot modify source, tests, or contracts.",
+      "description": "TODO(#1903): keep in sync with CODER_PATTERNS / TESTER_PATTERNS / DOCUMENTER_PATTERNS in shared/egg_restrictions/patterns.py. Documenter: docs and markdown only."
     }
   ]
 }
