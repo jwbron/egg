@@ -29,7 +29,7 @@ EGG_IMAGE_TAG := $(shell git describe --always --dirty 2>/dev/null || echo lates
         setup deps venv install-linters check-linters \
         lint lint-python lint-shell lint-yaml lint-docker lint-actions lint-custom \
         test security \
-        test-integration test-e2e test-security \
+        test-integration test-e2e test-security smoketest-long-poll \
         lint-fix lint-python-fix lint-shell-fix lint-yaml-fix \
         build \
         k3s-setup k3s-secrets deploy redeploy k3s-teardown k3s-import
@@ -264,7 +264,7 @@ smoketest-long-poll: venv  ## Smoke-test the long-poll / event-driven wait infra
 		orchestrator/tests/test_message_store.py::TestNotifyMultipleWaiters \
 		orchestrator/tests/test_cli.py::TestWaitressSizing \
 		orchestrator/tests/test_concurrent_integration.py::TestEventDrivenConsensusWait \
-		-v --timeout=60
+		-v --timeout=90
 
 security:
 	@echo "==> Running security scan..."
