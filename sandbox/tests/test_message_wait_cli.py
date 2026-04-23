@@ -465,9 +465,6 @@ class TestHeartbeat:
         assert rc == 3
 
     def test_heartbeat_missing_role_returns_3(self):
-        rc = cmd_message_heartbeat(_make_hb_args(role=None))
-        # Depends on EGG_AGENT_ROLE env var. In the sandbox test env this
-        # may be set, so we skip if a role is resolvable.
         with patch("egg_lib.orch_cli.get_agent_role_from_env", return_value=None):
             rc = cmd_message_heartbeat(_make_hb_args(role=None))
         assert rc == 3

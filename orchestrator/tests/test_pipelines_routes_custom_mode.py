@@ -311,8 +311,7 @@ class TestCustomPhaseThreading:
                 },
             )
             call = bundle.mock_store.create_pipeline.call_args
-            if call is not None:
-                assert call.kwargs.get("custom_phase") is None
+            assert call is None, "create_pipeline should not be called for non-custom mode"
 
 
 # ---------------------------------------------------------------------------
