@@ -453,10 +453,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"gateway/agent_restrictions.py (gateway-local, matches #1470 original location)\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-17",
+      "question": "Should the sandbox egg-orch push --scope-filter command be deprecated in the same PR?",
+      "context": "Open contract question decision-16, registered by an agent during the refine phase.",
+      "options": [
+        "Keep as-is (still useful outside gateway sessions)",
+        "Mark deprecated in --help, remove next release",
+        "Remove in the same PR (gateway now handles all cases)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-23T06:45:00.585200Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:21:58.997312Z",
-  "updated_at": "2026-04-23T06:44:58.465755Z",
+  "updated_at": "2026-04-23T06:45:00.594931Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -470,5 +489,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:31:28.068349Z",
-  "version": 50
+  "version": 51
 }
