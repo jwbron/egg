@@ -8,6 +8,8 @@ Agents interact via the orchestrator API, not directly with Redis.
 import json
 import sys
 import threading
+import time
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -145,6 +147,11 @@ class RedisMessageStore:
 
         return message
 
+    # Maximum inner-loop iterations when filtering for wait_for_types.
+    # Cap avoids pathological tight loops when the stream is flooded with
+    # non-matching message types (issue #1897, RISK).
+    _WAIT_FOR_TYPES_MAX_INNER_LOOPS = 100
+
     def get_messages(
         self,
         pipeline_id: str,
@@ -153,6 +160,7 @@ class RedisMessageStore:
         since_id: str | None = None,
         limit: int = 100,
         wait: int = 0,
+        wait_for_types: Sequence[str] | None = None,
     ) -> list[Message]:
         """Get messages from the Redis Stream.
 
@@ -162,6 +170,11 @@ class RedisMessageStore:
             since_id: If set, return only messages after this message ID.
             limit: Maximum messages to return.
             wait: If > 0, block for this many seconds waiting for new messages.
+            wait_for_types: If set (and ``wait > 0``), only treat a read as
+                "matched" when at least one message of these types is
+                available after applying role filtering. Non-matching rows
+                are discarded and the caller keeps blocking on the remaining
+                time budget. Issue #1897.
 
         Returns:
             List of matching messages, oldest first.
@@ -178,55 +191,113 @@ class RedisMessageStore:
                 # Fallback: scan the stream to find this message ID
                 start_id = self._find_stream_id_by_message_id(pipeline_id, since_id) or "0-0"
 
-        try:
+        want_types = set(wait_for_types) if wait_for_types else None
+
+        def _read_once(
+            read_start_id: str, block_ms: int | None
+        ) -> tuple[list[Message], str | None]:
+            """Perform one XREAD/XRANGE. Returns (messages, last_stream_id)."""
+            try:
+                if block_ms is not None:
+                    result = self._redis.xread(
+                        {key: read_start_id},
+                        count=limit * 3,
+                        block=block_ms,
+                    )
+                else:
+                    # Non-blocking read — XRANGE for everything after
+                    # read_start_id. Exclusive start when since_id is set.
+                    exclusive_start = (
+                        self._increment_stream_id(read_start_id)
+                        if since_id and read_start_id != "0-0"
+                        else read_start_id
+                    )
+                    result_entries = self._redis.xrange(
+                        key, min=exclusive_start, count=limit * 3
+                    )
+                    result = (
+                        [
+                            (
+                                key.encode() if isinstance(key, str) else key,
+                                result_entries,
+                            )
+                        ]
+                        if result_entries
+                        else []
+                    )
+            except redis.RedisError as e:
+                logger.error(
+                    "Failed to read from Redis Stream",
+                    pipeline_id=pipeline_id,
+                    error=str(e),
+                )
+                raise
+
+            out: list[Message] = []
+            last_sid: str | None = None
+            if result:
+                for _sk, entries in result:
+                    for sid, fields in entries:
+                        if isinstance(sid, bytes):
+                            sid = sid.decode("utf-8")
+                        msg = _message_from_redis(sid, fields)
+                        with self._lock:
+                            if pipeline_id not in self._id_to_stream_id:
+                                self._id_to_stream_id[pipeline_id] = {}
+                            self._id_to_stream_id[pipeline_id][msg.id] = sid
+                        out.append(msg)
+                        last_sid = sid
+            return out, last_sid
+
+        # No type filter: preserve the original behaviour (fast path).
+        if want_types is None:
+            messages, _ = _read_once(start_id, wait * 1000 if wait > 0 else None)
+            if role:
+                messages = [
+                    m for m in messages if m.to_role == role or m.to_role == "all"
+                ]
+            return messages[-limit:] if len(messages) > limit else messages
+
+        # wait_for_types: re-block on remaining time budget until we find a
+        # matching row or the deadline elapses. Cap the inner loop so a
+        # flood of non-matching rows can't spin forever.
+        deadline = time.monotonic() + float(wait)
+        current_start = start_id
+        inner_loops = 0
+        while True:
+            remaining = deadline - time.monotonic() if wait > 0 else 0.0
+            if wait > 0 and remaining <= 0:
+                return []
+
+            block_ms: int | None
             if wait > 0:
-                # Blocking read — XREAD BLOCK
-                result = self._redis.xread(
-                    {key: start_id},
-                    count=limit * 3,  # Over-read to account for role filtering
-                    block=wait * 1000,  # milliseconds
-                )
+                block_ms = max(int(remaining * 1000), 1)
             else:
-                # Non-blocking read — XRANGE for everything after start_id
-                # Use XRANGE with exclusive start (add increment to start_id)
-                exclusive_start = self._increment_stream_id(start_id) if since_id else start_id
-                result_entries = self._redis.xrange(key, min=exclusive_start, count=limit * 3)
-                # Normalize to same format as xread
-                result = (
-                    [(key.encode() if isinstance(key, str) else key, result_entries)]
-                    if result_entries
-                    else []
-                )
-        except redis.RedisError as e:
-            logger.error(
-                "Failed to read from Redis Stream",
-                pipeline_id=pipeline_id,
-                error=str(e),
-            )
-            raise
+                block_ms = None
 
-        messages = []
-        if result:
-            for _sk, entries in result:
-                for stream_id, fields in entries:
-                    if isinstance(stream_id, bytes):
-                        stream_id = stream_id.decode("utf-8")
-                    msg = _message_from_redis(stream_id, fields)
+            messages, last_sid = _read_once(current_start, block_ms)
+            if role:
+                messages = [
+                    m for m in messages if m.to_role == role or m.to_role == "all"
+                ]
 
-                    # Cache the ID mapping
-                    with self._lock:
-                        if pipeline_id not in self._id_to_stream_id:
-                            self._id_to_stream_id[pipeline_id] = {}
-                        self._id_to_stream_id[pipeline_id][msg.id] = stream_id
+            matching = [m for m in messages if m.message_type in want_types]
+            if matching:
+                return matching[-limit:] if len(matching) > limit else matching
 
-                    messages.append(msg)
+            # No match. If wait=0, bail out. Otherwise advance the cursor
+            # past what we just read and keep blocking.
+            if wait <= 0:
+                return []
 
-        # Role filtering (Python-side)
-        if role:
-            messages = [m for m in messages if m.to_role == role or m.to_role == "all"]
+            if last_sid is not None:
+                # Advance exclusively past the last sid so we don't re-read
+                # the same rows.
+                current_start = last_sid
 
-        # Apply limit
-        return messages[-limit:] if len(messages) > limit else messages
+            inner_loops += 1
+            if inner_loops >= self._WAIT_FOR_TYPES_MAX_INNER_LOOPS:
+                return []
 
     def get_status(self, pipeline_id: str) -> dict[str, Any]:
         """Get message statistics for a pipeline.
