@@ -1,0 +1,394 @@
+{
+  "schemaVersion": "1.0",
+  "issue": 1897,
+  "phase": "plan",
+  "agent_role": "risk_analyst",
+  "pipeline_id": "issue-1897",
+  "summary": "Risk assessment for full-scope Option C: prompt preamble audit + typed `egg-orch message wait` blocking primitive + env-configurable `--wait` cap + in-memory condition-variable blocking + removal of QUESTION message type + new HEARTBEAT message type with structured state field + explicit prompt Don'ts + consensus_wrapper shell-sleep-loop replacement + agent-wait-patterns.md + single-idiom docs. Overall risk is MEDIUM-to-HIGH. The biggest correctness traps are: (1) the refine analysis's premise that `QUESTION` is 'only used in test fixtures' is wrong — `QUESTION` is actively advertised in the reviewer lifecycle prompt at orchestrator/routes/pipelines.py:6066-6072 and is a member of BRC_HISTORY_TYPES (pipelines.py:4775; test locked at test_brc_history.py:974-985), so Decision-5 (remove QUESTION) must either ship with a replacement reviewer→producer clarification affordance or accept that reviewers lose a primitive they are currently instructed to use; (2) the new HEARTBEAT message type overlaps the existing PROGRESS-emitted heartbeat timer in orchestrator/health_monitor.py (which resets `last_heartbeat` on PROGRESS events with `type=heartbeat`) — if HEARTBEAT is a separate code path, the two heartbeat mechanisms can diverge and the Tier 1 heartbeat_timeout alarm can fire on an agent that is happily sending HEARTBEAT messages; (3) HTTP_PROXY idle timeout coupling is deployment-config-only and there is no code-level gate that prevents raising `EGG_MESSAGE_POLL_MAX_WAIT` past the gateway Squid idle timeout (producing 504s in production); (4) condition-variable blocking on the in-memory store must integrate with MessageStore.clear() at phase transitions or a thread can block forever after its pipeline ends; (5) WSGI worker starvation — holding 30-70 concurrent long-blocking sockets requires the orchestrator's Gunicorn config to run enough async/gevent or thread workers, which is not currently audited. Lower-risk concerns: SIGTERM semantics on Python-blocked Redis XREAD, prompt-only regression guards being cheap to break, and test-suite churn. External research skipped: this is an internal protocol/CLI refactor with no new third-party dependencies.",
+  "scope": {
+    "in_scope_changes": [
+      "Prompt preamble edit in orchestrator/routes/pipelines.py:5905-6085 — replace 'Keep polling' and 'STAY ALIVE' language with a single recommended idiom and explicit Don'ts (decision-7).",
+      "New CLI subcommand `egg-orch message wait --for TYPE [--from ROLE] [--timeout N]` in sandbox/egg_lib/orch_cli.py (decision-2).",
+      "New HTTP route behind the CLI — most likely extending GET /api/v1/pipelines/<pid>/messages in orchestrator/routes/messages.py or adding a POST /messages/wait.",
+      "Server-side blocking: extend orchestrator/redis_message_store.py XREAD BLOCK loop to filter by message_type; add condition-variable blocking on the in-memory orchestrator/message_store.py (decision-4).",
+      "New env var `EGG_MESSAGE_POLL_MAX_WAIT` (default 60) driving the cap at orchestrator/routes/messages.py:165 (decision-3).",
+      "New message type HEARTBEAT in orchestrator/message_store.py MessageType with structured `state` field (WORKING | WAITING_ON_ROLE | PROPOSED | IDLE) — wire into BRC_HISTORY_TYPES and test_brc_history.py.",
+      "Remove QUESTION from orchestrator/message_store.py, BRC_HISTORY_TYPES (pipelines.py:4775), reviewer prompt (pipelines.py:6062-6074), docs/guides/concurrent-execution.md, and all test fixtures (test_brc_history.py, test_concurrent_integration.py, gateway/tests/test_checkpoint_inter_agent.py).",
+      "Replace the shell sleep loop in orchestrator/consensus_wrapper.py:322-355 (check_confirmed_and_wait) with a long XREAD BLOCK or SSE listener tied to the `is_complete` signal (decision-8).",
+      "New docs/reference/agent-wait-patterns.md documenting the single recommended idiom.",
+      "Update sandbox/agent-config/rules/mission.md:152 to reference the new pattern and wait primitive.",
+      "Update test_pipeline_prompts.py lifecycle assertions (test_reviewer_lifecycle_renumbered, test_directed_coordination_after_reviewer_lifecycle, test_directed_coordination_after_producer_lifecycle) and add new assertions for the Don'ts language."
+    ],
+    "out_of_scope": [
+      "Auth/session changes on message wait (reuses existing session auth — no new lifecycle-secret surface).",
+      "Redis deployment changes (CONCURRENT deploys already assume Redis; decision-4 covers the non-Redis path via condition variable).",
+      "A typed REQUEST/REPLY subsystem to replace QUESTION in general peer Q&A — deferred to a future issue per Q5 resolution.",
+      "Full replay / instrumentation of issue-1762-membump to confirm Q1 — Q1 resolution accepts that #1896 probably fixed item 3 and only requires a synthetic test.",
+      "Runtime enforcement in the gateway to reject `sleep N && egg-orch ...` bash patterns — rejected at decision-7.",
+      "Raising the 60s default `--wait` cap in the same PR as introducing the env var — decision-3 keeps 60s as default; cap is configurable but unchanged."
+    ]
+  },
+  "dependency_risk_assessment": {
+    "summary": "All hard dependencies are satisfied. PR #1896 (consensus_confirmed idempotency) merged before this issue and is the reason item 3 is 'verify-only' per Q1. Redis is already a runtime dependency for XREAD BLOCK. Gateway HTTP_PROXY Squid is an environmental coupling surfaced by decision-3 but not in-code. Gunicorn/Flask WSGI worker configuration is a soft dependency the plan phase must explicitly size.",
+    "dependencies": [
+      {
+        "id": "DEP-1",
+        "dependency": "PR #1896 — consensus_confirmed deduplication (routes/signals.py:1241-1294)",
+        "status": "MERGED (commit ae9535b99)",
+        "risk_level": "LOW",
+        "assessment": "Dedup guard skips bus write when prior CONFIRMED of same flavor (pending_acks vs final) exists. Covers item 3 of the issue. Refine Q1 concluded no additional dedup work needed.",
+        "risks": [
+          "If the dedup predicate `_existing_confirmed_for_role` has a subtle gap for the edge case where a producer re-proposes and then re-confirms, the architect-style retry-loop pollution could recur.",
+          "The dedup guard is checked in-process; if two orchestrator replicas ever run, each sees only its own message-bus view and could duplicate independent CONFIRMED writes."
+        ],
+        "mitigation": "Plan phase should add one synthetic test in orchestrator/tests/test_consensus_signals.py that invokes `handle_consensus_confirmed_signal` 10x in tight succession and asserts exactly one CONFIRMED message in the store (pending_acks or final). Single-replica orchestrator assumption is already load-bearing elsewhere — flag but do not widen scope."
+      },
+      {
+        "id": "DEP-2",
+        "dependency": "Redis Streams for XREAD BLOCK long-polling semantics",
+        "status": "PRESENT (orchestrator/redis_message_store.py)",
+        "risk_level": "LOW",
+        "assessment": "XREAD BLOCK already powers the existing `--wait` parameter (redis_message_store.py:182-188). The new `message wait --for TYPE` adds server-side filtering on top. Redis is the only event-driven backend; the in-memory fallback needs the condition-variable implementation from decision-4.",
+        "risks": [
+          "`count=limit * 3` over-read may still fall short if many non-matching messages arrive before the target TYPE, causing the server to loop XREAD calls and burn CPU.",
+          "If server-side filtering is implemented as a loop over XREAD BLOCK, each iteration costs a round-trip; under high message volume the loop can degenerate to polling.",
+          "Redis connection pool exhaustion: Gunicorn workers × long-blocked XREADs could exceed the default max_connections (~50)."
+        ],
+        "mitigation": "Plan phase must specify: (1) the server-side filter loop has a hard ceiling (e.g., 10 XREAD iterations per client request before returning empty) so a pathological non-matching stream cannot monopolize a worker; (2) redis_message_store connection pool is explicitly sized to `expected_concurrent_pipelines × agents_per_pipeline + slack` (with a concrete number); (3) one unit test per message type and `--from ROLE` filter combination asserts the filter is server-side, not client-side."
+      },
+      {
+        "id": "DEP-3",
+        "dependency": "Gateway HTTP_PROXY (Squid) idle timeout — k8s/base/gateway-deployment.yaml:3129",
+        "status": "ENVIRONMENTAL — not code",
+        "risk_level": "MEDIUM",
+        "assessment": "The refine analysis correctly identifies that raising `EGG_MESSAGE_POLL_MAX_WAIT` beyond the Squid idle timeout will produce 504s. Squid's default connect-timeout is 120s and read-timeout varies by version. There is no test, lint rule, or deploy-time gate that enforces the coupling.",
+        "risks": [
+          "A deployment applies a ConfigMap raising `EGG_MESSAGE_POLL_MAX_WAIT=600` without a matching Squid timeout bump → intermittent 504 on long waits indistinguishable from a real orchestrator hang.",
+          "A future Squid upgrade lowering defaults silently breaks all long-poll agents.",
+          "Local docker-compose and k3s deployments have different Squid configs; environment drift."
+        ],
+        "mitigation": "Plan phase must: (a) keep the default `EGG_MESSAGE_POLL_MAX_WAIT=60` to avoid the coupling in the shipping release; (b) document the Squid timeout knob alongside the env var in docs/reference/agent-wait-patterns.md and docs/guides/concurrent-execution.md; (c) add a startup-time log line in the orchestrator that emits both `EGG_MESSAGE_POLL_MAX_WAIT` and an estimated Squid idle timeout (if knowable from env); (d) add a one-line README note that raising the env var REQUIRES a Squid timeout bump in k8s/base/gateway-deployment.yaml."
+      },
+      {
+        "id": "DEP-4",
+        "dependency": "Gunicorn / Flask WSGI worker model",
+        "status": "PRESENT but not audited for long-blocking",
+        "risk_level": "MEDIUM",
+        "assessment": "The orchestrator runs Flask under a WSGI server (typically Gunicorn). If workers are sync (default), each long-blocking XREAD occupies one worker for the full `--wait` duration. Per the refine analysis, 30-70 simultaneous long-poll sockets are expected at peak. A default 2-4 sync-worker deploy will starve.",
+        "risks": [
+          "Request queueing: short orchestrator API calls (status, signal) get queued behind long waits when workers are saturated, making the whole orchestrator appear hung.",
+          "Kubernetes readiness probe: if the probe endpoint competes for the same sync workers, long waits can cause probe timeouts and a restart storm.",
+          "Timeouts: Gunicorn's default `--timeout 30` would kill a worker blocked on `--wait 60` unless the deployment explicitly sets `--timeout 120`+."
+        ],
+        "mitigation": "Plan phase must call out the WSGI config: either (a) switch orchestrator workers to gevent/eventlet (async) for long-polling tolerance — this is a deployment-config change; (b) size sync workers to `max_concurrent_long_polls + 4` with an explicit calculation in docs; or (c) raise Gunicorn `--timeout` to at least 2 × `EGG_MESSAGE_POLL_MAX_WAIT`. Add one of these to the plan phase as a named task (not just a note)."
+      },
+      {
+        "id": "DEP-5",
+        "dependency": "Existing overseer/health_monitor heartbeat tracking (orchestrator/health_monitor.py:76-257)",
+        "status": "PRESENT",
+        "risk_level": "MEDIUM",
+        "assessment": "health_monitor already tracks `last_heartbeat` per agent as a timestamp, reset on PROGRESS events with `type=heartbeat` (health_monitor.py:248-257). Tier 1 alert fires on `orchestrator_heartbeat_timeout_seconds` (600s in implement phase). The proposed new HEARTBEAT message type is a separate bus-level signal with a structured state field. If the health_monitor's heartbeat timer is NOT wired to also reset on HEARTBEAT-type messages, an agent that emits HEARTBEAT but not PROGRESS-heartbeat will falsely trip Tier 1.",
+        "risks": [
+          "Dual heartbeat systems diverge: agents assume HEARTBEAT message is sufficient and stop emitting PROGRESS-heartbeat, falsely tripping alerts.",
+          "Overseer nudges fire on agents that are alive and communicating via the new channel, polluting the bus (re-introducing the exact problem #1897 set out to fix).",
+          "Test-only divergence: unit tests of the new HEARTBEAT path pass but integration tests of health_monitor still assert PROGRESS-heartbeat resets."
+        ],
+        "mitigation": "Plan phase must explicitly include a task: wire the health_monitor to subscribe to MESSAGE_SENT events with `message_type=HEARTBEAT` and reset `last_heartbeat` on those too. Add an integration test in test_health_monitor.py that: (1) agent sends HEARTBEAT message but no PROGRESS; (2) advance time past heartbeat_timeout; (3) assert no alert fired. Also add a deprecation note that PROGRESS-heartbeat will be retired after HEARTBEAT is universally adopted (do NOT retire in this PR — that's a migration risk)."
+      }
+    ]
+  },
+  "risks": [
+    {
+      "id": "RISK-1",
+      "title": "QUESTION removal has wider blast radius than refine analysis captured — actively advertised in reviewer prompt",
+      "category": "correctness",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "description": "The refine analysis (decision-5 resolution) states QUESTION is 'only used in test fixtures'. This is factually incorrect. QUESTION is: (1) advertised in the reviewer-lifecycle prompt preamble at orchestrator/routes/pipelines.py:6062-6074 with the example `egg-orch message send --to coder --type QUESTION --subject \"Clarify auth flow\" --body \"...\"`, (2) a member of `BRC_HISTORY_TYPES` at orchestrator/routes/pipelines.py:4775, (3) referenced by four tests in orchestrator/tests/test_brc_history.py (lines 816, 871, 893, 974-985, 1261-1281) that would fail, and (4) exercised by orchestrator/tests/test_concurrent_integration.py:165-174 asserting QUESTION delivery. Removing QUESTION without a replacement reviewer-to-producer clarification affordance regresses the reviewer UX that the current prompt explicitly teaches. The refine-phase Q5 answer ('use NACK/STATUS/HANDOFF/OVERSEER_ALERT') does NOT cover the 'quick clarification before NACK' use case — the reviewer is specifically told to use QUESTION to avoid unnecessary NACKs.",
+      "affected_components": [
+        "orchestrator/message_store.py:23 — MessageType.QUESTION",
+        "orchestrator/routes/pipelines.py:4775 — BRC_HISTORY_TYPES",
+        "orchestrator/routes/pipelines.py:6062-6074 — reviewer prompt preamble",
+        "orchestrator/tests/test_brc_history.py — four test functions depend on QUESTION",
+        "orchestrator/tests/test_concurrent_integration.py:165-174",
+        "gateway/tests/test_checkpoint_inter_agent.py:95-113",
+        "docs/guides/concurrent-execution.md — documents QUESTION"
+      ],
+      "mitigation": "(1) Plan-phase task owner must audit every QUESTION reference under grep and classify each: 'remove' (test fixture only), 'replace' (prompt/doc), or 'defer' (API surface). The bare count suggests at least 10 call sites. (2) Remove the reviewer-lifecycle QUESTION recommendation from pipelines.py:6062-6074 BEFORE removing the type, and replace with either: (a) explicit language that reviewers must NACK with feedback if they need clarification (decision-5 resolution path), or (b) a placeholder stating 'future peer Q&A subsystem tracked as <new issue>'. (3) Update test_brc_history.py assertions: TestIncludesNonConsensusTypes must drop QUESTION from the expected set; the round-trip test at lines 867-893 needs a replacement message type. (4) If a single PR, stage in this order: prompt edit → test fixture updates → type removal. Misordering produces test-suite red-green flapping. (5) File a follow-up issue for the REQUEST/REPLY subsystem and link it from the prompt text so reviewers know where future clarification capability is coming from.",
+      "rollback_plan": "QUESTION removal is additive-to-subtract — revert the commit that drops the enum member and the three-line prompt change. Tests revert with the same commit. No data migration (no QUESTION messages in production).",
+      "needs_human_review": true,
+      "human_review_reason": "The refine-phase resolution of decision-5 is based on a factual premise that disagrees with the code. Reviewer should confirm (or override) that removing the reviewer QUESTION affordance is still the intended path once it's clear reviewers are CURRENTLY told to use it."
+    },
+    {
+      "id": "RISK-2",
+      "title": "New HEARTBEAT message type creates dual heartbeat systems that can diverge",
+      "category": "correctness",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "description": "The Tier 1 HealthMonitor (orchestrator/health_monitor.py) already tracks `last_heartbeat` per agent as a timestamp, reset on PROGRESS_EMITTED events where `event.data['type'] == 'heartbeat'` (health_monitor.py:248-257). The `orchestrator_heartbeat_timeout_seconds` threshold (default 120s; 600s in implement phase per lines 165-175) fires heartbeat_timeout alerts if not reset in time (line 451). The issue #1897 resolution of Q4 adds a NEW `HEARTBEAT` message type on the message bus with a structured `state` field. If the HealthMonitor only subscribes to PROGRESS_EMITTED, agents that adopt the new HEARTBEAT and stop emitting progress-heartbeat will falsely trip the Tier 1 alarm — re-introducing the overseer-noise problem the issue set out to fix. Conversely, if the HealthMonitor is wired to BOTH and agents emit both, it's not a bug but duplicate work.",
+      "affected_components": [
+        "orchestrator/health_monitor.py:76 — AgentState.last_heartbeat",
+        "orchestrator/health_monitor.py:234-272 — _on_progress handler",
+        "orchestrator/health_monitor.py:400-460 — heartbeat_timeout rule evaluation",
+        "orchestrator/message_store.py:19-37 — MessageType (new HEARTBEAT member)",
+        "orchestrator/tests/test_health_monitor.py — heartbeat tests"
+      ],
+      "mitigation": "(1) Plan task MUST add an explicit MESSAGE_SENT subscription in HealthMonitor that resets `last_heartbeat` when `message_type == 'HEARTBEAT'`. (2) Add a health_monitor integration test that: (a) emits only HEARTBEAT messages (no PROGRESS); (b) advances time past heartbeat_timeout; (c) asserts NO heartbeat_timeout alert raised. (3) Do NOT remove the PROGRESS-heartbeat path in this PR — it remains the legacy path. Document the deprecation in a code comment and a follow-up issue. (4) Define the HEARTBEAT payload schema precisely in the plan: `{state: 'WORKING'|'WAITING_ON_ROLE'|'PROPOSED'|'IDLE', waiting_on?: role, since?: iso-timestamp}` and validate it at `send_message` time (routes/messages.py) so a malformed HEARTBEAT is rejected before it pollutes the bus.",
+      "rollback_plan": "Revert the HEARTBEAT enum member and the HealthMonitor subscription. If agents have started emitting HEARTBEAT, revert producer code first (one PR), then revert the type. The overseer fallback to PROGRESS-heartbeat remains intact because we did not remove it.",
+      "needs_human_review": true,
+      "human_review_reason": "Heartbeat semantics cross the message store → EventBus → HealthMonitor boundary. A reviewer should verify the plan wires both heartbeat paths into the same timer, otherwise the Tier 1 overseer will nudge agents that are reporting state correctly via the new channel."
+    },
+    {
+      "id": "RISK-3",
+      "title": "WSGI worker starvation from 30-70 concurrent long-blocking sockets",
+      "category": "performance",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "HIGH",
+      "description": "The refine analysis estimates 30-70 simultaneous long-poll sockets at peak (3-7 agents × 10 concurrent pipelines). If the orchestrator Flask app runs under Gunicorn sync workers (common default), each long-blocking XREAD occupies one worker for the `--wait` duration. With the default 2-4 worker count and a 60s `--wait`, workers are saturated almost immediately. Short requests (pipeline/status, consensus/signal) queue behind long waits. Kubernetes readiness probes that hit the same worker pool can time out and trigger a restart storm. The problem is worse with the new typed `message wait --for TYPE` because the CLI is DESIGNED to block for minutes-to-hours per decision-1 / scope summary.",
+      "affected_components": [
+        "Orchestrator Gunicorn/uwsgi configuration (not currently in the repo; typically set via container CMD or env)",
+        "k8s/base/orchestrator-deployment.yaml — resource requests/limits, readinessProbe",
+        "orchestrator/routes/messages.py:164-184 — long-polling code path"
+      ],
+      "mitigation": "(1) Plan phase must include an explicit WSGI-config task: either switch to an async worker class (gevent, eventlet, or uvicorn/ASGI if Flask is ported) OR raise sync-worker count to max_concurrent_long_polls + 4 (concrete formula in docs). (2) Readiness probe MUST hit a dedicated lightweight endpoint (or use an Exec probe that queries Redis directly, bypassing Flask). (3) Gunicorn `--timeout` must be set to at least `2 × EGG_MESSAGE_POLL_MAX_WAIT` to avoid killing workers mid-block. (4) Add a Prometheus / structured-log metric exporting the number of in-flight long-polls so operators can observe saturation.",
+      "rollback_plan": "Revert the new route / CLI so agents fall back to the current 60s polling shape. Worker pool pressure returns to the pre-change baseline. If workers are already starving at the 60s cap under the current code, the deeper problem pre-exists this issue.",
+      "needs_human_review": true,
+      "human_review_reason": "Deployment-config risk crosses into the infra team's territory. Reviewer should confirm the plan names WSGI worker config as a first-class task, not an afterthought — otherwise CI passes and production melts."
+    },
+    {
+      "id": "RISK-4",
+      "title": "HTTP_PROXY (Squid) idle timeout coupling has no code-level enforcement",
+      "category": "compatibility",
+      "severity": "HIGH",
+      "likelihood": "LOW",
+      "impact": "HIGH",
+      "description": "Raising `EGG_MESSAGE_POLL_MAX_WAIT` beyond the gateway Squid idle timeout (set in k8s/base/gateway-deployment.yaml, port 3129) causes Squid to close the connection mid-read, producing spurious 504 Gateway Timeout responses that are indistinguishable from a real orchestrator hang. The env var and the Squid ConfigMap live in DIFFERENT YAML files, touched by DIFFERENT roles (orchestrator-config vs gateway-config), and there is no lint rule, test, or deploy-time check that enforces the coupling. If an operator raises the env var without the ConfigMap bump, CI passes and the problem only manifests in production.",
+      "affected_components": [
+        "orchestrator/routes/messages.py:165 — wait cap read from env",
+        "k8s/base/gateway-deployment.yaml — Squid configuration (port 3129)",
+        "k8s/overlays/local/patches/ — per-environment overrides",
+        "docs/reference/orchestrator-cli.md — current doc location for env vars"
+      ],
+      "mitigation": "(1) Keep `EGG_MESSAGE_POLL_MAX_WAIT` default at 60s in the shipping release (decision-3 resolution already says this). (2) Plan phase must add a startup log line in the orchestrator on boot that prints the env var value AND a warning if it exceeds a documented safe threshold (e.g., 90s) referencing the gateway timeout. (3) docs/reference/agent-wait-patterns.md MUST include an explicit 'if you raise this cap, you MUST also raise <gateway config>' block. (4) Add an integration test that boots the stack with `EGG_MESSAGE_POLL_MAX_WAIT=120` AND a short Squid timeout and asserts the expected 504 — so the failure mode is named and test-asserted. (5) Optional: emit a periodic (every 5 min) log warning if the observed p99 wait duration approaches the configured cap, giving operators lead time.",
+      "rollback_plan": "Revert the env var to the previous hard-coded 60 at routes/messages.py:165. No deploy-config changes needed unless an operator already raised Squid — in which case the Squid config can stay raised (it's safe either way).",
+      "needs_human_review": true,
+      "human_review_reason": "Cross-component config coupling is exactly the class of bug that passes CI and fails in prod. Reviewer should insist on either the startup-log safety net or a one-line note in the deploy runbook."
+    },
+    {
+      "id": "RISK-5",
+      "title": "In-memory store condition-variable blocking + MessageStore.clear() at phase transitions can block threads forever",
+      "category": "correctness",
+      "severity": "HIGH",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "Decision-4 resolves to implement true blocking via a condition variable on the in-memory MessageStore (orchestrator/message_store.py:70-168). This is load-bearing for local development per Q2. However, MessageStore.clear() is called at phase transitions (line 160-168) to wipe per-pipeline messages. If a thread is waiting on a condition variable when clear() runs, the thread must be: (a) woken up with notify_all(), (b) observe that its pipeline's list is gone, and (c) return an empty result (or a 'stream closed' signal) instead of continuing to wait. A naive implementation that only notifies on add_message() will leave a blocked thread hanging until its next HTTP-level timeout, producing a zombie socket per phase transition.",
+      "affected_components": [
+        "orchestrator/message_store.py:70-168 — MessageStore class",
+        "orchestrator/message_store.py:160-168 — clear() method",
+        "orchestrator/tests/test_message_store.py — new blocking tests",
+        "phase-transition call site: typically orchestrator/routes/pipelines.py or orchestrator/concurrent_executor.py"
+      ],
+      "mitigation": "(1) Plan task must specify the condition variable is per-pipeline, not global, so one pipeline's clear() does not wake threads for unrelated pipelines. (2) clear() MUST call `cv.notify_all()` after popping the list and before returning; add a comment referencing this risk. (3) The blocking read loop must check `pipeline_id in self._messages` after each wake-up — if gone, return empty list. (4) Unit tests: (a) thread blocks on get_messages(wait=30), clear() fires, thread returns empty within 100ms; (b) thread blocks on get_messages(wait=30), pipeline never transitions, thread returns at wait timeout; (c) two threads block on same pipeline, add_message() fires, both wake up and return the new message. (5) Also close out the long-discussed in-memory silent-fallback at routes/messages.py:181-184 — with condition-variable blocking in place, the `try/except TypeError` fallback can be removed, making the non-blocking CI environment fail loudly instead of silently.",
+      "rollback_plan": "Revert the condition variable changes; the try/except at routes/messages.py:181-184 still catches the un-supported wait and returns immediately. Behavior degrades to pre-issue semantics. Local-dev agents will still run — just less efficiently.",
+      "needs_human_review": true,
+      "human_review_reason": "Concurrency primitives are easy to get subtly wrong. A reviewer should spot-check the condition-variable semantics against the clear() call path — specifically, does clear() hold the lock while notifying, and can the wake-up observe the cleared state?"
+    },
+    {
+      "id": "RISK-6",
+      "title": "consensus_wrapper.py Redis coupling breaks local-dev Docker deploys without Redis",
+      "category": "compatibility",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "MEDIUM",
+      "description": "orchestrator/consensus_wrapper.py is currently a pure shell wrapper with no language-runtime dependency beyond `python3 -c \"...\"` for JSON parsing. It polls `egg-orch pipeline status --json` every 30s for up to MAX_READY_POLLS iterations (lines 322-355). Decision-8 replaces this with 'a long XREAD BLOCK or SSE listener tied to is_complete'. Two options: (a) XREAD BLOCK — introduces a Redis client dependency in the consensus_wrapper, but per Q2, 'local deploys run without Redis for now'. (b) SSE listener — reuses orchestrator/sse.py which is already hot at HEARTBEAT_INTERVAL=15s (sse.py:41). The wrapper would need `curl --no-buffer` or a Python SSE client. Either way, the wrapper's failure mode when the primitive is unavailable must be explicit.",
+      "affected_components": [
+        "orchestrator/consensus_wrapper.py:300-355 — check_confirmed_and_wait",
+        "orchestrator/sse.py:41-420 — SSE endpoint for is_complete event",
+        "orchestrator/redis_message_store.py — optional Redis client",
+        "sandbox image — must bundle the SSE client or redis-cli if XREAD route chosen"
+      ],
+      "mitigation": "(1) Plan phase SHOULD recommend the SSE route: it reuses the existing endpoint, has no new runtime dependency, and does not require Redis. `curl --no-buffer` is already available in the sandbox. (2) If Redis is chosen, the wrapper MUST fall back to the current shell sleep loop when Redis is unreachable; fail hard only in explicit `EGG_MESSAGE_STORE_BACKEND=redis` mode. (3) Add a sandbox/tests test that validates the wrapper script reaches is_complete within the expected time under both primitives. (4) Document in the wrapper shebang comment which primitive is in use and the fallback.",
+      "rollback_plan": "Revert to the existing shell sleep loop. No data impact. Consensus detection degrades from event-driven to 30s-poll, which is the current baseline."
+    },
+    {
+      "id": "RISK-7",
+      "title": "Python SIGTERM handling on long XREAD BLOCK connections can mask clean exit",
+      "category": "correctness",
+      "severity": "HIGH",
+      "likelihood": "LOW",
+      "impact": "MEDIUM",
+      "description": "Per the refine analysis's constraint section, replacing consensus_wrapper shell-sleep with a long XREAD BLOCK changes shutdown semantics: a thread blocked in `redis.xread(block=600000)` does not respond to SIGTERM in all Python / redis-py versions without an explicit connection close. The orchestrator's graceful-shutdown grace period is bounded (typically 30s), after which kubelet sends SIGKILL. A thread still blocked at SIGKILL time masks what would otherwise be a clean 'consensus reached, exiting' exit code, breaking the consensus_wrapper's `exit 0`/`exit 1` classification at orchestrator/consensus_wrapper.py around the same region.",
+      "affected_components": [
+        "orchestrator/consensus_wrapper.py — signal handling / exit classification",
+        "k8s deployment terminationGracePeriodSeconds (default 30)",
+        "Python runtime — KeyboardInterrupt / signal handlers"
+      ],
+      "mitigation": "(1) If Redis path chosen: install an explicit SIGTERM handler in the consensus_wrapper (or the Python script it spawns) that calls `redis_client.close()` and `sys.exit(0)`. (2) Cap the XREAD BLOCK duration at `terminationGracePeriodSeconds - 5` (e.g., 25s for a default 30s grace); loop back around in user-space between blocks. (3) If SSE path chosen: curl/http SSE clients honor SIGTERM via standard socket close, less risk but still verify. (4) Add a sandbox test that spawns the wrapper, sends SIGTERM, and asserts exit within the grace period. (5) Document the grace-period assumption in the wrapper so a future k8s manifest edit that shrinks the grace period does not silently regress.",
+      "rollback_plan": "Revert to shell sleep loop — shell `sleep` naturally exits on SIGTERM. The fix's benefit (faster consensus detection) is lost; no correctness regression."
+    },
+    {
+      "id": "RISK-8",
+      "title": "Prompt-only 'Do NOT' regression guard is cheap to erase",
+      "category": "maintainability",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "Decision-7 is to add explicit 'Don'ts' to the prompt preamble in orchestrator/routes/pipelines.py: 'Do NOT use for-loops to wrap message poll; do NOT call sleep N to wait; rely on --wait blocking semantics'. This is a prompt-only fix. Future prompt edits can remove or water down the language without tripping any guard. Prompt-regression tests in orchestrator/tests/test_pipeline_prompts.py lock in the current 'STAY ALIVE' structure but do NOT yet assert the absence of `sleep ` or `for i in` patterns in the rendered prompt — so an agent-facing regression can slip through green tests.",
+      "affected_components": [
+        "orchestrator/routes/pipelines.py:5905-6085 — prompt preamble",
+        "sandbox/agent-config/rules/mission.md:152 — secondary prompt location",
+        "orchestrator/tests/test_pipeline_prompts.py — lifecycle assertions"
+      ],
+      "mitigation": "(1) Add a locked-in test in test_pipeline_prompts.py that asserts the rendered prompt for every role contains the literal strings 'Do NOT' and 'rely on --wait blocking semantics'. (2) Add a negative-assertion test that the rendered prompt does NOT contain 'Keep polling' or 'for i in' (to catch accidental re-introduction). (3) Mirror the assertions against sandbox/agent-config/rules/mission.md via a parametrized test. (4) Add a code comment at the prompt definition pointing at the tests so future editors see the coupling. (5) Decision-7 explicitly rejected gateway-level bash enforcement, so the prompt tests ARE the final line of defense.",
+      "rollback_plan": "Revert prompt changes — the 'Do NOT' lines are additive. Tests revert with them. Agents fall back to the existing prompt shape."
+    },
+    {
+      "id": "RISK-9",
+      "title": "Single recommended idiom exit-code contract is underspecified",
+      "category": "correctness",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "Q5 resolution is to ship the single idiom `while true; do egg-orch message wait --for <TYPE> || break; done` and ban alternatives. The `|| break` semantics mean any non-zero exit breaks the loop. If `egg-orch message wait` exits non-zero on transient network blips, orchestrator 503s, or JSON parse errors (in addition to 'matched message' and 'timeout'), the loop breaks prematurely and the agent goes silent. Conversely, if the command exits 0 on timeout, the loop spins forever — burning the exact resources the issue set out to reclaim.",
+      "affected_components": [
+        "sandbox/egg_lib/orch_cli.py — new cmd_message_wait exit-code table",
+        "docs/reference/agent-wait-patterns.md — the idiom documentation",
+        "orchestrator/routes/pipelines.py — prompt preamble"
+      ],
+      "mitigation": "(1) Plan phase MUST specify a deterministic exit-code contract for `egg-orch message wait`: 0 = matched (one or more messages of the target type were returned), 1 = timeout (no match within --timeout), 2 = transient orchestrator error (5xx, network timeout) — retry is safe, 3 = permanent error (bad pipeline id, auth failure, bad CLI args). (2) Document the contract in the CLI --help output AND agent-wait-patterns.md. (3) The recommended idiom MUST be updated to match the contract: e.g., `while true; do egg-orch message wait --for TYPE; rc=$?; case $rc in 0|2) continue;; 1) break;; *) exit 1;; esac; done` — but this is too clever for the prompt, so consider wrapping it in an `egg-orch message wait-loop --for TYPE` meta-command that encodes the right behavior. (4) Unit test every exit-code path explicitly.",
+      "rollback_plan": "Fall back to the current 60s `egg-orch message poll --wait 60` wrapped in a single `while true` — matches the current prompt intent even without the new primitive."
+    },
+    {
+      "id": "RISK-10",
+      "title": "Test-suite churn from removing QUESTION is broader than plan phase may anticipate",
+      "category": "maintainability",
+      "severity": "MEDIUM",
+      "likelihood": "HIGH",
+      "impact": "LOW",
+      "description": "grep shows QUESTION used in at least orchestrator/tests/test_brc_history.py (4 assertions), orchestrator/tests/test_concurrent_integration.py (2 assertions), gateway/tests/test_checkpoint_inter_agent.py (2 assertions), plus the schema-level enum. Removing QUESTION requires touching all of these. A partial update where BRC_HISTORY_TYPES still includes QUESTION but MessageType enum doesn't will cause runtime errors on checkpoint serialization. Same hazard in reverse for docs.",
+      "affected_components": [
+        "orchestrator/tests/test_brc_history.py:816,871,893,974-985,1261-1281",
+        "orchestrator/tests/test_concurrent_integration.py:165-174",
+        "gateway/tests/test_checkpoint_inter_agent.py:95-113",
+        "docs/guides/concurrent-execution.md — QUESTION examples"
+      ],
+      "mitigation": "(1) Plan phase must enumerate every QUESTION reference as a named task (rg 'QUESTION' --type py --type md) and include the output in the plan doc. (2) Commit ordering: (a) drop QUESTION from the reviewer prompt preamble, (b) update all tests to not rely on QUESTION, (c) remove QUESTION from BRC_HISTORY_TYPES, (d) remove from MessageType enum. Each stage must keep tests green. (3) Single-PR strategy vs incremental: if done in one PR, run full test suite before pushing; if incremental, stage behind a feature-flag env var that hides QUESTION from the enum when set."
+    },
+    {
+      "id": "RISK-11",
+      "title": "In-flight pipelines at deploy time continue the old sleep/poll shape",
+      "category": "compatibility",
+      "severity": "LOW",
+      "likelihood": "HIGH",
+      "impact": "LOW",
+      "description": "When the orchestrator rolls out the new prompt + CLI, pipelines already mid-flight have agents that were spawned with the OLD prompt and don't have the new `message wait` CLI (it ships in the sandbox image, which is respun per-pipeline). Those agents continue the old polling shape until they respawn or the pipeline completes. No functional break, but the first ~24-48 hours after deploy still contain sleep/poll behavior. This is a non-risk if rollout is expected; it's only a bug if someone claims 'deploy fixed everything'.",
+      "affected_components": [
+        "sandbox image versioning",
+        "orchestrator rollout coordination"
+      ],
+      "mitigation": "(1) Document in the PR body / docs that the fix applies to NEW pipelines only. (2) If urgency is high, the overseer can manually terminate long-running stale pipelines and let them respawn with the new image. (3) Add a log at orchestrator boot that emits the BRC-preamble version (a monotonically increasing integer) so post-deploy validation can confirm new prompts are flowing.",
+      "rollback_plan": "No rollback needed — deploy is additive; old pipelines finish on old semantics."
+    },
+    {
+      "id": "RISK-12",
+      "title": "Scope creep — 9+ independent artifacts in one implement phase",
+      "category": "process",
+      "severity": "MEDIUM",
+      "likelihood": "MEDIUM",
+      "impact": "MEDIUM",
+      "description": "The decision-1 resolution (all five items) plus HEARTBEAT addition yields at least 9 distinct artifacts in the implement phase: (a) prompt preamble edit; (b) new CLI subcommand; (c) new HTTP route + Redis+in-memory blocking; (d) new env var; (e) new HEARTBEAT type + health_monitor wiring; (f) QUESTION removal across prompt/tests/docs; (g) consensus_wrapper replacement; (h) agent-wait-patterns.md; (i) mission.md edit. Large, cross-cutting PR surface. Reviewer fatigue increases the chance of a subtle risk (RISK-1, RISK-2, or RISK-5) slipping through.",
+      "affected_components": [
+        "All components listed above",
+        "Review process / PR size"
+      ],
+      "mitigation": "(1) task_planner should decompose into parallel tracks (per scope-summary in the contract) so tracks can land independently: Track A (prompts + docs, low-risk, land first); Track B (new CLI + route + blocking, core change); Track C (HEARTBEAT + health_monitor wiring, cross-subsystem); Track D (QUESTION removal, test churn). (2) Each track should be a separate commit series on the same implement PR with clear commit messages, OR split across multiple implement-phase iterations if the pipeline supports it. (3) Review checklist should call out the four high-severity risks by name so no reviewer misses them. (4) If time-boxed, SHIP tracks A + B + C first; DEFER track D (QUESTION removal) to a follow-up issue — this keeps the reviewer affordance intact while unblocking the core wait-primitive work."
+    }
+  ],
+  "areas_needing_human_review": [
+    "RISK-1 — confirm decision-5 (remove QUESTION) is still intended given QUESTION is in the reviewer prompt preamble and BRC_HISTORY_TYPES (not just test fixtures as the refine phase claimed).",
+    "RISK-2 — verify the plan wires health_monitor to subscribe to both PROGRESS-heartbeat AND HEARTBEAT message-bus events; otherwise Tier 1 alerts fire on agents that are reporting state correctly via the new channel.",
+    "RISK-3 — confirm the plan names WSGI worker configuration (async vs sync, worker count, Gunicorn timeout) as a first-class deliverable, not a side-note.",
+    "RISK-4 — confirm the plan includes a startup-time log or runbook note that EGG_MESSAGE_POLL_MAX_WAIT and Gateway Squid idle timeout must move together.",
+    "RISK-5 — spot-check the condition-variable design on the in-memory MessageStore against clear() at phase transitions; ensure blocked threads wake up and return cleanly."
+  ],
+  "security_posture_summary": {
+    "before": "QUESTION messages unreplied-to; consensus_confirmed retry-loop pollution (fixed by #1896 before this issue). No new attack surface.",
+    "after": "New `egg-orch message wait` CLI route uses existing session auth — no new mutating surface. HEARTBEAT message type is broadcast-only from each agent to the bus, same trust model as PROGRESS. New env var EGG_MESSAGE_POLL_MAX_WAIT is read at orchestrator boot; its value is non-secret. No new secrets, no new cross-boundary mutation paths.",
+    "net_change": "Neutral — no security regressions, no new auth surfaces. The only adjacent security concern is that long-lived connections increase the opportunity window for a compromised agent to exfiltrate data through long-polled bus payloads, but the message content is not broader than what the agent can already read via short-polling."
+  },
+  "rollback_plan": {
+    "overall_strategy": "The change is additive plus one subtract (QUESTION). Each artifact can be reverted independently. If a rollback is required under load, revert in this order: (1) consensus_wrapper XREAD/SSE listener → shell sleep loop (preserves consensus detection with 30s lag); (2) new CLI + route (agents fall back to `egg-orch message poll --wait 60` — already in prompt); (3) prompt Don'ts (agents regain old wording); (4) HEARTBEAT type + health_monitor wiring (Tier 1 falls back to PROGRESS-heartbeat path, which was never removed); (5) QUESTION removal — only rollback if a reviewer workflow actually broke. Each step is independent and independently safe.",
+    "partial_rollback_options": {
+      "cli_only": "Revert the `egg-orch message wait` CLI + route; keep the prompt Don'ts and docs. Agents fall back to `message poll --wait` and the Don'ts still guide them away from for-loop wrappers.",
+      "heartbeat_only": "Revert HEARTBEAT type + health_monitor subscription; keep the CLI + prompt. Tier 1 reverts to PROGRESS-heartbeat path. Agents that already learned the new message type gracefully degrade (unknown message types are ignored).",
+      "question_only": "Revert QUESTION removal (restore enum + prompt text + tests). Zero impact on the wait-primitive work."
+    },
+    "monitoring_post_deploy": "Post-deploy, watch: (a) overseer alert rate (should drop — fewer 'silent agent' nudges); (b) p50 / p95 consensus turn-around time (should drop — agents react to ACKs/NACKs in seconds); (c) orchestrator worker-saturation metrics (should NOT spike — if it does, see RISK-3); (d) 504 rate on GET /api/v1/pipelines/<id>/messages (should be zero — if not, see RISK-4); (e) heartbeat_timeout alert rate on agents that have adopted HEARTBEAT (should be zero — if not, see RISK-2)."
+  },
+  "external_research_note": "Skipped. This is an internal protocol/CLI refactor with no new third-party dependencies. The primitives involved (Redis XREAD BLOCK, Python threading.Condition, Flask/Gunicorn WSGI worker models, Squid idle timeouts) are all well-documented in their respective upstream docs and there are no recent CVEs or breaking upstream changes that would affect the design.",
+  "testing_recommendations": [
+    "Per-risk regression test: RISK-1 — unit test asserts QUESTION is not in MessageType enum, not in BRC_HISTORY_TYPES, and not in the rendered reviewer prompt (fails if accidentally re-introduced).",
+    "Per-risk regression test: RISK-2 — integration test emits only HEARTBEAT messages (no PROGRESS) and asserts no heartbeat_timeout alert within 2 × threshold.",
+    "Per-risk regression test: RISK-4 — boot orchestrator with EGG_MESSAGE_POLL_MAX_WAIT=120 and a short Squid timeout, assert the expected 504 pattern is observable (named failure mode).",
+    "Per-risk regression test: RISK-5 — (a) thread blocks on get_messages(wait=30), clear() fires, thread returns empty within 100ms; (b) thread blocks, pipeline never transitions, returns at wait timeout; (c) two threads wake together on add_message.",
+    "Per-risk regression test: RISK-7 — spawn consensus_wrapper, send SIGTERM during XREAD BLOCK, assert exit within terminationGracePeriodSeconds - 5.",
+    "Per-risk regression test: RISK-8 — test_pipeline_prompts.py asserts literal 'Do NOT' and 'rely on --wait blocking semantics' strings in rendered prompts AND absence of 'Keep polling' / 'for i in'.",
+    "Per-risk regression test: RISK-9 — table-driven test for `egg-orch message wait` exit codes (0 matched, 1 timeout, 2 transient, 3 permanent).",
+    "Synthetic test addressing Q1 (issue-1762-membump replay): invoke `handle_consensus_confirmed_signal` 10x in rapid succession and assert exactly one CONFIRMED message lands in the store.",
+    "End-to-end test: single-pipeline concurrent run where a reviewer NACKs; measure time from NACK send to producer re-propose; must be < 15s (old baseline: 6+ minutes from the documenter example).",
+    "Load test: 10 concurrent pipelines × 5 agents each holding `message wait --timeout 300`; assert orchestrator short-request latency p95 stays under 500ms."
+  ],
+  "open_questions_for_task_planner": [
+    "Should QUESTION removal land in this implement PR or be deferred to a follow-up issue? RISK-1 suggests deferring it would let tracks A+B+C ship without disturbing the reviewer affordance. If kept, RISK-10's commit-ordering discipline is non-optional.",
+    "SSE vs XREAD BLOCK for the consensus_wrapper replacement (RISK-6)? SSE avoids new Redis runtime dependency on the wrapper and handles SIGTERM cleanly (RISK-7). Recommend SSE. If XREAD chosen, plan must include explicit SIGTERM handling and fallback.",
+    "What's the exit-code contract for `egg-orch message wait` (RISK-9)? Plan MUST specify 0/1/2/3 semantics before implementation, or the agent-wait-patterns.md idiom has to be more than `|| break`.",
+    "WSGI worker model (RISK-3) — async (gevent/eventlet) or sized sync? This is a deployment-config task, not pure Python code, and easy to miss in a Python-focused plan.",
+    "Default for EGG_MESSAGE_POLL_MAX_WAIT — plan confirms 60 per decision-3. But should the orchestrator emit a warning if operators raise it? RISK-4 suggests yes; plan should call out the exact log line."
+  ],
+  "summary_by_category": {
+    "correctness": "HIGH — RISK-1 (QUESTION removal), RISK-2 (HEARTBEAT / health_monitor), RISK-5 (condition-variable + clear), and RISK-7 (SIGTERM) are all correctness traps that pass basic tests but fail under specific sequences. Primary mitigations are explicit wiring tests between subsystems the refine phase treated as independent.",
+    "performance": "HIGH — RISK-3 (WSGI worker starvation) is the single most likely path from a passing CI to a production meltdown. Mitigation requires a deployment-config task, not just Python code.",
+    "compatibility": "MEDIUM — RISK-4 (Squid coupling), RISK-6 (consensus_wrapper without Redis in local dev), RISK-11 (in-flight pipelines) are all environmental / temporal concerns. None block shipping.",
+    "maintainability": "MEDIUM — RISK-8 (prompt regression guard) and RISK-10 (QUESTION test churn) are hygiene concerns. Mitigated by test additions and commit ordering discipline.",
+    "process": "MEDIUM — RISK-12 (9+ artifacts in one implement phase) argues for parallel-track decomposition in the task plan; task_planner should budget implement time accordingly."
+  },
+  "artifacts": [
+    ".egg-state/agent-outputs/1897-risk_analyst-output.json"
+  ],
+  "source_review": {
+    "files_read": [
+      ".egg-state/drafts/1897-analysis.md (full, including HITL resolution)",
+      ".egg-state/contracts/issue-1897.json (all 9 decisions, all feedback, resolved)",
+      "orchestrator/message_store.py (full — MessageType enum, MessageStore, clear() lifecycle)",
+      "orchestrator/routes/messages.py (full — send_message, poll_messages, wait cap at line 165)",
+      "orchestrator/redis_message_store.py lines 150-230 (XREAD BLOCK implementation)",
+      "orchestrator/routes/pipelines.py lines 5905-6085 (BRC preamble), 4775 (BRC_HISTORY_TYPES), 6062-6074 (reviewer QUESTION prompt), 6088-6135 (role descriptions)",
+      "orchestrator/consensus_wrapper.py lines 300-355 (check_confirmed_and_wait shell sleep loop)",
+      "orchestrator/health_monitor.py lines 1-270, 400-460 (heartbeat tracking via PROGRESS events, Tier 1 heartbeat_timeout rule)",
+      "sandbox/egg_lib/orch_cli.py lines 1450-1525 (cmd_consensus_confirmed, cmd_consensus_status)",
+      "orchestrator/tests/test_brc_history.py lines 816, 871, 893, 974-985, 1261-1281 (QUESTION assertions)",
+      "gateway/gateway.py (EGG_SESSION_IDLE_TIMEOUT_MINUTES context, grep only)",
+      "k8s/base/gateway-deployment.yaml (Squid port 3129; grep only)",
+      "github: issue 1897 body (5 observed patterns and the 5 proposed work items)"
+    ],
+    "key_files_at_risk": [
+      "orchestrator/routes/pipelines.py (BRC preamble 5905-6085; BRC_HISTORY_TYPES 4775; reviewer QUESTION prompt 6062-6074)",
+      "orchestrator/message_store.py (MessageType enum 19-37; MessageStore.clear 160-168 + new condition variable)",
+      "orchestrator/routes/messages.py (wait cap 165; blocking fallback 181-184)",
+      "orchestrator/redis_message_store.py (XREAD BLOCK 182-188; server-side filter loop)",
+      "orchestrator/consensus_wrapper.py (check_confirmed_and_wait 322-355)",
+      "orchestrator/health_monitor.py (heartbeat tracking 76, 234-272, 400-460)",
+      "sandbox/egg_lib/orch_cli.py (new cmd_message_wait + existing consensus commands 1450-1525)",
+      "sandbox/agent-config/rules/mission.md:152",
+      "orchestrator/tests/test_pipeline_prompts.py (lifecycle-order assertions)",
+      "orchestrator/tests/test_brc_history.py (QUESTION assertions)",
+      "orchestrator/tests/test_concurrent_integration.py (QUESTION assertion + multi-agent flow)",
+      "orchestrator/tests/test_health_monitor.py (heartbeat_timeout alerts — must be extended for HEARTBEAT)",
+      "docs/guides/concurrent-execution.md",
+      "docs/reference/agent-wait-patterns.md (new)"
+    ]
+  }
+}
