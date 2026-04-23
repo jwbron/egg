@@ -353,6 +353,7 @@ Every auto-resolution prints a user-visible one-line note identifying the decisi
 - **Skill-only change.** The orchestrator's `_parse_resolution` and the contract decision registration path are unchanged — the phase_gate resolution's `context` string is still preserved in the raw resolution but is not routed to downstream decisions by the orchestrator.
 - **Refiner-side question rephrasing is not handled.** If the refiner rewords the question between the draft marker and the registered contract decision, normalized-exact match will miss and the user is prompted normally. Fuzzy matching is an explicit non-goal.
 - **Map is session-scoped, not persisted.** A fresh `/sdlc` invocation starts with an empty map. Across multiple phase_gates in the same session the map accumulates; newer answers for a duplicate normalized question overwrite older ones.
+- **Map is not cleared on `change_approach`.** When a user selects `change_approach`, the phase restarts and new decisions may arrive with the same question text but different intent. The map still holds old answers, so if the restarted phase re-registers the same question text, the old answer may auto-resolve. The user-visible transparency note makes this catchable — an unexpected auto-resolution can be corrected at the next phase gate.
 - **Prompt-driven mode (`egg-sdlc`) is unaffected.** The terminal UI in `sandbox/egg_lib/sdlc_hitl.py` does not use `resolved_questions_map` — this is strictly a `/sdlc` Claude Code skill optimization.
 
 ## Related Files

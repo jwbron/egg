@@ -779,7 +779,7 @@ If the user types custom text via "Other", send:
    Auto-resolved <decision_id>: answers for [q-1, q-2] prefilled from captured context.
    ```
    Proceed to the next pending decision.
-4. **Partial match**: if `unmatched_questions` is non-empty, present only those questions via `AskUserQuestion` (using the normal grouping rules below — up to 4 questions per call). Collect the user's answers into a `new_answers` dict keyed the same way (question `id` or `q-<1-based index>`). Merge: `answers = {...prefilled_answers, ...new_answers}`. Then call `provide_input` with the single merged payload:
+4. **Partial match**: if `unmatched_questions` is non-empty, present only those questions via `AskUserQuestion` (using the normal grouping rules below — up to 4 questions per call). Collect the user's answers into a `new_answers` dict keyed the same way (question `id` or `q-<1-based index>`, preserving each question's original index in the full `questions` array). Merge: `answers = {...prefilled_answers, ...new_answers}`. Then call `provide_input` with the single merged payload:
    ```json
    {"action": "submit_feedback", "answers": { ...merged answers ... }}
    ```
