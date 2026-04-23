@@ -180,16 +180,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-23T23:18:04.569735Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-23T23:19:01.019106Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option A: REST-only gateway endpoints (recommended — mirrors gh wrapper, no binary to secure)\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-23T22:57:38.750100Z",
-  "updated_at": "2026-04-23T23:18:04.589058Z",
+  "updated_at": "2026-04-23T23:19:01.035093Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -203,5 +203,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 13
+  "version": 14
 }
