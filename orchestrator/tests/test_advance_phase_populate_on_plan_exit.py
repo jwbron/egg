@@ -138,6 +138,18 @@ class TestAdvancePhasePopulatesOnPlanExit:
     ):
         """Populate is followed by a scoped commit so _sync_worktree_with_remote
         in the new thread pushes the change rather than resetting it."""
+        # Use a shared call tracker to verify ordering across mocks.
+        call_order = []
+        mock_populate.side_effect = lambda *a, **kw: call_order.append("populate")
+        orig_commit_side_effect = mock_commit.side_effect
+
+        def _track_commit(*args, **kwargs):
+            call_order.append("commit")
+            if orig_commit_side_effect:
+                return orig_commit_side_effect(*args, **kwargs)
+
+        mock_commit.side_effect = _track_commit
+
         pipeline = _make_pipeline(phase=PipelinePhase.PLAN)
         mock_store = MagicMock()
         mock_store.repo_path = Path("/tmp/repo")
@@ -165,6 +177,16 @@ class TestAdvancePhasePopulatesOnPlanExit:
         assert len(populate_commits) == 1
         assert populate_commits[0].args[0] == Path("/tmp/wt")
         assert populate_commits[0].kwargs["pipeline_identifier"] is not None
+
+        # Verify populate was called *before* the plan-exit commit.
+        # call_order tracks all populate and commit invocations; the
+        # populate entry must precede the first plan-exit commit.
+        assert "populate" in call_order, "populate was never called"
+        populate_idx = call_order.index("populate")
+        commit_indices = [i for i, v in enumerate(call_order) if v == "commit"]
+        assert any(
+            ci > populate_idx for ci in commit_indices
+        ), f"no commit followed populate; call_order={call_order}"
 
     @patch("routes.phases.threading.Thread")
     @patch("routes.pipelines._commit_statefiles_to_worktree")
