@@ -187,10 +187,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Other: gateway-side commit-SHA registry (option B3 from the draft's Axis B analysis, not among the 3 narrowed options here). The gateway maintains a durable registry mapping {commit_sha -> authored_by_role}, populated when the sandbox calls the gateway-side post-agent-commit hook endpoint. Crucially, the gateway does NOT trust the commit.author_email field or any sandbox-reported authorship data -- it attributes the commit to whichever role owns the session token that called the hook. Session tokens are minted by the gateway, so this is deterministic gateway-observed authorship, not sandbox-self-reported data. At push time the gateway consults the registry. Unregistered commits (cherry-picks/rebases/amends where the hook was suppressed with --no-verify or core.hooksPath=/dev/null, or commits made before the hook is installed during bootstrap) fall back to decision-9 fail-closed semantics -- treated as authored by the pushing role and subject to that role's restrictions, so suppressing the hook cannot be used to bypass file restrictions. The plan phase must specify: (a) the durable store (recommend extending the orchestrator's existing state store with a commit_authorship table rather than standing up new infrastructure); (b) the session-to-role mapping at hook-call time (the gateway already does this for audit logs, so reuse the same code path); (c) hook-failure semantics (best-effort: if the hook POST fails, the commit still happens locally; at push time it falls to fail-closed and is treated as pushing-role's own); (d) bootstrap ordering (install the post-agent-commit hook at sandbox entrypoint before any agent code runs, so legitimate commits don't land unregistered); (e) audit-log format showing the gateway-observed attribution separately from any sandbox-reported git metadata. B1 (lightweight author-email) was the refiner's recommendation; we are intentionally going stronger because the gateway already has deterministic knowledge of which session -- and therefore which role -- produced each commit, without paying the key-management cost of B2 (signed commits).\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "When a push contains ONLY blocked files (no allowed files), what should the gateway return?",
+      "context": "Open contract question decision-2, registered by an agent during the refine phase.",
+      "options": [
+        "Return 200 with nothing_to_push=true and list excluded files (matches 6f0877f50 behavior — silent soft-success; leaves blocked files uncommitted in worktree)",
+        "Return 200 with filtered=true and excluded files but surface a prominent warning in the response so agents notice",
+        "Return 403 (same as today) — all-blocked is a real policy violation, don't mask it with a 200",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-23T06:17:22.697354Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:21:58.997312Z",
-  "updated_at": "2026-04-23T06:17:21.650873Z",
+  "updated_at": "2026-04-23T06:17:22.721571Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -204,5 +223,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:31:28.068349Z",
-  "version": 22
+  "version": 23
 }
