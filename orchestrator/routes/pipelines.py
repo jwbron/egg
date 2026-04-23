@@ -3569,6 +3569,7 @@ def _build_review_prompt(
     # reviewer sees only PR-authored work (issue #1758).
     is_delta_review = review_cycle > 1 and last_reviewed_commit and not draft_path
     _base_ref = _resolve_origin_ref(base_branch)
+    _delta_base_branch = _base_ref.removeprefix("origin/")
     diff_command = (
         f"git log {last_reviewed_commit}..HEAD --not {_base_ref} -p"
         if is_delta_review
@@ -3577,6 +3578,11 @@ def _build_review_prompt(
 
     if draft_path:
         lines.append(f"1. Read the draft at `{draft_path}`")
+    elif is_delta_review:
+        lines.append(
+            f"1. First run `git fetch origin {_delta_base_branch}`, then review "
+            f"the delta using `{diff_command}` (see **Delta Review** below)"
+        )
     else:
         lines.append(
             f"1. Review the implementation using `git log --oneline -10` and `{diff_command}`"
@@ -3718,7 +3724,6 @@ def _build_review_prompt(
 
     # Delta review directive for re-reviews
     if is_delta_review:
-        _delta_base_branch = base_branch or "main"
         lines.append("## Delta Review\n")
         lines.append(
             f"This is review cycle {review_cycle}. Focus on new changes since your "

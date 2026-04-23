@@ -140,7 +140,7 @@ class TestReReview:
     """Tests for re-review (with LAST_REVIEW_COMMIT)."""
 
     def test_generates_rereview_prompt(self) -> None:
-        """Re-review uses git diff from last reviewed commit."""
+        """Re-review uses git log from last reviewed commit."""
         with tempfile.TemporaryDirectory() as tmpdir:
             returncode, stdout, stderr = run_build_review_prompt(
                 pr_number="123",
