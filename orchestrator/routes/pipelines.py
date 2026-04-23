@@ -5031,16 +5031,10 @@ def _finalize_pr_phase_failed(
         # rather than our locally-pushed commit.
         head_sha: str | None = None
         if parsed_pr_number is not None:
-            try:
-                pr_state = _fetch_pr_state(parsed_pr_number, getattr(pipeline, "repo", None))
-            except Exception as exc:  # pragma: no cover - defensive
-                logger.warning(
-                    "_finalize_pr_phase_failed: _fetch_pr_state raised",
-                    pipeline_id=pipeline_id,
-                    pr_number=parsed_pr_number,
-                    error=str(exc),
-                )
-                pr_state = {}
+            # ``_fetch_pr_state`` already returns {} on any internal
+            # failure (gh missing, JSON parse error, non-zero exit),
+            # so we don't need an outer try/except wrapper here.
+            pr_state = _fetch_pr_state(parsed_pr_number, pipeline.repo)
             candidate = pr_state.get("head_sha") if isinstance(pr_state, dict) else None
             if isinstance(candidate, str) and re.fullmatch(r"[0-9a-f]{7,40}", candidate):
                 head_sha = candidate
@@ -7945,14 +7939,19 @@ def _run_concurrent_phase(
                         sha = _brc.get_proposal_commit_sha(agent.role.value)
                         if sha and sha != "RECONSTRUCTED_NO_SHA":
                             agent.commit = sha
-                        else:
+                        elif sha is None or sha == "RECONSTRUCTED_NO_SHA":
                             # Diagnostic only (#1911): log when the BRC
-                            # tracker returns no commit sha for a
-                            # producer-style role so we can see on real
-                            # runs whether the three-role implement phase
+                            # tracker returns null or the
+                            # RECONSTRUCTED_NO_SHA sentinel for a role
+                            # so we can see on real runs whether the
+                            # three-role implement phase
                             # (coder/tester/documenter) wiring misses
-                            # SHAs.  Deliberately no auto-fallback — that
-                            # would mask the real bug.
+                            # SHAs.  Deliberately no auto-fallback —
+                            # that would mask the real bug.  Empty
+                            # string is the expected reviewer default
+                            # (reviewers never propose) — do NOT warn
+                            # for that case or the signal drowns in
+                            # noise.
                             logger.warning(
                                 "BRC tracker returned no commit sha for completed agent",
                                 pipeline_id=pipeline_id,

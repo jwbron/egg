@@ -1086,13 +1086,14 @@ class OverseerMonitor:
                     from state_store import get_state_store as gss
                 except ImportError:
                     return None
+            # Tests patch ``get_state_store`` directly and don't
+            # depend on the env var; production needs a real repo_path.
+            # When unset in production, return None cleanly rather than
+            # relying on ``get_state_store`` to raise and be swallowed
+            # by the fail-open handler below.
             repo_path = os.environ.get("EGG_REPO_PATH")
             if not repo_path:
-                # No env var in production — but the test fixtures may
-                # still want the detector to call through so the patched
-                # ``get_state_store`` mock is exercised.  Use a sentinel
-                # path; mocks ignore args.
-                repo_path = "."
+                return None
             store = gss(repo_path)
             return store.load_pipeline(self.pipeline_id)
         except Exception:
