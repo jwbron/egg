@@ -72,8 +72,8 @@ which the agent then has to open and read — another burn.
 |---|---:|---|
 | `egg-contract` | 1 577 | `show`, `add-commit`, `update-notes`, `complete-task`, `complete-phase`, `verify-criterion`, `add-decision`, `add-feedback`, `agent-status`, `agent-start`, `agent-complete`, `agent-fail`, `agent-next` |
 | `egg-orch` | 2 238 | `health`, `env`, `pipeline`, `signal`, `message`, `consensus`, `phase`, `decision`, `container`, `gateway`, `progress`, `overseer`, `push` |
-| `egg-checkpoint` | 514 | `list`, `show`, `browse`, `context`, `cost`, `search` |
-| `egg-pipeline-watch` | (thin) | positional `pipeline_id`, `--ascii/--compact/--once` |
+| `egg-checkpoint` | 50 (thin wrapper around `shared/egg_contracts/checkpoint_cli.py`) | `list`, `show`, `browse`, `context`, `cost`, `search` |
+| `egg-pipeline-watch` | 514 | positional `pipeline_id`, `--ascii/--compact/--once` |
 | `egg-sdlc` | 27 | rich TUI; `-r repo -i issue -p prompt --private` |
 | `egg-health-inspect` | 163 | (JSON output) |
 | `egg-onboarding-docs` | 151 | positional `repo_dir`, `--dry-run`, `--scope` |
@@ -239,9 +239,10 @@ module. Call `create_sdk_mcp_server(name="egg-contract", tools=[...])`
 "egg_orch": orch_server, ...}` into `ClaudeAgentOptions`. Handlers
 either (a) invoke the CLI's existing Python entry function directly —
 e.g. the `add_decision` handler calls
-`sandbox/egg_lib/contract_cli.py::add_decision_handler()` that the
-shell CLI already dispatches to — or (b) subprocess the shell binary
-(less clean, but works for anything stateful).
+`sandbox/egg_lib/contract_cli.py::cmd_add_decision()` (the function
+at line ~736 that the shell CLI's `add-decision` subparser already
+dispatches to) — or (b) subprocess the shell binary (less clean, but
+works for anything stateful).
 
 Tools appear to the agent as `mcp__egg_contract__add_decision`,
 `mcp__egg_orch__pipeline_status`, etc. Schemas are Python dicts with
@@ -354,55 +355,155 @@ is opt-in and experimental, we propose deferring that parallel
 registration until the egg harness graduates, and documenting this
 caveat in the CLI-discoverability doc. (See decision-3.)
 
-One explicit scope choice: we recommend **starting with a curated
-high-value subset** (decision-6) — the BRC lifecycle commands (consensus
-propose/ack/nack/confirmed, message send/poll, contract
-add-decision/add-feedback/complete-task/update-notes, decision resolve,
-phase get/advance, anchor init/update/show) — and letting the registry
-auto-surface new subcommands via argparse-introspection hybrid
-(decision-2). This gets the 80/20 of the observed pain without
-boil-the-ocean work, while preserving the "new CLI surfaces
-automatically" property for subcommands added within already-covered
-CLIs.
+Two sub-choices inside the above are **pending human confirmation at
+the HITL gate**, not decided here — we offer them as a recommended
+default in each decision:
+
+- Start with a curated high-value subset (the BRC lifecycle commands:
+  consensus propose/ack/nack/confirmed, message send/poll, contract
+  add-decision/add-feedback/complete-task/update-notes, decision
+  resolve, phase get/advance, anchor init/update/show), with the
+  registry auto-surfacing new subcommands within already-covered CLIs
+  — see decision-2 and decision-6.
+- Ship for the `claude_agent_sdk` harness first and add parallel
+  registration for the experimental `egg` harness only when it
+  graduates — see decision-3.
 
 ## Open Questions
 
-All decisions and feedback have been registered via
-`egg-contract`. The decision/feedback comments will appear on the
-GitHub issue for human selection.
+All open questions have been registered via `egg-contract` and are
+reproduced here for reviewer visibility. Recommended options are
+marked in each decision; the human gate at the end of refine decides
+which to take.
 
-### Decisions (multiple-choice)
+### HITL Decisions
 
-- **decision-1** — Which of the four options (A / B / C / D / Hybrid)
-  to adopt.
-- **decision-2** — Auto-generated vs. hand-curated tool surface; or
-  hybrid.
-- **decision-3** — Coverage for the experimental `egg` harness: day
-  one, or deferred?
-- **decision-4** — Retention policy for the existing shell CLIs
-  under `sandbox/bin/egg-*` once MCP tools land.
-- **decision-5** — MCP tool naming convention
-  (`mcp__egg__contract_*` flat vs. `mcp__egg_contract__*` per-CLI
-  server vs. preserve-shell-form).
-- **decision-6** — Scope: all subcommands of every egg CLI, curated
-  high-value subset, or BRC-lifecycle only.
+<!-- egg-hitl-decision id=decision-1 -->
 
-### Feedback (open-ended — feedback-1)
+**Which approach should we adopt for exposing egg CLIs to sandbox agents?**
 
-- **Q1** — Access-control slice and threat model if Option C wins.
-- **Q2** — Drift-prevention contract (CI test vs. derived-at-import
-  vs. CLI-thin-wrapper-over-handlers).
-- **Q3** — Whether to inject a short bootstrap paragraph nudging the
-  agent toward MCP tools over Bash.
-- **Q4** — Output shape for diagnostic subcommands (JSON verbatim /
-  compact summary / both).
-- **Q5** — Authn/authz token strategy if Option C is chosen.
-- **Q6** — Observability: checkpoint-browser adjustments, distinct
-  log events for MCP tool calls vs. Bash.
-- **Q7** — Timeout envelope and start/poll pair design for
-  long-running subcommands.
-- **Q8** — Rollout plan: all roles at once, or feature-flagged
-  burn-in window.
+- [ ] A: Auto-generated AGENT-TOOLS.md + improved --help (status quo polish)
+- [ ] B: Tool manifest rendered into system prompt at spawn time
+- [ ] C: Second orchestrator-hosted MCP server (streamable HTTP) scoped to sandbox agents
+- [ ] D: In-process SDK MCP server via create_sdk_mcp_server + @tool decorators, wired into egg_agent.client (Recommended)
+- [ ] Hybrid D+B: in-process SDK tools as primary surface, plus a short tool index injected into the system prompt
+- [ ] Other (explain in reply)
+
+---
+
+<!-- egg-hitl-decision id=decision-2 -->
+
+**Should the MCP tool surface be auto-generated from CLI argparse introspection, or hand-curated?**
+
+- [ ] Auto-generated: single source of truth is each CLI's argparse; new subcommands surface automatically (matches AC 'no doc drift')
+- [ ] Hand-curated: explicit @tool definitions with hand-written descriptions/schemas; tighter quality, but risks drift
+- [ ] Hybrid: auto-generate the skeleton, allow per-tool overrides for descriptions/schemas where the argparse help is insufficient (Recommended)
+- [ ] Other (explain in reply)
+
+---
+
+<!-- egg-hitl-decision id=decision-3 -->
+
+**Must the solution also cover the experimental 'egg' harness (EGG_HARNESS=egg), or claude_agent_sdk only for now?**
+
+- [ ] claude_agent_sdk harness only — the egg harness is opt-in and experimental; parallel registration can be added later when it graduates (Recommended)
+- [ ] Both harnesses from day one — register the same tool handlers in both egg_agent.client (SDK) and shared/egg_harness/tools (egg harness registry)
+- [ ] Only the egg harness — treat this as the forcing function to migrate sandbox agents onto the new harness
+- [ ] Other (explain in reply)
+
+---
+
+<!-- egg-hitl-decision id=decision-4 -->
+
+**Should the existing shell CLIs under sandbox/bin/egg-* remain as first-class, or be deprecated once the MCP tool surface lands?**
+
+- [ ] Keep both indefinitely — CLIs are used by humans, tests, entrypoint scripts, and bash wrappers; MCP tools are additive for agents (Recommended — matches AC 'existing CLIs keep working')
+- [ ] Keep CLIs, but soft-deprecate with a banner that points agents at the MCP tool when one is available
+- [ ] Remove CLIs as we finish each MCP tool; force agents onto the structured surface
+- [ ] Other (explain in reply)
+
+---
+
+<!-- egg-hitl-decision id=decision-5 -->
+
+**How should MCP tools be named so agents can pattern-match them quickly?**
+
+- [ ] Flat namespace under one server: mcp__egg__contract_add_decision, mcp__egg__orch_pipeline_status, mcp__egg__checkpoint_search (one server, flat names)
+- [ ] Per-CLI servers: mcp__egg_contract__add_decision, mcp__egg_orch__pipeline_status, etc. (one SDK server per CLI binary) (Recommended — mirrors the CLI surface the humans already know)
+- [ ] Subcommand-join form: mcp__egg__contract/add-decision (preserve the exact shell command as the tool name suffix)
+- [ ] Other (explain in reply)
+
+---
+
+<!-- egg-hitl-decision id=decision-6 -->
+
+**What is the tool-surface scope — all subcommands of every egg CLI, or a curated high-value subset?**
+
+- [ ] Everything — every subcommand of egg-contract, egg-orch, egg-checkpoint, egg-pipeline-watch, egg-sdlc, egg-health-inspect, egg-onboarding-docs becomes an MCP tool (maximizes discoverability, matches AC 'new CLI shows up automatically')
+- [ ] High-value subset first — only the subcommands agents hit in their BRC lifecycle (consensus propose/ack/nack/confirmed, message send/poll, contract add-decision/add-feedback/complete-task/update-notes, decision resolve, phase get/advance, anchor ops); expand iteratively (Recommended)
+- [ ] BRC-only — just the subcommands the PROPOSE/ACK/NACK/CONFIRM lifecycle depends on; all others stay shell-only
+- [ ] Other (explain in reply)
+
+---
+
+### Open-Ended Feedback
+
+The feedback request was registered via `egg-contract add-feedback`
+(feedback-1). All questions are reproduced below; the human gate
+reviews the comment and edits it in place to respond.
+
+<!-- egg-feedback id=feedback-1 -->
+
+## Questions & Feedback
+
+Please **edit this comment** to answer questions or provide feedback.
+When you're done, check the box below to submit.
+
+---
+
+### Open Questions
+
+**Q1: Access-control slice: if we DO add a separate sandbox-facing MCP server (Option C), what's the minimum tool set we want exposed, and which orchestrator-side tools (submit_task / cancel_task / restart_phase / advance_phase / get_consensus_status) should NEVER be reachable from inside a sandbox? Is there a concrete threat model you want us to design against?**
+
+> _Your answer here_
+
+**Q2: Drift-prevention contract: what's the acceptable mechanism for keeping the CLI and the tool schemas in sync? Options: (a) CI test that parses each CLI's argparse and diffs against the @tool registry; (b) single source of truth (argparse) with tools derived at import time; (c) make the CLI a thin wrapper over the @tool functions (CLI calls the same handler internally). Which flavour of 'no drift' do you want?**
+
+> _Your answer here_
+
+**Q3: Bootstrap guidance: even after MCP tools are registered, should we inject a short (<=200 word) 'these tools exist, prefer them over Bash' paragraph into the system prompt, or trust the SDK's native tool-discovery without a prompt nudge? Past experience suggests agents sometimes default to Bash even when a structured tool exists.**
+
+> _Your answer here_
+
+**Q4: Output shape for diagnostic subcommands: commands like 'egg-orch pipeline status' emit rich terminal tables/JSON. Should the MCP tool return (a) the JSON payload verbatim, (b) a compact text summary for token economy, or (c) both as multi-content blocks? This affects tool-call token cost and agent comprehension.**
+
+> _Your answer here_
+
+**Q5: Authn/authz for network-transport MCP (if Option C lands instead of D): sandbox agents currently authenticate to the gateway via EGG_SESSION_TOKEN. Should a sandbox-facing MCP server reuse that token, introduce a new per-agent token, or piggyback on the existing EGG_LIFECYCLE_SECRET? What's the expected token lifecycle across agent restarts?**
+
+> _Your answer here_
+
+**Q6: Observability: should MCP tool calls generate distinct log events / checkpoints separate from the SDK's built-in tool_use stream? Today, Bash calls to egg CLIs show up as 'Bash' tool_use blocks in checkpoints; if they become first-class MCP tools they'll show up under distinct names — does the checkpoint browser need any changes to group or search them?**
+
+> _Your answer here_
+
+**Q7: Timeouts and cancellation: SDK MCP server tool calls default to 60s connection timeout; some egg subcommands (e.g. 'egg-pipeline-watch', 'egg-checkpoint search') can run longer. What's the right timeout envelope, and should long-running operations be split into start/poll tool pairs rather than blocking?**
+
+> _Your answer here_
+
+**Q8: Rollout plan preference: should the MCP tool surface be enabled for all roles simultaneously, or gated behind a feature flag (e.g. EGG_MCP_TOOLS=true) during a burn-in window where we compare token/turn-count between the two modes?**
+
+> _Your answer here_
+
+---
+
+### Additional Feedback (optional)
+
+> _Add any other feedback or context here_
+
+---
+
+- [ ] Submit feedback (I'm done editing)
 
 ## Complexity Assessment
 
