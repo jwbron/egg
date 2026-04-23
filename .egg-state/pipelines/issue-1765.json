@@ -5,7 +5,7 @@
   "branch": "egg/issue-1765",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -49,10 +49,10 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-04-23T05:22:48.268198Z",
       "work_started_at": "2026-04-23T05:22:49.534905Z",
-      "completed_at": null,
+      "completed_at": "2026-04-23T05:28:17.575688Z",
       "containers": [
         {
           "container_id": "988d1a01-31b9-4901-95f1-554cb4b6f1b4",
@@ -141,19 +141,19 @@
         {
           "cycle": 0,
           "started_at": "2026-04-23T05:22:49.534905Z",
-          "completed_at": null,
+          "completed_at": "2026-04-23T05:28:17.575683Z",
           "commit_sha": "c515e53c3771e0e9561ffe74d4b067d8273dbc09"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-23 05:28:08 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01To6HKcEg6j2YpR8Newngb2 is_error=True content=\"Exit code 143\" [/opt/egg-runtime/shared/egg_agent/client.py:291]\n2026-04-23 05:28:08 [INFO    ] egg-agent: Assistant message event_type=assistant event_subtype=text text=\"You've hit your limit · resets 8am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:266]\n2026-04-23 05:28:08 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result model=claude-opus-4-7 session_id=7d738a60-ef78-4888-9a65-2e821b8beef8 cost_usd=2.0716450000000006 num_turns=66 duration_ms=314737 success=False error=\"You've hit your limit · resets 8am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:317]\nan error occurred during closing of asynchronous generator <async_generator object InternalClient._process_query_inner at 0xffff24717300>\nasyncgen: <async_generator object InternalClient._process_query_inner at 0xffff24717300>\nRuntimeError: aclose(): asynchronous generator is already running\nYou've hit your limit · resets 8am (UTC)\n[consensus-wrapper] Tracker shows not confirmed (stale?). Checking message bus...\n[consensus-wrapper] Agent failed (code 1 after 315s). NOT restarting.\nLet me prepare while waiting by looking at the current state of relevant code.Now let me poll again for the proposal.You've hit your limit · resets 8am (UTC)You've hit your limit · resets 8am (UTC)",
       "hitl_feedback": null,
       "phase_start_sha": "c515e53c3771e0e9561ffe74d4b067d8273dbc09"
     }
   },
   "decisions": [],
   "created_at": "2026-04-23T05:22:09.201730Z",
-  "updated_at": "2026-04-23T05:28:17.558885Z",
+  "updated_at": "2026-04-23T05:28:17.575747Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -161,11 +161,11 @@
   "pr_head_sha": null,
   "active_roles": null,
   "has_contract": true,
-  "error": null,
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-23 05:28:08 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01To6HKcEg6j2YpR8Newngb2 is_error=True content=\"Exit code 143\" [/opt/egg-runtime/shared/egg_agent/client.py:291]\n2026-04-23 05:28:08 [INFO    ] egg-agent: Assistant message event_type=assistant event_subtype=text text=\"You've hit your limit · resets 8am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:266]\n2026-04-23 05:28:08 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result model=claude-opus-4-7 session_id=7d738a60-ef78-4888-9a65-2e821b8beef8 cost_usd=2.0716450000000006 num_turns=66 duration_ms=314737 success=False error=\"You've hit your limit · resets 8am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:317]\nan error occurred during closing of asynchronous generator <async_generator object InternalClient._process_query_inner at 0xffff24717300>\nasyncgen: <async_generator object InternalClient._process_query_inner at 0xffff24717300>\nRuntimeError: aclose(): asynchronous generator is already running\nYou've hit your limit · resets 8am (UTC)\n[consensus-wrapper] Tracker shows not confirmed (stale?). Checking message bus...\n[consensus-wrapper] Agent failed (code 1 after 315s). NOT restarting.\nLet me prepare while waiting by looking at the current state of relevant code.Now let me poll again for the proposal.You've hit your limit · resets 8am (UTC)You've hit your limit · resets 8am (UTC)",
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 10
+  "version": 11
 }
