@@ -263,10 +263,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Other: the gateway does NOT trust git log email fields (author, committer, or both) for this decision. Per decision-2 (B3 — gateway-side commit registry), the gateway maintains a durable {commit_sha → authored_by_role} registry populated at commit time by the post-agent-commit hook, which is authenticated by session token (session-to-role mapping is owned by the gateway, not sandbox-reported). At push time the gateway consults the registry to determine whether each commit is pulled (authored by a different role than the pushing role → exempt from pushing role's file restrictions) or own-authored (same role or unregistered → apply restrictions, with decision-9 fail-closed for unregistered). Git log author/committer fields may be surfaced in audit logs for human readability but must not drive the pulled-vs-own decision. Flag for plan phase: this decision being asked at all suggests the refiner's Axis B analysis still frames B1/B2 as the primary options with B3 as an outlier; the plan phase should lead with the registry mechanism and prune any code paths that infer attribution from git log emails.\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-7",
+      "question": "When the gateway auto-filters a push, what should happen to the agent's local HEAD after the gateway-side push completes?",
+      "context": "Open contract question decision-6, registered by an agent during the refine phase.",
+      "options": [
+        "Gateway leaves a filtered commit with [auto-filtered] suffix on the remote and restores the agent's original HEAD locally via git reset --hard (6f0877f50 behavior). Blocked files are left in worktree as uncommitted changes. The agent's local branch now DIVERGES from origin.",
+        "Gateway rewrites the agent's local HEAD to match what it pushed (fast-forward on origin). No divergence, but the blocked files are returned as uncommitted staged changes instead.",
+        "Gateway pushes filtered commit but also returns a mapping of (original_sha -> filtered_sha) in the response so the agent can realign itself if needed.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-23T06:34:05.306705Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:21:58.997312Z",
-  "updated_at": "2026-04-23T06:34:03.150671Z",
+  "updated_at": "2026-04-23T06:34:05.318909Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -280,5 +299,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:31:28.068349Z",
-  "version": 30
+  "version": 31
 }
