@@ -1,0 +1,246 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1907,
+    "title": "Issue #1907",
+    "url": "https://github.com/jwbron/egg/issues/1907"
+  },
+  "pipeline_id": "issue-1907-v2",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "complete",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In gateway/gateway.py proxy_anthropic_messages() streaming branch, add bounded (1x) retry around client.send() and first-chunk prime on httpx.ReadError/RemoteProtocolError before any downstream byte has been yielded. Close the failed upstream, rebuild the request, retry once. On second failure, fall through to the existing error-return path.",
+          "status": "complete",
+          "commit": "dc5058ad5",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "When client.send() raises ReadError once, the retry succeeds and downstream sees a clean 200 SSE response. When the first iter_bytes() call raises ReadError, the gateway re-primes and produces a normal stream. Both verified by new unit tests.",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "In the generate() closure inside proxy_anthropic_messages(), wrap the iter_bytes() for-loop with try/except for httpx.ReadError and httpx.RemoteProtocolError. On catch, yield a well-formed synthetic SSE frame (event: error with Anthropic-style payload), feed it through the accumulator, log a warning with container_id and bytes_seen, and return cleanly. Preserve the existing finally: upstream.close() and _capture_streaming_response behavior.",
+          "status": "complete",
+          "commit": "dc5058ad5",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "When iter_bytes() raises after one chunk has been yielded, the downstream body contains the original chunk followed by a well-formed `event: error` SSE frame, the stream closes without raising, and _capture_streaming_response still runs. Verified by a new unit test.",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "In tests/gateway/test_anthropic_proxy.py, extend TestStreamingResponse with three tests covering: (a) client.send() raises ReadError once then succeeds on retry; (b) iter_bytes() raises on first iteration then succeeds on retry; (c) iter_bytes() raises RemoteProtocolError after one chunk and the downstream body ends with a synthetic event: error frame. Use a small helper to wrap an iterator so it raises after N yielded chunks.",
+          "status": "complete",
+          "commit": "dda1f2ad76ecbc08de27ada991a494fd725297d2",
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All three new tests pass. Existing tests in TestStreamingResponse (test_streaming_request_detected, test_streaming_content_type_forwarded) continue to pass.",
+          "files_affected": [
+            "tests/gateway/test_anthropic_proxy.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": "dda1f2ad7",
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [
+    {
+      "timestamp": "2026-04-23T05:17:59.707253Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": null,
+      "new_value": "db72789ee62acce28330beb54f075d51c4ad11d6",
+      "reason": "Linked commit db72789 to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:20:03.864758Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:20:03.868810Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": "db72789ee62acce28330beb54f075d51c4ad11d6",
+      "new_value": "dc5058ad5995bb3fe256e9b616c69aae8db5c48a",
+      "reason": "Linked commit dc5058a to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:20:04.042735Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:20:04.047658Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": null,
+      "new_value": "dc5058ad5995bb3fe256e9b616c69aae8db5c48a",
+      "reason": "Linked commit dc5058a to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:37:35.829288Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:37:35.841065Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": null,
+      "new_value": "dc5058ad5",
+      "reason": "Linked commit dc5058a to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:37:38.930486Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:37:38.945356Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": null,
+      "new_value": "dc5058ad5",
+      "reason": "Linked commit dc5058a to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:37:39.133374Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:37:39.141146Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.commit",
+      "old_value": null,
+      "new_value": "dda1f2ad7",
+      "reason": "Linked commit dda1f2a to task-1-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:37:41.921920Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked phase-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:37:41.926047Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.commit",
+      "old_value": null,
+      "new_value": "dda1f2ad7",
+      "reason": "Linked commit dda1f2a to phase-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:49:21.163369Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.commit",
+      "old_value": "dda1f2ad7",
+      "new_value": "dda1f2ad76ecbc08de27ada991a494fd725297d2",
+      "reason": "Linked commit dda1f2a to task-1-3",
+      "checkpoint_id": null
+    }
+  ],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Gateway: retry pre-stream ECONNRESET, synthesize SSE error on mid-stream reset",
+    "description": "Fixes #1907. Makes the gateway's `/v1/messages` proxy resilient to upstream Anthropic TCP resets.\n\n- (A) Pre-stream retry: if `client.send()` or the first `iter_bytes()` prime raises `httpx.ReadError`/`RemoteProtocolError` before any downstream byte has flowed, transparently re-issue the upstream request once. Downstream SDK never sees the error.\n- (B) Mid-stream synthetic error: if a reset arrives after bytes have already streamed, catch it inside `generate()`, yield a well-formed SSE `event: error` frame, and close the stream cleanly so the agent's SDK fails gracefully instead of dying on a truncated socket.\n\nDistinct from #1883 (gateway pod restart); this covers the gateway-healthy/upstream-unhealthy case where the fix belongs inside the gateway.",
+    "test_plan": "- Automated: new tests in `tests/gateway/test_anthropic_proxy.py::TestStreamingResponse` \u2014 `send()` reset \u2192 retry success, first-chunk reset \u2192 retry success, mid-stream reset \u2192 synthetic error frame. Existing streaming tests continue to pass.\n- Manual: run `pytest tests/gateway/test_anthropic_proxy.py -v` and confirm all green.",
+    "manual_steps": "Pre-merge: none beyond CI.\nPost-merge: observe gateway logs for `logger.warning(\"upstream reset\", ...)` entries over the next 24h to confirm the code path is exercising under real traffic and not spuriously triggering on healthy streams."
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
