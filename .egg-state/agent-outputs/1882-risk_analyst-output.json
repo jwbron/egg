@@ -1,0 +1,346 @@
+{
+  "$schema": "egg.risk-assessment.v1",
+  "pipeline_id": "issue-1882",
+  "issue": 1882,
+  "phase": "plan",
+  "agent": "risk_analyst",
+  "generated_at": "2026-04-23T06:55:00Z",
+  "scope_summary": "Revive gateway-side auto-filter (originally commit 6f0877f50 on branch egg/issue-1470), extend it to handle pulled cross-role commits using a NEW gateway-side commit-SHA authorship registry (B3, decided in refine-HITL decision-1/5/9) rather than trusting git author-email metadata. Interactive-rebase-equivalent rewrite (decision-4) preserves pulled commits while dropping blocked files from own-authored commits. Single-release cutover (decision-14), scope-filter removal in same PR (decision-7/16), EGG_AGENT_RESTRICTIONS_ENFORCE=false retained as kill switch (decision-3). Applies only to agent-role restrictions; phase/anchor/protected 403 checks remain (decision-8).",
+  "affected_areas": {
+    "internal_modules": [
+      "gateway/gateway.py",
+      "gateway/git_client.py",
+      "gateway/agent_restrictions.py",
+      "gateway/phase_filter.py",
+      "gateway/auth.py",
+      "gateway/session_manager.py",
+      "gateway/post_agent_commit.py",
+      "orchestrator/state_store.py",
+      "orchestrator/concurrent_executor.py",
+      "sandbox/entrypoint.py",
+      "sandbox/egg_lib/cli_push.py",
+      "shared/egg_restrictions/*"
+    ],
+    "third_party_dependencies": [],
+    "external_research_performed": false,
+    "external_research_reason": "Purely internal change. No new third-party dependencies; uses existing git plumbing (commit-tree / update-ref), Flask session auth, and orphan-branch state_store already in the codebase."
+  },
+  "architecture_dependency_notes": [
+    "risk_analyst and architect are running concurrently — this assessment is written against the refine-phase analysis + resolved refine-HITL decisions, not an architect-phase design document. If the architect selects a non-refine-aligned design, reviewer_plan should flag the mismatch and request re-assessment.",
+    "The resolved decisions in .egg-state/contracts/issue-1882.json are the contract: decision-1/5/9 select registry-based authorship, decision-4 selects commit-tree/update-ref mixed-history rewrite, decision-6 selects gateway-rewrites-local-HEAD, decision-8 scopes auto-filter to agent-role only. Risks below assume these selections are final.",
+    "Task_planner output has not been read; task boundaries may surface additional risks (e.g. if registry work is split across multiple tasks the serialized-write invariant in R-03 must be enforced at task level)."
+  ],
+  "risks": [
+    {
+      "id": "R-01",
+      "title": "Gateway-side commit-authorship registry is NET-NEW durable infrastructure; no existing store fits cleanly",
+      "category": "architecture",
+      "severity": "high",
+      "likelihood": "high",
+      "impact": "high",
+      "description": "Decision-1 requires a durable {commit_sha -> authored_by_role} registry, gateway-side, keyed on session-owned role (not commit author email). The codebase today has no relational DB, no sqlite, no key-value store in the gateway. orchestrator/state_store.py is git-backed (JSON files on an orphan branch 'egg/pipeline-state') — using it for high-frequency registry writes (every agent commit) would generate a commit per write and put the registry on a git branch the gateway cannot cleanly write to (orchestrator-owned). A new store has to be chosen and justified: options are (a) sqlite on a mounted PVC in the gateway pod, (b) a flat append-only JSONL file in the gateway's state volume, (c) Redis (new infra), (d) extending state_store with a non-pipeline-scoped table. Each has trade-offs for durability, concurrent writers, pod restarts, and audit.",
+      "evidence": [
+        "orchestrator/state_store.py is git-backed (orphan branch 'egg/pipeline-state') — unsuited for per-commit writes at commit rate.",
+        "gateway/post_agent_commit.py is a logged no-op today (see lines 86-96) — no existing commit-observation path to extend.",
+        "No sqlite, no Redis, no postgres dependency in gateway/pyproject.toml.",
+        "Refiner analysis explicitly flagged 'no durable store exists today — pick one and justify' in decision-1 resolution."
+      ],
+      "mitigations": [
+        "Plan phase must register a decision-19: 'which durable store for the registry' with concrete options (sqlite-on-PVC / JSONL-on-PVC / extend-state-store / Redis). Do not let implementation proceed without a resolution.",
+        "Recommended starting point: sqlite file on a PersistentVolumeClaim mounted into the gateway pod, schema `commit_authorship (sha TEXT PRIMARY KEY, role TEXT NOT NULL, session_id TEXT NOT NULL, ts INTEGER NOT NULL)`. SQLite handles single-writer-multiple-reader cleanly and survives pod restarts. JSONL is viable but needs careful append semantics and race handling.",
+        "Whatever store is chosen, wrap it behind a small `CommitRegistry` class with a swappable backend so future migration (e.g., to orchestrator state store after refactor) does not re-touch gateway.py.",
+        "Add a startup self-check: if the registry file/volume is missing on boot, fail closed (log and refuse all pushes) rather than silently resetting registry state.",
+        "Back the registry up or snapshot it alongside audit logs. Loss of registry = every pulled commit becomes 'unknown author' and gets subjected to the pushing role's restrictions (per decision-17), which is safe but painful."
+      ],
+      "owner_hint": "architect / task_planner must pin the store choice before a coder starts on this."
+    },
+    {
+      "id": "R-02",
+      "title": "Post-agent-commit gateway endpoint does not exist; must be built and wired into the sandbox",
+      "category": "architecture",
+      "severity": "high",
+      "likelihood": "high",
+      "impact": "high",
+      "description": "Decision-1 specifies the registry is populated 'when the sandbox calls the gateway-side post-agent-commit hook endpoint'. Today there is no such endpoint (`gateway/post_agent_commit.py` is a no-op handler dating from the per-worktree refactor), no hook installed in the sandbox (grep of sandbox/entrypoint.py:593-634 confirms nothing configures core.hooksPath), and no git `post-commit` script shipped in the sandbox image. Building this from scratch introduces three coupled changes: (1) new authenticated gateway endpoint `POST /api/v1/git/record-commit` keyed on session token, (2) a sandbox-side post-commit hook script that gets installed unconditionally at entrypoint (before any agent code runs — otherwise bootstrap commits land unregistered), (3) the hook must fail gracefully: a hook that blocks on a gateway timeout stalls every commit.",
+      "evidence": [
+        "gateway/post_agent_commit.py:86-96 is a logged no-op, not an ingest endpoint.",
+        "sandbox/entrypoint.py:593-634 has no `git config core.hooksPath` and no hook script installation.",
+        "Decision-1 resolution lists this as explicit plan-phase work: '(d) bootstrap ordering (install the post-agent-commit hook at sandbox entrypoint before any agent code runs)'."
+      ],
+      "mitigations": [
+        "Hook must be installed by entrypoint BEFORE `exec` into the agent process, and the install path must be covered by a new test (`test_sandbox_entrypoint_installs_hook`) to prevent regression.",
+        "Hook script must be best-effort: retry 3x with short backoff (~100ms, 250ms, 500ms), then log-and-continue on failure. Do NOT block the commit — fall back to 'unregistered commit, fail-closed at push time' which is already the decision-17 path.",
+        "The record-commit endpoint must be idempotent on `sha` (upsert, not insert) so that a retried hook call is safe. Use `ON CONFLICT(sha) DO NOTHING` (sqlite) or equivalent.",
+        "Endpoint auth must reuse the existing @require_session_auth decorator (gateway/auth.py:95-147), so the role stored is `g.session.agent_role` — never trust role from request body.",
+        "Add a dedicated latency metric for the hook round-trip — if p99 climbs, agent commit throughput is degraded silently.",
+        "Cover the bootstrap-race case with a test: commit performed BEFORE hook installation must be treated as unregistered at push time, not as own-authored-by-default (i.e., the pushing role IS the default for unregistered, per decision-17, so this is implicitly safe, but it must be tested)."
+      ],
+      "owner_hint": "architect / coder — explicitly required work."
+    },
+    {
+      "id": "R-03",
+      "title": "Registry race conditions between multiple concurrent agent commits and registry reads",
+      "category": "concurrency",
+      "severity": "medium",
+      "likelihood": "medium",
+      "impact": "high",
+      "description": "In concurrent-mode BRC pipelines, multiple agents in distinct sandboxes can commit at the same time. If the registry is backed by sqlite with WAL mode or a JSONL file with fcntl locks, concurrent INSERTs and concurrent READs must be serialized correctly. At push time the gateway reads the registry for every commit SHA in the push — if a pulled commit was registered by a concurrent session milliseconds earlier and has not yet flushed to the WAL, the push would see it as unregistered and (per decision-17) apply the pushing role's restrictions. That's a false-positive 403 that is hard to reproduce and painful for the agent.",
+      "evidence": [
+        "Orchestrator supports concurrent agents (the BRC protocol this agent is running under).",
+        "Gateway runs multi-threaded via gunicorn/Flask (see gateway/main.py and pyproject.toml gunicorn dep).",
+        "At push time decision-9/17 fail-closed means a hook that hasn't flushed yet causes a false-positive."
+      ],
+      "mitigations": [
+        "SQLite: enable WAL mode (`journal_mode=WAL`), set `synchronous=NORMAL`, and on the read path use `BEGIN IMMEDIATE` for consistent snapshot. Registry reads at push time should happen inside a single transaction covering all commits in the push.",
+        "JSONL: use `fcntl.flock` on the file for every append; push-time read must happen AFTER a fsync from the writer. Prefer sqlite over JSONL for this reason.",
+        "At push time, only fail-closed for commits whose SHA is truly not in the registry AFTER a read-committed snapshot — do not race a still-writing hook.",
+        "If a push arrives within, say, 200ms of a commit being hook-recorded, consider a one-shot retry of the registry lookup (bounded). This trades latency for false-positive reduction. Controversial — open a decision if task_planner wants it.",
+        "Add an integration test that spawns N concurrent commits and a push, asserting no false-positive 403s."
+      ],
+      "owner_hint": "coder — the mitigation lives in CommitRegistry read/write paths."
+    },
+    {
+      "id": "R-04",
+      "title": "Interactive-rebase-equivalent commit rewrite (decision-4) has wide failure surface — merges, empty diffs, sign-offs, submodules",
+      "category": "correctness",
+      "severity": "high",
+      "likelihood": "medium",
+      "impact": "high",
+      "description": "Decision-4 explicitly upgrades the rewrite strategy from 6f0877f50's soft-reset+single-commit (drops pulled commits) to 'walk each own-role commit with git commit-tree/update-ref to rewrite it with blocked files removed, preserving pulled cross-role commits in between'. This is effectively writing a partial `git filter-branch` for every auto-filtered push. Edge cases that break naive implementations: (a) own-authored merge commits — commit-tree with two parents needs correct parent ordering; (b) a commit whose entire change was blocked files becomes an empty commit — should it be dropped or kept? (c) Sign-off trailers and commit message metadata (Co-Authored-By, Issue-Id) must survive the rewrite; (d) submodule pointer updates; (e) symlink changes; (f) file-mode changes (exec bit); (g) binary files. The 6f0877f50 commit did not handle ANY of these because it collapsed everything into one commit with soft-reset — the new strategy inherits all of them.",
+      "evidence": [
+        "Decision-4 resolution explicitly chose the interactive-rebase option despite flagging 'more complex but handles mixed histories correctly'.",
+        "Commit 6f0877f50 uses soft-reset + single commit (simple, but drops pulled commits — incompatible with decision-4).",
+        "git_client.py:1301-1500 already has a merge-commit edge case — the combined-diff format makes diff-tree return empty for clean merges, which would silently skip merge commits during registry-attribution."
+      ],
+      "mitigations": [
+        "Task_planner must surface this as a dedicated task ('implement mixed-history commit rewrite') with a test matrix covering: merge commits, all-blocked commits (empty-tree handling), sign-off preservation, mode bit preservation, submodule pointer commits, binary files, symlinks.",
+        "Implement via `git commit-tree` with explicit `-p <parent-sha>` and `-p <merge-parent-sha>` arguments; copy author (ident + timestamp), committer becomes gateway, append ' [auto-filtered]' to message (decision-12). Verify with round-trip tests that metadata survives.",
+        "Empty-after-filter commits: DROP (do not push an empty commit). Log at INFO. This is safe because the commit contributed nothing to the allowed fileset.",
+        "Wrap the rewrite in a transaction-like pattern: on ANY failure in the middle, restore the original branch ref and return 500. Never leave a half-rewritten branch in the gateway's local mirror.",
+        "Register an HITL decision for sign-off handling: do we append a 'Rewritten-by-gateway' trailer? Recommend yes for auditability.",
+        "Soft-fork the auto-filter path behind an env var (EGG_AGENT_AUTOFILTER=true default true) for the first release so ops can kill-switch it without also disabling all restrictions via EGG_AGENT_RESTRICTIONS_ENFORCE=false. This is additive to decision-3's kill switch, not a replacement. Worth registering as a decision."
+      ],
+      "owner_hint": "architect / coder — this is the dominant implementation risk."
+    },
+    {
+      "id": "R-05",
+      "title": "Rewriting the agent's local HEAD (decision-6) requires a server→client side-channel that doesn't exist",
+      "category": "architecture",
+      "severity": "high",
+      "likelihood": "high",
+      "impact": "medium",
+      "description": "Decision-6 selects: 'Gateway rewrites the agent's local HEAD to match what it pushed (fast-forward on origin). No divergence, but the blocked files are returned as uncommitted staged changes instead.' In the 6f0877f50 design the gateway ONLY rewrote its own mirror and pushed upstream — the agent's local branch was left diverged. 'Rewriting the agent's local HEAD' implies the gateway either (a) returns an instruction in the push response telling the client to fetch+reset, which the sandbox-side egg-orch push command must execute; or (b) the agent must run `git fetch && git reset --hard origin/<branch>` after every filtered push. Either way, this requires new protocol wiring between gateway and sandbox (the push response schema plus client-side logic in sandbox/egg_lib/cli_push.py to consume it).",
+      "evidence": [
+        "Gateway runs in a different container than the sandbox; there is no shared filesystem.",
+        "Current push response does not contain a 'new_head_sha' or 'realign_to' field.",
+        "sandbox/egg_lib/cli_push.py has no post-push realignment logic today."
+      ],
+      "mitigations": [
+        "Add fields to the push response: `filtered: bool`, `original_head_sha`, `pushed_head_sha`, `excluded_files: list`, `pulled_commits: list` (decision-13). Sandbox-side client (egg-orch push) must detect filtered=true and run `git fetch origin <branch> && git reset --mixed origin/<branch>` — mixed preserves the excluded files as unstaged changes, satisfying decision-6's 'returned as uncommitted staged changes instead'.",
+        "Realignment must NOT be --hard (that would drop the excluded files that the user expected to see in the worktree).",
+        "Document the new response schema as a versioned contract (gateway API version bump if applicable) — third-party git tools pushing through this gateway will not know how to handle filtered=true and could see a seemingly-successful push with divergent local.",
+        "Because decision-7/16 remove egg-orch push --scope-filter in the same PR, ALL push paths must be routed through the new client-side realignment logic. Add a test: `git push origin <branch>` via plain git (not egg-orch) must still work for agents whose commits don't need filtering.",
+        "Reviewer_plan should flag: what happens if the sandbox is killed between 'filtered push returned 200' and 'client runs git fetch && reset'? Answer: next agent task picks up from a worktree with diverged local state, the recovery path must handle this."
+      ],
+      "owner_hint": "architect — this is protocol design, not pure coding."
+    },
+    {
+      "id": "R-06",
+      "title": "EGG_AGENT_RESTRICTIONS_ENFORCE=false has a NEW regression risk under auto-filter",
+      "category": "backwards_compat",
+      "severity": "medium",
+      "likelihood": "medium",
+      "impact": "medium",
+      "description": "Today EGG_AGENT_RESTRICTIONS_ENFORCE=false means 'warn but let the push through'. Decision-3 says the flag continues to disable the check entirely. But the new code path now has to choose between: (a) auto-filter always when ENFORCE=true, plain push (warn only) when ENFORCE=false; (b) auto-filter always when ENFORCE is unset or true, and a separate EGG_AGENT_AUTOFILTER kill switch. Option (a) couples 'auto-filter disable' with 'all restriction disable' — if auto-filter is broken in production, the ops-response is to turn off ALL restrictions, dropping the security guarantees for every role. That's an escalation trap. Option (b) needs a new env var that was not part of the decision-3 resolution.",
+      "evidence": [
+        "gateway/gateway.py:974-1034 — current warn-only path just logs and continues on restriction failure.",
+        "Decision-3 says 'Enabled by default (replace current 403 behavior outright). Flag EGG_AGENT_RESTRICTIONS_ENFORCE=false still disables the check entirely.'"
+      ],
+      "mitigations": [
+        "Surface this to the task_planner / architect: add EGG_AGENT_AUTOFILTER=true default true env var so that 'disable auto-filter' is not 'disable all restrictions'. Register as decision-19 (or whatever number) and ask for ratification.",
+        "If the decision stands as a single flag: include a clear ops-runbook entry in docs covering 'what to do if auto-filter misbehaves in production' — the only option is currently 'EGG_AGENT_RESTRICTIONS_ENFORCE=false, accept unrestricted pushes'.",
+        "Either way, add an integration test with ENFORCE=false asserting no auto-filter ever runs and no registry writes happen (registry populate path might still run via hook — that's fine; gateway-side filter should be skipped)."
+      ],
+      "owner_hint": "architect / overseer — runbook impact."
+    },
+    {
+      "id": "R-07",
+      "title": "Author-email spoofing attack surface changes shape but does not disappear",
+      "category": "security",
+      "severity": "medium",
+      "likelihood": "low",
+      "impact": "medium",
+      "description": "Decision-1 moves the trust boundary from sandbox-set git identity to gateway-observed session-to-role mapping — correct. But attack primitives shift: (a) an agent can still run `git commit --author='egg (tester) <tester@egg.local>'` — the registry will record this as authored_by=<pushing role>, which is FINE for the push decision (registry wins), but audit logs that display author emails will be misleading unless the audit record also includes gateway-observed role; (b) `git commit --no-verify` or unsetting core.hooksPath inside the sandbox bypasses the hook entirely, leaving the commit unregistered — this falls to decision-17 fail-closed (treated as own-authored by pushing role), so restrictions apply as if the agent authored it, which is the safe default; (c) cherry-pick/rebase-interactive preserves original author but produces a new SHA — the hook will fire on the new SHA attributing it to the cherry-picking role, which is correct. The residual attack surface is: can any agent action cause a *different* role to become registered for a SHA, giving that role's permissions? With session-token-authenticated hook calls, no — the gateway assigns role from g.session.agent_role, not request body.",
+      "evidence": [
+        "gateway/auth.py:95-147 @require_session_auth binds role from validated session, not request body.",
+        "Decision-1 resolution calls out 'session tokens are minted by the gateway, so this is deterministic gateway-observed authorship'."
+      ],
+      "mitigations": [
+        "Audit log entry for every registry write MUST include: session_token_hash, gateway-observed-role, sandbox-reported-author-email (for divergence detection), commit-sha. Divergence between gateway-role and sandbox-reported-email is a useful operator signal (possible tampering).",
+        "Add a unit test that posts to the record-commit endpoint with a body that contradicts the session role — the endpoint must ignore the body's role and use g.session.agent_role.",
+        "Do not log or surface the session token in the registry record (use the hash); token leak in the registry DB would allow replay.",
+        "Document the threat model in .egg-state/agent-outputs/ notes so the security-review skill on PR has context."
+      ],
+      "owner_hint": "coder (test) / documenter (threat-model note)."
+    },
+    {
+      "id": "R-08",
+      "title": "Removing --scope-filter and all its callers (decision-7/16) in the same PR risks orphaned references and rollback difficulty",
+      "category": "rollout",
+      "severity": "medium",
+      "likelihood": "high",
+      "impact": "medium",
+      "description": "Decisions 7 and 16 both require deleting sandbox/egg_lib/cli_push.py's --scope-filter flag, the `_filter_files` helper, EGG_AGENT_FILE_PATTERNS env-var population in orchestrator/concurrent_executor.py:267-282, and every doc/rule reference. If any place still reads EGG_AGENT_FILE_PATTERNS after removal, it will silently see undefined and either crash or no-op. Conversely, if auto-filter is disabled in production (via the kill switch in R-06), --scope-filter is the ONLY other mitigation path — and it's now gone. A production rollback would mean 'either run with auto-filter or accept 403s with no recovery' until the scope-filter code is restored.",
+      "evidence": [
+        "sandbox/egg_lib/cli_push.py exports _filter_files and flags, consumed via subprocess from agent harnesses.",
+        "orchestrator/concurrent_executor.py:282 populates EGG_AGENT_FILE_PATTERNS for every agent — changing this affects every pipeline.",
+        "Documentation and rule files reference --scope-filter — search hits in docs/guides/agent-development.md, docs/reference/orchestrator-cli.md per refiner analysis."
+      ],
+      "mitigations": [
+        "Task_planner should scope 'remove --scope-filter' as a dedicated deletion task with a grep-based acceptance criterion: 'zero references to scope-filter, _filter_files, or EGG_AGENT_FILE_PATTERNS after this task lands' (excluding this task's own commit message).",
+        "Keep the EGG_AGENT_FILE_PATTERNS *reader* in cli_push.py behind a fail-fast check during the transition — if the env var is gone but the code path is still executed for any reason, raise a clear error.",
+        "Consider staging the removal: land auto-filter in PR-1, land scope-filter removal in PR-2 after one release with both coexisting. The refiner analysis (and decision-14) ruled this out, but if the coder discovers mid-implementation that the coupling is fragile, reviewer_plan should allow renegotiation.",
+        "Add an end-to-end regression test: a coder agent attempts to push a mixed-scope change; new gateway auto-filter handles it; verify NOT via --scope-filter fallback.",
+        "Rollback plan: git revert of the scope-filter-removal commit must restore a working fallback path. Don't squash the two commits into one."
+      ],
+      "owner_hint": "task_planner — split tasks clearly."
+    },
+    {
+      "id": "R-09",
+      "title": "Test coverage debt — no tests exist for filtered-push today, and the refiner's test matrix is a floor not a ceiling",
+      "category": "testing",
+      "severity": "medium",
+      "likelihood": "high",
+      "impact": "medium",
+      "description": "The existing test suite (test_agent_restrictions.py ~328 lines, test_agent_restrictions_enforce.py ~345 lines, etc.) covers the current 403 path extensively but has zero coverage for: (a) registry hook endpoint, (b) commit-tree/update-ref mixed-history rewrite (decision-4), (c) push response realignment flow (decision-6), (d) pulled-commit exemption, (e) fail-closed on unregistered commits (decision-17). The refiner's 8-case test matrix is a minimum — the architect-phase design will add complexity (concurrent hooks, merge commits, empty-after-filter commits, bootstrap-race) that needs explicit coverage.",
+      "evidence": [
+        "No test files matching test_post_agent_commit, test_commit_registry, test_filtered_push exist in the repo.",
+        "test_agent_restrictions_enforce.py covers warn-mode but not auto-filter mode."
+      ],
+      "mitigations": [
+        "Task_planner must break tests into named acceptance criteria per task, not one lump 'add tests'. Required suites: registry CRUD, hook endpoint auth (gateway/tests/), filtered-push mixed-history (gateway/tests/), client-side realignment (sandbox/tests/), concurrency stress test.",
+        "Add an integration test (gateway + sandbox together) for the full flow: agent commits A and B, pulls commit C from another role, pushes all three, gateway filters A's blocked files, rewrites A with '[auto-filtered]' suffix, preserves B and C unchanged, returns pulled_commits=[{sha:C,author:'tester'}], client realigns local HEAD, blocked files from A appear as unstaged changes.",
+        "Add a property-based test or fuzzer for registry lookup under concurrent insert load (possibly using `pytest-xdist` or `hypothesis`)."
+      ],
+      "owner_hint": "tester / task_planner."
+    },
+    {
+      "id": "R-10",
+      "title": "Audit log is ephemeral (stdout) — registry attribution decisions may not survive an incident",
+      "category": "observability",
+      "severity": "medium",
+      "likelihood": "medium",
+      "impact": "medium",
+      "description": "audit_log() in gateway.py writes structured JSON to the Python logger, which in production goes to container stdout / stderr captured by kubernetes log aggregation. If a pod is evicted or restarted before logs are shipped, the audit trail for the lost window is gone. For a feature that changes how pushes are authorized per-commit, this is a compliance risk — if a customer asks 'why did coder push a test file?' in three months, the answer 'the registry said so' needs a durable record.",
+      "evidence": [
+        "audit_log() in gateway/gateway.py (lines ~450-480) writes via Python logging; no file handler pointing to a durable volume observed.",
+        "No append-only audit-store abstraction exists today."
+      ],
+      "mitigations": [
+        "Pair the registry store with an append-only audit log for every filter decision: 'push <id> at <ts>: role=<role>, commit=<sha>, action=<allowed|filtered|rejected|pulled-passthrough>, files=[...]'. Simplest implementation: log to an audit.jsonl file on the same PVC as the registry.",
+        "Do NOT rely on gateway stdout for compliance records going forward — make the audit file the source of truth.",
+        "Decision-12 ([auto-filtered] suffix on commit messages) already gives a git-native breadcrumb; the audit file complements it.",
+        "Register a follow-up decision: retention policy for audit.jsonl (90d? forever? log-rotate?). Not a blocker for this PR but must be captured as tech debt."
+      ],
+      "owner_hint": "architect / documenter (runbook)."
+    },
+    {
+      "id": "R-11",
+      "title": "Performance: per-commit registry lookup and commit-tree rewrite add latency to every push",
+      "category": "performance",
+      "severity": "low",
+      "likelihood": "medium",
+      "impact": "low",
+      "description": "Today's push path does one `diff-tree` per commit and one restriction check. After this change the gateway will additionally do one registry lookup per commit, and for auto-filtered pushes one commit-tree + update-ref per own-authored commit plus one fetch on the client side. For a typical push of 1-5 commits the added latency is negligible (<50ms). For a long-running branch with 50+ commits (unlikely in concurrent BRC but possible in special remediation flows), the overhead could hit seconds.",
+      "evidence": [
+        "git_client.py already iterates rev-list per commit — this pattern is tolerated at current push sizes.",
+        "commit-tree is an in-memory git plumbing op — fast but proportional to commit count."
+      ],
+      "mitigations": [
+        "Batch registry lookups: single SELECT with `WHERE sha IN (?, ?, ...)` rather than N-round-trip lookups. In sqlite this is one transaction.",
+        "Cap push size (soft limit): log a warning when commits_in_push > 50 and surface this in the push response. Agents pushing larger sets are a smell.",
+        "Add p50/p99 latency metrics for the push handler and the auto-filter sub-path. Alert if p99 > 2s."
+      ],
+      "owner_hint": "coder (metrics) / overseer (alerts)."
+    },
+    {
+      "id": "R-12",
+      "title": "Bootstrap ordering: orchestrator bootstrap, CI, and pre-existing branches have commits that will be unregistered",
+      "category": "migration",
+      "severity": "medium",
+      "likelihood": "high",
+      "impact": "low",
+      "description": "All existing commits on main, all historical commits on in-flight issue branches, and any commits created by non-agent contributors (humans, CI bots) are NOT in the registry. At push time those appear as 'unregistered' and per decision-17 fall to 'treated as own-authored by pushing role, enforce restrictions'. For the common case this is fine — an agent pushing its branch only has to worry about its own new commits against origin/branch, and pulled commits from merges would be registered by whoever pushed them. But: (a) the very first push after deployment will see every commit on every branch as unregistered; (b) commits from human contributors (merged from PRs) are permanently unregistered and would falsely count as 'own-authored' against any agent's scope.",
+      "evidence": [
+        "get_changed_files_in_push only looks at origin/<branch>..HEAD — commits already upstream are not re-checked. This bounds the migration concern.",
+        "Decision-17 fail-closed: unregistered = own-authored = subject to pushing role's restrictions."
+      ],
+      "mitigations": [
+        "Scope observation: the registry only needs to know about commits in the 'origin/branch..HEAD' window, i.e., unpushed commits authored since the last merge-base. Historical main commits never enter the check. This dramatically reduces migration concern.",
+        "Pulled commits from the PR-merge path (human-authored) going through `git fetch origin main && git merge` into an issue branch WILL appear in a later agent's push. The gateway must treat these as 'registry lookup failed → fail closed → enforce current role's restrictions'. Since human-authored commits in main don't touch agent-scoped files in practice, this is low-impact. But it must be tested.",
+        "Add a test: pull main into an issue branch, push — verify no false-positive 403s.",
+        "Document: 'For the first release, the gateway does not retro-register existing commits. Agents pushing branches that predate this feature may see more restrictive behavior than post-deployment branches.' This is a one-time transition.",
+        "Do NOT try to retro-populate the registry by scanning history — that would re-introduce the author-email trust the decision explicitly rejected."
+      ],
+      "owner_hint": "documenter (release notes) / tester."
+    }
+  ],
+  "areas_for_human_review": [
+    {
+      "topic": "Durable store for the commit registry (R-01)",
+      "why": "This is net-new infrastructure for the gateway. Choice between sqlite-on-PVC / JSONL-on-PVC / extend-orchestrator-state-store / Redis has real ops implications. Recommend architect register a new decision and get human ratification before implementation.",
+      "blocking": true
+    },
+    {
+      "topic": "Single-flag kill-switch semantics (R-06)",
+      "why": "Current decision-3 couples 'disable auto-filter' with 'disable all restrictions'. Recommend adding EGG_AGENT_AUTOFILTER=true as a separate kill switch; requires human ratification.",
+      "blocking": false
+    },
+    {
+      "topic": "Empty-after-filter commit semantics (R-04)",
+      "why": "What happens when commit-tree produces an empty tree after removing blocked files? Drop the commit silently vs. error vs. keep empty. Recommend 'drop silently + INFO log', but needs explicit ratification.",
+      "blocking": false
+    },
+    {
+      "topic": "Client-side realignment protocol (R-05)",
+      "why": "Decision-6 requires local-HEAD realignment; the push response schema and client behavior are new protocol. The API contract deserves explicit sign-off, especially if any non-egg-orch tooling pushes through the gateway.",
+      "blocking": false
+    },
+    {
+      "topic": "Audit retention (R-10)",
+      "why": "Compliance / retention policy for the new audit.jsonl stream. Not blocking this PR but needs to be captured as tech debt before close.",
+      "blocking": false
+    }
+  ],
+  "rollback_plan": {
+    "summary": "This change spans sandbox, gateway, orchestrator, and shared libs. Full rollback requires reverting the integration PR; partial rollback is possible via env vars.",
+    "tiers": [
+      {
+        "level": "soft (no redeploy)",
+        "action": "Set EGG_AGENT_RESTRICTIONS_ENFORCE=false in the gateway pod env. All restriction checks (auto-filter, registry lookup, and the classic 403) are bypassed; pushes succeed unconditionally. Drops all role-scope security but unblocks agents immediately.",
+        "time_to_effect": "~30s (pod env refresh)"
+      },
+      {
+        "level": "medium (redeploy)",
+        "action": "Revert the integration PR on main, redeploy gateway + sandbox images. Requires that the revert cleanly undoes the --scope-filter removal (R-08 mitigation: do NOT squash the scope-filter-removal commit into the auto-filter commit so this revert is straightforward).",
+        "time_to_effect": "~10-20 min (CI + rollout)"
+      },
+      {
+        "level": "hard (registry corruption)",
+        "action": "If the registry DB is corrupted, delete the registry file; the gateway's startup self-check (R-01 mitigation) refuses to serve pushes. Restore from backup (or wait for fresh state, accepting that all in-flight pushes will see unregistered commits and fall to fail-closed behavior). Requires documented runbook.",
+        "time_to_effect": "depends on backup availability"
+      }
+    ],
+    "reverse_migrations_needed": [
+      "None. The registry is append-only; removing it simply loses attribution data. Existing commits on origin/main are unaffected — they live in git, not the registry."
+    ]
+  },
+  "open_questions_for_other_plan_agents": [
+    "architect: which durable store did you pick for the registry? (R-01)",
+    "architect: what is the exact push response schema for filtered=true? (R-05)",
+    "task_planner: is the scope-filter removal in a separate commit so medium-tier rollback (R-08) is straightforward?",
+    "task_planner: is there a dedicated task for the sandbox post-commit hook installation, with its own acceptance criteria? (R-02)",
+    "reviewer_plan: please cross-check that the architect's design aligns with the decision-1/4/6 resolutions — if it deviates, risks R-04/R-05 need re-scoping."
+  ],
+  "summary_for_reviewer": "Feature is internally coherent but the gateway-side commit-SHA registry (decision-1/5/9) is net-new infrastructure that touches authn, durability, concurrency, migration, and rollback. Twelve risks identified — three HIGH (R-01 new durable store, R-02 new hook endpoint + sandbox wiring, R-04 mixed-history commit rewrite), five MEDIUM, four LOW. Recommend the plan phase explicitly register follow-up decisions for: durable-store choice, auto-filter kill-switch separation, empty-after-filter commit policy. Existing test coverage does not touch the auto-filter path or the registry; task_planner must scope dedicated test tasks. Rollback story is acceptable provided the scope-filter removal and auto-filter addition are landed as separate commits (not squashed)."
+}
