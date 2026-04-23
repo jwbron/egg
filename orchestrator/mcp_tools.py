@@ -709,7 +709,21 @@ PIPELINE_TOOLS = [
         "description": (
             "Advance a pipeline to a target phase. When force=true, stops all "
             "running containers before advancing to prevent SIGTERM cascading "
-            "into the new phase."
+            "into the new phase.\n\n"
+            "Error responses include a machine-readable `reason` code (#1939). "
+            "Note: reason codes are only visible to direct HTTP callers; the "
+            "MCP handler layer does not yet surface them.\n"
+            "- `missing_target_phase` (400) — request body omitted target_phase\n"
+            "- `invalid_phase` (400) — target_phase is not a known phase value\n"
+            "- `invalid_phase_transition` (400) — target is not a valid next "
+            "phase for the current phase (fix: change target or pass force=true)\n"
+            "- `previous_phase_not_complete` (400) — current phase is still "
+            "running or failed (fix: complete_phase first, or pass force=true)\n"
+            "- `health_checks_failed` (409) — Tier 1/2 health checks returned "
+            "FAIL_PIPELINE (fix: resolve underlying health issue, or pass "
+            "force=true; `details.health_results` lists the failed checks)\n"
+            "- `version_conflict` (409) — concurrent modification; retry\n"
+            "- `invalid_pipeline_id` (400), `pipeline_not_found` (404)"
         ),
         "inputSchema": {
             "type": "object",
@@ -733,7 +747,16 @@ PIPELINE_TOOLS = [
     },
     {
         "name": "start_phase",
-        "description": "Start execution of the current phase for a pipeline.",
+        "description": (
+            "Start execution of the current phase for a pipeline.\n\n"
+            "Error responses include a machine-readable `reason` code (#1939). "
+            "Note: reason codes are only visible to direct HTTP callers; the "
+            "MCP handler layer does not yet surface them.\n"
+            "- `phase_already_running` (400) — phase is already in RUNNING "
+            "status (no action needed)\n"
+            "- `version_conflict` (409) — concurrent modification; retry\n"
+            "- `invalid_pipeline_id` (400), `pipeline_not_found` (404)"
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -751,7 +774,18 @@ PIPELINE_TOOLS = [
             "Mark the current phase as complete for a pipeline, with optional "
             "artifacts. Returns 409 when the phase still has unresolved HITL "
             "decisions; pass force=true to abandon them (the abandoned ids are "
-            "recorded in the phase's artifacts for audit)."
+            "recorded in the phase's artifacts for audit).\n\n"
+            "Error responses include a machine-readable `reason` code (#1939). "
+            "Note: reason codes are only visible to direct HTTP callers; the "
+            "MCP handler layer does not yet surface them.\n"
+            "- `unresolved_hitl_decisions` (409) — current phase has pending "
+            "HITL decisions (fix: resolve them, or pass force=true; "
+            "`details.unresolved_decision_ids` lists the blocking ids)\n"
+            "- `invalid_artifacts` (400) — artifacts must be a JSON object "
+            "with string values\n"
+            "- `invalid_force_reason` (400) — force_reason must be a string\n"
+            "- `version_conflict` (409) — concurrent modification; retry\n"
+            "- `invalid_pipeline_id` (400), `pipeline_not_found` (404)"
         ),
         "inputSchema": {
             "type": "object",
@@ -786,7 +820,13 @@ PIPELINE_TOOLS = [
         "description": (
             "Populate a pipeline's SDLC contract from its plan draft. Reads the "
             "plan document, extracts task structure, and writes tasks and acceptance "
-            "criteria to the contract."
+            "criteria to the contract.\n\n"
+            "Error responses include a machine-readable `reason` code (#1939). "
+            "Note: reason codes are only visible to direct HTTP callers; the "
+            "MCP handler layer does not yet surface them.\n"
+            "- `invalid_pipeline_id` (400), `pipeline_not_found` (404)\n"
+            "- `populate_contract_failed` (500) — internal error during "
+            "contract population"
         ),
         "inputSchema": {
             "type": "object",
