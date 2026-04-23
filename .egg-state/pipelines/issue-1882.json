@@ -472,10 +472,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Remove in the same PR (gateway now handles all cases)\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-18",
+      "question": "Default behavior when a pulled commit's author email matches no known role?",
+      "context": "Open contract question decision-17, registered by an agent during the refine phase.",
+      "options": [
+        "Treat as own-commit, enforce restrictions (fail closed)",
+        "Treat as pulled commit, skip restrictions (fail open)",
+        "Block the push with a 403 (strict, suggests identity tampering)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-23T06:45:35.817582Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:21:58.997312Z",
-  "updated_at": "2026-04-23T06:45:34.429218Z",
+  "updated_at": "2026-04-23T06:45:35.834088Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -489,5 +508,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:31:28.068349Z",
-  "version": 52
+  "version": 53
 }
