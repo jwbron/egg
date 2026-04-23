@@ -221,16 +221,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-23T00:03:26.081245Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-23T00:03:39.471679Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Make configurable via env var (EGG_MESSAGE_POLL_MAX_WAIT) with current 60s default\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-22T23:27:22.582974Z",
-  "updated_at": "2026-04-23T00:03:26.087398Z",
+  "updated_at": "2026-04-23T00:03:39.481905Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -243,5 +243,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 17
+  "version": 18
 }
