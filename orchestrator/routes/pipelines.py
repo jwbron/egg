@@ -7580,8 +7580,6 @@ def _run_concurrent_phase(
             exception propagates. Distinguishes spawn failures from container
             exits so the outer caller's ``pipeline.error`` is accurate.
     """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
     from models import (
         AgentExecution as StateAgentExecution,
     )
@@ -7886,10 +7884,9 @@ def _run_concurrent_phase(
     docker_client = spawner.backend
     all_logs: list[str] = []
     has_failures = [False]  # Mutable container for closure access
-    # Lock protects all_logs and has_failures mutations from the
-    # ThreadPoolExecutor threads in the timeout fallback path (step 6).
-    # The main polling loop is single-threaded, but the lock is cheap
-    # and makes the code safe regardless of GIL guarantees.
+    # Lock kept for forward-compat; the polling loop is single-threaded
+    # after the #1921 refactor but _record_container_exit uses the lock
+    # and is called from multiple code paths.
     _logs_lock = threading.Lock()
 
     poll_interval = 5  # seconds
@@ -8426,56 +8423,130 @@ def _run_concurrent_phase(
                 consensus.get("blocking_agents", []),
             )
 
-            # Fall back: wait for remaining containers with ThreadPoolExecutor
+            # Fall back: event-driven wait for remaining containers.
+            #
+            # Issue #1921: the previous implementation used a
+            # ThreadPoolExecutor with a blocking
+            # wait_for_container(timeout=3600) per container.  During
+            # that hour the polling loop was blind to BRC progress —
+            # a NACK → re-propose → ACK cycle completing in the final
+            # minute could still be force-killed.  Now we poll
+            # container status in short steps and re-check consensus
+            # between steps, early-returning on completion before
+            # force-killing anything.
             remaining = [e for e in active_executions if e.container_id not in exited_containers]
             if remaining:
-                with ThreadPoolExecutor(max_workers=len(remaining)) as pool:
+                post_timeout_budget = 3600  # seconds total
+                post_timeout_poll_interval = 30  # seconds between checks
+                post_timeout_start = time.monotonic()
 
-                    def _wait_remaining(exec_info):
-                        try:
-                            final_info = docker_client.wait_for_container(
-                                exec_info.container_id,
-                                timeout=3600,
+                while remaining:
+                    elapsed_post_timeout = time.monotonic() - post_timeout_start
+                    if elapsed_post_timeout >= post_timeout_budget:
+                        break
+
+                    # A. Re-check consensus; if agents converged during
+                    # the wait, stop containers and return success
+                    # before force-killing them.
+                    try:
+                        _wait_consensus = executor.check_consensus()
+                    except Exception as _wait_consensus_err:
+                        logger.warning(
+                            "Consensus recheck during post-timeout wait failed",
+                            pipeline_id=pipeline_id,
+                            error=str(_wait_consensus_err),
+                        )
+                        _wait_consensus = None
+
+                    if (
+                        _wait_consensus
+                        and _wait_consensus.get("is_complete")
+                        and not _wait_consensus.get("has_unresolved_nacks")
+                    ):
+                        combined_logs = "\n".join(all_logs)
+                        _total_elapsed = time.monotonic() - start_time
+                        if _emit_event is not None:
+                            _emit_event(
+                                EventType.CONSENSUS_REACHED,
+                                pipeline_id,
+                                data={"elapsed_seconds": _total_elapsed},
                             )
+                        logger.info(
+                            "Consensus reached during post-timeout wait",
+                            pipeline_id=pipeline_id,
+                            elapsed_post_timeout_seconds=round(elapsed_post_timeout, 1),
+                            total_elapsed_seconds=round(_total_elapsed, 1),
+                        )
+                        _update_agents_complete()
+                        _stop_running_containers()
+                        return 0, combined_logs
+
+                    # B. Non-blocking container status check; record
+                    # any that have exited naturally.
+                    still_running = []
+                    for exec_info in remaining:
+                        try:
+                            info = docker_client.get_container_info(exec_info.container_id)
                         except (
                             ContainerNotFoundError,
                             ContainerOperationError,
                             PodNotFoundError,
                             JobOperationError,
-                        ):
-                            # Timeout or lost — stop the container so it doesn't
-                            # keep running as an orphan (issue #1691).
-                            try:
-                                docker_client.stop_container(exec_info.container_id, timeout=30)
-                            except Exception:
-                                pass
-                            final_info = ContainerInfo(
+                        ) as _wait_status_err:
+                            logger.warning(
+                                "Container lost during post-timeout wait",
+                                container_id=exec_info.container_id,
+                                role=exec_info.role.value,
+                                error=str(_wait_status_err),
+                            )
+                            info = ContainerInfo(
                                 container_id=exec_info.container_id,
                                 container_name=f"{pipeline_id}-{exec_info.role.value}",
                                 status=ContainerStatus.FAILED,
                                 exit_code=-1,
                                 exited_at=datetime.now(UTC),
                             )
-                        _record_container_exit(exec_info, final_info)
 
-                    futures = {pool.submit(_wait_remaining, e): e for e in remaining}
-                    for future in as_completed(futures):
-                        exc = future.exception()
-                        if exc:
-                            logger.error(
-                                "Error waiting for container after timeout",
-                                role=futures[future].role.value,
-                                error=str(exc),
-                            )
-                            with _logs_lock:
-                                has_failures[0] = True
+                        if info.status in (
+                            ContainerStatus.EXITED,
+                            ContainerStatus.FAILED,
+                            ContainerStatus.REMOVED,
+                        ):
+                            exited_containers[exec_info.container_id] = info
+                            _record_container_exit(exec_info, info)
+                        else:
+                            still_running.append(exec_info)
+
+                    remaining = still_running
+                    if not remaining:
+                        break
+
+                    time.sleep(post_timeout_poll_interval)
+
+                # Budget exhausted with containers still running —
+                # force-kill so they don't orphan (issue #1691).
+                for exec_info in remaining:
+                    try:
+                        docker_client.stop_container(exec_info.container_id, timeout=30)
+                    except Exception:
+                        pass
+                    final_info = ContainerInfo(
+                        container_id=exec_info.container_id,
+                        container_name=f"{pipeline_id}-{exec_info.role.value}",
+                        status=ContainerStatus.FAILED,
+                        exit_code=-1,
+                        exited_at=datetime.now(UTC),
+                    )
+                    exited_containers[exec_info.container_id] = final_info
+                    _record_container_exit(exec_info, final_info)
 
             combined_logs = "\n".join(all_logs)
             if has_failures[0]:
-                # Consensus recheck: consensus may have completed during the
-                # ThreadPoolExecutor wait window (issue #1691).  Without this
-                # recheck, containers that were force-killed after consensus
-                # was already confirmed would cause the phase to fail.
+                # Consensus recheck: consensus may have completed right as the
+                # post-timeout budget elapsed and containers were force-killed
+                # (issue #1691).  The in-loop consensus check covers the common
+                # case; this recheck catches the narrow race where consensus
+                # completed between the last in-loop check and force-kill.
                 try:
                     _timeout_consensus = executor.check_consensus()
                 except Exception as e:
@@ -8556,6 +8627,20 @@ def _run_concurrent_phase(
                     _stop_running_containers()
                     return 0, combined_logs
 
+                # Consensus not complete on recheck.  Mirror the non-failure
+                # branch's NACK summary so operators see which reviewer edges
+                # are still blocking, even when containers had non-zero exits.
+                if _timeout_consensus.get("has_unresolved_nacks"):
+                    nack_details = _timeout_consensus.get("unresolved_nacks", [])
+                    nack_summary = _format_nack_summary(nack_details)
+                    logger.warning(
+                        "Timeout with unresolved NACKs (has_failures path)",
+                        pipeline_id=pipeline_id,
+                        nack_count=len(nack_details),
+                    )
+                    combined_logs += (
+                        f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
+                    )
                 return 1, combined_logs
 
             # After timeout, check the BRC approval matrix for unresolved
