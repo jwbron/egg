@@ -5,7 +5,7 @@
   "branch": "egg/issue-1897",
   "base_branch": null,
   "prompt": null,
-  "status": "failed",
+  "status": "running",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -152,130 +152,17 @@
     },
     "plan": {
       "phase": "plan",
-      "status": "failed",
-      "started_at": "2026-04-23T00:09:30.576611Z",
-      "work_started_at": "2026-04-23T00:09:30.867237Z",
-      "completed_at": "2026-04-23T00:51:56.544350Z",
-      "containers": [
-        {
-          "container_id": "5fefa323-a1ee-4d87-922e-55173d5c6fbb",
-          "container_name": "egg-sandbox-egg-agent-issue-1897-risk-analyst",
-          "status": "exited",
-          "started_at": "2026-04-23T00:09:41.162529Z",
-          "exited_at": "2026-04-23T00:51:50Z",
-          "exit_code": 0,
-          "agent_role": "risk_analyst",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-1897-risk-analyst"
-        },
-        {
-          "container_id": "28c717bb-5e29-4809-90ac-b916c9b5d38a",
-          "container_name": "egg-sandbox-egg-agent-issue-1897-architect",
-          "status": "failed",
-          "started_at": "2026-04-23T00:09:41.162548Z",
-          "exited_at": "2026-04-23T00:51:49Z",
-          "exit_code": 1,
-          "agent_role": "architect",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-1897-architect"
-        },
-        {
-          "container_id": "2c05c94a-e165-463c-b609-8deec442010b",
-          "container_name": "egg-sandbox-egg-agent-issue-1897-reviewer-plan",
-          "status": "failed",
-          "started_at": "2026-04-23T00:09:41.162553Z",
-          "exited_at": "2026-04-23T00:51:48Z",
-          "exit_code": 1,
-          "agent_role": "reviewer_plan",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-1897-reviewer-plan"
-        },
-        {
-          "container_id": "a51e05ed-5f49-4906-b9bb-9dd374ca760b",
-          "container_name": "egg-sandbox-egg-agent-issue-1897-task-planner",
-          "status": "exited",
-          "started_at": "2026-04-23T00:09:41.162557Z",
-          "exited_at": "2026-04-23T00:51:47Z",
-          "exit_code": 0,
-          "agent_role": "task_planner",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-1897-task-planner"
-        }
-      ],
-      "agents": [
-        {
-          "role": "risk_analyst",
-          "status": "complete",
-          "container_id": "5fefa323-a1ee-4d87-922e-55173d5c6fbb",
-          "container_info": null,
-          "started_at": "2026-04-23T00:09:41.162543Z",
-          "completed_at": "2026-04-23T00:51:54.986481Z",
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "architect",
-          "status": "failed",
-          "container_id": "28c717bb-5e29-4809-90ac-b916c9b5d38a",
-          "container_info": null,
-          "started_at": "2026-04-23T00:09:41.162551Z",
-          "completed_at": "2026-04-23T00:51:56.492982Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "reviewer_plan",
-          "status": "failed",
-          "container_id": "2c05c94a-e165-463c-b609-8deec442010b",
-          "container_info": null,
-          "started_at": "2026-04-23T00:09:41.162555Z",
-          "completed_at": "2026-04-23T00:51:55.686872Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "task_planner",
-          "status": "complete",
-          "container_id": "a51e05ed-5f49-4906-b9bb-9dd374ca760b",
-          "container_info": null,
-          "started_at": "2026-04-23T00:09:41.162559Z",
-          "completed_at": "2026-04-23T00:51:52.562846Z",
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": []
-        }
-      ],
+      "status": "pending",
+      "started_at": null,
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
-      "cycle_timings": [
-        {
-          "cycle": 0,
-          "started_at": "2026-04-23T00:09:30.867237Z",
-          "completed_at": "2026-04-23T00:51:56.544342Z",
-          "commit_sha": "83ebf8ae52c6f3e4b748c2c9512c2bf3cf3ee463"
-        }
-      ],
+      "cycle_timings": [],
       "artifacts": {},
-      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-23 00:51:48 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01DDfMBA4mKFgLBYCfH9Efpe is_error=False content=\"No messages. Consensus complete: False  Agent states:   architect: producer=P...\" [/opt/egg-runtime/shared/egg_agent/client.py:291]\n2026-04-23 00:51:49 [INFO    ] egg-agent: Assistant message event_type=assistant event_subtype=text text=\"You've hit your limit · resets 3am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:266]\n2026-04-23 00:51:49 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result model=claude-opus-4-7 session_id=e7eac4c9-ed54-42e8-bf27-a00f65bca38b cost_usd=30.97522449999999 num_turns=338 duration_ms=2525246 success=False error=\"You've hit your limit · resets 3am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:317]\nan error occurred during closing of asynchronous generator <async_generator object InternalClient._process_query_inner at 0xffff1bc8b4d0>\nasyncgen: <async_generator object InternalClient._process_query_inner at 0xffff1bc8b4d0>\nRuntimeError: aclose(): asynchronous generator is already running\nYou've hit your limit · resets 3am (UTC)\n[consensus-wrapper] Tracker shows not confirmed (stale?). Checking message bus...\n[consensus-wrapper] Agent failed on restart 1 (code 1 after 2526s). Stopping.\nYou've hit your limit · resets 3am (UTC)You've hit your limit · resets 3am (UTC)Now I'll read the key source files I need to reference in my architect analysis:Now I have enough context to write a comprehensive architecture analysis. Let me create the JSON output:Now let me propose via BRC:Now let me poll for ACK/NACK from reviewer_plan:Let me verify the reviewer's claims against the actual code:Now I have enough verification. Let me revise the architect output to address all NACKs:Now re-propose:You've hit your limit · resets 3am (UTC)You've hit your limit · resets 3am (UTC)",
+      "error": null,
       "hitl_feedback": null,
       "phase_start_sha": "83ebf8ae52c6f3e4b748c2c9512c2bf3cf3ee463"
     }
@@ -495,18 +382,19 @@
     }
   ],
   "created_at": "2026-04-22T23:27:22.582974Z",
-  "updated_at": "2026-04-23T00:51:56.544414Z",
+  "updated_at": "2026-04-23T05:19:51.127128Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
   "pr_head_sha": null,
+  "active_roles": null,
   "has_contract": true,
-  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-23 00:51:48 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01DDfMBA4mKFgLBYCfH9Efpe is_error=False content=\"No messages. Consensus complete: False  Agent states:   architect: producer=P...\" [/opt/egg-runtime/shared/egg_agent/client.py:291]\n2026-04-23 00:51:49 [INFO    ] egg-agent: Assistant message event_type=assistant event_subtype=text text=\"You've hit your limit · resets 3am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:266]\n2026-04-23 00:51:49 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result model=claude-opus-4-7 session_id=e7eac4c9-ed54-42e8-bf27-a00f65bca38b cost_usd=30.97522449999999 num_turns=338 duration_ms=2525246 success=False error=\"You've hit your limit · resets 3am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:317]\nan error occurred during closing of asynchronous generator <async_generator object InternalClient._process_query_inner at 0xffff1bc8b4d0>\nasyncgen: <async_generator object InternalClient._process_query_inner at 0xffff1bc8b4d0>\nRuntimeError: aclose(): asynchronous generator is already running\nYou've hit your limit · resets 3am (UTC)\n[consensus-wrapper] Tracker shows not confirmed (stale?). Checking message bus...\n[consensus-wrapper] Agent failed on restart 1 (code 1 after 2526s). Stopping.\nYou've hit your limit · resets 3am (UTC)You've hit your limit · resets 3am (UTC)Now I'll read the key source files I need to reference in my architect analysis:Now I have enough context to write a comprehensive architecture analysis. Let me create the JSON output:Now let me propose via BRC:Now let me poll for ACK/NACK from reviewer_plan:Let me verify the reviewer's claims against the actual code:Now I have enough verification. Let me revise the architect output to address all NACKs:Now re-propose:You've hit your limit · resets 3am (UTC)You've hit your limit · resets 3am (UTC)",
+  "error": null,
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
-  "run_epoch": null,
-  "version": 40
+  "run_epoch": "2026-04-23T05:19:51.126244Z",
+  "version": 41
 }
