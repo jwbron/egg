@@ -701,7 +701,13 @@ If the BRC tracker is unavailable, the orchestrator falls back to the old behavi
 
 Timeout handling is idempotent — if the timeout fires multiple times (e.g., due to a race with the overseer), only the first invocation takes effect.
 
-**Consensus reached during timeout wait**: After the BRC timeout evaluation, the orchestrator waits for still-running containers to exit. If consensus becomes complete during this window (all agents confirmed, no unresolved NACKs), the orchestrator recovers: it marks agents complete, restores the pipeline from `FAILED` to `RUNNING` if needed, and returns success — the timeout evaluation is overridden by the consensus outcome. If consensus is complete but unresolved NACKs remain, the orchestrator escalates to HITL with options "Retry phase", "Accept current state", "Abort phase". See [issue #1693](https://github.com/jwbron/egg/issues/1693).
+**Consensus reached during timeout wait**: After the BRC timeout evaluation, the orchestrator enters an event-driven polling loop that rechecks consensus proactively:
+
+- **Polling mechanics**: 30-second intervals, up to 3600s total budget.
+- **Consensus complete** (all agents confirmed, no unresolved NACKs): the orchestrator immediately stops remaining containers, marks agents complete, restores the pipeline from `FAILED` to `RUNNING` if needed, and returns success — the timeout evaluation is overridden by the consensus outcome.
+- **Unresolved NACKs remain**: the orchestrator escalates to HITL with options "Retry phase", "Accept current state", "Abort phase". See [issue #1693](https://github.com/jwbron/egg/issues/1693).
+
+This replaces the former per-container blocking wait, closing the race where a late NACK→re-propose→ACK cycle completing near the end of the budget could previously be missed ([issue #1921](https://github.com/jwbron/egg/issues/1921)).
 
 ### Consensus Stall Recovery
 
