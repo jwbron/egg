@@ -486,7 +486,8 @@ def create_mock_gateway_handler(responses_dict: dict):
 
         def do_GET(self):
             """Handle GET requests."""
-            response = self.responses.get(("GET", self.path), {"success": True})
+            path = self.path.split("?")[0]
+            response = self.responses.get(("GET", path), {"success": True})
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -499,7 +500,8 @@ def create_mock_gateway_handler(responses_dict: dict):
             if content_length:
                 self.rfile.read(content_length)
 
-            response = self.responses.get(("POST", self.path), {"success": True})
+            path = self.path.split("?")[0]
+            response = self.responses.get(("POST", path), {"success": True})
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -1041,19 +1043,21 @@ class TestAddDecisionWithMockGateway:
         mock_gateway = mock_gateway_factory(responses)
 
         captured_payloads = []
-        original_make_request = make_gateway_request
+        from egg_agent_tools.handlers._gateway import gateway_request as _orig_gw
 
-        def capturing_make_request(*args, **kwargs):
+        def capturing_gw_request(*args, **kwargs):
             if kwargs.get("method") == "POST":
                 captured_payloads.append(kwargs.get("data"))
-            return original_make_request(*args, **kwargs)
+            return _orig_gw(*args, **kwargs)
 
         with (
             patch.dict(
                 "os.environ",
                 {"GATEWAY_URL": mock_gateway, "EGG_ISSUE_NUMBER": "123", "CONTAINER_ID": ""},
             ),
-            patch("egg_lib.contract_cli.make_gateway_request", side_effect=capturing_make_request),
+            patch(
+                "egg_agent_tools.handlers.sdlc.gateway_request", side_effect=capturing_gw_request
+            ),
         ):
             result = main(["add-decision", "--question", "Approve?", "--phase", "implement"])
 
@@ -1083,19 +1087,21 @@ class TestAddDecisionWithMockGateway:
         mock_gateway = mock_gateway_factory(responses)
 
         captured_payloads = []
-        original_make_request = make_gateway_request
+        from egg_agent_tools.handlers._gateway import gateway_request as _orig_gw
 
-        def capturing_make_request(*args, **kwargs):
+        def capturing_gw_request(*args, **kwargs):
             if kwargs.get("method") == "POST":
                 captured_payloads.append(kwargs.get("data"))
-            return original_make_request(*args, **kwargs)
+            return _orig_gw(*args, **kwargs)
 
         with (
             patch.dict(
                 "os.environ",
                 {"GATEWAY_URL": mock_gateway, "EGG_ISSUE_NUMBER": "123", "CONTAINER_ID": ""},
             ),
-            patch("egg_lib.contract_cli.make_gateway_request", side_effect=capturing_make_request),
+            patch(
+                "egg_agent_tools.handlers.sdlc.gateway_request", side_effect=capturing_gw_request
+            ),
         ):
             result = main(["add-decision", "--question", "Approve?"])
 

@@ -25,13 +25,18 @@ _sandbox_path = str(Path(__file__).parent.parent)
 if _sandbox_path not in sys.path:
     sys.path.insert(0, _sandbox_path)
 
+from egg_agent_tools.handlers.errors import GatewayError, HandlerError  # noqa: E402
 from egg_lib.orch_cli import (  # noqa: E402
-    ApiError,
     cmd_message_heartbeat,
     cmd_message_wait,
     cmd_message_wait_loop,
     create_parser,
 )
+
+# Mock path for the handler HTTP helper used by the refactored cmd_message_*
+# shims.  cmd_* now delegates to egg_agent_tools.handlers.message.* which in
+# turn calls orchestrator_request from the handler gateway module.
+_ORCH_MOCK_PATH = "egg_agent_tools.handlers.message.orchestrator_request"
 
 # ---------------------------------------------------------------------------
 # Parser: argparse surface
@@ -159,7 +164,7 @@ class TestWaitExitCodes:
     3 = permanent."""
 
     def test_wait_exit_0_on_match(self):
-        with patch("egg_lib.orch_cli.api_request") as mock_req:
+        with patch(_ORCH_MOCK_PATH) as mock_req:
             mock_req.return_value = {
                 "success": True,
                 "data": {
@@ -181,7 +186,7 @@ class TestWaitExitCodes:
         assert rc == 0
 
     def test_wait_exit_1_on_timeout(self):
-        with patch("egg_lib.orch_cli.api_request") as mock_req:
+        with patch(_ORCH_MOCK_PATH) as mock_req:
             mock_req.return_value = {
                 "success": True,
                 "data": {"messages": [], "matched": False, "count": 0},
@@ -190,52 +195,51 @@ class TestWaitExitCodes:
         assert rc == 1
 
     def test_wait_exit_2_on_5xx(self):
-        with patch("egg_lib.orch_cli.api_request") as mock_req:
-            mock_req.side_effect = ApiError("internal error", status_code=500)
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.side_effect = GatewayError("internal error", status_code=500)
             rc = cmd_message_wait(_make_wait_args())
         assert rc == 2
 
     def test_wait_exit_2_on_connection_error(self):
         """Connection errors (no status_code) are transient."""
-        with patch("egg_lib.orch_cli.api_request") as mock_req:
-            mock_req.side_effect = ApiError("connection refused", status_code=None)
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.side_effect = GatewayError("connection refused", status_code=None)
             rc = cmd_message_wait(_make_wait_args())
         assert rc == 2
 
     def test_wait_exit_3_on_4xx_non_408(self):
-        with patch("egg_lib.orch_cli.api_request") as mock_req:
-            mock_req.side_effect = ApiError("bad request", status_code=400)
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.side_effect = GatewayError("bad request", status_code=400)
             rc = cmd_message_wait(_make_wait_args())
         assert rc == 3
 
     def test_wait_exit_2_on_408_timeout(self):
         """408 is transient, not permanent."""
-        with patch("egg_lib.orch_cli.api_request") as mock_req:
-            mock_req.side_effect = ApiError("request timeout", status_code=408)
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.side_effect = GatewayError("request timeout", status_code=408)
             rc = cmd_message_wait(_make_wait_args())
         assert rc == 2
 
     def test_wait_sends_for_params(self):
         """The request URL includes ``for=TYPE`` for each --for."""
-        with patch("egg_lib.orch_cli.api_request") as mock_req:
+        with patch(_ORCH_MOCK_PATH) as mock_req:
             mock_req.return_value = {
                 "success": True,
                 "data": {"messages": [], "matched": False, "count": 0},
             }
             cmd_message_wait(_make_wait_args(for_=["CONSENSUS_CONFIRMED", "OVERSEER_ALERT"]))
-            # Inspect the endpoint
-            endpoint = mock_req.call_args[0][1]
+            endpoint = mock_req.call_args.args[0]
             assert "for=CONSENSUS_CONFIRMED" in endpoint
             assert "for=OVERSEER_ALERT" in endpoint
 
     def test_wait_includes_timeout_param(self):
-        with patch("egg_lib.orch_cli.api_request") as mock_req:
+        with patch(_ORCH_MOCK_PATH) as mock_req:
             mock_req.return_value = {
                 "success": True,
                 "data": {"messages": [], "matched": False, "count": 0},
             }
             cmd_message_wait(_make_wait_args(timeout=15))
-            endpoint = mock_req.call_args[0][1]
+            endpoint = mock_req.call_args.args[0]
             assert "timeout=15" in endpoint
 
 
@@ -245,7 +249,14 @@ class TestWaitExitCodes:
 
 
 class TestWaitLoop:
-    """``wait-loop`` retries until match, max-iterations, or permanent error."""
+    """``wait-loop`` retries until match, max-iterations, or permanent error.
+
+    Loop semantics (retry on timeout / backoff on transient / propagate
+    permanent / safety cap) are exercised in
+    ``tests/sandbox/egg_agent_tools/test_handlers_message.py``.  These
+    CLI-level tests focus on the rc mapping the shim performs around the
+    handler.
+    """
 
     def _make_loop_args(
         self,
@@ -265,130 +276,83 @@ class TestWaitLoop:
         )
 
     def test_exits_zero_on_match(self):
-        """First successful match returns 0 immediately."""
-        with patch("egg_lib.orch_cli.cmd_message_wait") as mock_wait:
-            mock_wait.return_value = 0
+        """Handler returning matched=True → rc=0."""
+        with patch(
+            "egg_agent_tools.handlers.message.message_wait_loop",
+            return_value={
+                "ok": True,
+                "matched": True,
+                "messages": [
+                    {
+                        "timestamp": "2026-04-23T06:00:00",
+                        "from_role": "coder",
+                        "to_role": "all",
+                        "message_type": "CONSENSUS_CONFIRMED",
+                        "subject": "done",
+                        "body": "",
+                    }
+                ],
+                "iterations": 1,
+            },
+        ):
             rc = cmd_message_wait_loop(self._make_loop_args())
         assert rc == 0
-        mock_wait.assert_called_once()
-
-    def test_retries_on_timeout(self):
-        """Exit-1 (timeout) → retry until max-iterations."""
-        with patch("egg_lib.orch_cli.cmd_message_wait") as mock_wait:
-            mock_wait.return_value = 1
-            rc = cmd_message_wait_loop(self._make_loop_args(max_iter=3))
-        assert rc == 1
-        assert mock_wait.call_count == 3
 
     def test_exits_one_on_permanent_error(self):
-        """Plan TASK-2-4 + reviewer_plan blocker 3: inner rc=3
-        (permanent error) is MAPPED to outer rc=1 so the wrapper
-        honours the documented 0/1 caller contract.
-
-        Rationale: wait-loop is a stay-alive wrapper — callers adopt
-        the "rc=0 match / rc=1 no-match" convention. Surfacing rc=3
-        would confuse callers that don't know the internal code.
-        Plan fix: map rc=3 → rc=1 here.
+        """Handler raising a permanent GatewayError collapses to rc=1 —
+        the wait-loop wrapper owns the 0/1 outward contract per plan
+        TASK-2-4 (callers who need 0/1/2/3 call ``message wait`` directly).
         """
-        with patch("egg_lib.orch_cli.cmd_message_wait") as mock_wait:
-            mock_wait.return_value = 3
-            rc = cmd_message_wait_loop(self._make_loop_args())
-        assert rc == 1, (
-            "Inner rc=3 should map to outer rc=1 per plan TASK-2-4; "
-            "if this fails, the 3→1 coercion was removed"
-        )
-
-    def test_retries_on_transient_with_backoff(self):
-        """Exit-2 (transient) → retry with backoff (uses time.sleep)."""
-        call_count = [0]
-
-        def _side_effect(args):
-            call_count[0] += 1
-            if call_count[0] < 3:
-                return 2  # transient
-            return 0  # match
-
-        with (
-            patch("egg_lib.orch_cli.cmd_message_wait", side_effect=_side_effect),
-            patch("time.sleep") as mock_sleep,
+        with patch(
+            "egg_agent_tools.handlers.message.message_wait_loop",
+            side_effect=GatewayError("forbidden", status_code=403),
         ):
-            rc = cmd_message_wait_loop(self._make_loop_args(max_iter=5))
-        assert rc == 0
-        # Two transient sleeps before the final match.
-        assert mock_sleep.call_count >= 2
+            rc = cmd_message_wait_loop(self._make_loop_args())
+        assert rc == 1, "Handler permanent failure should map to outer rc=1 per plan TASK-2-4"
 
-    def test_match_after_transient_resets_backoff(self):
-        """Transient errors reset backoff on success."""
-        # We just assert the loop terminates; the backoff reset is an
-        # internal optimisation tested via the successful exit rc.
-        with patch("egg_lib.orch_cli.cmd_message_wait") as mock_wait:
-            mock_wait.side_effect = [1, 1, 0]  # timeout, timeout, match
-            rc = cmd_message_wait_loop(self._make_loop_args(max_iter=5))
-        assert rc == 0
+    def test_exits_one_on_handler_error(self):
+        """Bad args from the user (HandlerError) also collapse to rc=1."""
+        with patch(
+            "egg_agent_tools.handlers.message.message_wait_loop",
+            side_effect=HandlerError("missing for_types"),
+        ):
+            rc = cmd_message_wait_loop(self._make_loop_args())
+        assert rc == 1
 
-    def test_wait_loop_runs_for_many_timeouts_without_exiting(self):
-        """Plan TASK-2-4 acceptance (d): wait-loop MUST loop FOREVER
-        through inner rc=1 (timeout) without exiting early.
+    def test_safety_cap_without_match_returns_one(self):
+        """If the handler's safety cap trips without a match, the shim
+        returns rc=1 (no-match), preserving the legacy contract."""
+        with patch(
+            "egg_agent_tools.handlers.message.message_wait_loop",
+            return_value={
+                "ok": True,
+                "matched": False,
+                "messages": [],
+                "iterations": 3,
+            },
+        ):
+            rc = cmd_message_wait_loop(self._make_loop_args())
+        assert rc == 1
 
-        Without this coverage, a silent early-exit bug could slip in
-        and agents would die on their first timeout instead of
-        re-entering the block — exactly the anti-pattern #1897 fixes.
-
-        We exercise 5 consecutive rc=1 timeouts with a finite
-        ``max_iterations=5`` cap so the test terminates deterministically.
-        The assertion is: the inner call is made 5 times AND the final
-        rc is 1 (safety cap tripped, not a premature exit).
+    def test_wait_loop_accepts_none_max_iterations(self):
+        """Plan TASK-2-4: None / non-positive ``--max-iterations`` must
+        not crash the shim — the handler coerces it internally to a
+        practically-unbounded cap.
         """
-        with patch("egg_lib.orch_cli.cmd_message_wait") as mock_wait:
-            # All rc=1 (timeout) — should retry rather than return.
-            mock_wait.return_value = 1
-            rc = cmd_message_wait_loop(self._make_loop_args(max_iter=5))
-        assert rc == 1, "Expected outer rc=1 (safety cap), not a premature exit"
-        assert mock_wait.call_count == 5, (
-            f"Inner call invoked {mock_wait.call_count} times; "
-            "expected exactly 5 (each timeout should re-enter the loop)"
-        )
-
-    def test_wait_loop_default_max_iterations_is_effectively_unbounded(self):
-        """Plan TASK-2-4 + reviewer_plan blocker 3: default
-        --max-iterations MUST be effectively unbounded (sys.maxsize)
-        so normal BRC never trips it.
-
-        We verify by setting max_iterations to None (the CLI default)
-        and assert the internal cap gets coerced to sys.maxsize so a
-        legitimate multi-hour phase doesn't silently exit early.
-        """
-        import sys as _sys
-
         args = self._make_loop_args()
         args.max_iterations = None
 
-        # Patch cmd_message_wait to return 0 on first call so we don't
-        # actually iterate sys.maxsize times. The test asserts only
-        # that None is accepted and coerced internally, not the cap
-        # value directly.
-        with patch("egg_lib.orch_cli.cmd_message_wait") as mock_wait:
-            mock_wait.return_value = 0
-            rc = cmd_message_wait_loop(args)
-        assert rc == 0
-
-        # Also pin the coercion logic for 0 / negative values via an
-        # explicit spy. If a future refactor loses the coercion, a
-        # malicious operator could set --max-iterations=0 and get a
-        # no-op — the test catches that regression.
-        for invalid in (0, -1, -99):
+        for invalid in (None, 0, -1, -99):
             args.max_iterations = invalid
-            with patch("egg_lib.orch_cli.cmd_message_wait") as mock_wait:
-                mock_wait.return_value = 0
+            with patch(
+                "egg_agent_tools.handlers.message.message_wait_loop",
+                return_value={"ok": True, "matched": True, "messages": []},
+            ):
                 rc = cmd_message_wait_loop(args)
             assert rc == 0, (
                 f"max_iterations={invalid} should still attempt a wait; "
-                "expected coercion to sys.maxsize"
+                "shim must forward non-positive caps without raising"
             )
-        # Finally: sys.maxsize semantics pin — the coerced cap is at
-        # least as big as sys.maxsize / 2 so the loop is practically
-        # infinite for BRC timescales.
-        assert _sys.maxsize > 10**9  # sanity (platform-agnostic)
 
 
 # ---------------------------------------------------------------------------
@@ -420,19 +384,19 @@ class TestHeartbeat:
     """``message heartbeat`` wraps message send with validation."""
 
     def test_heartbeat_working_sends_state_metadata(self):
-        """Issue #1897: CLI POSTs to the dedicated
+        """Issue #1897: handler POSTs to the dedicated
         ``/api/v1/pipelines/{id}/heartbeat`` endpoint with a flat
         ``{from_role, state}`` body (NOT wrapped in metadata — the
         server unpacks into the stored message's metadata field).
         """
-        with patch("egg_lib.orch_cli.api_request") as mock_req:
-            mock_req.return_value = {"success": True}
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {"success": True, "data": {"deduped": False}}
             rc = cmd_message_heartbeat(_make_hb_args(state="WORKING"))
         assert rc == 0
         call = mock_req.call_args
-        # api_request(url, path, method, data, timeout)
-        path = call[0][1]
-        posted = call[0][3]
+        # orchestrator_request(endpoint, method=..., data=...)
+        path = call.args[0]
+        posted = call.kwargs["data"]
         # Dedicated heartbeat route (plan TASK-3-2).
         assert path.endswith("/heartbeat"), f"Expected /heartbeat route, got {path!r}"
         # Flat payload shape.
@@ -445,8 +409,8 @@ class TestHeartbeat:
         assert rc == 3
 
     def test_heartbeat_waiting_on_role_with_target(self):
-        with patch("egg_lib.orch_cli.api_request") as mock_req:
-            mock_req.return_value = {"success": True}
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {"success": True, "data": {"deduped": False}}
             rc = cmd_message_heartbeat(
                 _make_hb_args(
                     state="WAITING_ON_ROLE",
@@ -454,7 +418,7 @@ class TestHeartbeat:
                 )
             )
         assert rc == 0
-        posted = mock_req.call_args[0][3]
+        posted = mock_req.call_args.kwargs["data"]
         assert posted["state"] == "WAITING_ON_ROLE"
         assert posted["waiting_on"] == "reviewer_code"
 
@@ -472,15 +436,15 @@ class TestHeartbeat:
     def test_heartbeat_client_rejects_4xx(self):
         """A 4xx response from the server (e.g., pydantic validation) should
         surface as exit 3."""
-        with patch("egg_lib.orch_cli.api_request") as mock_req:
-            mock_req.side_effect = ApiError("bad metadata", status_code=400)
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.side_effect = GatewayError("bad metadata", status_code=400)
             rc = cmd_message_heartbeat(_make_hb_args())
         assert rc == 3
 
     def test_heartbeat_client_retries_5xx(self):
         """5xx from server → exit 2 (transient)."""
-        with patch("egg_lib.orch_cli.api_request") as mock_req:
-            mock_req.side_effect = ApiError("server error", status_code=500)
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.side_effect = GatewayError("server error", status_code=500)
             rc = cmd_message_heartbeat(_make_hb_args())
         assert rc == 2
 
@@ -489,18 +453,18 @@ class TestHeartbeat:
         payload — the server unpacks this into the stored message's
         metadata.since field.
         """
-        with patch("egg_lib.orch_cli.api_request") as mock_req:
-            mock_req.return_value = {"success": True}
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.return_value = {"success": True, "data": {"deduped": False}}
             cmd_message_heartbeat(_make_hb_args(since="1700000000"))
-            posted = mock_req.call_args[0][3]
+            posted = mock_req.call_args.kwargs["data"]
             assert posted["since"] == "1700000000"
 
     def test_heartbeat_rate_limit_429_returns_exit_3(self):
         """Plan TASK-3-4: 429 response triggers exit code 3 so wrappers
         treat it as a permanent failure and back off (rather than
         spin-retrying and hammering the server)."""
-        with patch("egg_lib.orch_cli.api_request") as mock_req:
-            mock_req.side_effect = ApiError(
+        with patch(_ORCH_MOCK_PATH) as mock_req:
+            mock_req.side_effect = GatewayError(
                 "rate limit",
                 status_code=429,
                 details={"retry_after": 30},

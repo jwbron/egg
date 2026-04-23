@@ -30,13 +30,35 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from egg_contracts.agent_roles import AgentRole, get_role_definition
-from egg_contracts.feedback import (
-    FeedbackQuestionInput,
-    generate_feedback_comment,
-    generate_feedback_id,
-)
 
 from egg_lib.config import GATEWAY_PORT
+
+# Shared exception types so handlers (and this CLI) can raise instead of
+# calling sys.exit.  See sandbox/egg_agent_tools/handlers/errors.py.
+try:
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+except ImportError:  # pragma: no cover - only during partial bootstraps
+
+    class HandlerError(Exception):  # type: ignore[no-redef]
+        def __init__(self, message: str, *, details: Any = None, exit_code: int = 1) -> None:
+            super().__init__(message)
+            self.message = message
+            self.details = details or {}
+            self.exit_code = exit_code
+
+    class GatewayError(HandlerError):  # type: ignore[no-redef]
+        def __init__(
+            self,
+            message: str,
+            *,
+            status_code: int | None = None,
+            details: Any = None,
+            hint: str | None = None,
+        ) -> None:
+            super().__init__(message, details=details)
+            self.status_code = status_code
+            self.hint = hint
+
 
 # Regex for validating git commit SHAs (7-40 hex characters)
 COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
@@ -252,7 +274,12 @@ def make_gateway_request(
         Response data as dictionary
 
     Raises:
-        SystemExit: On request failure
+        GatewayError: On HTTP/URL/timeout failure.  The caller (either a
+            ``cmd_*`` shim or a pure handler in ``egg_agent_tools``) is
+            responsible for rendering the error — ``make_gateway_request``
+            itself no longer calls ``sys.exit``.  Callers that want the
+            legacy print-and-exit behaviour should catch ``GatewayError``
+            and call :func:`_render_gateway_error_and_exit`.
     """
     gateway_url = get_gateway_url()
     url = f"{gateway_url}{endpoint}"
@@ -275,20 +302,41 @@ def make_gateway_request(
         try:
             error_data = json.loads(e.read().decode())
             message = error_data.get("message", str(e))
-            details = error_data.get("details", {})
-            print(f"Error: {message}", file=sys.stderr)
-            if details:
-                print(f"Details: {json.dumps(details, indent=2)}", file=sys.stderr)
+            details = error_data.get("details") or {}
         except (json.JSONDecodeError, Exception):
-            print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+            message = str(e)
+            details = {}
+        raise GatewayError(
+            message,
+            status_code=getattr(e, "code", None),
+            details=details if isinstance(details, dict) else {"raw": details},
+        ) from e
     except URLError as e:
-        print(f"Error connecting to gateway: {e.reason}", file=sys.stderr)
-        print("Is the gateway running?", file=sys.stderr)
-        sys.exit(1)
-    except TimeoutError:
-        print("Error: Request to gateway timed out", file=sys.stderr)
-        sys.exit(1)
+        raise GatewayError(
+            f"connecting to gateway: {e.reason}",
+            hint="Is the gateway running?",
+        ) from e
+    except TimeoutError as e:
+        raise GatewayError("Request to gateway timed out") from e
+
+
+def _render_gateway_error_and_exit(err: GatewayError) -> int:
+    """Render a GatewayError on stderr in the legacy make_gateway_request shape.
+
+    Kept as a helper so cmd_* shims that historically exited from inside
+    ``make_gateway_request`` continue to produce byte-identical output.
+    """
+    # Legacy shape — message first, then optional indented details, then
+    # the hint (for URL errors).
+    print(f"Error: {err.message}", file=sys.stderr)
+    if err.details:
+        try:
+            print(f"Details: {json.dumps(err.details, indent=2)}", file=sys.stderr)
+        except (TypeError, ValueError):
+            pass
+    if err.hint:
+        print(err.hint, file=sys.stderr)
+    return err.exit_code
 
 
 def cmd_show(args: argparse.Namespace) -> int:
@@ -482,7 +530,22 @@ def cmd_update_notes(args: argparse.Namespace) -> int:
 
 
 def cmd_complete_task(args: argparse.Namespace) -> int:
-    """Mark a task as complete, optionally linking a commit."""
+    """Mark a task as complete, optionally linking a commit.
+
+    Delegates to :func:`egg_agent_tools.handlers.task.task_complete`
+    so the MCP ``mcp__task__complete`` tool and the shell CLI share a
+    single handler.  Stdout text and exit code are byte-identical to
+    the pre-refactor CLI behaviour.
+
+    The handler raises :class:`GatewayError` with a message prefixed
+    ``"Task marked complete but failed to link commit: "`` on
+    commit-link failure; we catch that and render the legacy stderr
+    *without* the generic ``"Error:"`` prefix.  Status-mutation
+    failures render as ``"Error setting status: <msg>"``.
+    """
+    from egg_agent_tools.handlers import task as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError
+
     identifier = get_contract_identifier(args)
     if identifier is None:
         print(
@@ -492,69 +555,33 @@ def cmd_complete_task(args: argparse.Namespace) -> int:
         )
         return 1
 
-    try:
-        phase_idx, task_idx = parse_task_id(args.task)
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    repo_path = args.repo_path or get_repo_path()
-
-    # Set task status to complete
-    status_path = f"phases.{phase_idx}.tasks.{task_idx}.status"
-    result = make_gateway_request(
-        "/api/v1/contract/mutate",
-        method="POST",
-        data={
-            "identifier": identifier,
-            "repo_path": repo_path,
-            "field_path": status_path,
-            "new_value": "complete",
-            "actor": "egg",
-            "reason": f"Marked {args.task} as complete",
-            **_container_id_field(),
-        },
-    )
-
-    if not result.get("success"):
-        print(f"Error setting status: {result.get('message')}", file=sys.stderr)
-        return 1
-
-    # Optionally link a commit
+    req: dict[str, Any] = {
+        "task": args.task,
+        "repo_path": args.repo_path or get_repo_path(),
+    }
+    if isinstance(identifier, int):
+        req["issue"] = identifier
+    else:
+        req["pipeline_id"] = identifier
     if args.commit:
-        try:
-            validate_commit_sha(args.commit)
-        except ValueError as e:
-            print(f"Error: {e}", file=sys.stderr)
-            return 1
+        req["commit"] = args.commit
 
-        commit_path = f"phases.{phase_idx}.tasks.{task_idx}.commit"
-        commit_result = make_gateway_request(
-            "/api/v1/contract/mutate",
-            method="POST",
-            data={
-                "identifier": identifier,
-                "repo_path": repo_path,
-                "field_path": commit_path,
-                "new_value": args.commit,
-                "actor": "egg",
-                "reason": f"Linked commit {args.commit[:7]} to {args.task}",
-                **_container_id_field(),
-            },
-        )
+    try:
+        resp = _handlers.task_complete(req)
+    except GatewayError as err:
+        msg = err.message or str(err)
+        if msg.startswith("Task marked complete but failed to link commit: "):
+            # Preserve the original no-"Error:"-prefix "Warning:" wording
+            print(f"Warning: {msg}", file=sys.stderr)
+        else:
+            print(f"Error setting status: {msg}", file=sys.stderr)
+        return err.exit_code
 
-        if not commit_result.get("success"):
-            print(
-                f"Warning: Task marked complete but failed to link commit: "
-                f"{commit_result.get('message')}",
-                file=sys.stderr,
-            )
-            return 1
-
-        print(f"Completed {args.task} (commit {args.commit[:7]})")
+    commit = resp.get("commit")
+    if commit:
+        print(f"Completed {args.task} (commit {commit[:7]})")
     else:
         print(f"Completed {args.task}")
-
     return 0
 
 
@@ -736,12 +763,14 @@ def cmd_verify_criterion(args: argparse.Namespace) -> int:
 def cmd_add_decision(args: argparse.Namespace) -> int:
     """Create a HITL decision point.
 
-    Note: There is a potential race condition between reading the current
-    decision count and submitting the mutation. If concurrent agents both
-    call add-decision simultaneously, they may compute the same decision ID.
-    The gateway should handle conflicts by rejecting duplicate indices or
-    assigning IDs server-side. This is documented as a known limitation.
+    Delegates to :func:`egg_agent_tools.handlers.sdlc.register_open_question`
+    so the MCP ``mcp__sdlc__register_open_question`` tool and the CLI share
+    a single handler.  Note: the TOCTOU race on the decision ID is
+    inherited from the handler; the gateway rejects duplicate indices
+    server-side.
     """
+    from egg_agent_tools.handlers import sdlc as _handlers
+
     identifier = get_contract_identifier(args)
     if identifier is None:
         print(
@@ -751,86 +780,38 @@ def cmd_add_decision(args: argparse.Namespace) -> int:
         )
         return 1
 
-    # Get the current contract to determine the next decision ID
-    # NOTE: TOCTOU race condition exists here - concurrent calls may get same ID.
-    # The gateway should handle conflicts appropriately.
-    endpoint = f"/api/v1/contract/{identifier}"
-    params = {}
-    if args.repo_path:
-        params["repo_path"] = args.repo_path
-    container_id = get_container_id()
-    if container_id:
-        params["container_id"] = container_id
-    if params:
-        endpoint += "?" + urlencode(params)
-
-    contract_result = make_gateway_request(endpoint)
-    if not contract_result.get("success"):
-        print(f"Error: {contract_result.get('message')}", file=sys.stderr)
-        return 1
-
-    contract = contract_result.get("data", {})
-    decisions = contract.get("decisions", [])
-    next_id = len(decisions) + 1
-
-    # Build the new decision
-    decision_phase = args.phase or contract.get("current_phase")
-    new_decision = {
-        "id": f"decision-{next_id}",
+    req: dict[str, Any] = {
         "question": args.question,
-        "type": "hitl",
-        "phase": decision_phase,
-        "options": [],
-        "resolved": False,
-        "resolution": None,
-        "resolved_by": None,
-        "resolved_at": None,
-        "debounce_until": None,
+        "options": list(args.options) if args.options else [],
+        "repo_path": args.repo_path or get_repo_path(),
     }
-
-    # Parse options if provided, and auto-append "Other" option
-    if args.options:
-        for i, opt in enumerate(args.options):
-            new_decision["options"].append(
-                {"id": f"opt-{i + 1}", "label": opt, "description": None}
-            )
-        # Auto-append "Other (explain in reply)" as the last option
-        other_idx = len(args.options) + 1
-        new_decision["options"].append(
-            {"id": f"opt-{other_idx}", "label": "Other (explain in reply)", "description": None}
-        )
-
-    # Add the decision to the array
-    result = make_gateway_request(
-        "/api/v1/contract/mutate",
-        method="POST",
-        data={
-            "identifier": identifier,
-            "repo_path": args.repo_path or get_repo_path(),
-            "field_path": f"decisions.{len(decisions)}",
-            "new_value": new_decision,
-            "actor": "egg",
-            "reason": f"Created HITL decision: {args.question[:50]}{'...' if len(args.question) > 50 else ''}",
-            **_container_id_field(),
-        },
-    )
-
-    if result.get("success"):
-        # Output based on format
-        output_format = getattr(args, "format", "json")
-        if output_format == "markdown":
-            markdown = format_decision_markdown(
-                new_decision["id"],
-                args.question,
-                new_decision["options"],
-            )
-            print(markdown)
-        else:
-            print(f"Created decision {new_decision['id']}: {args.question}")
-        return 0
+    if isinstance(identifier, int):
+        req["issue"] = identifier
     else:
-        print(f"Error: {result.get('message')}", file=sys.stderr)
-        return 1
+        req["pipeline_id"] = identifier
+    if args.phase:
+        req["phase"] = args.phase
+
+    try:
+        resp = _handlers.register_open_question(req)
+    except GatewayError as err:
+        return _render_gateway_error_and_exit(err)
+    except HandlerError as err:
+        print(f"Error: {err.message}", file=sys.stderr)
+        return err.exit_code
+    decision = resp.get("decision", {})
+
+    output_format = getattr(args, "format", "json")
+    if output_format == "markdown":
+        markdown = format_decision_markdown(
+            decision["id"],
+            args.question,
+            decision.get("options", []),
+        )
+        print(markdown)
+    else:
+        print(f"Created decision {decision['id']}: {args.question}")
+    return 0
 
 
 VALID_AGENT_ROLES = ["coder", "tester", "documenter"]
@@ -1294,10 +1275,12 @@ def cmd_agent_next(args: argparse.Namespace) -> int:
 def cmd_add_feedback(args: argparse.Namespace) -> int:
     """Create a feedback comment for open-ended questions.
 
-    This command creates a consolidated feedback comment containing all open-ended
-    questions. Humans edit the comment to fill in answers and check a submit checkbox
-    to trigger processing.
+    Delegates to :func:`egg_agent_tools.handlers.sdlc.request_feedback`
+    so the MCP ``mcp__sdlc__request_feedback`` tool and the CLI share a
+    single handler.
     """
+    from egg_agent_tools.handlers import sdlc as _handlers
+
     identifier = get_contract_identifier(args)
     if identifier is None:
         print(
@@ -1311,89 +1294,36 @@ def cmd_add_feedback(args: argparse.Namespace) -> int:
         print("Error: At least one --question is required", file=sys.stderr)
         return 1
 
-    # Get the current contract to check for existing feedback
-    endpoint = f"/api/v1/contract/{identifier}"
-    params = {}
-    if args.repo_path:
-        params["repo_path"] = args.repo_path
-    container_id = get_container_id()
-    if container_id:
-        params["container_id"] = container_id
-    if params:
-        endpoint += "?" + urlencode(params)
-
-    contract_result = make_gateway_request(endpoint)
-    if not contract_result.get("success"):
-        print(f"Error: {contract_result.get('message')}", file=sys.stderr)
-        return 1
-
-    contract = contract_result.get("data", {})
-
-    # Check if there's already pending feedback
-    existing_feedback = contract.get("feedback")
-    if existing_feedback and not existing_feedback.get("submitted"):
-        print(
-            f"Warning: There is already pending feedback ({existing_feedback.get('id')}). "
-            "Creating new feedback will replace it.",
-            file=sys.stderr,
-        )
-
-    # Generate feedback ID
-    # Note: Unlike decisions which are an array, feedback is a single optional field
-    # We still generate an ID for tracking and the marker format
-    existing_ids = [existing_feedback.get("id")] if existing_feedback else []
-    feedback_id = generate_feedback_id(existing_ids)
-
-    # Build questions list
-    questions = []
-    for i, q in enumerate(args.question, start=1):
-        questions.append({"id": f"Q{i}", "question": q, "answer": None})
-
-    # Build the feedback object for the contract
-    new_feedback = {
-        "id": feedback_id,
-        "phase": contract.get("current_phase"),
-        "questions": questions,
-        "submitted": False,
-        "submitted_by": None,
-        "submitted_at": None,
-        "comment_id": None,
-        "debounce_until": None,
+    req: dict[str, Any] = {
+        "questions": list(args.question),
+        "repo_path": args.repo_path or get_repo_path(),
     }
-
-    # Update the contract with the new feedback
-    result = make_gateway_request(
-        "/api/v1/contract/mutate",
-        method="POST",
-        data={
-            "identifier": identifier,
-            "repo_path": args.repo_path or get_repo_path(),
-            "field_path": "feedback",
-            "new_value": new_feedback,
-            "actor": "egg",
-            "reason": f"Created feedback request with {len(questions)} question(s)",
-            **_container_id_field(),
-        },
-    )
-
-    if result.get("success"):
-        # Output based on format
-        output_format = getattr(args, "format", "json")
-        if output_format == "markdown":
-            # Generate the markdown comment
-            question_inputs = [
-                FeedbackQuestionInput(id=q["id"], question=q["question"]) for q in questions
-            ]
-            markdown = generate_feedback_comment(feedback_id, question_inputs)
-            print(markdown)
-        else:
-            print(f"Created feedback {feedback_id} with {len(questions)} question(s)")
-            for q in questions:
-                print(f"  {q['id']}: {q['question']}")
-        return 0
+    if isinstance(identifier, int):
+        req["issue"] = identifier
     else:
-        print(f"Error: {result.get('message')}", file=sys.stderr)
-        return 1
+        req["pipeline_id"] = identifier
+
+    try:
+        resp = _handlers.request_feedback(req)
+    except GatewayError as err:
+        return _render_gateway_error_and_exit(err)
+    except HandlerError as err:
+        print(f"Error: {err.message}", file=sys.stderr)
+        return err.exit_code
+    feedback_id = resp.get("id")
+    questions = resp.get("questions", [])
+    warning = resp.get("warning")
+    if warning:
+        print(f"Warning: {warning}", file=sys.stderr)
+
+    output_format = getattr(args, "format", "json")
+    if output_format == "markdown":
+        print(resp.get("markdown", ""))
+    else:
+        print(f"Created feedback {feedback_id} with {len(questions)} question(s)")
+        for q in questions:
+            print(f"  {q['id']}: {q['question']}")
+    return 0
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -1561,7 +1491,14 @@ def create_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Main entry point."""
+    """Main entry point.
+
+    Wraps ``args.func(args)`` in a try/except for :class:`GatewayError`
+    / :class:`HandlerError` so the raise-don't-exit behaviour of
+    ``make_gateway_request`` (and the shared handlers in
+    ``egg_agent_tools``) is rendered with the legacy stderr + exit-code
+    surface humans and scripts expect.
+    """
     parser = create_parser()
     args = parser.parse_args(argv)
 
@@ -1569,7 +1506,13 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 1
 
-    result: int = args.func(args)
+    try:
+        result: int = args.func(args)
+    except GatewayError as err:
+        return _render_gateway_error_and_exit(err)
+    except HandlerError as err:
+        print(f"Error: {err.message}", file=sys.stderr)
+        return err.exit_code
     return result
 
 

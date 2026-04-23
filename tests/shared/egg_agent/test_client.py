@@ -129,6 +129,18 @@ except ImportError:
     _mock_sdk.PermissionResultDeny = PermissionResultDeny  # type: ignore[attr-defined]
     _mock_sdk.ToolPermissionContext = ToolPermissionContext  # type: ignore[attr-defined]
     _mock_sdk.query = None  # type: ignore[attr-defined]  # Patched in tests
+
+    # Stubs for the in-process MCP server surface used by egg_agent_tools.
+    # build_sandbox_mcp_server() lazily imports create_sdk_mcp_server and
+    # _tool_compat.py imports tool — both from claude_agent_sdk.  Without
+    # these stubs, EGG_MCP_TOOLS=true tests and the SDK-surface smoke
+    # tests fail because the mock module is missing the expected symbols.
+    def _mock_create_sdk_mcp_server(*, name: str, version: str, tools: list):  # type: ignore[no-untyped-def]
+        return {"__mock__": name, "version": version, "tools": tools}
+
+    _mock_sdk.create_sdk_mcp_server = _mock_create_sdk_mcp_server  # type: ignore[attr-defined]
+    _mock_sdk.tool = lambda name, description, input_schema, annotations=None: lambda fn: fn  # type: ignore[attr-defined]
+
     sys.modules["claude_agent_sdk"] = _mock_sdk
 
 
@@ -827,3 +839,95 @@ class TestRunAgentSync:
 
         assert result.success is True
         assert "Hello from Claude" in result.stdout
+
+
+# ── EGG_MCP_TOOLS wire-up tests (issue #1765) ──────────────────────────────
+class TestMcpToolsFlag:
+    """Capture ClaudeAgentOptions kwargs via a patched constructor and
+    verify the gating behaviour of EGG_MCP_TOOLS."""
+
+    def _patch_options(self, captured: list):
+        from claude_agent_sdk import ClaudeAgentOptions as _Real
+
+        class _Capturing(_Real):  # type: ignore[misc,valid-type]
+            def __init__(self, **kwargs):
+                super().__init__(**kwargs)
+                captured.append(self)
+
+        return _Capturing
+
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_mcp_tools_flag_off(self, mock_query, monkeypatch):
+        monkeypatch.delenv("EGG_MCP_TOOLS", raising=False)
+        captured: list = []
+        capturing_cls = self._patch_options(captured)
+        with patch("claude_agent_sdk.ClaudeAgentOptions", capturing_cls):
+            _run_async(run_agent_async("hi"))
+        assert len(captured) == 1
+        opts = captured[0]
+        mcp = getattr(opts, "mcp_servers", None)
+        assert not mcp
+
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_mcp_tools_flag_on(self, mock_query, monkeypatch):
+        monkeypatch.setenv("EGG_MCP_TOOLS", "true")
+        captured: list = []
+        capturing_cls = self._patch_options(captured)
+        try:
+            from egg_agent_tools import SYSTEM_PROMPT_NUDGE
+        except ImportError:
+            import pytest
+
+            pytest.skip("egg_agent_tools not importable")
+        with patch("claude_agent_sdk.ClaudeAgentOptions", capturing_cls):
+            _run_async(run_agent_async("hi", system_prompt="existing-prompt"))
+        opts = captured[0]
+        assert getattr(opts, "mcp_servers", None)
+        assert opts.system_prompt.endswith(SYSTEM_PROMPT_NUDGE)
+        assert opts.system_prompt.startswith("existing-prompt")
+
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_mcp_tools_flag_on_no_caller_prompt(self, mock_query, monkeypatch):
+        monkeypatch.setenv("EGG_MCP_TOOLS", "yes")
+        captured: list = []
+        capturing_cls = self._patch_options(captured)
+        try:
+            from egg_agent_tools import SYSTEM_PROMPT_NUDGE
+        except ImportError:
+            import pytest
+
+            pytest.skip("egg_agent_tools not importable")
+        with patch("claude_agent_sdk.ClaudeAgentOptions", capturing_cls):
+            _run_async(run_agent_async("hi"))
+        assert captured[0].system_prompt == SYSTEM_PROMPT_NUDGE
+
+
+class TestCanUseToolPassesMcpNames:
+    """The can_use_tool callback only targets Write/Edit/NotebookEdit.
+    MCP tool names (mcp__*) must pass through with PermissionResultAllow."""
+
+    def test_can_use_tool_passes_mcp_names(self, monkeypatch):
+        monkeypatch.setenv("EGG_AGENT_ROLE", "coder")
+        from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
+        from egg_agent.tool_interceptor import (
+            check_file_write_permission,
+            get_role_from_env,
+        )
+
+        role = get_role_from_env()
+        assert role == "coder"
+
+        async def _check(tool_name, tool_input, context):
+            err = check_file_write_permission(tool_name, tool_input, role)
+            return PermissionResultDeny(message=err) if err else PermissionResultAllow()
+
+        for name in (
+            "mcp__brc__propose",
+            "mcp__sdlc__register_open_question",
+            "mcp__phase__get_context",
+            "mcp__task__complete",
+            "mcp__progress__emit",
+        ):
+            assert isinstance(_run_async(_check(name, {}, object())), PermissionResultAllow), (
+                f"MCP tool denied: {name}"
+            )

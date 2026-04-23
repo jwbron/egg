@@ -1437,6 +1437,27 @@ conflict when pushing, it should pull, rebase, and retry. If conflicts persist, 
 agent signals `BLOCKED` and a HITL decision is created. Consider adding role-based
 file restrictions to minimize overlap.
 
+## Agent MCP tools (`EGG_MCP_TOOLS` flag)
+
+**Default: off in iteration 1** — opt in per pipeline via the snippet below.
+
+Sandbox agents can call pipeline lifecycle operations (BRC consensus, HITL decisions, phase context, progress signals, task completion) through first-class Claude Agent SDK MCP tools rather than shelling out to `egg-contract` / `egg-orch` via `Bash`. The tools run **in-process** via `claude_agent_sdk.create_sdk_mcp_server` — no new network service, no new auth layer, no new process. See the [Agent MCP Tools reference](../reference/agent-tools.md) for the full 15-verb inventory (`mcp__sdlc__*`, `mcp__brc__*`, `mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`), schemas, and architecture.
+
+**Opt in per-pipeline.** The surface is gated behind the `EGG_MCP_TOOLS` environment variable (default **off** in iteration 1 — tracked in [#1765](https://github.com/jwbron/egg/issues/1765)). Set it on your sandbox pod env to enable:
+
+```bash
+# Per-pipeline opt-in via submit-task / pipeline-create payload
+{
+  "config": {
+    "env": {"EGG_MCP_TOOLS": "true"}
+  }
+}
+```
+
+Or export it in a local-quickstart shell before running `egg-sdlc`. Accepted truthy values: `true`, `1`, `yes`. When the flag is unset or falsy, `shared/egg_agent/client.py::run_agent_async` runs the pre-#1765 code path verbatim — no `mcp_servers` registration, no system-prompt changes, no import cost.
+
+The `claude_agent_sdk` harness is the only harness covered in iteration 1 (decision-3); `EGG_HARNESS=egg` does not yet register the tools. Iteration-2 verbs (peer, checkpoint, anchor, overseer, task-gap) are tracked in [#1917](https://github.com/jwbron/egg/issues/1917). The existing `sandbox/bin/egg-*` CLIs continue to work unchanged (decision-4).
+
 ## Pipeline Health Monitoring
 
 Pipeline health monitoring uses a **two-tier architecture** to detect and remediate agent stalls, errors, and anomalies without human intervention when possible.
