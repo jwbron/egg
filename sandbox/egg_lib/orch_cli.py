@@ -495,6 +495,26 @@ def _require_role(args: argparse.Namespace) -> str:
     return role
 
 
+def _render_handler_error(err: Any) -> int:
+    """Render a GatewayError / HandlerError in the legacy orch_cli stderr shape.
+
+    Used by the MCP-counterpart ``cmd_*`` functions so CLI parity is
+    preserved when a handler raises instead of returning ``success=False``.
+    """
+    message = getattr(err, "message", None) or str(err)
+    print(f"Error: {message}", file=sys.stderr)
+    status = getattr(err, "status_code", None)
+    if status:
+        print(f"Status: {status}", file=sys.stderr)
+    details = getattr(err, "details", None)
+    if details:
+        try:
+            print(f"Details: {json.dumps(details, indent=2)}", file=sys.stderr)
+        except (TypeError, ValueError):
+            pass
+    return int(getattr(err, "exit_code", 1))
+
+
 def cmd_signal_complete(args: argparse.Namespace) -> int:
     """Signal agent completion."""
     pid = require_pipeline_id(args)
@@ -522,76 +542,88 @@ def cmd_signal_complete(args: argparse.Namespace) -> int:
 
 
 def cmd_signal_progress(args: argparse.Namespace) -> int:
-    """Signal progress update."""
+    """Signal progress update.
+
+    Delegates to :func:`egg_agent_tools.handlers.progress.progress_emit`
+    so the MCP ``mcp__progress__emit`` tool and the CLI share one
+    handler.  Stdout / exit-code parity preserved.
+    """
+    from egg_agent_tools.handlers import progress as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
     pid = require_pipeline_id(args)
     role = _require_role(args)
-    data: dict[str, Any] = {
-        "signal_type": "progress",
-        "agent_role": role,
-        "progress_percent": args.percent,
+    req: dict[str, Any] = {
+        "pipeline_id": pid,
+        "role": role,
+        "percent": args.percent,
     }
     if args.task:
-        data["current_task"] = args.task
+        req["task"] = args.task
     if args.message:
-        data["message"] = args.message
+        req["message"] = args.message
 
-    result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    try:
+        resp = _handlers.progress_emit(req)
+    except (GatewayError, HandlerError) as err:
+        return _render_handler_error(err)
 
     if args.json:
-        print_json(result)
+        print_json(resp.get("signal", {}))
         return 0
-
-    if result.get("success"):
-        print(f"Progress: {args.percent}%")
-        return 0
-    print(f"Error: {result.get('message')}", file=sys.stderr)
-    return 1
+    print(f"Progress: {args.percent}%")
+    return 0
 
 
 def cmd_signal_error(args: argparse.Namespace) -> int:
-    """Signal an error."""
+    """Signal an error.
+
+    Delegates to :func:`egg_agent_tools.handlers.progress.progress_signal_error`.
+    """
+    from egg_agent_tools.handlers import progress as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
     pid = require_pipeline_id(args)
     role = _require_role(args)
-    data: dict[str, Any] = {
-        "signal_type": "error",
-        "agent_role": role,
+    req: dict[str, Any] = {
+        "pipeline_id": pid,
+        "role": role,
         "error": args.error,
         "recoverable": args.recoverable,
     }
-
-    result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    try:
+        resp = _handlers.progress_signal_error(req)
+    except (GatewayError, HandlerError) as err:
+        return _render_handler_error(err)
 
     if args.json:
-        print_json(result)
+        print_json(resp.get("signal", {}))
         return 0
-
-    if result.get("success"):
-        print(f"Signaled error for {role}")
-        return 0
-    print(f"Error: {result.get('message')}", file=sys.stderr)
-    return 1
+    print(f"Signaled error for {role}")
+    return 0
 
 
 def cmd_signal_heartbeat(args: argparse.Namespace) -> int:
-    """Send heartbeat."""
+    """Send heartbeat.
+
+    Delegates to :func:`egg_agent_tools.handlers.progress.progress_heartbeat`.
+    """
+    from egg_agent_tools.handlers import progress as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
     pid = require_pipeline_id(args)
     role = _require_role(args)
-    data: dict[str, Any] = {
-        "signal_type": "heartbeat",
-        "agent_role": role,
-    }
-
-    result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    req: dict[str, Any] = {"pipeline_id": pid, "role": role}
+    try:
+        resp = _handlers.progress_heartbeat(req)
+    except (GatewayError, HandlerError) as err:
+        return _render_handler_error(err)
 
     if args.json:
-        print_json(result)
+        print_json(resp.get("signal", {}))
         return 0
-
-    if result.get("success"):
-        print("Heartbeat sent")
-        return 0
-    print(f"Error: {result.get('message')}", file=sys.stderr)
-    return 1
+    print("Heartbeat sent")
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -1296,7 +1328,16 @@ def _consensus_push() -> int:
 
 
 def cmd_consensus_propose(args: argparse.Namespace) -> int:
-    """Send CONSENSUS_PROPOSE signal, optionally pushing code first."""
+    """Send CONSENSUS_PROPOSE signal, optionally pushing code first.
+
+    Delegates to :func:`egg_agent_tools.handlers.brc.brc_propose` so the
+    MCP ``mcp__brc__propose`` tool and the CLI share one handler.  The
+    ``--push`` / ``--file`` / ``--json`` / ``--commit-sha`` surface is
+    preserved.
+    """
+    from egg_agent_tools.handlers import brc as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
     pid = require_pipeline_id(args)
     role = _require_role(args)
 
@@ -1309,120 +1350,123 @@ def cmd_consensus_propose(args: argparse.Namespace) -> int:
         if push_result != 0:
             return push_result
 
-    # Read payload from file or construct from args
-    payload: dict[str, Any]
+    req: dict[str, Any]
     if getattr(args, "file", None):
+        # File-based payload: the handler expects structured fields. We
+        # pass the parsed dict through as kwargs so users who pre-build a
+        # payload file (for reproducible re-proposes) keep working.
         with open(args.file) as f:
-            payload = json.load(f)
-    else:
-        # Resolve commit SHA: use provided value or default to HEAD
-        commit_sha = getattr(args, "commit_sha", None) or ""
-        if not commit_sha:
-            try:
-                commit_sha = subprocess.check_output(
-                    ["git", "rev-parse", "HEAD"],
-                    text=True,
-                    cwd=os.environ.get("EGG_REPO_PATH"),
-                    stderr=subprocess.DEVNULL,
-                ).strip()
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                print(
-                    "Error: --commit-sha not provided and could not resolve HEAD",
-                    file=sys.stderr,
-                )
-                return 1
-        payload = {
-            "summary": getattr(args, "summary", "") or "",
-            "attestation": {},
-            "artifacts": getattr(args, "artifacts", []) or [],
-            "risk_considered": getattr(args, "risk", "") or "",
-            "commit_sha": commit_sha,
-            "files_changed": getattr(args, "files_changed", []) or [],
-            "tests_run": getattr(args, "tests_run", []) or [],
-            "tasks_satisfied": getattr(args, "tasks", []) or [],
+            file_payload: dict[str, Any] = json.load(f)
+        # Resolve commit SHA fallback so the handler can skip subprocess.
+        commit_sha = file_payload.get("commit_sha") or getattr(
+            args, "commit_sha", None
+        )
+        req = {
+            "pipeline_id": pid,
+            "role": role,
+            "summary": file_payload.get("summary", ""),
+            "attestation": file_payload.get("attestation") or {},
+            "artifacts": file_payload.get("artifacts") or [],
+            "risk_considered": file_payload.get("risk_considered")
+            or file_payload.get("risk", ""),
+            "files_changed": file_payload.get("files_changed") or [],
+            "tests_run": file_payload.get("tests_run") or [],
+            "tasks": file_payload.get("tasks_satisfied")
+            or file_payload.get("tasks", []),
         }
+        if commit_sha:
+            req["commit_sha"] = commit_sha
+    else:
+        req = {
+            "pipeline_id": pid,
+            "role": role,
+            "summary": getattr(args, "summary", "") or "",
+            "artifacts": list(getattr(args, "artifacts", []) or []),
+            "risk_considered": getattr(args, "risk", "") or "",
+            "files_changed": list(getattr(args, "files_changed", []) or []),
+            "tests_run": list(getattr(args, "tests_run", []) or []),
+            "tasks": list(getattr(args, "tasks", []) or []),
+        }
+        if getattr(args, "commit_sha", None):
+            req["commit_sha"] = args.commit_sha
 
     changed_artifacts = getattr(args, "changed_artifacts", None)
-
-    data: dict[str, Any] = {
-        "signal_type": "consensus_propose",
-        "agent_role": role,
-        "payload": payload,
-    }
     if changed_artifacts:
-        data["changed_artifacts"] = changed_artifacts
+        req["changed_artifacts"] = list(changed_artifacts)
 
-    result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    try:
+        resp = _handlers.brc_propose(req)
+    except (GatewayError, HandlerError) as err:
+        return _render_handler_error(err)
 
+    signal = resp.get("signal", {})
     if args.json:
-        print_json(result)
+        print_json(signal)
         return 0
 
-    if result.get("success"):
-        print(f"Proposal sent by {role}")
-        consensus = result.get("data", {}).get("consensus", {})
-        phase = consensus.get("agents", {}).get(role, {}).get("phase", "")
-        if phase:
-            print(f"  BRC phase: {phase}")
-        return 0
-    print(f"Error: {result.get('message')}", file=sys.stderr)
-    return 1
+    print(f"Proposal sent by {role}")
+    phase = resp.get("phase")
+    if phase:
+        print(f"  BRC phase: {phase}")
+    return 0
 
 
 def cmd_consensus_ack(args: argparse.Namespace) -> int:
-    """Send CONSENSUS_ACK signal for a producer."""
+    """Send CONSENSUS_ACK signal for a producer.
+
+    Delegates to :func:`egg_agent_tools.handlers.brc.brc_ack`.
+    """
+    from egg_agent_tools.handlers import brc as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
     pid = require_pipeline_id(args)
     role = _require_role(args)
-
-    data: dict[str, Any] = {
-        "signal_type": "consensus_ack",
-        "agent_role": role,
+    req = {
+        "pipeline_id": pid,
+        "role": role,
         "producer_role": args.producer_role,
-        "payload": {
-            "artifact_references": args.files_reviewed,
-            "reason": args.reason,
-        },
+        "reason": args.reason,
+        "files_reviewed": list(args.files_reviewed or []),
     }
-
-    result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    try:
+        resp = _handlers.brc_ack(req)
+    except (GatewayError, HandlerError) as err:
+        return _render_handler_error(err)
 
     if args.json:
-        print_json(result)
+        print_json(resp.get("signal", {}))
         return 0
-
-    if result.get("success"):
-        print(f"ACK sent by {role} for {args.producer_role}")
-        return 0
-    print(f"Error: {result.get('message')}", file=sys.stderr)
-    return 1
+    print(f"ACK sent by {role} for {args.producer_role}")
+    return 0
 
 
 def cmd_consensus_nack(args: argparse.Namespace) -> int:
-    """Send CONSENSUS_NACK signal for a producer."""
+    """Send CONSENSUS_NACK signal for a producer.
+
+    Delegates to :func:`egg_agent_tools.handlers.brc.brc_nack`.
+    """
+    from egg_agent_tools.handlers import brc as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
     pid = require_pipeline_id(args)
     role = _require_role(args)
-
-    data: dict[str, Any] = {
-        "signal_type": "consensus_nack",
-        "agent_role": role,
+    req = {
+        "pipeline_id": pid,
+        "role": role,
         "producer_role": args.producer_role,
-        "payload": {
-            "reason": args.reason,
-            "artifact_references": args.files_reviewed,
-        },
+        "reason": args.reason,
+        "files_reviewed": list(args.files_reviewed or []),
     }
-
-    result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    try:
+        resp = _handlers.brc_nack(req)
+    except (GatewayError, HandlerError) as err:
+        return _render_handler_error(err)
 
     if args.json:
-        print_json(result)
+        print_json(resp.get("signal", {}))
         return 0
-
-    if result.get("success"):
-        print(f"NACK sent by {role} for {args.producer_role}: {args.reason}")
-        return 0
-    print(f"Error: {result.get('message')}", file=sys.stderr)
-    return 1
+    print(f"NACK sent by {role} for {args.producer_role}: {args.reason}")
+    return 0
 
 
 def cmd_consensus_withdraw(args: argparse.Namespace) -> int:
@@ -1450,34 +1494,33 @@ def cmd_consensus_withdraw(args: argparse.Namespace) -> int:
 
 
 def cmd_consensus_confirmed(args: argparse.Namespace) -> int:
-    """Send CONSENSUS_CONFIRMED signal after all reviewers ACK."""
+    """Send CONSENSUS_CONFIRMED signal after all reviewers ACK.
+
+    Delegates to :func:`egg_agent_tools.handlers.brc.brc_confirm`.
+    Exit-code parity preserved: 2 for ``pending_acks``, 0 for
+    confirmed, 1 for gateway error.
+    """
+    from egg_agent_tools.handlers import brc as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
     pid = require_pipeline_id(args)
     role = _require_role(args)
-
-    data: dict[str, Any] = {
-        "signal_type": "consensus_confirmed",
-        "agent_role": role,
-    }
-
-    result = orch_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    try:
+        resp = _handlers.brc_confirm({"pipeline_id": pid, "role": role})
+    except (GatewayError, HandlerError) as err:
+        return _render_handler_error(err)
 
     if args.json:
-        print_json(result)
+        print_json(resp.get("signal", {}))
         return 0
 
-    if result.get("success"):
-        data = result.get("data", {})
-        # 202: producer is waiting for reviewer re-ACKs after re-proposal
-        if data.get("status") == "pending_acks":
-            print(f"Waiting for reviewer re-ACKs: {result.get('message')}")
-            return 2
-        consensus_reached = data.get("consensus_reached", False)
-        print(f"Confirmation recorded for {role}")
-        if consensus_reached:
-            print("  Consensus reached!")
-        return 0
-    print(f"Error: {result.get('message')}", file=sys.stderr)
-    return 1
+    if resp.get("status") == "pending_acks":
+        print(f"Waiting for reviewer re-ACKs: {resp.get('message')}")
+        return 2
+    print(f"Confirmation recorded for {role}")
+    if resp.get("consensus_reached"):
+        print("  Consensus reached!")
+    return 0
 
 
 def cmd_consensus_status(args: argparse.Namespace) -> int:
