@@ -281,10 +281,10 @@
     },
     "implement": {
       "phase": "implement",
-      "status": "running",
+      "status": "complete",
       "started_at": "2026-04-23T03:04:08.764619Z",
       "work_started_at": "2026-04-23T03:04:09.654460Z",
-      "completed_at": null,
+      "completed_at": "2026-04-23T03:39:40.695455Z",
       "containers": [
         {
           "container_id": "34fbb6bd-45f2-4740-9759-7a5bc3e3ca7e",
@@ -355,11 +355,11 @@
       "agents": [
         {
           "role": "tester",
-          "status": "running",
+          "status": "complete",
           "container_id": "34fbb6bd-45f2-4740-9759-7a5bc3e3ca7e",
           "container_info": null,
           "started_at": "2026-04-23T03:04:15.958700Z",
-          "completed_at": null,
+          "completed_at": "2026-04-23T03:39:40.695444Z",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -368,11 +368,11 @@
         },
         {
           "role": "coder",
-          "status": "running",
+          "status": "complete",
           "container_id": "656161bd-7eb9-46e9-9020-b803d23c885b",
           "container_info": null,
           "started_at": "2026-04-23T03:04:15.958709Z",
-          "completed_at": null,
+          "completed_at": "2026-04-23T03:39:40.695447Z",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -381,11 +381,11 @@
         },
         {
           "role": "reviewer_contract",
-          "status": "running",
+          "status": "complete",
           "container_id": "91009020-9234-44f6-8a02-a14c16d132f0",
           "container_info": null,
           "started_at": "2026-04-23T03:04:15.958713Z",
-          "completed_at": null,
+          "completed_at": "2026-04-23T03:39:40.695449Z",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -394,11 +394,11 @@
         },
         {
           "role": "documenter",
-          "status": "running",
+          "status": "complete",
           "container_id": "79c82311-6bef-4b00-8cc0-fc2064aa43cb",
           "container_info": null,
           "started_at": "2026-04-23T03:04:15.958717Z",
-          "completed_at": null,
+          "completed_at": "2026-04-23T03:39:40.695450Z",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -407,11 +407,11 @@
         },
         {
           "role": "reviewer_code",
-          "status": "running",
+          "status": "complete",
           "container_id": "817181b9-5f84-4d3b-a166-fb4ef186c3b8",
           "container_info": null,
           "started_at": "2026-04-23T03:04:15.958720Z",
-          "completed_at": null,
+          "completed_at": "2026-04-23T03:39:40.695451Z",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -602,7 +602,7 @@
     }
   ],
   "created_at": "2026-04-22T23:25:22.973469Z",
-  "updated_at": "2026-04-23T03:04:15.958794Z",
+  "updated_at": "2026-04-23T03:39:40.696115Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -615,5 +615,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T00:10:48.673750Z",
-  "version": 50
+  "version": 51
 }
