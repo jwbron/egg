@@ -56,6 +56,24 @@ Both modes use the same `ANTHROPIC_BASE_URL` mechanism:
 - Streaming responses via Flask's `stream_with_context` (no buffering)
 - Header blocklist approach: forwards all headers except auth-related ones
 - Full error passthrough including `x-request-id` for debugging
+- **Upstream stream-reset resilience** (see [Upstream Stream Resilience](#upstream-stream-resilience) below)
+
+### Upstream Stream Resilience
+
+Long-running Anthropic `/v1/messages` SSE responses occasionally terminate with an upstream TCP reset (ECONNRESET) — the LB/edge idle-times the connection, the proxy rebalances, or a middlebox closes the socket mid-stream. Without mitigation, `httpx` surfaces this as `httpx.ReadError` / `httpx.RemoteProtocolError`, the downstream SDK sees a truncated SSE stream with no terminating event, and the agent dies on a fatal `socket connection was closed unexpectedly` — losing all in-flight work (see [#1907](https://github.com/jwbron/egg/issues/1907)).
+
+The gateway's `proxy_anthropic_messages()` handles this in two complementary ways:
+
+| Reset timing | Gateway behavior | Agent-visible effect |
+|--------------|------------------|----------------------|
+| **Pre-stream** (on `client.send()` or before the first downstream byte) | Close the failed upstream, rebuild the request, retry once. If the retry succeeds, proceed normally; if it also fails, fall through to the existing 502 error path. | None — the retry is transparent. |
+| **Mid-stream** (after downstream bytes have already flowed) | Catch the `ReadError` / `RemoteProtocolError` inside the `iter_bytes()` loop, emit a well-formed synthetic SSE `event: error` frame with an Anthropic-style payload, feed it through the accumulator so the transcript still captures the failure, and close the stream cleanly. `finally: upstream.close()` + `_capture_streaming_response` continue to run. A `logger.warning` records the reset with `container_id` and `bytes_seen`. | A clean SSE `error` event instead of a truncated socket. The SDK reports a recoverable error rather than a fatal hang-up, and the `aclose()` cleanup bug is avoided. |
+
+**Why not full stream resumption?** Anthropic's API exposes no resume tokens, and the partial generation on the wire is orphaned once the upstream socket dies. Mid-stream retry would risk double-charging and interleaving two divergent generations on the downstream wire. Pre-stream retry is safe because by definition no downstream bytes have been committed yet.
+
+**Bounded retry.** The pre-stream retry is capped at one attempt and is gated on `bytes_seen == 0`. Second-failure cases fall through to the pre-existing `except httpx.ConnectError / TimeoutException / Exception` handlers, preserving their 502/504 error contracts.
+
+**Scope.** This fix lives entirely inside the gateway. It is distinct from [#1883](https://github.com/jwbron/egg/issues/1883) (gateway pod restart — gateway *process* is gone) and [#1873](https://github.com/jwbron/egg/issues/1873) (turn-1 transient retry in `consensus-wrapper`). Those handle cases where the gateway itself cannot re-issue the upstream request; this handles the far more common case where the gateway is healthy and only a single upstream connection died.
 
 ### Container Configuration
 
