@@ -1593,6 +1593,43 @@ def git_execute() -> tuple[Response, int] | Response:
     env = os.environ.copy()
     env["GIT_EDITOR"] = "true"
 
+    # Commit-authorship observer (#1882): snapshot HEAD before the git
+    # subcommand so we can compute which commits (if any) it created
+    # and register them with the orchestrator's authorship registry.
+    # Only agent sessions participate; internal gateway ops skip.
+    _observer_role: str | None = None
+    _observer_pipeline_id: str | None = None
+    _observer_repo: str | None = None
+    _observer_branch: str | None = None
+    _observer_before_head: str | None = None
+    _session_for_observer = getattr(g, "session", None)
+    if _session_for_observer is not None:
+        _observer_role = getattr(_session_for_observer, "agent_role", None)
+        _observer_pipeline_id = getattr(_session_for_observer, "pipeline_id", None)
+        _observer_repo = getattr(_session_for_observer, "repo", None) or getattr(
+            _session_for_observer, "checkpoint_repo", None
+        )
+        _observer_branch = getattr(
+            _session_for_observer, "assigned_branch", None
+        ) or getattr(_session_for_observer, "branch", None)
+    if _observer_role and operation in (
+        "commit",
+        "merge",
+        "cherry-pick",
+        "revert",
+        "rebase",
+        "am",
+        "apply",
+        "reset",
+        "restore",
+        "stash",
+    ):
+        try:
+            from commit_observer import capture_head as _capture_head  # type: ignore[import-not-found]
+        except ImportError:  # pragma: no cover - package import path
+            from .commit_observer import capture_head as _capture_head  # type: ignore[no-redef]
+        _observer_before_head = _capture_head(exec_path)
+
     try:
         result = subprocess.run(
             cmd,
@@ -1605,6 +1642,32 @@ def git_execute() -> tuple[Response, int] | Response:
         )
 
         if result.returncode == 0:
+            # Fire the observer on any successful ref-mutating op.
+            if _observer_role:
+                try:
+                    try:
+                        from commit_observer import (  # type: ignore[import-not-found]
+                            observe_after_git_execute as _observe_after,
+                        )
+                    except ImportError:  # pragma: no cover
+                        from .commit_observer import (  # type: ignore[no-redef]
+                            observe_after_git_execute as _observe_after,
+                        )
+                    _observe_after(
+                        exec_path,
+                        before_head=_observer_before_head,
+                        branch=_observer_branch,
+                        session_role=_observer_role,
+                        pipeline_id=_observer_pipeline_id,
+                        repo=_observer_repo,
+                    )
+                except Exception:
+                    # Observer is best-effort — never block the git
+                    # response on a registry failure.
+                    logger.debug(
+                        "commit_observer_swallowed",
+                        exc_info=True,
+                    )
             audit_log(
                 "git_execute_success",
                 operation,

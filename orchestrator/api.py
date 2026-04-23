@@ -38,6 +38,7 @@ app = Flask(__name__)
 # Register blueprints
 try:
     from routes.anchors import anchors_bp
+    from routes.commit_authorship import commit_authorship_bp
     from routes.containers import containers_bp
     from routes.contracts import contract_mutations_bp, contracts_bp
     from routes.decisions import decisions_bp
@@ -65,8 +66,12 @@ try:
     app.register_blueprint(metrics_bp)
     app.register_blueprint(progress_bp)
     app.register_blueprint(webhooks_bp)
+    app.register_blueprint(commit_authorship_bp)
 except ImportError:
     from .routes.anchors import anchors_bp  # type: ignore[no-redef]
+    from .routes.commit_authorship import (  # type: ignore[no-redef]
+        commit_authorship_bp,
+    )
     from .routes.containers import containers_bp  # type: ignore[no-redef]
     from .routes.contracts import (  # type: ignore[no-redef]
         contract_mutations_bp,
@@ -97,6 +102,7 @@ except ImportError:
     app.register_blueprint(metrics_bp)
     app.register_blueprint(progress_bp)
     app.register_blueprint(webhooks_bp)
+    app.register_blueprint(commit_authorship_bp)
 
 
 @app.before_request
