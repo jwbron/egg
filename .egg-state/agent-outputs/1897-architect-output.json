@@ -2,11 +2,65 @@
   "issue": 1897,
   "phase": "plan",
   "agent": "architect",
-  "revision": 3,
+  "revision": 4,
   "title": "Agent wait heuristics: replace sleep/poll loops with event-driven BRC message stream consumption",
-  "summary": "Architecture analysis for Option C (full scope per HITL resolution). Revision 3 reconciles with the task_planner's already-CONFIRMED plan: the consensus_wrapper uses SSE (curl --no-buffer against the existing EventType.CONSENSUS_REACHED event emitted by orchestrator/sse.py), NOT a new MessageType.CONSENSUS_REACHED; the agent preamble uses the canonical `egg-orch message wait-loop --for <TYPE>` idiom keyed off the existing MessageType.CONSENSUS_CONFIRMED. TD-8 (new MessageType) is DELETED — the existing EventType.CONSENSUS_REACHED at events.py:67 already handles the wrapper case without a new bus type. Tracks collapse to six: prompt audit + single-idiom docs, configurable --wait cap, typed blocking primitive + wait-loop, in-memory store blocking, HEARTBEAT + HealthMonitor + QUESTION removal, consensus_wrapper SSE rewrite, and WSGI worker-model deployment track.",
+  "summary": "Architecture analysis for Option C (full scope per HITL resolution). Revision 4 addresses reviewer_plan NACK on rev 3: all line citations against orchestrator/routes/pipelines.py were re-verified from a fresh grep (producer STAY ALIVE at 6231, reviewer STAY ALIVE at 6292, QUESTION reviewer example at 6338-6346, BRC_HISTORY_TYPES frozenset at 5037-5052, messages.py try/except at 179-184, health_monitor._on_message_sent at 330-363). Track 7 rewritten — the orchestrator runs Waitress via waitress.serve (orchestrator/cli.py:284-290), NOT Gunicorn; mitigation is to raise the Waitress thread count via a new EGG_WAITRESS_THREADS env var, add a /healthz route that is serviced by the same thread pool but returns immediately, and document the EGG_MESSAGE_POLL_MAX_WAIT × thread-count coupling. Track 6 corrected — the SSE route is `GET /api/v1/pipelines/<pipeline_id>/stream` (orchestrator/routes/pipelines.py:11772), NOT `/events`. Revision 3 still stands on: deferral to task_planner's plan-as-canonical-ordering, F1-F8 diagnoses, TD-8 deletion, seven tracks mapping onto nine plan phases, SSE approach for wrapper, wait-loop canonical idiom.",
 
   "review_feedback_addressed": {
+    "reviewer_plan_revision_3_nacks": [
+      {
+        "nack_id": "blocking-1-rev3",
+        "summary": "`current_architecture.brc_preamble_assembly` line numbers are systematically wrong (producer STAY ALIVE claimed 5959, actually 6231; reviewer claimed 6020, actually 6292; QUESTION example claimed 6062-6074, actually 6338-6346; BRC_HISTORY_TYPES claimed 4775, actually 5037). Wrong numbers propagate into F1, F7, and risk_analyst RISK-1/RISK-10.",
+        "resolution": "Re-verified every pipelines.py line citation via fresh `grep -n`. Updated (a) current_architecture.brc_preamble_assembly (producer 6231, reviewer 6292, preamble 6120-6360), (b) reviewer_question_advertisement (6338-6346), (c) brc_history_types (5037-5052), (d) F1 and F7 descriptions. Switched to symbolic references where feasible ('the BRC_HISTORY_TYPES frozenset', 'the QUESTION reviewer-preamble example') with absolute line numbers retained as a secondary cue — minimises drift. Also corrected messages.py try/except (179-184 not 181-184) and health_monitor._on_message_sent (330-363 not 330-360) per non-blocking feedback."
+      },
+      {
+        "nack_id": "blocking-2-rev3",
+        "summary": "Track 7 ('WSGI worker model + operator guide') inherits plan's Gunicorn assumption — but orchestrator runs Waitress (orchestrator/cli.py:284-290: `waitress.serve(app, host=host, port=port, threads=16)`). No Gunicorn anywhere; 'Switch Gunicorn to gevent workers' is impossible to implement.",
+        "resolution": "Track 7 rewritten to acknowledge Waitress. New scope: (a) raise thread count via new `EGG_WAITRESS_THREADS` env var (default 16, preserves behavior; document recommendation: `2 × max_concurrent_agents × rounds_per_phase + 4` safety margin); (b) keep `waitress.serve()` — the existing cli.py:285-287 comment already notes Waitress accommodates blocking I/O without async workers, so the switch to gevent workers is unnecessary and was a plan/architect drift; (c) add a `/healthz` route at orchestrator/routes/health.py that does no work and returns immediately so liveness probes are not starved by long-polling threads; (d) document the `EGG_MESSAGE_POLL_MAX_WAIT × EGG_WAITRESS_THREADS` coupling and the saturation math in docs/reference/agent-wait-patterns.md. Coordinating with task_planner via the BRC NACK chain so plan TASK-4-1/4-2/4-3 converge on the same design (reviewer_plan is NACKing the plan on the same grounds)."
+      },
+      {
+        "nack_id": "blocking-3-rev3",
+        "summary": "Track 6 ('consensus_wrapper SSE rewrite') cites wrong SSE endpoint. Plan TASK-5-1 says `/api/v1/pipelines/$PIPELINE_ID/events`, but actual route is `/api/v1/pipelines/<pipeline_id>/stream` (orchestrator/routes/pipelines.py:11772; also README.md:136-137). As written the wrapper hits 404 and silently regresses to shell fallback.",
+        "resolution": "Track 6 scope and current_architecture.consensus_reached_event updated to name the actual URL: `GET /api/v1/pipelines/<pipeline_id>/stream` (at orchestrator/routes/pipelines.py:11772 — decorator `@pipelines_bp.route('/<pipeline_id>/stream', methods=['GET'])`). Added explicit note: consensus_wrapper must hit `/api/v1/pipelines/<pipeline_id>/stream`, filter the SSE event-name stream for events named 'consensus.reached' (EventType.CONSENSUS_REACHED at orchestrator/events.py:67 maps to that event-name via sse.py's format_sse_event), and exit on first match. Flagged the same error in plan TASK-5-1 via the NACK chain — task_planner will need to correct the plan in lockstep."
+      }
+    ],
+    "reviewer_plan_revision_3_nonblocking": [
+      {
+        "id": "nb-r3-1",
+        "summary": "current_architecture.consensus_wrapper_stay_alive_loop location lists `304, 322-351` but MAX_READY_POLLS={max_ready_polls} at line 304 is a Python f-string template variable, not a constant. The Python constant is MAX_READY_POLL_CYCLES=10 at line 38.",
+        "resolution": "Location string rewritten to: 'orchestrator/consensus_wrapper.py — MAX_READY_POLL_CYCLES=10 at line 38 (Python constant); MAX_READY_POLLS={max_ready_polls} at line 304 (bash template substitution); the shell sleep loop at lines 322-351.' Implementer will grep both forms."
+      },
+      {
+        "id": "nb-r3-2",
+        "summary": "current_architecture.message_poll_http_route.inmemory_silent_fallback_lines is '181-184' but the try/except actually spans 179-184.",
+        "resolution": "Corrected to '179-184'."
+      },
+      {
+        "id": "nb-r3-3",
+        "summary": "health_monitor._on_message_sent line range: reviewer says 330-363 not 330-360.",
+        "resolution": "Corrected to '330-363'."
+      },
+      {
+        "id": "nb-r3-4",
+        "summary": "recommended_approach.merge_order lists 8 entries (Phases 1-8) but plan has 9 phases. Phase 9 (docs) is missing.",
+        "resolution": "Added plan Phase 9 as the final merge_order entry (maps to Track 1 part c — docs/reference/agent-wait-patterns.md + concurrent-execution.md update)."
+      },
+      {
+        "id": "nb-r3-5",
+        "summary": "dependencies_on_other_producers.task_planner says 'Plan is CONFIRMED' but the plan is actually at CONSENSUS_PROPOSE at the time of this re-proposal.",
+        "resolution": "Softened to 'Plan is at revision 3, CONSENSUS_PROPOSE (reviewer_plan NACK chain in progress; architect analysis reconciles with plan on design and defers to plan for sequencing)'."
+      },
+      {
+        "id": "nb-r3-6",
+        "summary": "hitl_resolutions_applied.decision_8_wrapper_loop lumps 'SSE endpoint unreachable' into one fallback case, but there are three distinct subcases (SSE 503, SSE connection-refused i.e. no orchestrator, orchestrator-up-but-Redis-down).",
+        "resolution": "decision_8_wrapper_loop rewritten to name all three subcases: (a) SSE 503 / 5xx — orchestrator alive but not serving stream → retry once then fall through to shell sleep loop; (b) SSE connection-refused / EHOSTUNREACH — no orchestrator → direct shell sleep loop, do not retry curl; (c) orchestrator-up-but-Redis-down — SSE stream is still driven by the in-process EventBus so EventType.CONSENSUS_REACHED still fires via SSE; the wrapper continues to work. Documented in Track 6 scope."
+      },
+      {
+        "id": "nb-r3-7",
+        "summary": "current_architecture.gateway_http_proxy.gateway_session_idle conflates 'EGG_SESSION_IDLE_TIMEOUT_MINUTES=60 (gateway/gateway.py:5715)' with Squid proxy idle timeout.",
+        "resolution": "Block rewritten to distinguish three separate timeouts: (a) gateway session idle (EGG_SESSION_IDLE_TIMEOUT_MINUTES=60, gateway/gateway.py:5715 — cleans up stale agent sessions); (b) Squid proxy idle (bounds long-poll TCP connection lifetime; configured in the gateway deploy ConfigMap, not currently surfaced as an env var at the Python level); (c) orchestrator waitress connection timeout (no explicit cap beyond the wait-query-param ceiling). Implementer of Track 2 / plan TASK-2-3 must raise both (a) and (b) in lockstep when EGG_MESSAGE_POLL_MAX_WAIT goes above 60."
+      }
+    ],
     "reviewer_plan_revision_2_nacks": [
       {
         "nack_id": "blocking-1-rev2",
@@ -70,34 +124,34 @@
     "decision_5_question_type": "Remove QUESTION message type at all 11 call sites; no replacement this pipeline",
     "decision_6": "Superseded — see decision_7",
     "decision_7_regression_guard": "Explicit Don'ts in BRC preamble; no gateway-level bash rejection",
-    "decision_8_wrapper_loop": "Replace consensus_wrapper shell sleep loop with event-driven block on the EXISTING EventType.CONSENSUS_REACHED via SSE (curl --no-buffer). SIGTERM via socket close. Fallback to shell sleep loop if SSE endpoint unreachable (RISK-6 load-bearing for local dev)."
+    "decision_8_wrapper_loop": "Replace consensus_wrapper shell sleep loop with event-driven block on the EXISTING EventType.CONSENSUS_REACHED via SSE (curl --no-buffer against `GET /api/v1/pipelines/<pipeline_id>/stream`, filtering for event-name `consensus.reached`). SIGTERM via explicit trap that kills the curl PID before exit. Fallback matrix (three subcases): (a) SSE 503/5xx — orchestrator alive but stream unavailable: retry curl once with 2s backoff, then fall through to shell sleep loop; (b) SSE connection-refused / EHOSTUNREACH / DNS failure — no orchestrator (typical local-dev without the stack): skip curl, go direct to shell sleep loop; (c) orchestrator-up-but-Redis-down — SSE stream is driven by the in-process EventBus, so `event: consensus.reached` still fires on local-dev without Redis (this was the original RISK-6 load-bearing scenario). Preserves zero-Redis local-dev path."
   },
 
   "current_architecture": {
     "brc_preamble_assembly": {
-      "location": "orchestrator/routes/pipelines.py:5905-6038",
-      "producer_lifecycle_step_6_line": 5959,
-      "reviewer_lifecycle_step_7_line": 6020,
+      "location": "orchestrator/routes/pipelines.py — `_build_brc_preamble()` spans lines 6120-6360 (the preamble assembly function)",
+      "producer_lifecycle_step_6_line": 6231,
+      "reviewer_lifecycle_step_7_line": 6292,
       "current_text": "6/7. **STAY ALIVE**: Keep polling `egg-orch message poll --wait 30` until the orchestrator stops you.",
-      "problem": "'Keep polling' reads as a recurring action the agent must orchestrate, nudging LLMs toward for-loops and sleep commands."
+      "problem": "'Keep polling' reads as a recurring action the agent must orchestrate, nudging LLMs toward for-loops and sleep commands. Verified via `grep -n 'STAY ALIVE' orchestrator/routes/pipelines.py` → 6231, 6292."
     },
     "reviewer_question_advertisement": {
-      "location": "orchestrator/routes/pipelines.py:6062-6074",
+      "location": "orchestrator/routes/pipelines.py — the QUESTION reviewer-preamble block starting at line 6338 ('**QUESTION**: Ask a producer…') with the egg-orch message send example at lines 6342-6346",
       "current_text": "**QUESTION**: Ask a producer for clarification before or during your review. This avoids unnecessary NACKs for ambiguities that can be resolved with a quick exchange.",
-      "problem": "Active advertisement of QUESTION to reviewers. Removing the type without also removing this preamble section would produce runtime rejections when reviewers follow the preamble's advice."
+      "problem": "Active advertisement of QUESTION to reviewers. Removing the type without also removing this preamble section would produce runtime rejections when reviewers follow the preamble's advice. Grep anchor: `grep -n 'QUESTION' orchestrator/routes/pipelines.py`."
     },
     "brc_history_types": {
-      "location": "orchestrator/routes/pipelines.py:4775",
-      "definition_lines": "4769-4780",
+      "location": "orchestrator/routes/pipelines.py — `BRC_HISTORY_TYPES` frozenset defined at lines 5037-5052; filtered at line 5123 (`brc_messages = [m for m in messages if m.message_type in BRC_HISTORY_TYPES and m.phase == phase]`)",
+      "definition_lines": "5037-5052",
       "current_contents": "{CONSENSUS_PROPOSE, CONSENSUS_ACK, CONSENSUS_NACK, CONSENSUS_WITHDRAW, CONSENSUS_CONFIRMED, CONSENSUS_RE_REVIEW, STATUS, HANDOFF, QUESTION, AGENT_FAILED, NUDGE, OVERSEER_ALERT}",
-      "problem": "QUESTION is a member of this frozenset, used for BRC history reconstruction filtering. Removing the MessageType without removing from this set leaves a dead string literal."
+      "problem": "QUESTION is a member of this frozenset, used for BRC history reconstruction filtering. Removing the MessageType without removing from this set leaves a dead string literal. Grep anchor: `BRC_HISTORY_TYPES`."
     },
     "message_poll_http_route": {
       "location": "orchestrator/routes/messages.py:140-184",
       "wait_cap_line": 165,
       "cap_literal": 60,
-      "inmemory_silent_fallback_lines": "181-184",
-      "fallback_snippet": "except TypeError: kwargs.pop('wait', None); messages = message_store.get_messages(pipeline_id, **kwargs)"
+      "inmemory_silent_fallback_lines": "179-184",
+      "fallback_snippet": "try: messages = message_store.get_messages(pipeline_id, **kwargs) except TypeError: kwargs.pop('wait', None); messages = message_store.get_messages(pipeline_id, **kwargs)  # spans 179-184"
     },
     "redis_message_store_blocking": {
       "location": "orchestrator/redis_message_store.py:182-188",
@@ -128,13 +182,14 @@
       "status": "Dedup fix landed in PR #1896 (commit ae9535b99) before this issue was filed. Verification-only test suggested (HITL Q1)."
     },
     "consensus_reached_event": {
-      "location": "orchestrator/events.py:67",
+      "location": "orchestrator/events.py:67 (EventType.CONSENSUS_REACHED enum member, maps to SSE event-name 'consensus.reached')",
       "type": "EventType (SSE event, not MessageType)",
-      "emitter": "orchestrator/sse.py emits 'event: consensus.reached' on the SSE stream when the orchestrator determines consensus is final (does NOT fire on the intermediate pending_acks state)",
-      "usage": "The consensus_wrapper (per plan Phase 5 / TASK-5-1) consumes this via curl --no-buffer. No MessageType bridge needed."
+      "emitter": "orchestrator/sse.py formats events via format_sse_event(); the event-name 'consensus.reached' fires when the orchestrator determines consensus is final (does NOT fire on intermediate pending_acks state)",
+      "sse_endpoint_url": "GET /api/v1/pipelines/<pipeline_id>/stream — decorator at orchestrator/routes/pipelines.py:11772 (`@pipelines_bp.route('/<pipeline_id>/stream', methods=['GET'])`). There is ALSO an all-pipelines variant at GET /api/v1/pipelines/stream (orchestrator/routes/pipelines.py:11720). There is NO `/events` endpoint — prior plan/architect revisions referenced it in error. Documented at orchestrator/README.md:136-137.",
+      "usage": "The consensus_wrapper (per plan Phase 5 / TASK-5-1, corrected URL) consumes this via `curl --no-buffer -s $ORCH_URL/api/v1/pipelines/$PIPELINE_ID/stream` and filters output lines for `event: consensus.reached`. No MessageType bridge needed."
     },
     "consensus_wrapper_stay_alive_loop": {
-      "location": "orchestrator/consensus_wrapper.py:304, 322-351",
+      "location": "orchestrator/consensus_wrapper.py — MAX_READY_POLL_CYCLES=10 at line 38 (Python constant, the ceiling); MAX_READY_POLLS={max_ready_polls} at line 304 (bash template placeholder injected by the Python wrapper-renderer); the shell sleep loop itself at lines 322-351 (reads MAX_READY_POLLS after expansion)",
       "mechanism": "Shell while-loop with 30s sleep between polls; capped at MAX_READY_POLL_CYCLES=10 (300s total)",
       "completion_check": "curl /api/v1/pipelines/{id}/status | python3 extract is_complete",
       "problem": "Same cache-cost / latency profile as the agent-side patterns this issue critiques."
@@ -169,20 +224,23 @@
       "progress_subscriber": "line 130 (EventType.PROGRESS_EMITTED → _on_progress)",
       "message_subscriber": "line 133 (EventType.MESSAGE_SENT → _on_message_sent)",
       "progress_heartbeat_reset": "lines 249-262 (resets last_heartbeat on PROGRESS events with type='heartbeat')",
-      "message_sent_heartbeat_reset": "NONE — _on_message_sent at line 330-360 only updates message_timestamps for rate-tracking; last_heartbeat is not touched",
+      "message_sent_heartbeat_reset": "NONE — _on_message_sent at lines 330-363 only updates message_timestamps for rate-tracking; last_heartbeat is not touched",
       "heartbeat_timeout_rule": "lines 400-460, threshold from _get_heartbeat_threshold() (600s in implement phase)",
-      "gap": "An agent that stops emitting PROGRESS(type='heartbeat') and starts emitting HEARTBEAT messages instead would falsely trip heartbeat_timeout within 2× threshold. Fix: extend _on_message_sent to reset last_heartbeat when event.data['message_type'] == 'HEARTBEAT'."
+      "gap": "An agent that stops emitting PROGRESS(type='heartbeat') and starts emitting HEARTBEAT messages instead would falsely trip heartbeat_timeout within 2× threshold. Fix: extend _on_message_sent (lines 330-363) to reset last_heartbeat when event.data['message_type'] == 'HEARTBEAT'."
     },
     "mission_md_polling_guidance": {
       "location": "sandbox/agent-config/rules/mission.md:152",
       "current_text": "Use `egg-orch message poll --wait 30` for long-polling (not sleep loops)",
       "gap": "Does not prohibit for-loops, does not name a single idiom, does not mention the new `message wait` primitive."
     },
-    "gateway_http_proxy": {
+    "gateway_http_proxy_and_timeouts": {
+      "three_distinct_timeouts": {
+        "gateway_session_idle": "EGG_SESSION_IDLE_TIMEOUT_MINUTES=60 (gateway/gateway.py:5715). Governs cleanup of stale agent sessions in the gateway sidecar. NOT a long-poll cap — sessions stay active as long as the agent sends any authenticated request within this window.",
+        "squid_proxy_idle": "The Squid (or Envoy) HTTP proxy in the gateway deployment caps idle TCP connection lifetime. Configured in the gateway deployment ConfigMap / Squid squid.conf (`connect_timeout` and `read_timeout`). This is the hard ceiling for long-poll durations flowing through HTTP_PROXY=gateway.egg-system.svc.cluster.local:3129 — must be raised in lockstep with EGG_MESSAGE_POLL_MAX_WAIT when operators configure values >60s.",
+        "waitress_connection_timeout": "Waitress (orchestrator/cli.py:284-290) has no explicit per-request cap beyond Python request handling; the wait query-param ceiling in routes/messages.py:165 is the Python-layer cap."
+      },
       "env_var": "HTTP_PROXY=gateway.egg-system.svc.cluster.local:3129",
-      "idle_timeout_source": "Squid/Envoy gateway config — binding constraint for long-poll durations",
-      "gateway_session_idle": "EGG_SESSION_IDLE_TIMEOUT_MINUTES=60 (gateway/gateway.py:5715)",
-      "note": "Must be raised in lockstep with EGG_MESSAGE_POLL_MAX_WAIT when operators configure values above 60s."
+      "implementer_note": "When Track 2 / plan TASK-2-3 raises EGG_MESSAGE_POLL_MAX_WAIT above 60, operators must coordinate across all three timeouts — gateway session idle (if applicable), Squid proxy idle (definitely), and any upstream k8s network-layer idle (e.g., CloudFront / ELB idle). Startup-time warning emitted by Track 2 should surface this coupling."
     }
   },
 
@@ -191,8 +249,8 @@
       "id": "F1",
       "severity": "HIGH",
       "title": "'Keep polling' preamble language causes LLM-driven outer loops",
-      "description": "The producer and reviewer lifecycle steps both end with 'STAY ALIVE: Keep polling egg-orch message poll --wait 30 until the orchestrator stops you.' This reads as a recurring action the agent must orchestrate. Combined with LLM training data rich in `for i in ...; do ...; done` and `while true; do ...; sleep N; done` idioms, it produces the exact anti-patterns observed in issue-1762-membump.",
-      "remediation": "Replace preamble with the canonical idiom per plan TASK-6-1: `egg-orch message wait-loop --for CONSENSUS_CONFIRMED --for CONSENSUS_RE_REVIEW --for OVERSEER_ALERT` (single invocation). Add explicit Don'ts listing for-loop wrapping and `sleep N`. Covered in Track 1 = plan Phase 6.",
+      "description": "The producer and reviewer lifecycle steps both end with 'STAY ALIVE: Keep polling egg-orch message poll --wait 30 until the orchestrator stops you.' (producer at orchestrator/routes/pipelines.py:6231, reviewer at :6292). This reads as a recurring action the agent must orchestrate. Combined with LLM training data rich in `for i in ...; do ...; done` and `while true; do ...; sleep N; done` idioms, it produces the exact anti-patterns observed in issue-1762-membump.",
+      "remediation": "Replace preamble with the canonical idiom per plan TASK-6-1: `egg-orch message wait-loop --for CONSENSUS_CONFIRMED --for CONSENSUS_RE_REVIEW --for OVERSEER_ALERT` (single invocation). Add explicit Don'ts listing for-loop wrapping and `sleep N`. Covered in Track 1 = plan Phase 6. Grep anchor: `grep -n 'STAY ALIVE' orchestrator/routes/pipelines.py`.",
       "related_risks": "risk_analyst RISK-8 (prompt regression)"
     },
     {
@@ -239,8 +297,8 @@
       "id": "F7",
       "severity": "HIGH",
       "title": "QUESTION message type has 11+ call sites across production, tests, and docs",
-      "description": "QUESTION is not merely a test-fixture type — 4 production sites (enum, BRC_HISTORY_TYPES, reviewer-preamble active advertisement, CLI), 6 test-file references, 1 docs reference. Reviewer preamble advertisement means removing the type without removing the preamble causes runtime errors.",
-      "remediation": "Track 5 (bundled with HEARTBEAT) = plan Phase 7, which stages removal in 4 commits in safe order: prompt edit first (so the preamble no longer advertises the removed type), then BRC_HISTORY_TYPES, then 5 test files, then enum removal.",
+      "description": "QUESTION is not merely a test-fixture type — 4 production sites (enum at orchestrator/message_store.py:23; BRC_HISTORY_TYPES frozenset at orchestrator/routes/pipelines.py:5037-5052; reviewer-preamble active advertisement at orchestrator/routes/pipelines.py:6338 with the egg-orch message send example at 6342-6346; CLI --type flag at sandbox/egg_lib/orch_cli.py), 6 test-file references, 1 docs reference. Reviewer preamble advertisement means removing the type without removing the preamble causes runtime errors when reviewers follow the stale preamble's advice.",
+      "remediation": "Track 5 (bundled with HEARTBEAT) = plan Phase 7, which stages removal in 4 commits in safe order: (1) prompt edit at pipelines.py:6338-6346 first (so the preamble no longer advertises the removed type), (2) then BRC_HISTORY_TYPES at pipelines.py:5037-5052, (3) then 5 test files, (4) then enum removal at message_store.py:23. Grep anchors: `grep -n 'QUESTION' orchestrator/routes/pipelines.py` and `grep -rn QUESTION orchestrator/ sandbox/ gateway/ --include='*.py' --include='*.md'`.",
       "related_risks": "risk_analyst RISK-1, RISK-10"
     },
     {
@@ -300,20 +358,20 @@
         "id": "track-6",
         "name": "consensus_wrapper SSE rewrite",
         "corresponds_to_plan_phases": [5],
-        "scope": "Plan TASK-5-1. Rewrite consensus_wrapper.py:322-351 to event-block via `curl --no-buffer --silent $ORCH_URL/api/v1/pipelines/$PIPELINE_ID/events | while read line; do ... done` parsing SSE events for `event: consensus.reached` (EventType.CONSENSUS_REACHED at events.py:67, emitted by orchestrator/sse.py). Compute timeout from existing MAX_READY_POLLS × EGG_MESSAGE_POLL_INTERVAL budget. Fall back to current shell sleep loop on SSE 5xx or connection refused (no-Redis local-dev path preserved per RISK-6). SIGTERM handler: `trap 'kill $CURL_PID 2>/dev/null; exit 0' TERM`. Preserve existing exit-code classification (134/136/137/139/255 → transient).",
+        "scope": "Plan TASK-5-1 (with URL correction — see blocking-3-rev3). Rewrite the bash sleep loop at orchestrator/consensus_wrapper.py:322-351 to event-block via `curl --no-buffer --silent $ORCH_URL/api/v1/pipelines/$PIPELINE_ID/stream | while read line; do ... done` parsing SSE event-name lines for `event: consensus.reached` (SSE event-name emitted by orchestrator/sse.py when EventType.CONSENSUS_REACHED fires at orchestrator/events.py:67). The SSE route decorator is at orchestrator/routes/pipelines.py:11772 — `@pipelines_bp.route('/<pipeline_id>/stream', methods=['GET'])` — NOT `/events`. Compute timeout from existing MAX_READY_POLL_CYCLES × EGG_MESSAGE_POLL_INTERVAL budget (MAX_READY_POLL_CYCLES=10 at orchestrator/consensus_wrapper.py:38). Fallback matrix (three subcases per decision_8_wrapper_loop): (a) SSE 503/5xx — retry once with 2s backoff then shell sleep loop; (b) SSE connection-refused / EHOSTUNREACH — skip curl, go direct to shell sleep loop (typical no-orchestrator local-dev); (c) orchestrator-up-but-Redis-down — SSE still works via in-process EventBus, wrapper stays on SSE path. SIGTERM handler: `trap 'kill $CURL_PID 2>/dev/null; exit 0' TERM`. Preserve existing exit-code classification (134/136/137/139/255 → transient). Flag: task_planner plan TASK-5-1 currently cites `/events` which will 404 — coordinate the URL fix via the BRC NACK chain.",
         "depends_on": [],
         "architectural_rationale": "F6, RISK-6, RISK-7, RISK-11. SSE approach has three advantages over message wait: (1) wrapper is shell-native and curl --no-buffer is idiomatic shell; (2) event-name 'consensus.reached' already distinguishes final from pending without MessageType changes; (3) falls back gracefully to shell sleep loop when Redis/orchestrator unavailable (local-dev)."
       },
       {
         "id": "track-7",
-        "name": "WSGI worker model + operator guide",
+        "name": "Waitress thread pool + /healthz + operator guide (NOT Gunicorn)",
         "corresponds_to_plan_phases": [4],
-        "scope": "Plan Phase 4 (TASK-4-1, TASK-4-2, TASK-4-3). Switch Gunicorn to gevent workers, 2× cap timeout, dedicated /healthz probe off worker pool, egg_inflight_long_polls metric. Document EGG_MESSAGE_POLL_MAX_WAIT × worker-count coupling.",
+        "scope": "Plan Phase 4 (TASK-4-1, TASK-4-2, TASK-4-3) REWRITTEN because the orchestrator runs Waitress, NOT Gunicorn. Verified at orchestrator/cli.py:284-290: production executes `waitress.serve(app, host=host, port=port, threads=16)`; there is no gunicorn.conf.py, no gunicorn invocation in orchestrator/Dockerfile, and the cli.py:285-287 comment explicitly notes that 'Waitress thread pool accommodates blocking I/O without requiring async workers'. Mitigation scope: (a) introduce new env var `EGG_WAITRESS_THREADS` (default 16, preserves behavior; recommendation in docs: `2 × max_concurrent_agents × rounds_per_phase + 4` safety margin — ~40-80 for large pipelines); (b) keep `waitress.serve(...)` — do NOT switch to gevent workers (the original plan's assumption was wrong; there is no need and the switch would be a breaking change to production); (c) add a `/healthz` route at orchestrator/routes/health.py that does no I/O and returns 200 immediately, so k8s liveness probes are never starved by long-polling threads (Waitress serves /healthz from the same thread pool, but a zero-work handler yields the thread instantly); (d) add an `egg_inflight_long_polls` Prometheus gauge incremented/decremented around the long-poll handler so operators can see saturation; (e) document the `EGG_MESSAGE_POLL_MAX_WAIT × EGG_WAITRESS_THREADS` coupling in docs/reference/agent-wait-patterns.md (the Waitress thread budget must exceed worst-case concurrent long-poll sockets; with MAX_WAIT=300s and threads=16, saturation at 16 concurrent agents is the worst case). Flag: task_planner plan TASK-4-1/4-2/4-3 currently assumes Gunicorn + gevent — coordinate rewrite via the BRC NACK chain; reviewer_plan is NACKing the plan on the same grounds. This track is still a prerequisite for Track 3/6 going live because the existing 16-thread cap would saturate once typed long-polls become common.",
         "depends_on": [],
-        "architectural_rationale": "RISK-3. Must ship before Track 3/6 go live in production."
+        "architectural_rationale": "RISK-3. Must ship before Track 3/6 go live in production. Corrected from Gunicorn/gevent to Waitress/threads per blocking-2-rev3."
       }
     ],
-    "merge_order": ["plan Phase 1 (= Track 4)", "plan Phase 2 (= Tracks 2, 3)", "plan Phase 3 (= Track 5 part a)", "plan Phase 4 (= Track 7)", "plan Phase 5 (= Track 6)", "plan Phase 6 (= Track 1 part a)", "plan Phase 7 (= Track 5 part b)", "plan Phase 8 (= Track 1 part b)"],
+    "merge_order": ["plan Phase 1 (= Track 4)", "plan Phase 2 (= Tracks 2, 3)", "plan Phase 3 (= Track 5 part a)", "plan Phase 4 (= Track 7)", "plan Phase 5 (= Track 6)", "plan Phase 6 (= Track 1 part a)", "plan Phase 7 (= Track 5 part b)", "plan Phase 8 (= Track 1 part b)", "plan Phase 9 (= Track 1 part c — docs/reference/agent-wait-patterns.md + concurrent-execution.md update)"],
     "rationale_for_order": "Plan's phase numbering is the canonical merge order. Architect tracks defer to plan phases for sequencing."
   },
 
@@ -467,13 +525,15 @@
   "file_inventory": {
     "note": "Per plan — architect does not maintain a separate file list. See plan phases for exhaustive file mappings.",
     "key_files_modified": [
-      "orchestrator/routes/pipelines.py (lines 4775, 5959, 6020, 6062-6074 — BRC_HISTORY_TYPES + preambles)",
-      "orchestrator/routes/messages.py (lines 165, 181-184, new route — wait cap + wait route)",
-      "orchestrator/message_store.py (MessageType class — add HEARTBEAT, remove QUESTION; InMemoryMessageStore Condition)",
-      "orchestrator/health_monitor.py:330-360 (wire last_heartbeat on HEARTBEAT)",
-      "orchestrator/consensus_wrapper.py (SSE rewrite)",
-      "orchestrator/gunicorn.conf.py (gevent workers)",
-      "sandbox/egg_lib/orch_cli.py (cmd_message_wait + cmd_message_wait_loop + --type QUESTION deprecation)",
+      "orchestrator/routes/pipelines.py (BRC_HISTORY_TYPES at 5037-5052; producer STAY ALIVE at 6231; reviewer STAY ALIVE at 6292; QUESTION reviewer-preamble block at 6338 with egg-orch example at 6342-6346)",
+      "orchestrator/routes/messages.py (wait cap at 165; in-memory silent fallback at 179-184; new /messages/wait route)",
+      "orchestrator/message_store.py (MessageType class at line 19-37 — add HEARTBEAT, remove QUESTION at line 23; InMemoryMessageStore adds per-pipeline threading.Condition)",
+      "orchestrator/health_monitor.py (lines 330-363 — _on_message_sent to reset last_heartbeat on HEARTBEAT)",
+      "orchestrator/consensus_wrapper.py (MAX_READY_POLL_CYCLES at line 38 Python constant; MAX_READY_POLLS at line 304 bash template; shell sleep loop at 322-351 replaced with SSE via curl --no-buffer against /api/v1/pipelines/<pipeline_id>/stream — route at orchestrator/routes/pipelines.py:11772)",
+      "orchestrator/cli.py (lines 284-290 — add EGG_WAITRESS_THREADS env override; keep waitress.serve())",
+      "orchestrator/routes/health.py (add dedicated /healthz route that returns 200 immediately)",
+      "NOT orchestrator/gunicorn.conf.py — no such file; the orchestrator runs Waitress, not Gunicorn",
+      "sandbox/egg_lib/orch_cli.py (cmd_message_wait + cmd_message_wait_loop + --type QUESTION removal)",
       "sandbox/agent-config/rules/mission.md:152"
     ],
     "key_files_created": [
@@ -487,9 +547,9 @@
   },
 
   "dependencies_on_other_producers": {
-    "task_planner": "Plan is CONFIRMED. This architect analysis is reconciled with plan's phases and decisions (SSE for wrapper, wait-loop convenience CLI, staged QUESTION removal, HealthMonitor MESSAGE_SENT wiring, WSGI gevent workers).",
-    "risk_analyst": "Risk assessment is CONFIRMED (RISK-1..RISK-12). Cross-referenced throughout."
+    "task_planner": "Plan is at revision 3, CONSENSUS_PROPOSE (reviewer_plan NACK chain in progress on three grounds: (1) wrong line numbers in Phase 7 QUESTION removal; (2) Gunicorn/gevent assumption in Phase 4 while orchestrator runs Waitress; (3) SSE URL `/events` in Phase 5 while actual route is `/stream`). This architect analysis reconciles with the plan on design intent (SSE for wrapper, wait-loop convenience CLI, staged QUESTION removal, HealthMonitor MESSAGE_SENT wiring) and defers to plan for phase sequencing. The three common blocking corrections (line numbers, Waitress-not-Gunicorn, /stream-not-/events) are flagged in architect tracks 6 and 7 so the implementer sees the correction even if the plan itself is updated later.",
+    "risk_analyst": "Risk assessment is at revision 2, CONSENSUS_PROPOSE (reviewer_plan NACK chain in progress; risks RISK-1 and RISK-10 inherit line-number errors from architect rev 3 which this rev 4 corrects). Cross-referenced throughout."
   },
 
-  "authored_by": "architect (issue-1897, plan phase, revision 3 — reconciled with task_planner's CONFIRMED plan per reviewer_plan NACK blocking-1-rev2)"
+  "authored_by": "architect (issue-1897, plan phase, revision 4 — addresses reviewer_plan NACK on revision 3: line-number corrections across current_architecture block, Track 7 rewritten for Waitress-not-Gunicorn, Track 6 SSE URL corrected to /stream, all seven non-blocking items addressed)"
 }
