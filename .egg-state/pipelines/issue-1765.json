@@ -324,16 +324,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-23T06:53:40.015194Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-23T06:54:16.396646Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Superseded by decision-8 in the v5 analysis draft: scope is defined by the Agent Capability Audit, not by CLI subcommand taxonomy. Iteration 1 ships the BRC + HITL core (~15 verbs: producer/reviewer lifecycle, HITL registration, heartbeat/progress, task completion, phase context orientation). Iteration 2 covers the remaining ~15 verbs from the full audit, tracked in issue #1917.\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:22:09.201730Z",
-  "updated_at": "2026-04-23T06:53:40.028742Z",
+  "updated_at": "2026-04-23T06:54:16.405579Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -347,5 +347,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:32:00.470351Z",
-  "version": 49
+  "version": 50
 }
