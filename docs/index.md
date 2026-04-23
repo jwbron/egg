@@ -57,6 +57,12 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Harness Configuration](guides/harness-configuration.md) | Selecting and configuring agent runtime harness (egg, claude-sdk, claude-code) |
 | [Deployment Diagnostics](guides/deployment-diagnostics.md) | When to use `/deployment-diagnose` vs `/agent-diagnose`, evidence boundaries, and redaction guarantees |
 
+### Deploy
+
+| Document | Description |
+|----------|-------------|
+| [Resource Sizing](deploy/resource-sizing.md) | Pod CPU/memory requests and limits for gateway, orchestrator, and sandboxes, with observed-usage rationale and QoS choice |
+
 ### Reference
 
 | Document | Description |
