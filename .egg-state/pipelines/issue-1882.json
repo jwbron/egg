@@ -200,16 +200,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-23T06:17:22.697354Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-23T06:25:19.051687Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Return 200 with nothing_to_push=true and list excluded files (matches 6f0877f50 behavior — silent soft-success; leaves blocked files uncommitted in worktree)\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:21:58.997312Z",
-  "updated_at": "2026-04-23T06:17:22.721571Z",
+  "updated_at": "2026-04-23T06:25:19.074466Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -223,5 +223,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:31:28.068349Z",
-  "version": 23
+  "version": 24
 }
