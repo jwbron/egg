@@ -129,6 +129,10 @@ def git_shadow_mounts(
 # Directories under .egg-state/ that are readonly during the implement phase.
 # These contain plan/contract artifacts that must not be modified by code agents.
 # Must stay in sync with .egg/phase-permissions.json blocked_patterns for "implement".
+# TODO(#1903): keep in sync with CODER_PATTERNS.blocked_patterns in
+# shared/egg_restrictions/patterns.py and the file_restrictions section of
+# .egg/phase-permissions.json until #1903 makes patterns.py the single
+# source of truth.
 _IMPLEMENT_READONLY_DIRS = ("drafts", "contracts", "pipelines", "reviews")
 
 

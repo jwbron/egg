@@ -126,14 +126,51 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 
 ## Implement Phase
 
+The three producer roles in this phase — `coder`, `tester`, and `documenter` —
+are **mutually exclusive by construction** (see [#1901][issue-1901]). The
+coder's scope is defined as the **complement** of the other two: coder can
+write any file in the repository *except* paths owned by the tester, the
+documenter, or the pipeline itself (`.egg-state/`). Tester and documenter
+scopes are defined positively (the files each role owns). If tester's or
+documenter's owned scope grows in a later change, the coder's blocklist in
+`shared/egg_restrictions/patterns.py` **must be updated in parallel** to
+preserve the complement invariant. The same blocklist is mirrored in
+`.egg/phase-permissions.json` and `shared/egg_container/__init__.py::_IMPLEMENT_READONLY_DIRS`;
+[#1903][issue-1903] tracks unifying those three surfaces behind a single
+source of truth. Until that follow-up lands, a `TODO(#1903)` comment marks
+each surface so reviewers know to keep them in sync.
+
+[issue-1901]: https://github.com/jwbron/egg/issues/1901
+[issue-1903]: https://github.com/jwbron/egg/issues/1903
+
 ### `coder`
 
 **Purpose**: Write code, create commits, push to the worktree branch.
 
 **File access**:
-- Allowed writes: `**/*.py`, `**/*.ts`, `**/*.tsx`, `**/*.js`, `**/*.jsx`, `**/*.go`, `**/*.java`, `**/*.rb`, `**/*.rs`, `**/*.sh`, `**/*.yml`, `**/*.yaml`, `**/*.json`, `**/*.toml`, `Makefile`, `**/Makefile`, `Dockerfile`, `**/Dockerfile`, `Procfile`, `.python-version`, `.node-version`, `.nvmrc`, `.gitignore`, `.gitattributes`, `.editorconfig`, `**/*.lock`, `**/requirements*.txt`, `sandbox/agent-config/rules/*.md`, `sandbox/agent-config/commands/*.md`, `skills/`, `.egg-state/agent-outputs/`
-- Blocked: `docs/`, `**/README.md`, `**/*.md`, `.egg-state/contracts/`, `tests/`, `test/`, `**/tests/`, `**/test/`, all test file patterns, `**/conftest.py`
-- Block exemptions (override the `**/*.md` block): `sandbox/agent-config/rules/*.md`, `sandbox/agent-config/commands/*.md`, `skills/` — these `.md` files are functional code (agent rules, skill definitions), not documentation
+- Allowed writes: **any file in the repository EXCEPT** paths owned by the
+  `tester`, the `documenter`, or the pipeline (`.egg-state/`). The coder's
+  scope is the complement of the other two producer roles in this phase,
+  so source code, configuration, shell scripts, build files, top-level
+  dotfiles, and extensionless scripts (e.g. `bin/egg`, `sandbox/egg`,
+  `sandbox/bin/egg-health-inspect`) are all coder-writable by default.
+- Blocked: `docs/`, `**/README.md`, `**/*.md` (documenter's scope);
+  `tests/`, `test/`, `**/tests/`, `**/test/`, all test file patterns
+  (`**/*_test.py`, `**/test_*.py`, `**/*_test.go`, `**/test_*.go`,
+  `**/*.test.{ts,tsx,js,jsx}`, `**/*.spec.{ts,tsx,js,jsx}`),
+  `**/conftest.py` (tester's scope); `.egg-state/` (pipeline state);
+  plus defense-in-depth blocks on `.github/` (CI workflows and
+  CODEOWNERS — preserves the branch-protection invariant) and
+  `sandbox/scripts/` (gateway credential shims — preserves the
+  credential-routing invariant).
+- Block exemptions (always writable, overriding the blocks above):
+  `.egg-state/agent-outputs/` (coder's handoff output),
+  `.egg-state/agent-anchors/` (per-agent anchor state, scoped by
+  `check_anchor_write_permission`),
+  `skills/` (skill definitions are functional code),
+  `sandbox/agent-config/rules/*.md` and
+  `sandbox/agent-config/commands/*.md` (Claude Code agent config
+  represented as markdown — functional code, not documentation).
 
 **Outputs**:
 - Commits on the worktree branch
@@ -148,8 +185,18 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 **Purpose**: Find gaps in the implementation, write and run tests, run linters and type checkers, and report issues for the coder to fix.
 
 **File access**:
-- Allowed writes: `tests/`, `test/`, `**/tests/`, `**/test/`, all test file patterns (`**/*_test.py`, `**/test_*.py`, `**/*.test.ts`, etc.), `**/conftest.py`, `.python-version`, `**/*.lock`, `**/requirements*.txt`, `.egg-state/agent-outputs/`
-- Blocked: `docs/`, `**/README.md`, `**/*.md`, `.egg-state/contracts/` (source code and config files are excluded by absence from the allowed list — blocked patterns cannot be used for these because they share extensions with test files)
+- Owned scope (allowed writes): **test files and test infrastructure only.**
+  Specifically: `tests/`, `test/`, `**/tests/`, `**/test/` directories;
+  all test file patterns — `**/*_test.py`, `**/test_*.py`,
+  `**/*_test.go`, `**/test_*.go`,
+  `**/*.test.{ts,tsx,js,jsx}`, `**/*.spec.{ts,tsx,js,jsx}`;
+  `**/conftest.py`; plus the tester-relevant pin files
+  `.python-version`, `**/*.lock`, `**/requirements*.txt`; and
+  `.egg-state/agent-outputs/`.
+- Blocked: `docs/`, `**/README.md`, `**/*.md` (documenter's scope) and
+  `.egg-state/contracts/` (pipeline state). Source code and config
+  files outside tests are out of scope by definition — the coder owns
+  them (everything not listed in this section or the documenter's).
 
 **Outputs**:
 - Test file commits on the worktree branch
@@ -164,8 +211,16 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 **Purpose**: Update documentation and READMEs.
 
 **File access**:
-- Allowed writes: `docs/`, `**/*.md`, `**/README.md`, `.egg-state/agent-outputs/`
-- Blocked: `**/*.py`, `**/*.ts`, `**/*.tsx`, `**/*.js`, `**/*.jsx`, `**/*.go`, `**/*.java`, `**/*.rb`, `**/*.rs`, `tests/`, `test/`, `**/tests/`, `**/test/`, `.egg-state/contracts/`
+- Owned scope (allowed writes): **documentation and markdown only.**
+  Specifically: the `docs/` tree, every `**/*.md` file (including
+  `**/README.md`), and `.egg-state/agent-outputs/`.
+- Blocked: all source and implementation file extensions (`**/*.py`,
+  `**/*.ts`, `**/*.tsx`, `**/*.js`, `**/*.jsx`, `**/*.go`, `**/*.java`,
+  `**/*.rb`, `**/*.rs`), all test directories (`tests/`, `test/`,
+  `**/tests/`, `**/test/`), and `.egg-state/contracts/`. Source-code
+  markdown that is functional (e.g. `sandbox/agent-config/rules/*.md`,
+  `sandbox/agent-config/commands/*.md`, `skills/**/*.md`) is owned by
+  the coder via block exemptions, not the documenter.
 
 **Outputs**:
 - Documentation commits on the worktree branch
