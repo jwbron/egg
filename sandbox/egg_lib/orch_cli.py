@@ -1194,11 +1194,13 @@ def cmd_message_wait_loop(args: argparse.Namespace) -> int:
         if rc == 0:
             return 0
         if rc == 3:
-            # Inner permanent failure — surface as outer rc=1 (wrapper
-            # owns the 0/1 outward contract; rc=3 is an internal-only
-            # code and would confuse callers that adopted the
-            # "rc=0 match / rc=1 no-match" convention).
-            return 1
+            # Inner permanent failure surfaces directly so callers that
+            # already distinguish 1/3 (timeout vs permanent) don't lose
+            # the signal through the wait-loop wrapper. The consensus
+            # wrapper shell script specifically checks `rc != 0 && rc != 1`
+            # to fall back to sleep, and that contract relies on rc=3
+            # propagating.
+            return 3
         if rc == 2:
             _time.sleep(min(backoff, 5.0))
             backoff = min(backoff * 2, 5.0)
@@ -1207,7 +1209,7 @@ def cmd_message_wait_loop(args: argparse.Namespace) -> int:
         backoff = 1.0
     # Safety cap tripped — extraordinarily unlikely with the default
     # sys.maxsize cap. Return 1 (no match) so callers behave the same
-    # as a permanent-error case.
+    # as a bounded-retry timeout.
     return 1
 
 
@@ -1236,8 +1238,25 @@ def cmd_message_heartbeat(args: argparse.Namespace) -> int:
         )
         return 3
 
+    # Body schema: POST body must carry ``message_type=HEARTBEAT`` plus
+    # a nested ``metadata`` object with the structured fields
+    # (``state``, ``waiting_on``, ``since``). The CLI also retains the
+    # flat ``state`` / ``waiting_on`` / ``since`` keys at the top level
+    # for backwards-compatibility with the dedicated ``/heartbeat``
+    # endpoint which accepts them un-nested; the server ignores
+    # whichever form it doesn't need.
+    metadata: dict[str, Any] = {"state": args.state}
+    if args.waiting_on:
+        metadata["waiting_on"] = args.waiting_on
+    if args.since:
+        metadata["since"] = args.since
+
     data: dict[str, Any] = {
         "from_role": role,
+        "message_type": "HEARTBEAT",
+        "metadata": metadata,
+        # Un-nested duplicates — tolerated by the legacy /heartbeat
+        # endpoint and ignored by the /messages endpoint.
         "state": args.state,
     }
     if args.waiting_on:
