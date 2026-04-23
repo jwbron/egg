@@ -1,0 +1,135 @@
+[
+  {
+    "id": "cec1532e-054b-4a",
+    "pipeline_id": "issue-1901",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from refiner",
+    "body": "Analysis for #1901: evaluates 4 options (A: explicit '**' catch-all; B: flip matcher semantics; C: add allow_by_default flag; D: compute complement at load). Recommends Option A \u2014 the minimum viable change that fixes the bin/egg extensionless-file bug without disturbing the deny-all backstop every other role depends on. Registered 5 HITL decisions (empty-allowed semantics, autofixer/conflict_resolver scope, .egg-state/ carving, overseer inclusion, matcher bug) and 4 feedback questions (phase-permissions.json alignment, container sync, future .egg-state subdirs, skills/ ownership).",
+    "metadata": {
+      "payload": {
+        "summary": "Analysis for #1901: evaluates 4 options (A: explicit '**' catch-all; B: flip matcher semantics; C: add allow_by_default flag; D: compute complement at load). Recommends Option A \u2014 the minimum viable change that fixes the bin/egg extensionless-file bug without disturbing the deny-all backstop every other role depends on. Registered 5 HITL decisions (empty-allowed semantics, autofixer/conflict_resolver scope, .egg-state/ carving, overseer inclusion, matcher bug) and 4 feedback questions (phase-permissions.json alignment, container sync, future .egg-state subdirs, skills/ ownership).",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/1901-analysis.md"
+        ],
+        "risk_considered": "",
+        "commit_sha": "956c6ee6bfe8b9cfa422378f2db9718f854d5262",
+        "files_changed": [
+          ".egg-state/drafts/1901-analysis.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "956c6ee6bfe8b9cfa422378f2db9718f854d5262"
+    },
+    "timestamp": "2026-04-22T23:33:51.534379+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "86110893-cea8-43",
+    "pipeline_id": "issue-1901",
+    "from_role": "reviewer_agent_design",
+    "to_role": "refiner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_agent_design for refiner",
+    "body": "\nReviewed the refine-phase analysis draft at .egg-state/drafts/1901-analysis.md (279 lines) and cross-referenced against the current coder/tester/documenter patterns in shared/egg_restrictions/patterns.py.\n\nScope of this review: agent-mode design anti-patterns only (pre-fetching, structured-output-for-humans, post-processing pipelines, rigid procedures, prompt-level security, direct LLM API calls, hardcoded model IDs).\n\n### Findings\n\nNo agent-mode design anti-patterns present. Specifically:\n\n- **Sandbox-enforced policy, not prompt-level security (good).** The subject of this change is the file-push policy enforced by the gateway at git-push time (shared/egg_restrictions/checker.py::validate_agent_push, gateway/phase_filter.py::check_file_restrictions). The whole refactor KEEPS enforcement in the sandbox/gateway layer \u2014 it never drifts toward 'ask the agent via prompt not to touch these files.' That is exactly the right direction per the agent-mode design guide.\n- **Unblocks agent capability without micromanaging.** The existing extension-based allowlist was a rigid procedural constraint that blocked legitimate agent work (bin/egg, sandbox/egg, any future extensionless path). The role-complement blocklist gives the agent the broadest workable scope and only carves out sibling roles' territory. This is the anti-rigid-procedure direction.\n- **No pre-fetching, no structured output for humans, no post-processing pipelines, no direct Anthropic SDK calls, no hardcoded model IDs** in the draft or in the proposed CODER_PATTERNS shape.\n- **Option A (recommended) preserves the deny-by-default invariant for every other role.** The draft at lines 67, 148 explicitly calls out that flipping the 'empty allowed_patterns = deny-all' semantic (Option B) would have high blast radius for architect/task_planner/risk_analyst/refiner/reviewers/inspector/overseer. Picking Option A over B is the correct agent-safety choice \u2014 it keeps the blast-radius-bounded default for roles whose scope is intentionally narrow.\n- **HITL decisions are orthogonal to agent design.** decision-1..5 and feedback-1 Q1..Q4 are all human-facing policy questions (scope, carve-outs, pre-existing matcher bug); none of them encode agent-mode anti-patterns regardless of how the human answers.\n\n### Non-blocking\n\n- **.egg-state/drafts/1901-analysis.md:59, 254\u2013259** \u2014 The draft notes a pre-existing matcher quirk where '**/tests/' does not match nested test files as a directory pattern. This is correctly flagged as out-of-scope and registered as decision-5 for the human. No action needed from an agent-design standpoint, but whichever option the human picks, the blocklist-complement design (Option A) inherits that leak until decision-5 is resolved.\n- **.egg-state/drafts/1901-analysis.md:62\u201363, 266 (feedback-1 Q2)** \u2014 Three parallel surfaces describe overlapping policy (shared/egg_restrictions/patterns.py, .egg/phase-permissions.json, shared/egg_container/__init__.py::_IMPLEMENT_READONLY_DIRS). The draft flags this as drift risk and asks the human which is authoritative. From an agent-mode perspective, collapsing the three into one declarative source (with the others derived) would reduce the chance that agent file-access differs depending on which layer is hit first \u2014 worth considering in follow-up.\n- **.egg-state/drafts/1901-analysis.md:124** \u2014 Option A's note that it does not address AUTOFIXER_PATTERNS / CONFLICT_RESOLVER_PATTERNS is appropriate scoping, and decision-2 surfaces that choice to the human. Not blocking.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/1901-analysis.md",
+          "shared/egg_restrictions/patterns.py"
+        ],
+        "reason": "\nReviewed the refine-phase analysis draft at .egg-state/drafts/1901-analysis.md (279 lines) and cross-referenced against the current coder/tester/documenter patterns in shared/egg_restrictions/patterns.py.\n\nScope of this review: agent-mode design anti-patterns only (pre-fetching, structured-output-for-humans, post-processing pipelines, rigid procedures, prompt-level security, direct LLM API calls, hardcoded model IDs).\n\n### Findings\n\nNo agent-mode design anti-patterns present. Specifically:\n\n- **Sandbox-enforced policy, not prompt-level security (good).** The subject of this change is the file-push policy enforced by the gateway at git-push time (shared/egg_restrictions/checker.py::validate_agent_push, gateway/phase_filter.py::check_file_restrictions). The whole refactor KEEPS enforcement in the sandbox/gateway layer \u2014 it never drifts toward 'ask the agent via prompt not to touch these files.' That is exactly the right direction per the agent-mode design guide.\n- **Unblocks agent capability without micromanaging.** The existing extension-based allowlist was a rigid procedural constraint that blocked legitimate agent work (bin/egg, sandbox/egg, any future extensionless path). The role-complement blocklist gives the agent the broadest workable scope and only carves out sibling roles' territory. This is the anti-rigid-procedure direction.\n- **No pre-fetching, no structured output for humans, no post-processing pipelines, no direct Anthropic SDK calls, no hardcoded model IDs** in the draft or in the proposed CODER_PATTERNS shape.\n- **Option A (recommended) preserves the deny-by-default invariant for every other role.** The draft at lines 67, 148 explicitly calls out that flipping the 'empty allowed_patterns = deny-all' semantic (Option B) would have high blast radius for architect/task_planner/risk_analyst/refiner/reviewers/inspector/overseer. Picking Option A over B is the correct agent-safety choice \u2014 it keeps the blast-radius-bounded default for roles whose scope is intentionally narrow.\n- **HITL decisions are orthogonal to agent design.** decision-1..5 and feedback-1 Q1..Q4 are all human-facing policy questions (scope, carve-outs, pre-existing matcher bug); none of them encode agent-mode anti-patterns regardless of how the human answers.\n\n### Non-blocking\n\n- **.egg-state/drafts/1901-analysis.md:59, 254\u2013259** \u2014 The draft notes a pre-existing matcher quirk where '**/tests/' does not match nested test files as a directory pattern. This is correctly flagged as out-of-scope and registered as decision-5 for the human. No action needed from an agent-design standpoint, but whichever option the human picks, the blocklist-complement design (Option A) inherits that leak until decision-5 is resolved.\n- **.egg-state/drafts/1901-analysis.md:62\u201363, 266 (feedback-1 Q2)** \u2014 Three parallel surfaces describe overlapping policy (shared/egg_restrictions/patterns.py, .egg/phase-permissions.json, shared/egg_container/__init__.py::_IMPLEMENT_READONLY_DIRS). The draft flags this as drift risk and asks the human which is authoritative. From an agent-mode perspective, collapsing the three into one declarative source (with the others derived) would reduce the chance that agent file-access differs depending on which layer is hit first \u2014 worth considering in follow-up.\n- **.egg-state/drafts/1901-analysis.md:124** \u2014 Option A's note that it does not address AUTOFIXER_PATTERNS / CONFLICT_RESOLVER_PATTERNS is appropriate scoping, and decision-2 surfaces that choice to the human. Not blocking.\n"
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-22T23:35:10.809295+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "772097cf-5eb9-4a",
+    "pipeline_id": "issue-1901",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_agent_design",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-22T23:35:16.350680+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "2044ddd1-51ba-48",
+    "pipeline_id": "issue-1901",
+    "from_role": "reviewer_refine",
+    "to_role": "refiner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_refine for refiner",
+    "body": "Reviewed 1901-analysis.md against all seven review criteria, cross-referenced every cited file/line number (patterns.py, checker.py, phase_filter.py, phase-permissions.json, agent-roles.md), and verified the contract via `egg-contract show --json`.\n\n### Summary\nHigh-quality analysis. Problem framing is concrete (names the failing PR #1900 / issue-1762-membump and the rejected file list), research is thorough (identifies all three enforcement surfaces \u2014 patterns.py, phase-permissions.json, egg_container/_IMPLEMENT_READONLY_DIRS \u2014 plus the sync comment at egg_container/__init__.py:131), options space is well-covered (A catch-all, B matcher flip, C opt-in flag, D reverse-union), and the recommendation (Option A) is justified by the load-bearing deny-all invariant that every non-coder role depends on. I ACK.\n\n### Section-by-section evaluation\n\n1. **Problem Understanding (lines 5\u201311)** \u2014 Accurate. The quoted error `Role 'coder' cannot modify: bin/egg, sandbox/egg` matches real failure output format. Desired-outcome framing (\"mutually exclusive by construction\") is the right conceptual shape.\n\n2. **Research Quality (lines 13\u201363)** \u2014 Line numbers verified: CODER_PATTERNS 170\u2013249 \u2713, TESTER_PATTERNS 251\u2013291 \u2713, DOCUMENTER_PATTERNS 293\u2013324 \u2713, AUTOFIXER 511\u2013555 \u2713, CONFLICT_RESOLVER 561\u2013625 \u2713, `check_file_restrictions` at phase_filter.py:591\u2013635 \u2713, `test_no_allowed_patterns_denies_all` at gateway/tests/test_agent_restrictions_patterns.py:139 \u2713, sync comment at egg_container/__init__.py:131 \u2713, docs/reference/agent-roles.md:134 allowlist enumeration \u2713, test file sizes (664 / 798 lines) \u2713. The extensionless-file table on lines 36\u201346 accurately reflects the current allowlist \u2014 each listed path genuinely lacks a matching pattern in CODER_PATTERNS.\n\n3. **Options Analysis (lines 76\u2013198)** \u2014 Four meaningfully different options. Pros/cons articulate the real trade-offs (blast radius, deny-all invariant, initialization ordering in D, the Python semantics issue in D). The Option A matcher-walk at line 114 (\"bin/egg, sandbox/egg, Makefile, .gitignore \u2026 all return True; docs/*.md, **/README.md, tests/test_*.py \u2026 all return False; .egg-state/agent-outputs/* still returns True via exemption\") is a genuine check, not hand-waving.\n\n4. **Constraints (lines 65\u201374)** \u2014 Complete: matcher invariant, security posture change, path-traversal defence, mutual exclusion with tester/documenter, gateway layered check independence, test surface, doc update, backward-compat non-issue.\n\n5. **Open Questions (lines 212\u2013268)** \u2014 Five HITL decisions (matcher semantic, scope of roles, .egg-state/ carving, overseer inclusion, pre-existing bug fix) + four feedback questions (phase-permissions.json implementer role, _IMPLEMENT_READONLY_DIRS authority, future .egg-state/ subdirs, skills/ ownership). Each is specific, actionable, and addresses a real ambiguity the agent could not resolve alone.\n\n6. **Recommendation (lines 200\u2013210)** \u2014 Clear (Option A), justified with the specific reason (smallest viable change that doesn't disturb the deny-all backstop), and explicitly ranks the alternatives.\n\n7. **HITL Registration** \u2014 Verified via `egg-contract show --json`: decisions decision-1..5 present with correct options (4 each), feedback-1 present with Q1..Q4. Analysis file has matching `<!-- egg-hitl-decision id=decision-N -->` and `<!-- egg-feedback id=feedback-1 -->` anchors at lines 216, 225, 234, 243, 252, 261. Fully compliant.\n\n### Non-blocking\n- **1901-analysis.md line 55** \u2014 Factually off about OVERSEER_PATTERNS: analysis says it \"uses a *blocklist* style, but with an empty allowlist it falls through to 'deny all' per the matcher's step 3 semantics.\" Actually OVERSEER_PATTERNS has `allowed_patterns=[\".egg-state/oversight/\", \".egg-state/agent-outputs/\"]` (patterns.py:484\u2013487) \u2014 a non-empty enumerated allowlist like the reviewer/inspector roles. The overseer denial on `bin/egg` came from \"no allowed pattern matched,\" not from the empty-allowlist branch. The symptom and scope conclusion are right; only the mechanism description is wrong. Suggest tightening to: \"OVERSEER_PATTERNS uses an enumerated allowlist of oversight scopes only; any file outside those (e.g., `bin/egg`) fails step 4, same as the coder.\"\n- **1901-analysis.md line 32 & line 9** \u2014 The quoted reject message \"Role 'coder' cannot modify: \u2026\" matches gateway/phase_filter.py:629 format, but the coder block is driven by patterns.py \u2192 checker.py \u2192 gateway.py:1015 which emits `\"Push denied: agent role '{role}' cannot modify \u2026\"`. Two error-message paths coexist; the analysis conflates them. Non-blocking because the policy logic is correctly identified regardless of which stringification reached the user.\n- **1901-analysis.md line 59 (matcher quirk)** \u2014 The tracing is slightly off: `_matches_pattern` for pattern `**/tests/` returns early at the `if pattern.endswith(\"/\"):` prefix-match branch (patterns.py:143\u2013144), not via the `**`-aware branch. Result is the same (pattern misses nested test dirs), but \"tries to match `__init__.py` against the suffix `tests/` via `fnmatch`\" mis-describes the code path. Since decision-5 registers this as an open question and explicitly scopes it out of this issue, no action is required.\n- **Option A redundancy** \u2014 Under `allowed_patterns=[\"**\"]`, the existing explicit entries for `skills/`, `sandbox/agent-config/rules/*.md`, `sandbox/agent-config/commands/*.md` in `allowed_patterns` become redundant (they are implied by `**`). The Option A sketch already drops them correctly (line 86). Worth mentioning in the plan phase that the rewrite can shrink allowed_patterns from ~25 entries to one.\n- **Option D's refactor-dependency argument (line 197)** is slightly overstated \u2014 the tester/documenter allowlists already effectively split scope vs shared-dep patterns by section header (`# Handoff output`, `# Config files needed for test environment setup`). A union-based approach could filter by comment marker. Still agree D is wrong shape for this bug fix; just noting the con is softer than stated.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/1901-analysis.md",
+          "shared/egg_restrictions/patterns.py",
+          "shared/egg_restrictions/checker.py",
+          "gateway/phase_filter.py",
+          ".egg/phase-permissions.json",
+          "docs/reference/agent-roles.md",
+          "gateway/tests/test_agent_restrictions_patterns.py"
+        ],
+        "reason": "Reviewed 1901-analysis.md against all seven review criteria, cross-referenced every cited file/line number (patterns.py, checker.py, phase_filter.py, phase-permissions.json, agent-roles.md), and verified the contract via `egg-contract show --json`.\n\n### Summary\nHigh-quality analysis. Problem framing is concrete (names the failing PR #1900 / issue-1762-membump and the rejected file list), research is thorough (identifies all three enforcement surfaces \u2014 patterns.py, phase-permissions.json, egg_container/_IMPLEMENT_READONLY_DIRS \u2014 plus the sync comment at egg_container/__init__.py:131), options space is well-covered (A catch-all, B matcher flip, C opt-in flag, D reverse-union), and the recommendation (Option A) is justified by the load-bearing deny-all invariant that every non-coder role depends on. I ACK.\n\n### Section-by-section evaluation\n\n1. **Problem Understanding (lines 5\u201311)** \u2014 Accurate. The quoted error `Role 'coder' cannot modify: bin/egg, sandbox/egg` matches real failure output format. Desired-outcome framing (\"mutually exclusive by construction\") is the right conceptual shape.\n\n2. **Research Quality (lines 13\u201363)** \u2014 Line numbers verified: CODER_PATTERNS 170\u2013249 \u2713, TESTER_PATTERNS 251\u2013291 \u2713, DOCUMENTER_PATTERNS 293\u2013324 \u2713, AUTOFIXER 511\u2013555 \u2713, CONFLICT_RESOLVER 561\u2013625 \u2713, `check_file_restrictions` at phase_filter.py:591\u2013635 \u2713, `test_no_allowed_patterns_denies_all` at gateway/tests/test_agent_restrictions_patterns.py:139 \u2713, sync comment at egg_container/__init__.py:131 \u2713, docs/reference/agent-roles.md:134 allowlist enumeration \u2713, test file sizes (664 / 798 lines) \u2713. The extensionless-file table on lines 36\u201346 accurately reflects the current allowlist \u2014 each listed path genuinely lacks a matching pattern in CODER_PATTERNS.\n\n3. **Options Analysis (lines 76\u2013198)** \u2014 Four meaningfully different options. Pros/cons articulate the real trade-offs (blast radius, deny-all invariant, initialization ordering in D, the Python semantics issue in D). The Option A matcher-walk at line 114 (\"bin/egg, sandbox/egg, Makefile, .gitignore \u2026 all return True; docs/*.md, **/README.md, tests/test_*.py \u2026 all return False; .egg-state/agent-outputs/* still returns True via exemption\") is a genuine check, not hand-waving.\n\n4. **Constraints (lines 65\u201374)** \u2014 Complete: matcher invariant, security posture change, path-traversal defence, mutual exclusion with tester/documenter, gateway layered check independence, test surface, doc update, backward-compat non-issue.\n\n5. **Open Questions (lines 212\u2013268)** \u2014 Five HITL decisions (matcher semantic, scope of roles, .egg-state/ carving, overseer inclusion, pre-existing bug fix) + four feedback questions (phase-permissions.json implementer role, _IMPLEMENT_READONLY_DIRS authority, future .egg-state/ subdirs, skills/ ownership). Each is specific, actionable, and addresses a real ambiguity the agent could not resolve alone.\n\n6. **Recommendation (lines 200\u2013210)** \u2014 Clear (Option A), justified with the specific reason (smallest viable change that doesn't disturb the deny-all backstop), and explicitly ranks the alternatives.\n\n7. **HITL Registration** \u2014 Verified via `egg-contract show --json`: decisions decision-1..5 present with correct options (4 each), feedback-1 present with Q1..Q4. Analysis file has matching `<!-- egg-hitl-decision id=decision-N -->` and `<!-- egg-feedback id=feedback-1 -->` anchors at lines 216, 225, 234, 243, 252, 261. Fully compliant.\n\n### Non-blocking\n- **1901-analysis.md line 55** \u2014 Factually off about OVERSEER_PATTERNS: analysis says it \"uses a *blocklist* style, but with an empty allowlist it falls through to 'deny all' per the matcher's step 3 semantics.\" Actually OVERSEER_PATTERNS has `allowed_patterns=[\".egg-state/oversight/\", \".egg-state/agent-outputs/\"]` (patterns.py:484\u2013487) \u2014 a non-empty enumerated allowlist like the reviewer/inspector roles. The overseer denial on `bin/egg` came from \"no allowed pattern matched,\" not from the empty-allowlist branch. The symptom and scope conclusion are right; only the mechanism description is wrong. Suggest tightening to: \"OVERSEER_PATTERNS uses an enumerated allowlist of oversight scopes only; any file outside those (e.g., `bin/egg`) fails step 4, same as the coder.\"\n- **1901-analysis.md line 32 & line 9** \u2014 The quoted reject message \"Role 'coder' cannot modify: \u2026\" matches gateway/phase_filter.py:629 format, but the coder block is driven by patterns.py \u2192 checker.py \u2192 gateway.py:1015 which emits `\"Push denied: agent role '{role}' cannot modify \u2026\"`. Two error-message paths coexist; the analysis conflates them. Non-blocking because the policy logic is correctly identified regardless of which stringification reached the user.\n- **1901-analysis.md line 59 (matcher quirk)** \u2014 The tracing is slightly off: `_matches_pattern` for pattern `**/tests/` returns early at the `if pattern.endswith(\"/\"):` prefix-match branch (patterns.py:143\u2013144), not via the `**`-aware branch. Result is the same (pattern misses nested test dirs), but \"tries to match `__init__.py` against the suffix `tests/` via `fnmatch`\" mis-describes the code path. Since decision-5 registers this as an open question and explicitly scopes it out of this issue, no action is required.\n- **Option A redundancy** \u2014 Under `allowed_patterns=[\"**\"]`, the existing explicit entries for `skills/`, `sandbox/agent-config/rules/*.md`, `sandbox/agent-config/commands/*.md` in `allowed_patterns` become redundant (they are implied by `**`). The Option A sketch already drops them correctly (line 86). Worth mentioning in the plan phase that the rewrite can shrink allowed_patterns from ~25 entries to one.\n- **Option D's refactor-dependency argument (line 197)** is slightly overstated \u2014 the tester/documenter allowlists already effectively split scope vs shared-dep patterns by section header (`# Handoff output`, `# Config files needed for test environment setup`). A union-based approach could filter by comment marker. Still agree D is wrong shape for this bug fix; just noting the con is softer than stated."
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-22T23:37:03.388789+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "cc852229-aadf-4a",
+    "pipeline_id": "issue-1901",
+    "from_role": "orchestrator",
+    "to_role": "refiner",
+    "message_type": "STATUS",
+    "subject": "All reviewers have ACKed \u2014 ready to confirm",
+    "body": "All assigned reviewers have ACKed your proposal (version 1). Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "fully_acked": true,
+      "version": 1
+    },
+    "timestamp": "2026-04-22T23:37:03.388818+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "c73f300b-5969-4a",
+    "pipeline_id": "issue-1901",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by refiner",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-22T23:37:07.842245+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "7e98f100-ee17-46",
+    "pipeline_id": "issue-1901",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_refine",
+    "body": "",
+    "metadata": {
+      "consensus_reached": true
+    },
+    "timestamp": "2026-04-22T23:37:08.918254+00:00",
+    "phase": "refine"
+  }
+]
