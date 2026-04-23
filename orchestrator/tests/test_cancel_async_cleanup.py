@@ -218,8 +218,15 @@ class TestAsyncCleanupOnCancel:
         pipeline.status = PipelineStatus.FAILED
         mock_resolve.return_value = (mock_store, pipeline)
 
+        cleanup_done = threading.Event()
+
         mock_spawner = MagicMock()
-        mock_spawner.cleanup_pipeline.return_value = 2
+
+        def cleanup_with_signal(pipeline_id, force=False, preserve_worktrees=False):
+            cleanup_done.set()
+            return 2
+
+        mock_spawner.cleanup_pipeline.side_effect = cleanup_with_signal
         mock_spawner_fn.return_value = mock_spawner
 
         mock_dq = MagicMock()
@@ -234,6 +241,12 @@ class TestAsyncCleanupOnCancel:
 
         body = response.get_json()
         assert body["data"]["cleanup_pending"] is True
+
+        # Verify FAILED pipelines do NOT preserve worktrees
+        assert cleanup_done.wait(timeout=5), "Background cleanup was never called"
+        mock_spawner.cleanup_pipeline.assert_called_once_with(
+            "test-pipeline", force=True, preserve_worktrees=False
+        )
 
     @patch("routes.pipelines.get_decision_queue")
     @patch("routes.pipelines.get_container_spawner")
