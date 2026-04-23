@@ -162,13 +162,19 @@ class MessageStore:
             if pid not in self._messages:
                 self._messages[pid] = []
             self._messages[pid].append(message)
-            # Notify any blocked get_messages() callers waiting on this pipeline.
-            # Per issue #1897 RISK-5: wake ALL waiters; each re-filters and
-            # may continue blocking if the new message doesn't match its
-            # wait_for_types filter.
+            # Notify any blocked get_messages() callers waiting on this
+            # pipeline. Per issue #1897 RISK-5 + reviewer_code blocker 2
+            # on v4: we ALSO create a cv if one is absent, so the very
+            # next get_messages(wait=N) caller observes ``self._cond[pid]``
+            # pre-seeded and doesn't race with a later clear(). Without
+            # this, a reader that arrived AFTER an earlier clear() but
+            # BEFORE any add_message landed could end up on a cv that
+            # subsequently gets detached.
             cv = self._cond.get(pid)
-            if cv is not None:
-                cv.notify_all()
+            if cv is None:
+                cv = threading.Condition(self._lock)
+                self._cond[pid] = cv
+            cv.notify_all()
         return message
 
     def get_messages(
@@ -274,6 +280,19 @@ class MessageStore:
             # and also notify_all().
             observed = pipeline_id in self._messages
             while True:
+                # Orphan-cv detection (#1897 reviewer_code blocker 2 on v4):
+                # if clear(pipeline_id) ran since we grabbed ``cv``, the
+                # canonical cv in ``self._cond`` either disappeared or was
+                # replaced by a fresh instance installed by a subsequent
+                # add_message().  Our local ``cv`` is then detached: future
+                # notifications from add_message go to the new canonical cv
+                # and we would hang on this one until the timeout.
+                # Detect that and return empty so the caller can re-enter
+                # cleanly instead of sleeping out the budget.
+                current_cv = self._cond.get(pipeline_id)
+                if current_cv is not cv:
+                    return []
+
                 if pipeline_id in self._messages:
                     observed = True
                 elif observed:

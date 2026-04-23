@@ -1238,25 +1238,14 @@ def cmd_message_heartbeat(args: argparse.Namespace) -> int:
         )
         return 3
 
-    # Body schema: POST body must carry ``message_type=HEARTBEAT`` plus
-    # a nested ``metadata`` object with the structured fields
-    # (``state``, ``waiting_on``, ``since``). The CLI also retains the
-    # flat ``state`` / ``waiting_on`` / ``since`` keys at the top level
-    # for backwards-compatibility with the dedicated ``/heartbeat``
-    # endpoint which accepts them un-nested; the server ignores
-    # whichever form it doesn't need.
-    metadata: dict[str, Any] = {"state": args.state}
-    if args.waiting_on:
-        metadata["waiting_on"] = args.waiting_on
-    if args.since:
-        metadata["since"] = args.since
-
+    # Body schema: flat ``{from_role, state, waiting_on?, since?, body?}``.
+    # This is what the dedicated ``POST /heartbeat`` route expects
+    # (routes/messages.py) and matches the tester fixtures at
+    # sandbox/tests/test_message_wait_cli.py::TestHeartbeat. The earlier
+    # nested ``metadata`` form was dead bytes on the wire (the server
+    # never read it) — reviewer_code blocker 3 on #1897 proposal v4.
     data: dict[str, Any] = {
         "from_role": role,
-        "message_type": "HEARTBEAT",
-        "metadata": metadata,
-        # Un-nested duplicates — tolerated by the legacy /heartbeat
-        # endpoint and ignored by the /messages endpoint.
         "state": args.state,
     }
     if args.waiting_on:

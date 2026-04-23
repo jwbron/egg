@@ -164,6 +164,7 @@ class RedisMessageStore:
         limit: int = 100,
         wait: int = 0,
         wait_for_types: Sequence[str] | None = None,
+        from_role: str | None = None,
     ) -> list[Message]:
         """Get messages from the Redis Stream.
 
@@ -178,9 +179,15 @@ class RedisMessageStore:
                 available after applying role filtering. Non-matching rows
                 are discarded and the caller keeps blocking on the remaining
                 time budget. Issue #1897.
-
-        Returns:
-            List of matching messages, oldest first.
+            from_role: If set, only messages whose ``from_role`` equals this
+                value count as matches and are returned. Applied inside the
+                blocking loop so a wrong-sender message does NOT wake the
+                waiting caller (prevents spin). Matches the in-memory
+                backend's signature for backend-consistency — the
+                ``routes/messages.py`` wait endpoint passes
+                ``from_role=...`` unconditionally, so a Redis backend
+                without this parameter raised ``TypeError`` in production
+                (reviewer_code blocker 1 on #1897 proposal v4).
         """
         key = _stream_key(pipeline_id)
 
@@ -255,6 +262,8 @@ class RedisMessageStore:
             messages, _ = _read_once(start_id, wait * 1000 if wait > 0 else None)
             if role:
                 messages = [m for m in messages if m.to_role == role or m.to_role == "all"]
+            if from_role:
+                messages = [m for m in messages if m.from_role == from_role]
             return messages[-limit:] if len(messages) > limit else messages
 
         # wait_for_types: re-block on remaining time budget until we find a
@@ -277,6 +286,8 @@ class RedisMessageStore:
             messages, last_sid = _read_once(current_start, block_ms)
             if role:
                 messages = [m for m in messages if m.to_role == role or m.to_role == "all"]
+            if from_role:
+                messages = [m for m in messages if m.from_role == from_role]
 
             matching = [m for m in messages if m.message_type in want_types]
             if matching:
