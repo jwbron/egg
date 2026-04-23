@@ -152,8 +152,8 @@
     },
     "plan": {
       "phase": "plan",
-      "status": "pending",
-      "started_at": null,
+      "status": "running",
+      "started_at": "2026-04-23T00:10:56.055612Z",
       "work_started_at": null,
       "completed_at": null,
       "containers": [],
@@ -164,7 +164,7 @@
       "artifacts": {},
       "error": null,
       "hitl_feedback": null,
-      "phase_start_sha": "7a3471f57cb9cd398637a66ce512240b8856e37a"
+      "phase_start_sha": "135c3f80722a6ecfec1d908c09fd1667d779f6e7"
     }
   },
   "decisions": [
@@ -317,7 +317,7 @@
     }
   ],
   "created_at": "2026-04-22T23:25:22.973469Z",
-  "updated_at": "2026-04-23T00:10:48.675334Z",
+  "updated_at": "2026-04-23T00:10:56.055803Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -330,5 +330,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T00:10:48.673750Z",
-  "version": 37
+  "version": 38
 }
