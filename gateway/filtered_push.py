@@ -165,7 +165,7 @@ def _filter_tree(
         # Remove each blocked path (ignore "not in index" errors — only
         # some commits may have touched a given path).
         for p in blocked_paths:
-            _git(exec_path, "update-index", "--remove", "--", p, env=env)
+            _git(exec_path, "update-index", "--force-remove", "--", p, env=env)
 
         wt = _git(exec_path, "write-tree", env=env)
         if wt.returncode != 0:
