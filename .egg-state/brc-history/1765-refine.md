@@ -1,6 +1,6 @@
 # BRC Consensus History — refine phase
 
-Generated: 2026-04-23T06:44:05Z
+Generated: 2026-04-23T06:52:23Z
 Pipeline: issue-1765
 
 ### [2026-04-23T06:30:02Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
@@ -1084,4 +1084,99 @@ id: 19192336-16ad-4a
 phase: refine
 metadata:
   consensus_reached: true
+````
+
+### [2026-04-23T06:46:21Z] orchestrator (OVERSEER_ALERT): overseer_restart: overseer [info]
+
+Overseer container was respawned. Old container a8a52ac2-5da exited with code 0. New container 0f512e80-c35 is now running.
+
+````yaml
+id: 8408dd16-002d-47
+phase: refine
+metadata:
+  exit_code: 0
+  old_container_id: a8a52ac2-5da8-4033-9e2d-8b7b19d99d2b
+  new_container_id: 0f512e80-c358-4a60-96fa-5484f6d9a569
+  log_tail: "\n---\n\n### Health Indicators Throughout\n\n| Metric | Value |\n|---|---|\n\
+    | Total alerts raised | **0** |\n| Heartbeat failures | **0** |\n| Container exits\
+    \ | **0** (all 4 containers ran to natural completion) |\n| Escalation interventions\
+    \ | **0** |\n| BRC rounds completed | **2** (v1 \u2192 refinement \u2192 v2, both\
+    \ confirmed) |\n| Stalls detected | **0** (apparent 9-min WORKING period was active\
+    \ v4 authoring) |\n\n---\n\n### Overseer Assessment\n\n2026-04-23 06:46:08 [INFO\
+    \    ] egg-agent: Agent completed event_type=system event_subtype=result model=claude-sonnet-4-6\
+    \ session_id=12eefbb9-02ac-4c35-ac8b-42367f700b13 cost_usd=2.2275899 num_turns=39\
+    \ duration_ms=1067070 success=True [/opt/egg-runtime/shared/egg_agent/client.py:408]\n\
+    **Pipeline health: EXCELLENT.** The refine phase executed cleanly. The refiner's\
+    \ 9-minute WORKING period between BRC rounds was productive authoring of a substantially\
+    \ improved analysis \u2014 not a stall. The BRC protocol functioned correctly\
+    \ across two full proposal-confirmation cycles. No corrective actions were required.\
+    \ The pipeline is properly paused at its designed HITL gate awaiting human decisions\
+    \ on decisions 7 and 8, after which it can advance to the `plan` phase."
+  respawn_attempt: 1
+  max_respawns: 3
+````
+
+### [2026-04-23T06:49:22Z] orchestrator (OVERSEER_ALERT): overseer_restart: overseer [info]
+
+Overseer container was respawned. Old container 0f512e80-c35 exited with code 0. New container 69d65bbc-d7a is now running.
+
+````yaml
+id: e31880f8-260e-4c
+phase: refine
+metadata:
+  exit_code: 0
+  old_container_id: 0f512e80-c358-4a60-96fa-5484f6d9a569
+  new_container_id: 69d65bbc-d7ab-4246-a59c-710e737281e5
+  log_tail: "The analysis document (`.egg-state/drafts/1765-analysis.md`) also contains\
+    \ HITL markers for **decisions 7** (MCP tool naming: semantic/verb-based recommended)\
+    \ and **8** (iteration-1 tool set: BRC+HITL+phase-context core ~15 tools recommended),\
+    \ plus open-ended feedback questions under `feedback-1`. These appear to be tracked\
+    \ as contract decisions in the analysis but may share a queue entry with the existing\
+    \ pending `decision-3`.\n\n---\n\n### Alerts Classified\n\n| Alert | Classification\
+    \ | Action |\n|---|---|---|\n| `OVERSEER_ALERT: overseer_restart` | \U0001F535\
+    \ Informational \u2014 planned respawn after clean exit (code 0) | None needed\
+    \ |\n\nNo anomaly alerts were raised. Zero Haiku-tier classifications escalated\
+    \ to Sonnet tier.\n\n---\n\n### Overseer Assessment\n\n**Pipeline health: EXCELLENT.**\
+    \ The `refine` phase executed cleanly and produced a high-quality analysis artifact\
+    \ that has achieved full BRC consensus. The pipeline is paused exactly as designed\
+    \ at the HITL gate. There are no stalls, no heartbeat failures, no agent misbehaviors,\
+    \ and no infrastructure issues.\n\n2026-04-23 06:48:55 [INFO    ] egg-agent: Agent\
+    \ completed event_type=system event_subtype=result model=claude-sonnet-4-6 session_id=a42a0643-4978-4e97-a67e-ba895574c47a\
+    \ cost_usd=1.3192887 num_turns=19 duration_ms=151629 success=True [/opt/egg-runtime/shared/egg_agent/client.py:408]\n\
+    **Action required from human operator:** Resolve `decision-3` (and review decisions\
+    \ 7, 8, and `feedback-1` in the analysis draft) to allow the pipeline to advance\
+    \ to the `plan` phase."
+  respawn_attempt: 2
+  max_respawns: 3
+````
+
+### [2026-04-23T06:52:23Z] orchestrator (OVERSEER_ALERT): overseer_restart: overseer [info]
+
+Overseer container was respawned. Old container 69d65bbc-d7a exited with code 0. New container cd936dde-4b8 is now running.
+
+````yaml
+id: ea894258-423f-4b
+phase: refine
+metadata:
+  exit_code: 0
+  old_container_id: 69d65bbc-d7ab-4246-a59c-710e737281e5
+  new_container_id: cd936dde-4b81-444a-9284-4ffefd4213df
+  log_tail: "### \u26A0\uFE0F Action Required from Human Operator\n\nThe pipeline\
+    \ **cannot advance to the `plan` phase** until `decision-4` is resolved:\n\n```bash\n\
+    # To resolve with the refiner's recommended approach (D+B):\negg-orch decision\
+    \ resolve decision-4 --choice D\n\n# Or to choose a different approach:\negg-orch\
+    \ decision resolve decision-4 --choice A   # AGENT-TOOLS.md\negg-orch decision\
+    \ resolve decision-4 --choice B   # system-prompt manifest\negg-orch decision\
+    \ resolve decision-4 --choice C   # orchestrator-hosted MCP server\n```\n\nThe\
+    \ analysis also contains inline `<!-- egg-hitl-decision id=decision-N -->` markers\
+    \ for decisions 7 (MCP tool naming) and 8 (iteration-1 tool set), and open-ended\
+    \ feedback questions under `<!-- egg-feedback id=feedback-1 -->` \u2014 but `decision-4`\
+    \ is the only queue-blocking item preventing phase advancement.\n\n---\n\n2026-04-23\
+    \ 06:51:49 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result\
+    \ model=claude-sonnet-4-6 session_id=d411e7ce-44eb-4188-8755-b173c6df4fb3 cost_usd=1.18650215\
+    \ num_turns=26 duration_ms=145127 success=True [/opt/egg-runtime/shared/egg_agent/client.py:408]\n\
+    *Monitoring will continue. Next cycle will run after human resolves `decision-4`\
+    \ or pipeline state changes.*"
+  respawn_attempt: 3
+  max_respawns: 3
 ````

@@ -1,6 +1,6 @@
 # BRC Consensus History — implement phase
 
-Generated: 2026-04-23T08:59:16Z
+Generated: 2026-04-23T09:14:52Z
 Pipeline: issue-1765
 
 ### [2026-04-23T07:56:40Z] documenter (CONSENSUS_PROPOSE): Proposal from documenter
@@ -3164,4 +3164,19 @@ id: 1b878fe8-d343-4a
 phase: implement
 metadata:
   consensus_reached: true
+````
+
+### [2026-04-23T09:14:52Z] overseer (OVERSEER_ALERT): stuck-phase-transition [medium]
+
+implement phase internally complete since 08:59:28 UTC; pipeline not auto-advanced to pr after 14+ minutes
+
+Detail:
+phase_execution.status=complete, phase_execution.completed_at=2026-04-23T08:59:28.800786+00:00. Pipeline pipeline Updated timestamp frozen at 09:01:56 UTC (no further update). BRC consensus complete (blocking_agents=[]) at 08:59 UTC. All 13 decisions resolved [ok]. No pending HITL. egg-orch phase advance --target-phase pr returned 401 (overseer lacks write permission for phase transitions).
+
+Recommended action:
+Investigate orchestrator logs for phase-advance error around 09:01:56 UTC. If orchestrator is stuck, manually run: egg-orch phase advance issue-1765 --target-phase pr
+
+````yaml
+id: 64b8d7bb-1544-4f
+phase: implement
 ````
