@@ -735,8 +735,6 @@ After resolving this decision, move to the next pending decision (if any) before
 
 ### For `choice` type decisions:
 
-**When multiple `choice` decisions are pending in the same batch, group up to 4 into a single multi-question `AskUserQuestion` call** (see the Phase 4 intro above). The per-decision formatting rules below still apply — each decision contributes one question (its `question` field) and a set of options (its `options` array) to the batched prompt. After collecting the user's answers, call `provide_input` once per `decision_id`.
-
 **Before prompting — check `resolved_questions_map` for a captured answer**:
 
 1. Compute `normalized_q = decision.question.strip().lower()`.
@@ -752,6 +750,8 @@ After resolving this decision, move to the next pending decision (if any) before
    ```
    Proceed to the next pending decision.
 5. **On no match, or if the stored answer is a free-text / "Other" value that doesn't correspond to any option in `decision.options`**: fall through to the normal prompt flow below. Do not force an invalid selection.
+
+**When multiple `choice` decisions are pending in the same batch, group up to 4 into a single multi-question `AskUserQuestion` call** (see the Phase 4 intro above). The per-decision formatting rules below still apply — each decision contributes one question (its `question` field) and a set of options (its `options` array) to the batched prompt. After collecting the user's answers, call `provide_input` once per `decision_id`.
 
 If the decision includes a `draft_content` field, display it to the user first as context for the decision. If the content is long, show a summary of the key sections (headings and first paragraph of each) followed by the full content. This is especially important for decisions from the refine and plan phases, where the draft contains the analysis or plan that motivates the decision.
 
