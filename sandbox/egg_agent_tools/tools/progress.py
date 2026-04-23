@@ -70,7 +70,7 @@ _HEARTBEAT_SCHEMA: dict[str, Any] = {
 
 
 @tool(
-    "mcp__progress__emit",
+    "emit",
     "Signal a structured progress update to the orchestrator. Prefer this over "
     "'egg-orch signal progress'.",
     _PROGRESS_SCHEMA,
@@ -80,7 +80,7 @@ async def progress_emit(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @tool(
-    "mcp__progress__signal_error",
+    "signal_error",
     "Signal an error (recoverable or unrecoverable) to the orchestrator. Prefer "
     "this over 'egg-orch signal error'.",
     _ERROR_SCHEMA,
@@ -90,7 +90,7 @@ async def progress_signal_error(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @tool(
-    "mcp__progress__heartbeat",
+    "heartbeat",
     "Send a heartbeat signal to the orchestrator. Prefer this over "
     "'egg-orch signal heartbeat'.",
     _HEARTBEAT_SCHEMA,

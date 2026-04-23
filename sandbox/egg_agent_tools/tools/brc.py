@@ -138,7 +138,7 @@ _LIST_BLOCKING_SCHEMA: dict[str, Any] = {
 
 
 @tool(
-    "mcp__brc__propose",
+    "propose",
     "Send a CONSENSUS_PROPOSE signal starting or re-starting the BRC cycle for "
     "this producer. Prefer this over 'egg-orch consensus propose'.",
     _PROPOSE_SCHEMA,
@@ -148,7 +148,7 @@ async def brc_propose(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @tool(
-    "mcp__brc__ack",
+    "ack",
     "ACK a producer's proposal (reviewer side). Prefer this over "
     "'egg-orch consensus ack'.",
     _ACK_SCHEMA,
@@ -158,7 +158,7 @@ async def brc_ack(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @tool(
-    "mcp__brc__nack",
+    "nack",
     "NACK a producer's proposal with a specific blocking reason. Prefer this "
     "over 'egg-orch consensus nack'.",
     _NACK_SCHEMA,
@@ -168,7 +168,7 @@ async def brc_nack(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @tool(
-    "mcp__brc__confirm",
+    "confirm",
     "Send CONSENSUS_CONFIRMED after all reviewers ACK. Returns status "
     "'pending_acks' if any reviewer has not yet re-ACKed. Prefer this over "
     "'egg-orch consensus confirmed'.",
@@ -179,7 +179,7 @@ async def brc_confirm(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @tool(
-    "mcp__brc__get_state",
+    "get_state",
     "Fetch the current BRC consensus state (agent matrix, blocking roles, "
     "phase). Structured — no text scrape needed.",
     _STATE_SCHEMA,
@@ -189,7 +189,7 @@ async def brc_get_state(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @tool(
-    "mcp__brc__list_blocking",
+    "list_blocking",
     "Return the agent roles currently blocking consensus. Derived view of the "
     "BRC state.",
     _LIST_BLOCKING_SCHEMA,

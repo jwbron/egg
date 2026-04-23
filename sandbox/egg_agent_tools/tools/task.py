@@ -48,7 +48,7 @@ _COMPLETE_SCHEMA: dict[str, Any] = {
 
 
 @tool(
-    "mcp__task__complete",
+    "complete",
     "Mark a contract task complete, optionally linking a commit SHA. Prefer this "
     "over 'egg-contract complete-task'.",
     _COMPLETE_SCHEMA,

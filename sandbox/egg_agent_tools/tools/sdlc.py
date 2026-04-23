@@ -87,7 +87,7 @@ _HITL_ANSWERS_SCHEMA: dict[str, Any] = {
 
 
 @tool(
-    "mcp__sdlc__register_open_question",
+    "register_open_question",
     "Create a HITL decision point on the SDLC contract so a human can choose between "
     "options. Prefer this over running 'egg-contract add-decision'.",
     _REGISTER_SCHEMA,
@@ -97,7 +97,7 @@ async def register_open_question(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @tool(
-    "mcp__sdlc__request_feedback",
+    "request_feedback",
     "Open an open-ended feedback request so humans can answer with free-form text. "
     "Prefer this over running 'egg-contract add-feedback'.",
     _FEEDBACK_SCHEMA,
@@ -107,7 +107,7 @@ async def request_feedback(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @tool(
-    "mcp__sdlc__check_hitl_answers",
+    "check_hitl_answers",
     "Fetch resolved HITL decisions and submitted feedback for the current contract, "
     "optionally filtered by phase. No CLI counterpart — reads straight from the "
     "contract gateway.",

@@ -208,9 +208,16 @@ async def run_agent_async(
     if system_prompt is not None:
         options.system_prompt = system_prompt
 
-    # --- Opt-in: register in-process SDK MCP server with egg's agent tools ---
+    # --- Opt-in: register in-process SDK MCP servers with egg's agent tools ---
     # Gated on EGG_MCP_TOOLS so non-opt-in pipelines pay zero cost (no
     # extra import, no prompt-weight change).  See issue #1765.
+    #
+    # The factory returns one SDK MCP server per namespace (keys: sdlc,
+    # brc, phase, progress, task).  The Claude-visible tool name is
+    # ``mcp__<server_key>__<raw_@tool_name>`` — keying each server by
+    # its namespace is what produces the decision-7 visible names
+    # ``mcp__sdlc__register_open_question`` etc.  A single aggregate
+    # server would double-prefix (``mcp__egg__mcp__sdlc__...``).
     _mcp_flag_raw = os.environ.get("EGG_MCP_TOOLS", "")
     if _mcp_flag_raw.strip().lower() in ("true", "1", "yes", "on"):
         try:
@@ -219,8 +226,11 @@ async def run_agent_async(
                 build_sandbox_mcp_server,
             )
 
-            mcp_server = build_sandbox_mcp_server()
-            options.mcp_servers = {"egg": mcp_server}
+            mcp_servers = build_sandbox_mcp_server()
+            # ``mcp_servers`` is already a {namespace: server} dict;
+            # merge into any caller-supplied mcp_servers on options.
+            existing_servers = getattr(options, "mcp_servers", None) or {}
+            options.mcp_servers = {**existing_servers, **mcp_servers}
             # Preserve any caller-supplied system_prompt; append the nudge.
             existing_prompt = options.system_prompt or ""
             if existing_prompt:
@@ -234,6 +244,7 @@ async def run_agent_async(
                 event_type="system",
                 event_subtype="mcp_tools_enabled",
                 flag="EGG_MCP_TOOLS",
+                namespaces=list(mcp_servers.keys()),
             )
         except Exception as e:  # pragma: no cover - defensive
             logger.warning(

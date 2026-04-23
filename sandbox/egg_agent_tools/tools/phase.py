@@ -63,7 +63,7 @@ _ASSIGNED_SCHEMA: dict[str, Any] = {
 
 
 @tool(
-    "mcp__phase__get_context",
+    "get_context",
     "Bundle the caller's phase context: pipeline id, phase, role, assigned "
     "tasks, and prior-phase artifact paths. Replaces 'cat CLAUDE.md && ls "
     ".egg-state/' archaeology.",
@@ -74,7 +74,7 @@ async def phase_get_context(args: dict[str, Any]) -> dict[str, Any]:
 
 
 @tool(
-    "mcp__phase__get_assigned_tasks",
+    "get_assigned_tasks",
     "Return only the contract tasks assigned to the caller's role (filtered by "
     "EGG_AGENT_ROLE). Optional status filter.",
     _ASSIGNED_SCHEMA,
