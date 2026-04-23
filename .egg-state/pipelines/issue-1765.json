@@ -235,10 +235,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Hybrid D+B: in-process SDK tools as primary surface, plus a short tool index injected into the system prompt\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Should the MCP tool surface be auto-generated from CLI argparse introspection, or hand-curated?",
+      "context": "Open contract question decision-2, registered by an agent during the refine phase.",
+      "options": [
+        "Auto-generated: single source of truth is each CLI's argparse; new subcommands surface automatically (matches AC 'no doc drift')",
+        "Hand-curated: explicit @tool definitions with hand-written descriptions/schemas; tighter quality, but risks drift",
+        "Hybrid: auto-generate the skeleton, allow per-tool overrides for descriptions/schemas where the argparse help is insufficient (Recommended)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-23T06:50:58.857836Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:22:09.201730Z",
-  "updated_at": "2026-04-23T06:50:56.878622Z",
+  "updated_at": "2026-04-23T06:50:58.874794Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -252,5 +271,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:32:00.470351Z",
-  "version": 40
+  "version": 41
 }
