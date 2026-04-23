@@ -9,15 +9,604 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "phases": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Which approach should we adopt for exposing egg CLIs to sandbox agents?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "A: Auto-generated AGENT-TOOLS.md + improved --help (status quo polish)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "B: Tool manifest rendered into system prompt at spawn time",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "C: Second orchestrator-hosted MCP server (streamable HTTP) scoped to sandbox agents",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "D: In-process SDK MCP server via create_sdk_mcp_server + @tool decorators, wired into egg_agent.client (Recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Hybrid D+B: in-process SDK tools as primary surface, plus a short tool index injected into the system prompt",
+          "description": null
+        },
+        {
+          "id": "opt-6",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Should the MCP tool surface be auto-generated from CLI argparse introspection, or hand-curated?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Auto-generated: single source of truth is each CLI's argparse; new subcommands surface automatically (matches AC 'no doc drift')",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Hand-curated: explicit @tool definitions with hand-written descriptions/schemas; tighter quality, but risks drift",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Hybrid: auto-generate the skeleton, allow per-tool overrides for descriptions/schemas where the argparse help is insufficient (Recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Must the solution also cover the experimental 'egg' harness (EGG_HARNESS=egg), or claude_agent_sdk only for now?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "claude_agent_sdk harness only \u2014 the egg harness is opt-in and experimental; parallel registration can be added later when it graduates (Recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Both harnesses from day one \u2014 register the same tool handlers in both egg_agent.client (SDK) and shared/egg_harness/tools (egg harness registry)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Only the egg harness \u2014 treat this as the forcing function to migrate sandbox agents onto the new harness",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Should the existing shell CLIs under sandbox/bin/egg-* remain as first-class, or be deprecated once the MCP tool surface lands?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Keep both indefinitely \u2014 CLIs are used by humans, tests, entrypoint scripts, and bash wrappers; MCP tools are additive for agents (Recommended \u2014 matches AC 'existing CLIs keep working')",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Keep CLIs, but soft-deprecate with a banner that points agents at the MCP tool when one is available",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Remove CLIs as we finish each MCP tool; force agents onto the structured surface",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "How should MCP tools be named so agents can pattern-match them quickly?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Flat namespace under one server: mcp__egg__contract_add_decision, mcp__egg__orch_pipeline_status, mcp__egg__checkpoint_search (one server, flat names)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Per-CLI servers: mcp__egg_contract__add_decision, mcp__egg_orch__pipeline_status, etc. (one SDK server per CLI binary) (Recommended \u2014 mirrors the CLI surface the humans already know)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Subcommand-join form: mcp__egg__contract/add-decision (preserve the exact shell command as the tool name suffix)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "What is the tool-surface scope \u2014 all subcommands of every egg CLI, or a curated high-value subset?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Everything \u2014 every subcommand of egg-contract, egg-orch, egg-checkpoint, egg-pipeline-watch, egg-sdlc, egg-health-inspect, egg-onboarding-docs becomes an MCP tool (maximizes discoverability, matches AC 'new CLI shows up automatically')",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "High-value subset first \u2014 only the subcommands agents hit in their BRC lifecycle (consensus propose/ack/nack/confirmed, message send/poll, contract add-decision/add-feedback/complete-task/update-notes, decision resolve, phase get/advance, anchor ops); expand iteratively (Recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "BRC-only \u2014 just the subcommands the PROPOSE/ACK/NACK/CONFIRM lifecycle depends on; all others stay shell-only",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-04-23T05:40:45.685746Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-1",
+        "question": "Which approach should we adopt for exposing egg CLIs to sandbox agents?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "A: Auto-generated AGENT-TOOLS.md + improved --help (status quo polish)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "B: Tool manifest rendered into system prompt at spawn time",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "C: Second orchestrator-hosted MCP server (streamable HTTP) scoped to sandbox agents",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "D: In-process SDK MCP server via create_sdk_mcp_server + @tool decorators, wired into egg_agent.client (Recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Hybrid D+B: in-process SDK tools as primary surface, plus a short tool index injected into the system prompt",
+            "description": null
+          },
+          {
+            "id": "opt-6",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Which approach should we adopt for exposing egg CL...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:40:51.412174Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-2",
+        "question": "Should the MCP tool surface be auto-generated from CLI argparse introspection, or hand-curated?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Auto-generated: single source of truth is each CLI's argparse; new subcommands surface automatically (matches AC 'no doc drift')",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Hand-curated: explicit @tool definitions with hand-written descriptions/schemas; tighter quality, but risks drift",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Hybrid: auto-generate the skeleton, allow per-tool overrides for descriptions/schemas where the argparse help is insufficient (Recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the MCP tool surface be auto-generated from...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:40:57.723467Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-3",
+        "question": "Must the solution also cover the experimental 'egg' harness (EGG_HARNESS=egg), or claude_agent_sdk only for now?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "claude_agent_sdk harness only \u2014 the egg harness is opt-in and experimental; parallel registration can be added later when it graduates (Recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Both harnesses from day one \u2014 register the same tool handlers in both egg_agent.client (SDK) and shared/egg_harness/tools (egg harness registry)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Only the egg harness \u2014 treat this as the forcing function to migrate sandbox agents onto the new harness",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Must the solution also cover the experimental 'egg...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:41:04.391539Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-4",
+        "question": "Should the existing shell CLIs under sandbox/bin/egg-* remain as first-class, or be deprecated once the MCP tool surface lands?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Keep both indefinitely \u2014 CLIs are used by humans, tests, entrypoint scripts, and bash wrappers; MCP tools are additive for agents (Recommended \u2014 matches AC 'existing CLIs keep working')",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Keep CLIs, but soft-deprecate with a banner that points agents at the MCP tool when one is available",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Remove CLIs as we finish each MCP tool; force agents onto the structured surface",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the existing shell CLIs under sandbox/bin/e...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:41:10.616568Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-5",
+        "question": "How should MCP tools be named so agents can pattern-match them quickly?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Flat namespace under one server: mcp__egg__contract_add_decision, mcp__egg__orch_pipeline_status, mcp__egg__checkpoint_search (one server, flat names)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Per-CLI servers: mcp__egg_contract__add_decision, mcp__egg_orch__pipeline_status, etc. (one SDK server per CLI binary) (Recommended \u2014 mirrors the CLI surface the humans already know)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Subcommand-join form: mcp__egg__contract/add-decision (preserve the exact shell command as the tool name suffix)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should MCP tools be named so agents can patter...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:41:18.978283Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-6",
+        "question": "What is the tool-surface scope \u2014 all subcommands of every egg CLI, or a curated high-value subset?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Everything \u2014 every subcommand of egg-contract, egg-orch, egg-checkpoint, egg-pipeline-watch, egg-sdlc, egg-health-inspect, egg-onboarding-docs becomes an MCP tool (maximizes discoverability, matches AC 'new CLI shows up automatically')",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "High-value subset first \u2014 only the subcommands agents hit in their BRC lifecycle (consensus propose/ack/nack/confirmed, message send/poll, contract add-decision/add-feedback/complete-task/update-notes, decision resolve, phase get/advance, anchor ops); expand iteratively (Recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "BRC-only \u2014 just the subcommands the PROPOSE/ACK/NACK/CONFIRM lifecycle depends on; all others stay shell-only",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: What is the tool-surface scope \u2014 all subcommands o...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:41:39.524368Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Access-control slice: if we DO add a separate sandbox-facing MCP server (Option C), what's the minimum tool set we want exposed, and which orchestrator-side tools (submit_task / cancel_task / restart_phase / advance_phase / get_consensus_status) should NEVER be reachable from inside a sandbox? Is there a concrete threat model you want us to design against?",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Drift-prevention contract: what's the acceptable mechanism for keeping the CLI and the tool schemas in sync? Options: (a) CI test that parses each CLI's argparse and diffs against the @tool registry; (b) single source of truth (argparse) with tools derived at import time; (c) make the CLI a thin wrapper over the @tool functions (CLI calls the same handler internally). Which flavour of 'no drift' do you want?",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "Bootstrap guidance: even after MCP tools are registered, should we inject a short (<=200 word) 'these tools exist, prefer them over Bash' paragraph into the system prompt, or trust the SDK's native tool-discovery without a prompt nudge? Past experience suggests agents sometimes default to Bash even when a structured tool exists.",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "Output shape for diagnostic subcommands: commands like 'egg-orch pipeline status' emit rich terminal tables/JSON. Should the MCP tool return (a) the JSON payload verbatim, (b) a compact text summary for token economy, or (c) both as multi-content blocks? This affects tool-call token cost and agent comprehension.",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "Authn/authz for network-transport MCP (if Option C lands instead of D): sandbox agents currently authenticate to the gateway via EGG_SESSION_TOKEN. Should a sandbox-facing MCP server reuse that token, introduce a new per-agent token, or piggyback on the existing EGG_LIFECYCLE_SECRET? What's the expected token lifecycle across agent restarts?",
+            "answer": null
+          },
+          {
+            "id": "Q6",
+            "question": "Observability: should MCP tool calls generate distinct log events / checkpoints separate from the SDK's built-in tool_use stream? Today, Bash calls to egg CLIs show up as 'Bash' tool_use blocks in checkpoints; if they become first-class MCP tools they'll show up under distinct names \u2014 does the checkpoint browser need any changes to group or search them?",
+            "answer": null
+          },
+          {
+            "id": "Q7",
+            "question": "Timeouts and cancellation: SDK MCP server tool calls default to 60s connection timeout; some egg subcommands (e.g. 'egg-pipeline-watch', 'egg-checkpoint search') can run longer. What's the right timeout envelope, and should long-running operations be split into start/poll tool pairs rather than blocking?",
+            "answer": null
+          },
+          {
+            "id": "Q8",
+            "question": "Rollout plan preference: should the MCP tool surface be enabled for all roles simultaneously, or gated behind a feature flag (e.g. EGG_MCP_TOOLS=true) during a burn-in window where we compare token/turn-count between the two modes?",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 8 question(s)",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
   "pr": null,
-  "feedback": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Access-control slice: if we DO add a separate sandbox-facing MCP server (Option C), what's the minimum tool set we want exposed, and which orchestrator-side tools (submit_task / cancel_task / restart_phase / advance_phase / get_consensus_status) should NEVER be reachable from inside a sandbox? Is there a concrete threat model you want us to design against?",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "Drift-prevention contract: what's the acceptable mechanism for keeping the CLI and the tool schemas in sync? Options: (a) CI test that parses each CLI's argparse and diffs against the @tool registry; (b) single source of truth (argparse) with tools derived at import time; (c) make the CLI a thin wrapper over the @tool functions (CLI calls the same handler internally). Which flavour of 'no drift' do you want?",
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "question": "Bootstrap guidance: even after MCP tools are registered, should we inject a short (<=200 word) 'these tools exist, prefer them over Bash' paragraph into the system prompt, or trust the SDK's native tool-discovery without a prompt nudge? Past experience suggests agents sometimes default to Bash even when a structured tool exists.",
+        "answer": null
+      },
+      {
+        "id": "Q4",
+        "question": "Output shape for diagnostic subcommands: commands like 'egg-orch pipeline status' emit rich terminal tables/JSON. Should the MCP tool return (a) the JSON payload verbatim, (b) a compact text summary for token economy, or (c) both as multi-content blocks? This affects tool-call token cost and agent comprehension.",
+        "answer": null
+      },
+      {
+        "id": "Q5",
+        "question": "Authn/authz for network-transport MCP (if Option C lands instead of D): sandbox agents currently authenticate to the gateway via EGG_SESSION_TOKEN. Should a sandbox-facing MCP server reuse that token, introduce a new per-agent token, or piggyback on the existing EGG_LIFECYCLE_SECRET? What's the expected token lifecycle across agent restarts?",
+        "answer": null
+      },
+      {
+        "id": "Q6",
+        "question": "Observability: should MCP tool calls generate distinct log events / checkpoints separate from the SDK's built-in tool_use stream? Today, Bash calls to egg CLIs show up as 'Bash' tool_use blocks in checkpoints; if they become first-class MCP tools they'll show up under distinct names \u2014 does the checkpoint browser need any changes to group or search them?",
+        "answer": null
+      },
+      {
+        "id": "Q7",
+        "question": "Timeouts and cancellation: SDK MCP server tool calls default to 60s connection timeout; some egg subcommands (e.g. 'egg-pipeline-watch', 'egg-checkpoint search') can run longer. What's the right timeout envelope, and should long-running operations be split into start/poll tool pairs rather than blocking?",
+        "answer": null
+      },
+      {
+        "id": "Q8",
+        "question": "Rollout plan preference: should the MCP tool surface be enabled for all roles simultaneously, or gated behind a feature flag (e.g. EGG_MCP_TOOLS=true) during a burn-in window where we compare token/turn-count between the two modes?",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
   "phase_configs": null,
   "agent_executions": []
 }
