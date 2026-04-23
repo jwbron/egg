@@ -46,11 +46,28 @@
     "phase_spawn_max_retries": 2,
     "phase_spawn_retry_initial_backoff_seconds": 30.0
   },
-  "phases": {},
+  "phases": {
+    "refine": {
+      "phase": "refine",
+      "status": "running",
+      "started_at": "2026-04-23T05:22:48.268198Z",
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
+      "artifacts": {},
+      "error": null,
+      "hitl_feedback": null,
+      "phase_start_sha": "c515e53c3771e0e9561ffe74d4b067d8273dbc09"
+    }
+  },
   "decisions": [],
   "created_at": "2026-04-23T05:22:09.201730Z",
-  "updated_at": "2026-04-23T05:22:09.300219Z",
-  "contract_synced": false,
+  "updated_at": "2026-04-23T05:22:48.268262Z",
+  "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
@@ -63,5 +80,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 3
+  "version": 5
 }
