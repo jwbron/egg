@@ -1,0 +1,886 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1762,
+    "title": "Issue #1762",
+    "url": "https://github.com/jwbron/egg/issues/1762"
+  },
+  "pipeline_id": "issue-1762-membump",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Should the new primitive be named run_custom_phase, or something more descriptive (e.g. run_phase, run_agent_task, start_adhoc_phase)? Naming is locked in once tooling/CLI docs ship.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "run_custom_phase (as proposed in issue)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "run_phase",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "start_adhoc_phase",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "run_agent_task",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "How should the PipelineMode.CUSTOM interact with existing BABYSIT mode when pr_number is provided? Pick one.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Keep modes separate \u2014 CUSTOM rejects pr_number in v1; BABYSIT remains for PR targets",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "CUSTOM accepts pr_number and subsumes BABYSIT's per-role staging branches + head-move guards (deprecate BABYSIT later)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "CUSTOM accepts pr_number but reuses BABYSIT's semantics internally (no consolidation yet \u2014 code de-dup is a follow-up)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "The issue says 'remove bin/egg' but bin/egg is the top-level entry point for the sandboxed interactive session. Should we also remove sandbox/egg_lib/cli.py::main and the GHA entry sandbox/egg_lib/cli.py::gha_exec? (gha_exec is separate from interactive mode but currently lives in the same module.)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Remove bin/egg only; keep egg_lib.cli.main but strip interactive branch; keep gha_exec",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Remove bin/egg AND egg_lib.cli.main; relocate gha_exec to its own module for GHA",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Remove bin/egg AND all of egg_lib/cli.py AND gha_exec (GHA action runs a different entrypoint)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Should the orchestrator also remove ensure_compose_services() calls from exec_in_new_container() (which bin/egg-deploy, egg --exec, and GHA use) in this PR, or is compose removal strictly limited to sandbox/egg_lib/compose.py (the file) plus the flags listed?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Remove the entire compose.py module and all call sites \u2014 one cutover. ensure_compose_services() becomes a no-op / deleted. exec_in_new_container() relies on k8s being up via egg-deploy.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Delete compose.py and all call sites from the egg CLI path only; leave integration_tests/conftest.py as-is (tests migrate separately)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Delete compose.py from the host CLI path AND integration_tests fixtures; force k8s-only testing",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Where should the roster override ('roles' arg to run_custom_phase) be stored on the Pipeline? The issue says 'resolved roster is stored on the pipeline record (not recomputed from phase alone)'.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "New field Pipeline.active_roles: list[str] | None \u2014 stored at creation, read by ConcurrentPhaseExecutor and pipelines route to filter roles + review graph",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Store on PhaseExecution.active_roles (phase-scoped) \u2014 mirrors phase.artifacts placement, less global state on Pipeline",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Store on PipelineConfig.active_roles \u2014 consistent with start_phase and other config fields",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "How should run_custom_phase handle degenerate rosters that would deadlock BRC \u2014 e.g. selecting only a reviewer with no producer in the same phase? Reviewers ACK/NACK producers; without producers they have nothing to review.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Reject at validation: require at least one producer role; empty/reviewer-only rosters return 400",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Allow reviewer-only rosters and treat them as immediate no-op (reviewers spin up, see no producers, exit with CONSENSUS_REACHED short-circuit)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Allow any subset and document the deadlock risk \u2014 caller's problem",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-7",
+      "question": "The issue says refine/plan custom phases without a branch should produce 'no git writes'. But producers currently push drafts to .egg-state/drafts/ on a branch. How do callers retrieve analysis/plan output when no branch is passed?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Fall back to auto-generated branch 'egg/custom-<pipeline_id>' \u2014 callers always get a branch in the pipeline record and can git show drafts",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Require a branch when phase=refine|plan (mirrors existing issue/babysit behaviour); 'no branch' only allowed when no producer role is selected",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Spawn agents in ephemeral mode \u2014 drafts are embedded in pipeline.artifacts via orchestrator post-phase collection, no git push at all",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-8",
+      "question": "Roles that aren't currently in _PHASE_ROLES \u2014 e.g. overseer (cross-phase) \u2014 how should run_custom_phase treat them?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Reject: run_custom_phase is strictly phase-scoped per the issue. Overseer and utility roles (autofixer, conflict_resolver) are not selectable.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Allow overseer as an opt-in addition (consistent with get_roles_for_phase(include_overseer=True)) but no other cross-phase roles",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Allow any role in AgentRole (spec says 'All agent roles are legal within their phase' \u2014 interpret overseer as refine/plan/implement since it's cross-phase)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-9",
+      "question": "The issue calls for removing 'the entire bin/egg binary' and 'the interactive default branch in sandbox/egg_lib/cli.py:215'. When should removal land relative to the run_custom_phase primitive shipping?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Ship both together in one PR (clean cutover \u2014 users can no longer invoke 'egg' but immediately have run_custom_phase as replacement)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Ship run_custom_phase first, then remove interactive mode in a follow-up PR (lower-risk: custom-phase proven before the fallback disappears)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Ship the removal first; rely on run_custom_phase landing before anyone needs the removed path (not recommended \u2014 breaks users)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-10",
+      "question": "[Phase gate: refine] The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "## Resolved Decisions\n\n**decision-1 (tool name)**: run_agent_task\n\n**decision-2 (CUSTOM + BABYSIT)**: CUSTOM accepts pr_number and subsumes BABYSIT \u2014 BABYSIT mode should be refactored to use CUSTOM internally; plan for eventual deprecation of BABYSIT once CUSTOM proves out against PR targets.\n\n**decision-3 (cli.py scope)**: Remove bin/egg AND egg_lib.cli.main; relocate gha_exec to its own module (e.g. sandbox/egg_lib/gha_exec.py) so action/entrypoint.sh still works.\n\n**decision-4 (compose removal)**: Full cutover \u2014 delete compose.py module and ALL call sites, including ensure_compose_services() in exec_in_new_container(). Integration test fixtures should migrate too.\n\n**decision-5 (roster storage)**: New field Pipeline.active_roles: list[str] | None \u2014 stored at pipeline creation, read by ConcurrentPhaseExecutor (already supports roles override at concurrent_executor.py:108) and by _execute_concurrent_phase when filtering the review graph. NOT PipelineConfig (that's caller input) and NOT PhaseExecution (custom-phase is single-phase by design; YAGNI).\n\n**decision-6 (degenerate rosters)**: Reject at validation \u2014 require at least one producer role. Empty or reviewer-only rosters return 400. BRC's short-circuit only helps when the producer has no critical reviewers, not the reverse.\n\n**decision-7 (no-branch behavior)**: Auto-generate branch 'egg/custom-<pipeline_id>' when caller passes no branch. Callers always get a branch in the pipeline record and can git show drafts.\n\n**decision-8 (cross-phase roles)**: Reject \u2014 strictly phase-scoped per the issue. Overseer, autofixer, conflict_resolver, and other cross-phase/utility roles are not selectable via run_agent_task.\n\n**decision-9 (cutover strategy)**: Option A \u2014 ship both add + remove in one PR. Justification: compose fallback is already broken (no docker-compose.yml in tree), so two-phase rollout buys no real safety.\n\n## Deferred to Plan Phase\n\nThe 9 open-ended questions in feedback-1 (HITL gate integration scope, contract-file keying with issue_number, analysis/plan arg semantics, repo allowlist source, pr_number v1 validation, CLI surface for bin/egg-sdlc, persisted-state migration, degenerate-roster test coverage, docs rewrite list) are deferred to the plan phase \u2014 the task_planner should incorporate them into task decomposition with the 9 resolved decisions above as fixed context.",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-22T20:57:56.495402Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-11",
+      "question": "[Phase gate: plan] The plan phase has completed. Please review the 38-task implementation plan and approve to continue to the implement phase, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Approve - advance to implement phase",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Request changes - provide feedback",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Approving after BRC consensus reached on v2 plan. reviewer_plan NACKed v1 (TASK-2-4 test coverage thin, plus 5 other items) and task_planner addressed all in v2 (38 tasks / 7 phases, +451 lines). Final consensus was reached at 21:28:53; this phase_gate was created by the overseer at 21:36:57 as a recovery after the orchestrator's normal post-consensus path failed to run. Filing a bug for that.",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-22T22:05:53.680779Z",
+      "debounce_until": null
+    }
+  ],
+  "workflow_owner": null,
+  "audit_log": [
+    {
+      "timestamp": "2026-04-22T20:35:22.157740Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-1",
+        "question": "Should the new primitive be named run_custom_phase, or something more descriptive (e.g. run_phase, run_agent_task, start_adhoc_phase)? Naming is locked in once tooling/CLI docs ship.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "run_custom_phase (as proposed in issue)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "run_phase",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "start_adhoc_phase",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "run_agent_task",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the new primitive be named run_custom_phase...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T20:35:28.281252Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-2",
+        "question": "How should the PipelineMode.CUSTOM interact with existing BABYSIT mode when pr_number is provided? Pick one.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Keep modes separate \u2014 CUSTOM rejects pr_number in v1; BABYSIT remains for PR targets",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "CUSTOM accepts pr_number and subsumes BABYSIT's per-role staging branches + head-move guards (deprecate BABYSIT later)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "CUSTOM accepts pr_number but reuses BABYSIT's semantics internally (no consolidation yet \u2014 code de-dup is a follow-up)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should the PipelineMode.CUSTOM interact with e...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T20:35:34.692325Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-3",
+        "question": "The issue says 'remove bin/egg' but bin/egg is the top-level entry point for the sandboxed interactive session. Should we also remove sandbox/egg_lib/cli.py::main and the GHA entry sandbox/egg_lib/cli.py::gha_exec? (gha_exec is separate from interactive mode but currently lives in the same module.)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Remove bin/egg only; keep egg_lib.cli.main but strip interactive branch; keep gha_exec",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Remove bin/egg AND egg_lib.cli.main; relocate gha_exec to its own module for GHA",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Remove bin/egg AND all of egg_lib/cli.py AND gha_exec (GHA action runs a different entrypoint)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: The issue says 'remove bin/egg' but bin/egg is the...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T20:35:41.621729Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-4",
+        "question": "Should the orchestrator also remove ensure_compose_services() calls from exec_in_new_container() (which bin/egg-deploy, egg --exec, and GHA use) in this PR, or is compose removal strictly limited to sandbox/egg_lib/compose.py (the file) plus the flags listed?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Remove the entire compose.py module and all call sites \u2014 one cutover. ensure_compose_services() becomes a no-op / deleted. exec_in_new_container() relies on k8s being up via egg-deploy.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Delete compose.py and all call sites from the egg CLI path only; leave integration_tests/conftest.py as-is (tests migrate separately)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Delete compose.py from the host CLI path AND integration_tests fixtures; force k8s-only testing",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the orchestrator also remove ensure_compose...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T20:35:48.277861Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-5",
+        "question": "Where should the roster override ('roles' arg to run_custom_phase) be stored on the Pipeline? The issue says 'resolved roster is stored on the pipeline record (not recomputed from phase alone)'.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "New field Pipeline.active_roles: list[str] | None \u2014 stored at creation, read by ConcurrentPhaseExecutor and pipelines route to filter roles + review graph",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Store on PhaseExecution.active_roles (phase-scoped) \u2014 mirrors phase.artifacts placement, less global state on Pipeline",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Store on PipelineConfig.active_roles \u2014 consistent with start_phase and other config fields",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Where should the roster override ('roles' arg to r...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T20:35:56.151605Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-6",
+        "question": "How should run_custom_phase handle degenerate rosters that would deadlock BRC \u2014 e.g. selecting only a reviewer with no producer in the same phase? Reviewers ACK/NACK producers; without producers they have nothing to review.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Reject at validation: require at least one producer role; empty/reviewer-only rosters return 400",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Allow reviewer-only rosters and treat them as immediate no-op (reviewers spin up, see no producers, exit with CONSENSUS_REACHED short-circuit)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Allow any subset and document the deadlock risk \u2014 caller's problem",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should run_custom_phase handle degenerate rost...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T20:36:03.415599Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-7",
+        "question": "The issue says refine/plan custom phases without a branch should produce 'no git writes'. But producers currently push drafts to .egg-state/drafts/ on a branch. How do callers retrieve analysis/plan output when no branch is passed?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Fall back to auto-generated branch 'egg/custom-<pipeline_id>' \u2014 callers always get a branch in the pipeline record and can git show drafts",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Require a branch when phase=refine|plan (mirrors existing issue/babysit behaviour); 'no branch' only allowed when no producer role is selected",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Spawn agents in ephemeral mode \u2014 drafts are embedded in pipeline.artifacts via orchestrator post-phase collection, no git push at all",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: The issue says refine/plan custom phases without a...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T20:36:10.116364Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.7",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-8",
+        "question": "Roles that aren't currently in _PHASE_ROLES \u2014 e.g. overseer (cross-phase) \u2014 how should run_custom_phase treat them?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Reject: run_custom_phase is strictly phase-scoped per the issue. Overseer and utility roles (autofixer, conflict_resolver) are not selectable.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Allow overseer as an opt-in addition (consistent with get_roles_for_phase(include_overseer=True)) but no other cross-phase roles",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Allow any role in AgentRole (spec says 'All agent roles are legal within their phase' \u2014 interpret overseer as refine/plan/implement since it's cross-phase)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Roles that aren't currently in _PHASE_ROLES \u2014 e.g....",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T20:36:17.164122Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.8",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-9",
+        "question": "The issue calls for removing 'the entire bin/egg binary' and 'the interactive default branch in sandbox/egg_lib/cli.py:215'. When should removal land relative to the run_custom_phase primitive shipping?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Ship both together in one PR (clean cutover \u2014 users can no longer invoke 'egg' but immediately have run_custom_phase as replacement)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Ship run_custom_phase first, then remove interactive mode in a follow-up PR (lower-risk: custom-phase proven before the fallback disappears)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Ship the removal first; rely on run_custom_phase landing before anyone needs the removed path (not recommended \u2014 breaks users)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: The issue calls for removing 'the entire bin/egg b...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-22T20:36:36.489709Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Does run_custom_phase need to integrate with HITL gates / phase_gate decisions, or is HITL strictly out of scope since the caller is expected to drive custom phases programmatically via MCP? (submit_task hooks HITL gates via PipelineConfig.hitl_gates; BABYSIT mode inherits the same.)",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "What happens if a run_custom_phase call references an issue_number \u2014 should it create/load the SDLC contract at .egg-state/contracts/issue-<N>.json, or should custom phases always use an isolated/synthetic contract (e.g. keyed by pipeline_id) to avoid colliding with a full ISSUE-mode pipeline on the same issue?",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "For the 'analysis' and 'plan' pre-populated artifact args: should the orchestrator accept these only when roles=['reviewer_refine'] (or similar reviewer-only roster reviewing a pre-baked artifact) \u2014 or should they work alongside any roster, with the producers allowed to overwrite them?",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "Should run_custom_phase require the caller to specify a repo that's already registered in repositories.yaml, or extend to arbitrary public GitHub repos (relying on gateway's repo allowlist validation)?",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "The spec mentions that custom-phase + PR subsumes BABYSIT as a 'follow-up consolidation, not in scope'. Does that mean CUSTOM should explicitly 400-reject pr_number in v1, or accept it but warn that BABYSIT is preferred?",
+            "answer": null
+          },
+          {
+            "id": "Q6",
+            "question": "What CLI surface (if any) needs to ship alongside run_custom_phase? e.g. does bin/egg-sdlc grow a 'custom-phase' subcommand, or is MCP-only sufficient for v1?",
+            "answer": null
+          },
+          {
+            "id": "Q7",
+            "question": "Should old persisted pipeline states (currently mode=issue or mode=babysit) be migrated when the new mode=custom value lands? Pipeline state uses Pydantic with strict enum validation \u2014 adding a new PipelineMode value is additive and won't break loading, but confirm: should we persist 'mode' on all existing pipelines (currently optional) to make the new code path easier to reason about?",
+            "answer": null
+          },
+          {
+            "id": "Q8",
+            "question": "Does the 'degenerate rosters' short-circuit behavior need explicit test coverage, or is the existing is_fully_acked()/critical_reviewers_for() coverage (where empty reviewer lists already return True) considered enough?",
+            "answer": null
+          },
+          {
+            "id": "Q9",
+            "question": "Are there user-facing documentation pages that must be updated (beyond removing docs/architecture/declarative-setup.md 'egg --setup' references)? Specifically: docs/guides/local-quickstart.md, docs/guides/deployment.md, and README.md all reference 'egg' as the host CLI \u2014 should they be fully rewritten for the host-MCP-client workflow, or marked deprecated with a redirect?",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 9 question(s)",
+      "checkpoint_id": null
+    }
+  ],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Does run_custom_phase need to integrate with HITL gates / phase_gate decisions, or is HITL strictly out of scope since the caller is expected to drive custom phases programmatically via MCP? (submit_task hooks HITL gates via PipelineConfig.hitl_gates; BABYSIT mode inherits the same.)",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "What happens if a run_custom_phase call references an issue_number \u2014 should it create/load the SDLC contract at .egg-state/contracts/issue-<N>.json, or should custom phases always use an isolated/synthetic contract (e.g. keyed by pipeline_id) to avoid colliding with a full ISSUE-mode pipeline on the same issue?",
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "question": "For the 'analysis' and 'plan' pre-populated artifact args: should the orchestrator accept these only when roles=['reviewer_refine'] (or similar reviewer-only roster reviewing a pre-baked artifact) \u2014 or should they work alongside any roster, with the producers allowed to overwrite them?",
+        "answer": null
+      },
+      {
+        "id": "Q4",
+        "question": "Should run_custom_phase require the caller to specify a repo that's already registered in repositories.yaml, or extend to arbitrary public GitHub repos (relying on gateway's repo allowlist validation)?",
+        "answer": null
+      },
+      {
+        "id": "Q5",
+        "question": "The spec mentions that custom-phase + PR subsumes BABYSIT as a 'follow-up consolidation, not in scope'. Does that mean CUSTOM should explicitly 400-reject pr_number in v1, or accept it but warn that BABYSIT is preferred?",
+        "answer": null
+      },
+      {
+        "id": "Q6",
+        "question": "What CLI surface (if any) needs to ship alongside run_custom_phase? e.g. does bin/egg-sdlc grow a 'custom-phase' subcommand, or is MCP-only sufficient for v1?",
+        "answer": null
+      },
+      {
+        "id": "Q7",
+        "question": "Should old persisted pipeline states (currently mode=issue or mode=babysit) be migrated when the new mode=custom value lands? Pipeline state uses Pydantic with strict enum validation \u2014 adding a new PipelineMode value is additive and won't break loading, but confirm: should we persist 'mode' on all existing pipelines (currently optional) to make the new code path easier to reason about?",
+        "answer": null
+      },
+      {
+        "id": "Q8",
+        "question": "Does the 'degenerate rosters' short-circuit behavior need explicit test coverage, or is the existing is_fully_acked()/critical_reviewers_for() coverage (where empty reviewer lists already return True) considered enough?",
+        "answer": null
+      },
+      {
+        "id": "Q9",
+        "question": "Are there user-facing documentation pages that must be updated (beyond removing docs/architecture/declarative-setup.md 'egg --setup' references)? Specifically: docs/guides/local-quickstart.md, docs/guides/deployment.md, and README.md all reference 'egg' as the host CLI \u2014 should they be fully rewritten for the host-MCP-client workflow, or marked deprecated with a redirect?",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
+  "phase_configs": null,
+  "agent_executions": []
+}
