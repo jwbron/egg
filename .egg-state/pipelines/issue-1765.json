@@ -162,16 +162,16 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-23T05:56:16.972078Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-23T06:19:52.041970Z",
+      "resolution": "{\"action\": \"change_approach\", \"feedback\": \"Directional pivot: reground the analysis in agent-first framing.\\n\\nThe current analysis frames this as \\\"wrap existing CLIs as MCP tools\\\" and assumes the agent-facing tool surface should mirror the taxonomy of sandbox/bin/egg-*. Redo with a different starting question:\\n\\nWhat are the capabilities an agent needs at each phase (refine, plan, implement, BRC), and what's the right tool surface for those?\\n\\nConcrete consequences of the reframe:\\n\\n1. Scope (was decision-6). Don't pick \\\"all subcommands\\\" vs \\\"curated subset of existing subcommands.\\\" Enumerate agent capabilities per phase and design the tool set from that. Some tools will have no CLI counterpart (e.g., \\\"fetch current BRC state as structured JSON\\\" — composing several egg-orch subcommands). Some existing subcommands will have no agent-facing tool because only humans need them.\\n\\n2. Naming (was decision-5). Name tools from the agent's perspective — what the agent is DOING — not from CLI taxonomy. mcp__sdlc__register_open_question over mcp__egg_contract__add_decision. Group by semantic function, not by which binary currently hosts the code.\\n\\n3. CLI retention (was decision-4). Keep CLIs indefinitely for humans/tests/entrypoint scripts — agents don't care if they exist. The \\\"remove CLIs as each tool lands\\\" option conflates audiences.\\n\\n4. Mechanism (was decision-1). Option D (in-process SDK MCP via create_sdk_mcp_server) still looks right — the reframe doesn't change transport, only surface design. Keep unless the agent-capability audit surfaces a reason to reconsider.\\n\\nWhat to preserve from v2: the architectural/network-mode neutrality analysis, the handler-sharing idea (drift prevention), and the acceptance-criterion mapping all stand.\\n\\nWhat to redo: the \\\"Options Considered\\\" framing if it remains CLI-centric after the agent-capability audit; decisions 5 and 6 specifically; \\\"Complexity Assessment\\\" if scope grows.\\n\\nNot asking for: a total rewrite. The architectural analysis is solid. This is asking for the tool-surface design to be re-derived from agent needs rather than inherited from CLI structure.\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:22:09.201730Z",
-  "updated_at": "2026-04-23T05:56:17.010440Z",
+  "updated_at": "2026-04-23T06:19:52.060900Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -185,5 +185,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:32:00.470351Z",
-  "version": 19
+  "version": 20
 }
