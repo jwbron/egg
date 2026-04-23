@@ -1432,6 +1432,8 @@ file restrictions to minimize overlap.
 
 ## Agent MCP tools (`EGG_MCP_TOOLS` flag)
 
+**Default: off in iteration 1** — opt in per pipeline via the snippet below.
+
 Sandbox agents can call pipeline lifecycle operations (BRC consensus, HITL decisions, phase context, progress signals, task completion) through first-class Claude Agent SDK MCP tools rather than shelling out to `egg-contract` / `egg-orch` via `Bash`. The tools run **in-process** via `claude_agent_sdk.create_sdk_mcp_server` — no new network service, no new auth layer, no new process. See the [Agent MCP Tools reference](../reference/agent-tools.md) for the full 15-verb inventory (`mcp__sdlc__*`, `mcp__brc__*`, `mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`), schemas, and architecture.
 
 **Opt in per-pipeline.** The surface is gated behind the `EGG_MCP_TOOLS` environment variable (default **off** in iteration 1 — tracked in [#1765](https://github.com/jwbron/egg/issues/1765)). Set it on your sandbox pod env to enable:

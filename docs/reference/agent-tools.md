@@ -39,16 +39,40 @@ for the per-pipeline opt-in recipe.
 
 ## Tool inventory (15 verbs)
 
-All tools land on the SDK as `mcp__<namespace>__<verb>`, where
-`<namespace>` is one of `sdlc`, `brc`, `phase`, `progress`, `task`.
-The SDK server name is always `egg` — hence the `mcp__egg__*` server
-qualifier is collapsed into the tool name when the SDK normalises it.
+All 15 tools are registered as `@tool`-decorated wrappers in
+`sandbox/egg_agent_tools/tools/*.py`. The raw `@tool` name in the
+decorator is `mcp__<namespace>__<verb>`, where `<namespace>` is one of
+`sdlc`, `brc`, `phase`, `progress`, `task`.
+
+### Tool-name resolution (how Claude sees these tools)
+
+The SDK renders an MCP tool in `tool_use` blocks as
+`mcp__<server_key>__<raw_tool_name>`, where `<server_key>` is the key
+used in `options.mcp_servers` (currently `{'egg': server}`, so the
+server key is `egg`) and `<raw_tool_name>` is the name passed to the
+`@tool` decorator. With the current registration this means the
+Claude-visible tool names include a literal `mcp__egg__` prefix in
+front of the raw `@tool` name — e.g. the `brc_propose` wrapper whose
+raw name is `mcp__brc__propose` surfaces to Claude as
+`mcp__egg__mcp__brc__propose`. The tables below list the **raw `@tool`
+names** (what the handler code declares and what the drift test
+introspects); when the agent actually calls a tool, prepend
+`mcp__egg__` mentally to get the SDK-visible identifier. The exact
+convention may tighten in a follow-up (e.g. splitting into 5
+per-namespace servers or dropping the extra `mcp__<ns>__` prefix from
+raw names) — the authoritative source is the shipping `TOOL_LIST` in
+`sandbox/egg_agent_tools/tools/__init__.py` and the
+`SYSTEM_PROMPT_NUDGE` generated at import time by
+`sandbox/egg_agent_tools/server.py::_render_nudge()`.
 
 Every tool with a shell-CLI counterpart declares a `cli_command`
 attribute (e.g. `("egg-orch", "consensus", "propose")`) so a CI drift
 test (`tests/tools/test_mcp_cli_drift.py`) can assert the MCP tool and
 the CLI subparser dispatch the same handler function. If a handler
-moves, both surfaces move together or CI fails.
+moves, both surfaces move together or CI fails. Adding a new tool
+means adding a `cli_command` attribute on the registration (or
+explicitly setting it to `None` for new verbs with no CLI counterpart)
+— the drift gate will refuse the PR otherwise.
 
 ### `mcp__sdlc__*` — HITL and contract-level operations
 
@@ -134,28 +158,27 @@ asserts every `mcp__<namespace>__` substring in the nudge corresponds
 to a registered namespace in `TOOL_NAMESPACES` and vice versa
 (symmetric match — extras in either direction fail CI).
 
-Typical rendering (iteration 1):
+**The source of truth is `sandbox/egg_agent_tools/server.py::_render_nudge()`.**
+This doc does NOT embed a copy of the rendered string — the template
+currently iterates over every registered namespace and emits one
+bullet per namespace plus a short description, then closes with a
+sentence instructing the agent to prefer the `mcp__*` tools over
+Bash. To see the exact text your agent will receive, read
+`_render_nudge()` or inspect
+`sandbox.egg_agent_tools.SYSTEM_PROMPT_NUDGE` at import time. The
+renderer is intentionally namespace-driven so the nudge and
+`TOOL_NAMESPACES` cannot drift — changes to the tool list update the
+nudge on the next import, and the drift test in `test_server.py`
+keeps both sides honest.
 
-```
-You have first-class MCP tools for the operations you perform in
-every phase. Prefer them over Bash-ing the corresponding egg CLI.
-
-Tool namespaces:
-- `mcp__sdlc__*` — register a HITL decision, request open-ended
-  feedback, check for human answers.
-- `mcp__brc__*` — propose, ACK, NACK, confirm; query structured BRC
-  state; list agents currently blocking consensus.
-- `mcp__phase__*` — get your phase context (role, pipeline id,
-  assigned tasks, prior-phase artifacts) and fetch your task list.
-- `mcp__progress__*` — emit a progress update, heartbeat, or
-  signal an error.
-- `mcp__task__*` — mark a task complete.
-
-Use the tool directly; do not run `egg-orch consensus propose`,
-`egg-contract add-decision`, etc. through Bash when an MCP tool
-covers the same capability. The shell CLIs remain available for
-other tooling but are slower and less reliable for agent use.
-```
+> **Tool-name caveat:** the nudge points agents at
+> `mcp__<namespace>__*`, which is the *raw* `@tool` name. Remember
+> (see "Tool-name resolution" above) that the SDK exposes these with
+> the `mcp_servers` dict-key prefix attached (currently `mcp__egg__`),
+> so the name that appears in actual `tool_use` blocks is
+> `mcp__egg__mcp__<namespace>__<verb>`. This is an implementation
+> detail that may be smoothed in a follow-up and should not affect
+> how documentation or the nudge reads.
 
 ## Architecture
 
@@ -203,10 +226,27 @@ other tooling but are slower and less reliable for agent use.
 req)` so the sync `urllib` gateway I/O does not block the agent event
 loop. Handlers **raise** exceptions (`GatewayError`, `TimeoutError`)
 — they **never** call `sys.exit`. The `@tool` wrapper catches those
-exceptions and returns them as structured tool-result error blocks.
-The CLI `cmd_*` shim catches the same `GatewayError` and renders the
-pre-#1765 stderr message + exit code for human callers, so shell
-behaviour is byte-identical.
+exceptions and returns them as structured tool-result error blocks
+of the form `{is_error: True, content: [{type: "text", text:
+<message>}]}`, which the agent can surface as a tool error and
+retry. The CLI `cmd_*` shim catches the same `GatewayError` and
+renders the pre-#1765 stderr message + exit code for human callers,
+so shell behaviour is byte-identical.
+
+> **Handler rule — MUST NEVER `sys.exit`.** Every handler under
+> `sandbox/egg_agent_tools/handlers/*.py` returns a dict response or
+> raises a typed exception. A handler that calls `sys.exit` would
+> terminate the Python interpreter the Claude Agent SDK is running in
+> and bring the entire agent down (see the risk-analyst R1 note in
+> `.egg-state/agent-outputs/1765-risk_analyst-output.json`). This
+> same rule applies to any helper imported by a handler — including
+> `make_gateway_request` in `sandbox/egg_lib/contract_cli.py`, which
+> was refactored in TASK-1-3 to raise `GatewayError` rather than
+> exit. When adding a new verb for
+> [#1917](https://github.com/jwbron/egg/issues/1917), inherit this
+> contract: handlers raise; `@tool` wrappers catch; the CLI shim is
+> the only place an `sys.exit` lives, and only when the handler
+> raises.
 
 See
 [`.egg-state/drafts/1765-plan.md`](../../.egg-state/drafts/1765-plan.md)

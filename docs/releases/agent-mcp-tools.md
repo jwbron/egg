@@ -33,8 +33,14 @@ when that harness graduates from experimental to supported.
 
 ## Iteration-1 verbs (15 total)
 
-Namespaces: `mcp__sdlc__*`, `mcp__brc__*`, `mcp__phase__*`,
-`mcp__progress__*`, `mcp__task__*`.
+Raw `@tool` name namespaces: `mcp__sdlc__*`, `mcp__brc__*`,
+`mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`.
+
+> Names below are the **raw `@tool` names** declared in
+> `sandbox/egg_agent_tools/tools/*.py`. The SDK prefixes them with
+> the `options.mcp_servers` dict-key (currently `egg`), so the
+> Claude-visible `tool_use` name is `mcp__egg__<raw_name>` — see
+> [docs/reference/agent-tools.md — Tool-name resolution](../reference/agent-tools.md#tool-name-resolution-how-claude-sees-these-tools).
 
 | # | Tool | Handler | CLI counterpart |
 |---|------|---------|-----------------|
@@ -65,13 +71,34 @@ behaviour change. Parity is enforced by committed-fixture tests.
 
 ## SDK pin
 
-`claude-agent-sdk` is now pinned to `>=0.1.65,<0.2` in both
-`sandbox/pyproject.toml` and the `CLAUDE_AGENT_SDK_VERSION` ARG in
-`sandbox/Dockerfile`. A smoke test
+`claude-agent-sdk` is now pinned to the literal range
+**`>=0.1.65,<0.2`** in both `sandbox/pyproject.toml` (the
+`dependencies` array) and the `CLAUDE_AGENT_SDK_VERSION` build ARG in
+`sandbox/Dockerfile`. `0.1.65` is the version where the
+`create_sdk_mcp_server` + `@tool` surface this package depends on was
+confirmed; `<0.2` guards against the pre-1.0 API breakage risk-analyst
+R2 flagged. A smoke test
 (`tests/sandbox/egg_agent_tools/test_sdk_surface.py`) imports
 `claude_agent_sdk.create_sdk_mcp_server` and `claude_agent_sdk.tool`
-at module load time so a future pre-1.0 bump fails CI loudly rather
-than silently breaking every sandbox.
+at module load time so a future pre-1.0 bump fails CI loudly at
+test-collection time rather than silently breaking every sandbox.
+
+## Ongoing guardrails
+
+- **Drift CI gate** (`tests/tools/test_mcp_cli_drift.py`): every tool
+  that has a shell-CLI counterpart must declare a `cli_command`
+  tuple (e.g. `("egg-orch", "consensus", "propose")`) on its
+  `ToolRegistration`; the test asserts the tool wrapper and the CLI
+  subparser both dispatch to the same handler function. Tools with no
+  CLI counterpart set `cli_command=None` and are skipped. **New verbs
+  must register a `cli_command` attribute (or explicit `None`) or
+  drift CI fails**, which is the mechanism keeping MCP tool surface
+  and shell-CLI surface from silently diverging.
+- **SYSTEM_PROMPT_NUDGE drift test**
+  (`tests/sandbox/egg_agent_tools/test_server.py::test_prompt_nudge_drift`):
+  symmetric match between `mcp__<namespace>__` substrings in the
+  rendered nudge and registered namespaces in `TOOL_NAMESPACES`.
+  Extras in either direction fail CI.
 
 ## Follow-ups
 
