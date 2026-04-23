@@ -289,26 +289,7 @@ class TestWorktreesPruneMutex:
     """
 
     def test_concurrent_call_returns_409(self, client, launcher_auth_headers, fake_manager):
-        # Mock the lock to return False (acquire fails) so the route
-        # returns 409 immediately instead of blocking for the real 60s
-        # timeout — which would hit the pytest-timeout default.
-        fake_lock = MagicMock()
-        fake_lock.acquire.return_value = False
-
-        with (
-            patch.object(gateway, "_worktree_prune_lock", fake_lock),
-            patch.object(gateway, "get_worktree_manager", return_value=fake_manager),
-        ):
-            response = client.post(
-                "/api/v1/worktrees/prune",
-                json={"dry_run": True},
-                headers=launcher_auth_headers,
-            )
-        assert response.status_code == 409
-        fake_lock.release.assert_not_called()
-
-    def test_lock_timeout_path_returns_409(self, client, launcher_auth_headers, fake_manager):
-        """Direct coverage: when lock.acquire fails, the route returns 409."""
+        """When lock.acquire fails (concurrent caller), the route returns 409."""
         fake_lock = MagicMock()
         fake_lock.acquire.return_value = False
 

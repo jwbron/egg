@@ -648,7 +648,7 @@ class TestLongPolling:
                 resp = client.get("/api/v1/pipelines/test-pipeline/messages?wait=-5")
                 assert resp.status_code == 200
 
-    def test_wait_capped_at_sixty(self, client, app, monkeypatch):
+    def test_wait_clamped_to_poll_max_wait(self, client, app, monkeypatch):
         """Wait should be capped by EGG_MESSAGE_POLL_MAX_WAIT.
 
         The route clamps any client-supplied ``wait`` to the configured
