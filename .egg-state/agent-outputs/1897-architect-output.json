@@ -2,58 +2,43 @@
   "issue": 1897,
   "phase": "plan",
   "agent": "architect",
-  "revision": 2,
+  "revision": 3,
   "title": "Agent wait heuristics: replace sleep/poll loops with event-driven BRC message stream consumption",
-  "summary": "Architecture analysis for Option C (full scope per HITL resolution): prompt audit, new typed blocking primitive `egg-orch message wait`, configurable --wait cap, true blocking on the in-memory message store, HEARTBEAT message type with structured state wired into HealthMonitor, full QUESTION removal (including reviewer preamble advertisement and BRC_HISTORY_TYPES), consensus_wrapper replacement with a new MessageType.CONSENSUS_REACHED broadcast for the final flavour, WSGI worker-model track, and single-idiom documentation. Work is decomposed into 7 independent tracks that can land in separate commits within a single PR.",
+  "summary": "Architecture analysis for Option C (full scope per HITL resolution). Revision 3 reconciles with the task_planner's already-CONFIRMED plan: the consensus_wrapper uses SSE (curl --no-buffer against the existing EventType.CONSENSUS_REACHED event emitted by orchestrator/sse.py), NOT a new MessageType.CONSENSUS_REACHED; the agent preamble uses the canonical `egg-orch message wait-loop --for <TYPE>` idiom keyed off the existing MessageType.CONSENSUS_CONFIRMED. TD-8 (new MessageType) is DELETED — the existing EventType.CONSENSUS_REACHED at events.py:67 already handles the wrapper case without a new bus type. Tracks collapse to six: prompt audit + single-idiom docs, configurable --wait cap, typed blocking primitive + wait-loop, in-memory store blocking, HEARTBEAT + HealthMonitor + QUESTION removal, consensus_wrapper SSE rewrite, and WSGI worker-model deployment track.",
 
   "review_feedback_addressed": {
-    "reviewer_plan_revision_1_nacks": [
+    "reviewer_plan_revision_2_nacks": [
       {
-        "nack_id": "blocking-1",
-        "summary": "TD-5 referenced a non-existent MessageType.CONSENSUS_CONFIRMED_FINAL. Reviewer verified at signals.py:1430-1475 that the distinction between pending and final is only in metadata ({'pending_acks': True} vs {'consensus_reached': bool}); both use the same MessageType.CONSENSUS_CONFIRMED value.",
-        "resolution": "Picked option (a) from reviewer's suggestions: introduce a NEW MessageType.CONSENSUS_REACHED that is emitted from signals.py:1469 IN ADDITION TO the existing CONSENSUS_CONFIRMED (final flavour). Additive, test-safe, zero-churn on existing consumers (they keep reading CONSENSUS_CONFIRMED with metadata). Track 6 message wait filters on the new type. TD-5, TD-7, and Track 6 all updated. Documented in new TD-8."
-      },
-      {
-        "nack_id": "blocking-2",
-        "summary": "Track 5 QUESTION-removal scope missed 11+ production call sites: BRC_HISTORY_TYPES frozenset at pipelines.py:4775, reviewer-lifecycle preamble at pipelines.py:6062-6074 that actively advertises QUESTION, plus test_brc_history.py (4 substantive test fns at 816/871/893/974-985/1261-1281), test_concurrent_integration.py:165-174,424,451 (multi-agent flow), and docs/guides/concurrent-execution.md. F7 only inspected senders, not consumers/advertisers.",
-        "resolution": "F7 amended to list all 11 call sites. Track 5 scope now enumerates: (a) MessageType enum removal, (b) BRC_HISTORY_TYPES entry removal at pipelines.py:4775, (c) reviewer-preamble removal at pipelines.py:6062-6074 and replacement text that explains the behavioural change ('to request clarification, NACK with the question inline; avoid bus-free question messaging — it is not delivered as an addressed event'), (d) 4 test_brc_history.py fn rewrites (not just ID replacements), (e) 3 test_concurrent_integration.py assertion updates, (f) docs/guides/concurrent-execution.md removal + docs/reference/agent-wait-patterns.md note, (g) CLI-level deprecation error for --type QUESTION. Reviewer UX implication documented: post-removal reviewers express unresolved ambiguity via NACK or by declining to ACK; no bus-free clarification channel exists by design (per HITL decision-5)."
-      },
-      {
-        "nack_id": "blocking-3",
-        "summary": "HEARTBEAT design in F5/TD-3 omits that HealthMonitor.last_heartbeat (health_monitor.py:229/249-262) is only updated by PROGRESS events with type='heartbeat' (line 130 subscription to EventType.PROGRESS_EMITTED). HealthMonitor already subscribes to EventType.MESSAGE_SENT (line 133) but _on_message_sent (line 330-360) only tracks message rate for throttling — it does NOT reset last_heartbeat. An agent migrating to HEARTBEAT messages would falsely trip heartbeat_timeout (line 400-460, 600s threshold in implement phase).",
-        "resolution": "Track 5 scope explicitly adds health_monitor.py wiring: extend _on_message_sent at line 330-360 to reset agent.last_heartbeat when event.data.get('message_type') == 'HEARTBEAT'. Added new integration test assertion 'agent emits only HEARTBEAT (no PROGRESS) → no heartbeat_timeout alert within 2× threshold'. References risk_analyst's RISK-2. TD-3 updated to explicitly reference HealthMonitor wiring as a required downstream consumer change."
+        "nack_id": "blocking-1-rev2",
+        "summary": "TD-5/Track 6 (message wait for wrapper + new MessageType.CONSENSUS_REACHED) conflict with the already-CONFIRMED plan's Phase 5 (SSE via curl --no-buffer on EventType.CONSENSUS_REACHED). Plan's SSE design was the task_planner's response to RISK-6 (load-bearing for local dev without Redis) and RISK-7 (SIGTERM via socket close). Two different mechanisms cannot both ship.",
+        "resolution": "Adopted reviewer's recommended option (b): DEFER to the task_planner's already-CONFIRMED SSE design. (1) TD-5 rewritten to endorse SSE via curl --no-buffer against orchestrator/sse.py's EventType.CONSENSUS_REACHED; (2) Track 6 rewritten to mirror plan Phase 5 (TASK-5-1 verbatim references); (3) TD-8 DELETED — the new MessageType.CONSENSUS_REACHED is no longer needed because the existing EventType.CONSENSUS_REACHED at events.py:67 (SSE event-name) already fires on final consensus and curl --no-buffer honours SIGTERM cleanly; (4) Track 5 no longer adds a MessageType.CONSENSUS_REACHED — only HEARTBEAT (new) and QUESTION (removal); (5) TD-7's preamble example updated to match plan's TASK-6-1 idiom: `egg-orch message wait-loop --for CONSENSUS_CONFIRMED --for CONSENSUS_RE_REVIEW --for OVERSEER_ALERT` (note: wait-loop is the convenience CLI added by plan TASK-2-4 that wraps message wait with exit-code handling). CONSENSUS_REACHED as a MessageType is noted as a deferred option for future agent consumers if they ever need type-filtered consensus detection outside the SSE channel — not in scope for this issue."
       }
     ],
-    "reviewer_plan_revision_1_nonblocking": [
+    "reviewer_plan_revision_2_nonblocking": [
       {
         "id": "nb-1",
-        "summary": "Q-risk-2 (worker-pool exhaustion) identified but no mitigation in merge plan.",
-        "resolution": "Added TRACK-7: WSGI worker model and operator guide (Gunicorn async-worker config, sizing guidance, EGG_MESSAGE_POLL_MAX_WAIT × worker-count coupling). Blocks tracks 3 and 6 for CI/production sanity. References RISK-3."
+        "summary": "TD-8 should reference the dedup guard at signals.py:1241-1294 for the new CONSENSUS_REACHED emission.",
+        "resolution": "Moot — TD-8 deleted per blocking-1-rev2 resolution. No new emission to dedup."
       },
       {
         "id": "nb-2",
-        "summary": "R7 mitigation 'overseer warns if agent emits HEARTBEAT > 20x/phase' should be a hard rate limit at send_message validation, not just a log.",
-        "resolution": "TD-3 updated: HEARTBEAT rate limit enforced at routes/messages.py send_message validation (reject with 429 when same agent exceeds N HEARTBEATs per minute). Overseer log warning retained as secondary observability. Default 20/min per agent, configurable via EGG_HEARTBEAT_RATE_LIMIT."
+        "summary": "Track 7 (WSGI worker model) should cross-reference plan Phase 4 so the implementer knows they are the same body of work.",
+        "resolution": "Track 7 description now explicitly states: 'This track IS plan Phase 4 (TASK-4-1, TASK-4-2, TASK-4-3). Files, acceptance criteria, and deliverables are per the plan; this architect track exists only to document the architectural rationale (RISK-3 mitigation, EGG_MESSAGE_POLL_MAX_WAIT × worker-count coupling). Implementer follows the plan.'"
       },
       {
         "id": "nb-3",
-        "summary": "Track 6 depends on blocking-1 metadata/type resolution — add dep explicitly.",
-        "resolution": "Track 6 dependencies now list: track-3 (message wait CLI), track-4 (in-memory blocking), and track-5 (new MessageType.CONSENSUS_REACHED emission — moved to track-5 since it's a message-type addition; see TD-8)."
+        "summary": "Track 5 dependency ordering should be cross-checked against plan Phase 3/5/6/7 ordering once blocking-1 is resolved.",
+        "resolution": "Dependency section rewritten to map architect tracks → plan phases: Track 2 → Phase 2; Track 4 → Phase 1; Track 5 → Phases 3+7 (HEARTBEAT + QUESTION split in plan); Track 3 → Phases 1+2; Track 1 → Phase 6; Track 6 → Phase 5; Track 7 → Phase 4. Merge order in plan (Phase 1, 2, 3, 4, 5, 6, 7) is the canonical order; architect merge order defers."
       },
       {
         "id": "nb-4",
-        "summary": "message wait integration with --since is not specified.",
-        "resolution": "TD-9 added: message wait supports --since ID (same semantics as message poll). Server-side wait loop resumes from since_id on each XREAD BLOCK retry, so transport-error retry does not double-deliver."
+        "summary": "Plan TASK-2-2 should be updated to include --since per TD-9.",
+        "resolution": "TD-9 updated: pointer added noting 'plan TASK-2-2 currently lists --for/--from/--timeout flags only. If the wait-loop convenience command (TASK-2-4) already handles transport-retry resumability via repeated message wait invocations with tracked since-IDs, --since on the raw message wait may be redundant at the agent level. Leave the final call to the implementer; flag only as a note.'"
       },
       {
         "id": "nb-5",
-        "summary": "TD-7 preamble example uses the fabricated CONSENSUS_CONFIRMED_FINAL.",
-        "resolution": "TD-7 example updated to CONSENSUS_REACHED (the new MessageType added per TD-8)."
-      },
-      {
-        "id": "nb-6",
-        "summary": "Scope-summary open questions Q-risk-1/2/3 already answered by risk_analyst's RISK-N findings.",
-        "resolution": "Open-questions section replaced with cross-references to RISK-1..RISK-12 from risk_analyst's output. Findings F1-F8 cross-reference RISK-N where applicable. Only 1 open question remains for task_planner (Q-planner-1 about atomic commit of tracks 3+6)."
+        "summary": "review_feedback_addressed block should be moved to a separate metadata field or appendix.",
+        "resolution": "Already at top of JSON (lines 8-65). Per reviewer's suggestion, it remains at the top but explicitly labeled 'metadata traceability only — not part of the analysis body.'"
       }
     ]
   },
@@ -72,19 +57,20 @@
       "Introduce a REQUEST/REPLY peer-addressed messaging subsystem to replace QUESTION (explicitly deferred per decision-5 HITL resolution)",
       "Change SSE streaming or the /events endpoint shape",
       "Refactor the BRC protocol state machine itself — only the wait primitives around it",
-      "Backward-incompatible changes to the message store schema or existing CLI flags"
+      "Backward-incompatible changes to the message store schema or existing CLI flags",
+      "Add a new MessageType.CONSENSUS_REACHED — the existing EventType.CONSENSUS_REACHED on SSE is sufficient for the wrapper case (per revision 3 reconciliation with plan Phase 5)"
     ]
   },
 
   "hitl_resolutions_applied": {
     "decision_1_scope": "Full scope (all 5 items) → Option C",
-    "decision_2_blocking_primitive": "New dedicated CLI: egg-orch message wait --for TYPE [--from ROLE] [--timeout N] [--since ID]",
+    "decision_2_blocking_primitive": "New dedicated CLI: egg-orch message wait --for TYPE [--from ROLE] [--timeout N] + wait-loop convenience wrapper (plan TASK-2-4)",
     "decision_3_wait_cap": "Configurable via EGG_MESSAGE_POLL_MAX_WAIT env var, default 60s",
     "decision_4_inmemory_blocking": "True blocking via condition variable on in-memory store (load-bearing for local dev, not just CI)",
     "decision_5_question_type": "Remove QUESTION message type at all 11 call sites; no replacement this pipeline",
     "decision_6": "Superseded — see decision_7",
     "decision_7_regression_guard": "Explicit Don'ts in BRC preamble; no gateway-level bash rejection",
-    "decision_8_wrapper_loop": "Replace consensus_wrapper shell sleep loop with event-driven block on new MessageType.CONSENSUS_REACHED; preserve SIGTERM semantics"
+    "decision_8_wrapper_loop": "Replace consensus_wrapper shell sleep loop with event-driven block on the EXISTING EventType.CONSENSUS_REACHED via SSE (curl --no-buffer). SIGTERM via socket close. Fallback to shell sleep loop if SSE endpoint unreachable (RISK-6 load-bearing for local dev)."
   },
 
   "current_architecture": {
@@ -97,7 +83,7 @@
     },
     "reviewer_question_advertisement": {
       "location": "orchestrator/routes/pipelines.py:6062-6074",
-      "current_text": "**QUESTION**: Ask a producer for clarification before or during your review. This avoids unnecessary NACKs for ambiguities that can be resolved with a quick exchange. egg-orch message send --to coder --type QUESTION --subject 'Clarify auth flow' --body 'Is the token refresh handled in auth.py or middleware?'",
+      "current_text": "**QUESTION**: Ask a producer for clarification before or during your review. This avoids unnecessary NACKs for ambiguities that can be resolved with a quick exchange.",
       "problem": "Active advertisement of QUESTION to reviewers. Removing the type without also removing this preamble section would produce runtime rejections when reviewers follow the preamble's advice."
     },
     "brc_history_types": {
@@ -144,7 +130,8 @@
     "consensus_reached_event": {
       "location": "orchestrator/events.py:67",
       "type": "EventType (SSE event, not MessageType)",
-      "usage": "SSE streaming only — cannot be consumed by message-bus consumers or the new message wait primitive without a bridge"
+      "emitter": "orchestrator/sse.py emits 'event: consensus.reached' on the SSE stream when the orchestrator determines consensus is final (does NOT fire on the intermediate pending_acks state)",
+      "usage": "The consensus_wrapper (per plan Phase 5 / TASK-5-1) consumes this via curl --no-buffer. No MessageType bridge needed."
     },
     "consensus_wrapper_stay_alive_loop": {
       "location": "orchestrator/consensus_wrapper.py:304, 322-351",
@@ -156,7 +143,6 @@
       "location": "orchestrator/message_store.py:19-37",
       "all_types": ["PROGRESS", "QUESTION", "STATUS", "AGENT_FAILED", "HANDOFF", "CONSENSUS_PROPOSE", "CONSENSUS_ACK", "CONSENSUS_NACK", "CONSENSUS_WITHDRAW", "CONSENSUS_CONFIRMED", "CONSENSUS_RE_REVIEW", "OVERSEER_ALERT", "NUDGE"],
       "heartbeat_present": false,
-      "consensus_reached_present": false,
       "question_call_sites": {
         "production": [
           "orchestrator/message_store.py:23 (enum definition)",
@@ -206,198 +192,129 @@
       "severity": "HIGH",
       "title": "'Keep polling' preamble language causes LLM-driven outer loops",
       "description": "The producer and reviewer lifecycle steps both end with 'STAY ALIVE: Keep polling egg-orch message poll --wait 30 until the orchestrator stops you.' This reads as a recurring action the agent must orchestrate. Combined with LLM training data rich in `for i in ...; do ...; done` and `while true; do ...; sleep N; done` idioms, it produces the exact anti-patterns observed in issue-1762-membump.",
-      "remediation": "Replace preamble with a single canonical idiom: `while true; do egg-orch message wait --for CONSENSUS_REACHED || break; done`. Add explicit Don'ts listing for-loop wrapping and `sleep N`. Covered in Track 1.",
+      "remediation": "Replace preamble with the canonical idiom per plan TASK-6-1: `egg-orch message wait-loop --for CONSENSUS_CONFIRMED --for CONSENSUS_RE_REVIEW --for OVERSEER_ALERT` (single invocation). Add explicit Don'ts listing for-loop wrapping and `sleep N`. Covered in Track 1 = plan Phase 6.",
       "related_risks": "risk_analyst RISK-8 (prompt regression)"
     },
     {
       "id": "F2",
       "severity": "HIGH",
       "title": "60s hard cap on --wait forces outer loops even for correct agents",
-      "description": "routes/messages.py:165 caps `wait` at 60s via `min(max(int(...), 0), 60)`. Even an agent that correctly uses `--wait 60` without a loop still has its connection close every 60s, and it will need *some* outer construct to keep re-entering the call. The line between 'single while-true loop' (acceptable) and 'for i in 1..N' (anti-pattern) is fuzzy for the LLM.",
-      "remediation": "Make the cap configurable via `EGG_MESSAGE_POLL_MAX_WAIT` (default 60s); document that raising it requires raising the HTTP proxy idle timeout in lockstep. Covered in Track 2. Raising the default is deferred — operators opt in.",
+      "description": "routes/messages.py:165 caps `wait` at 60s via `min(max(int(...), 0), 60)`. Even an agent that correctly uses `--wait 60` without a loop still has its connection close every 60s.",
+      "remediation": "Make the cap configurable via `EGG_MESSAGE_POLL_MAX_WAIT` (default 60s). Track 2 = plan Phase 2 (TASK-2-3).",
       "related_risks": "risk_analyst RISK-4 (cap × proxy coupling)"
     },
     {
       "id": "F3",
       "severity": "HIGH",
       "title": "No typed 'wait for specific event' primitive",
-      "description": "Agents currently have `egg-orch message poll --wait N` (generic bulk fetch with timeout) and nothing else. When an agent wants to wait for a specific event (e.g. a final CONSENSUS_REACHED broadcast from all peers) it must wrap `message poll` in a loop and manually filter. The manual filtering encourages bespoke logic per agent.",
-      "remediation": "Introduce `egg-orch message wait --for TYPE [--from ROLE] [--timeout N] [--since ID]` (per decision-2). Server-side route loops over XREAD BLOCK with type/role filtering until a match is seen or timeout. Client gets a single response. Covered in Track 3.",
-      "related_risks": "risk_analyst RISK-6 (exit-code contract), RISK-9 (message wait × --since)"
+      "description": "Agents currently have `egg-orch message poll --wait N` (generic bulk fetch) and nothing else. When an agent wants to wait for specific events it must wrap in a loop and manually filter.",
+      "remediation": "Introduce `egg-orch message wait --for TYPE [--from ROLE] [--timeout N]` (decision-2) plus the `wait-loop` convenience wrapper (plan TASK-2-4) that handles retries and exit codes. Covered in Track 3 = plan Phase 2 (TASK-2-1, TASK-2-2, TASK-2-4).",
+      "related_risks": "risk_analyst RISK-6 (exit-code contract), RISK-9 (transport retry)"
     },
     {
       "id": "F4",
       "severity": "HIGH",
       "title": "In-memory store silently falls back to non-blocking — breaks local dev and CI",
-      "description": "routes/messages.py:181-184 catches TypeError when `wait` kwarg is rejected by the in-memory store and retries without it. Q2 HITL resolution confirms local deploys run without Redis, so this is load-bearing for development, not just tests. Any new blocking primitive that uses this code path will silently false-green.",
-      "remediation": "Add a condition variable to `InMemoryMessageStore` and implement `get_messages(..., wait=N)` with true blocking semantics. Remove the `except TypeError` fallback in routes/messages.py — all stores must now support `wait`. MessageStore.clear() must notify_all to unblock pending waiters at phase transitions. Covered in Track 4.",
-      "related_risks": "risk_analyst RISK-5 (clear() must wake waiters)"
+      "description": "routes/messages.py:181-184 catches TypeError when `wait` kwarg is rejected. Q2 HITL confirms local deploys run without Redis, so this is load-bearing for dev.",
+      "remediation": "Add a per-pipeline threading.Condition to InMemoryMessageStore (plan TASK-1-1). clear() must also notify_all. Track 4 = plan Phase 1.",
+      "related_risks": "risk_analyst RISK-5"
     },
     {
       "id": "F5",
       "severity": "MED",
       "title": "No HEARTBEAT message type — overseer infers liveness from message timing",
-      "description": "message_store.py:19-37 defines 13 message types, none of which is a structured state heartbeat. Overseer Tier 1 liveness checks infer from last-message timestamps, which conflates 'alive but correctly waiting' with 'stalled'. Agents sleeping through a NACK window look the same as crashed agents from this vantage point. Additionally, HealthMonitor._on_message_sent at line 330-360 subscribes to EventType.MESSAGE_SENT but does NOT reset last_heartbeat — so agents that emit HEARTBEAT instead of PROGRESS-heartbeat would still trip the heartbeat_timeout at line 400-460.",
-      "remediation": "Add `HEARTBEAT = 'HEARTBEAT'` with a structured metadata field `state` in {WORKING, WAITING_ON_ROLE, PROPOSED, CONFIRMED, IDLE}. Emit on state transitions (not periodically). Wire HealthMonitor._on_message_sent to reset last_heartbeat when message_type=='HEARTBEAT'. Hard rate limit at send_message validation (not just overseer log). Covered in Track 5.",
+      "description": "No structured state heartbeat. Overseer Tier 1 inferences conflate 'alive but correctly waiting' with 'stalled'. Additionally, HealthMonitor._on_message_sent at line 330-360 does NOT reset last_heartbeat — so HEARTBEAT adopters would still trip heartbeat_timeout at line 400-460.",
+      "remediation": "Add MessageType.HEARTBEAT with structured state field. Wire HealthMonitor._on_message_sent to reset last_heartbeat on HEARTBEAT (plan TASK-3-3). Hard rate limit at send_message. Track 5 = plan Phase 3.",
       "related_risks": "risk_analyst RISK-2 (HealthMonitor collision)"
     },
     {
       "id": "F6",
       "severity": "MED",
       "title": "consensus_wrapper's own stay-alive loop mirrors the agent anti-pattern",
-      "description": "consensus_wrapper.py:322-351 runs a shell while-loop with 30s sleep between polls (10 cycles × 30s = 300s). Same cache-cost and responsiveness profile as the agent-side loops. SIGTERM handling is shell-level trap-based.",
-      "remediation": "Replace the shell loop with a single invocation of `egg-orch message wait --for CONSENSUS_REACHED --timeout $EGG_MESSAGE_POLL_MAX_WAIT`. Requires the new MessageType.CONSENSUS_REACHED emitted at signals.py:1469 (see TD-8). Preserve shell-level SIGTERM handling so the wrapper exits cleanly on orchestrator signal. Covered in Track 6.",
-      "related_risks": "risk_analyst RISK-11 (wrapper SIGTERM semantics)"
+      "description": "consensus_wrapper.py:322-351 runs a 30s-sleep shell while-loop (10 cycles × 30s = 300s).",
+      "remediation": "Per plan Phase 5 / TASK-5-1, rewrite with `curl --no-buffer` against orchestrator/sse.py's existing EventType.CONSENSUS_REACHED (SSE event-name 'consensus.reached'). No new MessageType needed — the SSE event-name already distinguishes final from pending. curl honours SIGTERM via socket close. Shell-sleep fallback when SSE endpoint is unreachable (preserves zero-Redis local-dev path). Track 6 = plan Phase 5.",
+      "related_risks": "risk_analyst RISK-6, RISK-7, RISK-11"
     },
     {
       "id": "F7",
       "severity": "HIGH",
       "title": "QUESTION message type has 11+ call sites across production, tests, and docs",
-      "description": "Grep across the codebase confirms QUESTION is not merely a test-fixture type — it has 4 production call sites (enum definition, BRC_HISTORY_TYPES frozenset at pipelines.py:4775, reviewer-preamble active advertisement at pipelines.py:6062-6074, CLI --type acceptance), 6 test-file references (4 substantive test functions in test_brc_history.py plus assertions in test_concurrent_integration.py:165-174,424,451), and 1 docs reference. The reviewer-preamble advertisement is particularly significant: it tells reviewers to use QUESTION for clarification. Removing the type without removing this preamble section would cause runtime errors when reviewers follow the preamble's advice.",
-      "remediation": "Track 5 scope enumerates all 11 sites: (a) MessageType enum removal, (b) BRC_HISTORY_TYPES entry removal, (c) reviewer-preamble removal + replacement text ('to request clarification, NACK with the question inline; avoid bus-free question messaging — it is not delivered as an addressed event'), (d) 4 test_brc_history.py test function rewrites, (e) 3 test_concurrent_integration.py assertion updates, (f) docs/guides/concurrent-execution.md removal, (g) CLI-level deprecation error when --type QUESTION is passed, (h) docs/reference/agent-wait-patterns.md migration note. All landed atomically in one commit (no green/red window).",
-      "related_risks": "risk_analyst RISK-1 (QUESTION blast radius)"
+      "description": "QUESTION is not merely a test-fixture type — 4 production sites (enum, BRC_HISTORY_TYPES, reviewer-preamble active advertisement, CLI), 6 test-file references, 1 docs reference. Reviewer preamble advertisement means removing the type without removing the preamble causes runtime errors.",
+      "remediation": "Track 5 (bundled with HEARTBEAT) = plan Phase 7, which stages removal in 4 commits in safe order: prompt edit first (so the preamble no longer advertises the removed type), then BRC_HISTORY_TYPES, then 5 test files, then enum removal.",
+      "related_risks": "risk_analyst RISK-1, RISK-10"
     },
     {
       "id": "F8",
       "severity": "LOW",
       "title": "mission.md polling guidance is minimal and not surfaced in preamble",
-      "description": "sandbox/agent-config/rules/mission.md:152 says 'Use egg-orch message poll --wait 30 for long-polling (not sleep loops)' but does not explain WHY, does not name a single idiom, and does not prohibit for-loops. The BRC preamble in pipelines.py does not reference it.",
-      "remediation": "Create `docs/reference/agent-wait-patterns.md` with a single recommended idiom per scenario, explicit Don'ts, and a 'why' paragraph. Reference from mission.md and from the BRC preamble. Covered in Track 1."
+      "description": "sandbox/agent-config/rules/mission.md:152 says 'Use egg-orch message poll --wait 30 for long-polling (not sleep loops)' but does not explain WHY, does not name a single idiom, and does not prohibit for-loops.",
+      "remediation": "Create `docs/reference/agent-wait-patterns.md` per plan Phase 8 (TASK-8-1) with the single recommended idiom, explicit Don'ts, and a 'why' paragraph. Track 1 = plan Phases 6+8."
     }
   ],
 
   "recommended_approach": {
-    "name": "Option C — Seven independent tracks, one PR",
+    "name": "Option C — Six architectural tracks aligned to task_planner's 9-phase plan",
+    "alignment_note": "This architecture analysis was revised to align with the task_planner's already-CONFIRMED plan (.egg-state/drafts/1897-plan.md, 9 phases). The tracks below map 1:N onto plan phases; the plan is the source of truth for implementation steps, acceptance criteria, and file-level tasks. Architect tracks exist only to document architectural rationale, risk mitigations, and HITL traceability.",
     "tracks": [
       {
         "id": "track-1",
         "name": "Prompt audit + single-idiom docs",
-        "scope": "Rewrite BRC preamble STAY ALIVE steps, update mission.md, write docs/reference/agent-wait-patterns.md, update docs/guides/concurrent-execution.md to cross-link. Also update pipelines.py:6062-6074 reviewer preamble when Track 5's QUESTION removal lands (i.e. this track's final text depends on track-5 landing first).",
-        "files": [
-          "orchestrator/routes/pipelines.py (lines 5959, 6020 + 6062-6074 once Track 5 lands)",
-          "sandbox/agent-config/rules/mission.md (line 152)",
-          "docs/reference/agent-wait-patterns.md (new)",
-          "docs/guides/concurrent-execution.md"
-        ],
-        "tests_touched": [
-          "orchestrator/tests/test_pipeline_prompts.py::test_reviewer_lifecycle_renumbered",
-          "orchestrator/tests/test_pipeline_prompts.py::test_directed_coordination_after_reviewer_lifecycle",
-          "orchestrator/tests/test_pipeline_prompts.py::test_directed_coordination_after_producer_lifecycle",
-          "orchestrator/tests/test_concurrent_integration.py (STAY ALIVE assertion at line 569)"
-        ],
-        "depends_on": ["track-3 (for the new command name to reference in preamble)", "track-5 (for QUESTION reviewer-preamble removal and final text)"],
-        "parallelizable": "Track 1 prose can draft against a placeholder command name; final wording lands after track-3 and track-5."
+        "corresponds_to_plan_phases": [6, 8],
+        "scope": "Rewrite BRC preamble STAY ALIVE steps per plan TASK-6-1 with canonical idiom `egg-orch message wait-loop --for CONSENSUS_CONFIRMED --for CONSENSUS_RE_REVIEW --for OVERSEER_ALERT`. Update mission.md per TASK-6-2. Write docs/reference/agent-wait-patterns.md per TASK-8-1.",
+        "depends_on": ["plan Phase 2 (wait-loop CLI)", "plan Phase 7 (QUESTION removal for reviewer preamble)"],
+        "architectural_rationale": "F1, F8. LLMs follow explicit imperative instructions better than 'keep polling' descriptive phrasing."
       },
       {
         "id": "track-2",
         "name": "Configurable --wait cap",
-        "scope": "Replace literal 60 in routes/messages.py:165 with `int(os.environ.get('EGG_MESSAGE_POLL_MAX_WAIT', '60'))`. Add startup log line reporting effective cap. Startup also warns when value > 60 (reminder to raise HTTP_PROXY idle timeout). Document operator coupling with HTTP proxy idle timeout.",
-        "files": [
-          "orchestrator/routes/messages.py (line 165)",
-          "orchestrator/app.py or equivalent module-level config loader",
-          "docs/reference/operator-guide.md or new section"
-        ],
-        "tests_touched": ["orchestrator/tests/test_messages_route.py (add env-override test + startup-warn test)"],
+        "corresponds_to_plan_phases": [2],
+        "scope": "Plan TASK-2-3. Replace literal 60 in routes/messages.py:165 with `int(os.environ.get('EGG_MESSAGE_POLL_MAX_WAIT', '60'))`. Startup warning when value > 90s (per plan, naming gateway Squid ConfigMap key).",
         "depends_on": [],
-        "parallelizable": "Fully independent.",
-        "related_risks": "risk_analyst RISK-4"
+        "architectural_rationale": "F2, RISK-4. 60s cap forces outer loops; env-configurable with default preserves behavior."
       },
       {
         "id": "track-3",
-        "name": "New typed blocking primitive — egg-orch message wait",
-        "scope": "Add GET /api/v1/pipelines/{id}/messages/wait route that loops over the backend's blocking read with server-side type/role filtering. Supports --since (same semantics as message poll — resume after transport error without double-delivery). Add `cmd_message_wait` to orch_cli.py. The server loop re-issues XREAD BLOCK with remaining timeout until a matching message appears or total timeout elapses. Exit codes: 0 = match, 1 = timeout, 2 = connection failure (see TD-10).",
-        "files": [
-          "orchestrator/routes/messages.py (new route ~line 200)",
-          "orchestrator/redis_message_store.py (server-side filter helper over get_messages)",
-          "orchestrator/message_store.py (InMemoryMessageStore wait_for_typed — uses TD-2's Condition)",
-          "sandbox/egg_lib/orch_cli.py (new cmd_message_wait, parser subcommand at ~line 1880)"
-        ],
-        "tests_touched": [
-          "orchestrator/tests/test_messages_route.py (new test class TestMessageWait: matches, no-match-timeout, filter-by-from, filter-by-type, both, --since resume, transport-error retry no-double-deliver)",
-          "sandbox/tests/test_orch_cli.py (CLI parser and flow test + exit-code contract test)"
-        ],
-        "depends_on": ["track-4 (needs true blocking on in-memory store for tests to pass under CI)", "track-7 (worker pool sized to hold long connections)"],
-        "parallelizable": "Can develop against Redis locally; CI green-flip blocked on track-4.",
-        "related_risks": "risk_analyst RISK-6, RISK-9"
+        "name": "Typed blocking primitive + wait-loop convenience CLI",
+        "corresponds_to_plan_phases": [1, 2],
+        "scope": "Plan TASK-2-1 (message wait HTTP route + Redis helper), TASK-2-2 (message wait CLI with --for/--from/--timeout and exit-code contract 0/1/2/3 per TD-10), TASK-2-4 (message wait-loop convenience wrapper that encapsulates the retry+exit-code handling so the prompt can ship a one-liner).",
+        "depends_on": ["track-4 (in-memory blocking — plan Phase 1)"],
+        "architectural_rationale": "F3, RISK-6, RISK-9."
       },
       {
         "id": "track-4",
         "name": "In-memory store true blocking",
-        "scope": "Add `threading.Condition` to InMemoryMessageStore. Modify `get_messages(..., wait=N)` to block on the condition variable with timeout, waking when `append_message` notifies. `clear()` must also notify_all (so pending waiters wake with empty result rather than blocking forever; RISK-5). Remove the `except TypeError` fallback in routes/messages.py:181-184.",
-        "files": [
-          "orchestrator/message_store.py (InMemoryMessageStore)",
-          "orchestrator/routes/messages.py (remove fallback at lines 181-184)"
-        ],
-        "tests_touched": [
-          "orchestrator/tests/test_message_store.py (add TestInMemoryBlocking: wait_returns_on_message, wait_times_out, wait_respects_role_filter, wait_concurrency_two_waiters, wait_wakes_on_clear)"
-        ],
+        "corresponds_to_plan_phases": [1],
+        "scope": "Plan TASK-1-1 (per-pipeline threading.Condition in InMemoryMessageStore with notify_all in both add_message AND clear) + TASK-1-3 (remove silent non-blocking fallback at routes/messages.py:181-184). Blocking loop re-checks pipeline_id after wake.",
         "depends_on": [],
-        "parallelizable": "Fully independent. Blocks track-3 CI green-flip but can merge first.",
-        "related_risks": "risk_analyst RISK-5"
+        "architectural_rationale": "F4, RISK-5."
       },
       {
         "id": "track-5",
-        "name": "HEARTBEAT type + CONSENSUS_REACHED type + HealthMonitor wiring + QUESTION removal",
-        "scope": "Three related vocabulary changes bundled atomically: (a) ADD new MessageType.HEARTBEAT with structured state field + CLI validation + HEARTBEAT rate limit enforcement at send_message (429 when exceeding EGG_HEARTBEAT_RATE_LIMIT default 20/min/agent); (b) ADD new MessageType.CONSENSUS_REACHED emitted at signals.py:1469 in addition to the existing CONSENSUS_CONFIRMED emission (both are written — existing consumers unaffected, new wait primitive uses the new type); (c) REMOVE MessageType.QUESTION at all 11 call sites in one commit. Extend HealthMonitor._on_message_sent at health_monitor.py:330-360 to reset agent.last_heartbeat when event.data['message_type']=='HEARTBEAT'. Update reviewer preamble at pipelines.py:6062-6074 to explain that clarifications happen via NACK (not a bus-free question channel).",
-        "files": [
-          "orchestrator/message_store.py (MessageType class — add HEARTBEAT, CONSENSUS_REACHED; remove QUESTION)",
-          "orchestrator/routes/signals.py:1456-1471 (emit MessageType.CONSENSUS_REACHED alongside existing CONSENSUS_CONFIRMED for final flavour only)",
-          "orchestrator/routes/messages.py (HEARTBEAT rate-limit validation in send_message)",
-          "orchestrator/routes/pipelines.py:4775 (BRC_HISTORY_TYPES — remove QUESTION, add HEARTBEAT + CONSENSUS_REACHED)",
-          "orchestrator/routes/pipelines.py:6062-6074 (remove QUESTION reviewer-preamble block; replace with guidance to NACK for clarification)",
-          "orchestrator/health_monitor.py:330-360 (_on_message_sent: reset last_heartbeat on HEARTBEAT)",
-          "sandbox/egg_lib/orch_cli.py (cmd_message_send validation — reject --type QUESTION with deprecation error; validate HEARTBEAT --state field)",
-          "orchestrator/tests/test_brc_history.py (rewrite 4 substantive test functions at 816/871/893/974-985/1261-1281)",
-          "orchestrator/tests/test_concurrent_integration.py:165-174,424,451 (3 assertion updates)",
-          "orchestrator/tests/test_mcp_tools.py (QUESTION fixture migration)",
-          "orchestrator/tests/test_pipeline_prompts.py (preamble-text assertion)",
-          "sandbox/tests/test_brc_cli_args.py (QUESTION CLI test migration)",
-          "gateway/tests/test_checkpoint_inter_agent.py (checkpoint fixture migration)",
-          "docs/guides/concurrent-execution.md (QUESTION removal + HEARTBEAT/CONSENSUS_REACHED addition)"
-        ],
-        "tests_touched": [
-          "All 6 fixtures listed above",
-          "orchestrator/tests/test_message_store.py (HEARTBEAT + CONSENSUS_REACHED type/state validation + rate-limit 429)",
-          "orchestrator/tests/test_health_monitor.py (agent emits only HEARTBEAT → no heartbeat_timeout within 2× threshold — asserts blocking-3 fix from NACK revision)",
-          "orchestrator/tests/test_signals.py (verify new CONSENSUS_REACHED is emitted alongside CONSENSUS_CONFIRMED for final flavour and NOT for pending_acks flavour)"
-        ],
+        "name": "HEARTBEAT type + HealthMonitor wiring + QUESTION removal",
+        "corresponds_to_plan_phases": [3, 7],
+        "scope": "Phase 3: add MessageType.HEARTBEAT + HEARTBEAT rate limit at send_message (hard 429, EGG_HEARTBEAT_RATE_LIMIT default 20/min) + extend HealthMonitor._on_message_sent at health_monitor.py:330-360 to reset last_heartbeat on HEARTBEAT (plan TASK-3-3). Phase 7: remove QUESTION in 4 staged commits (prompt edit at pipelines.py:6062-6074 first, then BRC_HISTORY_TYPES at :4775, then 5 test files, then enum removal).",
         "depends_on": [],
-        "parallelizable": "Fully independent of tracks 1-4 and 6. Merges before tracks 1 and 6 which reference the new types.",
-        "related_risks": "risk_analyst RISK-1, RISK-2, RISK-7"
+        "architectural_rationale": "F5, F7, RISK-1, RISK-2, RISK-10. CONSENSUS_REACHED as a MessageType is NOT added this pipeline — the existing EventType.CONSENSUS_REACHED on SSE is sufficient for the wrapper case; agent-bus consumers can use the existing CONSENSUS_CONFIRMED type (wait-loop wakes on both flavours and status-check decides)."
       },
       {
         "id": "track-6",
-        "name": "consensus_wrapper shell loop replacement",
-        "scope": "Replace the while-loop in consensus_wrapper.py:322-351 with `egg-orch message wait --for CONSENSUS_REACHED --timeout $EGG_MESSAGE_POLL_MAX_WAIT` (looped only if the wait timeout < pipeline duration). Preserve shell SIGTERM trap so orchestrator-initiated shutdown still exits cleanly. Extend/remove MAX_READY_POLL_CYCLES. Map message wait exit codes (TD-10) to the wrapper's existing exit-code contract (0=consensus reached, 1=timeout, 2=transient connection failure retried with backoff).",
-        "files": [
-          "orchestrator/consensus_wrapper.py"
-        ],
-        "tests_touched": [
-          "orchestrator/tests/test_consensus_wrapper.py (new tests: SIGTERM exits cleanly from message wait; CONSENSUS_REACHED match exits 0; timeout exits 1 and retries; transient connection failure backs off)"
-        ],
-        "depends_on": ["track-3 (requires message wait CLI)", "track-4 (tests use in-memory store)", "track-5 (MessageType.CONSENSUS_REACHED must exist)"],
-        "parallelizable": "Merges last after tracks 3, 4, and 5 are green.",
-        "related_risks": "risk_analyst RISK-11"
+        "name": "consensus_wrapper SSE rewrite",
+        "corresponds_to_plan_phases": [5],
+        "scope": "Plan TASK-5-1. Rewrite consensus_wrapper.py:322-351 to event-block via `curl --no-buffer --silent $ORCH_URL/api/v1/pipelines/$PIPELINE_ID/events | while read line; do ... done` parsing SSE events for `event: consensus.reached` (EventType.CONSENSUS_REACHED at events.py:67, emitted by orchestrator/sse.py). Compute timeout from existing MAX_READY_POLLS × EGG_MESSAGE_POLL_INTERVAL budget. Fall back to current shell sleep loop on SSE 5xx or connection refused (no-Redis local-dev path preserved per RISK-6). SIGTERM handler: `trap 'kill $CURL_PID 2>/dev/null; exit 0' TERM`. Preserve existing exit-code classification (134/136/137/139/255 → transient).",
+        "depends_on": [],
+        "architectural_rationale": "F6, RISK-6, RISK-7, RISK-11. SSE approach has three advantages over message wait: (1) wrapper is shell-native and curl --no-buffer is idiomatic shell; (2) event-name 'consensus.reached' already distinguishes final from pending without MessageType changes; (3) falls back gracefully to shell sleep loop when Redis/orchestrator unavailable (local-dev)."
       },
       {
         "id": "track-7",
         "name": "WSGI worker model + operator guide",
-        "scope": "Address risk_analyst RISK-3 (WSGI worker starvation at 30-70 concurrent long-poll sockets). Switch Gunicorn to async workers (gthread or gevent) OR size worker count explicitly for the expected long-poll socket count. Document EGG_MESSAGE_POLL_MAX_WAIT × worker-count coupling in operator-guide.md. Update orchestrator Deployment manifest (k8s/) with async worker config.",
-        "files": [
-          "orchestrator/gunicorn.conf.py or equivalent Gunicorn/Flask startup config",
-          "k8s/orchestrator-deployment.yaml (or similar manifest)",
-          "docs/reference/operator-guide.md (new 'long-poll socket sizing' section)"
-        ],
-        "tests_touched": [
-          "No unit tests (deployment config); integration test in track-3 exercises concurrent waiters"
-        ],
+        "corresponds_to_plan_phases": [4],
+        "scope": "Plan Phase 4 (TASK-4-1, TASK-4-2, TASK-4-3). Switch Gunicorn to gevent workers, 2× cap timeout, dedicated /healthz probe off worker pool, egg_inflight_long_polls metric. Document EGG_MESSAGE_POLL_MAX_WAIT × worker-count coupling.",
         "depends_on": [],
-        "parallelizable": "Fully independent. Should ship before or alongside track-3 so CI and production have headroom for the new blocking primitive.",
-        "related_risks": "risk_analyst RISK-3"
+        "architectural_rationale": "RISK-3. Must ship before Track 3/6 go live in production."
       }
     ],
-    "merge_order": ["track-2", "track-4", "track-7", "track-5", "track-3", "track-1", "track-6"],
-    "rationale_for_order": "Track 2 (env cap) and track 4 (in-memory blocking) are zero-dep and unlock test reliability. Track 7 (WSGI) ships before track 3 so the orchestrator can hold the new long-poll sockets. Track 5 (vocabulary: HEARTBEAT + CONSENSUS_REACHED + QUESTION removal) lands atomically; tracks 1, 3, and 6 then reference the new types. Track 3 (message wait CLI) is the first consumer of CONSENSUS_REACHED. Track 1 (preamble) can now reference the final CLI shape. Track 6 (wrapper) is thinnest code but highest fan-in."
+    "merge_order": ["plan Phase 1 (= Track 4)", "plan Phase 2 (= Tracks 2, 3)", "plan Phase 3 (= Track 5 part a)", "plan Phase 4 (= Track 7)", "plan Phase 5 (= Track 6)", "plan Phase 6 (= Track 1 part a)", "plan Phase 7 (= Track 5 part b)", "plan Phase 8 (= Track 1 part b)"],
+    "rationale_for_order": "Plan's phase numbering is the canonical merge order. Architect tracks defer to plan phases for sequencing."
   },
 
   "alternatives_considered": [
@@ -434,17 +351,17 @@
     {
       "id": "A7",
       "name": "Raise the --wait default cap to 300s or 600s now",
-      "rejected_reason": "Per HITL decision-3 (env-configurable, keep 60s default). Raising default requires coordinated HTTP proxy idle timeout increases across all deployments."
+      "rejected_reason": "Per HITL decision-3 (env-configurable, keep 60s default)."
     },
     {
       "id": "A8",
-      "name": "For final-consensus filtering: use metadata filter on message wait (--where 'metadata.consensus_reached=true') instead of new MessageType",
-      "rejected_reason": "Expands Track 3's CLI surface with expression-evaluation complexity that affects every wait consumer. A new additive MessageType.CONSENSUS_REACHED is a single cheap change, keeps the wait primitive as simple type-filter, and existing consumers of CONSENSUS_CONFIRMED are untouched. See TD-8."
+      "name": "Add a new MessageType.CONSENSUS_REACHED bus-side mirror of the SSE EventType",
+      "rejected_reason": "Considered in revision 2 but superseded in revision 3 per reviewer_plan NACK: the task_planner's already-CONFIRMED Phase 5 uses SSE (curl --no-buffer on the existing EventType.CONSENSUS_REACHED) which does not require a new MessageType. SSE approach has RISK-6 load-bearing-for-local-dev advantage (no Redis required for the wrapper path). Future agent-bus consumers can use the existing CONSENSUS_CONFIRMED MessageType (filtered via wait-loop) if they need type-filtered bus-side detection."
     },
     {
       "id": "A9",
-      "name": "For final-consensus filtering: wrapper does client-side metadata filtering on get_messages output",
-      "rejected_reason": "Defeats the event-driven primitive — wrapper must bulk-poll and filter, exactly the anti-pattern this issue is closing."
+      "name": "Wrapper uses egg-orch message wait CLI (MessageType-filtered) instead of SSE",
+      "rejected_reason": "Considered in revision 2 but superseded in revision 3: (a) wrapper is shell script, curl --no-buffer is idiomatic; (b) SSE event-name already distinguishes final from pending (no MessageType schema change needed); (c) SSE fallback to shell sleep loop on Redis-down is simpler than Redis-required message wait. Plan Phase 5 / TASK-5-1 is the chosen implementation."
     }
   ],
 
@@ -452,155 +369,127 @@
     {
       "id": "TD-1",
       "title": "Server-side typed wait is a loop over XREAD BLOCK, not a new Redis structure",
-      "rationale": "XREAD BLOCK with Python-side type/role filtering already works and requires no new Redis state.",
-      "implications": "get_messages(..., wait=N) returns all matching messages; the new wait_for_typed helper filters inside the server loop and returns on first match. Thin layer; no schema changes."
+      "rationale": "XREAD BLOCK with Python-side type/role filtering already works.",
+      "implications": "get_messages(..., wait=N) returns all matching messages; the new wait_for_typed helper filters inside the server loop."
     },
     {
       "id": "TD-2",
-      "title": "In-memory blocking uses threading.Condition, not threading.Event",
-      "rationale": "Multiple waiters must be notified on any append (role filtering happens after wake). Condition + notify_all is the canonical pattern.",
-      "implications": "InMemoryMessageStore gains `_cond = threading.Condition(self._lock)`. append_message calls `self._cond.notify_all()` while holding the lock. clear() also calls notify_all to wake pending waiters at phase transitions (RISK-5). Tests cover two-waiter case and clear-wake case."
+      "title": "In-memory blocking uses threading.Condition (per-pipeline), not threading.Event",
+      "rationale": "Multiple waiters; role/type filtering happens after wake. Condition + notify_all is canonical.",
+      "implications": "InMemoryMessageStore gains per-pipeline `_cond = threading.Condition(self._lock)`. add_message and clear both notify_all. Blocking loop re-checks pipeline_id after wake (RISK-5)."
     },
     {
       "id": "TD-3",
-      "title": "HEARTBEAT state is emitted on transitions, not periodically — with HARD rate limit at send_message, not just overseer log",
-      "rationale": "Periodic heartbeats recreate the bus-pollution pathology. Transition-based emission bounds count by state-change events (<10 per phase). Hard rate limit prevents a buggy agent from flooding the bus.",
-      "implications": "Agents emit HEARTBEAT on: start (WORKING), work done (PROPOSED if producer / IDLE if reviewer), waiting on peer (WAITING_ON_ROLE), consensus (CONFIRMED). No timer-driven emission. Send_message validation at routes/messages.py returns 429 when an agent exceeds EGG_HEARTBEAT_RATE_LIMIT (default 20/min). HealthMonitor._on_message_sent resets last_heartbeat on HEARTBEAT — wiring is a REQUIRED downstream consumer change (RISK-2, blocking-3)."
+      "title": "HEARTBEAT state is emitted on transitions, not periodically — with HARD rate limit at send_message",
+      "rationale": "Periodic heartbeats recreate bus pollution. Transition-based emission bounds count by state-change events.",
+      "implications": "Agents emit on: start (WORKING), work done (PROPOSED/IDLE), waiting on peer (WAITING_ON_ROLE), consensus (CONFIRMED). Send_message returns 429 above EGG_HEARTBEAT_RATE_LIMIT (default 20/min). HealthMonitor._on_message_sent resets last_heartbeat on HEARTBEAT (plan TASK-3-3) — REQUIRED consumer change."
     },
     {
       "id": "TD-4",
-      "title": "QUESTION removal is a hard delete — atomic across 11 call sites in one commit",
-      "rationale": "Atomic removal avoids test green/red windows. Zero deprecation window: Q3 HITL confirms additions are safe and removals of tracked-but-unused symbols are similarly safe for in-flight pipelines.",
-      "implications": "Single commit touches 4 production sites, 6 test files, and 1 docs file. Reviewer-preamble replacement text explains the behavioural change: clarifications happen via NACK. CLI-level deprecation error on --type QUESTION. See F7 / RISK-1."
+      "title": "QUESTION removal is staged in 4 commits (not atomic) per plan Phase 7",
+      "rationale": "Plan's staged approach (prompt → BRC_HISTORY_TYPES → tests → enum) avoids runtime errors if any stage fails mid-commit.",
+      "implications": "11 call sites touched across 4 commits. Reviewer-preamble edit lands FIRST so the preamble no longer advertises QUESTION before the type is removed. See F7 / RISK-1 / RISK-10."
     },
     {
       "id": "TD-5",
-      "title": "consensus_wrapper uses `message wait --for CONSENSUS_REACHED`, not SSE",
-      "rationale": "The wrapper is a shell script wrapper. message wait provides a single-command event-driven block that respects SIGTERM via the existing shell trap.",
-      "implications": "Wrapper shell loop becomes at most one outer `while true; do egg-orch message wait --for CONSENSUS_REACHED || break; done` (canonical idiom) or a single invocation if EGG_MESSAGE_POLL_MAX_WAIT covers the expected stay-alive window. SIGTERM trap unchanged. CONSENSUS_REACHED is the new MessageType added in Track 5 (see TD-8). Exit-code contract comes from TD-10."
+      "title": "consensus_wrapper uses SSE (curl --no-buffer against EventType.CONSENSUS_REACHED), NOT a new MessageType",
+      "rationale": "Revision 3 reconciliation with task_planner plan Phase 5 / TASK-5-1. SSE approach has three advantages: (a) wrapper is shell-native, curl is idiomatic; (b) existing SSE event-name 'consensus.reached' at orchestrator/sse.py already distinguishes final from pending (no MessageType schema change); (c) graceful fallback to shell sleep loop on SSE 5xx or Redis-down (load-bearing for local dev per RISK-6).",
+      "implications": "consensus_wrapper.py:322-351 rewritten per plan TASK-5-1. curl --no-buffer; trap 'kill $CURL_PID 2>/dev/null; exit 0' TERM; fall back to shell sleep loop on connection failure. Exit-code classification unchanged. Budget computed from existing MAX_READY_POLLS × EGG_MESSAGE_POLL_INTERVAL."
     },
     {
       "id": "TD-6",
       "title": "Env var naming — EGG_MESSAGE_POLL_MAX_WAIT, EGG_HEARTBEAT_RATE_LIMIT",
       "rationale": "Matches existing EGG_SESSION_IDLE_TIMEOUT_MINUTES / EGG_MESSAGE_POLL_INTERVAL conventions.",
-      "implications": "Defaults preserve behavior (60s cap, 20/min HB rate). Operators who raise EGG_MESSAGE_POLL_MAX_WAIT must raise HTTP proxy idle timeout; startup warn above 60."
+      "implications": "Defaults preserve behavior (60s cap, 20/min HB rate). Startup warn above 90s for cap."
     },
     {
       "id": "TD-7",
-      "title": "Preamble wording: imperative single idiom, not descriptive alternatives",
-      "rationale": "LLMs follow explicit imperative instructions better. Per Q5 HITL.",
-      "implications": "Final preamble text: 'STAY ALIVE: Run `while true; do egg-orch message wait --for CONSENSUS_REACHED || break; done`. Do NOT wrap this in a for-loop. Do NOT call `sleep N`. Do NOT poll in iterations — the command blocks until a matching message arrives or the timeout elapses.' (Uses the new MessageType.CONSENSUS_REACHED per TD-8.)"
+      "title": "Preamble wording: canonical `wait-loop` idiom, not raw `message wait`",
+      "rationale": "Plan TASK-2-4 adds `egg-orch message wait-loop` convenience wrapper that encapsulates retry+exit-code handling. Single one-liner for the prompt; LLMs do not need to learn shell error handling.",
+      "implications": "Final preamble text per plan TASK-6-1: 'STAY ALIVE: Run `egg-orch message wait-loop --for CONSENSUS_CONFIRMED --for CONSENSUS_RE_REVIEW --for OVERSEER_ALERT` once. The command blocks server-side until a matching message arrives or EGG_MESSAGE_POLL_MAX_WAIT elapses, retries transient errors with backoff, and exits cleanly when consensus is reached. Do NOT use for i in 1..N. Do NOT call sleep N. Do NOT issue redundant egg-orch consensus confirmed calls.'"
     },
     {
-      "id": "TD-8",
-      "title": "New MessageType.CONSENSUS_REACHED emitted alongside CONSENSUS_CONFIRMED for the final flavour ONLY",
-      "rationale": "Reviewer_plan NACK blocking-1 established that signals.py:1456-1471 uses the SAME MessageType.CONSENSUS_CONFIRMED for both pending (metadata={'pending_acks': True}) and final (metadata={'consensus_reached': bool}). A type-filtering primitive cannot distinguish them. Picked option (a) from NACK: introduce a new MessageType.CONSENSUS_REACHED emitted at signals.py:1469 IN ADDITION TO (not replacing) the existing CONSENSUS_CONFIRMED final emission. Additive, safe for existing consumers, cheap for the wait primitive to filter.",
-      "implications": "Two writes per final consensus instead of one — acceptable (<=3 agents x 1 final confirmation per phase = tiny volume). CONSENSUS_CONFIRMED semantics unchanged for existing consumers (BRC_HISTORY_TYPES, audit logging, metrics). message wait --for CONSENSUS_REACHED only matches the final flavour. Tests must verify pending_acks emissions do NOT emit CONSENSUS_REACHED."
+      "id": "TD-8_DELETED",
+      "title": "[DELETED] New MessageType.CONSENSUS_REACHED",
+      "rationale": "Revision 3: deleted per reviewer_plan NACK blocking-1-rev2. The existing EventType.CONSENSUS_REACHED on SSE (events.py:67) is sufficient for the wrapper case per plan TASK-5-1. Adding a new MessageType was a revision-2 design that conflicted with the already-CONFIRMED plan. The wrapper uses SSE; agent-bus consumers use existing CONSENSUS_CONFIRMED (wait-loop wakes and the agent checks consensus status)."
     },
     {
       "id": "TD-9",
-      "title": "message wait supports --since ID for resumability",
-      "rationale": "NACK non-blocking nb-4: after a transport-error retry, the canonical idiom must not double-deliver. --since lets the client resume from the last-seen message ID.",
-      "implications": "Server-side wait loop starts XREAD BLOCK from since_id on each retry. Same semantics as message poll's --since. CLI flag: `--since <ID>` optional; when absent, starts from newest messages only (matches current message poll default behaviour for wait>0)."
+      "title": "message wait + --since for resumability (implementer discretion)",
+      "rationale": "Transport-error retry must not double-deliver. Plan TASK-2-4's wait-loop wrapper handles transport retry internally; the raw `message wait --for` may not need --since if wait-loop tracks since-IDs across retries.",
+      "implications": "Plan TASK-2-2 currently lists --for/--from/--timeout only. If the implementer finds a case where the raw wait is called by code outside wait-loop and needs resumability, --since can be added — otherwise defer."
     },
     {
       "id": "TD-10",
-      "title": "message wait exit codes",
-      "rationale": "Wrapper (track-6) needs a deterministic exit-code contract to classify outcomes without parsing stdout.",
-      "implications": "Exit codes: 0 = match found (stdout: matching message JSON), 1 = timeout with no match (stdout: empty array '[]'), 2 = transient connection failure (stdout: error message on stderr). Wrapper retries exit 2 with backoff; treats 0 and 1 as the outer-loop continue/exit conditions per TD-5."
+      "title": "message wait exit codes (0/1/2/3)",
+      "rationale": "Wrapper (track-6 = plan Phase 5) and wait-loop (plan TASK-2-4) need deterministic exit-code contract.",
+      "implications": "0 = match found; 1 = timeout with no match; 2 = transient connection failure (retry with backoff); 3 = permanent error (4xx, authz). Codified in plan TASK-2-2."
     }
   ],
 
   "constraints": [
-    "No backwards-incompatible bus schema change for in-flight pipelines — additions (HEARTBEAT, CONSENSUS_REACHED) are safe; removal of QUESTION is safe because agents ignore unknowns and all 11 call sites land atomically.",
+    "No backwards-incompatible bus schema change for in-flight pipelines — additions (HEARTBEAT) are safe; removal of QUESTION is staged in 4 commits starting with the prompt edit so agents never encounter a runtime error.",
     "EGG_MESSAGE_STORE_BACKEND=memory must truly block on wait > 0 — load-bearing for local dev (HITL Q2).",
     "HTTP proxy idle timeout (gateway.egg-system.svc.cluster.local:3129) is the hard cap — raising EGG_MESSAGE_POLL_MAX_WAIT above 60s requires coordinated gateway config change.",
-    "consensus_wrapper SIGTERM handling must be preserved so orchestrator graceful-shutdown classification (exit 0 vs 1) still works.",
+    "consensus_wrapper SSE approach must gracefully fall back to shell sleep loop when SSE endpoint is unreachable — local-dev without Redis is load-bearing (RISK-6).",
+    "SIGTERM handling: curl honours SIGTERM via socket close; wrapper trap handler kills curl PID explicitly to avoid zombie (RISK-7).",
     "BRC preamble is shared across all concurrent-mode agents — tests in orchestrator/tests/test_pipeline_prompts.py lock in structure.",
-    "HealthMonitor._on_message_sent wiring change (Track 5) is a REQUIRED consumer change — without it, agents that migrate to HEARTBEAT messaging trip heartbeat_timeout alerts (RISK-2, blocking-3).",
-    "CONSENSUS_REACHED emission is additive — existing CONSENSUS_CONFIRMED emissions remain unchanged so metrics, audit, and downstream consumers keep working.",
-    "QUESTION test-fixture removal must happen atomically in the same commit as the enum removal; reviewer-preamble (pipelines.py:6062-6074) must be removed in the same commit to avoid advertising a removed type.",
-    "WSGI worker pool sizing (Track 7) must ship BEFORE track 3 goes live in production — otherwise 30-70 long-poll sockets exhaust the default worker count (RISK-3)."
+    "HealthMonitor._on_message_sent wiring change (Track 5 = plan TASK-3-3) is a REQUIRED consumer change for HEARTBEAT adopters (RISK-2).",
+    "QUESTION reviewer-preamble edit (pipelines.py:6062-6074) must land BEFORE enum removal — staged in plan Phase 7 in safe order.",
+    "WSGI worker pool sizing (Track 7 = plan Phase 4) must ship BEFORE Track 3/6 go live (RISK-3)."
   ],
 
-  "risks": "See risk_analyst output for full RISK-1..RISK-12 assessment (12 items across correctness, performance, compatibility, maintainability, process). This architecture analysis cross-references them inline in findings and tracks.",
+  "risks": "See risk_analyst output for full RISK-1..RISK-12 assessment (12 items). This architecture analysis cross-references them inline in findings and tracks.",
 
   "test_strategy": {
-    "new_tests": [
-      "orchestrator/tests/test_message_store.py::TestInMemoryBlocking — 5 cases for track-4 (including wake-on-clear per RISK-5)",
-      "orchestrator/tests/test_messages_route.py::TestMessageWait — 7 cases for track-3 (including --since resume and transport-retry no-double-deliver)",
-      "orchestrator/tests/test_messages_route.py::TestWaitCapEnv — env-override + startup-warn for track-2",
-      "orchestrator/tests/test_message_store.py::TestHeartbeat — type+state validation + rate-limit 429 for track-5",
-      "orchestrator/tests/test_message_store.py::TestConsensusReached — new type emitted alongside CONSENSUS_CONFIRMED for final only (TD-8)",
-      "orchestrator/tests/test_health_monitor.py::TestHeartbeatMessageResetsTimestamp — asserts the HealthMonitor fix from NACK blocking-3 (RISK-2)",
-      "orchestrator/tests/test_consensus_wrapper.py::TestMessageWaitIntegration — 4 cases for track-6 (SIGTERM, match, timeout, transient)",
-      "orchestrator/tests/test_signals.py::TestConsensusReachedOnFinalOnly — verify new CONSENSUS_REACHED NOT emitted for pending_acks flavour",
-      "sandbox/tests/test_orch_cli.py::TestMessageWaitCmd — parser + flow + exit-code contract (TD-10) for track-3"
-    ],
-    "updated_tests": [
-      "orchestrator/tests/test_pipeline_prompts.py — STAY ALIVE assertions updated for track-1 + reviewer-QUESTION-preamble removal for track-5",
-      "orchestrator/tests/test_concurrent_integration.py — line 569 STAY ALIVE assertion + 165-174,424,451 QUESTION assertions",
-      "orchestrator/tests/test_brc_history.py — 4 substantive test function rewrites (816, 871, 893, 974-985, 1261-1281)",
-      "orchestrator/tests/test_mcp_tools.py — QUESTION fixture migration",
-      "sandbox/tests/test_brc_cli_args.py — QUESTION CLI fixture migration (including new deprecation-error test)",
-      "gateway/tests/test_checkpoint_inter_agent.py — checkpoint fixture migration"
+    "approach": "Per plan — each of the 9 phases has dedicated tests described in the plan's yaml-tasks appendix. Highlights:",
+    "plan_phase_tests": [
+      "Phase 1 — test_message_store.py::TestInMemoryBlocking (RISK-5)",
+      "Phase 2 — test_messages_route.py::TestMessageWait + test_orch_cli_message_wait_loop.py + test_app_startup.py (env override + warn at 90s)",
+      "Phase 3 — test_message_store.py HEARTBEAT validation + rate limit 429 + test_health_monitor.py::TestHeartbeatMessageResetsTimestamp (plan TASK-3-3, RISK-2)",
+      "Phase 4 — egg_inflight_long_polls metric test + healthz-off-worker-pool test (RISK-3)",
+      "Phase 5 — test_consensus_wrapper.py SSE-unblock-within-100ms + SIGTERM-exits-cleanly + SSE-503-fallback + pending_acks-does-NOT-unblock (RISK-6, RISK-7, RISK-11)",
+      "Phase 6 — test_pipeline_prompts.py canonical idiom + 'Keep polling' absence + for/sleep regex assertions (decision-7, RISK-8)",
+      "Phase 7 — test_brc_history.py rewrites + test_concurrent_integration.py + test_mcp_tools.py + test_brc_cli_args.py + test_checkpoint_inter_agent.py migrations (RISK-1, RISK-10)",
+      "Phase 8 — docs link-check + agent-wait-patterns.md presence",
+      "Phase 9 — integration test: sub-2s reaction time + PR #1896 dedup regression test (HITL Q1)"
     ],
     "manual_verification": [
-      "Replay issue-1762-membump with new prompts in a synthetic pipeline — confirm no for-loop / sleep-N patterns in agent shell history.",
-      "Run a pipeline with EGG_MESSAGE_STORE_BACKEND=memory and verify message wait blocks and returns on first matching message.",
-      "Verify consensus_wrapper SIGTERM still produces exit 0 on graceful shutdown; exit 1 on timeout; exit 2 retries on transient failure.",
-      "Deploy track-7 config in staging and verify >30 concurrent long-poll sockets do not exhaust the orchestrator worker pool."
+      "Replay issue-1762-membump with new prompts — confirm no for-loop / sleep-N in agent shell history.",
+      "Run pipeline with EGG_MESSAGE_STORE_BACKEND=memory and verify message wait blocks and returns on first match.",
+      "Verify consensus_wrapper SIGTERM → exit 0; SSE 503 → shell fallback.",
+      "Deploy Track 7 (plan Phase 4) in staging; verify >30 concurrent long-poll sockets hold stable."
     ]
   },
 
-  "open_questions_for_task_planner": [
-    "Q-planner-1: Should tracks 3 (message wait CLI) and 6 (consensus_wrapper) be combined into one commit since track-6 is the first consumer of message wait? Argues for: end-to-end atomic change. Argues against: larger blast radius if something goes wrong. Architect recommends keeping them separate — merge order matters (tracks 3 -> 1 -> 6)."
-  ],
+  "open_questions_for_task_planner": [],
 
   "file_inventory": {
-    "files_modified": [
-      "orchestrator/routes/pipelines.py (lines 4775, 5959, 6020, 6062-6074)",
-      "orchestrator/routes/messages.py (lines 165, 181-184, new route ~200, new HEARTBEAT rate-limit validation)",
-      "orchestrator/routes/signals.py (lines 1456-1471 — emit CONSENSUS_REACHED alongside final CONSENSUS_CONFIRMED)",
-      "orchestrator/message_store.py (MessageType class — add HEARTBEAT + CONSENSUS_REACHED, remove QUESTION; InMemoryMessageStore — add Condition)",
-      "orchestrator/redis_message_store.py",
-      "orchestrator/health_monitor.py (lines 330-360 — wire _on_message_sent to reset last_heartbeat on HEARTBEAT)",
-      "orchestrator/consensus_wrapper.py (lines 322-351)",
-      "orchestrator/gunicorn.conf.py (or equivalent Gunicorn config — Track 7)",
-      "sandbox/egg_lib/orch_cli.py (cmd_message_wait + --type QUESTION rejection + HEARTBEAT --state validation)",
-      "sandbox/agent-config/rules/mission.md (line 152)",
-      "docs/guides/concurrent-execution.md",
-      "k8s/orchestrator-deployment.yaml (or similar — Track 7)"
+    "note": "Per plan — architect does not maintain a separate file list. See plan phases for exhaustive file mappings.",
+    "key_files_modified": [
+      "orchestrator/routes/pipelines.py (lines 4775, 5959, 6020, 6062-6074 — BRC_HISTORY_TYPES + preambles)",
+      "orchestrator/routes/messages.py (lines 165, 181-184, new route — wait cap + wait route)",
+      "orchestrator/message_store.py (MessageType class — add HEARTBEAT, remove QUESTION; InMemoryMessageStore Condition)",
+      "orchestrator/health_monitor.py:330-360 (wire last_heartbeat on HEARTBEAT)",
+      "orchestrator/consensus_wrapper.py (SSE rewrite)",
+      "orchestrator/gunicorn.conf.py (gevent workers)",
+      "sandbox/egg_lib/orch_cli.py (cmd_message_wait + cmd_message_wait_loop + --type QUESTION deprecation)",
+      "sandbox/agent-config/rules/mission.md:152"
     ],
-    "files_created": [
-      "docs/reference/agent-wait-patterns.md",
-      "docs/reference/operator-guide.md (if not existing — Track 7 section)"
-    ],
-    "tests_modified_or_created": [
-      "orchestrator/tests/test_pipeline_prompts.py",
-      "orchestrator/tests/test_concurrent_integration.py",
-      "orchestrator/tests/test_brc_history.py",
-      "orchestrator/tests/test_mcp_tools.py",
-      "orchestrator/tests/test_message_store.py",
-      "orchestrator/tests/test_messages_route.py",
-      "orchestrator/tests/test_consensus_wrapper.py",
-      "orchestrator/tests/test_health_monitor.py",
-      "orchestrator/tests/test_signals.py",
-      "sandbox/tests/test_brc_cli_args.py",
-      "sandbox/tests/test_orch_cli.py",
-      "gateway/tests/test_checkpoint_inter_agent.py"
+    "key_files_created": [
+      "docs/reference/agent-wait-patterns.md"
     ]
   },
 
   "complexity_assessment": {
     "level": "high",
-    "reasoning": "Seven tracks across prompt scaffolding, CLI, HTTP routes, Redis plumbing, in-memory store, message vocabulary, consensus wrapper, HealthMonitor wiring, WSGI deployment config, tests, and docs. Each track is independently mergeable but must land in a specific order to avoid CI green/red windows. Concurrency risk in track-4 (Condition correctness + clear() wake). Cross-module wiring in track-5 (message_store + signals + health_monitor + CLI + preamble + BRC_HISTORY_TYPES). 11 atomic call-site changes for QUESTION removal. Estimate 10-14 commits in a single PR, with tests added alongside each change."
+    "reasoning": "Six architectural tracks mapping onto nine plan phases. Cross-cutting: prompt scaffolding, CLI, HTTP routes, Redis plumbing, in-memory store, message vocabulary, consensus wrapper SSE, HealthMonitor wiring, WSGI deployment config, tests, and docs. Concurrency risk in Phase 1 (Condition correctness + clear() wake). SSE implementation in Phase 5 has subtle edge cases (SIGTERM → curl PID reap, 503 fallback, exit-code classification). 11 atomic call-site changes for QUESTION removal staged across 4 commits in Phase 7. Plan estimates 9 phases with tests added alongside each change."
   },
 
   "dependencies_on_other_producers": {
-    "task_planner": "Consumes this analysis to produce .egg-state/drafts/1897-plan.md with yaml-tasks. Planner should map each track to a phase. Open question Q-planner-1 about merging tracks 3+6.",
-    "risk_analyst": "Risk assessment is COMPLETE (12 risks RISK-1..RISK-12). This analysis cross-references RISK-N throughout. No new open questions for risk_analyst."
+    "task_planner": "Plan is CONFIRMED. This architect analysis is reconciled with plan's phases and decisions (SSE for wrapper, wait-loop convenience CLI, staged QUESTION removal, HealthMonitor MESSAGE_SENT wiring, WSGI gevent workers).",
+    "risk_analyst": "Risk assessment is CONFIRMED (RISK-1..RISK-12). Cross-referenced throughout."
   },
 
-  "authored_by": "architect (issue-1897, plan phase, revision 2 addressing reviewer_plan NACK)"
+  "authored_by": "architect (issue-1897, plan phase, revision 3 — reconciled with task_planner's CONFIRMED plan per reviewer_plan NACK blocking-1-rev2)"
 }
