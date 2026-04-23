@@ -5,7 +5,7 @@
   "branch": "egg/issue-1897",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "plan",
   "config": {
     "auto_create_pr": true,
@@ -152,10 +152,10 @@
     },
     "plan": {
       "phase": "plan",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-04-23T05:19:53.520570Z",
       "work_started_at": "2026-04-23T05:19:53.746102Z",
-      "completed_at": null,
+      "completed_at": "2026-04-23T05:28:28.889198Z",
       "containers": [
         {
           "container_id": "dd9e9cf7-3823-4541-9bde-579244b041d0",
@@ -270,12 +270,12 @@
         {
           "cycle": 0,
           "started_at": "2026-04-23T05:19:53.746102Z",
-          "completed_at": null,
+          "completed_at": "2026-04-23T05:28:28.889183Z",
           "commit_sha": "bc12e560703815c6f327f8ae3531777e8912229d"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-23 05:28:21 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01E2eUuNpoMonVAhaky6VzY8 is_error=False content=\"File created successfully at: /home/egg/.egg-worktrees/issue-1897-task_planne...\" [/opt/egg-runtime/shared/egg_agent/client.py:291]\n2026-04-23 05:28:22 [INFO    ] egg-agent: Assistant message event_type=assistant event_subtype=text text=\"You've hit your limit · resets 8am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:266]\n2026-04-23 05:28:22 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result model=claude-opus-4-7 session_id=5ad1e650-02ea-49c1-9b7d-4c1cfc993f36 cost_usd=2.3690320000000002 num_turns=45 duration_ms=505033 success=False error=\"You've hit your limit · resets 8am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:317]\nan error occurred during closing of asynchronous generator <async_generator object InternalClient._process_query_inner at 0xffff96667300>\nasyncgen: <async_generator object InternalClient._process_query_inner at 0xffff96667300>\nRuntimeError: aclose(): asynchronous generator is already running\nYou've hit your limit · resets 8am (UTC)\n[consensus-wrapper] Tracker shows not confirmed (stale?). Checking message bus...\n[consensus-wrapper] Agent failed (code 1 after 506s). NOT restarting.\nI have the architect output, risk analyst output, and the previous task_planner plan revision 3. Let me write the plan file that aligns with all of these inputs and addresses each risk.You've hit your limit · resets 8am (UTC)You've hit your limit · resets 8am (UTC)",
       "hitl_feedback": null,
       "phase_start_sha": "147fc285ecac0e19acfdcf05f8b0a0456ac510d7"
     }
@@ -495,7 +495,7 @@
     }
   ],
   "created_at": "2026-04-22T23:27:22.582974Z",
-  "updated_at": "2026-04-23T05:28:28.870425Z",
+  "updated_at": "2026-04-23T05:28:28.889386Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -503,11 +503,11 @@
   "pr_head_sha": null,
   "active_roles": null,
   "has_contract": true,
-  "error": null,
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-23 05:28:21 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01E2eUuNpoMonVAhaky6VzY8 is_error=False content=\"File created successfully at: /home/egg/.egg-worktrees/issue-1897-task_planne...\" [/opt/egg-runtime/shared/egg_agent/client.py:291]\n2026-04-23 05:28:22 [INFO    ] egg-agent: Assistant message event_type=assistant event_subtype=text text=\"You've hit your limit · resets 8am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:266]\n2026-04-23 05:28:22 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result model=claude-opus-4-7 session_id=5ad1e650-02ea-49c1-9b7d-4c1cfc993f36 cost_usd=2.3690320000000002 num_turns=45 duration_ms=505033 success=False error=\"You've hit your limit · resets 8am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:317]\nan error occurred during closing of asynchronous generator <async_generator object InternalClient._process_query_inner at 0xffff96667300>\nasyncgen: <async_generator object InternalClient._process_query_inner at 0xffff96667300>\nRuntimeError: aclose(): asynchronous generator is already running\nYou've hit your limit · resets 8am (UTC)\n[consensus-wrapper] Tracker shows not confirmed (stale?). Checking message bus...\n[consensus-wrapper] Agent failed (code 1 after 506s). NOT restarting.\nI have the architect output, risk analyst output, and the previous task_planner plan revision 3. Let me write the plan file that aligns with all of these inputs and addresses each risk.You've hit your limit · resets 8am (UTC)You've hit your limit · resets 8am (UTC)",
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:19:51.126244Z",
-  "version": 48
+  "version": 49
 }
