@@ -315,10 +315,10 @@
         {
           "container_id": "ff8615fc-478b-469d-8f0d-0e04ee6ed939",
           "container_name": "egg-sandbox-egg-agent-issue-1897-reviewer-code",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-23T06:27:52.964717Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-23T07:23:32Z",
+          "exit_code": 1,
           "agent_role": "reviewer_code",
           "session_token": null,
           "pod_name": null,
@@ -381,14 +381,14 @@
         },
         {
           "role": "reviewer_code",
-          "status": "running",
+          "status": "failed",
           "container_id": "ff8615fc-478b-469d-8f0d-0e04ee6ed939",
           "container_info": null,
           "started_at": "2026-04-23T06:27:52.964719Z",
-          "completed_at": null,
+          "completed_at": "2026-04-23T07:23:40.315760Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code 1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -650,7 +650,7 @@
     }
   ],
   "created_at": "2026-04-22T23:27:22.582974Z",
-  "updated_at": "2026-04-23T07:23:27.431937Z",
+  "updated_at": "2026-04-23T07:23:40.315886Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -664,5 +664,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T06:27:48.103193Z",
-  "version": 64
+  "version": 65
 }
