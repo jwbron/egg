@@ -411,16 +411,16 @@
           "answer": ""
         }
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-23T23:32:57.100102Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-23T23:35:53.599907Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Configurable — project allowlist lives in the new `jira:` section of `config/context-filters.yaml`; ops populate it at setup time. Gateway ships with an empty allowlist (fails closed on any project).\", \"Q2\": \"Low (<10/min each) for v1. Rate-limit defaults should be conservative and tunable via gateway config.\", \"Q3\": \"Greenfield — pick at setup; no existing convention to align with.\", \"Q4\": \"N/A — no redaction. Jira is private-mode only, and in that mode the session is already a constrained, trusted context (matches earlier decision on redaction).\", \"Q5\": \"Gateway swallows + retries once, honouring `Retry-After`. If the retry also fails, pass the 429 through so the failure still surfaces to the agent.\", \"Q6\": \"Same sink as existing gateway audit logs. Jira ops are tagged in structured log entries so they can be filtered at query time.\", \"Q7\": \"No — only `GET /rest/api/3/issue/...`, `GET /rest/api/3/search/...`, and `GET /rest/api/3/project/...`. Anything outside those three families requires a narrow route (future work).\", \"Q8\": \"Synthesize `{\\\"status\\\":\\\"not_found\\\"}` envelope — consistent with how other gateway endpoints shape errors.\", \"Q9\": \"Out of scope for v1 (which is read-only). When writes land, start by relying on Atlassian's own semantics + operator discipline rather than gateway-enforced idempotency; revisit only if duplicate-write issues surface.\", \"Q10\": \"Private mode only. No internal-dev mode exists today, and inventing one just to widen Jira reachability is out of scope for #1556. If such a mode is added later, reachability for Jira can be reconsidered then.\"}}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-23T22:57:38.750100Z",
-  "updated_at": "2026-04-23T23:32:57.125416Z",
+  "updated_at": "2026-04-23T23:35:53.619295Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -434,5 +434,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 33
+  "version": 34
 }
