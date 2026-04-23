@@ -206,10 +206,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Return 200 with nothing_to_push=true and list excluded files (matches 6f0877f50 behavior — silent soft-success; leaves blocked files uncommitted in worktree)\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Should auto-filtering be enabled by default or behind a feature flag?",
+      "context": "Open contract question decision-3, registered by an agent during the refine phase.",
+      "options": [
+        "Enabled by default (replace current 403 behavior outright). Flag EGG_AGENT_RESTRICTIONS_ENFORCE=false still disables the check entirely.",
+        "Enabled by default, but add a new EGG_AGENT_AUTOFILTER=false escape hatch to revert to 403-blocking behavior for debugging/rollback",
+        "Opt-in: default to current 403 behavior, enable auto-filter only when EGG_AGENT_AUTOFILTER=true (more conservative rollout)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-23T06:25:21.569508Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:21:58.997312Z",
-  "updated_at": "2026-04-23T06:25:19.074466Z",
+  "updated_at": "2026-04-23T06:25:21.592822Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -223,5 +242,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:31:28.068349Z",
-  "version": 24
+  "version": 25
 }
