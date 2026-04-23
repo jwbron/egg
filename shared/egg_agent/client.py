@@ -275,12 +275,16 @@ async def run_agent_async(
     actual_model: str | None = None
     result_meta: dict[str, Any] = {}
 
+    # Log the effective cwd — when the caller did not pass one, the SDK
+    # inherits os.getcwd(), so log that rather than None.  Keeps
+    # session-init lines diagnostically useful (see #1954).
+    effective_cwd = str(cwd) if cwd else os.getcwd()
     logger.info(
         "Agent session init",
         event_type="system",
         event_subtype="init",
         model=model,
-        cwd=str(cwd) if cwd else None,
+        cwd=effective_cwd,
         permission_mode="bypassPermissions",
         max_turns=max_turns,
         timeout=timeout,
