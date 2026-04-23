@@ -6,6 +6,7 @@ hallucination guard, and health summary generation.
 
 import asyncio
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -743,7 +744,10 @@ class TestPostConsensusStallTransitionCompletionShortcircuit:
         """Invoke the detector with consensus complete + running status,
         patching the state store resolution to return our fake store."""
         consensus = {"is_complete": True}
-        with patch("overseer.monitor._get_state_store", return_value=store):
+        with (
+            patch("overseer.monitor._get_state_store", return_value=store),
+            patch.dict(os.environ, {"EGG_REPO_PATH": "/fake/repo"}),
+        ):
             _run(monitor._check_post_consensus_stall(consensus, "running"))
 
     def test_shortcircuits_when_phase_already_advanced(self) -> None:
@@ -808,7 +812,10 @@ class TestPostConsensusStallTransitionCompletionShortcircuit:
         store.load_pipeline.side_effect = RuntimeError("transient storage error")
         consensus = {"is_complete": True}
 
-        with patch("overseer.monitor._get_state_store", return_value=store):
+        with (
+            patch("overseer.monitor._get_state_store", return_value=store),
+            patch.dict(os.environ, {"EGG_REPO_PATH": "/fake/repo"}),
+        ):
             _run(monitor._check_post_consensus_stall(consensus, "running"))
 
         # Grace period elapsed + no short-circuit applied — existing
