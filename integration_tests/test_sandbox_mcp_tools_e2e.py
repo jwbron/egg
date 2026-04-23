@@ -102,14 +102,14 @@ def _assert_mcp_servers_registered() -> None:
     assert set(real_servers.keys()) == set(TOOL_NAMESPACES)
 
 
-def test_mcp_tools_default_on_when_flag_unset() -> None:
+def test_mcp_tools_default_on_when_flag_unset(monkeypatch) -> None:
     """MCP tools must register when EGG_MCP_TOOLS is not set (default-on)."""
     _skip_if_no_sdk()
-    os.environ.pop("EGG_MCP_TOOLS", None)
+    monkeypatch.delenv("EGG_MCP_TOOLS", raising=False)
     _assert_mcp_servers_registered()
 
 
-def test_agent_calls_mcp_tool_when_flag_enabled() -> None:
+def test_agent_calls_mcp_tool_when_flag_enabled(monkeypatch) -> None:
     """End-to-end: the agent must use the mcp__* tool surface, not Bash.
 
     Live path (EGG_LIVE_SDK=1): spawn the Claude Agent SDK in-process
@@ -124,7 +124,7 @@ def test_agent_calls_mcp_tool_when_flag_enabled() -> None:
 
     _skip_if_no_sdk()
 
-    os.environ["EGG_MCP_TOOLS"] = "true"
+    monkeypatch.setenv("EGG_MCP_TOOLS", "true")
     live = os.environ.get("EGG_LIVE_SDK", "") in ("1", "true", "yes")
 
     if live:  # pragma: no cover - only in nightly job

@@ -24,7 +24,7 @@ The surface is **on by default** since [#1942](https://github.com/jwbron/egg/iss
 
 | Flag | Effect |
 |------|--------|
-| `EGG_MCP_TOOLS` unset / `true` / `1` / `yes` | **Default.** Register the 15 tools and append `SYSTEM_PROMPT_NUDGE` to `options.system_prompt`. |
+| `EGG_MCP_TOOLS` unset or any value not listed below | **Default.** Register the 15 tools and append `SYSTEM_PROMPT_NUDGE` to `options.system_prompt`. |
 | `EGG_MCP_TOOLS=false` / `0` / `no` / `off` | Opt-out. Code path is byte-identical to the pre-#1765 behaviour — no import cost, no prompt changes. |
 
 **Currently `claude_agent_sdk` harness only.** `EGG_HARNESS=egg` is
