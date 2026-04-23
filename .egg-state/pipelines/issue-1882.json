@@ -377,10 +377,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Return 200 with nothing_to_push=true, leave uncommitted changes in worktree (matches #1470)\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-13",
+      "question": "Should the auto-filtered commit message include a [auto-filtered] suffix?",
+      "context": "Open contract question decision-12, registered by an agent during the refine phase.",
+      "options": [
+        "Yes - debugging breadcrumb, matches #1470",
+        "No - preserve original message verbatim, surface filter in response metadata only",
+        "Configurable via env var, default yes",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-23T06:42:14.419117Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:21:58.997312Z",
-  "updated_at": "2026-04-23T06:42:11.610171Z",
+  "updated_at": "2026-04-23T06:42:14.428747Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -394,5 +413,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:31:28.068349Z",
-  "version": 42
+  "version": 43
 }
