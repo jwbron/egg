@@ -553,59 +553,43 @@ class TestConcurrentPhasesGeneralization:
 
 
 class TestFilePatternEnvVar:
-    """Test that EGG_AGENT_FILE_PATTERNS is set for concurrent agents (#1431).
+    """Post-#1882: EGG_AGENT_FILE_PATTERNS is no longer emitted.
 
-    NOTE: Pattern assertions below are coupled to live role definitions in
-    egg_contracts.agent_roles.  If role patterns change, these tests may need
-    updating even though the feature still works correctly.
+    Originally added in #1431 so ``sandbox/egg_lib/cli_push.py
+    --scope-filter`` could read the pushing role's patterns and strip
+    disallowed files client-side.  #1882 moves that responsibility to
+    the gateway's auto-filter and deletes both the env-var injection
+    (here) and the ``--scope-filter`` consumer (in sandbox).  These
+    tests now assert the env var is NOT emitted so a re-introduction
+    fails loudly.
     """
 
-    def test_coder_gets_file_patterns(self):
-        import json
-
+    def test_coder_does_not_get_file_patterns_env(self):
         from concurrent_executor import ConcurrentPhaseExecutor
         from egg_orchestrator.types import AgentRole
 
         pipeline = _make_pipeline()
         executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
-
         env = executor.get_agent_env(AgentRole.CODER)
-        assert "EGG_AGENT_FILE_PATTERNS" in env
-        patterns = json.loads(env["EGG_AGENT_FILE_PATTERNS"])
-        assert "allowed" in patterns
-        assert "blocked" in patterns
-        assert any("*.py" in p for p in patterns["allowed"])
-        # Coder's blocked list includes docs and contracts
-        assert any("docs/" in p for p in patterns["blocked"])
+        assert "EGG_AGENT_FILE_PATTERNS" not in env
 
-    def test_tester_gets_file_patterns(self):
-        import json
-
+    def test_tester_does_not_get_file_patterns_env(self):
         from concurrent_executor import ConcurrentPhaseExecutor
         from egg_orchestrator.types import AgentRole
 
         pipeline = _make_pipeline()
         executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
-
         env = executor.get_agent_env(AgentRole.TESTER)
-        assert "EGG_AGENT_FILE_PATTERNS" in env
-        patterns = json.loads(env["EGG_AGENT_FILE_PATTERNS"])
-        assert any("tests/" in p or "test/" in p for p in patterns["allowed"])
+        assert "EGG_AGENT_FILE_PATTERNS" not in env
 
-    def test_documenter_gets_file_patterns(self):
-        import json
-
+    def test_documenter_does_not_get_file_patterns_env(self):
         from concurrent_executor import ConcurrentPhaseExecutor
         from egg_orchestrator.types import AgentRole
 
         pipeline = _make_pipeline()
         executor = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
-
         env = executor.get_agent_env(AgentRole.DOCUMENTER)
-        assert "EGG_AGENT_FILE_PATTERNS" in env
-        patterns = json.loads(env["EGG_AGENT_FILE_PATTERNS"])
-        assert any("*.md" in p for p in patterns["allowed"])
-        assert any("*.py" in p for p in patterns["blocked"])
+        assert "EGG_AGENT_FILE_PATTERNS" not in env
 
 
 class TestCheckConsensusMessageBusFallback:

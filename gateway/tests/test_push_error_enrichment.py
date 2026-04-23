@@ -1,22 +1,38 @@
-"""Tests for enriched push rejection errors (#1527).
+"""Tests for the 200-response schema of the post-#1882 gateway push handler.
 
-When the gateway blocks a push due to agent-role file restrictions,
-the error response should include:
-- blocked_files listing which files violated the policy
-- allowed_patterns listing what the agent IS allowed to write
-- remediation steps guiding the agent to recover
+Historical note: this file replaces the earlier suite that asserted the
+403 error-enrichment shape from #1527 (``blocked_files`` /
+``allowed_patterns`` / ``remediation`` fields on push denials).  #1882
+auto-filters instead of rejecting, so the 403 enrichment contract is
+gone — the relevant contract is now on the 200 responses described in
+``docs/architecture/gateway-auto-filter.md``:
 
-This complements test_agent_restrictions_enforce.py which already covers
-the allow/block decision — here we focus on the error *content*.
+- ``filtered``: ``true`` when the gateway rewrote or short-circuited
+  the push, ``false`` on a plain push.
+- ``excluded_files``: paths the pushing role cannot write (stripped
+  from the rewritten range or surfaced on the short-circuit).
+- ``pushed_files``: paths actually written to origin.
+- ``pushed_commits``: SHAs of commits actually on origin.
+- ``pulled_commits``: ``[{sha, author_role}, ...]`` for cross-role
+  commits in the pushed range (always present; empty list when none).
+- ``nothing_to_push``: ``true`` on the all-blocked short-circuit;
+  ``false`` otherwise.
+
+These tests are the canonical contract for the response shape the
+sandbox clients rely on.
 """
+
+from __future__ import annotations
 
 import json
 import os
 import sys
 from unittest.mock import MagicMock, patch
 
+import git_client
 import pytest
 import session_manager
+from git_client import AttributedFile, AttributedPushRange
 from phase_filter import FileRestrictionResult
 from policy import PolicyResult
 from private_repo_policy import PrivateRepoPolicyResult
@@ -33,26 +49,39 @@ def client():
         yield client
 
 
+_VALID_SHA = "a" * 40
+
+
 def _make_session(role: str = "coder"):
-    """Create a mock session with the given agent role."""
     mock_session = MagicMock()
     mock_session.mode = "public"
     mock_session.container_id = "test-container"
     mock_session.expires_at = None
     mock_session.agent_role = role
     mock_session.phase = None
+    # Intentionally leave pipeline_id unset — the gateway's concurrent-mode
+    # check otherwise blocks the push before the auto-filter decision tree.
+    mock_session.pipeline_id = None
     return mock_session
 
 
-def _push_context(mock_session, blocked_files: list[str]):
-    """Return context managers for a push that violates agent restrictions."""
+def _build_range(file_paths: list[str], role: str) -> AttributedPushRange:
+    """Every file in the range attributed to ``role`` (own-authored)."""
+    files = [AttributedFile(path=p, commit_sha=_VALID_SHA, authored_by=role) for p in file_paths]
+    return AttributedPushRange(
+        files=files,
+        commits=[_VALID_SHA],
+        attribution={_VALID_SHA: role},
+    )
+
+
+def _push_context(mock_session, file_paths: list[str]):
+    """Mock the Flask request chain and the push handler's helpers."""
     import auth
 
     mock_result = SessionValidationResult(valid=True, session=mock_session)
     mock_policy_result = PrivateRepoPolicyResult(
-        allowed=True,
-        reason="Test mode",
-        visibility="public",
+        allowed=True, reason="Test mode", visibility="public"
     )
 
     auth._session_manager = None
@@ -78,13 +107,7 @@ def _push_context(mock_session, blocked_files: list[str]):
             result.stdout = ""
         return result
 
-    agent_result = FileRestrictionResult.block(
-        message=f"agent role '{mock_session.agent_role}' cannot modify: {', '.join(blocked_files)}",
-        role=mock_session.agent_role,
-        blocked_files=blocked_files,
-        blocked_reason="Files belong to another agent role",
-    )
-
+    fake_range = _build_range(file_paths, mock_session.agent_role or "coder")
     return (
         patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
         patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
@@ -103,16 +126,19 @@ def _push_context(mock_session, blocked_files: list[str]):
             ),
         ),
         patch.object(gateway, "get_token_for_repo", return_value=("test-token", "bot", "")),
-        patch.object(gateway, "get_changed_files_in_push", return_value=(blocked_files, None)),
+        patch.object(gateway, "get_changed_files_in_push", return_value=(file_paths, None)),
         patch.object(
             gateway, "check_file_restrictions", return_value=FileRestrictionResult.allow()
         ),
-        patch.object(gateway, "check_agent_restrictions", return_value=agent_result),
+        patch.object(
+            git_client,
+            "get_attributed_changed_files_in_push",
+            return_value=fake_range,
+        ),
     )
 
 
 def _do_push(client):
-    """Send a push request."""
     return client.post(
         "/api/v1/git/push",
         headers={"Authorization": "Bearer test-session-token"},
@@ -127,66 +153,23 @@ def _do_push(client):
     )
 
 
-class TestPushErrorEnrichment:
-    """Verify enriched error response when push is denied by agent-role restrictions."""
+def _body(response) -> dict:
+    payload = json.loads(response.data)
+    return payload.get("data", payload)
 
-    def test_response_includes_blocked_files(self, client):
-        """The 403 response data include which files were blocked."""
-        session = _make_session("tester")
-        blocked_files = ["docs/guide.md", "src/main.py"]
-        patches = _push_context(session, blocked_files)
 
-        with (
-            patches[0],
-            patches[1],
-            patches[2],
-            patches[3],
-            patches[4],
-            patches[5],
-            patches[6],
-            patches[7],
-        ):
-            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
-                response = _do_push(client)
-                assert response.status_code == 403
-                data = json.loads(response.data)
-                # make_error puts details into response["data"]
-                resp_data = data.get("data", {})
-                assert "blocked_files" in resp_data
-                assert resp_data["blocked_files"] == blocked_files
+# ---------------------------------------------------------------------------
+# All-blocked short-circuit (nothing_to_push=true)
+# ---------------------------------------------------------------------------
 
-    def test_response_includes_allowed_patterns(self, client):
-        """The 403 response data include patterns the agent CAN write."""
-        session = _make_session("tester")
-        patches = _push_context(session, ["docs/guide.md"])
 
-        with (
-            patches[0],
-            patches[1],
-            patches[2],
-            patches[3],
-            patches[4],
-            patches[5],
-            patches[6],
-            patches[7],
-        ):
-            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
-                response = _do_push(client)
-                assert response.status_code == 403
-                data = json.loads(response.data)
-                resp_data = data.get("data", {})
-                assert "allowed_patterns" in resp_data
-                # Tester allowed_patterns should include test-related patterns
-                patterns = resp_data["allowed_patterns"]
-                assert isinstance(patterns, list)
-                assert len(patterns) > 0
-                assert "tests/" in patterns
+class TestAllBlockedResponse:
+    """When every own-authored file is blocked, return 200 nothing_to_push."""
 
-    def test_response_includes_remediation(self, client):
-        """The 403 response data include remediation guidance."""
+    def test_response_includes_filtered_true(self, client):
         session = _make_session("coder")
-        patches = _push_context(session, ["tests/test_foo.py"])
-
+        files = ["docs/guide.md", "docs/another.md"]
+        patches = _push_context(session, files)
         with (
             patches[0],
             patches[1],
@@ -199,66 +182,13 @@ class TestPushErrorEnrichment:
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
-                assert response.status_code == 403
-                data = json.loads(response.data)
-                resp_data = data.get("data", {})
-                assert "remediation" in resp_data
-                remediation = resp_data["remediation"]
-                # Should mention the scope-filter command as primary recovery
-                assert "egg-orch push --scope-filter" in remediation
-                # Should mention merge-base for manual recovery
-                assert "merge-base" in remediation
+                assert response.status_code == 200
+                body = _body(response)
+                assert body["filtered"] is True
 
-    def test_response_includes_role(self, client):
-        """The 403 response data include the agent's role."""
-        session = _make_session("documenter")
-        patches = _push_context(session, ["src/main.py"])
-
-        with (
-            patches[0],
-            patches[1],
-            patches[2],
-            patches[3],
-            patches[4],
-            patches[5],
-            patches[6],
-            patches[7],
-        ):
-            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
-                response = _do_push(client)
-                assert response.status_code == 403
-                data = json.loads(response.data)
-                resp_data = data.get("data", {})
-                assert resp_data["role"] == "documenter"
-
-    def test_error_message_mentions_role_and_files(self, client):
-        """The top-level error message mentions the agent's role."""
-        session = _make_session("tester")
-        patches = _push_context(session, ["docs/guide.md"])
-
-        with (
-            patches[0],
-            patches[1],
-            patches[2],
-            patches[3],
-            patches[4],
-            patches[5],
-            patches[6],
-            patches[7],
-        ):
-            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
-                response = _do_push(client)
-                assert response.status_code == 403
-                data = json.loads(response.data)
-                assert "tester" in data["message"]
-
-    def test_allowed_patterns_match_role_from_registry(self, client):
-        """allowed_patterns in response should match the role's actual patterns."""
-        from egg_restrictions import get_agent_pattern
-
+    def test_response_includes_nothing_to_push_true(self, client):
         session = _make_session("coder")
-        patches = _push_context(session, ["tests/test_foo.py"])
-
+        patches = _push_context(session, ["docs/guide.md"])
         with (
             patches[0],
             patches[1],
@@ -271,24 +201,79 @@ class TestPushErrorEnrichment:
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
-                assert response.status_code == 403
-                data = json.loads(response.data)
-                resp_data = data.get("data", {})
-                # Verify the patterns match the actual registry
-                coder_pattern = get_agent_pattern("coder")
-                assert resp_data["allowed_patterns"] == coder_pattern.allowed_patterns
+                body = _body(response)
+                assert body["nothing_to_push"] is True
 
-    def test_unknown_role_returns_empty_patterns(self, client):
-        """An unrecognized role still returns a 403 with empty allowed_patterns.
+    def test_response_includes_excluded_files(self, client):
+        session = _make_session("coder")
+        files = ["docs/guide.md", "docs/api.md"]
+        patches = _push_context(session, files)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
+                response = _do_push(client)
+                body = _body(response)
+                assert sorted(body["excluded_files"]) == sorted(files)
 
-        get_agent_pattern returns None for unknown roles — the code should
-        handle this gracefully.
-        """
-        session = _make_session("unknown_role_xyz")
-        # For unknown roles, check_agent_restrictions would normally allow,
-        # but we're mocking it to block to test the error enrichment code path
+    def test_response_includes_empty_pushed_files(self, client):
+        """All-blocked short-circuit never pushes anything to origin."""
+        session = _make_session("coder")
+        patches = _push_context(session, ["docs/guide.md"])
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
+                response = _do_push(client)
+                body = _body(response)
+                assert body["pushed_files"] == []
+                assert body["pushed_commits"] == []
+
+    def test_response_includes_empty_pulled_commits_when_no_cross_role_commits(self, client):
+        """With only own commits, pulled_commits is an empty list."""
+        session = _make_session("coder")
+        patches = _push_context(session, ["docs/guide.md"])
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
+                response = _do_push(client)
+                body = _body(response)
+                assert body["pulled_commits"] == []
+
+
+# ---------------------------------------------------------------------------
+# Plain push (all-allowed) — response-schema parity
+# ---------------------------------------------------------------------------
+
+
+class TestAllAllowedResponse:
+    """When nothing is blocked, return 200 filtered=False plus observability fields."""
+
+    def test_plain_push_has_filtered_false(self, client):
+        session = _make_session("coder")
         patches = _push_context(session, ["src/main.py"])
-
         with (
             patches[0],
             patches[1],
@@ -301,14 +286,197 @@ class TestPushErrorEnrichment:
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
-                assert response.status_code == 403
-                data = json.loads(response.data)
-                resp_data = data.get("data", {})
-                # For unknown roles, get_agent_pattern returns None,
-                # so allowed_patterns should be []
-                assert resp_data["allowed_patterns"] == []
-                # remediation should still be present
-                assert "remediation" in resp_data
+                assert response.status_code == 200
+                body = _body(response)
+                assert body["filtered"] is False
+
+    def test_plain_push_has_pulled_commits_key(self, client):
+        """Plain pushes still carry pulled_commits for observability parity."""
+        session = _make_session("coder")
+        patches = _push_context(session, ["src/main.py"])
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
+                response = _do_push(client)
+                body = _body(response)
+                assert "pulled_commits" in body
+
+    def test_plain_push_has_nothing_to_push_false(self, client):
+        session = _make_session("coder")
+        patches = _push_context(session, ["src/main.py"])
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
+                response = _do_push(client)
+                body = _body(response)
+                assert body["nothing_to_push"] is False
+
+
+# ---------------------------------------------------------------------------
+# Warn-only passthrough (EGG_AGENT_RESTRICTIONS_ENFORCE=false)
+# ---------------------------------------------------------------------------
+
+
+class TestWarnOnlyPassthrough:
+    """With the kill switch, the auto-filter short-circuits and plain push runs."""
+
+    def test_warn_only_returns_200(self, client):
+        session = _make_session("coder")
+        patches = _push_context(session, ["docs/guide.md"])
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "false"}):
+                response = _do_push(client)
+                assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Cross-role (pulled_commits) surfacing
+# ---------------------------------------------------------------------------
+
+
+class TestPulledCommitsField:
+    """When a commit in the range is attributed to another role, it appears in pulled_commits."""
+
+    def test_pulled_commits_populated_with_cross_role_entry(self, client):
+        """Commit authored by 'tester' is surfaced in pulled_commits with author_role."""
+        session = _make_session("coder")
+
+        own_sha = "a" * 40
+        pulled_sha = "b" * 40
+        fake_range = AttributedPushRange(
+            files=[
+                AttributedFile(path="src/main.py", commit_sha=own_sha, authored_by="coder"),
+                AttributedFile(
+                    path="tests/test_main.py", commit_sha=pulled_sha, authored_by="tester"
+                ),
+            ],
+            commits=[own_sha, pulled_sha],
+            attribution={own_sha: "coder", pulled_sha: "tester"},
+        )
+
+        import auth
+
+        mock_result = SessionValidationResult(valid=True, session=session)
+        mock_policy_result = PrivateRepoPolicyResult(
+            allowed=True, reason="Test mode", visibility="public"
+        )
+        auth._session_manager = None
+        auth._rate_limiter = None
+
+        current_sm = sys.modules.get("session_manager", session_manager)
+
+        def run_side_effect(*args, **kwargs):
+            cmd = args[0] if args else kwargs.get("args", [])
+            result = MagicMock()
+            result.returncode = 0
+            result.stderr = ""
+            if "remote" in cmd and "get-url" in cmd:
+                result.stdout = "https://github.com/owner/repo.git\n"
+            elif "branch" in cmd and "--show-current" in cmd:
+                result.stdout = "egg-feature\n"
+            elif "push" in cmd:
+                result.stdout = "Everything up-to-date\n"
+            else:
+                result.stdout = ""
+            return result
+
+        with (
+            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+            patch("subprocess.run", side_effect=run_side_effect),
+            patch.object(
+                gateway,
+                "get_policy_engine",
+                return_value=MagicMock(
+                    check_branch_ownership=MagicMock(
+                        return_value=PolicyResult(
+                            allowed=True,
+                            reason="OK",
+                            details={"branch": "egg-feature"},
+                        )
+                    ),
+                ),
+            ),
+            patch.object(gateway, "get_token_for_repo", return_value=("test-token", "bot", "")),
+            patch.object(
+                gateway,
+                "get_changed_files_in_push",
+                return_value=(["src/main.py", "tests/test_main.py"], None),
+            ),
+            patch.object(
+                gateway, "check_file_restrictions", return_value=FileRestrictionResult.allow()
+            ),
+            patch.object(
+                git_client,
+                "get_attributed_changed_files_in_push",
+                return_value=fake_range,
+            ),
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
+                response = _do_push(client)
+                assert response.status_code == 200
+                body = _body(response)
+                pulled = body["pulled_commits"]
+                assert len(pulled) == 1
+                assert pulled[0]["sha"] == pulled_sha
+                assert pulled[0]["author_role"] == "tester"
+
+
+# ---------------------------------------------------------------------------
+# Non-agent session (no agent_role) — auto-filter does not apply
+# ---------------------------------------------------------------------------
+
+
+class TestNoAgentRole:
+    """Non-agent sessions skip the auto-filter entirely."""
+
+    def test_no_role_yields_plain_push(self, client):
+        session = _make_session("coder")
+        session.agent_role = None
+        patches = _push_context(session, ["src/main.py"])
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
+                response = _do_push(client)
+                assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# File restrictions (check_file_restrictions) — separate from auto-filter
+# ---------------------------------------------------------------------------
 
 
 class TestFileRestrictionsThreeRoleEnrichment1901:

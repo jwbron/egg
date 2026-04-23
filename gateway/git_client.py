@@ -13,6 +13,7 @@ import re
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 # Add shared directory to path for egg_logging
 _shared_path = Path(__file__).parent.parent.parent / "shared"
@@ -30,7 +31,7 @@ from repo_config import get_auth_mode
 try:
     from .github_client import get_github_client
 except ImportError:
-    from github_client import get_github_client  # type: ignore[no-redef, import-untyped]
+    from github_client import get_github_client  # type: ignore[no-redef,import-untyped]
 
 
 logger = get_logger("gateway.git-client")
@@ -1505,6 +1506,284 @@ def get_changed_files_in_push(
         return [], "Timeout determining changed files"
     except Exception as e:
         return [], f"Error determining changed files: {e}"
+
+
+# ---------------------------------------------------------------------------
+# Per-commit attribution for the gateway auto-filter (issue #1882)
+# ---------------------------------------------------------------------------
+
+
+from dataclasses import dataclass, field  # noqa: E402 - colocated with the API it supports
+
+
+@dataclass
+class AttributedFile:
+    """One file in a push, tagged with the commit that introduced it and its author role.
+
+    ``authored_by`` is the role string the commit-authorship registry
+    returned for ``commit_sha`` (e.g. ``"coder"``), or ``None`` when the
+    commit is unregistered.  The push handler treats ``None`` as
+    fail-closed (own-authored for the pushing role's restriction check).
+    """
+
+    path: str
+    commit_sha: str
+    authored_by: str | None = None
+
+
+@dataclass
+class AttributedPushRange:
+    """Result of ``get_attributed_changed_files_in_push``.
+
+    Bundles the per-file attribution with the ordered list of commits
+    that produced the range and the full set of SHAs we handed to the
+    registry lookup.  The push handler consumes:
+
+    - ``files``:                per-file attribution
+    - ``commits``:              oldest-first SHA list (topological order)
+    - ``attribution``:          raw sha → role map returned by the registry
+    - ``error``:                non-None fail-closed message when the
+                                underlying diff detection failed.
+    """
+
+    files: list[AttributedFile] = field(default_factory=list)
+    commits: list[str] = field(default_factory=list)
+    attribution: dict[str, str | None] = field(default_factory=dict)
+    error: str | None = None
+
+
+_SHA_LINE_RE = re.compile(r"^[0-9a-f]{7,64}$")
+
+
+def _enumerate_push_commits(
+    repo_path: str, remote: str, branch: str
+) -> tuple[list[str], str | None]:
+    """Return (commits_oldest_first, error).
+
+    Mirrors ``get_changed_files_in_push`` rev-list logic: prefers
+    ``<remote>/<branch>..HEAD``, then falls back to merge-base with
+    main/master for new-branch pushes.  On any error, returns
+    ``([], "...")`` — the caller then fails closed.  Output lines
+    that don't parse as a git SHA (7–64 lowercase hex) are
+    rejected so that a misbehaving git wrapper can't smuggle
+    arbitrary strings into the commit list.
+    """
+    import subprocess
+
+    # Best-effort fetch so origin/<branch> is up to date.
+    try:
+        subprocess.run(
+            git_cmd("fetch", remote, branch),
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except Exception:
+        pass
+
+    def _parse_shas(text: str) -> list[str] | None:
+        out: list[str] = []
+        for line in (text or "").splitlines():
+            s = line.strip()
+            if not s:
+                continue
+            if not _SHA_LINE_RE.match(s):
+                return None
+            out.append(s)
+        return out
+
+    def _rev_list(base: str) -> list[str] | None:
+        result = subprocess.run(
+            git_cmd("rev-list", "--reverse", f"{base}..HEAD"),
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if result.returncode != 0:
+            return None
+        return _parse_shas(result.stdout)
+
+    primary = _rev_list(f"{remote}/{branch}")
+    if primary is not None:
+        return primary, None
+
+    for default_branch in ("main", "master"):
+        mb = subprocess.run(
+            git_cmd("merge-base", f"{remote}/{default_branch}", "HEAD"),
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if mb.returncode != 0:
+            continue
+        fork_point = (mb.stdout or "").strip()
+        if not _SHA_LINE_RE.match(fork_point):
+            continue
+        rl = _rev_list(fork_point)
+        if rl is not None:
+            return rl, None
+
+    return [], "Could not determine push commit range - push blocked for security"
+
+
+def _files_for_commit(repo_path: str, sha: str) -> tuple[list[str], str | None]:
+    """diff-tree one commit; returns (files, error)."""
+    import subprocess
+
+    result = subprocess.run(
+        git_cmd("diff-tree", "--no-commit-id", "--name-only", "-r", sha),
+        cwd=repo_path,
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    if result.returncode != 0:
+        return [], (
+            f"diff-tree failed for {sha}: "
+            f"rc={result.returncode} stderr={(result.stderr or '').strip()}"
+        )
+    return [line.strip() for line in (result.stdout or "").splitlines() if line.strip()], None
+
+
+def get_attributed_changed_files_in_push(
+    repo_path: str,
+    remote: str,
+    branch: str,
+    session_role: str | None = None,
+    registry_client: object | None = None,
+) -> AttributedPushRange:
+    """Return attributed files + commit range for a planned push.
+
+    ``session_role`` is advisory (currently used only for audit logging
+    in the caller); the function itself does not filter on it.
+
+    The caller supplies a ``registry_client`` with a ``lookup_bulk``
+    method so the gateway's push handler can mock the client in tests
+    and avoid the network round-trip when it already knows the
+    attribution (e.g. for internal pushes).  When ``None`` we
+    lazily import the module-level client.
+
+    On any detection failure, returns an ``AttributedPushRange`` with
+    ``error`` set and ``files`` empty — the caller MUST fail closed.
+    """
+    commits, err = _enumerate_push_commits(repo_path, remote, branch)
+    if err:
+        logger.error(
+            "get_attributed_changed_files_in_push enumeration failed — failing closed",
+            repo_path=repo_path,
+            remote=remote,
+            branch=branch,
+            error=err,
+            session_role=session_role,
+        )
+        return AttributedPushRange(error=err)
+
+    files: list[AttributedFile] = []
+    for sha in commits:
+        file_list, file_err = _files_for_commit(repo_path, sha)
+        if file_err:
+            logger.error(
+                "get_attributed_changed_files_in_push diff-tree failed — failing closed",
+                repo_path=repo_path,
+                remote=remote,
+                branch=branch,
+                sha=sha,
+                error=file_err,
+                session_role=session_role,
+            )
+            return AttributedPushRange(error=file_err, commits=commits)
+        for path in file_list:
+            files.append(AttributedFile(path=path, commit_sha=sha))
+
+    # Bulk-lookup every distinct SHA in the range, then tag each file.
+    attribution: dict[str, str | None] = {}
+    if commits:
+        if registry_client is None:
+            # Resolve ``get_client`` from the sibling commit_registry_client
+            # module.  The conftest used by gateway tests does not preload
+            # that module, so we fall back to an explicit file-path load.
+            import sys as _sys
+
+            _crc_mod = _sys.modules.get("commit_registry_client") or _sys.modules.get(
+                "gateway.commit_registry_client"
+            )
+            get_client = getattr(_crc_mod, "get_client", None) if _crc_mod else None
+            if get_client is None:
+                try:
+                    # The primary path finds the module preloaded; this
+                    # fallback only fires for standalone runners.
+                    import commit_registry_client as _crc  # type: ignore[import-untyped]
+
+                    get_client = _crc.get_client
+                except ImportError:
+                    try:
+                        import importlib.util as _util
+                        from pathlib import Path as _Path
+
+                        _p = _Path(__file__).parent / "commit_registry_client.py"
+                        if _p.exists():
+                            _spec = _util.spec_from_file_location("commit_registry_client", str(_p))
+                            if _spec and _spec.loader:
+                                _m = _util.module_from_spec(_spec)
+                                _sys.modules["commit_registry_client"] = _m
+                                _spec.loader.exec_module(_m)
+                                get_client = getattr(_m, "get_client", None)
+                    except Exception:
+                        get_client = None
+            if get_client is not None:
+                registry_client = get_client()
+        if registry_client is not None:
+            try:
+                # registry_client is typed as ``object`` to avoid a hard
+                # import dependency on commit_registry_client.  The
+                # method is exercised by callers via duck-typing; cast
+                # to Any so mypy accepts the attribute access whether
+                # or not the stub is reachable.
+                _rc_any: Any = registry_client
+                attribution = dict(_rc_any.lookup_bulk(list(commits)))
+            except Exception:
+                logger.warning(
+                    "commit_authorship_lookup_exception",
+                    repo_path=repo_path,
+                    branch=branch,
+                    exc_info=True,
+                )
+                attribution = {}
+
+    # Distinguish full-coverage lookup from partial coverage.  Missing
+    # SHAs fall through to fail-closed (``None`` → own-authored) below,
+    # so a flaky registry would silently subject every cross-role push
+    # to restriction checks without any operator-visible signal.  Log
+    # partial responses at WARNING with counts so operators can spot
+    # the drift.
+    if commits:
+        requested_shas = set(commits)
+        received_shas = {sha for sha in attribution if sha in requested_shas}
+        if received_shas and received_shas != requested_shas:
+            logger.warning(
+                "commit_authorship_partial_lookup",
+                repo_path=repo_path,
+                branch=branch,
+                requested=len(requested_shas),
+                received=len(received_shas),
+                missing=len(requested_shas - received_shas),
+            )
+
+    for f in files:
+        f.authored_by = attribution.get(f.commit_sha)
+
+    return AttributedPushRange(
+        files=files,
+        commits=commits,
+        attribution=attribution,
+    )
 
 
 def is_branch_switch(operation: str, args: list[str]) -> bool:

@@ -1,0 +1,1463 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1882,
+    "title": "Issue #1882",
+    "url": "https://github.com/jwbron/egg/issues/1882"
+  },
+  "pipeline_id": "issue-1882",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Which commit-author trust model should the gateway use to distinguish own-role commits from pulled cross-role commits?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Lightweight: trust env-set git identity (coder@egg.local etc.) \u2014 read commit.author_email and key restrictions off it",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Stronger: per-role GPG/SSH signing keys issued at sandbox start, gateway verifies signatures before honoring authorship",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Hybrid: start with lightweight now, structure code so signing can be layered in later without a second rewrite",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Other: gateway-side commit-SHA registry (option B3 from the draft's Axis B analysis, not among the 3 narrowed options here). The gateway maintains a durable registry mapping {commit_sha -> authored_by_role}, populated when the sandbox calls the gateway-side post-agent-commit hook endpoint. Crucially, the gateway does NOT trust the commit.author_email field or any sandbox-reported authorship data -- it attributes the commit to whichever role owns the session token that called the hook. Session tokens are minted by the gateway, so this is deterministic gateway-observed authorship, not sandbox-self-reported data. At push time the gateway consults the registry. Unregistered commits (cherry-picks/rebases/amends where the hook was suppressed with --no-verify or core.hooksPath=/dev/null, or commits made before the hook is installed during bootstrap) fall back to decision-9 fail-closed semantics -- treated as authored by the pushing role and subject to that role's restrictions, so suppressing the hook cannot be used to bypass file restrictions. The plan phase must specify: (a) the durable store (recommend extending the orchestrator's existing state store with a commit_authorship table rather than standing up new infrastructure); (b) the session-to-role mapping at hook-call time (the gateway already does this for audit logs, so reuse the same code path); (c) hook-failure semantics (best-effort: if the hook POST fails, the commit still happens locally; at push time it falls to fail-closed and is treated as pushing-role's own); (d) bootstrap ordering (install the post-agent-commit hook at sandbox entrypoint before any agent code runs, so legitimate commits don't land unregistered); (e) audit-log format showing the gateway-observed attribution separately from any sandbox-reported git metadata. B1 (lightweight author-email) was the refiner's recommendation; we are intentionally going stronger because the gateway already has deterministic knowledge of which session -- and therefore which role -- produced each commit, without paying the key-management cost of B2 (signed commits).\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:17:22.665068Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "When a push contains ONLY blocked files (no allowed files), what should the gateway return?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Return 200 with nothing_to_push=true and list excluded files (matches 6f0877f50 behavior \u2014 silent soft-success; leaves blocked files uncommitted in worktree)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Return 200 with filtered=true and excluded files but surface a prominent warning in the response so agents notice",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Return 403 (same as today) \u2014 all-blocked is a real policy violation, don't mask it with a 200",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Return 200 with nothing_to_push=true and list excluded files (matches 6f0877f50 behavior \u2014 silent soft-success; leaves blocked files uncommitted in worktree)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:25:21.532498Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Should auto-filtering be enabled by default or behind a feature flag?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Enabled by default (replace current 403 behavior outright). Flag EGG_AGENT_RESTRICTIONS_ENFORCE=false still disables the check entirely.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Enabled by default, but add a new EGG_AGENT_AUTOFILTER=false escape hatch to revert to 403-blocking behavior for debugging/rollback",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Opt-in: default to current 403 behavior, enable auto-filter only when EGG_AGENT_AUTOFILTER=true (more conservative rollout)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Enabled by default (replace current 403 behavior outright). Flag EGG_AGENT_RESTRICTIONS_ENFORCE=false still disables the check entirely.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:29:37.969178Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "How should the gateway rewrite history when it needs to drop disallowed OWN-role commits from a push that also contains legitimate pulled cross-role commits?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Soft-reset + selective-commit (6f0877f50 style): reset to old_ref_sha, re-stage only allowed files from own work, re-commit with [auto-filtered] suffix. Loses the pulled commits entirely in this path \u2014 only safe when no pulled commits exist.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Interactive-rebase-equivalent: walk each own-role commit with git commit-tree/update-ref to rewrite it with blocked files removed, preserving pulled cross-role commits in between. More complex but handles mixed histories correctly.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Cherry-pick replay: reset to remote tip, replay pulled cross-role commits as-is, then replay own-role commits with blocked files dropped. Most robust but highest complexity.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Interactive-rebase-equivalent: walk each own-role commit with git commit-tree/update-ref to rewrite it with blocked files removed, preserving pulled cross-role commits in between. More complex but handles mixed histories correctly.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:32:04.079469Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Should the pulled-commit pass-through trust the committer email, author email, or both?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Author email only (git log --pretty=%ae). The person who authored the content is what matters for role-scoping.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Committer email only (git log --pretty=%ce). The committer is who actually made the commit object in this repo.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Both must match a known egg role identity. Safest \u2014 a forged author with a non-egg committer gets rejected.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Other: the gateway does NOT trust git log email fields (author, committer, or both) for this decision. Per decision-2 (B3 \u2014 gateway-side commit registry), the gateway maintains a durable {commit_sha \u2192 authored_by_role} registry populated at commit time by the post-agent-commit hook, which is authenticated by session token (session-to-role mapping is owned by the gateway, not sandbox-reported). At push time the gateway consults the registry to determine whether each commit is pulled (authored by a different role than the pushing role \u2192 exempt from pushing role's file restrictions) or own-authored (same role or unregistered \u2192 apply restrictions, with decision-9 fail-closed for unregistered). Git log author/committer fields may be surfaced in audit logs for human readability but must not drive the pulled-vs-own decision. Flag for plan phase: this decision being asked at all suggests the refiner's Axis B analysis still frames B1/B2 as the primary options with B3 as an outlier; the plan phase should lead with the registry mechanism and prune any code paths that infer attribution from git log emails.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:34:05.289978Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "When the gateway auto-filters a push, what should happen to the agent's local HEAD after the gateway-side push completes?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Gateway leaves a filtered commit with [auto-filtered] suffix on the remote and restores the agent's original HEAD locally via git reset --hard (6f0877f50 behavior). Blocked files are left in worktree as uncommitted changes. The agent's local branch now DIVERGES from origin.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Gateway rewrites the agent's local HEAD to match what it pushed (fast-forward on origin). No divergence, but the blocked files are returned as uncommitted staged changes instead.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Gateway pushes filtered commit but also returns a mapping of (original_sha -> filtered_sha) in the response so the agent can realign itself if needed.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Gateway rewrites the agent's local HEAD to match what it pushed (fast-forward on origin). No divergence, but the blocked files are returned as uncommitted staged changes instead.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:37:31.889904Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-7",
+      "question": "What happens to the client-side egg-orch push --scope-filter workaround once the gateway handles auto-filtering?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Keep it as a fallback \u2014 remains callable, useful for offline/manual rewriting, but agent-facing docs point to the gateway as primary",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Deprecate with a warning \u2014 emit a message telling users the gateway handles this now, remove in a later release",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Remove it entirely in this change \u2014 the gateway auto-filter fully supersedes it and keeping dead code adds maintenance burden",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Remove it entirely in this change \u2014 the gateway auto-filter fully supersedes it and keeping dead code adds maintenance burden\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:38:07.123268Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-8",
+      "question": "Should auto-filter also apply to OTHER gateway checks that currently return 403 \u2014 phase-based file restrictions, anchor-write restrictions, protected-file restrictions?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Apply auto-filter consistently to all file-level push restrictions (phase, role, anchor, protected) \u2014 same rewrite pattern, most consistent agent experience",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Apply auto-filter only to agent-role restrictions (minimal scope, matches #1470 original intent). Phase/anchor/protected stay 403 because they're more security-critical",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Apply auto-filter to role AND phase restrictions but NOT to anchor/protected (those are harder security boundaries agents should never cross)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Apply auto-filter only to agent-role restrictions (minimal scope, matches #1470 original intent). Phase/anchor/protected stay 403 because they're more security-critical\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:40:03.121890Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-9",
+      "question": "Which commit-authorship mechanism should the gateway trust to distinguish own vs pulled commits?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Author email from git log (lightweight, no new infra)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Per-role GPG/SSH signing keys (tamper-resistant, new infra)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Gateway-side commit-SHA registry (stateful, authoritative)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Gateway-side commit-SHA registry (stateful, authoritative)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:40:38.479939Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-10",
+      "question": "How should the gateway auto-filter handle multi-commit own-authored pushes where some commits have blocked files?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Squash all own-authored commits into one with [auto-filtered] suffix (matches #1470)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Rewrite each commit individually, preserving commit structure",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Reject multi-commit pushes when any file is blocked (force agent to squash first)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Rewrite each commit individually, preserving commit structure\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:41:34.055628Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-11",
+      "question": "What should the gateway do when ALL files in a push are blocked for the pushing role?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Return 200 with nothing_to_push=true, leave uncommitted changes in worktree (matches #1470)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Return 403 as before - there is nothing legitimate to push",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Return 200 with nothing_to_push=true, preserve original commit in worktree HEAD (no rewrite)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Return 200 with nothing_to_push=true, leave uncommitted changes in worktree (matches #1470)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:42:14.405431Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-12",
+      "question": "Should the auto-filtered commit message include a [auto-filtered] suffix?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes - debugging breadcrumb, matches #1470",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "No - preserve original message verbatim, surface filter in response metadata only",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Configurable via env var, default yes",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Yes - debugging breadcrumb, matches #1470\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:42:54.687072Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-13",
+      "question": "Should the push response include a pulled_commits field listing non-own-authored commits?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes - list of {sha, author} pairs for each pulled commit (transparency for agents + audit tooling)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "No - keep response minimal, log pulled commits to audit log only",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Only on filtered pushes (i.e. when auto-filter engaged)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Yes - list of {sha, author} pairs for each pulled commit (transparency for agents + audit tooling)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:43:44.980117Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-14",
+      "question": "What is the rollout order for gateway auto-filter + author-exemption?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Enable both by default in the same release (recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Ship in warn-only mode first, flip to enforce next release",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Ship author-exemption standalone, leave auto-filter for a follow-up",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Enable both by default in the same release (recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:44:20.281336Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-15",
+      "question": "Where should the new partition-files-by-role helper live?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "shared/egg_restrictions/checker.py (cross-component, reused by gateway and cli_push)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "gateway/agent_restrictions.py (gateway-local, matches #1470 original location)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "New module gateway/push_filter.py (separation-of-concerns)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"gateway/agent_restrictions.py (gateway-local, matches #1470 original location)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:45:00.573179Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-16",
+      "question": "Should the sandbox egg-orch push --scope-filter command be deprecated in the same PR?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Keep as-is (still useful outside gateway sessions)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Mark deprecated in --help, remove next release",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Remove in the same PR (gateway now handles all cases)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Remove in the same PR (gateway now handles all cases)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:45:35.779232Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-17",
+      "question": "Default behavior when a pulled commit's author email matches no known role?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Treat as own-commit, enforce restrictions (fail closed)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Treat as pulled commit, skip restrictions (fail open)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Block the push with a 403 (strict, suggests identity tampering)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Treat as own-commit, enforce restrictions (fail closed)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:46:11.031428Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-18",
+      "question": "[Phase gate: refine] The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Resolved decisions from refine HITL (2026-04-22/23):\n\n**decision-1 (authorship mechanism)**: **B3 \u2014 gateway-side commit registry**. User chose this over the refiner's recommended B1 (author-email). The plan phase must design the durable store and hook semantics. Key risks the refiner already flagged to address: (a) no durable store exists today \u2014 pick one and justify; (b) commits created outside the post-agent-commit hook path (git cherry-pick, rebase --interactive, commits made before the hook fires, amends) would be unregistered \u2014 need an explicit policy for unregistered commits (should tie into decision-9 fail-closed); (c) the registry becomes the authoritative source of truth for commit-authorship, so its consistency/durability guarantees matter for audit trails. Axis A (filtering strategy) still defaults to A2 (port 6f0877f50 forward); the change is only in how the gateway attributes each commit to a role.\n\n**decision-6 (rollout order)**: **C1 \u2014 single-release cutover**. Ship auto-filter + author-attribution-via-registry + scope-filter removal together in one PR. Keep EGG_AGENT_RESTRICTIONS_ENFORCE=false as a kill switch.\n\n**decision-9 (unknown-role default)**: **Fail closed**. Any commit whose authorship cannot be resolved via the registry is treated as own-authored for restriction-check purposes. No 403 specifically for 'unknown author' \u2014 they just fall under the pushing role's restrictions like any other. This plays well with decision-1 (B3): a commit that was never recorded in the registry defaults to the pushing role's scope.\n\n**decision-8 (scope-filter removal)**: **Remove entirely in the same PR** \u2014 captured during pre-refine. Delete sandbox/egg_lib/cli_push.py's --scope-filter, update any callers, update docs (docs/guides/agent-development.md, docs/reference/orchestrator-cli.md, any agent-config rules that mention it).\n\n**Decisions 2, 3, 4, 5, 7**: Deferred to the plan phase. The refiner's recommendations (D1 suffix, nothing_to_push=true for all-blocked, pulled_commits response field, shared/egg_restrictions/ helper location, squash multi-commit own-authored pushes) are reasonable defaults; the plan phase should adopt them unless a reviewer surfaces a concrete concern.\n\n**Open-ended feedback items from the draft**: The plan phase should pay particular attention to #1 (attack model \u2014 with B3 the registry is the trust boundary, not the sandbox-set identity, so the attack model shifts) and #4 (post_agent_commit hook timing \u2014 B3 makes the hook critical infrastructure, not just an audit-log producer).",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:06:00.533534Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-19",
+      "question": "Open feedback request feedback-1",
+      "type": "hitl",
+      "phase": null,
+      "options": [],
+      "resolved": true,
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Under decision-2 (B3 registry) the attack model is: the sandbox is untrusted and can override git user.email at will, so attribution-for-authorization-decisions must not be read from sandbox-set identity. There is no documented bug where an agent forged another role's email today, but the principle of 'the gateway is the trust boundary for anything that affects authorization' drives B3. File restrictions are ergonomic (not a hard security boundary), but the attribution-for-push-filtering decision is authorization-adjacent and should be gateway-owned, not sandbox-reported.\", \"Q2\": \"Yes \u2014 utility roles (conflict_resolver, autofixer) are treated identically to execution roles by the registry. The registry attributes each commit to whichever role's session produced it; no special casing by role category. A coder pulling conflict_resolver's branch would see conflict_resolver's commits marked pulled and exempt from coder's restrictions, same as any cross-role push.\", \"Q3\": \"Yes, acceptable. The filter path inherently rewrites commits (changes tree contents or commit boundaries), which invalidates any signature. If per-role signed commits are introduced later, the rewritten post-filter commit carries gateway attestation (via the registry, logged at push time), not the original signer's signature. The plan phase should document this clearly so the signed-commit path, if added, doesn't assume pre-filter signatures propagate.\", \"Q4\": \"Original pre-filter tip. The post_agent_commit hook records the event 'role R committed SHA X in their sandbox session' \u2014 that event happens when the agent commits locally, before any gateway involvement. The gateway's rewrite is a separate gateway-initiated operation and should emit its own audit event (e.g. 'auto_filter_rewrite: original_sha X -> filtered_sha Y, excluded_files [...]'). Two distinct audit events, not one collapsed event.\", \"Q5\": \"Yes, distinguish them. They are operationally distinct: 'auto-filtered push' means the gateway modified the agent's work (intervention); 'pulled-commit exemption' means the gateway accepted another role's commits unchanged (pass-through). Operators triaging incidents need to tell these apart. Suggest distinct audit_log event types: push_auto_filtered (with {original_sha, filtered_sha, excluded_files, pulled_commits}) and push_pulled_exempt (with {pulled_commits} only, no rewrite happened).\", \"Q6\": \"Apply auto-filter uniformly \u2014 do not carve out role-specific exemptions. Principle: if a role's AGENT_PATTERNS already allow everything it legitimately needs to touch, auto-filter will be a no-op for that role naturally (no files blocked, no rewrite triggered). If autofixer/conflict_resolver have cross-cutting scope, that scope should be reflected in their AGENT_PATTERNS, not via special-case auto-filter behavior. Keeps the code path uniform.\", \"Q7\": \"If the remote rejects the rewritten commit (protected branch, commit-message format check, etc.), the gateway should surface the failure to the agent as an error response and restore the agent's local HEAD to the pre-rewrite state (atomic rollback, already a constraint from the draft). One specific risk the plan phase should call out: the '[auto-filtered]' suffix from decision-13 could violate strict commit-message format policies on some server-side hooks. If that becomes a problem the suffix can be moved to a trailer line or disabled via config \u2014 but don't design for that hypothetical up front.\", \"Q8\": \"EGG_AGENT_FILE_PATTERNS becomes largely obsolete with decision-8/17 (removing egg-orch push --scope-filter). The gateway is the single source of truth for role-restriction patterns. The env var can be removed if nothing else consumes it; if it still serves other purposes (e.g. agents reading it for self-inspection), the sandbox entrypoint should derive it from the gateway's pattern definitions rather than from a parallel source. Plan phase should audit remaining consumers of EGG_AGENT_FILE_PATTERNS and either remove them or refactor them to read from the gateway's canonical source.\"}}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:47:31.562891Z",
+      "debounce_until": null
+    }
+  ],
+  "workflow_owner": null,
+  "audit_log": [
+    {
+      "timestamp": "2026-04-23T05:26:57.598143Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-1",
+        "question": "Which commit-author trust model should the gateway use to distinguish own-role commits from pulled cross-role commits?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Lightweight: trust env-set git identity (coder@egg.local etc.) \u2014 read commit.author_email and key restrictions off it",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Stronger: per-role GPG/SSH signing keys issued at sandbox start, gateway verifies signatures before honoring authorship",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Hybrid: start with lightweight now, structure code so signing can be layered in later without a second rewrite",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Which commit-author trust model should the gateway...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:27:03.488479Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-2",
+        "question": "When a push contains ONLY blocked files (no allowed files), what should the gateway return?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Return 200 with nothing_to_push=true and list excluded files (matches 6f0877f50 behavior \u2014 silent soft-success; leaves blocked files uncommitted in worktree)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Return 200 with filtered=true and excluded files but surface a prominent warning in the response so agents notice",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Return 403 (same as today) \u2014 all-blocked is a real policy violation, don't mask it with a 200",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: When a push contains ONLY blocked files (no allowe...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:27:09.277474Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-3",
+        "question": "Should auto-filtering be enabled by default or behind a feature flag?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Enabled by default (replace current 403 behavior outright). Flag EGG_AGENT_RESTRICTIONS_ENFORCE=false still disables the check entirely.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Enabled by default, but add a new EGG_AGENT_AUTOFILTER=false escape hatch to revert to 403-blocking behavior for debugging/rollback",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Opt-in: default to current 403 behavior, enable auto-filter only when EGG_AGENT_AUTOFILTER=true (more conservative rollout)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should auto-filtering be enabled by default or beh...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:27:17.669833Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-4",
+        "question": "How should the gateway rewrite history when it needs to drop disallowed OWN-role commits from a push that also contains legitimate pulled cross-role commits?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Soft-reset + selective-commit (6f0877f50 style): reset to old_ref_sha, re-stage only allowed files from own work, re-commit with [auto-filtered] suffix. Loses the pulled commits entirely in this path \u2014 only safe when no pulled commits exist.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Interactive-rebase-equivalent: walk each own-role commit with git commit-tree/update-ref to rewrite it with blocked files removed, preserving pulled cross-role commits in between. More complex but handles mixed histories correctly.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Cherry-pick replay: reset to remote tip, replay pulled cross-role commits as-is, then replay own-role commits with blocked files dropped. Most robust but highest complexity.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should the gateway rewrite history when it nee...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:27:23.020182Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-5",
+        "question": "Should the pulled-commit pass-through trust the committer email, author email, or both?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Author email only (git log --pretty=%ae). The person who authored the content is what matters for role-scoping.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Committer email only (git log --pretty=%ce). The committer is who actually made the commit object in this repo.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Both must match a known egg role identity. Safest \u2014 a forged author with a non-egg committer gets rejected.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the pulled-commit pass-through trust the co...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:27:29.591992Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-6",
+        "question": "When the gateway auto-filters a push, what should happen to the agent's local HEAD after the gateway-side push completes?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Gateway leaves a filtered commit with [auto-filtered] suffix on the remote and restores the agent's original HEAD locally via git reset --hard (6f0877f50 behavior). Blocked files are left in worktree as uncommitted changes. The agent's local branch now DIVERGES from origin.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Gateway rewrites the agent's local HEAD to match what it pushed (fast-forward on origin). No divergence, but the blocked files are returned as uncommitted staged changes instead.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Gateway pushes filtered commit but also returns a mapping of (original_sha -> filtered_sha) in the response so the agent can realign itself if needed.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: When the gateway auto-filters a push, what should ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:27:35.800706Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-7",
+        "question": "What happens to the client-side egg-orch push --scope-filter workaround once the gateway handles auto-filtering?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Keep it as a fallback \u2014 remains callable, useful for offline/manual rewriting, but agent-facing docs point to the gateway as primary",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Deprecate with a warning \u2014 emit a message telling users the gateway handles this now, remove in a later release",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Remove it entirely in this change \u2014 the gateway auto-filter fully supersedes it and keeping dead code adds maintenance burden",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: What happens to the client-side egg-orch push --sc...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:27:42.000059Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.7",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-8",
+        "question": "Should auto-filter also apply to OTHER gateway checks that currently return 403 \u2014 phase-based file restrictions, anchor-write restrictions, protected-file restrictions?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Apply auto-filter consistently to all file-level push restrictions (phase, role, anchor, protected) \u2014 same rewrite pattern, most consistent agent experience",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Apply auto-filter only to agent-role restrictions (minimal scope, matches #1470 original intent). Phase/anchor/protected stay 403 because they're more security-critical",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Apply auto-filter to role AND phase restrictions but NOT to anchor/protected (those are harder security boundaries agents should never cross)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should auto-filter also apply to OTHER gateway che...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:39:03.322403Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.8",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-9",
+        "question": "Which commit-authorship mechanism should the gateway trust to distinguish own vs pulled commits?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Author email from git log (lightweight, no new infra)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Per-role GPG/SSH signing keys (tamper-resistant, new infra)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Gateway-side commit-SHA registry (stateful, authoritative)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Which commit-authorship mechanism should the gatew...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:39:13.675420Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.9",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-10",
+        "question": "How should the gateway auto-filter handle multi-commit own-authored pushes where some commits have blocked files?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Squash all own-authored commits into one with [auto-filtered] suffix (matches #1470)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Rewrite each commit individually, preserving commit structure",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Reject multi-commit pushes when any file is blocked (force agent to squash first)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should the gateway auto-filter handle multi-co...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:39:13.857117Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.10",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-11",
+        "question": "What should the gateway do when ALL files in a push are blocked for the pushing role?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Return 200 with nothing_to_push=true, leave uncommitted changes in worktree (matches #1470)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Return 403 as before - there is nothing legitimate to push",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Return 200 with nothing_to_push=true, preserve original commit in worktree HEAD (no rewrite)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: What should the gateway do when ALL files in a pus...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:39:20.966733Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.11",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-12",
+        "question": "Should the auto-filtered commit message include a [auto-filtered] suffix?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Yes - debugging breadcrumb, matches #1470",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "No - preserve original message verbatim, surface filter in response metadata only",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Configurable via env var, default yes",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the auto-filtered commit message include a ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:39:21.148217Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.12",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-13",
+        "question": "Should the push response include a pulled_commits field listing non-own-authored commits?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Yes - list of {sha, author} pairs for each pulled commit (transparency for agents + audit tooling)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "No - keep response minimal, log pulled commits to audit log only",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Only on filtered pushes (i.e. when auto-filter engaged)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the push response include a pulled_commits ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:39:27.976217Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.13",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-14",
+        "question": "What is the rollout order for gateway auto-filter + author-exemption?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Enable both by default in the same release (recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Ship in warn-only mode first, flip to enforce next release",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Ship author-exemption standalone, leave auto-filter for a follow-up",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: What is the rollout order for gateway auto-filter ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:39:28.166938Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.14",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-15",
+        "question": "Where should the new partition-files-by-role helper live?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "shared/egg_restrictions/checker.py (cross-component, reused by gateway and cli_push)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "gateway/agent_restrictions.py (gateway-local, matches #1470 original location)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "New module gateway/push_filter.py (separation-of-concerns)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Where should the new partition-files-by-role helpe...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:39:34.875712Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.15",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-16",
+        "question": "Should the sandbox egg-orch push --scope-filter command be deprecated in the same PR?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Keep as-is (still useful outside gateway sessions)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Mark deprecated in --help, remove next release",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Remove in the same PR (gateway now handles all cases)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the sandbox egg-orch push --scope-filter co...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:39:35.084112Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.16",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-17",
+        "question": "Default behavior when a pulled commit's author email matches no known role?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Treat as own-commit, enforce restrictions (fail closed)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Treat as pulled commit, skip restrictions (fail open)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Block the push with a 403 (strict, suggests identity tampering)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Default behavior when a pulled commit's author ema...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:39:54.872164Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "What attack model should drive the choice between author-email vs signed commits? Is there a documented threat where an agent forges another role's identity, or is the trust model 'the sandbox is the boundary' (so matching that for push authorship is acceptable)?",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Should the gateway treat pulled commits authored by utility roles (e.g. conflict_resolver, autofixer) as exempt from the pushing role's file restrictions, the same as pulled commits from other execution roles?",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "If per-role signed commits are introduced later (future B2 option), is it acceptable that git reset --soft + git commit in the auto-filter path would drop signatures on the squashed commit?",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "Should the post_agent_commit hook run against the original pre-filter tip commit, or against the gateway-rewritten auto-filtered commit? Their semantics and audit trail differ.",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "Should the audit log distinguish 'auto-filtered' pushes from 'filtered due to pulled-commit exemption' pushes? They represent two different operational situations.",
+            "answer": null
+          },
+          {
+            "id": "Q6",
+            "question": "Are there roles whose file patterns we should explicitly exclude from the auto-filter path (e.g. autofixer, conflict_resolver given their cross-cutting scope), or should auto-filter apply uniformly?",
+            "answer": null
+          },
+          {
+            "id": "Q7",
+            "question": "What's the expected behavior when the gateway's rewrite collides with a server-side pre-push hook (e.g. branch protection rules that inspect commit message format)?",
+            "answer": null
+          },
+          {
+            "id": "Q8",
+            "question": "Should EGG_AGENT_FILE_PATTERNS (env var consumed by cli_push) be kept in lockstep with the gateway's source of truth, or is some duplication between the sandbox env and gateway patterns acceptable?",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 8 question(s)",
+      "checkpoint_id": null
+    }
+  ],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "What attack model should drive the choice between author-email vs signed commits? Is there a documented threat where an agent forges another role's identity, or is the trust model 'the sandbox is the boundary' (so matching that for push authorship is acceptable)?",
+        "answer": "Under decision-2 (B3 registry) the attack model is: the sandbox is untrusted and can override git user.email at will, so attribution-for-authorization-decisions must not be read from sandbox-set identity. There is no documented bug where an agent forged another role's email today, but the principle of 'the gateway is the trust boundary for anything that affects authorization' drives B3. File restrictions are ergonomic (not a hard security boundary), but the attribution-for-push-filtering decision is authorization-adjacent and should be gateway-owned, not sandbox-reported."
+      },
+      {
+        "id": "Q2",
+        "question": "Should the gateway treat pulled commits authored by utility roles (e.g. conflict_resolver, autofixer) as exempt from the pushing role's file restrictions, the same as pulled commits from other execution roles?",
+        "answer": "Yes \u2014 utility roles (conflict_resolver, autofixer) are treated identically to execution roles by the registry. The registry attributes each commit to whichever role's session produced it; no special casing by role category. A coder pulling conflict_resolver's branch would see conflict_resolver's commits marked pulled and exempt from coder's restrictions, same as any cross-role push."
+      },
+      {
+        "id": "Q3",
+        "question": "If per-role signed commits are introduced later (future B2 option), is it acceptable that git reset --soft + git commit in the auto-filter path would drop signatures on the squashed commit?",
+        "answer": "Yes, acceptable. The filter path inherently rewrites commits (changes tree contents or commit boundaries), which invalidates any signature. If per-role signed commits are introduced later, the rewritten post-filter commit carries gateway attestation (via the registry, logged at push time), not the original signer's signature. The plan phase should document this clearly so the signed-commit path, if added, doesn't assume pre-filter signatures propagate."
+      },
+      {
+        "id": "Q4",
+        "question": "Should the post_agent_commit hook run against the original pre-filter tip commit, or against the gateway-rewritten auto-filtered commit? Their semantics and audit trail differ.",
+        "answer": "Original pre-filter tip. The post_agent_commit hook records the event 'role R committed SHA X in their sandbox session' \u2014 that event happens when the agent commits locally, before any gateway involvement. The gateway's rewrite is a separate gateway-initiated operation and should emit its own audit event (e.g. 'auto_filter_rewrite: original_sha X -> filtered_sha Y, excluded_files [...]'). Two distinct audit events, not one collapsed event."
+      },
+      {
+        "id": "Q5",
+        "question": "Should the audit log distinguish 'auto-filtered' pushes from 'filtered due to pulled-commit exemption' pushes? They represent two different operational situations.",
+        "answer": "Yes, distinguish them. They are operationally distinct: 'auto-filtered push' means the gateway modified the agent's work (intervention); 'pulled-commit exemption' means the gateway accepted another role's commits unchanged (pass-through). Operators triaging incidents need to tell these apart. Suggest distinct audit_log event types: push_auto_filtered (with {original_sha, filtered_sha, excluded_files, pulled_commits}) and push_pulled_exempt (with {pulled_commits} only, no rewrite happened)."
+      },
+      {
+        "id": "Q6",
+        "question": "Are there roles whose file patterns we should explicitly exclude from the auto-filter path (e.g. autofixer, conflict_resolver given their cross-cutting scope), or should auto-filter apply uniformly?",
+        "answer": "Apply auto-filter uniformly \u2014 do not carve out role-specific exemptions. Principle: if a role's AGENT_PATTERNS already allow everything it legitimately needs to touch, auto-filter will be a no-op for that role naturally (no files blocked, no rewrite triggered). If autofixer/conflict_resolver have cross-cutting scope, that scope should be reflected in their AGENT_PATTERNS, not via special-case auto-filter behavior. Keeps the code path uniform."
+      },
+      {
+        "id": "Q7",
+        "question": "What's the expected behavior when the gateway's rewrite collides with a server-side pre-push hook (e.g. branch protection rules that inspect commit message format)?",
+        "answer": "If the remote rejects the rewritten commit (protected branch, commit-message format check, etc.), the gateway should surface the failure to the agent as an error response and restore the agent's local HEAD to the pre-rewrite state (atomic rollback, already a constraint from the draft). One specific risk the plan phase should call out: the '[auto-filtered]' suffix from decision-13 could violate strict commit-message format policies on some server-side hooks. If that becomes a problem the suffix can be moved to a trailer line or disabled via config \u2014 but don't design for that hypothetical up front."
+      },
+      {
+        "id": "Q8",
+        "question": "Should EGG_AGENT_FILE_PATTERNS (env var consumed by cli_push) be kept in lockstep with the gateway's source of truth, or is some duplication between the sandbox env and gateway patterns acceptable?",
+        "answer": "EGG_AGENT_FILE_PATTERNS becomes largely obsolete with decision-8/17 (removing egg-orch push --scope-filter). The gateway is the single source of truth for role-restriction patterns. The env var can be removed if nothing else consumes it; if it still serves other purposes (e.g. agents reading it for self-inspection), the sandbox entrypoint should derive it from the gateway's pattern definitions rather than from a parallel source. Plan phase should audit remaining consumers of EGG_AGENT_FILE_PATTERNS and either remove them or refactor them to read from the gateway's canonical source."
+      }
+    ],
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-04-23T06:47:36.494830Z",
+    "comment_id": null,
+    "debounce_until": null
+  },
+  "phase_configs": null,
+  "agent_executions": []
+}

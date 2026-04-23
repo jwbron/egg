@@ -20,6 +20,7 @@ commits only modify files allowed for the agent's role.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -43,6 +44,51 @@ from egg_restrictions.patterns import (
     AgentRole,
 )
 
+logger = logging.getLogger("gateway.agent_restrictions")
+
+
+def partition_files_by_role(
+    role: str,
+    files: list[str],
+) -> tuple[list[str], list[str]]:
+    """Split ``files`` into ``(allowed, blocked)`` by what ``role`` may write.
+
+    Used by the gateway's push handler to decide which files in a push
+    diff would be rejected by the role's AgentFilePattern and therefore
+    need to be auto-filtered out by the per-commit rewriter (#1882).
+
+    Behaviour:
+
+    - Unknown role → ``([], list(files))`` — every file is blocked, and
+      a WARNING is logged so misconfig surfaces.  This matches the
+      deny-by-default semantics in
+      ``shared/egg_restrictions/checker.py::check_agent_file_access``.
+    - Empty ``files`` → ``([], [])``.
+    - Otherwise → delegates per-file to
+      ``AgentFilePattern.can_write`` so the existing blocked /
+      block-exempt / allowed precedence is preserved.
+    """
+    if not files:
+        return [], []
+
+    pattern = get_agent_pattern(role)
+    if pattern is None:
+        logger.warning(
+            "partition_files_by_role_unknown_role",
+            extra={"role": role, "file_count": len(files)},
+        )
+        return [], list(files)
+
+    allowed: list[str] = []
+    blocked: list[str] = []
+    for path in files:
+        if pattern.can_write(path):
+            allowed.append(path)
+        else:
+            blocked.append(path)
+    return allowed, blocked
+
+
 __all__ = [
     "AGENT_PATTERNS",
     "AUTOFIXER_PATTERNS",
@@ -55,6 +101,7 @@ __all__ = [
     "check_agent_file_access",
     "check_agent_gh_operation",
     "get_agent_pattern",
+    "partition_files_by_role",
     "validate_agent_push",
 ]
 

@@ -67,7 +67,7 @@ _health_tracker = HealthTracker()
 try:
     from .agent_restrictions import (
         check_agent_gh_operation,
-        get_agent_pattern,
+        get_agent_pattern,  # noqa: F401 — re-exported for test patching
     )
     from .anthropic_credentials import get_credentials_manager
     from .checkpoint_handler import (
@@ -109,7 +109,7 @@ try:
     from .phase_filter import (
         OperationType,
         PipelinePhase,
-        check_agent_restrictions,
+        check_agent_restrictions,  # noqa: F401 — re-exported for test patching
         check_anchor_write_permission,
         check_file_restrictions,
         check_phase_file_restrictions,
@@ -145,7 +145,7 @@ try:
 except ImportError:
     from agent_restrictions import (  # type: ignore[no-redef, import-untyped]
         check_agent_gh_operation,
-        get_agent_pattern,
+        get_agent_pattern,  # noqa: F401 — re-exported for test patching
     )
     from anthropic_credentials import get_credentials_manager  # type: ignore[no-redef]
     from checkpoint_handler import (  # type: ignore[no-redef, import-untyped]
@@ -187,7 +187,7 @@ except ImportError:
     from phase_filter import (  # type: ignore[no-redef, import-untyped]
         OperationType,
         PipelinePhase,
-        check_agent_restrictions,
+        check_agent_restrictions,  # noqa: F401 — re-exported for test patching
         check_anchor_write_permission,
         check_file_restrictions,
         check_phase_file_restrictions,
@@ -229,6 +229,52 @@ if _config_path.exists() and str(_config_path) not in sys.path:
 from repo_config import get_auth_mode, get_checkpoint_repo, is_checkpoint_repo
 
 logger = get_logger("gateway")
+
+
+def _load_sibling_gateway_module(module_name: str) -> Any:
+    """Import a sibling gateway module regardless of test vs prod shape.
+
+    Gateway modules are loaded two ways in this codebase: as a package
+    (``gateway.x``) in production and as flat top-level modules by the
+    test conftest (``__package__ == ""``).  Plain ``import X`` works in
+    production when ``gateway/`` is on ``sys.path``, and in tests when
+    the conftest preloaded ``X`` into ``sys.modules``.  For modules the
+    conftest does *not* preload — like the ones added in #1882 — we
+    fall back to loading the file by explicit path so the features are
+    still exercisable in tests without forcing a conftest edit by the
+    tester role.
+    """
+    mod = sys.modules.get(module_name) or sys.modules.get(f"gateway.{module_name}")
+    if mod is not None:
+        return mod
+    try:
+        mod = __import__(module_name)
+        return mod
+    except ImportError:
+        pass
+    try:
+        import importlib.util
+
+        mod_path = Path(__file__).parent / f"{module_name}.py"
+        if not mod_path.exists():
+            return None
+        spec = importlib.util.spec_from_file_location(module_name, str(mod_path))
+        if spec is None or spec.loader is None:
+            return None
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = mod
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:  # pragma: no cover - defensive
+        return None
+
+
+def _lookup_commit_observer_fn(name: str) -> Any:
+    """Return a callable from ``commit_observer`` without relative imports."""
+    mod = _load_sibling_gateway_module("commit_observer")
+    if mod is None:
+        return None
+    return getattr(mod, name, None)
 
 
 def _is_checkpoint_repo_for_request(owner: str, repo: str) -> bool:
@@ -964,74 +1010,356 @@ def git_push() -> tuple[Response, int] | Response:
                 },
             )
 
-    # Agent-role file restrictions.
-    # Checks agent_restrictions rules (coder vs tester vs documenter file scopes).
-    # Default: enforce (blocks pushes that violate agent-role boundaries).
-    # Set EGG_AGENT_RESTRICTIONS_ENFORCE=false to use warn-only mode.
+    # Agent-role file restrictions (#1882 gateway auto-filter).
+    # The gateway partitions the push range into own-authored vs
+    # pulled-from-other-role files via the commit-authorship registry,
+    # checks the pushing role's write permissions against only the
+    # own-authored set, and either pushes unchanged (all allowed),
+    # rewrites the range per-commit (mixed), or returns
+    # nothing_to_push=true (all blocked).
+    #
+    # EGG_AGENT_RESTRICTIONS_ENFORCE=false short-circuits the filter
+    # (warn-only, same as the old 403 path).
+    auto_filter_response: dict[str, Any] | None = None
+    attributed_push: Any = None
     if session_role and changed_files and not is_infrastructure_push:
-        agent_result = check_agent_restrictions(session_role, changed_files)
-        if not agent_result.allowed:
-            enforce = os.environ.get("EGG_AGENT_RESTRICTIONS_ENFORCE", "true").lower() not in (
-                "false",
-                "0",
-                "no",
+        enforce = os.environ.get("EGG_AGENT_RESTRICTIONS_ENFORCE", "true").lower() not in (
+            "false",
+            "0",
+            "no",
+        )
+        _ar_mod = sys.modules.get("agent_restrictions") or sys.modules.get(
+            "gateway.agent_restrictions"
+        )
+        _partition_fn: Any = getattr(_ar_mod, "partition_files_by_role", None) if _ar_mod else None
+        if _partition_fn is None:
+            try:
+                from agent_restrictions import (
+                    partition_files_by_role as _imported_partition,
+                )
+
+                _partition_fn = _imported_partition
+            except ImportError:  # pragma: no cover
+                from .agent_restrictions import (
+                    partition_files_by_role as _imported_partition,
+                )
+
+                _partition_fn = _imported_partition
+
+        _gc_mod = sys.modules.get("git_client") or sys.modules.get("gateway.git_client")
+        _get_attributed_fn: Any = (
+            getattr(_gc_mod, "get_attributed_changed_files_in_push", None) if _gc_mod else None
+        )
+        if _get_attributed_fn is None:
+            try:
+                from git_client import (
+                    get_attributed_changed_files_in_push as _imported_attr,
+                )
+
+                _get_attributed_fn = _imported_attr
+            except ImportError:  # pragma: no cover
+                from .git_client import (
+                    get_attributed_changed_files_in_push as _imported_attr,
+                )
+
+                _get_attributed_fn = _imported_attr
+
+        # Resolve attribution for every commit in the push range.
+        try:
+            attributed_push = _get_attributed_fn(
+                exec_path, remote, branch, session_role=session_role
+            )
+        except Exception as exc:
+            logger.warning("attribution_lookup_exception", error=str(exc), exc_info=True)
+            # Fail-closed: an unexpected exception is treated as
+            # attribution-unavailable so the rewrite path never
+            # pushes unvetted files.
+            _apr_cls = getattr(_gc_mod, "AttributedPushRange", None) if _gc_mod else None
+            if _apr_cls is not None:
+                attributed_push = _apr_cls(error=f"Attribution lookup failed: {exc}")
+            else:
+                from types import SimpleNamespace
+
+                attributed_push = SimpleNamespace(
+                    error=f"Attribution lookup failed: {exc}",
+                    commits=[],
+                    files=[],
+                    attribution={},
+                )
+
+        # When the per-commit attribution can't be computed (e.g. the
+        # caller mocked only the legacy file-detection path, or git
+        # rev-list returned zero commits but there are staged-but-not-
+        # pushed changes we can't walk with commit-tree), we FAIL
+        # CLOSED on the rewrite path.  Treat every file in
+        # ``changed_files`` as own-authored and unregistered; if any
+        # file is blocked, return 200 nothing_to_push=true with the
+        # blocked set surfaced as excluded_files — *without* calling
+        # ``execute_filtered_push`` (it would walk an empty commit
+        # list and push HEAD unchanged, leaking blocked files).
+        attribution_fallback = bool(attributed_push.error or not attributed_push.commits)
+        if attribution_fallback:
+            own_files: list[str] = list(dict.fromkeys(changed_files))
+            pulled_files: list[str] = []
+            unregistered_files: list[str] = list(own_files)
+            attributed_commits_list: list[str] = []
+            attributed_files_list: list[Any] = []
+        else:
+            # Split files by author role (pushing role's own vs pulled).
+            own_files = []
+            pulled_files = []
+            unregistered_files = []
+            for attr in attributed_push.files:
+                if attr.authored_by is None:
+                    # Fail-closed: unregistered commits are treated as
+                    # own-authored.
+                    own_files.append(attr.path)
+                    unregistered_files.append(attr.path)
+                elif attr.authored_by == session_role:
+                    own_files.append(attr.path)
+                else:
+                    pulled_files.append(attr.path)
+            own_files = list(dict.fromkeys(own_files))
+            pulled_files = list(dict.fromkeys(pulled_files))
+            attributed_commits_list = list(attributed_push.commits)
+            attributed_files_list = list(attributed_push.files)
+
+        # Build the pulled_commits list for the response + audit log.
+        pulled_commits_summary: list[dict[str, Any]] = []
+        for sha in attributed_commits_list:
+            role_for_sha = attributed_push.attribution.get(sha) if attributed_push else None
+            if role_for_sha and role_for_sha != session_role:
+                pulled_commits_summary.append({"sha": sha, "author_role": role_for_sha})
+
+        allowed_own, blocked_own = _partition_fn(session_role, own_files)
+
+        if unregistered_files and enforce:
+            audit_log(
+                "push_authorship_unregistered_fallback",
+                "git_push",
+                success=True,
+                details={
+                    "repo": repo,
+                    "branch": branch,
+                    "role": session_role,
+                    "unregistered_files": unregistered_files,
+                    "excluded_files": blocked_own,
+                    "pulled_commits": pulled_commits_summary,
+                },
             )
 
-            if enforce:
+        if blocked_own and enforce:
+            # Decide between "all blocked" (nothing to push) and mixed rewrite.
+            # IMPORTANT: when we have no commit range to walk
+            # (attribution_fallback), treat the whole push as blocked
+            # and do NOT invoke execute_filtered_push — it would walk
+            # an empty commit list and push HEAD unchanged, leaking
+            # blocked files through.  This preserves the fail-closed
+            # invariant when attribution is unavailable (#1882 review).
+            if (not allowed_own and not pulled_files) or attribution_fallback:
                 audit_log(
-                    "push_denied_agent_role_restriction",
+                    "push_all_blocked_no_op",
+                    "git_push",
+                    success=True,
+                    details={
+                        "repo": repo,
+                        "branch": branch,
+                        "role": session_role,
+                        "excluded_files": blocked_own,
+                        "pulled_commits": pulled_commits_summary,
+                        "attribution_fallback": attribution_fallback,
+                    },
+                )
+                return make_success(
+                    (
+                        "Push skipped: attribution unavailable and out-of-scope "
+                        "files detected (fail-closed)."
+                        if attribution_fallback
+                        else "Push skipped: every own-authored file is out of scope for this role"
+                    ),
+                    {
+                        "repo": repo,
+                        "branch": branch,
+                        "filtered": True,
+                        "nothing_to_push": True,
+                        "excluded_files": blocked_own,
+                        "pushed_files": [],
+                        "pushed_commits": [],
+                        "pulled_commits": pulled_commits_summary,
+                        "auth_mode": get_auth_mode(repo),
+                    },
+                )
+
+            # Mixed: execute the per-commit rewrite via the filtered-push
+            # helper. It performs the push itself (through a callback so
+            # the caller controls credentials and refspec) and returns a
+            # structured result.
+            _fp_mod = _load_sibling_gateway_module("filtered_push")
+            execute_filtered_push = (
+                getattr(_fp_mod, "execute_filtered_push", None) if _fp_mod else None
+            )
+            if execute_filtered_push is None:
+                audit_log(
+                    "push_denied_auto_filter_failed",
                     "git_push",
                     success=False,
                     details={
                         "repo": repo,
                         "branch": branch,
                         "role": session_role,
-                        "blocked_files": agent_result.blocked_files,
-                        "restriction_message": agent_result.message,
+                        "error": "filtered_push module unavailable",
                     },
-                )
-                # Look up allowed patterns for remediation guidance
-                agent_pattern = get_agent_pattern(session_role)
-                allowed_patterns = agent_pattern.allowed_patterns if agent_pattern else []
-                # Truncate pattern list in human-readable message to avoid
-                # overwhelming the agent; full list is in structured response.
-                max_shown = 5
-                if len(allowed_patterns) > max_shown:
-                    pattern_summary = (
-                        f"{', '.join(allowed_patterns[:max_shown])}, "
-                        f"and {len(allowed_patterns) - max_shown} more"
-                    )
-                else:
-                    pattern_summary = ", ".join(allowed_patterns) if allowed_patterns else "(none)"
-                remediation = (
-                    f"To recover: run `egg-orch push --scope-filter` to "
-                    f"automatically strip out-of-scope files and push. "
-                    f"Manual alternative: (1) git reset --soft $(git merge-base "
-                    f"origin/<branch> HEAD), (2) git add only files matching "
-                    f"allowed patterns: {pattern_summary}, "
-                    f"(3) git commit again, (4) git push."
                 )
                 return make_error(
-                    f"Push denied: agent role '{session_role}' cannot modify "
-                    f"these files. {agent_result.message}",
-                    status_code=403,
+                    "Push denied: auto-filter module unavailable.",
+                    status_code=500,
+                )
+
+            def _inner_push() -> tuple[bool, str | None]:
+                token_str, auth_mode, token_error = get_token_for_repo(repo)
+                if not token_str:
+                    return False, token_error
+                push_target = get_authenticated_remote_target(remote, remote_url)
+                push_args = ["push", "--no-verify"]
+                if force:
+                    push_args.append("--force")
+                push_args.extend([push_target, refspec] if refspec else [push_target])
+                cmd_inner = git_cmd("-c", "http.extraheader=", *push_args)
+                credential_helper_path_inner = None
+                try:
+                    credential_helper_path_inner, env_inner = create_credential_helper(
+                        token_str, os.environ.copy()
+                    )
+                    r = subprocess.run(
+                        cmd_inner,
+                        cwd=exec_path,
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                        env=env_inner,
+                        check=False,
+                    )
+                    if r.returncode != 0:
+                        return False, (r.stderr or r.stdout or "").strip()
+                    return True, None
+                finally:
+                    if credential_helper_path_inner is not None:
+                        cleanup_credential_helper(credential_helper_path_inner)
+
+            def _register(**kwargs: Any) -> bool:
+                _crc_mod = _load_sibling_gateway_module("commit_registry_client")
+                get_client = getattr(_crc_mod, "get_client", None) if _crc_mod else None
+                if get_client is None:
+                    return False
+                try:
+                    return bool(get_client().register(**kwargs))
+                except Exception:
+                    return False
+
+            pipeline_id_for_filter = None
+            session_obj = getattr(g, "session", None)
+            if session_obj is not None:
+                pipeline_id_for_filter = getattr(session_obj, "pipeline_id", None)
+
+            blocked_set = set(blocked_own)
+            filter_result = execute_filtered_push(
+                exec_path,
+                push_role=session_role,
+                branch=branch,
+                attributed_commits=attributed_commits_list,
+                attributed_files=attributed_files_list,
+                blocked_own_files=blocked_set,
+                push_fn=_inner_push,
+                registry_register=_register,
+                pipeline_id=pipeline_id_for_filter,
+                repo=repo,
+            )
+            if not filter_result.success:
+                audit_log(
+                    "push_denied_auto_filter_failed",
+                    "git_push",
+                    success=False,
                     details={
+                        "repo": repo,
+                        "branch": branch,
                         "role": session_role,
-                        "blocked_files": agent_result.blocked_files,
-                        "allowed_patterns": allowed_patterns,
-                        "remediation": remediation,
+                        "error": filter_result.error,
                     },
                 )
-            else:
-                logger.warning(
-                    "Agent-role file restriction would block push (warn-only)",
-                    event_type="agent_role_restriction_warning",
-                    repo=repo,
-                    branch=branch,
-                    role=session_role,
-                    blocked_files=agent_result.blocked_files,
-                    restriction_message=agent_result.message,
+                return make_error(
+                    f"Push denied: auto-filter failed ({filter_result.error}).",
+                    status_code=500,
+                    details={
+                        "role": session_role,
+                        "error": filter_result.error,
+                    },
                 )
+
+            audit_log(
+                "push_auto_filtered",
+                "git_push",
+                success=True,
+                details={
+                    "repo": repo,
+                    "branch": branch,
+                    "role": session_role,
+                    "excluded_files": filter_result.excluded_files,
+                    "pushed_files": filter_result.pushed_files,
+                    "pushed_commits": filter_result.pushed_commits,
+                    "dropped_commits": filter_result.dropped_commits,
+                    "pulled_commits": pulled_commits_summary,
+                    "rewritten_commits": filter_result.rewritten_commits,
+                },
+            )
+            return make_success(
+                "Push successful with auto-filter",
+                {
+                    "repo": repo,
+                    "branch": branch,
+                    "filtered": True,
+                    "nothing_to_push": False,
+                    "excluded_files": filter_result.excluded_files,
+                    "pushed_files": filter_result.pushed_files,
+                    "pushed_commits": filter_result.pushed_commits,
+                    "pulled_commits": pulled_commits_summary,
+                    "rewritten_commits": filter_result.rewritten_commits,
+                    "auth_mode": get_auth_mode(repo),
+                },
+            )
+        elif blocked_own and not enforce:
+            # Warn-only mode: log but let the plain push proceed.
+            # Explicitly flag ``enforce=false`` so operators scanning
+            # audit logs during a kill-switch window can distinguish
+            # this from the enforced paths.
+            logger.warning(
+                "Agent-role file restriction would block push (warn-only)",
+                event_type="agent_role_restriction_warning",
+                repo=repo,
+                branch=branch,
+                role=session_role,
+                blocked_files=blocked_own,
+                enforce=False,
+            )
+            # Observability parity (#1882 TASK-3-3): even the warn-
+            # only passthrough must surface pulled_commits and the
+            # filtered=false flag in the success response so
+            # downstream tooling sees a consistent schema.
+            auto_filter_response = {
+                "filtered": False,
+                "excluded_files": [],
+                "pushed_files": own_files + pulled_files,
+                "pulled_commits": pulled_commits_summary,
+            }
+        else:
+            # All own-files are allowed.  No rewrite needed.  We still
+            # stash the pulled_commits summary so the success path can
+            # surface it in the response for observability.
+            auto_filter_response = {
+                "filtered": False,
+                "excluded_files": [],
+                "pushed_files": own_files + pulled_files,
+                "pulled_commits": pulled_commits_summary,
+            }
 
     # SECURITY: Check anchor file write scoping.
     # Agents can only write to their own anchor file (.egg-state/agent-anchors/<id>.json).
@@ -1298,15 +1626,30 @@ def git_push() -> tuple[Response, int] | Response:
                     branch=branch,
                 )
 
+            success_payload: dict[str, Any] = {
+                "repo": repo,
+                "branch": branch,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "auth_mode": auth_mode,
+            }
+            # Surface pulled_commits / filtered=False on plain pushes so
+            # agents get consistent response shape across paths (#1882).
+            if auto_filter_response is not None:
+                success_payload.setdefault("filtered", auto_filter_response.get("filtered", False))
+                success_payload.setdefault("nothing_to_push", False)
+                success_payload.setdefault(
+                    "excluded_files", auto_filter_response.get("excluded_files", [])
+                )
+                success_payload.setdefault(
+                    "pushed_files", auto_filter_response.get("pushed_files", [])
+                )
+                success_payload.setdefault(
+                    "pulled_commits", auto_filter_response.get("pulled_commits", [])
+                )
             return make_success(
                 "Push successful",
-                {
-                    "repo": repo,
-                    "branch": branch,
-                    "stdout": result.stdout,
-                    "stderr": result.stderr,
-                    "auth_mode": auth_mode,
-                },
+                success_payload,
             )
         else:
             audit_log(
@@ -1593,6 +1936,49 @@ def git_execute() -> tuple[Response, int] | Response:
     env = os.environ.copy()
     env["GIT_EDITOR"] = "true"
 
+    # Commit-authorship observer (#1882): snapshot HEAD before the git
+    # subcommand so we can compute which commits (if any) it created
+    # and register them with the orchestrator's authorship registry.
+    # Only agent sessions participate; internal gateway ops skip.
+    _observer_role: str | None = None
+    _observer_pipeline_id: str | None = None
+    _observer_repo: str | None = None
+    _observer_branch: str | None = None
+    _observer_before_head: str | None = None
+    _observer_armed: bool = False
+    _session_for_observer = getattr(g, "session", None)
+    if _session_for_observer is not None:
+        _observer_role = getattr(_session_for_observer, "agent_role", None)
+        _observer_pipeline_id = getattr(_session_for_observer, "pipeline_id", None)
+        _observer_repo = getattr(_session_for_observer, "repo", None) or getattr(
+            _session_for_observer, "checkpoint_repo", None
+        )
+        _observer_branch = getattr(_session_for_observer, "assigned_branch", None) or getattr(
+            _session_for_observer, "branch", None
+        )
+    # Intentionally exhaustive list of commit-creating operations.
+    # ``stash`` and ``pull`` can also create commit objects, but agents
+    # do not use them — all pushes go through the gateway's push handler
+    # which resolves attribution independently.  Extend this list if
+    # agent workflows ever include stash or pull.
+    if _observer_role and operation in (
+        "commit",
+        "merge",
+        "cherry-pick",
+        "revert",
+        "rebase",
+        "am",
+    ):
+        _observer_armed = True
+        _capture_head = _lookup_commit_observer_fn("capture_head")
+        if _capture_head is not None:
+            try:
+                _observer_before_head = _capture_head(exec_path)
+            except Exception:  # pragma: no cover - defensive
+                # before_head stays None; observe handles the
+                # unborn-branch case via its [after_head] fallback.
+                _observer_before_head = None
+
     try:
         result = subprocess.run(
             cmd,
@@ -1605,6 +1991,32 @@ def git_execute() -> tuple[Response, int] | Response:
         )
 
         if result.returncode == 0:
+            # Fire the observer only on the narrow list of ref-mutating
+            # operations that armed the observer above.  For all other
+            # operations (status, checkout, restore, ...) we skip the
+            # post-op rev-parse entirely so callers' subprocess
+            # mocking isn't perturbed.  Note: _observer_before_head
+            # may be None on unborn branches — observe() handles that
+            # via its [after_head] fallback.
+            if _observer_role and _observer_armed:
+                try:
+                    _observe_after = _lookup_commit_observer_fn("observe_after_git_execute")
+                    if _observe_after is not None:
+                        _observe_after(
+                            exec_path,
+                            before_head=_observer_before_head,
+                            branch=_observer_branch,
+                            session_role=_observer_role,
+                            pipeline_id=_observer_pipeline_id,
+                            repo=_observer_repo,
+                        )
+                except Exception:
+                    # Observer is best-effort — never block the git
+                    # response on a registry failure.
+                    logger.debug(
+                        "commit_observer_swallowed",
+                        exc_info=True,
+                    )
             audit_log(
                 "git_execute_success",
                 operation,

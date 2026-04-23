@@ -77,6 +77,21 @@ spec:
             # by the fail-fast check in gateway.main() (#1803).
             - name: EGG_ORCHESTRATOR_URL
               value: "http://orchestrator.egg-system.svc.cluster.local:9849"
+            # Gateway-to-orchestrator bearer token used by the
+            # commit-authorship registry client (#1882). The commit
+            # observer in gateway/commit_observer.py POSTs each new
+            # SHA to /api/v1/commit-authorship/{register,lookup} on
+            # the orchestrator; those endpoints are guarded by
+            # ``require_lifecycle_secret`` so without this env var
+            # every call 401s and the whole push-filter path silently
+            # degrades to fail-closed "own-authored".  Same secret the
+            # orchestrator pod already consumes — see
+            # k8s/base/orchestrator-deployment.yaml:86-90.
+            - name: EGG_LIFECYCLE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: gateway-secrets
+                  key: lifecycle-secret
             # Thread count for the gateway WSGI server. Default is 32
             # (see gateway/gateway.py DEFAULT_THREADS). Surfaced here so
             # operators can tune via kustomize overlay without reading source.

@@ -20,6 +20,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Custom Harness](architecture/custom-harness.md) | Custom coding harness: multi-provider LLM support, context management, session persistence |
 | [Orchestrator Architecture](architecture/orchestrator.md) | Orchestrator deployment modes and sandbox-to-orchestrator communication |
 | [Git Isolation](architecture/git-isolation.md) | Gateway sidecar design for worktree isolation and credential separation |
+| [Gateway Auto-Filter](architecture/gateway-auto-filter.md) | Auto-filtering disallowed files on push and the commit-authorship registry that makes cross-role pushes work |
 | [Credential Injection](architecture/credential-injection.md) | Zero-credential sandbox with API key proxy via gateway |
 | [Network Isolation](architecture/network-isolation.md) | Public/private network modes and domain allowlist |
 | [Kubernetes Migration](architecture/kubernetes-migration.md) | Docker to k8s (k3s) migration: architecture, network isolation, developer workflow |
@@ -116,7 +117,7 @@ Each major component has detailed documentation:
 
 | Task Type | Read First | Also Helpful |
 |-----------|------------|--------------|
-| **Gateway changes** | [Architecture Overview](architecture/README.md) | [Git Isolation](architecture/git-isolation.md), [Gateway README](../gateway/README.md) |
+| **Gateway changes** | [Architecture Overview](architecture/README.md) | [Git Isolation](architecture/git-isolation.md), [Gateway Auto-Filter](architecture/gateway-auto-filter.md), [Gateway README](../gateway/README.md) |
 | **Security-related changes** | [Architecture Overview](architecture/README.md) | [Git Isolation](architecture/git-isolation.md) |
 | **Sandbox changes** | [Sandbox README](../sandbox/README.md) | [Architecture Overview](architecture/README.md) |
 | **Configuration changes** | [Config README](../config/README.md) | [egg_config README](../shared/egg_config/README.md) |
