@@ -227,7 +227,7 @@ Four MCP tools expose phase management operations for pipeline recovery and manu
 
 | MCP Tool | REST Endpoint | Description |
 |----------|---------------|-------------|
-| `advance_phase` | `POST /pipelines/{id}/phase` | Advance pipeline to a target phase. With `force=true`, stops running containers first to prevent SIGTERM cascading |
+| `advance_phase` | `POST /pipelines/{id}/phase` | Advance pipeline to a target phase. With `force=true`, stops running containers first to prevent SIGTERM cascading. When leaving the plan phase, automatically populates the contract from the plan draft |
 | `start_phase` | `POST /pipelines/{id}/phase/start` | Mark the current phase RUNNING. Does **not** spawn agents — agent spawning is driven by the `_run_pipeline` loop. Use for operator recovery when a phase needs to be re-marked RUNNING |
 | `complete_phase` | `POST /pipelines/{id}/phase/complete` | Mark a phase COMPLETE. Does **not** advance the pipeline — call `advance_phase` next. Response includes `current_phase` (unchanged) and `next_phase` (suggested transition). Returns 409 if unresolved HITL decisions exist; pass `force=true` to abandon them |
 | `populate_contract` | `POST /pipelines/{id}/phase/populate-contract` | Populate contract from plan artifacts. Parses yaml-tasks from the plan draft into contract phases/tasks |
@@ -236,13 +236,35 @@ Four MCP tools expose phase management operations for pipeline recovery and manu
 
 All tools require `task_id` (the pipeline ID). Additional parameters:
 
-- **`advance_phase`**: `target_phase` (string, required) — the phase to advance to (e.g., `"plan"`, `"implement"`, `"pr"`). `force` (boolean, optional, default `false`) — skip validation and stop running containers before advancing. **Important:** When `force=true`, containers from the current phase are stopped before the transition to prevent their SIGTERM signals from being misinterpreted as failures in the new phase.
+- **`advance_phase`**: `target_phase` (string, required) — the phase to advance to (e.g., `"plan"`, `"implement"`, `"pr"`). `force` (boolean, optional, default `false`) — skip validation and stop running containers before advancing. **Important:** When `force=true`, containers from the current phase are stopped before the transition to prevent their SIGTERM signals from being misinterpreted as failures in the new phase. When the current phase is `plan`, `advance_phase` automatically runs the contract populate step (parsing the plan's `yaml-tasks` appendix into the contract (phases, tasks, and `contract.pr` metadata)), so a separate `populate_contract` call is not needed for plan→implement transitions.
 - **`start_phase`**: No additional parameters.
 - **`complete_phase`**: `artifacts` (object, optional) — phase completion artifacts to store (e.g., commit SHAs, PR URLs).
   - Returns 409 when the current phase has unresolved HITL decisions (both orchestrator-side and contract-side decisions scoped to the phase are checked).
   - `force` (boolean, optional, default `false`) — skip the unresolved-decision guard and complete the phase anyway; abandoned decision IDs are recorded in the phase's artifacts for audit.
   - `force_reason` (string, optional) — audit note explaining why `force=true` was used.
 - **`populate_contract`**: No additional parameters. Resolves the pipeline's worktree path, reads the plan document, extracts task structure, and writes tasks and acceptance criteria to the contract. Returns phase and task counts on success.
+
+**Error reason codes** (#1939): All four endpoints include a stable, machine-readable `reason` field in error responses. Switch on `reason` rather than parsing the human-readable `message`. Key codes:
+
+| Endpoint | `reason` | HTTP | Meaning / fix |
+|----------|----------|------|---------------|
+| `advance_phase` | `missing_target_phase` | 400 | `target_phase` omitted from request |
+| `advance_phase` | `invalid_phase` | 400 | `target_phase` is not a known phase value |
+| `advance_phase` | `invalid_phase_transition` | 400 | Not a valid transition from the current phase; change target or pass `force=true` |
+| `advance_phase` | `previous_phase_not_complete` | 400 | Current phase still running or failed; call `complete_phase` first, or pass `force=true` |
+| `advance_phase` | `health_checks_failed` | 409 | Tier 1/2 health checks returned `FAIL_PIPELINE`; `details.health_results` lists failing checks. Resolve the underlying issue or pass `force=true` |
+| `start_phase` | `phase_already_running` | 400 | Phase is already in `RUNNING` status; no action needed |
+| `complete_phase` | `unresolved_hitl_decisions` | 409 | Phase has pending HITL decisions; `details.unresolved_decision_ids` lists them. Resolve or pass `force=true` |
+| `complete_phase` | `invalid_artifacts` | 400 | `artifacts` must be a JSON object with string values |
+| `complete_phase` | `invalid_force_reason` | 400 | `force_reason` must be a non-empty string |
+| `populate_contract` | `populate_contract_failed` | 500 | Internal error during contract population |
+| `advance_phase`, `start_phase`, `complete_phase`, `fail_phase` | `version_conflict` | 409 | Concurrent modification detected; retry the request |
+| all | `invalid_pipeline_id` | 400 | Pipeline ID format is invalid |
+| all | `pipeline_not_found` | 404 | No pipeline with that ID exists |
+
+The REST-only endpoints `fail_phase` and `get_current_phase` also include `reason` in error responses (e.g., `missing_error_message` for `fail_phase`) plus the shared `invalid_pipeline_id` and `pipeline_not_found` codes. `fail_phase` additionally emits `version_conflict`.
+
+Note: reason codes are present in the raw HTTP response. The MCP handler layer does not yet surface them to tool callers.
 
 **Recovery workflow example (stuck pipeline):**
 ```bash
@@ -256,7 +278,8 @@ curl -X POST http://egg-orchestrator:9849/api/v1/pipelines/<id>/phase \
   -H "Content-Type: application/json" \
   -d '{"target_phase": "implement", "force": true}'
 
-# 3. Populate contract if it's empty after manual phase setup
+# 3. Populate contract if it's still empty (automatic when advancing from plan;
+#    needed for other phase transitions where the plan was set up externally)
 # Via MCP tool: populate_contract(task_id="<id>")
 # Via REST:
 curl -X POST http://egg-orchestrator:9849/api/v1/pipelines/<id>/phase/populate-contract
