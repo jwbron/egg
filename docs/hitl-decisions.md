@@ -304,6 +304,57 @@ client.create_decision(
 
 Both `OrchClient.create_decision()` and the underlying orchestrator API (`POST /api/v1/pipelines/{id}/decisions`) accept `decision_type`, `questions`, and `phase` fields. The `phase` field is optional but recommended — it tracks which pipeline phase created the decision and helps the HITL handler locate the correct draft paths (e.g., `.egg-state/drafts/900-plan.md` instead of `.egg-state/drafts/900-unknown.md`).
 
+## `/sdlc` Skill: Auto-Resolving Repeated Questions
+
+The `/sdlc` Claude Code skill (defined by `skills/sdlc/SKILL.md`) handles HITL via MCP calls to `get_status` / `provide_input`. Because the refiner commonly embeds agent-created `choice`/`feedback` decisions directly in the analysis/plan draft as `<!-- egg-hitl-decision id=decision-N -->` markers, a single phase_gate approval can surface several related questions at once. Those same questions are also registered as standalone contract decisions, which the [server-side bridge](#contract-decision-bridge) promotes to the orchestrator's decision queue after the phase_gate resolves.
+
+Without special handling the skill would re-prompt the user for every draft-embedded question a second time once those standalone decisions arrive on subsequent `get_status` polls — the user answers each question twice. Phase 4 of the skill avoids this via a session-scoped **`resolved_questions_map`**.
+
+### Resolved Questions Map
+
+`resolved_questions_map` is an in-memory dict maintained by the `/sdlc` skill for the lifetime of a single `/sdlc` invocation:
+
+| Key | Value |
+|-----|-------|
+| Normalized question text (`question.strip().lower()`) | The user's verbatim answer |
+
+It is populated by the `phase_gate` handler's Step 5 as each draft-embedded question is answered, and consulted by both the `choice` and `feedback` handlers before they prompt. Normalization is intentionally conservative (case-insensitive, whitespace-trimmed) — punctuation or rewording differences are treated as misses and fall through to the existing prompt flow. This is by design: too-permissive matching risks silently submitting wrong answers.
+
+### Auto-Resolution Flow
+
+**`choice` decisions.** Before prompting, the skill normalizes the decision's `question`, looks it up in `resolved_questions_map`, and compares the stored answer against each entry of `decision.options` using the same normalization. On a match, it skips `AskUserQuestion` and submits the option verbatim:
+
+```json
+{"action": "select", "selected": "<matched option>"}
+```
+
+It then prints a one-line note:
+
+```
+Auto-resolved <decision_id>: selected '<option>' from captured context.
+```
+
+If the captured answer doesn't correspond to any option (e.g., it was free-text typed into the "Other" field during the phase gate), the handler falls through to the existing prompt flow — the user is asked again with the registered option list.
+
+**`feedback` decisions.** Before prompting, the skill normalizes each question in the `questions` array and looks it up in `resolved_questions_map`, collecting matches into a prefilled `answers` dict keyed by the question's `id` (or the `q-<1-based index>` fallback). If all questions are prefilled, `AskUserQuestion` is skipped entirely; otherwise only the unmatched questions are presented, and the new answers are merged into the prefilled dict. A single merged `provide_input` call then submits:
+
+```json
+{"action": "submit_feedback", "answers": {"<id>": "<answer>", ...}}
+```
+
+followed by a one-line note naming the decision ID and which question IDs were auto-resolved from captured context.
+
+### Transparency
+
+Every auto-resolution prints a user-visible one-line note identifying the decision ID and the chosen value. This is a hard requirement, not a convenience: it is the only feedback loop a user has to catch an incorrect match (e.g., two draft questions that happened to normalize to the same text). Users who see an unexpected auto-resolution can intervene at the next phase gate using `request_changes` or `change_approach`.
+
+### Scope and Non-Goals
+
+- **Skill-only change.** The orchestrator's `_parse_resolution` and the contract decision registration path are unchanged — the phase_gate resolution's `context` string is still preserved in the raw resolution but is not routed to downstream decisions by the orchestrator.
+- **Refiner-side question rephrasing is not handled.** If the refiner rewords the question between the draft marker and the registered contract decision, normalized-exact match will miss and the user is prompted normally. Fuzzy matching is an explicit non-goal.
+- **Map is session-scoped, not persisted.** A fresh `/sdlc` invocation starts with an empty map. Across multiple phase_gates in the same session the map accumulates; newer answers for a duplicate normalized question overwrite older ones.
+- **Prompt-driven mode (`egg-sdlc`) is unaffected.** The terminal UI in `sandbox/egg_lib/sdlc_hitl.py` does not use `resolved_questions_map` — this is strictly a `/sdlc` Claude Code skill optimization.
+
 ## Related Files
 
 - `orchestrator/mcp_tools.py` — MCP `get_status` tool; enriches all pending decisions with `draft_content`; enriches `phase_gate` decisions additionally with `completed_agents_summary` and `reviewer_feedback`
@@ -312,6 +363,7 @@ Both `OrchClient.create_decision()` and the underlying orchestrator API (`POST /
 - `orchestrator/routes/decisions.py` — Decision API endpoints (create, list, resolve)
 - `orchestrator/routes/pipelines.py` — Phase gate resolution with JSON payload parsing
 - `sandbox/egg_lib/sdlc_hitl.py` — Type-aware terminal HITL handler
+- `skills/sdlc/SKILL.md` — `/sdlc` Claude Code skill defining Phase 4 HITL handling, including the session-scoped `resolved_questions_map` that auto-resolves repeated choice/feedback questions from captured phase_gate context
 - `sandbox/egg_lib/orch_client.py` — `OrchClient.create_decision()` for typed decisions
 - `sandbox/egg_lib/contract_cli.py` — CLI for creating decisions and feedback
 - `shared/egg_contracts/feedback.py` — Feedback generation and parsing
