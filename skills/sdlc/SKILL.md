@@ -586,6 +586,17 @@ When `get_status` returns `pending_decisions`, handle each decision based on its
 
 Iterate through `pending_decisions` and handle each one individually before resuming monitoring. For each decision, check its `decision_type`:
 
+### Resolved Questions Map
+
+Maintain a single session-scoped, in-memory dict named `resolved_questions_map` for the lifetime of the current `/sdlc` session. It maps `normalized_question_text → answer`, where:
+
+- **Normalization rule**: apply `question.strip().lower()` — trim leading/trailing whitespace and lowercase. Use the same rule on every read and every write so lookups are symmetric. Do not normalize the stored answer value; keep the user's answer verbatim so downstream handlers can compare it against option lists exactly as the user gave it.
+- **Scope**: the map lives in memory for the session only (no persistence to disk). Across multiple `phase_gate` events in the same pipeline, newer answers overwrite older ones at the same normalized key — no explicit clearing is needed.
+- **Writers**: Step 5 of the `phase_gate` decision handler (below) populates this map as it collects answers to draft-embedded questions.
+- **Readers**: the `choice` and `feedback` decision handlers (below) consult this map before prompting the user, so that questions the user already answered in a prior `phase_gate` are auto-resolved instead of re-prompted. Every auto-resolution prints a user-visible one-line note so an incorrect match is catchable.
+
+If `resolved_questions_map` does not yet exist when a handler tries to read it, treat it as empty and fall through to the normal prompt flow.
+
 ### For `phase_gate` decisions (phase approval gates):
 
 The `get_status` response enriches phase_gate decisions with `draft_content` (the phase's output document), `completed_agents_summary` (role + status for each completed agent), and `reviewer_feedback` (list of reviewer verdicts).
@@ -653,6 +664,8 @@ The `get_status` response enriches phase_gate decisions with `draft_content` (th
    Answer: <user's response>
    ```
 
+   **As you collect each answer, also store it in `resolved_questions_map`** keyed by the normalized question text (`question.strip().lower()`) with the user's answer as the value. This happens in addition to building the Resolved Questions display block — both must be populated. Later `choice` and `feedback` decisions in the same session will consult this map to auto-resolve follow-up questions the user already answered here.
+
    If nothing in the draft requires user input beyond the approval itself, skip this step entirely — do not manufacture questions.
 
 6. **Ask for approval** — Use `AskUserQuestion`:
@@ -716,6 +729,22 @@ After resolving this decision, move to the next pending decision (if any) before
 
 ### For `choice` type decisions:
 
+**Before prompting — check `resolved_questions_map` for a captured answer**:
+
+1. Compute `normalized_q = decision.question.strip().lower()`.
+2. Look up `resolved_questions_map[normalized_q]`. If the key is absent (or the map doesn't exist yet), fall through to the normal prompt flow below.
+3. If a stored answer is present, compare it against each entry of `decision.options` using the same normalization (`option.strip().lower() == stored_answer.strip().lower()`). Pick the first matching option if any.
+4. **On a compatible match**: skip `AskUserQuestion` entirely and auto-resolve the decision. Call `provide_input` with the matched option verbatim (use the option text from `decision.options`, not the normalized form):
+   ```json
+   {"action": "select", "selected": "<matched option verbatim>"}
+   ```
+   Then print a one-line user-visible note:
+   ```
+   Auto-resolved <decision_id>: selected '<option>' from captured context.
+   ```
+   Proceed to the next pending decision.
+5. **On no match, or if the stored answer is a free-text / "Other" value that doesn't correspond to any option in `decision.options`**: fall through to the normal prompt flow below. Do not force an invalid selection.
+
 If the decision includes a `draft_content` field, display it to the user first as context for the decision. If the content is long, show a summary of the key sections (headings and first paragraph of each) followed by the full content. This is especially important for decisions from the refine and plan phases, where the draft contains the analysis or plan that motivates the decision.
 
 Show the decision's `question` and `context` (if non-empty) prominently, then use `AskUserQuestion` to present the options:
@@ -733,6 +762,32 @@ If the user types custom text via "Other", send:
 ```
 
 ### For `feedback` type decisions:
+
+**Before prompting — consult `resolved_questions_map` for each question**:
+
+1. Initialize an empty `prefilled_answers` dict and an empty `unmatched_questions` list.
+2. For each entry in the decision's `questions` array:
+   - Determine the answer key: use the question's `id` field if present, otherwise fall back to `q-<1-based index>` (as described in the paragraph below).
+   - Compute `normalized_q = question.question.strip().lower()`.
+   - Look up `resolved_questions_map[normalized_q]`. If present, add `prefilled_answers[<answer_key>] = <stored answer verbatim>`. Otherwise, append the question entry to `unmatched_questions`.
+3. **All-matched fast path**: if `unmatched_questions` is empty, skip `AskUserQuestion` entirely. Call `provide_input` with the prefilled answers:
+   ```json
+   {"action": "submit_feedback", "answers": { ...prefilled_answers }}
+   ```
+   Then print a one-line user-visible note naming the decision ID and the question IDs that were auto-resolved, for example:
+   ```
+   Auto-resolved <decision_id>: answers for [q-1, q-2] prefilled from captured context.
+   ```
+   Proceed to the next pending decision.
+4. **Partial match**: if `unmatched_questions` is non-empty, present only those questions via `AskUserQuestion` (using the normal grouping rules below — up to 4 questions per call). Collect the user's answers into a `new_answers` dict keyed the same way (question `id` or `q-<1-based index>`, preserving each question's original index in the full `questions` array). Merge: `answers = {...prefilled_answers, ...new_answers}`. Then call `provide_input` with the single merged payload:
+   ```json
+   {"action": "submit_feedback", "answers": { ...merged answers ... }}
+   ```
+   Print a one-line user-visible note naming the decision ID and listing which question IDs were auto-resolved from captured context (and, implicitly, which were prompted), for example:
+   ```
+   Auto-resolved <decision_id>: prefilled [q-1] from captured context; prompted for [q-2, q-3].
+   ```
+5. **No matches**: if `prefilled_answers` is empty after the scan, fall through to the normal prompt flow below without any auto-resolution note.
 
 If the decision includes a `draft_content` field, display it to the user first as context for the feedback request. If the content is long, show a summary of the key sections (headings and first paragraph of each) followed by the full content. This is especially important for decisions from the refine and plan phases, where the draft contains the analysis or plan that motivates the questions.
 
