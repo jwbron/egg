@@ -663,9 +663,7 @@ def cmd_phase_advance(args: argparse.Namespace) -> int:
         return 0
 
     if result.get("success"):
-        phase_data = result.get("data", {})
-        new_phase = phase_data.get("current_phase", phase_data.get("phase", "?"))
-        print(f"Advanced to phase: {new_phase}")
+        print(result.get("message", "Phase advanced"))
         return 0
     print(f"Error: {result.get('message')}", file=sys.stderr)
     return 1
