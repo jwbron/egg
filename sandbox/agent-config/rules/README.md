@@ -30,6 +30,7 @@ Claude Code reads `CLAUDE.md` files automatically when starting. During containe
   - GitHub CLI (`gh`) for PRs and issues
   - File system layout and access
   - Services and package installation
+  - Environment flags (`EGG_MCP_TOOLS`, etc.)
 
 ### Code Standards
 
@@ -55,6 +56,10 @@ Claude Code reads `CLAUDE.md` files automatically when starting. During containe
 
 - **checkpoint.md** - Checkpoint browser CLI commands
   - `egg-checkpoint` command reference (list, show, browse, context)
+
+### Agent MCP tools (opt-in)
+
+When the pipeline sets `EGG_MCP_TOOLS=true`, sandbox agents additionally see in-process Claude Agent SDK MCP tools for HITL / BRC / phase / progress / task operations on the same `tool_use` stream they already handle — prefer these (`mcp__sdlc__*`, `mcp__brc__*`, `mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`) over shelling out to `egg-contract` / `egg-orch` via Bash. The shell CLIs remain available for human operators, tests, and recovery scripts. Full reference: `$EGG_REPO_PATH/docs/reference/agent-tools.md`.
 
 ### Recovery
 

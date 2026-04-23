@@ -76,6 +76,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Checkpoint Browser](reference/checkpoint-browser.md) | Full `egg-checkpoint` command reference for browsing agent session history |
 | [SDLC Contract](reference/sdlc-contract.md) | Full `egg-contract` command reference for tracking tasks, commits, decisions |
 | [MCP Deployment Tools](reference/mcp-deployment-tools.md) | Six k8s-facing MCP tools: `get_deployment_context`, `validate_deployment_manifests`, `prune_stale_worktrees`, `validate_network_isolation`, `rebuild_and_rollout`, `get_service_logs` |
+| [Agent MCP Tools](reference/agent-tools.md) | In-process SDK MCP tools sandbox agents call on the `tool_use` stream (15 iteration-1 verbs: `mcp__sdlc__*`, `mcp__brc__*`, `mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`); opt-in via `EGG_MCP_TOOLS` |
 
 ### SDLC Pipeline Templates
 
