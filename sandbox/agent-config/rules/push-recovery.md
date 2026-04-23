@@ -42,9 +42,11 @@ Typical pattern after a push:
 
 The gateway reads each commit's author role from a commit-authorship registry maintained by the orchestrator. Commits that have no registry entry are treated as your own — the registry cannot be suppressed to bypass restrictions. If your push surfaces `push_authorship_unregistered_fallback` in the audit trail, it means at least one commit in the range has no registry record and was checked against your role's patterns.
 
+There is a stricter case: if the gateway cannot compute a commit walk at all (attribution lookup errored, or there is no walkable commit range for staged changes), it refuses to invoke the rewriter and short-circuits to `200 nothing_to_push: true` for every blocked file. The audit event is `push_all_blocked_no_op` with `attribution_fallback: true`, and the success message reads `Push skipped: attribution unavailable and out-of-scope files detected (fail-closed).` If you hit this, retry the push once; if it persists, escalate — something is wrong with the observer or the unpushed-range computation.
+
 ## Kill switch
 
-If `EGG_AGENT_RESTRICTIONS_ENFORCE=false` is set, the gateway logs a WARNING and plain-pushes (no rewrite, no filtering, no new response fields). This is an operator emergency switch, not something you should normally see.
+If `EGG_AGENT_RESTRICTIONS_ENFORCE=false` is set, the gateway logs a WARNING and plain-pushes (no rewrite, no filtering). The response still carries `filtered: false`, `excluded_files: []`, `pushed_files`, and `pulled_commits` so your post-push logic can use the same schema in either mode. This is an operator emergency switch, not something you should normally see.
 
 ## Preventing surprises
 

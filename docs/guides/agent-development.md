@@ -246,8 +246,8 @@ On any error during the walk or push, `HEAD` and the index are restored to the p
 
 ### Kill switch and audit
 
-- `EGG_AGENT_RESTRICTIONS_ENFORCE=false` short-circuits the entire auto-filter path. The gateway reverts to today's warn-only log and plain push, with no registry lookup and no new response fields.
-- Audit events are emitted for each outcome: `push_auto_filtered` (mixed rewrite), `push_all_blocked_no_op` (nothing_to_push), and `push_authorship_unregistered_fallback` (at least one commit had `authored_by=None` and was treated as own-authored). Each carries the role, excluded files, the `pulled_commits` list with `{sha, author_role}`, and the `rewritten_commits` SHA mapping when applicable.
+- `EGG_AGENT_RESTRICTIONS_ENFORCE=false` short-circuits the rewrite path. The gateway falls back to warn-only log + plain push, but the **response schema stays the same**: success bodies carry `filtered: false`, `excluded_files: []`, `pushed_files`, and `pulled_commits` so downstream tooling does not need to branch on whether enforcement is on. No registry lookup happens in this mode; `pulled_commits` comes from the attribution pass, which still runs for observability even when enforcement is off.
+- Audit events are emitted for each outcome: `push_auto_filtered` (mixed rewrite), `push_all_blocked_no_op` (nothing_to_push), and `push_authorship_unregistered_fallback` (at least one commit had `authored_by=None` and was treated as own-authored). Each carries the role, excluded files, the `pulled_commits` list with `{sha, author_role}`, and the `rewritten_commits` SHA mapping when applicable. `push_all_blocked_no_op` additionally carries `attribution_fallback: bool` — `true` means the handler could not compute a commit walk and chose the fail-closed short-circuit rather than the normal all-blocked path.
 
 ### What got removed
 

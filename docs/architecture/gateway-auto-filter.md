@@ -18,7 +18,7 @@ After #1882:
 - Push responses gain `pushed_commits` (SHAs actually pushed) and `pulled_commits: [{sha, author_role}, ...]` (cross-role commits observed). Filtered / short-circuit paths add `filtered`, `excluded_files`, `pushed_files`, and `nothing_to_push` as appropriate.
 - `sandbox/egg_lib/cli_push.py --scope-filter`, its `_filter_files` helper, and the `EGG_AGENT_FILE_PATTERNS` env-var injection were deleted in the same PR.
 - Phase / anchor / protected-file / branch-ownership / private-mode / concurrent-mode checks keep their `403` behavior — the auto-filter is scoped narrowly to agent-role file restrictions.
-- `EGG_AGENT_RESTRICTIONS_ENFORCE=false` remains as an emergency kill switch; the auto-filter short-circuits and the gateway falls back to today's warn-only plain push.
+- `EGG_AGENT_RESTRICTIONS_ENFORCE=false` remains as an emergency kill switch; the auto-filter short-circuits to warn-only plain push, but the success response still carries `filtered: false`, `excluded_files: []`, `pushed_files`, and `pulled_commits` so downstream tooling sees a consistent schema in both enforce and warn-only modes.
 
 ## Why a commit-authorship registry?
 
@@ -66,6 +66,10 @@ Both endpoints require the existing gateway↔orchestrator shared-secret header.
    - Mixed own-allowed + own-blocked → `gateway/filtered_push.py::execute_filtered_push` (see below). Response includes `filtered: true`, `excluded_files`, `pushed_files`, `pushed_commits`, `pulled_commits`.
    - All own-files blocked → `200 nothing_to_push: true` with `excluded_files` and `pulled_commits`. No ref update, no remote push, worktree unchanged.
 
+### Attribution-fallback short-circuit
+
+When `get_attributed_changed_files_in_push` returns an error or an empty commit list (for example, a legacy test mocking only the old file-detection path, or a push with staged changes but no walkable commit range), the handler enters an **attribution-fallback** mode: every file is treated as own-authored-and-unregistered, and if any file is blocked the push is **unconditionally** short-circuited to `200 nothing_to_push: true`. The rewriter is **never** invoked on an empty commit list — that would push HEAD unchanged and leak blocked files to origin. The `push_all_blocked_no_op` audit event carries `attribution_fallback: true` in this path, and the success message reads `Push skipped: attribution unavailable and out-of-scope files detected (fail-closed).`
+
 Three distinct audit events are emitted: `push_auto_filtered`, `push_all_blocked_no_op`, and `push_authorship_unregistered_fallback` (the last fires whenever any commit in the range had `authored_by=None`).
 
 Non-agent sessions (no `g.session.agent_role`) skip attribution entirely and take today's plain-push path.
@@ -91,6 +95,12 @@ Any error path restores HEAD and the worktree to exactly the pre-push state — 
 
 Commits with no registry entry are treated as own-authored. The agent cannot suppress the observer (it is gateway-inline and runs before the response is returned), and even if somehow an unregistered commit reached the push handler, its files flow through the pushing role's restriction check. This preserves the security guarantee that a file a role cannot write cannot be pushed under that role's identity, even under an observer-gap scenario.
 
+The attribution-fallback short-circuit above hardens this further: when the handler cannot compute a commit walk at all, it refuses to invoke the rewriter on an empty commit list and returns `nothing_to_push: true` for every blocked file. There is no code path that reaches `git push` with a blocked-file set under agent credentials.
+
+## Binary-safe re-staging
+
+After a filtered push, the gateway re-stages the blocked blobs into the agent's worktree so a peer role can pick them up without re-authoring. Blobs are read through `git show` **without** Python's `text=True` decoding and written to the worktree as raw bytes (`gateway/filtered_push.py::_git_raw` + `_restage_blocked_files`). This preserves non-UTF-8 payloads (PNG, PDF, compiled artefacts) bitwise — a previous iteration used text mode and silently corrupted binary files on re-stage. After writing the file, `git add <path>` (not `git add --intent-to-add`) stages the blob content, so the next role's `git commit` captures it in full.
+
 ## What was removed
 
 - **`sandbox/egg_lib/cli_push.py`**: the `--scope-filter` argparse flag, its filtered-push implementation, the `_filter_files` helper, and the `EGG_AGENT_FILE_PATTERNS` env-var read. The file collapses to a passthrough around `git push`.
@@ -108,8 +118,12 @@ No database migration. The state store creates the `commit-authorship/` subdirec
 Watch the gateway audit log for 24 h post-deploy:
 
 - `push_auto_filtered` — expected whenever an agent accidentally stages a blocked file. Should track roughly with the pre-#1882 403 rate.
-- `push_all_blocked_no_op` — rare; typically means an agent picked up work that belonged to a different role.
+- `push_all_blocked_no_op` — rare; typically means an agent picked up work that belonged to a different role. Inspect the event's `attribution_fallback` boolean: `false` is the normal all-blocked case; `true` means the handler could not compute a commit walk and fell back to the attribution-unavailable short-circuit — a sustained spike there is worth investigating (mocked tests leaking into production, or `git rev-list` disagreeing with the handler's view of the unpushed range).
 - `push_authorship_unregistered_fallback` — a steady trickle is normal (long-running sessions that predate deploy). A **sustained spike** after the deploy suggests the git-execute observer is missing some commit-creating subcommand; investigate which subcommand is being missed.
+
+## Deployment prerequisites
+
+The gateway's commit-authorship client calls the orchestrator's `/api/v1/commit-authorship/{register,lookup}` routes, which live behind `require_lifecycle_secret`. The gateway pod therefore needs `EGG_LIFECYCLE_SECRET` injected the same way `orchestrator-deployment.yaml` does — mounted from `gateway-secrets.lifecycle-secret`. Without the secret, every register and lookup 401s and the whole feature degrades to fail-closed own-authored on every push. This env var is set in `k8s/base/gateway-deployment.yaml`; local dev picks it up from `.env`.
 
 ## Related documents
 
