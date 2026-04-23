@@ -1670,11 +1670,14 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     except ValueError:
         return make_error_response(f"Invalid agent role: {agent_role}", status_code=400)
 
-    # Validate pipeline is in a restartable state
+    # Validate pipeline is in a restartable state.  CANCELLED is included so
+    # that a cancel_task(cleanup=false) pipeline can be resumed without a
+    # full resubmission (see #1725).
     if pipeline.status not in (
         PipelineStatus.RUNNING,
         PipelineStatus.AWAITING_HUMAN,
         PipelineStatus.FAILED,
+        PipelineStatus.CANCELLED,
     ):
         return make_error_response(
             f"Pipeline {pipeline_id} is not in a restartable state (status: {pipeline.status.value})",
@@ -1691,14 +1694,14 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
     current_phase = pipeline.current_phase.value
     phase_exec = pipeline.phases.get(current_phase)
 
-    # Early status update: transition FAILED -> RUNNING before the slow
-    # container restart so that get_status returns "running" immediately,
-    # even if the MCP call times out (see #1594).
-    if pipeline.status == PipelineStatus.FAILED:
+    # Early status update: transition FAILED/CANCELLED -> RUNNING before the
+    # slow container restart so that get_status returns "running" immediately,
+    # even if the MCP call times out (see #1594, #1725).
+    if pipeline.status in (PipelineStatus.FAILED, PipelineStatus.CANCELLED):
         early_lock = get_pipeline_state_lock(pipeline_id)
         with early_lock:
             pipeline = store.load_pipeline(pipeline_id)
-            if pipeline.status == PipelineStatus.FAILED:
+            if pipeline.status in (PipelineStatus.FAILED, PipelineStatus.CANCELLED):
                 pipeline.status = PipelineStatus.RUNNING
                 _phase_exec = pipeline.phases.get(current_phase)
                 if _phase_exec is not None:
@@ -1953,11 +1956,14 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
     except ValueError:
         return make_error_response(f"Invalid phase: {phase}", status_code=400)
 
-    # Validate pipeline is in a restartable state
+    # Validate pipeline is in a restartable state.  CANCELLED is included so
+    # that a cancel_task(cleanup=false) pipeline can be resumed without a
+    # full resubmission (see #1725).
     if pipeline.status not in (
         PipelineStatus.RUNNING,
         PipelineStatus.AWAITING_HUMAN,
         PipelineStatus.FAILED,
+        PipelineStatus.CANCELLED,
     ):
         return make_error_response(
             f"Pipeline {pipeline_id} is not in a restartable state (status: {pipeline.status.value})",

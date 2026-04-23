@@ -280,26 +280,38 @@ class TestRestartPhaseEndpoint:
         assert response.status_code == 200
         assert pipeline.status == PipelineStatus.RUNNING
 
+    @patch("routes.pipelines.threading.Thread")
     @patch("routes.pipelines.get_container_spawner")
     @patch("routes.pipelines._resolve_pipeline")
     @patch("routes.pipelines.get_repo_path")
-    def test_restart_phase_cancelled_pipeline_returns_409(
-        self, mock_repo, mock_resolve, mock_spawner_fn, client
+    def test_restart_phase_cancelled_pipeline_resumes(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_thread, client
     ):
-        """Phase restart returns 409 for cancelled pipelines."""
+        """Phase restart resumes a cancelled pipeline (see #1725).
+
+        cancel_task(cleanup=false) leaves the pipeline in CANCELLED with
+        all state preserved, and restart_phase should be able to pick it
+        back up rather than requiring a full resubmission.
+        """
         mock_repo.return_value = "/repo"
         pipeline = _make_pipeline_with_phase_agents()
         pipeline.status = PipelineStatus.CANCELLED
 
         mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
         mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner_fn.return_value = mock_spawner
 
         response = client.post(
             "/api/v1/pipelines/issue-200/phases/implement/restart",
-            json={},
+            json={"reason": "Resuming after fix landed"},
         )
 
-        assert response.status_code == 409
+        assert response.status_code == 200
+        assert pipeline.status == PipelineStatus.RUNNING
 
     @patch("routes.pipelines.threading.Thread")
     @patch("routes.pipelines.get_container_spawner")

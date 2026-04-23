@@ -354,7 +354,7 @@ PIPELINE_TOOLS = [
     },
     {
         "name": "cancel_task",
-        "description": "Cancel a pipeline task. Use cleanup=true to also delete pipeline state, allowing the same issue to be resubmitted.",
+        "description": "Cancel a pipeline task. With cleanup=false (default) the pipeline state is preserved and can be resumed later via restart_phase or restart_agent. Use cleanup=true to also delete pipeline state, allowing the same issue to be resubmitted.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -652,7 +652,9 @@ PIPELINE_TOOLS = [
         "description": (
             "Restart a single agent in a pipeline. Stops the existing container, "
             "resets its consensus state, and respawns it with the same configuration. "
-            "The agent's worktree is preserved so committed work is retained."
+            "The agent's worktree is preserved so committed work is retained. "
+            "Works on pipelines in running, awaiting-human, failed, or cancelled "
+            "state (cancelled pipelines come from cancel_task with cleanup=false)."
         ),
         "inputSchema": {
             "type": "object",
@@ -678,7 +680,9 @@ PIPELINE_TOOLS = [
         "description": (
             "Restart all agents in a pipeline phase. Stops all phase containers, "
             "resets consensus and review cycle state, and respawns all agents. "
-            "Prior phase artifacts are preserved."
+            "Prior phase artifacts are preserved. Works on pipelines in running, "
+            "awaiting-human, failed, or cancelled state (cancelled pipelines come "
+            "from cancel_task with cleanup=false)."
         ),
         "inputSchema": {
             "type": "object",
