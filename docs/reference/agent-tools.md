@@ -109,7 +109,7 @@ them as optional and promotes them in iteration 2
 
 | Tool | Purpose | Handler | CLI counterpart |
 |------|---------|---------|-----------------|
-| `mcp__progress__emit` | Emit a structured progress event (`step`, `state`, `detail`, `blocker`). | `handlers.progress.progress_emit` | `egg-orch progress emit` |
+| `mcp__progress__emit` | Signal a progress percent (`0`–`100`) for the current agent, with optional `task` ID and free-form `message`. Maps to the existing `signal progress` verb (not `progress emit`) — the structured-event schema is iteration-2 scope. | `handlers.progress.progress_emit` | `egg-orch signal progress` |
 | `mcp__progress__signal_error` | Signal an error to the orchestrator (`--error <msg>` payload + recoverable flag). | `handlers.progress.progress_signal_error` | `egg-orch signal error` |
 | `mcp__progress__heartbeat` | Send a heartbeat so the orchestrator knows the agent is alive. | `handlers.progress.progress_heartbeat` | `egg-orch signal heartbeat` |
 
@@ -238,15 +238,20 @@ so shell behaviour is byte-identical.
 > raises a typed exception. A handler that calls `sys.exit` would
 > terminate the Python interpreter the Claude Agent SDK is running in
 > and bring the entire agent down (see the risk-analyst R1 note in
-> `.egg-state/agent-outputs/1765-risk_analyst-output.json`). This
-> same rule applies to any helper imported by a handler — including
-> `make_gateway_request` in `sandbox/egg_lib/contract_cli.py`, which
-> was refactored in TASK-1-3 to raise `GatewayError` rather than
-> exit. When adding a new verb for
+> `.egg-state/agent-outputs/1765-risk_analyst-output.json`). The
+> same rule applies transitively to any helper imported by a handler
+> — notably `make_gateway_request`, which backs every handler in
+> `egg_agent_tools` and was refactored in TASK-1-3 to raise
+> `GatewayError` instead of exiting. This rule is about **handlers**,
+> not shell CLI shims: unrefactored `cmd_*` functions in
+> `sandbox/egg_lib/orch_cli.py` may still call `sys.exit(1)` on
+> argparse-level errors (e.g. missing `--role`), which is fine
+> because they run in their own process, not inside the agent SDK
+> loop. When adding a new verb for
 > [#1917](https://github.com/jwbron/egg/issues/1917), inherit this
-> contract: handlers raise; `@tool` wrappers catch; the CLI shim is
-> the only place an `sys.exit` lives, and only when the handler
-> raises.
+> contract: handlers raise; `@tool` wrappers catch; any `sys.exit`
+> lives only in a CLI shim that runs as a subprocess, never in code
+> imported into the agent event loop.
 
 See
 [`.egg-state/drafts/1765-plan.md`](../../.egg-state/drafts/1765-plan.md)

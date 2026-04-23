@@ -55,7 +55,7 @@ Raw `@tool` name namespaces: `mcp__sdlc__*`, `mcp__brc__*`,
 | 9 | `mcp__brc__list_blocking` | `handlers.brc.brc_list_blocking` | — *(new capability)* |
 | 10 | `mcp__phase__get_context` | `handlers.phase.phase_get_context` | — *(new capability)* |
 | 11 | `mcp__phase__get_assigned_tasks` | `handlers.phase.phase_get_assigned_tasks` | *(filtered view over `egg-contract show`)* |
-| 12 | `mcp__progress__emit` | `handlers.progress.progress_emit` | `egg-orch progress emit` |
+| 12 | `mcp__progress__emit` | `handlers.progress.progress_emit` | `egg-orch signal progress` |
 | 13 | `mcp__progress__signal_error` | `handlers.progress.progress_signal_error` | `egg-orch signal error` |
 | 14 | `mcp__progress__heartbeat` | `handlers.progress.progress_heartbeat` | `egg-orch signal heartbeat` |
 | 15 | `mcp__task__complete` | `handlers.task.task_complete` | `egg-contract complete-task` |
