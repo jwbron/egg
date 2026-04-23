@@ -105,7 +105,7 @@ def _find_artifact_paths(pipeline_id: str | None, phase: str | None) -> list[str
             try:
                 paths.append(str(p.relative_to(repo_root)))
             except ValueError:
-                paths.append(str(p))
+                pass  # skip paths that escape repo_root
     return paths
 
 

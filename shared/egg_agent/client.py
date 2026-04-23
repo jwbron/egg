@@ -245,6 +245,17 @@ async def run_agent_async(
             existing_prompt = options.system_prompt
             if isinstance(existing_prompt, str) and existing_prompt:
                 options.system_prompt = existing_prompt.rstrip() + "\n\n" + SYSTEM_PROMPT_NUDGE
+            elif existing_prompt:
+                # SystemPromptPreset / SystemPromptFile — we cannot
+                # append to these forms.  Preserve the caller's prompt
+                # and skip the nudge to avoid silent data loss.
+                logger.warning(
+                    "Cannot append MCP tool nudge to non-string system_prompt "
+                    "(type=%s); MCP tools are registered but the nudge is omitted",
+                    type(existing_prompt).__name__,
+                    event_type="system",
+                    event_subtype="mcp_nudge_skipped",
+                )
             else:
                 options.system_prompt = SYSTEM_PROMPT_NUDGE
             logger.info(

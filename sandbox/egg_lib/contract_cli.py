@@ -792,7 +792,13 @@ def cmd_add_decision(args: argparse.Namespace) -> int:
     if args.phase:
         req["phase"] = args.phase
 
-    resp = _handlers.register_open_question(req)
+    try:
+        resp = _handlers.register_open_question(req)
+    except GatewayError as err:
+        return _render_gateway_error_and_exit(err)
+    except HandlerError as err:
+        print(f"Error: {err.message}", file=sys.stderr)
+        return err.exit_code
     decision = resp.get("decision", {})
 
     output_format = getattr(args, "format", "json")
@@ -1297,7 +1303,13 @@ def cmd_add_feedback(args: argparse.Namespace) -> int:
     else:
         req["pipeline_id"] = identifier
 
-    resp = _handlers.request_feedback(req)
+    try:
+        resp = _handlers.request_feedback(req)
+    except GatewayError as err:
+        return _render_gateway_error_and_exit(err)
+    except HandlerError as err:
+        print(f"Error: {err.message}", file=sys.stderr)
+        return err.exit_code
     feedback_id = resp.get("id")
     questions = resp.get("questions", [])
     warning = resp.get("warning")

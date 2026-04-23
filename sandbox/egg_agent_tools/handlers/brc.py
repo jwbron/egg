@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from typing import Any
 
@@ -12,6 +13,14 @@ from egg_agent_tools.handlers._gateway import (
     orchestrator_request,
 )
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
+_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
+
+
+def _validate_commit_sha(sha: str) -> str:
+    if not _COMMIT_SHA_PATTERN.match(sha):
+        raise HandlerError(f"Invalid commit SHA '{sha}': expected 7-40 hexadecimal characters")
+    return sha
 
 
 def _require_pipeline_id(req: dict[str, Any]) -> str:
@@ -79,11 +88,10 @@ def brc_propose(req: dict[str, Any]) -> dict[str, Any]:
     if not summary or not isinstance(summary, str):
         raise HandlerError("'summary' is required")
 
-    commit_sha = (
-        req.get("commit_sha")
-        or (raw_payload.get("commit_sha") if raw_payload else None)
-        or _resolve_head_sha()
-    )
+    user_sha = req.get("commit_sha") or (raw_payload.get("commit_sha") if raw_payload else None)
+    if user_sha:
+        _validate_commit_sha(user_sha)
+    commit_sha = user_sha or _resolve_head_sha()
 
     # Start from raw_payload (if any) so unknown/custom schema fields
     # are preserved verbatim; structured kwargs layer on top.
