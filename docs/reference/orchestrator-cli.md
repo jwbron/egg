@@ -258,9 +258,11 @@ All tools require `task_id` (the pipeline ID). Additional parameters:
 | `complete_phase` | `invalid_artifacts` | 400 | `artifacts` must be a JSON object with string values |
 | `complete_phase` | `invalid_force_reason` | 400 | `force_reason` must be a non-empty string |
 | `populate_contract` | `populate_contract_failed` | 500 | Internal error during contract population |
-| all | `version_conflict` | 409 | Concurrent modification detected; retry the request |
+| `advance_phase`, `start_phase`, `complete_phase`, `fail_phase` | `version_conflict` | 409 | Concurrent modification detected; retry the request |
 | all | `invalid_pipeline_id` | 400 | Pipeline ID format is invalid |
 | all | `pipeline_not_found` | 404 | No pipeline with that ID exists |
+
+The REST-only endpoints `fail_phase` and `get_current_phase` also include `reason` in error responses (e.g., `missing_error_message` for `fail_phase`, plus the shared `invalid_pipeline_id` / `pipeline_not_found` / `version_conflict` codes where applicable).
 
 Note: reason codes are present in the raw HTTP response. The MCP handler layer does not yet surface them to tool callers.
 
