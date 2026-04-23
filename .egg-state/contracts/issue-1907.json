@@ -1,0 +1,91 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1907,
+    "title": "Issue #1907",
+    "url": "https://github.com/jwbron/egg/issues/1907"
+  },
+  "pipeline_id": "issue-1907",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Implement",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "In `gateway/gateway.py:proxy_anthropic_messages()` (~line 5241), wrap the streaming branch's `client.send(http_request, stream=True)` + first-chunk peek in a bounded retry loop (max 1 retry) that catches `httpx.ReadError` and `httpx.RemoteProtocolError`. Pre-read the first chunk eagerly before returning the Flask Response so early resets surface inside the retry-safe window; re-prepend the peeked chunk onto the downstream stream. On retry, close the failed upstream and rebuild the request from the original headers + body. Log retries at INFO with a structured `upstream_reset_retry` event. Exhausted retries fall through to the existing 502 `api_error` handler.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "When upstream raises httpx.ReadError before any response byte reaches downstream, the gateway retries transparently with a fresh connection; a successful retry returns the stream as if nothing happened. When the retry also fails, a 502 JSON error_payload is returned (not a truncated stream). A structured `upstream_reset_retry` log is emitted on retry.",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "In the `generate()` generator (~line 5270), wrap the `for chunk in upstream.iter_bytes():` loop in `try: \u2026 except (httpx.ReadError, httpx.RemoteProtocolError) as e:`. On error, yield a terminating SSE payload `event: error\\ndata: {\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"upstream connection reset\"}}\\n\\n` and return. Keep the existing `finally` block flushing partial transcript capture via `_capture_streaming_response`. Log a WARN with `upstream_reset_midstream` plus bytes-transferred context.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "When upstream raises httpx.ReadError after bytes have flowed downstream, the gateway emits a well-formed SSE `event: error` payload matching Anthropic's error envelope and closes the stream cleanly. No uncaught httpcore.ReadError traceback appears in waitress logs for this case. Transcript capture still runs with partial accumulator data.",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "Add `gateway/tests/test_proxy_anthropic_stream.py` covering: (a) upstream ReadError before any bytes \u2192 retried once \u2192 succeeds transparently (downstream sees only the retry's bytes, no error); (b) upstream ReadError persists across retries \u2192 returns 502 JSON error payload; (c) upstream ReadError after bytes have flowed \u2192 downstream stream ends with a well-formed SSE `event: error` payload, no uncaught exception reaches waitress; (d) transcript buffer's _capture_streaming_response still runs with partial accumulator data on mid-stream error. Use a mock httpx.Client injected via get_anthropic_client() with a transport that yields configurable bytes then raises.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "New test file passes with at least the four scenarios above. Existing gateway test suite (`pytest gateway/tests/`) continues to pass. Non-streaming and /v1/messages/count_tokens behavior is unchanged (verified by existing tests).",
+          "files_affected": [
+            "gateway/tests/test_proxy_anthropic_stream.py"
+          ],
+          "role": null,
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [],
+  "workflow_owner": null,
+  "audit_log": [],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Fix #1907: retry upstream ECONNRESET pre-stream; emit SSE error mid-stream",
+    "description": "Fixes #1907. The gateway's `/v1/messages` proxy previously let `httpx.ReadError`\nfrom an upstream TCP reset propagate out of the streaming generator, truncating\nthe SSE to the agent and causing a fatal `socket connection was closed\nunexpectedly` error that killed the sandbox Job.\n\nAdds two complementary defenses in `proxy_anthropic_messages`:\n  (A) Pre-stream retry (max 1) when the upstream read fails before any byte has\n      reached the downstream agent \u2014 covers stale keepalive connections and\n      early edge resets. Transparent to the agent.\n  (B) Mid-stream synthetic `event: error` SSE envelope when the reset fires\n      after bytes have flowed. The agent sees a well-formed error event\n      matching Anthropic's convention instead of a truncated stream, avoiding\n      the downstream `aclose(): asynchronous generator is already running`\n      crash.\n\nNon-streaming and `/v1/messages/count_tokens` paths are unchanged.",
+    "test_plan": "- Automated: new `gateway/tests/test_proxy_anthropic_stream.py` covers (a) early\n  reset retried successfully, (b) persistent early reset returns 502, (c)\n  mid-stream reset emits terminating SSE error event, (d) partial transcript\n  capture still runs on mid-stream error. Existing gateway suite (`pytest\n  gateway/tests/`) must continue passing.\n- Manual: not required \u2014 behavior is purely defensive; no user-facing API\n  surface changes.",
+    "manual_steps": "Pre-merge: none.\nPost-merge: monitor gateway logs for `upstream_reset_retry` (INFO) and\n`upstream_reset_midstream` (WARN) structured events to confirm the fix\nactivates in production. A sustained rate of either indicates an upstream\nissue worth investigating."
+  },
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}
