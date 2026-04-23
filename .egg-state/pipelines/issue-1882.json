@@ -49,8 +49,8 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "pending",
-      "started_at": null,
+      "status": "running",
+      "started_at": "2026-04-23T05:31:35.002844Z",
       "work_started_at": null,
       "completed_at": null,
       "containers": [],
@@ -66,7 +66,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-23T05:21:58.997312Z",
-  "updated_at": "2026-04-23T05:31:28.069036Z",
+  "updated_at": "2026-04-23T05:31:35.002903Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -80,5 +80,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:31:28.068349Z",
-  "version": 12
+  "version": 13
 }
