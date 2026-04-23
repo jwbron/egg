@@ -77,7 +77,7 @@ def make_error_response(
     response: dict[str, Any] = {"success": False, "message": message}
     if reason is not None:
         response["reason"] = reason
-    if details:
+    if details is not None:
         response["details"] = details
     return jsonify(response), status_code
 
