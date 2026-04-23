@@ -65,7 +65,7 @@ for i in $(seq 1 20); do
 done
 ```
 
-For gateway memory detail (per-allocation), set `EGG_GATEWAY_MEM_TRACE=1` on the gateway Deployment and inspect stdout — see `gateway/mem_trace.py` (added in #1887).
+For gateway memory detail (per-allocation), set `GATEWAY_MEM_TRACE=1` on the gateway Deployment and inspect stdout — see `gateway/mem_trace.py` (added in #1887).
 
 ## Gaps / future work
 
