@@ -323,10 +323,50 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Replace shell sleep loop with a long XREAD BLOCK or SSE listener tied to is_complete signal\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-10",
+      "question": "Open feedback request feedback-1",
+      "context": "Open contract feedback feedback-1, registered by an agent during the refine phase.",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [
+        {
+          "id": "Q1",
+          "question": "The 'consensus confirmed' idempotency fix from PR #1896 (commit ae9535b9) was merged just before this issue was filed. Was the bus pollution observed in pipeline issue-1762-membump from BEFORE or AFTER that fix landed? If after, the dedup logic in routes/signals.py:1241-1294 (_existing_confirmed_for_role) needs another bug fix; if before, item #3 in the proposed work may already be done.",
+          "answer": ""
+        },
+        {
+          "id": "Q2",
+          "question": "How important is supporting the in-memory message store backend for true blocking (--wait > 0)? Currently the in-memory store silently falls back to non-blocking (routes/messages.py:181-184). Is this only a concern for tests, or do production deployments ever run without Redis?",
+          "answer": ""
+        },
+        {
+          "id": "Q3",
+          "question": "Are there any constraints on adding new message types (like a new HEARTBEAT type) or new CLI subcommands? Backward compatibility with current pipelines mid-flight, schema versioning of the message store, etc.",
+          "answer": ""
+        },
+        {
+          "id": "Q4",
+          "question": "Should the proposed instrumentation be a separate observability subsystem (#1897 item 5: agent heartbeats with WORKING/WAITING_ON_ROLE/PROPOSED/IDLE) or piggyback on the existing PROGRESS message type? PROGRESS already covers 'what you're doing'; STATUS covers 'who you're waiting on' is the gap.",
+          "answer": ""
+        },
+        {
+          "id": "Q5",
+          "question": "What is the desired UX for an LLM-driven agent that should NOT loop or sleep — should we ship a single recommended idiom (e.g. 'while true; do egg-orch message poll --wait 60 --until consensus_reached || break; done') and ban everything else, or document several patterns and trust the agent to choose?",
+          "answer": ""
+        }
+      ],
+      "status": "pending",
+      "created_at": "2026-04-23T00:07:12.347451Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-22T23:27:22.582974Z",
-  "updated_at": "2026-04-23T00:07:09.308232Z",
+  "updated_at": "2026-04-23T00:07:12.374244Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -339,5 +379,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 28
+  "version": 29
 }
