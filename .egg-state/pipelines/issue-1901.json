@@ -360,7 +360,7 @@
           "container_info": null,
           "started_at": "2026-04-23T03:04:15.958700Z",
           "completed_at": "2026-04-23T04:33:53.994078Z",
-          "commit": null,
+          "commit": "9f11b2233471ffd00deb024230722e0bda4190b5",
           "outputs": {},
           "error": null,
           "retry_count": 0,
@@ -368,12 +368,12 @@
         },
         {
           "role": "coder",
-          "status": "failed",
+          "status": "complete",
           "container_id": "656161bd-7eb9-46e9-9020-b803d23c885b",
           "container_info": null,
           "started_at": "2026-04-23T03:04:15.958709Z",
-          "completed_at": "2026-04-23T04:34:16.740321Z",
-          "commit": null,
+          "completed_at": "2026-04-23T04:34:16.758009Z",
+          "commit": "e4672c29ff430586564fab59943ab07d555f1611",
           "outputs": {},
           "error": "Container exited with code -1",
           "retry_count": 0,
@@ -394,12 +394,12 @@
         },
         {
           "role": "documenter",
-          "status": "failed",
+          "status": "complete",
           "container_id": "79c82311-6bef-4b00-8cc0-fc2064aa43cb",
           "container_info": null,
           "started_at": "2026-04-23T03:04:15.958717Z",
-          "completed_at": "2026-04-23T04:34:16.712182Z",
-          "commit": null,
+          "completed_at": "2026-04-23T04:34:16.758017Z",
+          "commit": "e87696616abac7785d229e741f1b15b5b00161db",
           "outputs": {},
           "error": "Container exited with code -1",
           "retry_count": 0,
@@ -602,7 +602,7 @@
     }
   ],
   "created_at": "2026-04-22T23:25:22.973469Z",
-  "updated_at": "2026-04-23T04:34:16.740388Z",
+  "updated_at": "2026-04-23T04:34:16.758186Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -615,5 +615,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T00:10:48.673750Z",
-  "version": 56
+  "version": 57
 }
