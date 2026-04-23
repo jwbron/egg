@@ -285,8 +285,140 @@
       "started_at": "2026-04-23T07:27:52.392901Z",
       "work_started_at": "2026-04-23T07:27:52.525635Z",
       "completed_at": null,
-      "containers": [],
-      "agents": [],
+      "containers": [
+        {
+          "container_id": "95096897-7d95-48c5-9cf4-5d1475e14a7f",
+          "container_name": "egg-sandbox-egg-agent-issue-1897-tester",
+          "status": "running",
+          "started_at": "2026-04-23T07:27:56.956320Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "tester",
+          "session_token": null,
+          "pod_name": null,
+          "namespace": "egg-agents",
+          "job_name": "egg-sandbox-egg-agent-issue-1897-tester"
+        },
+        {
+          "container_id": "9275cf52-434d-4785-8a4e-1e3987d5e13d",
+          "container_name": "egg-sandbox-egg-agent-issue-1897-reviewer-contract",
+          "status": "running",
+          "started_at": "2026-04-23T07:27:56.956338Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_contract",
+          "session_token": null,
+          "pod_name": null,
+          "namespace": "egg-agents",
+          "job_name": "egg-sandbox-egg-agent-issue-1897-reviewer-contract"
+        },
+        {
+          "container_id": "21777198-7627-4a5a-92fd-eec21e6ac3e4",
+          "container_name": "egg-sandbox-egg-agent-issue-1897-coder",
+          "status": "running",
+          "started_at": "2026-04-23T07:27:56.956343Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "coder",
+          "session_token": null,
+          "pod_name": null,
+          "namespace": "egg-agents",
+          "job_name": "egg-sandbox-egg-agent-issue-1897-coder"
+        },
+        {
+          "container_id": "79f5e0b3-ba84-43d5-89fa-0dd0ed40d346",
+          "container_name": "egg-sandbox-egg-agent-issue-1897-reviewer-code",
+          "status": "running",
+          "started_at": "2026-04-23T07:27:56.956347Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_code",
+          "session_token": null,
+          "pod_name": null,
+          "namespace": "egg-agents",
+          "job_name": "egg-sandbox-egg-agent-issue-1897-reviewer-code"
+        },
+        {
+          "container_id": "6d3141dc-dd4f-4eea-bb88-1e752c004e74",
+          "container_name": "egg-sandbox-egg-agent-issue-1897-documenter",
+          "status": "running",
+          "started_at": "2026-04-23T07:27:56.956351Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "documenter",
+          "session_token": null,
+          "pod_name": null,
+          "namespace": "egg-agents",
+          "job_name": "egg-sandbox-egg-agent-issue-1897-documenter"
+        }
+      ],
+      "agents": [
+        {
+          "role": "tester",
+          "status": "running",
+          "container_id": "95096897-7d95-48c5-9cf4-5d1475e14a7f",
+          "container_info": null,
+          "started_at": "2026-04-23T07:27:56.956333Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_contract",
+          "status": "running",
+          "container_id": "9275cf52-434d-4785-8a4e-1e3987d5e13d",
+          "container_info": null,
+          "started_at": "2026-04-23T07:27:56.956341Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "coder",
+          "status": "running",
+          "container_id": "21777198-7627-4a5a-92fd-eec21e6ac3e4",
+          "container_info": null,
+          "started_at": "2026-04-23T07:27:56.956345Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_code",
+          "status": "running",
+          "container_id": "79f5e0b3-ba84-43d5-89fa-0dd0ed40d346",
+          "container_info": null,
+          "started_at": "2026-04-23T07:27:56.956349Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "documenter",
+          "status": "running",
+          "container_id": "6d3141dc-dd4f-4eea-bb88-1e752c004e74",
+          "container_info": null,
+          "started_at": "2026-04-23T07:27:56.956353Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        }
+      ],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -518,7 +650,7 @@
     }
   ],
   "created_at": "2026-04-22T23:27:22.582974Z",
-  "updated_at": "2026-04-23T07:27:52.527626Z",
+  "updated_at": "2026-04-23T07:27:56.956457Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -532,5 +664,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T07:27:44.037815Z",
-  "version": 69
+  "version": 70
 }
