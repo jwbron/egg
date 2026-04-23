@@ -234,9 +234,16 @@ async def run_agent_async(
             # merge into any caller-supplied mcp_servers on options.
             existing_servers = getattr(options, "mcp_servers", None) or {}
             options.mcp_servers = {**existing_servers, **mcp_servers}
-            # Preserve any caller-supplied system_prompt; append the nudge.
-            existing_prompt = options.system_prompt or ""
-            if existing_prompt:
+            # Preserve any caller-supplied system_prompt; append the
+            # nudge.  ``options.system_prompt`` is typed
+            # ``str | SystemPromptPreset | SystemPromptFile | None`` —
+            # we only know how to extend the plain-str case; for preset
+            # / file forms the nudge is set as the full prompt (the
+            # caller's preset/file remains accessible via the SDK's own
+            # plumbing but SystemPromptPreset / SystemPromptFile
+            # append semantics are not defined).
+            existing_prompt = options.system_prompt
+            if isinstance(existing_prompt, str) and existing_prompt:
                 options.system_prompt = (
                     existing_prompt.rstrip() + "\n\n" + SYSTEM_PROMPT_NUDGE
                 )

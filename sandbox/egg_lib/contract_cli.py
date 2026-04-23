@@ -30,11 +30,6 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from egg_contracts.agent_roles import AgentRole, get_role_definition
-from egg_contracts.feedback import (
-    FeedbackQuestionInput,
-    generate_feedback_comment,
-    generate_feedback_id,
-)
 
 from egg_lib.config import GATEWAY_PORT
 

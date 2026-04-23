@@ -4,27 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-try:
-    from claude_agent_sdk import tool
-except ImportError:  # pragma: no cover
-
-    def tool(name, description, input_schema, annotations=None):  # type: ignore[no-redef]
-        def _decorator(handler):
-            class _Stub:
-                def __init__(self) -> None:
-                    self.name = name
-                    self.description = description
-                    self.input_schema = input_schema
-                    self.handler = handler
-                    self.annotations = annotations
-
-            return _Stub()
-
-        return _decorator
-
 from egg_agent_tools.handlers import progress as handlers
 from egg_agent_tools.tools._common import invoke_handler
 from egg_agent_tools.tools._registry import ToolRegistration
+from egg_agent_tools.tools._tool_compat import tool
 
 NAMESPACE = "progress"
 

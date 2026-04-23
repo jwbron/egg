@@ -27,7 +27,7 @@ from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 # alongside other agent events.  Fall back to stdlib logging when
 # egg_logging is unavailable (host-side tooling, unit tests).
 try:
-    from egg_logging import get_logger  # type: ignore[import-not-found]
+    from egg_logging import get_logger
 
     _logger: Any = get_logger("egg_agent_tools.tool")
 except ImportError:  # pragma: no cover - host-side fallback

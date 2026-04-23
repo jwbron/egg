@@ -18,12 +18,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from egg_agent_tools.tools._registry import ToolRegistration
 from egg_agent_tools.tools import brc as _brc_tools
 from egg_agent_tools.tools import phase as _phase_tools
 from egg_agent_tools.tools import progress as _progress_tools
 from egg_agent_tools.tools import sdlc as _sdlc_tools
 from egg_agent_tools.tools import task as _task_tools
+from egg_agent_tools.tools._registry import ToolRegistration
 
 TOOL_REGISTRY: dict[str, ToolRegistration] = {}
 
