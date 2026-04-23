@@ -1517,13 +1517,24 @@ def cmd_consensus_confirmed(args: argparse.Namespace) -> int:
 
 
 def cmd_consensus_status(args: argparse.Namespace) -> int:
-    """Show BRC consensus status (approval matrix and review graph)."""
+    """Show BRC consensus status (approval matrix and review graph).
+
+    Delegates the structured data-build to
+    :func:`egg_agent_tools.handlers.brc.brc_get_state` so the MCP
+    ``mcp__brc__get_state`` tool and this CLI share one handler.  The
+    human-readable rendering stays here in the shim.
+    """
+    from egg_agent_tools.handlers import brc as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
     pid = require_pipeline_id(args)
 
-    result = orch_request(f"/api/v1/pipelines/{pid}/status")
+    try:
+        resp = _handlers.brc_get_state({"pipeline_id": pid})
+    except (GatewayError, HandlerError) as err:
+        return _render_handler_error(err)
 
-    consensus = result.get("data", {}).get("concurrent", {}).get("consensus", {})
-
+    consensus = resp.get("consensus", {}) or {}
     if args.json:
         print_json(consensus)
         return 0

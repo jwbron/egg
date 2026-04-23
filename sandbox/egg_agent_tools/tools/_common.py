@@ -22,7 +22,16 @@ from typing import Any
 
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
-_logger = logging.getLogger("egg_agent_tools.tool")
+# Prefer the structured logger used by shared/egg_agent/client.py so
+# tracebacks land in the checkpoint-browser's structured-event view
+# alongside other agent events.  Fall back to stdlib logging when
+# egg_logging is unavailable (host-side tooling, unit tests).
+try:
+    from egg_logging import get_logger  # type: ignore[import-not-found]
+
+    _logger: Any = get_logger("egg_agent_tools.tool")
+except ImportError:  # pragma: no cover - host-side fallback
+    _logger = logging.getLogger("egg_agent_tools.tool")
 
 
 def _format_error(exc: BaseException) -> str:
