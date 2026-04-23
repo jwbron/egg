@@ -352,13 +352,6 @@ class TestConsensusTimeout:
 
         executions = [_make_execution(AgentRole.CODER, "coder-1")]
         pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions)
-        mock_docker.wait_for_container.return_value = ContainerInfo(
-            container_id="coder-1",
-            container_name="issue-999-coder",
-            status=ContainerStatus.EXITED,
-            exit_code=0,
-            exited_at=datetime.now(UTC),
-        )
 
         mock_executor_instance = MagicMock()
         mock_executor_instance.spawn_all.return_value = executions
