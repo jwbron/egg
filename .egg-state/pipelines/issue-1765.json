@@ -363,16 +363,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-23T06:55:00.436801Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-23T06:55:37.122017Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"BRC + HITL + phase-context core (~15 tools): brc_propose/ack/nack/confirm/get_state/list_blocking; hitl_register_decision/request_feedback/check_answers; phase_get_context/get_assigned_tasks; progress_emit/signal_error/heartbeat; task_complete (Recommended — covers every agent role's BRC lifecycle + HITL + orientation on day one, without boiling the ocean)\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:22:09.201730Z",
-  "updated_at": "2026-04-23T06:55:00.446744Z",
+  "updated_at": "2026-04-23T06:55:37.134130Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -386,5 +386,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:32:00.470351Z",
-  "version": 53
+  "version": 54
 }
