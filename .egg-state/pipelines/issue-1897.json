@@ -173,10 +173,10 @@
         {
           "container_id": "28c717bb-5e29-4809-90ac-b916c9b5d38a",
           "container_name": "egg-sandbox-egg-agent-issue-1897-architect",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-23T00:09:41.162548Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-23T00:51:49Z",
+          "exit_code": 1,
           "agent_role": "architect",
           "session_token": null,
           "pod_name": null,
@@ -226,14 +226,14 @@
         },
         {
           "role": "architect",
-          "status": "running",
+          "status": "failed",
           "container_id": "28c717bb-5e29-4809-90ac-b916c9b5d38a",
           "container_info": null,
           "started_at": "2026-04-23T00:09:41.162551Z",
-          "completed_at": null,
+          "completed_at": "2026-04-23T00:51:56.492982Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code 1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -495,7 +495,7 @@
     }
   ],
   "created_at": "2026-04-22T23:27:22.582974Z",
-  "updated_at": "2026-04-23T00:51:55.687031Z",
+  "updated_at": "2026-04-23T00:51:56.493112Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -508,5 +508,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 38
+  "version": 39
 }
