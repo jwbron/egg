@@ -1,6 +1,7 @@
 """Tests for ConsensusStallCheck health check."""
 
 import sys
+from collections import namedtuple
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -327,6 +328,60 @@ def _make_monitor():
     return ContainerMonitor(docker_client=mock_docker)
 
 
+AggressiveRecoveryFixture = namedtuple(
+    "AggressiveRecoveryFixture",
+    [
+        "monitor",
+        "pipeline",
+        "result",
+        "fresh_pipeline",
+        "store",
+        "mock_pc",
+        "mock_graph",
+        "patches",
+    ],
+)
+
+
+def _setup_aggressive_recovery() -> AggressiveRecoveryFixture:
+    """Common setup for aggressive-recovery tests.
+
+    Returns a named tuple with the monitor, pipelines, result, mock store,
+    and the sys.modules patch dict ready for use as a context manager.
+    """
+    monitor = _make_monitor()
+    pipeline = _make_concurrent_pipeline()
+    result = _make_degraded_result()
+
+    fresh_pipeline = _make_concurrent_pipeline()
+    mock_store = MagicMock()
+    mock_store.load_pipeline.return_value = fresh_pipeline
+
+    mock_pc = MagicMock()
+    mock_pc.get_peer_consensus_tracker.return_value = None
+    mock_pc.reconstruct_tracker_from_messages.return_value = None
+    mock_graph = MagicMock()
+
+    patches = patch.dict(
+        "sys.modules",
+        {
+            "peer_consensus": mock_pc,
+            "review_graph": mock_graph,
+        },
+    )
+
+    return AggressiveRecoveryFixture(
+        monitor=monitor,
+        pipeline=pipeline,
+        result=result,
+        fresh_pipeline=fresh_pipeline,
+        store=mock_store,
+        mock_pc=mock_pc,
+        mock_graph=mock_graph,
+        patches=patches,
+    )
+
+
 class TestHandleConsensusStallRecovery:
     def test_skips_non_consensus_results(self):
         """Non-consensus results are ignored."""
@@ -612,29 +667,11 @@ class TestHandleConsensusStallRecovery:
         reconciler doesn't flip the pipeline to FAILED when pods are
         stopped below (#1294 pattern extended to aggressive recovery
         for #1935)."""
-        monitor = _make_monitor()
-        pipeline = _make_concurrent_pipeline()
-        result = _make_degraded_result()
+        f = _setup_aggressive_recovery()
+        with f.patches:
+            f.monitor._handle_consensus_stall_recovery([f.result], f.pipeline, f.store)
 
-        fresh_pipeline = _make_concurrent_pipeline()
-        mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = fresh_pipeline
-
-        mock_pc = MagicMock()
-        mock_pc.get_peer_consensus_tracker.return_value = None
-        mock_pc.reconstruct_tracker_from_messages.return_value = None
-        mock_graph_mod = MagicMock()
-
-        with patch.dict(
-            "sys.modules",
-            {
-                "peer_consensus": mock_pc,
-                "review_graph": mock_graph_mod,
-            },
-        ):
-            monitor._handle_consensus_stall_recovery([result], pipeline, mock_store)
-
-        phase_exec = fresh_pipeline.phases.get("implement")
+        phase_exec = f.fresh_pipeline.phases.get("implement")
         assert phase_exec is not None
         for ci in phase_exec.containers:
             assert ci.status == ContainerStatus.EXITED
@@ -646,29 +683,11 @@ class TestHandleConsensusStallRecovery:
         polling loop in _run_concurrent_phase detects the exits and
         returns — otherwise the pipeline stays stuck with
         phase.completed_at=null until a human intervenes (#1935)."""
-        monitor = _make_monitor()
-        pipeline = _make_concurrent_pipeline()
-        result = _make_degraded_result()
+        f = _setup_aggressive_recovery()
+        with f.patches:
+            f.monitor._handle_consensus_stall_recovery([f.result], f.pipeline, f.store)
 
-        fresh_pipeline = _make_concurrent_pipeline()
-        mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = fresh_pipeline
-
-        mock_pc = MagicMock()
-        mock_pc.get_peer_consensus_tracker.return_value = None
-        mock_pc.reconstruct_tracker_from_messages.return_value = None
-        mock_graph_mod = MagicMock()
-
-        with patch.dict(
-            "sys.modules",
-            {
-                "peer_consensus": mock_pc,
-                "review_graph": mock_graph_mod,
-            },
-        ):
-            monitor._handle_consensus_stall_recovery([result], pipeline, mock_store)
-
-        stopped_ids = {call.args[0] for call in monitor.k8s_client.stop_container.call_args_list}
+        stopped_ids = {call.args[0] for call in f.monitor.k8s_client.stop_container.call_args_list}
         expected_ids = {"container-coder", "container-tester"}
         assert stopped_ids == expected_ids
 
@@ -677,33 +696,15 @@ class TestHandleConsensusStallRecovery:
         get_phase reports reflect actual phase duration (#1935)."""
         from models import CycleTiming
 
-        monitor = _make_monitor()
-        pipeline = _make_concurrent_pipeline()
-        result = _make_degraded_result()
-
-        fresh_pipeline = _make_concurrent_pipeline()
-        phase_exec = fresh_pipeline.phases.get("implement")
+        f = _setup_aggressive_recovery()
+        phase_exec = f.fresh_pipeline.phases.get("implement")
         assert phase_exec is not None
         phase_exec.cycle_timings.append(
             CycleTiming(cycle=0, started_at=datetime.now(UTC) - timedelta(seconds=60))
         )
 
-        mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = fresh_pipeline
-
-        mock_pc = MagicMock()
-        mock_pc.get_peer_consensus_tracker.return_value = None
-        mock_pc.reconstruct_tracker_from_messages.return_value = None
-        mock_graph_mod = MagicMock()
-
-        with patch.dict(
-            "sys.modules",
-            {
-                "peer_consensus": mock_pc,
-                "review_graph": mock_graph_mod,
-            },
-        ):
-            monitor._handle_consensus_stall_recovery([result], pipeline, mock_store)
+        with f.patches:
+            f.monitor._handle_consensus_stall_recovery([f.result], f.pipeline, f.store)
 
         assert phase_exec.cycle_timings[-1].completed_at is not None
 
@@ -711,12 +712,8 @@ class TestHandleConsensusStallRecovery:
         """Already-closed cycle_timings must not be overwritten."""
         from models import CycleTiming
 
-        monitor = _make_monitor()
-        pipeline = _make_concurrent_pipeline()
-        result = _make_degraded_result()
-
-        fresh_pipeline = _make_concurrent_pipeline()
-        phase_exec = fresh_pipeline.phases.get("implement")
+        f = _setup_aggressive_recovery()
+        phase_exec = f.fresh_pipeline.phases.get("implement")
         assert phase_exec is not None
         earlier = datetime.now(UTC) - timedelta(seconds=30)
         phase_exec.cycle_timings.append(
@@ -727,22 +724,8 @@ class TestHandleConsensusStallRecovery:
             )
         )
 
-        mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = fresh_pipeline
-
-        mock_pc = MagicMock()
-        mock_pc.get_peer_consensus_tracker.return_value = None
-        mock_pc.reconstruct_tracker_from_messages.return_value = None
-        mock_graph_mod = MagicMock()
-
-        with patch.dict(
-            "sys.modules",
-            {
-                "peer_consensus": mock_pc,
-                "review_graph": mock_graph_mod,
-            },
-        ):
-            monitor._handle_consensus_stall_recovery([result], pipeline, mock_store)
+        with f.patches:
+            f.monitor._handle_consensus_stall_recovery([f.result], f.pipeline, f.store)
 
         assert phase_exec.cycle_timings[-1].completed_at == earlier
 
@@ -752,56 +735,44 @@ class TestHandleConsensusStallRecovery:
         transition and will drive it itself."""
         from state_store import VersionConflictError
 
-        monitor = _make_monitor()
-        pipeline = _make_concurrent_pipeline()
-        result = _make_degraded_result()
+        f = _setup_aggressive_recovery()
+        f.store.save_pipeline.side_effect = VersionConflictError("conflict")
 
-        fresh_pipeline = _make_concurrent_pipeline()
-        mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = fresh_pipeline
-        mock_store.save_pipeline.side_effect = VersionConflictError("conflict")
+        with f.patches:
+            f.monitor._handle_consensus_stall_recovery([f.result], f.pipeline, f.store)
 
-        mock_pc = MagicMock()
-        mock_pc.get_peer_consensus_tracker.return_value = None
-        mock_pc.reconstruct_tracker_from_messages.return_value = None
-        mock_graph_mod = MagicMock()
-
-        with patch.dict(
-            "sys.modules",
-            {
-                "peer_consensus": mock_pc,
-                "review_graph": mock_graph_mod,
-            },
-        ):
-            monitor._handle_consensus_stall_recovery([result], pipeline, mock_store)
-
-        monitor.k8s_client.stop_container.assert_not_called()
+        f.monitor.k8s_client.stop_container.assert_not_called()
 
     def test_stop_container_error_does_not_propagate(self):
         """If k8s_client.stop_container raises, aggressive recovery must
         continue stopping the remaining pods and not re-raise."""
-        monitor = _make_monitor()
-        pipeline = _make_concurrent_pipeline()
-        result = _make_degraded_result()
+        f = _setup_aggressive_recovery()
+        f.monitor.k8s_client.stop_container.side_effect = [RuntimeError("boom"), None]
 
-        fresh_pipeline = _make_concurrent_pipeline()
-        mock_store = MagicMock()
-        mock_store.load_pipeline.return_value = fresh_pipeline
-        monitor.k8s_client.stop_container.side_effect = [RuntimeError("boom"), None]
-
-        mock_pc = MagicMock()
-        mock_pc.get_peer_consensus_tracker.return_value = None
-        mock_pc.reconstruct_tracker_from_messages.return_value = None
-        mock_graph_mod = MagicMock()
-
-        with patch.dict(
-            "sys.modules",
-            {
-                "peer_consensus": mock_pc,
-                "review_graph": mock_graph_mod,
-            },
-        ):
-            monitor._handle_consensus_stall_recovery([result], pipeline, mock_store)
+        with f.patches:
+            f.monitor._handle_consensus_stall_recovery([f.result], f.pipeline, f.store)
 
         # Both pods attempted despite the first failing
-        assert monitor.k8s_client.stop_container.call_count == 2
+        assert f.monitor.k8s_client.stop_container.call_count == 2
+
+    def test_aggressive_recovery_includes_failed_agents(self):
+        """FAILED agents (e.g. via signal API while container is still
+        running) must also be completed and their pods stopped, matching
+        the canonical _update_agents_complete path in routes/pipelines.py."""
+        f = _setup_aggressive_recovery()
+        # Mark one agent as FAILED (container still running)
+        phase_exec = f.fresh_pipeline.phases.get("implement")
+        assert phase_exec is not None
+        phase_exec.agents[1].status = AgentExecutionStatus.FAILED
+
+        with f.patches:
+            f.monitor._handle_consensus_stall_recovery([f.result], f.pipeline, f.store)
+
+        # Both agents should be COMPLETE
+        for agent in phase_exec.agents:
+            assert agent.status == AgentExecutionStatus.COMPLETE
+            assert agent.completed_at is not None
+
+        # Both containers should be stopped
+        stopped_ids = {call.args[0] for call in f.monitor.k8s_client.stop_container.call_args_list}
+        assert stopped_ids == {"container-coder", "container-tester"}

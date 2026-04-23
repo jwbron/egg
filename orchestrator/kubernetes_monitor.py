@@ -722,7 +722,7 @@ class KubernetesMonitor:
                 now = datetime.now(UTC)
                 completed_container_ids: set[str] = set()
                 for agent in phase_exec.agents:
-                    if agent.status == AgentExecutionStatus.RUNNING:
+                    if agent.status in (AgentExecutionStatus.RUNNING, AgentExecutionStatus.FAILED):
                         agent.status = AgentExecutionStatus.COMPLETE
                         agent.completed_at = now
                         if agent.container_id:
@@ -772,8 +772,9 @@ class KubernetesMonitor:
                     try:
                         self.k8s_client.stop_container(container_id, timeout=10)
                     except Exception:
-                        logger.warning(
-                            "Failed to stop pod during aggressive recovery",
+                        logger.error(
+                            "Failed to stop pod during aggressive recovery — "
+                            "stall check will not retry; manual intervention may be needed",
                             pipeline_id=pipeline_id,
                             container_id=container_id[:12],
                             exc_info=True,
