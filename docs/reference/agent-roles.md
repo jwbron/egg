@@ -165,6 +165,8 @@ each surface so reviewers know to keep them in sync.
   credential-routing invariant).
 - Block exemptions (always writable, overriding the blocks above):
   `.egg-state/agent-outputs/` (coder's handoff output),
+  `.egg-state/agent-anchors/` (per-agent anchor state, scoped by
+  `check_anchor_write_permission`),
   `skills/` (skill definitions are functional code),
   `sandbox/agent-config/rules/*.md` and
   `sandbox/agent-config/commands/*.md` (Claude Code agent config

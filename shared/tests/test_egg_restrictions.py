@@ -241,6 +241,10 @@ class TestCoderBlocklistComplement:
         """Coder handoff lives in .egg-state/agent-outputs/ — carved back via exempt."""
         assert CODER_PATTERNS.can_write(".egg-state/agent-outputs/coder.json")
 
+    def test_allows_agent_anchors(self):
+        """Agent anchors live in .egg-state/agent-anchors/ — carved back via exempt."""
+        assert CODER_PATTERNS.can_write(".egg-state/agent-anchors/coder.json")
+
     def test_allows_skills_skill_md(self):
         """skills/ is exempted from the **/*.md block (skill definitions)."""
         assert CODER_PATTERNS.can_write("skills/my-skill/SKILL.md")
