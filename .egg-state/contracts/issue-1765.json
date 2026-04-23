@@ -8,7 +8,435 @@
   "pipeline_id": "issue-1765",
   "current_phase": "refine",
   "acceptance_criteria": [],
-  "phases": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Shared handlers (extract cmd_* bodies)",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add a new handlers package under sandbox/egg_agent_tools/handlers/ with one module per namespace (sdlc, brc, phase, progress, task). Each module exposes pure request\u2192response functions with typed signatures. Extract the behaviour of cmd_add_decision (contract_cli.py:736), cmd_add_feedback (contract_cli.py:1294), and cmd_complete_task (contract_cli.py:484) into handlers.sdlc.register_open_question, handlers.sdlc.request_feedback, and handlers.task.task_complete. Leave cmd_* stubs in place; they will be rewired in TASK-1-3.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "sandbox/egg_agent_tools/handlers/{__init__.py,sdlc.py,task.py} exist. Each handler takes a plain dict request, returns a plain dict response, and has no dependency on argparse.Namespace. Unit tests in TASK-4-1 exercise the handlers directly.",
+          "files_affected": [
+            "sandbox/egg_agent_tools/__init__.py",
+            "sandbox/egg_agent_tools/handlers/__init__.py",
+            "sandbox/egg_agent_tools/handlers/sdlc.py",
+            "sandbox/egg_agent_tools/handlers/task.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Extract the behaviour of cmd_consensus_propose (orch_cli.py:1298), cmd_consensus_ack (orch_cli.py:1372), cmd_consensus_nack (orch_cli.py:1400), cmd_consensus_confirmed (orch_cli.py:1452), cmd_signal_progress (orch_cli.py:524), cmd_signal_error (orch_cli.py:551), and cmd_signal_heartbeat (orch_cli.py:575) into handlers.brc.{brc_propose,brc_ack,brc_nack,brc_confirm} and handlers.progress.{progress_emit,progress_signal_error,progress_heartbeat}. Refactor cmd_consensus_status (orch_cli.py:1483) so its structured data-build is factored out into handlers.brc.brc_get_state (returning the full JSON) and handlers.brc.brc_list_blocking (derived view). Leave cmd_* stubs in place; they will be rewired in TASK-1-3.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "sandbox/egg_agent_tools/handlers/{brc.py,progress.py} exist with six BRC handlers and three progress handlers. brc_get_state accepts a verbose:bool argument. brc_list_blocking returns a list of role names. Unit tests in TASK-4-1 exercise the handlers directly.",
+          "files_affected": [
+            "sandbox/egg_agent_tools/handlers/brc.py",
+            "sandbox/egg_agent_tools/handlers/progress.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "Rewire every refactored cmd_* function in sandbox/egg_lib/contract_cli.py and sandbox/egg_lib/orch_cli.py to build a request dict from argparse.Namespace, call the corresponding handler function, and render today's stdout text / exit code from the handler response. The argparse parser definitions (create_parser, set_defaults) are unchanged. Exit codes and stdout text must be byte-identical to before. IMPORTANT: refactor make_gateway_request (contract_cli.py:239-291, lines 284/288/291 today call sys.exit(1)) to raise a dedicated GatewayError exception on HTTPError/URLError/TimeoutError instead of calling sys.exit. The cmd_* shim catches GatewayError and renders the existing stderr message + exit code for CLI callers; handlers propagate GatewayError to callers. Handlers MUST NEVER call sys.exit \u2014 they return dict responses or raise exceptions.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All 15 refactored cmd_* functions delegate to handlers/*. make_gateway_request raises GatewayError (or subclass) on failure; no call to sys.exit remains in any handler or gateway helper invoked from handlers. Existing tests (tests/sandbox/test_contract_cli.py, tests for orch_cli) pass without modification \u2014 cmd_* stdout/exit-code surface is unchanged. Snapshot tests added in TASK-4-5 confirm stdout/exit-code parity byte-for-byte using fixed committed fixtures (no first-run record).",
+          "files_affected": [
+            "sandbox/egg_lib/contract_cli.py",
+            "sandbox/egg_lib/orch_cli.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "Add phase-context handlers: handlers.phase.phase_get_context bundles EGG_PIPELINE_ID, EGG_PHASE, EGG_AGENT_ROLE, the current task list filtered by role, and prior-phase artifact paths (from .egg-state/drafts/ and .egg-state/agent-outputs/). handlers.phase.phase_get_assigned_tasks returns only the tasks assigned to EGG_AGENT_ROLE from the contract. handlers.sdlc.check_hitl_answers returns the resolved decisions and submitted feedback for the current contract, filtering by phase if requested.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "sandbox/egg_agent_tools/handlers/phase.py exists with two handlers. handlers.sdlc.check_hitl_answers is added. Each handler has an accompanying unit test in TASK-4-1 using a fake gateway.",
+          "files_affected": [
+            "sandbox/egg_agent_tools/handlers/phase.py",
+            "sandbox/egg_agent_tools/handlers/sdlc.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "MCP tool package",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Implement sandbox/egg_agent_tools/schemas.py: convert argparse subparser definitions (as wielded in sandbox/egg_lib/orch_cli.py create_parser() and sandbox/egg_lib/contract_cli.py create_parser()) into JSON-schema inputSchema dicts the SDK @tool decorator can consume. Support per-tool overrides (a dict of tool_name \u2192 override-json-schema) for cases where argparse help is insufficient. Tools with no CLI counterpart (brc_get_state, brc_list_blocking, phase_get_context, phase_get_assigned_tasks, check_hitl_answers) declare their schema directly.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "schemas.py exports derive_schema_from_argparse(subparser) and build_tool_schema(tool_name, overrides=None). Unit tests in TASK-4-3 cover the derivation + merge logic.",
+          "files_affected": [
+            "sandbox/egg_agent_tools/schemas.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-2",
+          "description": "Implement sandbox/egg_agent_tools/tools/ with one module per namespace. Each module defines @tool-decorated async wrappers that: (a) validate the input dict against the tool's JSON schema, (b) invoke the corresponding handler function via asyncio.to_thread(handler, req) so the sync gateway I/O does not block the agent event loop, (c) catch GatewayError / TimeoutError / Exception and return them as the SDK's structured tool-result ({is_error: True, content: [{type: 'text', text: <message>}]}), (d) on success return the handler's dict response serialised as a JSON string per the SDK tool contract. The wrappers are declarative and minimal \u2014 behaviour lives in handlers/*.py. Each tool registration also declares a cli_command attribute when a shell CLI counterpart exists (e.g. cli_command=('egg-orch','consensus','propose') for brc_propose); tools without a CLI counterpart (brc_get_state, brc_list_blocking, phase_get_context, phase_get_assigned_tasks, check_hitl_answers) omit cli_command or set it to None. The cli_command attribute is what the drift test in TASK-4-6 introspects.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "tools/{sdlc.py, brc.py, phase.py, progress.py, task.py} each define the @tool wrappers for their namespace. Each wrapper invokes its handler via asyncio.to_thread and wraps exceptions as structured tool-result error blocks \u2014 the agent receives a tool_result, never an agent crash. tools/__init__.py aggregates TOOL_LIST with all 15 entries and TOOL_NAMESPACES mapping namespace\u2192tool-names. Every tool with a shell-CLI counterpart declares cli_command as a tuple; tools without one omit it (or set None). The failure-path test in TASK-4-1/4-2 (5xx gateway) asserts the wrapper returns is_error=True without propagating the exception out of the tool.",
+          "files_affected": [
+            "sandbox/egg_agent_tools/tools/__init__.py",
+            "sandbox/egg_agent_tools/tools/sdlc.py",
+            "sandbox/egg_agent_tools/tools/brc.py",
+            "sandbox/egg_agent_tools/tools/phase.py",
+            "sandbox/egg_agent_tools/tools/progress.py",
+            "sandbox/egg_agent_tools/tools/task.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-3",
+          "description": "Implement sandbox/egg_agent_tools/server.py with build_sandbox_mcp_server() factory that calls claude_agent_sdk.create_sdk_mcp_server(name='egg', tools=TOOL_LIST). Generate SYSTEM_PROMPT_NUDGE programmatically (not hand-authored) at import time by iterating TOOL_NAMESPACES and rendering one bullet per namespace \u2014 this way adding or renaming a namespace updates the nudge automatically, eliminating drift. The generated string stays \u2264200 words. Expose both as module attributes of sandbox/egg_agent_tools/__init__.py.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "build_sandbox_mcp_server() returns an SdkMcpServer-compatible object with the 15 expected tool names. SYSTEM_PROMPT_NUDGE is generated from TOOL_NAMESPACES (not a string literal listing namespaces), is \u2264200 words, and mentions every registered namespace. Unit tests in TASK-4-2 verify (a) build_sandbox_mcp_server registers 15 tools, (b) a drift test asserts every 'mcp__<ns>__' substring in SYSTEM_PROMPT_NUDGE corresponds to a registered namespace in TOOL_NAMESPACES and vice versa \u2014 adding a new namespace without touching the nudge template still produces a correct nudge.",
+          "files_affected": [
+            "sandbox/egg_agent_tools/server.py",
+            "sandbox/egg_agent_tools/__init__.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Agent client wire-up",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Modify shared/egg_agent/client.py::run_agent_async to read EGG_MCP_TOOLS from the environment. When truthy ('true', '1', 'yes'): lazily import sandbox.egg_agent_tools.build_sandbox_mcp_server and SYSTEM_PROMPT_NUDGE, construct the server, set options.mcp_servers = {'egg': server} immediately after the existing ClaudeAgentOptions constructor at client.py:194-209, and concatenate the nudge to options.system_prompt (preserving any caller-supplied prompt). When the flag is unset or falsy: do nothing \u2014 the code path is byte-identical to today. Gate the import behind the flag so non-opt-in pipelines don't pay the import cost. Also verify that the existing can_use_tool callback (client.py:163-191) \u2014 which matches only Write/Edit/NotebookEdit by tool_name \u2014 does not spuriously reject mcp__* tool names, and add an AC-level test for that passthrough.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "With EGG_MCP_TOOLS unset: options.mcp_servers is not set and options.system_prompt is unchanged. With EGG_MCP_TOOLS=true: options.mcp_servers['egg'] is the SdkMcpServer object and options.system_prompt ends with the bootstrap paragraph. The harness=='egg' branch at client.py:100-127 is not affected (per decision-3). A new test in TASK-4-4 (test_can_use_tool_passes_mcp_names) invokes the can_use_tool callback with a tool_name='mcp__brc__propose' and asserts it returns PermissionResultAllow (i.e. the callback does not mistakenly block MCP tool names by prefix-matching or other accident).",
+          "files_affected": [
+            "shared/egg_agent/client.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Tests",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Write unit tests under tests/sandbox/egg_agent_tools/test_handlers_sdlc.py, test_handlers_brc.py, test_handlers_phase.py, test_handlers_progress.py, test_handlers_task.py. Each handler is tested with a fake gateway (HTTP mock via responses or requests_mock) for happy-path, missing-arg, and gateway-error (5xx) scenarios. Assert the response dict matches the declared JSON schema. For the gateway-error scenario explicitly assert the handler RAISES GatewayError (or the documented exception type) \u2014 it does NOT call sys.exit and does NOT return a success dict. Include one end-to-end test that runs a handler with a mocked gateway returning 500 Internal Server Error and asserts GatewayError is raised with a useful message.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All 15 handlers have at least happy-path + one error-path test; every error-path test asserts exception propagation, not sys.exit. pytest tests/sandbox/egg_agent_tools/ -q passes with \u226595 % line coverage of handlers/*.py.",
+          "files_affected": [
+            "tests/sandbox/egg_agent_tools/__init__.py",
+            "tests/sandbox/egg_agent_tools/test_handlers_sdlc.py",
+            "tests/sandbox/egg_agent_tools/test_handlers_brc.py",
+            "tests/sandbox/egg_agent_tools/test_handlers_phase.py",
+            "tests/sandbox/egg_agent_tools/test_handlers_progress.py",
+            "tests/sandbox/egg_agent_tools/test_handlers_task.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-2",
+          "description": "Write tests/sandbox/egg_agent_tools/test_server.py and test_tools.py. test_server verifies (a) build_sandbox_mcp_server() returns a server with the 15 expected tool names; (b) SYSTEM_PROMPT_NUDGE is \u2264200 words; (c) a drift test asserts every 'mcp__<namespace>__' substring in SYSTEM_PROMPT_NUDGE corresponds to a registered namespace in TOOL_NAMESPACES, and every registered namespace appears in the nudge (symmetric match). test_tools verifies each @tool wrapper (mocked claude_agent_sdk types mirroring tests/shared/egg_agent/test_client.py lines 14-60): happy-path returns JSON-serialised handler response; error-path (handler raises GatewayError) returns is_error=True with the error text in the content block and does NOT propagate the exception out of the tool.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "pytest tests/sandbox/egg_agent_tools/test_server.py tests/sandbox/egg_agent_tools/test_tools.py -q passes. Drift test catches both directions (extra bullet in nudge without matching namespace; extra namespace without matching bullet). Tool error-path test catches exception leaks (if wrapper forgets to catch, the test fails).",
+          "files_affected": [
+            "tests/sandbox/egg_agent_tools/test_server.py",
+            "tests/sandbox/egg_agent_tools/test_tools.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-3",
+          "description": "Write tests/sandbox/egg_agent_tools/test_schemas.py. Feed an argparse subparser and assert derive_schema_from_argparse returns a JSON schema with correct required/optional/types. Assert build_tool_schema merges overrides cleanly (override wins; untouched fields pass through).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "pytest tests/sandbox/egg_agent_tools/test_schemas.py -q passes with coverage of all branches in schemas.py.",
+          "files_affected": [
+            "tests/sandbox/egg_agent_tools/test_schemas.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-4",
+          "description": "Extend tests/shared/egg_agent/test_client.py with three tests: (a) test_mcp_tools_flag_off \u2014 EGG_MCP_TOOLS unset, assert options.mcp_servers is not set (via a patch on ClaudeAgentOptions that captures kwargs); (b) test_mcp_tools_flag_on \u2014 EGG_MCP_TOOLS=true, assert options.mcp_servers['egg'] is the expected server object and options.system_prompt ends with the bootstrap paragraph; (c) test_can_use_tool_passes_mcp_names \u2014 invoke the can_use_tool callback (client.py:163-191) with tool_name='mcp__brc__propose' and assert it returns PermissionResultAllow (so MCP tools are not spuriously blocked by the role-restriction interceptor that targets Write/Edit/NotebookEdit). Mirror the existing mock-SDK pattern at the top of test_client.py.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All three new tests pass. No regressions in the existing test_client.py suite.",
+          "files_affected": [
+            "tests/shared/egg_agent/test_client.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-5",
+          "description": "Add parity tests in tests/sandbox/test_contract_cli.py and tests/sandbox/test_orch_cli.py that invoke cmd_add_decision, cmd_add_feedback, cmd_complete_task, cmd_consensus_propose/ack/nack/confirmed/status, cmd_signal_progress/error/heartbeat with fixed arguments and a fake gateway, asserting stdout text and exit code match explicit committed expected-value fixtures (inline strings or small .txt fixture files under tests/sandbox/cmd_fixtures/). Do NOT use first-run snapshot recording \u2014 every expected value is committed to the repo so a reviewer can read the diff and see intended output. If the refactor changes CLI stdout/exit behaviour, the test author edits the committed fixture in the same PR (visible in review). Error-path cases: trigger make_gateway_request\u2192GatewayError and assert the CLI cmd_* shim exits 1 and writes the same stderr message as today (byte-identical to current behaviour).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Parity tests exist for each refactored cmd_*; every expected stdout/stderr/exit-code value is a committed literal or fixture file (no auto-record / no --update-snapshots escape). The error-path CLI test confirms cmd_* shims catch GatewayError and render the same stderr/exit-code humans see today. pytest exits 0 with no snapshot-refresh flag needed.",
+          "files_affected": [
+            "tests/sandbox/test_contract_cli.py",
+            "tests/sandbox/test_orch_cli.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-6",
+          "description": "Write tests/tools/test_mcp_cli_drift.py: for every tool in TOOL_NAMESPACES with a declared cli_command attribute (set in TASK-2-2), assert that (a) the CLI subparser matching cli_command exists in the corresponding create_parser() (egg-orch for orch_cli.create_parser, egg-contract for contract_cli.create_parser), (b) the tool wrapper's handler function matches the handler the CLI's cmd_* delegates to (import and compare the function object via `is` identity). Runs in CI and fails if a tool drifts from its CLI. Tools with cli_command=None (brc_get_state, brc_list_blocking, phase_get_context, phase_get_assigned_tasks, check_hitl_answers) are skipped in the loop (they have no CLI counterpart by design).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "pytest tests/tools/test_mcp_cli_drift.py -q passes with 10 mappings asserted (the 10 CLI-backed tools; 5 tools without cli_command are skipped). Breaking the mapping (e.g. pointing a tool at a different handler) makes the test fail deterministically with a readable diff.",
+          "files_affected": [
+            "tests/tools/test_mcp_cli_drift.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-7",
+          "description": "Add integration_tests/test_sandbox_mcp_tools_e2e.py: spawn the Claude Agent SDK in-process with EGG_MCP_TOOLS=true and a trivial prompt ('call mcp__phase__get_context and report back'). Assert the agent's first tool_use block names an mcp__* tool (not Bash). Gate the test behind a pytest marker (@pytest.mark.integration or --integration-live) so it does NOT run on every PR, but DOES run in the nightly integration job. Use either a live claude-agent-sdk round-trip (when EGG_LIVE_SDK=1 is set) or a recorded VCR/replay fixture when not. This catches SDK API drift between releases \u2014 the offline mocks in TASK-4-1..4-6 cannot.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "integration_tests/test_sandbox_mcp_tools_e2e.py exists and is decorated with @pytest.mark.integration (or --integration-live gate). Running `pytest integration_tests/ -m integration --integration-live` executes the round-trip and asserts the mcp__* tool_use block is present. Running the default `pytest` without the marker does not attempt the live SDK call.",
+          "files_affected": [
+            "integration_tests/test_sandbox_mcp_tools_e2e.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Docs",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Create docs/reference/agent-tools.md listing the 15 iteration-1 MCP tools, their namespaces, JSON schemas, handler mappings, and CLI counterparts (where applicable). Cross-link to docs/reference/orchestrator-cli.md for the existing CLI surface. Note the EGG_MCP_TOOLS flag and its current default. Note that EGG_HARNESS=egg is not yet covered (decision-3) and that iteration-2 verbs are tracked in #1917.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "docs/reference/agent-tools.md exists and is linked from docs/index.md. Lists all 15 tools with a 1-line description and schema pointer.",
+          "files_affected": [
+            "docs/reference/agent-tools.md",
+            "docs/index.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-5-2",
+          "description": "Update docs/guides/sdlc-pipeline.md to add a 'Agent MCP tools (EGG_MCP_TOOLS flag)' section with a short paragraph pointing at docs/reference/agent-tools.md and describing how to opt in a pipeline.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "docs/guides/sdlc-pipeline.md has a new section with the feature-flag instructions and a pointer to the reference page.",
+          "files_affected": [
+            "docs/guides/sdlc-pipeline.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-5-3",
+          "description": "Update sandbox/agent-config/rules/environment.md to mention the EGG_MCP_TOOLS env var alongside other environment flags (consolidate any Phase 6 notes here too \u2014 this is the single touchpoint for the rule file), and sandbox/agent-config/rules/README.md to note that when the flag is on, agents see mcp__* tools for HITL/BRC/phase/progress/task operations in addition to the existing shell CLIs.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "environment.md lists EGG_MCP_TOOLS; README.md mentions the opt-in tool surface.",
+          "files_affected": [
+            "sandbox/agent-config/rules/environment.md",
+            "sandbox/agent-config/rules/README.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-6",
+      "name": "SDK pin + release hygiene",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-6-1",
+          "description": "Pin claude-agent-sdk in sandbox/pyproject.toml with an explicit bounded range (e.g. 'claude-agent-sdk>=0.1.65,<0.2'). Update sandbox/Dockerfile so the CLAUDE_AGENT_SDK_VERSION ARG default reflects the same bound (not 'latest'). The pin must cover the create_sdk_mcp_server and @tool surfaces used by the new tool package \u2014 today these are confirmed on 0.1.65. Add a tiny smoke test (e.g. tests/sandbox/egg_agent_tools/test_sdk_surface.py) that imports claude_agent_sdk.create_sdk_mcp_server and claude_agent_sdk.tool at module load time; if the SDK upgrades and the API changes, CI fails at test-collection time with a clear message pointing at the SDK release notes.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "sandbox/pyproject.toml declares 'claude-agent-sdk>=0.1.65,<0.2'. sandbox/Dockerfile's CLAUDE_AGENT_SDK_VERSION ARG default matches. tests/sandbox/egg_agent_tools/test_sdk_surface.py passes on 0.1.65 and fails loudly on a hypothetical 0.2 bump (manually verified by pointing the pin at a mocked higher version in dev).",
+          "files_affected": [
+            "sandbox/pyproject.toml",
+            "sandbox/Dockerfile",
+            "tests/sandbox/egg_agent_tools/test_sdk_surface.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-6-2",
+          "description": "Add a CHANGELOG / release-note entry documenting the new EGG_MCP_TOOLS opt-in flag, the 15 iteration-1 verbs, and the follow-up plan (#1917 for iteration-2 verbs, a TBD issue for flipping the default and removing the flag). If the repo uses a consolidated changelog doc, append there; otherwise create docs/releases/agent-mcp-tools.md.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Either an existing CHANGELOG or docs/releases/*.md contains a short entry naming EGG_MCP_TOOLS, the 15 tool names, and follow-up issue pointers.",
+          "files_affected": [
+            "docs/releases/agent-mcp-tools.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    }
+  ],
   "decisions": [
     {
       "id": "decision-1",
@@ -310,6 +738,18 @@
       "resolution": "## Resolved Questions (captured for downstream phases)\n\n**decision-1 (mechanism)**: Hybrid D + prompt nudge \u2014 in-process SDK MCP server via create_sdk_mcp_server + @tool, wired into egg_agent.client, plus a short system-prompt paragraph pointing agents at the mcp__* tools.\n\n**decision-2 (handler derivation)**: Hybrid \u2014 auto-derive the skeleton from existing CLI/argparse-style signatures, allow per-tool overrides for descriptions/schemas where auto-derivation is insufficient.\n\n**decision-3 (harness coverage)**: claude_agent_sdk harness only for iteration 1. Defer parallel registration for experimental EGG_HARNESS=egg until that harness graduates.\n\n**decision-4 (CLI retention)**: Keep the sandbox/bin/egg-* CLIs indefinitely. Humans, tests, entrypoint scripts, and bash recovery wrappers depend on them; MCP tools are additive for agents. Do not deprecate.\n\n**decision-7 (naming; supersedes decision-5)**: Semantic verbs grouped by function (what the agent is DOING). Examples: mcp__sdlc__register_open_question, mcp__brc__propose, mcp__phase__get_context. Rationale: agent's mental model is verbs; tool names are stable under CLI refactoring; capabilities with no CLI counterpart slot in naturally.\n\n**decision-8 (scope; supersedes decision-6)**: BRC + HITL core for iteration 1 (~15 verbs): producer/reviewer lifecycle, HITL registration, heartbeat/progress, task completion, phase context orientation. Full capability audit (~30 verbs) is scoped to iteration 2 \u2014 tracked separately in issue #1917.\n\n## Related issues filed during this refine\n\n- #1915 \u2014 change_approach feedback via provide_input never reaches agents (found during this refine; workaround is direct send_message after reset)\n- #1917 \u2014 iteration 2 follow-up for the remaining ~15 verbs from the full capability audit\n\n## Notes for the plan phase\n\nThe agent-first framing is the authoritative frame; do not regress to CLI-taxonomy-based thinking. Name tools from the agent's perspective. If plan surfaces a verb that was missed in the refine capability audit, add it to the iteration-1 scope (if clearly core) or defer to #1917 (if optional).",
       "resolved_by": "human",
       "resolved_at": "2026-04-23T06:50:08.700649Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-10",
+      "question": "Open feedback request feedback-1",
+      "type": "hitl",
+      "phase": null,
+      "options": [],
+      "resolved": true,
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Moot \u2014 we chose Option D (in-process SDK MCP), not Option C. For the record: if Option C were revisited, the sandbox-facing server should expose only the BRC + HITL + phase-context core (~15 verbs per decision-11), and must NEVER expose submit_task, cancel_task, restart_phase, advance_phase, populate_contract, or the container/pod admin surface. Threat model to design against: a compromised sandbox container should not be able to (a) spawn or cancel pipelines, (b) modify other pipelines' state, (c) read checkpoints from other pipelines, or (d) escalate privilege by invoking orchestrator admin APIs. Option D sidesteps this by construction \u2014 handlers don't exist in the agent's process \u2014 so the threat-model work is deferred until/unless Option C is reconsidered.\", \"Q2\": \"Flavour (c): make the CLI a thin wrapper over the @tool handler functions. Both the shell CLI and the MCP tool dispatch into the same handler \u2014 single source of truth, no drift possible by construction. This aligns with decision-2's hybrid auto+override (argparse defines the skeleton schema; handlers define the behavior). Add (a) as belt-and-suspenders: a CI test that asserts every @tool has a matching CLI subparser for any tool that is expected to be CLI-accessible, and vice versa. Rejecting (b) standalone: 'argparse as single source of truth' can't express the new verbs (brc_get_state as JSON, peer_read_artifact, etc.) that have no CLI equivalent \u2014 the tool registry is the authoritative surface, not argparse.\", \"Q3\": \"Yes \u2014 inject a short (<=200 word) bootstrap paragraph into the system prompt per decision-10/7 (Hybrid D + prompt nudge). The paragraph should name the tool namespaces (mcp__sdlc__*, mcp__brc__*, mcp__phase__*, mcp__progress__*) and explicitly say 'prefer these over Bash for agent-lifecycle operations.' Past experience (cited in the draft) shows agents default to Bash even when a structured tool exists; the prompt nudge corrects for that without spending prompt tokens on full tool schemas.\", \"Q4\": \"JSON payload verbatim (option a). Typed tools should return structured data; agents will parse JSON reliably with orders of magnitude fewer errors than parsing terminal-table output. Token-economy argument for compact text is weak because tool results are not billed per input token in the agent's steady-state loop. If a human-formatted view is useful for something else (e.g., debug checkpoint replay), generate it separately from the CLI, not from the MCP tool. Exception: for very large payloads (brc_get_state on a pipeline with dozens of agents), tools should accept a `verbose: bool` argument and default to a compact projection.\", \"Q5\": \"N/A \u2014 we chose Option D, which runs tools in the agent's own process. No new auth layer is needed because handlers execute inside the sandbox's existing trust boundary. This question becomes relevant only if we revisit Option C in a future iteration.\", \"Q6\": \"MCP tool calls get distinct names natively (`mcp__sdlc__register_open_question` vs `Bash`) in the tool_use stream \u2014 the checkpoint browser will show them correctly without any code changes. Optional future improvement: add a checkpoint-search facet to filter by MCP-tool namespace prefix (mcp__sdlc__*, mcp__brc__*, etc.) for analytics; not required for iteration 1.\", \"Q7\": \"Default 60s timeout is fine for the BRC + HITL + phase-context core \u2014 these are all fast operations (register a decision, read a task list, propose a version, query current state). For long-running verbs in iteration 2 (checkpoint_search, overseer_query_status with deep history, peer_poll_messages with a long wait): split into start/poll pairs. Pattern: `<verb>_start` returns a job-id; `<verb>_poll(job_id)` returns result-or-still-running. This also gives the agent a natural cancellation point. Not a concern for iteration 1 since none of the core 15 verbs are long-running.\", \"Q8\": \"Feature-flag gated initially (e.g., EGG_MCP_TOOLS=true in ClaudeAgentOptions.env or as a per-pipeline config). Burn-in window of N=5-10 pipelines comparing turn-count and cost-per-phase between MCP-enabled and shell-only modes. Flip default to ON once metrics show \u226515% reduction in turns-per-phase for the refine/plan phases (the ones with highest tooling-archaeology cost in #1765's motivating observation). Rollout feature flag can be removed in a follow-up after a clean week. This matches the pattern used in prior egg rollouts (overseer, concurrent-mode).\"}}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T06:58:22.471838Z",
       "debounce_until": null
     }
   ],
@@ -740,7 +1180,12 @@
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
-  "pr": null,
+  "pr": {
+    "title": "Expose egg agent capabilities as in-process SDK MCP tools",
+    "description": "Sandbox agents currently spend a visible fraction of their turn\nbudget on tooling archaeology \u2014 `cat`-ing egg CLI binaries,\ngrepping for subcommand names, and reading Python source to\nfigure out how to invoke `egg-contract add-decision` or\n`egg-orch consensus propose`. Issue #1765 documents a\nrefine-phase example where the agent burned five tool calls\nbefore any productive work. The refine analysis at\n`.egg-state/drafts/1765-analysis.md` evaluated four mechanisms\n(polished docs, system-prompt manifest, second orchestrator MCP\nserver, in-process SDK MCP) and the HITL gate selected **Hybrid\nD+B \u2014 in-process SDK MCP + short prompt nudge** \u2014 because it\ngives agents typed, validated tools on the same `tool_use`\nstream they already handle, with zero new network surface and\nno new auth layer.\n\n## Changes\n\n1. **New package `sandbox/egg_agent_tools/`** (handlers, tools,\n   schemas, server factory). The 15 iteration-1 verbs land as\n   pure handler functions in `handlers/*.py` and as\n   `@tool`-decorated SDK wrappers in `tools/*.py`. Namespaces\n   are semantic (not CLI-mirroring) per decision-7:\n   `mcp__sdlc__*` (3 tools), `mcp__brc__*` (6), `mcp__phase__*`\n   (2), `mcp__progress__*` (3), `mcp__task__*` (1).\n2. **Refactor existing `cmd_*` functions** in\n   `sandbox/egg_lib/contract_cli.py` and\n   `sandbox/egg_lib/orch_cli.py` to call the shared handlers.\n   Argparse surface, stdout text, and exit codes unchanged \u2014\n   humans, tests, and bash scripts see zero behaviour change.\n3. **Wire `shared/egg_agent/client.py::run_agent_async`** to\n   build an in-process MCP server via\n   `claude_agent_sdk.create_sdk_mcp_server` and set it on\n   `ClaudeAgentOptions.mcp_servers` when `EGG_MCP_TOOLS=true`.\n   Also append a \u2264200-word bootstrap paragraph to\n   `options.system_prompt` when the flag is on.\n4. **CI drift test** asserts every MCP tool with a declared CLI\n   counterpart dispatches the same handler module function as\n   the CLI argparse \u2014 schema/behaviour drift is impossible by\n   construction.\n5. **Feature-flag gated rollout** via `EGG_MCP_TOOLS` env var\n   (default `false`). Off-path is byte-identical to today. A\n   follow-up issue will track burn-in and flip the default.\n6. **Docs and rule updates** so operators know how to opt in and\n   agents know the tools exist.\n7. **SDK pin + smoke test.** `claude-agent-sdk` is pinned to a\n   bounded range (`>=0.1.65,<0.2`) in `sandbox/pyproject.toml`\n   and the `CLAUDE_AGENT_SDK_VERSION` ARG in\n   `sandbox/Dockerfile`, with an import-time smoke test so a\n   future pre-1.0 bump fails CI loudly instead of silently\n   breaking every sandbox.\n8. **Async + error discipline.** Handlers raise exceptions (no\n   `sys.exit`); `@tool` wrappers run handlers via\n   `asyncio.to_thread` and wrap exceptions as structured\n   tool-result error blocks. A gateway flake surfaces as a\n   tool error, never an agent crash. The existing CLI surface\n   keeps its `sys.exit` behaviour by catching the same\n   exceptions in the `cmd_*` shim.\n\n## Impact\n\nOpted-in agents see 15 typed, validated `mcp__*` tools in their\nfirst tool_use block and can invoke BRC propose/ACK/NACK,\nregister HITL decisions, request feedback, emit progress, and\nfetch phase context without shelling out to `egg-orch` or\n`egg-contract`. Non-opt-in pipelines are unchanged. Existing\n`sandbox/bin/egg-*` CLIs keep working for humans, tests, and\nbash recovery scripts (decision-4). The experimental\n`EGG_HARNESS=egg` path is unaffected in iteration 1\n(decision-3) and tracked for parallel registration when the\nharness graduates. The remaining ~15 capability-audit verbs\n(peer, checkpoint, anchor, overseer) are out of scope for this\nPR and tracked in #1917.",
+    "test_plan": "- Automated unit tests (`tests/sandbox/egg_agent_tools/`): every\n  handler exercised for happy-path, missing-arg, and 5xx-gateway\n  scenarios \u2014 the error test asserts the handler raises\n  GatewayError (not sys.exit). Every @tool wrapper tested for\n  (a) JSON-serialised handler response on success, (b) is_error\n  structured tool-result on handler exception (so a gateway\n  flake never surfaces as an agent crash). `test_server.py`\n  verifies `build_sandbox_mcp_server` registers the 15 expected\n  tool names and SYSTEM_PROMPT_NUDGE is symmetrically derived\n  from TOOL_NAMESPACES (drift test catches extra or missing\n  namespaces in either direction).\n- Automated client tests (`tests/shared/egg_agent/test_client.py`):\n  `EGG_MCP_TOOLS=true` wires `mcp_servers['egg']` on\n  `ClaudeAgentOptions` and appends the nudge; flag-unset yields\n  byte-identical options; `can_use_tool` callback passes\n  `mcp__*` tool names through (does not spuriously block).\n- Automated CLI parity tests (`tests/sandbox/test_contract_cli.py`,\n  `tests/sandbox/test_orch_cli.py`): every refactored `cmd_*`\n  asserted against committed inline stdout/exit-code fixtures\n  (no first-run auto-record); error-path test confirms\n  `cmd_*` catches `GatewayError` and renders the same stderr +\n  exit code humans see today.\n- Automated drift CI test (`tests/tools/test_mcp_cli_drift.py`):\n  every tool with a declared `cli_command` attribute dispatches\n  the same handler module function as the CLI's `cmd_*` \u2014 fails\n  CI if they diverge.\n- Automated SDK-pin smoke test\n  (`tests/sandbox/egg_agent_tools/test_sdk_surface.py`): imports\n  `claude_agent_sdk.create_sdk_mcp_server` and\n  `claude_agent_sdk.tool` at module load time; fails loudly on\n  an incompatible SDK upgrade.\n- Automated integration test\n  (`integration_tests/test_sandbox_mcp_tools_e2e.py`, marker-\n  gated): spawns the SDK with `EGG_MCP_TOOLS=true` and asserts\n  the agent's first tool_use block names an `mcp__*` tool (not\n  Bash). Catches SDK API drift the offline mocks cannot.\n- Manual: run one pipeline with `EGG_MCP_TOOLS=true` and\n  confirm the refiner's first tool_use block contains\n  `mcp__brc__propose`, `mcp__sdlc__register_open_question`,\n  etc., not `Bash /opt/egg-runtime/sandbox/bin/egg-contract`.\n  Run one pipeline with the flag unset and confirm parity with\n  today. Exercise one full NACK\u2192fix\u2192re-propose cycle to confirm\n  `mcp__brc__nack` / `mcp__brc__propose` / `mcp__brc__confirm`\n  interoperate with other agents still on shell-CLI path.",
+    "manual_steps": "Pre-merge: reviewer sets `EGG_MCP_TOOLS=true` on at least one\ntest pipeline and verifies the `mcp__*` tool_use blocks appear\nin place of the corresponding Bash calls in checkpoint logs.\n\nPost-merge: open a follow-up issue tracking the burn-in window\n(5\u201310 pipelines with the flag on, comparing turns-per-phase and\ncost-per-phase). Keep default `EGG_MCP_TOOLS=false` until the\nburn-in issue flips the default. Issue #1917 already tracks\niteration-2 verbs; no separate action required on merge."
+  },
   "feedback": {
     "id": "feedback-1",
     "phase": "refine",
