@@ -28,6 +28,19 @@ This action runs the egg autonomous coding agent within GitHub Actions. It sets 
 
 Prompt builders load review criteria from `shared/prompts/` (shared with the local orchestrator) with inline fallbacks for rollout safety. Repositories can override criteria via `.egg/` files (e.g., `.egg/review-rules.md`).
 
+### Reviewer Delta / Re-Review Plumbing
+
+The three reviewer prompt builders — `build-review-prompt.sh`, `build-agent-mode-design-review-prompt.sh`, and `build-contract-verification-prompt.sh` — accept an optional `BASE_REF` environment variable (default `main`) in addition to `LAST_REVIEW_COMMIT`. When `LAST_REVIEW_COMMIT` is set (re-review path), the generated prompt instructs the agent to run:
+
+```bash
+git fetch origin ${BASE_REF}
+git log ${LAST_REVIEW_COMMIT}..HEAD --not origin/${BASE_REF} -p
+```
+
+instead of a two-dot `git diff`. This shows only PR-side commits pushed since the last review and excludes any commits that reached the branch via a base-branch merge, fixing the attribution bug where merged-in base work was treated as part of the delta (see [#1758](https://github.com/jwbron/egg/issues/1758)).
+
+`reusable-review.yml` plumbs `BASE_REF` automatically from the PR's `base.ref` (via the `pr-meta` step), so callers do not need to set it manually. Initial-review (no `LAST_REVIEW_COMMIT`) prompts are unaffected.
+
 ## Quick Start
 
 ```yaml

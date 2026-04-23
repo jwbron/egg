@@ -3562,16 +3562,27 @@ def _build_review_prompt(
 
     # Delta review: for re-reviews with a known last-reviewed commit,
     # instruct the reviewer to focus on the delta.
+    #
+    # Two-dot `git diff A..HEAD` would wrongly include any base-branch merges
+    # landed between A and HEAD. `git log A..HEAD --not origin/<base> -p`
+    # explicitly excludes commits reachable from the base branch, so the
+    # reviewer sees only PR-authored work (issue #1758).
     is_delta_review = review_cycle > 1 and last_reviewed_commit and not draft_path
     _base_ref = _resolve_origin_ref(base_branch)
+    _delta_base_branch = _base_ref.removeprefix("origin/")
     diff_command = (
-        f"git diff {last_reviewed_commit}..HEAD"
+        f"git log {last_reviewed_commit}..HEAD --not {_base_ref} -p"
         if is_delta_review
         else f"git diff {_base_ref}...HEAD"
     )
 
     if draft_path:
         lines.append(f"1. Read the draft at `{draft_path}`")
+    elif is_delta_review:
+        lines.append(
+            f"1. First run `git fetch origin {_delta_base_branch}`, then review "
+            f"the delta using `{diff_command}` (see **Delta Review** below)"
+        )
     else:
         lines.append(
             f"1. Review the implementation using `git log --oneline -10` and `{diff_command}`"
@@ -3716,8 +3727,12 @@ def _build_review_prompt(
         lines.append("## Delta Review\n")
         lines.append(
             f"This is review cycle {review_cycle}. Focus on new changes since your "
-            f"last review. Use `git diff {last_reviewed_commit}..HEAD` to see the "
-            "delta. Verify prior feedback was addressed AND review new code thoroughly."
+            f"last review. First run `git fetch origin {_delta_base_branch}` to "
+            f"ensure the base branch is available, then use "
+            f"`git log {last_reviewed_commit}..HEAD --not {_base_ref} -p` to see "
+            "the delta — this excludes any base-branch commits that were merged "
+            "in since your last review, so you only see PR-authored changes. "
+            "Verify prior feedback was addressed AND review new code thoroughly."
         )
         lines.append("")
 

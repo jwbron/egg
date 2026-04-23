@@ -12,6 +12,11 @@
 #   LAST_REVIEW_COMMIT — (Optional) Commit SHA of last review, for incremental verification
 #   COMMIT_SHA         — Current PR head commit SHA (for review marker)
 #   EGG_ISSUE_NUMBER   — Issue number for the contract
+#   BASE_REF           — (Optional) PR base branch name for re-review delta
+#                        (defaults to "main"). Used to exclude base-branch
+#                        commits from the delta via
+#                        `git log ... --not origin/${BASE_REF} -p`
+#                        so reviewers see only PR-authored changes (#1758).
 #
 # Output:
 #   Sets 'prompt-file' and 'model' in $GITHUB_OUTPUT
@@ -91,6 +96,7 @@ build_prompt() {
 
     local prompt
     local is_rereview=false
+    local base_ref="${BASE_REF:-main}"
 
     # Check if this is a re-review (we have a previous review commit)
     if [[ -n "${LAST_REVIEW_COMMIT:-}" ]]; then
@@ -103,7 +109,7 @@ This is a **re-review** — you previously verified this PR at commit \`${LAST_R
 
 Perform **incremental contract verification**. Focus on changes since your last review and verify they don't violate the contract.
 
-1. **Review the delta**: Use \`git diff ${LAST_REVIEW_COMMIT}..HEAD\` to see what changed since your last review.
+1. **Review the delta**: First run \`git fetch origin ${base_ref}\` to ensure the base branch ref is available, then use \`git log ${LAST_REVIEW_COMMIT}..HEAD --not origin/${base_ref} -p\` to see what changed since your last review. This excludes any \`${base_ref}\` commits that were merged into the PR branch, so you see only PR-authored changes.
 2. **Check contract state**: Run \`egg-contract show\` to see the current contract with all tasks and acceptance criteria.
 3. **Verify new changes comply**: Ensure new code doesn't break any previously verified acceptance criteria.
 4. **Verify newly completed tasks**: If any tasks were completed since last review, verify their implementation.
