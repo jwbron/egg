@@ -422,10 +422,55 @@ POST /api/v1/git/execute
 ```
 POST /v1/messages
   Description: Proxy for Anthropic messages API with credential injection
+  Streaming: SSE (text/event-stream) — see "Upstream Reset Resilience" below
 
 POST /v1/messages/count_tokens
   Description: Proxy for Anthropic token counting API
 ```
+
+#### Upstream Reset Resilience (Streaming)
+
+`httpx.ReadError` / `httpx.RemoteProtocolError` from an upstream TCP reset
+(`ECONNRESET` on `api.anthropic.com`) used to propagate out of the streaming
+generator and truncate the SSE stream to the sandbox agent, triggering
+downstream `socket connection was closed unexpectedly` / `aclose():
+asynchronous generator is already running` crashes that killed the Job
+(see #1907).
+
+The gateway now applies two complementary defenses in `proxy_anthropic_messages`:
+
+1. **Pre-stream retry (transparent to the agent)** — the streaming branch pre-reads
+   the first upstream chunk inside a bounded retry loop (max 1 retry). If the
+   initial `client.send(..., stream=True)` or first-chunk read raises
+   `httpx.ReadError` / `httpx.RemoteProtocolError`, the gateway closes the failed
+   upstream, rebuilds the request from the original headers + body, and retries
+   once. The peeked first chunk is re-prepended onto the downstream stream so
+   the agent sees the full response. Retries emit a structured
+   `upstream_reset_retry` log at INFO. Exhausted retries fall through to the
+   existing 502 `api_error` handler — the agent receives a well-formed JSON
+   error payload, not a truncated stream.
+
+2. **Mid-stream SSE error envelope** — once bytes have flowed downstream, the
+   retry window is closed (the agent's SSE parser already holds partial
+   events). If `upstream.iter_bytes()` subsequently raises
+   `httpx.ReadError` / `httpx.RemoteProtocolError`, the generator yields a
+   terminating SSE payload matching Anthropic's error envelope
+   (`event: error\ndata: {"type":"error","error":{"type":"api_error","message":"upstream connection reset"}}\n\n`)
+   and returns cleanly. No uncaught exception reaches the Waitress thread. The
+   existing `finally` block still runs `_capture_streaming_response` with
+   partial accumulator data so the transcript buffer flushes whatever was seen.
+   A structured `upstream_reset_midstream` log at WARN records
+   `bytes_transferred` for observability.
+
+Non-streaming `POST /v1/messages` and `POST /v1/messages/count_tokens` paths
+are unchanged — upstream resets on those paths continue to surface through the
+existing `httpx.ConnectError` / `httpx.TimeoutException` / generic `Exception`
+handlers as 502/504 JSON payloads.
+
+**Observability:** both log events are structured and carry the session's
+`container_id` where known. Sustained volume of either event likely indicates
+an upstream issue worth investigating (network flakiness, connection pool
+staleness, upstream rate-limiting).
 
 ### Health
 
@@ -554,6 +599,8 @@ Both methods clear all in-memory config caches so the next access re-reads from 
 9. **Push-target enforcement**: Pipeline agents must push to their assigned branch only. When a push to the assigned branch fails (e.g., due to phase file restrictions from branch history contamination), agents must signal an error rather than improvise a new branch name. This prevents commits from landing on unexpected branches where the pipeline cannot find them.
 
 10. **Concurrent-mode push enforcement**: In BRC mode, direct `git push` is blocked — agents must use `egg-orch consensus propose --push`. This makes the "all changes must be reviewed" invariant structural rather than relying on agent compliance. A `consensus_push` marker flows from the orch CLI directly to the gateway API (bypassing the git wrapper), distinguishing protocol-originated pushes from direct pushes. A `CONCURRENT_PUSH_ENFORCEMENT` killswitch follows the same pattern as `PUSH_TARGET_ENFORCEMENT` for emergency bypass.
+
+11. **Streaming proxy resilience (upstream ECONNRESET)**: Upstream TCP resets on `api.anthropic.com` during SSE streaming are handled in two windows: a bounded pre-stream retry (max 1, transparent to the agent) when no bytes have flowed yet, and a synthetic `event: error` SSE envelope once bytes have reached the downstream agent. This replaces an unguarded `iter_bytes()` loop where `httpx.ReadError` propagated out of the generator, truncating the SSE and crashing the sandbox Job with `socket connection was closed unexpectedly` (see #1907). The envelope matches Anthropic's error convention so existing agent-side SSE parsers handle it as a normal error, not a partial-frame crash. Transcript capture still flushes with partial accumulator data in the mid-stream error path. Logged as `upstream_reset_retry` (INFO) / `upstream_reset_midstream` (WARN).
 
 ## Testing
 

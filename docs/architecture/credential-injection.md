@@ -56,6 +56,12 @@ Both modes use the same `ANTHROPIC_BASE_URL` mechanism:
 - Streaming responses via Flask's `stream_with_context` (no buffering)
 - Header blocklist approach: forwards all headers except auth-related ones
 - Full error passthrough including `x-request-id` for debugging
+- **Upstream reset resilience** on `/v1/messages` streaming: pre-stream
+  `httpx.ReadError` / `httpx.RemoteProtocolError` triggers a single transparent
+  retry; mid-stream resets emit a well-formed SSE `event: error` envelope and
+  close cleanly so the sandbox agent never sees a truncated stream. See
+  [gateway/README.md → Upstream Reset Resilience](../../gateway/README.md#upstream-reset-resilience-streaming)
+  for details.
 
 ### Container Configuration
 
