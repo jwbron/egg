@@ -1053,7 +1053,9 @@ class TestAddDecisionWithMockGateway:
                 "os.environ",
                 {"GATEWAY_URL": mock_gateway, "EGG_ISSUE_NUMBER": "123", "CONTAINER_ID": ""},
             ),
-            patch("egg_agent_tools.handlers.sdlc.gateway_request", side_effect=capturing_gw_request),
+            patch(
+                "egg_agent_tools.handlers.sdlc.gateway_request", side_effect=capturing_gw_request
+            ),
         ):
             result = main(["add-decision", "--question", "Approve?", "--phase", "implement"])
 
@@ -1095,7 +1097,9 @@ class TestAddDecisionWithMockGateway:
                 "os.environ",
                 {"GATEWAY_URL": mock_gateway, "EGG_ISSUE_NUMBER": "123", "CONTAINER_ID": ""},
             ),
-            patch("egg_agent_tools.handlers.sdlc.gateway_request", side_effect=capturing_gw_request),
+            patch(
+                "egg_agent_tools.handlers.sdlc.gateway_request", side_effect=capturing_gw_request
+            ),
         ):
             result = main(["add-decision", "--question", "Approve?"])
 
