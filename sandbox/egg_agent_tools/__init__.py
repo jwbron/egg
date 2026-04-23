@@ -23,9 +23,10 @@ Gating
 ------
 
 ``shared/egg_agent/client.py::run_agent_async`` imports this package
-lazily and only when the ``EGG_MCP_TOOLS`` environment variable is
-truthy.  When the flag is unset the SDK wire-up is byte-identical to
-today, so non-opt-in pipelines pay no cost.
+lazily.  The MCP surface is on by default (since #1942); set
+``EGG_MCP_TOOLS`` to ``false`` / ``0`` / ``no`` / ``off`` to opt out,
+in which case the SDK wire-up is byte-identical to the pre-#1765
+path and the package is not imported.
 """
 
 from __future__ import annotations
