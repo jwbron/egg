@@ -5,7 +5,7 @@
   "branch": "egg/issue-1765",
   "base_branch": null,
   "prompt": null,
-  "status": "failed",
+  "status": "running",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -49,111 +49,24 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "failed",
-      "started_at": "2026-04-23T05:22:48.268198Z",
-      "work_started_at": "2026-04-23T05:22:49.534905Z",
-      "completed_at": "2026-04-23T05:28:17.575688Z",
-      "containers": [
-        {
-          "container_id": "988d1a01-31b9-4901-95f1-554cb4b6f1b4",
-          "container_name": "egg-sandbox-egg-agent-issue-1765-reviewer-agent-design",
-          "status": "failed",
-          "started_at": "2026-04-23T05:22:56.581574Z",
-          "exited_at": "2026-04-23T05:28:08Z",
-          "exit_code": 1,
-          "agent_role": "reviewer_agent_design",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-1765-reviewer-agent-design"
-        },
-        {
-          "container_id": "3ce754f8-648d-4e84-a700-8e152706c092",
-          "container_name": "egg-sandbox-egg-agent-issue-1765-refiner",
-          "status": "failed",
-          "started_at": "2026-04-23T05:22:56.581593Z",
-          "exited_at": "2026-04-23T05:27:38Z",
-          "exit_code": 1,
-          "agent_role": "refiner",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-1765-refiner"
-        },
-        {
-          "container_id": "c4059b58-a5a0-4960-b96b-3690b8a3e5ba",
-          "container_name": "egg-sandbox-egg-agent-issue-1765-reviewer-refine",
-          "status": "failed",
-          "started_at": "2026-04-23T05:22:56.581598Z",
-          "exited_at": "2026-04-23T05:27:33Z",
-          "exit_code": 1,
-          "agent_role": "reviewer_refine",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-1765-reviewer-refine"
-        }
-      ],
-      "agents": [
-        {
-          "role": "reviewer_agent_design",
-          "status": "failed",
-          "container_id": "988d1a01-31b9-4901-95f1-554cb4b6f1b4",
-          "container_info": null,
-          "started_at": "2026-04-23T05:22:56.581586Z",
-          "completed_at": "2026-04-23T05:28:17.558812Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "refiner",
-          "status": "failed",
-          "container_id": "3ce754f8-648d-4e84-a700-8e152706c092",
-          "container_info": null,
-          "started_at": "2026-04-23T05:22:56.581596Z",
-          "completed_at": "2026-04-23T05:27:45.115997Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "reviewer_refine",
-          "status": "failed",
-          "container_id": "c4059b58-a5a0-4960-b96b-3690b8a3e5ba",
-          "container_info": null,
-          "started_at": "2026-04-23T05:22:56.581601Z",
-          "completed_at": "2026-04-23T05:27:39.805280Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        }
-      ],
+      "status": "pending",
+      "started_at": null,
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
-      "cycle_timings": [
-        {
-          "cycle": 0,
-          "started_at": "2026-04-23T05:22:49.534905Z",
-          "completed_at": "2026-04-23T05:28:17.575683Z",
-          "commit_sha": "c515e53c3771e0e9561ffe74d4b067d8273dbc09"
-        }
-      ],
+      "cycle_timings": [],
       "artifacts": {},
-      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-23 05:28:08 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01To6HKcEg6j2YpR8Newngb2 is_error=True content=\"Exit code 143\" [/opt/egg-runtime/shared/egg_agent/client.py:291]\n2026-04-23 05:28:08 [INFO    ] egg-agent: Assistant message event_type=assistant event_subtype=text text=\"You've hit your limit · resets 8am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:266]\n2026-04-23 05:28:08 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result model=claude-opus-4-7 session_id=7d738a60-ef78-4888-9a65-2e821b8beef8 cost_usd=2.0716450000000006 num_turns=66 duration_ms=314737 success=False error=\"You've hit your limit · resets 8am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:317]\nan error occurred during closing of asynchronous generator <async_generator object InternalClient._process_query_inner at 0xffff24717300>\nasyncgen: <async_generator object InternalClient._process_query_inner at 0xffff24717300>\nRuntimeError: aclose(): asynchronous generator is already running\nYou've hit your limit · resets 8am (UTC)\n[consensus-wrapper] Tracker shows not confirmed (stale?). Checking message bus...\n[consensus-wrapper] Agent failed (code 1 after 315s). NOT restarting.\nLet me prepare while waiting by looking at the current state of relevant code.Now let me poll again for the proposal.You've hit your limit · resets 8am (UTC)You've hit your limit · resets 8am (UTC)",
+      "error": null,
       "hitl_feedback": null,
       "phase_start_sha": "c515e53c3771e0e9561ffe74d4b067d8273dbc09"
     }
   },
   "decisions": [],
   "created_at": "2026-04-23T05:22:09.201730Z",
-  "updated_at": "2026-04-23T05:28:17.575747Z",
+  "updated_at": "2026-04-23T05:32:00.470612Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -161,11 +74,11 @@
   "pr_head_sha": null,
   "active_roles": null,
   "has_contract": true,
-  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n2026-04-23 05:28:08 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01To6HKcEg6j2YpR8Newngb2 is_error=True content=\"Exit code 143\" [/opt/egg-runtime/shared/egg_agent/client.py:291]\n2026-04-23 05:28:08 [INFO    ] egg-agent: Assistant message event_type=assistant event_subtype=text text=\"You've hit your limit · resets 8am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:266]\n2026-04-23 05:28:08 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result model=claude-opus-4-7 session_id=7d738a60-ef78-4888-9a65-2e821b8beef8 cost_usd=2.0716450000000006 num_turns=66 duration_ms=314737 success=False error=\"You've hit your limit · resets 8am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:317]\nan error occurred during closing of asynchronous generator <async_generator object InternalClient._process_query_inner at 0xffff24717300>\nasyncgen: <async_generator object InternalClient._process_query_inner at 0xffff24717300>\nRuntimeError: aclose(): asynchronous generator is already running\nYou've hit your limit · resets 8am (UTC)\n[consensus-wrapper] Tracker shows not confirmed (stale?). Checking message bus...\n[consensus-wrapper] Agent failed (code 1 after 315s). NOT restarting.\nLet me prepare while waiting by looking at the current state of relevant code.Now let me poll again for the proposal.You've hit your limit · resets 8am (UTC)You've hit your limit · resets 8am (UTC)",
+  "error": null,
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
-  "run_epoch": null,
-  "version": 11
+  "run_epoch": "2026-04-23T05:32:00.470351Z",
+  "version": 12
 }
