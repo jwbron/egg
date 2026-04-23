@@ -719,19 +719,65 @@ class KubernetesMonitor:
                     )
                     return
 
+                now = datetime.now(UTC)
+                completed_container_ids: set[str] = set()
                 for agent in phase_exec.agents:
                     if agent.status == AgentExecutionStatus.RUNNING:
                         agent.status = AgentExecutionStatus.COMPLETE
-                        agent.completed_at = datetime.now(UTC)
+                        agent.completed_at = now
+                        if agent.container_id:
+                            completed_container_ids.add(agent.container_id)
+
+                # Synthetically mark containers EXITED (exit_code=0) so
+                # _reconcile_pod_state doesn't flip the pipeline to FAILED
+                # when the pods are deleted below.  Mirrors the normal
+                # _update_agents_complete path in routes/pipelines.py
+                # (see #1294).
+                pods_to_stop: list[str] = []
+                for ci in phase_exec.containers:
+                    if (
+                        ci.container_id in completed_container_ids
+                        and ci.status == ContainerStatus.RUNNING
+                    ):
+                        ci.status = ContainerStatus.EXITED
+                        ci.exit_code = 0
+                        ci.exited_at = now
+                        pods_to_stop.append(ci.container_id)
+
+                # Close the open cycle so cycle_timings reflects actual
+                # duration, matching the failure-path writes in
+                # routes/pipelines.py.  Left unset by the prior recovery
+                # path, which made get_phase reports misleading (#1935).
+                if phase_exec.cycle_timings and phase_exec.cycle_timings[-1].completed_at is None:
+                    phase_exec.cycle_timings[-1].completed_at = now
+
                 phase_exec.status = PipelineStatus.COMPLETE
-                phase_exec.completed_at = datetime.now(UTC)
+                phase_exec.completed_at = now
 
                 store.save_pipeline(fresh_pipeline, expected_version=original_version)
                 logger.info(
                     "Aggressive consensus stall recovery complete",
                     pipeline_id=pipeline_id,
                     phase=phase_key,
+                    pods_to_stop=len(pods_to_stop),
                 )
+
+                # Stop pods so the polling loop in _run_concurrent_phase
+                # observes the exits on its next tick and returns, letting
+                # _run_pipeline drive the post-phase transition (HITL gate
+                # or advance_phase).  Without this, containers stayed
+                # RUNNING after recovery and the pipeline sat with
+                # phase.completed_at=null until a human intervened (#1935).
+                for container_id in pods_to_stop:
+                    try:
+                        self.k8s_client.stop_container(container_id, timeout=10)
+                    except Exception:
+                        logger.warning(
+                            "Failed to stop pod during aggressive recovery",
+                            pipeline_id=pipeline_id,
+                            container_id=container_id[:12],
+                            exc_info=True,
+                        )
             except VersionConflictError:
                 # Expected in concurrent environments — another writer updated
                 # the pipeline. Reload and check if the phase already transitioned.
