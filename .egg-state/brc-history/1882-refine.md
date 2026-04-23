@@ -1,0 +1,183 @@
+# BRC Consensus History — refine phase
+
+Generated: 2026-04-23T05:42:52Z
+Pipeline: issue-1882
+
+### [2026-04-23T05:27:40Z] orchestrator (AGENT_FAILED): Agent reviewer_refine failed
+
+Container exited with code 1
+
+````yaml
+id: 7099908f-5025-4d
+phase: refine
+````
+
+### [2026-04-23T05:32:05Z] orchestrator (OVERSEER_ALERT): overseer_restart: overseer [info]
+
+Overseer container was respawned. Old container b6dff2d4-154 exited with code 1. New container 7dddc678-b1e is now running.
+
+````yaml
+id: 4d843b84-baa9-40
+phase: refine
+metadata:
+  exit_code: 1
+  old_container_id: b6dff2d4-1546-41cd-a37b-a2bd99c3cfb7
+  new_container_id: 7dddc678-b1ee-492c-9fc3-28a9eee7e7dc
+  log_tail: "2026-04-23 05:31:36 [INFO    ] egg-agent: Agent session init event_type=system\
+    \ event_subtype=init model=sonnet cwd= permission_mode=bypassPermissions max_turns=2000\
+    \ timeout=7200 setting_sources=\"['project', 'user']\" disallowed_tools=[] sdk=claude_agent_sdk\
+    \ [/opt/egg-runtime/shared/egg_agent/client.py:215]\n2026-04-23 05:31:36 [INFO\
+    \    ] egg-agent: Assistant message event_type=assistant event_subtype=text text=\"\
+    You've hit your limit \xB7 resets 8am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:266]\n\
+    2026-04-23 05:31:36 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result\
+    \ model=<synthetic> session_id=8bc002b6-c147-4ac1-9b65-d770563d21ab cost_usd=0\
+    \ num_turns=1 duration_ms=338 success=False error=\"You've hit your limit \xB7\
+    \ resets 8am (UTC)\" [/opt/egg-runtime/shared/egg_agent/client.py:317]\nan error\
+    \ occurred during closing of asynchronous generator <async_generator object InternalClient._process_query_inner\
+    \ at 0xffffa9787300>\nasyncgen: <async_generator object InternalClient._process_query_inner\
+    \ at 0xffffa9787300>\nRuntimeError: aclose(): asynchronous generator is already\
+    \ running\nYou've hit your limit \xB7 resets 8am (UTC)\nYou've hit your limit\
+    \ \xB7 resets 8am (UTC)You've hit your limit \xB7 resets 8am (UTC)"
+  respawn_attempt: 1
+  max_respawns: 3
+````
+
+### [2026-04-23T05:41:38Z] refiner (CONSENSUS_PROPOSE): Proposal from refiner
+
+Refine-phase analysis for issue #1882 drafted at .egg-state/drafts/1882-analysis.md. Scopes the work to two coupled changes: (1) revive the unmerged gateway-side auto-filter from #1470 (commit 6f0877f50 — filter_allowed_files / filter_agent_files / _execute_filtered_push), and (2) extend get_changed_files_in_push (gateway/git_client.py:1301) to attribute each commit to its author email, so commits authored by <role>@egg.local other than the pushing role (pulled cross-role commits) bypass the pushing role's file-restriction check rather than triggering 403. Laid out four decision axes (filtering strategy, authorship signal, rollout, rewritten-commit semantics) with recommended options (A2+B1+C1+D1: auto-filter engaged, author-email attribution, same-release cutover, [auto-filtered] suffix). Registered 17 pending decisions (decisions 1-8 from the prior restart, 9-17 from this run; 9-17 overlap in part with 1-8 and can be pruned by the human) plus 8 open-ended feedback questions (attack model, utility-role treatment, signed-commit compatibility, post_agent_commit hook semantics, audit distinction, per-role exclusions, server-side pre-push interaction, EGG_AGENT_FILE_PATTERNS lockstep). Current-state trace includes gateway.py:972-1024 (403 enforcement), gateway/git_client.py:1301-1500 (per-commit diff-tree, author-agnostic), sandbox/entrypoint.py:593-606 (git identity setup), orchestrator/concurrent_executor.py:267-282 (EGG_AGENT_FILE_PATTERNS emission), sandbox/egg_lib/cli_push.py (existing --scope-filter fallback). Test matrix includes own-only all-allowed, own-only all-blocked, own-only mixed, mixed-author pulled-clean, mixed-author pulled-dirty, author-resolution-failure fail-closed, warn-only passthrough, and response-schema invariants.
+
+````yaml
+id: c60eef0c-e9cd-41
+phase: refine
+metadata:
+  payload:
+    summary: "Refine-phase analysis for issue #1882 drafted at .egg-state/drafts/1882-analysis.md.\
+      \ Scopes the work to two coupled changes: (1) revive the unmerged gateway-side\
+      \ auto-filter from #1470 (commit 6f0877f50 \u2014 filter_allowed_files / filter_agent_files\
+      \ / _execute_filtered_push), and (2) extend get_changed_files_in_push (gateway/git_client.py:1301)\
+      \ to attribute each commit to its author email, so commits authored by <role>@egg.local\
+      \ other than the pushing role (pulled cross-role commits) bypass the pushing\
+      \ role's file-restriction check rather than triggering 403. Laid out four decision\
+      \ axes (filtering strategy, authorship signal, rollout, rewritten-commit semantics)\
+      \ with recommended options (A2+B1+C1+D1: auto-filter engaged, author-email attribution,\
+      \ same-release cutover, [auto-filtered] suffix). Registered 17 pending decisions\
+      \ (decisions 1-8 from the prior restart, 9-17 from this run; 9-17 overlap in\
+      \ part with 1-8 and can be pruned by the human) plus 8 open-ended feedback questions\
+      \ (attack model, utility-role treatment, signed-commit compatibility, post_agent_commit\
+      \ hook semantics, audit distinction, per-role exclusions, server-side pre-push\
+      \ interaction, EGG_AGENT_FILE_PATTERNS lockstep). Current-state trace includes\
+      \ gateway.py:972-1024 (403 enforcement), gateway/git_client.py:1301-1500 (per-commit\
+      \ diff-tree, author-agnostic), sandbox/entrypoint.py:593-606 (git identity setup),\
+      \ orchestrator/concurrent_executor.py:267-282 (EGG_AGENT_FILE_PATTERNS emission),\
+      \ sandbox/egg_lib/cli_push.py (existing --scope-filter fallback). Test matrix\
+      \ includes own-only all-allowed, own-only all-blocked, own-only mixed, mixed-author\
+      \ pulled-clean, mixed-author pulled-dirty, author-resolution-failure fail-closed,\
+      \ warn-only passthrough, and response-schema invariants."
+    attestation: {}
+    artifacts:
+    - .egg-state/drafts/1882-analysis.md
+    risk_considered: "Security-critical path \u2014 must preserve the existing fail-closed\
+      \ invariant in get_changed_files_in_push when author resolution errors. Auto-filter\
+      \ rewrites history; must never rewrite pulled commits. Response schema change\
+      \ adds pulled_commits field \u2014 confirm no downstream consumer breaks. The\
+      \ analysis uses generic decision-1..9 numbering in-document; the server-side\
+      \ IDs are decisions 1-17 (8 from prior restart, 9 new from this run)."
+    commit_sha: 478e6262ebb66f2203d39d9881cc4005f15d8966
+    files_changed:
+    - .egg-state/drafts/1882-analysis.md
+    tests_run:
+    - none (refine phase produces analysis doc, not code)
+    tasks_satisfied: []
+  version: 1
+  commit_sha: 478e6262ebb66f2203d39d9881cc4005f15d8966
+````
+
+### [2026-04-23T05:42:38Z] reviewer_agent_design → refiner (CONSENSUS_ACK): ACK from reviewer_agent_design for refiner
+
+Refine-phase analysis is comprehensive and respects agent design constraints. Correctly uses sandbox-set <role>@egg.local identity as authorship signal (matches existing trust boundary), preserves fail-closed semantics for unknown authors, protects audit trail, and considers cross-role handoff edge cases (conflict-resolver, pulled commits). Four-axis options table (filtering strategy, authorship signal, rollout, rewritten-commit semantics) is well-structured with clear pros/cons. Recommended approach (port 6f0877f50 + author-email attribution + same-release cutover + [auto-filtered] suffix) is consistent with the issue's stated direction and the lightweight-infra constraint. Nine multiple-choice decisions and eight open-ended feedback items are registered for human steering in plan phase. No agent-design concerns.
+
+````yaml
+id: 9f6b6aa1-cacf-48
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/1882-analysis.md
+    reason: Refine-phase analysis is comprehensive and respects agent design constraints.
+      Correctly uses sandbox-set <role>@egg.local identity as authorship signal (matches
+      existing trust boundary), preserves fail-closed semantics for unknown authors,
+      protects audit trail, and considers cross-role handoff edge cases (conflict-resolver,
+      pulled commits). Four-axis options table (filtering strategy, authorship signal,
+      rollout, rewritten-commit semantics) is well-structured with clear pros/cons.
+      Recommended approach (port 6f0877f50 + author-email attribution + same-release
+      cutover + [auto-filtered] suffix) is consistent with the issue's stated direction
+      and the lightweight-infra constraint. Nine multiple-choice decisions and eight
+      open-ended feedback items are registered for human steering in plan phase. No
+      agent-design concerns.
+  version: 1
+````
+
+### [2026-04-23T05:42:45Z] reviewer_refine → refiner (CONSENSUS_ACK): ACK from reviewer_refine for refiner
+
+Refine-phase analysis is comprehensive and well-reasoned. Correctly identifies the two-part feature (port #1470 auto-filter + add author attribution to distinguish own-commits from pulled commits). Accurate references to gateway.py:942-1024, git_client.py:1301-1500, and commit 6f0877f50. Security invariant (fail-closed on author lookup failure) is preserved. Four decision axes with clear trade-offs and coherent recommendation (A2+B1+C1+D1). Concrete 8-step implementation plan with test coverage. Nine multi-choice decisions registered for human steering. Scope is appropriate for refine - defers implementation details to plan phase. Open questions around attack model, unknown-role defaults, and cross-cutting utility roles are meaningful for human input. No technical errors or missing constraints identified.
+
+````yaml
+id: de670a53-fb17-4f
+phase: refine
+metadata:
+  payload:
+    artifact_references:
+    - .egg-state/drafts/1882-analysis.md
+    - .egg-state/contracts/issue-1882.json
+    reason: 'Refine-phase analysis is comprehensive and well-reasoned. Correctly identifies
+      the two-part feature (port #1470 auto-filter + add author attribution to distinguish
+      own-commits from pulled commits). Accurate references to gateway.py:942-1024,
+      git_client.py:1301-1500, and commit 6f0877f50. Security invariant (fail-closed
+      on author lookup failure) is preserved. Four decision axes with clear trade-offs
+      and coherent recommendation (A2+B1+C1+D1). Concrete 8-step implementation plan
+      with test coverage. Nine multi-choice decisions registered for human steering.
+      Scope is appropriate for refine - defers implementation details to plan phase.
+      Open questions around attack model, unknown-role defaults, and cross-cutting
+      utility roles are meaningful for human input. No technical errors or missing
+      constraints identified.'
+  version: 1
+````
+
+### [2026-04-23T05:42:45Z] orchestrator → refiner (STATUS): All reviewers have ACKed — ready to confirm
+
+All assigned reviewers have ACKed your proposal (version 1). Run `egg-orch consensus confirmed` to confirm.
+
+````yaml
+id: 1640e0fd-404c-4d
+phase: refine
+metadata:
+  fully_acked: true
+  version: 1
+````
+
+### [2026-04-23T05:42:48Z] reviewer_agent_design (CONSENSUS_CONFIRMED): Confirmed by reviewer_agent_design
+
+````yaml
+id: a573e9f5-27ef-41
+phase: refine
+metadata:
+  consensus_reached: false
+````
+
+### [2026-04-23T05:42:52Z] refiner (CONSENSUS_CONFIRMED): Confirmed by refiner
+
+````yaml
+id: ef1059d0-8d0b-41
+phase: refine
+metadata:
+  consensus_reached: false
+````
+
+### [2026-04-23T05:42:52Z] reviewer_refine (CONSENSUS_CONFIRMED): Confirmed by reviewer_refine
+
+````yaml
+id: 320ce04d-0300-47
+phase: refine
+metadata:
+  consensus_reached: true
+````
