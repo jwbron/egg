@@ -6,7 +6,7 @@
   "base_branch": null,
   "prompt": null,
   "status": "running",
-  "current_phase": "implement",
+  "current_phase": "pr",
   "config": {
     "auto_create_pr": true,
     "parallel_agents": true,
@@ -284,7 +284,7 @@
       "status": "complete",
       "started_at": "2026-04-23T20:22:22.196604Z",
       "work_started_at": "2026-04-23T20:22:22.331532Z",
-      "completed_at": "2026-04-23T21:21:27.855518Z",
+      "completed_at": "2026-04-23T21:24:47.257568Z",
       "containers": [
         {
           "container_id": "5986c077-528e-4250-bec9-dd56ada8cd3c",
@@ -433,6 +433,22 @@
       "error": null,
       "hitl_feedback": null,
       "phase_start_sha": "d473d55b3579710cce6a3dd9b1cdee92f0d9c8a9"
+    },
+    "pr": {
+      "phase": "pr",
+      "status": "running",
+      "started_at": "2026-04-23T21:24:47.257600Z",
+      "work_started_at": "2026-04-23T21:24:47.257601Z",
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
+      "artifacts": {},
+      "error": null,
+      "hitl_feedback": null,
+      "phase_start_sha": null
     }
   },
   "decisions": [
@@ -850,7 +866,7 @@
     }
   ],
   "created_at": "2026-04-23T05:21:58.997312Z",
-  "updated_at": "2026-04-23T21:21:27.857424Z",
+  "updated_at": "2026-04-23T21:24:47.258419Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -863,6 +879,6 @@
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
-  "run_epoch": "2026-04-23T20:22:20.174282Z",
-  "version": 109
+  "run_epoch": "2026-04-23T21:24:47.257602Z",
+  "version": 110
 }
