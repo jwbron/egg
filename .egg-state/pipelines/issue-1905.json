@@ -213,7 +213,9 @@
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [],
-      "artifacts": {},
+      "artifacts": {
+        "pr_url": "https://github.com/jwbron/egg/pull/1908"
+      },
       "error": null,
       "hitl_feedback": null,
       "phase_start_sha": "6b0a4e38340455eac1ea56bd29b0fe99b1e29e2f"
@@ -221,7 +223,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-23T00:09:03.798055Z",
-  "updated_at": "2026-04-23T00:25:22.578420Z",
+  "updated_at": "2026-04-23T00:26:05.386095Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -234,5 +236,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 12
+  "version": 13
 }
