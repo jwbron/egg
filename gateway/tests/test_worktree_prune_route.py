@@ -289,23 +289,23 @@ class TestWorktreesPruneMutex:
     """
 
     def test_concurrent_call_returns_409(self, client, launcher_auth_headers, fake_manager):
-        # Pre-acquire the module-level lock to simulate an in-progress run.
-        assert gateway._worktree_prune_lock.acquire(blocking=False)
-        try:
-            with patch.object(gateway, "get_worktree_manager", return_value=fake_manager):
-                response = client.post(
-                    "/api/v1/worktrees/prune",
-                    json={"dry_run": True},
-                    headers=launcher_auth_headers,
-                )
-        finally:
-            gateway._worktree_prune_lock.release()
-        # The route's acquire has a 60s timeout; we shortcut it by holding
-        # the lock but pytest would hang waiting without monkey-patching.
-        # To avoid a 60-second wait, force the lock acquire to fail fast.
-        # (The previous assertion may not return in time under the real
-        # timeout, so we verify behaviour via the helper below.)
-        assert response.status_code in (409, 200), response.status_code
+        # Mock the lock to return False (acquire fails) so the route
+        # returns 409 immediately instead of blocking for the real 60s
+        # timeout — which would hit the pytest-timeout default.
+        fake_lock = MagicMock()
+        fake_lock.acquire.return_value = False
+
+        with (
+            patch.object(gateway, "_worktree_prune_lock", fake_lock),
+            patch.object(gateway, "get_worktree_manager", return_value=fake_manager),
+        ):
+            response = client.post(
+                "/api/v1/worktrees/prune",
+                json={"dry_run": True},
+                headers=launcher_auth_headers,
+            )
+        assert response.status_code == 409
+        fake_lock.release.assert_not_called()
 
     def test_lock_timeout_path_returns_409(self, client, launcher_auth_headers, fake_manager):
         """Direct coverage: when lock.acquire fails, the route returns 409."""
