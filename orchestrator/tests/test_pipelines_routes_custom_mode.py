@@ -267,6 +267,55 @@ class TestCustomRolesValidation:
 
 
 # ---------------------------------------------------------------------------
+# custom_phase threaded to create_pipeline (review feedback #1)
+# ---------------------------------------------------------------------------
+
+
+class TestCustomPhaseThreading:
+    """Verify that the route threads ``custom_phase`` into
+    ``create_pipeline`` so the phase is set atomically during creation
+    (matching the BABYSIT pattern) instead of via a post-creation fixup."""
+
+    @pytest.mark.parametrize(
+        "phase,role",
+        [("refine", "refiner"), ("plan", "architect"), ("implement", "coder")],
+    )
+    def test_custom_phase_forwarded_to_store(self, client, phase, role):
+        with _PatchBundle() as bundle:
+            bundle.mock_store.create_pipeline.return_value = _make_mock_pipeline()
+            client.post(
+                "/api/v1/pipelines",
+                json={
+                    "mode": "custom",
+                    "phase": phase,
+                    "repo": "owner/repo",
+                    "prompt": "x",
+                    "roles": [role],
+                    "pipeline_id": "pipeline-aabbccdd",
+                },
+            )
+            call = bundle.mock_store.create_pipeline.call_args
+            assert call is not None
+            assert call.kwargs.get("custom_phase") == phase
+
+    def test_non_custom_mode_does_not_set_custom_phase(self, client):
+        with _PatchBundle() as bundle:
+            bundle.mock_store.create_pipeline.return_value = _make_mock_pipeline(mode="issue")
+            client.post(
+                "/api/v1/pipelines",
+                json={
+                    "mode": "issue",
+                    "repo": "owner/repo",
+                    "prompt": "x",
+                    "issue_number": 42,
+                },
+            )
+            call = bundle.mock_store.create_pipeline.call_args
+            if call is not None:
+                assert call.kwargs.get("custom_phase") is None
+
+
+# ---------------------------------------------------------------------------
 # Auto-generated branch fallback (decision-7)
 # ---------------------------------------------------------------------------
 

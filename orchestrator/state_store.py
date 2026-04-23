@@ -790,6 +790,7 @@ class StateStore:
         has_contract: bool = True,
         pr_head_sha: str | None = None,
         active_roles: list[str] | None = None,
+        custom_phase: str | None = None,
     ) -> Pipeline:
         """Create a new pipeline.
 
@@ -814,6 +815,11 @@ class StateStore:
                 Populated by run_agent_task (CUSTOM mode) and by the BABYSIT
                 subsumption path. None preserves the legacy default-roster
                 behaviour for ISSUE-mode pipelines (see #1762).
+            custom_phase: Phase name to start a CUSTOM-mode pipeline on
+                (e.g. "refine", "plan", "implement"). When set alongside
+                ``mode=PipelineMode.CUSTOM``, the phase is applied atomically
+                during creation — matching the BABYSIT pattern — so callers
+                never observe a stale ``current_phase`` via ``get_status``.
 
         Returns:
             Created pipeline
@@ -893,6 +899,12 @@ class StateStore:
                 # (e.g. from the scheduler) sees IMPLEMENT rather than the
                 # default REFINE.
                 pipeline.current_phase = PipelinePhase.IMPLEMENT
+            elif mode == PipelineMode.CUSTOM and custom_phase:
+                # CUSTOM-mode pipelines run a single requested phase; set it
+                # atomically during creation (matching the BABYSIT pattern) so
+                # get_status never returns a stale phase between create and
+                # save (#1762 / review feedback item 1).
+                pipeline.current_phase = PipelinePhase(custom_phase)
 
             commit_msg = f"Create pipeline {pipeline_id}"
             self.save_pipeline(pipeline, message=commit_msg)

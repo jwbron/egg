@@ -347,6 +347,15 @@ def _pipeline_identifier(
          so TASK-2-8 works across every existing call site, not just the
          two paths where ``pipeline`` was convenient to thread through.
       3. Otherwise keep the legacy behaviour (prefer ``issue_number``).
+
+    Heuristic invariants (review suggestion 4, #1762):
+      The name-based detection in step 2 relies on these CUSTOM pipeline
+      ID patterns — if a new pattern is introduced, it MUST match one of:
+        - ``custom-<hex>``        (synthetic ID from run_agent_task)
+        - ``pr-<N>``              (PR-targeted CUSTOM, no issue)
+        - ``issue-<N>-<qualifier>`` (issue-bound CUSTOM with qualifier)
+      Bare ``issue-<N>`` is explicitly reserved for ISSUE-mode pipelines.
+      See ``_handle_run_agent_task`` in ``mcp_tools.py`` for ID generation.
     """
     try:
         from models import PipelineMode as _PipelineMode
@@ -403,12 +412,12 @@ def _brc_history_identifier(pipeline) -> int | str:
     """Return the identifier used to namespace BRC-history artifacts.
 
     For issue-mode pipelines this mirrors :func:`_pipeline_identifier`
-    (favouring the issue number).  For babysit-pr pipelines this returns
-    ``pr-{pr_number}-{short_sha}`` so every one-off BRC cycle writes to
-    a distinct history file — letting operators replay babysit runs
-    against the same PR without clobbering prior consensus transcripts.
-    Falls back to the generic identifier when either the PR number or
-    the captured head SHA is missing.
+    (favouring the issue number).  For BABYSIT and CUSTOM+PR pipelines
+    this returns ``pr-{pr_number}-{short_sha}`` so every one-off BRC
+    cycle writes to a distinct history file — letting operators replay
+    runs against the same PR without clobbering prior consensus
+    transcripts.  Falls back to the generic identifier when either the
+    PR number or the captured head SHA is missing.
     """
     try:
         from models import PipelineMode as _PipelineMode
@@ -416,7 +425,17 @@ def _brc_history_identifier(pipeline) -> int | str:
         _PipelineMode = None  # type: ignore[assignment]
 
     mode = getattr(pipeline, "mode", None)
-    if _PipelineMode is not None and mode is not None and mode == _PipelineMode.BABYSIT:
+    # BABYSIT and CUSTOM+PR both target a specific PR commit; use
+    # SHA-based keys to preserve historical transcripts across re-runs
+    # on the same PR (subsumption parity — #1762 review suggestion 2).
+    if (
+        _PipelineMode is not None
+        and mode is not None
+        and (
+            mode == _PipelineMode.BABYSIT
+            or (mode == _PipelineMode.CUSTOM and getattr(pipeline, "pr_number", None))
+        )
+    ):
         pr = getattr(pipeline, "pr_number", None)
         sha = getattr(pipeline, "pr_head_sha", None)
         if pr and isinstance(sha, str) and len(sha) >= 7:
@@ -896,7 +915,11 @@ def create_pipeline() -> tuple[Response, int]:
             # If the allowlist machinery itself blew up, do not surface a
             # 500 to the caller — the existing gateway-side check will
             # still catch unauthorised writes.
-            pass
+            logger.warning(
+                "Repo allowlist check failed — falling through to gateway",
+                repo=repo,
+                exc_info=True,
+            )
 
     # PR pre-flight — applied uniformly to BABYSIT and to CUSTOM pipelines
     # that supply a ``pr_number`` (#1762 TASK-2-6). Refuses merged/closed/
@@ -1218,23 +1241,8 @@ def create_pipeline() -> tuple[Response, int]:
             has_contract=has_contract,
             pr_head_sha=pr_head_sha,
             active_roles=active_roles_to_persist,
+            custom_phase=custom_phase if mode == PipelineMode.CUSTOM else None,
         )
-
-        # CUSTOM-mode pipelines skip refine/plan (we run the requested
-        # phase directly). For PR-targeted CUSTOM or when start_phase
-        # wasn't explicitly set via config, land on the right starting
-        # phase here so the scheduler/status endpoints see the correct
-        # phase immediately. state_store already handles BABYSIT.
-        if mode == PipelineMode.CUSTOM:
-            # Don't clobber an explicit config.start_phase if the caller
-            # set one. ``PipelinePhase`` is already imported at module
-            # scope (line 79/124), so no local import is needed.
-            try:
-                if not getattr(pipeline.config, "start_phase", None):
-                    pipeline.current_phase = PipelinePhase(custom_phase)
-                    store.save_pipeline(pipeline)
-            except Exception:
-                pass
 
         # Contract creation is deferred to _run_pipeline so it writes
         # into the per-pipeline worktree instead of the main repo.
