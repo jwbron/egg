@@ -1194,13 +1194,13 @@ def cmd_message_wait_loop(args: argparse.Namespace) -> int:
         if rc == 0:
             return 0
         if rc == 3:
-            # Inner permanent failure surfaces directly so callers that
-            # already distinguish 1/3 (timeout vs permanent) don't lose
-            # the signal through the wait-loop wrapper. The consensus
-            # wrapper shell script specifically checks `rc != 0 && rc != 1`
-            # to fall back to sleep, and that contract relies on rc=3
-            # propagating.
-            return 3
+            # Inner permanent failure — surface as outer rc=1. The
+            # wait-loop wrapper owns the 0/1 outward contract per plan
+            # TASK-2-4 and the tester fixture at
+            # sandbox/tests/test_message_wait_cli.py::test_exits_one_on_permanent_error.
+            # Callers that need to distinguish permanent from timeout
+            # should use `egg-orch message wait` directly (not the loop).
+            return 1
         if rc == 2:
             _time.sleep(min(backoff, 5.0))
             backoff = min(backoff * 2, 5.0)
