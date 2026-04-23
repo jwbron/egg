@@ -91,8 +91,10 @@ The gateway enforces file-level access restrictions to prevent certain roles fro
 - Backwards compatibility: when session role is unavailable, file restrictions are skipped to support legacy sessions
 
 **Error messages:**
-- `Push denied: Role 'X' cannot modify: <files>. <reason>` (HTTP 403) - File blocked by restriction
-- `Push denied: Could not verify file changes for security check: <error>` (HTTP 500) - Detection failure
+- `Push denied: Role 'X' cannot modify: <files>. <reason>` (HTTP 403) — Phase / contract / protected-file violation (non-agent-role restrictions)
+- `Push denied: Could not verify file changes for security check: <error>` (HTTP 500) — Detection failure
+
+**Agent-role restrictions auto-filter on push.** As of [#1882](https://github.com/jwbron/egg/issues/1882), the push handler no longer returns `403` for *agent-role* file-restriction violations. Instead, the gateway attributes each commit in the unpushed range via the commit-authorship registry and dispatches one of four outcomes — plain push, per-commit rewrite with `[auto-filtered]` suffix on own commits, `nothing_to_push: true` when every own file is blocked, or (with the kill switch set) warn-only plain push. Pulled cross-role commits pass through bitwise-unchanged. Phase / contract / protected-file / branch-ownership / private-mode / concurrent-mode checks keep their `403` behavior — only agent-role file restrictions auto-filter. See [Gateway Auto-Filter Architecture](../docs/architecture/gateway-auto-filter.md) for the full design.
 
 ### Branch Lock (Pipeline Sessions)
 
@@ -469,7 +471,9 @@ gateway/
 ├── rate_limiter.py         # Rate limiting
 ├── config_validator.py     # Configuration validation
 ├── error_messages.py       # Error message formatting
-├── agent_restrictions.py   # Agent role-based file access restrictions (includes patterns for all 15+ roles)
+├── agent_restrictions.py   # Agent role-based file access restrictions (patterns for all 15+ roles, plus partition_files_by_role helper for the push auto-filter)
+├── commit_observer.py      # Inline observer for /api/v1/git/execute — registers every new commit SHA with the orchestrator commit-authorship registry (#1882)
+├── commit_registry_client.py  # Shared-secret HTTP client for the orchestrator /api/v1/commit-authorship/{register,lookup} routes
 ├── checkpoint_handler.py   # Session checkpoint handling
 ├── transcript_buffer.py    # Transcript buffering for agent sessions
 ├── Dockerfile              # Gateway container image
