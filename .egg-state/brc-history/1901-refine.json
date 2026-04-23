@@ -131,5 +131,62 @@
     },
     "timestamp": "2026-04-22T23:37:08.918254+00:00",
     "phase": "refine"
+  },
+  {
+    "id": "518890e8-06eb-43",
+    "pipeline_id": "issue-1901",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "overseer_restart: overseer [info]",
+    "body": "Overseer container was respawned. Old container 50d039e3-1cc exited with code 0. New container d212d1a0-a35 is now running.",
+    "metadata": {
+      "exit_code": 0,
+      "old_container_id": "50d039e3-1cca-4f76-898d-7b12e776d2ab",
+      "new_container_id": "d212d1a0-a35a-42de-afd2-12492dab2c9c",
+      "log_tail": "\n> **Analysis for #1901:** Evaluates 4 options (A: explicit `**` catch-all; B: flip matcher semantics; C: add `allow_by_default` flag; D: compute complement at load).  \n> **Recommends Option A** \u2014 the minimum viable change that fixes the `bin/egg` extensionless-file bug without disturbing the deny-all backstop every other role depends on.  \n> Registered **5 HITL decisions** and **4 feedback questions** for human review.  \n> Artifact: `.egg-state/drafts/1901-analysis.md` \u00b7 Commit: `956c6ee`\n\n---\n\n### Infrastructure Health (final check)\n\n- **Orchestrator:** `ok` (healthy), state_store: ok  \n- **Gateway:** `ok`, GitHub token valid  \n- **Active alerts:** None  \n\n---\n\n### Overseer Verdict\n\n2026-04-22 23:38:51 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result model=claude-sonnet-4-6 session_id=2df86aaf-c256-4f60-9e61-5abab50a00ef cost_usd=1.8623468 num_turns=26 duration_ms=770202 success=True [/opt/egg-runtime/shared/egg_agent/client.py:408]\nPipeline `issue-1901` completed its `refine` phase successfully with **zero incidents**. No corrective interventions were required. The pipeline is now in `awaiting_human` state \u2014 the analysis document and HITL decision queue are ready for human operator review.",
+      "respawn_attempt": 1,
+      "max_respawns": 3
+    },
+    "timestamp": "2026-04-22T23:39:02.299036+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "6dae9643-43d0-44",
+    "pipeline_id": "issue-1901",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "overseer_restart: overseer [info]",
+    "body": "Overseer container was respawned. Old container d212d1a0-a35 exited with code 0. New container 0ab36b12-678 is now running.",
+    "metadata": {
+      "exit_code": 0,
+      "old_container_id": "d212d1a0-a35a-42de-afd2-12492dab2c9c",
+      "new_container_id": "0ab36b12-6787-4bf1-b3d0-522427b8a078",
+      "log_tail": "| **decision-4** | Include `overseer` in this fix? | Out of scope (reporter suggested separate issue) |\n| **decision-5** | Fix pre-existing `**/tests/` directory-pattern matcher bug? | Separate issue |\n\n#### Open Feedback Questions\n\n| ID | Question |\n|---|---|\n| **Q1** | Should `.egg/phase-permissions.json` `file_restrictions` be updated to the new three-role model? |\n| **Q2** | After the rewrite, which file is authoritative \u2014 `patterns.py` or `phase-permissions.json`? Should `_IMPLEMENT_READONLY_DIRS` derive from the blocklist? |\n| **Q3** | Are there future `.egg-state/` subdirs (e.g. `.egg-state/secrets/`) to pre-emptively block coder from? |\n| **Q4** | Should `skills/*.md` files remain coder-owned (as today) or move to documenter scope? |\n\n**To approve and proceed:** `egg-orch decision resolve decision-1 --approved` (or provide feedback text for changes).\n\n---\n\n### Overseer Verdict\n\n2026-04-22 23:41:01 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result model=claude-sonnet-4-6 session_id=fe32cb9b-52b3-49dd-9078-a2f380300625 cost_usd=0.21539930000000002 num_turns=12 duration_ms=117509 success=True [/opt/egg-runtime/shared/egg_agent/client.py:408]\nPipeline `issue-1901` is **healthy and fully ready for human review**. The refine phase produced a high-quality analysis with clear recommendations and well-formed HITL checkpoints. No corrective interventions were needed across this overseer session. The pipeline will resume automation once the human resolves `decision-1`.",
+      "respawn_attempt": 2,
+      "max_respawns": 3
+    },
+    "timestamp": "2026-04-22T23:41:33.573212+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "9aa859bc-ccb3-45",
+    "pipeline_id": "issue-1901",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "overseer_restart: overseer [info]",
+    "body": "Overseer container was respawned. Old container 0ab36b12-678 exited with code 0. New container 2ac74127-92b is now running.",
+    "metadata": {
+      "exit_code": 0,
+      "old_container_id": "0ab36b12-6787-4bf1-b3d0-522427b8a078",
+      "new_container_id": "2ac74127-92b0-4757-94dc-a29b68aa78c1",
+      "log_tail": "---\n\n### What the Human Operator Must Do to Advance\n\n```bash\n# To approve and continue to the next phase:\negg-orch decision resolve decision-1 --approved\n\n# To request changes from the refiner:\negg-orch decision resolve decision-1 --feedback \"Your feedback here\"\n```\n\nThe pipeline will resume automation immediately upon `decision-1` resolution. The refine phase was executed with high quality \u2014 no rework is expected if approved as-is.\n\n---\n\n### Overseer Assessment\n\n2026-04-22 23:43:49 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result model=claude-sonnet-4-6 session_id=a0597df3-c47a-41cf-b5c2-b6d90304d0e6 cost_usd=1.0445709 num_turns=13 duration_ms=133593 success=True [/opt/egg-runtime/shared/egg_agent/client.py:408]\n**HEALTHY.** Pipeline `issue-1901` executed the `refine` phase correctly, reached consensus, registered all required HITL checkpoints, and correctly paused for human review. Three consecutive overseer sessions (containers `50d039e3`, `d212d1a0`, `0ab36b12`) all confirmed zero incidents. No corrective actions were taken or required at any point during the automated monitoring window.",
+      "respawn_attempt": 3,
+      "max_respawns": 3
+    },
+    "timestamp": "2026-04-22T23:44:05.578736+00:00",
+    "phase": "refine"
   }
 ]
