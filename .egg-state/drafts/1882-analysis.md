@@ -220,3 +220,22 @@ The following decisions / feedback items are being registered via `egg-contract`
 8. **Should `EGG_AGENT_FILE_PATTERNS` (the env var consumed by cli_push) be updated to include the same pattern set the gateway uses, or is duplication between the gateway-side source of truth and the sandbox env var acceptable?**
 
 *Authored-by: egg (refiner)*
+
+
+## HITL Resolution
+
+The following was approved by a human reviewer at the refine phase gate:
+
+Resolved decisions from refine HITL (2026-04-22/23):
+
+**decision-1 (authorship mechanism)**: **B3 — gateway-side commit registry**. User chose this over the refiner's recommended B1 (author-email). The plan phase must design the durable store and hook semantics. Key risks the refiner already flagged to address: (a) no durable store exists today — pick one and justify; (b) commits created outside the post-agent-commit hook path (git cherry-pick, rebase --interactive, commits made before the hook fires, amends) would be unregistered — need an explicit policy for unregistered commits (should tie into decision-9 fail-closed); (c) the registry becomes the authoritative source of truth for commit-authorship, so its consistency/durability guarantees matter for audit trails. Axis A (filtering strategy) still defaults to A2 (port 6f0877f50 forward); the change is only in how the gateway attributes each commit to a role.
+
+**decision-6 (rollout order)**: **C1 — single-release cutover**. Ship auto-filter + author-attribution-via-registry + scope-filter removal together in one PR. Keep EGG_AGENT_RESTRICTIONS_ENFORCE=false as a kill switch.
+
+**decision-9 (unknown-role default)**: **Fail closed**. Any commit whose authorship cannot be resolved via the registry is treated as own-authored for restriction-check purposes. No 403 specifically for 'unknown author' — they just fall under the pushing role's restrictions like any other. This plays well with decision-1 (B3): a commit that was never recorded in the registry defaults to the pushing role's scope.
+
+**decision-8 (scope-filter removal)**: **Remove entirely in the same PR** — captured during pre-refine. Delete sandbox/egg_lib/cli_push.py's --scope-filter, update any callers, update docs (docs/guides/agent-development.md, docs/reference/orchestrator-cli.md, any agent-config rules that mention it).
+
+**Decisions 2, 3, 4, 5, 7**: Deferred to the plan phase. The refiner's recommendations (D1 suffix, nothing_to_push=true for all-blocked, pulled_commits response field, shared/egg_restrictions/ helper location, squash multi-commit own-authored pushes) are reasonable defaults; the plan phase should adopt them unless a reviewer surfaces a concrete concern.
+
+**Open-ended feedback items from the draft**: The plan phase should pay particular attention to #1 (attack model — with B3 the registry is the trust boundary, not the sandbox-set identity, so the attack model shifts) and #4 (post_agent_commit hook timing — B3 makes the hook critical infrastructure, not just an audit-log producer).
