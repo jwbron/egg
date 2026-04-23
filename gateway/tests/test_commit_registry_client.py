@@ -85,40 +85,26 @@ class TestRegister:
             return 409, {"success": False, "existing_role": "tester"}, "HTTPError 409"
 
         monkeypatch.setattr(mod, "_post", fake_post)
-        assert (
-            client.register(sha=_VALID_SHA, role="coder", pipeline_id="issue-1882")
-            is True
-        )
+        assert client.register(sha=_VALID_SHA, role="coder", pipeline_id="issue-1882") is True
 
     def test_register_500_returns_false(self, client, monkeypatch):
         import commit_registry_client as mod
 
-        monkeypatch.setattr(
-            mod, "_post", lambda *_a, **_kw: (500, None, "HTTPError 500")
-        )
-        assert (
-            client.register(sha=_VALID_SHA, role="coder", pipeline_id="issue-1882")
-            is False
-        )
+        monkeypatch.setattr(mod, "_post", lambda *_a, **_kw: (500, None, "HTTPError 500"))
+        assert client.register(sha=_VALID_SHA, role="coder", pipeline_id="issue-1882") is False
 
     def test_register_network_error_returns_false(self, client, monkeypatch):
         import commit_registry_client as mod
 
         monkeypatch.setattr(mod, "_post", lambda *_a, **_kw: (0, None, "Network error"))
-        assert (
-            client.register(sha=_VALID_SHA, role="coder", pipeline_id="issue-1882")
-            is False
-        )
+        assert client.register(sha=_VALID_SHA, role="coder", pipeline_id="issue-1882") is False
 
     def test_register_401_returns_false(self, client, monkeypatch):
         """A 401 surfaces as False (misconfigured secret is an operator bug)."""
         import commit_registry_client as mod
 
         monkeypatch.setattr(mod, "_post", lambda *_a, **_kw: (401, None, "HTTPError 401"))
-        assert (
-            client.register(sha=_VALID_SHA, role="coder", pipeline_id="issue-1882")
-            is False
-        )
+        assert client.register(sha=_VALID_SHA, role="coder", pipeline_id="issue-1882") is False
 
 
 # ---------------------------------------------------------------------------
@@ -168,12 +154,15 @@ class TestRegisterBulk:
     def test_bulk_500_returns_false(self, client, monkeypatch):
         import commit_registry_client as mod
 
-        monkeypatch.setattr(
-            mod, "_post", lambda *_a, **_kw: (500, None, "HTTPError 500")
-        )
+        monkeypatch.setattr(mod, "_post", lambda *_a, **_kw: (500, None, "HTTPError 500"))
         items = [
-            {"sha": _VALID_SHA, "role": "coder", "pipeline_id": "issue-1882",
-             "repo": None, "branch": None}
+            {
+                "sha": _VALID_SHA,
+                "role": "coder",
+                "pipeline_id": "issue-1882",
+                "repo": None,
+                "branch": None,
+            }
         ]
         assert client.register_bulk(items) is False
 
@@ -253,15 +242,11 @@ class TestLookupBulk:
         result = client.lookup_bulk([_VALID_SHA])
         assert result == {_VALID_SHA: "coder"}
 
-    def test_lookup_missing_attribution_key_maps_requested_shas_to_none(
-        self, client, monkeypatch
-    ):
+    def test_lookup_missing_attribution_key_maps_requested_shas_to_none(self, client, monkeypatch):
         """Server omitted ``attribution`` → every requested SHA -> None."""
         import commit_registry_client as mod
 
-        monkeypatch.setattr(
-            mod, "_post", lambda *_a, **_kw: (200, {"success": True}, None)
-        )
+        monkeypatch.setattr(mod, "_post", lambda *_a, **_kw: (200, {"success": True}, None))
         # Missing attribution dict is treated as empty-by-default; every
         # requested sha maps to None (unregistered) rather than getting
         # dropped — the caller still sees the fail-closed signal.

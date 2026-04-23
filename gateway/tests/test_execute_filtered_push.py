@@ -301,9 +301,7 @@ class TestInterleavedOwnAndPulled:
 
         attributed_files = [
             AttributedFile(path="src/a.py", commit_sha=sha_own1, authored_by="coder"),
-            AttributedFile(
-                path="tests/test_a.py", commit_sha=sha_pulled, authored_by="tester"
-            ),
+            AttributedFile(path="tests/test_a.py", commit_sha=sha_pulled, authored_by="tester"),
             AttributedFile(path="src/b.py", commit_sha=sha_own2, authored_by="coder"),
         ]
         result = execute_filtered_push(
@@ -319,9 +317,7 @@ class TestInterleavedOwnAndPulled:
         assert result.success is True
         # The pulled commit's original SHA should appear in pulled_commits,
         # and its rewritten_sha must equal None when the parent was unchanged.
-        pulled_entries = [
-            p for p in result.pulled_commits if p.get("sha") == sha_pulled
-        ]
+        pulled_entries = [p for p in result.pulled_commits if p.get("sha") == sha_pulled]
         assert len(pulled_entries) == 1
         # If the chain was stable, rewritten_sha is None (SHA preserved).
         # In the mixed case tests elsewhere it may be non-None.
@@ -351,9 +347,7 @@ class TestInterleavedOwnAndPulled:
         )
         attributed_files = [
             AttributedFile(path="docs/foo.md", commit_sha=sha_own, authored_by="coder"),
-            AttributedFile(
-                path="tests/test_foo.py", commit_sha=sha_pulled, authored_by="tester"
-            ),
+            AttributedFile(path="tests/test_foo.py", commit_sha=sha_pulled, authored_by="tester"),
         ]
         result = execute_filtered_push(
             exec_path=str(repo),
@@ -400,9 +394,7 @@ class TestOwnCommitBecomesEmpty:
             message="docs-only commit",
         )
         attributed_files = [
-            AttributedFile(
-                path="docs/README.md", commit_sha=sha, authored_by="coder"
-            ),
+            AttributedFile(path="docs/README.md", commit_sha=sha, authored_by="coder"),
         ]
         result = execute_filtered_push(
             exec_path=str(repo),
@@ -565,7 +557,7 @@ class TestPostSuccessRestage:
         assert result.success is True
         assert "docs/note.md" in result.excluded_files
         # The file is back in the worktree (re-staged with intent-to-add).
-        reinjected = (repo / "docs" / "note.md")
+        reinjected = repo / "docs" / "note.md"
         assert reinjected.exists()
         assert reinjected.read_text() == "# note\n"
         # And it's not part of the current tip's tree.
@@ -697,9 +689,7 @@ class TestAllDropped:
             message="only docs",
         )
         attributed_files = [
-            AttributedFile(
-                path="docs/only.md", commit_sha=sha, authored_by="coder"
-            ),
+            AttributedFile(path="docs/only.md", commit_sha=sha, authored_by="coder"),
         ]
         result = execute_filtered_push(
             exec_path=str(repo),

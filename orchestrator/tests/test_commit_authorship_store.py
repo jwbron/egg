@@ -80,17 +80,13 @@ _THIRD_SHA = "c" * 40
 class TestRoundTrip:
     def test_register_then_lookup_returns_role(self, store: CommitAuthorshipStore):
         """A freshly registered sha is returned from lookup."""
-        normalized, inserted, existing = store.register(
-            _VALID_SHA, "coder", "issue-1882"
-        )
+        normalized, inserted, existing = store.register(_VALID_SHA, "coder", "issue-1882")
         assert normalized == _VALID_SHA
         assert inserted is True
         assert existing is None
         assert store.lookup(_VALID_SHA) == "coder"
 
-    def test_register_persists_to_disk(
-        self, store: CommitAuthorshipStore, worktree: Path
-    ):
+    def test_register_persists_to_disk(self, store: CommitAuthorshipStore, worktree: Path):
         """The shard file is written under .egg-state/commit-authorship/."""
         store.register(_VALID_SHA, "coder", "issue-1882")
         shard = worktree / SUBSTORE_DIR / "issue-1882.json"
@@ -151,9 +147,7 @@ class TestIdempotentReregister:
     def test_same_role_re_register_is_noop(self, store: CommitAuthorshipStore):
         """Re-registering an identical (sha, role) is a no-op success."""
         store.register(_VALID_SHA, "coder", "issue-1882")
-        normalized, inserted, existing = store.register(
-            _VALID_SHA, "coder", "issue-1882"
-        )
+        normalized, inserted, existing = store.register(_VALID_SHA, "coder", "issue-1882")
         assert normalized == _VALID_SHA
         assert inserted is False
         assert existing is None
@@ -214,9 +208,7 @@ class TestFirstWinsCollision:
         shard = worktree / SUBSTORE_DIR / "issue-1882.json"
         before = json.loads(shard.read_text())["entries"][_VALID_SHA]
         with pytest.raises(AuthorshipCollisionError):
-            store.register(
-                _VALID_SHA, "tester", "issue-1882", repo="other/repo", branch="main"
-            )
+            store.register(_VALID_SHA, "tester", "issue-1882", repo="other/repo", branch="main")
         after = json.loads(shard.read_text())["entries"][_VALID_SHA]
         assert before == after
 
@@ -274,9 +266,7 @@ class TestBulkLookup:
 
 
 class TestConcurrentWrites:
-    def test_two_threads_different_shas(
-        self, store: CommitAuthorshipStore
-    ):
+    def test_two_threads_different_shas(self, store: CommitAuthorshipStore):
         """Two threads writing different SHAs both succeed (no lost update)."""
         errors: list[BaseException] = []
 
@@ -316,9 +306,7 @@ class TestConcurrentWrites:
         assert errors == []
         assert store.lookup(_VALID_SHA) == "coder"
 
-    def test_two_threads_same_sha_conflicting_roles(
-        self, store: CommitAuthorshipStore
-    ):
+    def test_two_threads_same_sha_conflicting_roles(self, store: CommitAuthorshipStore):
         """Exactly one thread wins; the others see AuthorshipCollisionError."""
         collisions: list[AuthorshipCollisionError] = []
         successes: list[str] = []
@@ -378,9 +366,7 @@ class TestPerPipelineSharding:
             _OTHER_SHA: "tester",
         }
 
-    def test_orphan_shard_for_missing_pipeline(
-        self, store: CommitAuthorshipStore, worktree: Path
-    ):
+    def test_orphan_shard_for_missing_pipeline(self, store: CommitAuthorshipStore, worktree: Path):
         """An empty / None pipeline_id routes to the orphan shard."""
         store.register(_VALID_SHA, "coder", None)
         orphan = worktree / SUBSTORE_DIR / f"{ORPHAN_SHARD_ID}.json"
@@ -422,9 +408,7 @@ class _StubStateStore:
         # Return a MagicMock that mimics subprocess.CompletedProcess
         mock_result = MagicMock()
         mock_result.args = args
-        mock_result.returncode = (
-            self._diff_returncode if args[:2] == ("diff", "--cached") else 0
-        )
+        mock_result.returncode = self._diff_returncode if args[:2] == ("diff", "--cached") else 0
         return mock_result
 
     def _sync_to_remote_async(self) -> None:
@@ -526,9 +510,7 @@ class TestInputValidation:
 
 
 class TestCorruptShard:
-    def test_corrupt_shard_on_read_raises(
-        self, store: CommitAuthorshipStore, worktree: Path
-    ):
+    def test_corrupt_shard_on_read_raises(self, store: CommitAuthorshipStore, worktree: Path):
         """A corrupt JSON shard surfaces as CommitAuthorshipStoreError on register."""
         shard = worktree / SUBSTORE_DIR / "issue-1882.json"
         shard.parent.mkdir(parents=True, exist_ok=True)
@@ -536,9 +518,7 @@ class TestCorruptShard:
         with pytest.raises(CommitAuthorshipStoreError):
             store.register(_VALID_SHA, "coder", "issue-1882")
 
-    def test_corrupt_shard_ignored_on_lookup(
-        self, store: CommitAuthorshipStore, worktree: Path
-    ):
+    def test_corrupt_shard_ignored_on_lookup(self, store: CommitAuthorshipStore, worktree: Path):
         """Corrupt shards are logged-and-skipped by bulk lookup."""
         bad = worktree / SUBSTORE_DIR / "issue-1897.json"
         bad.parent.mkdir(parents=True, exist_ok=True)
@@ -547,9 +527,7 @@ class TestCorruptShard:
         # Should not raise; the good shard is still visible.
         assert store.lookup(_VALID_SHA) == "coder"
 
-    def test_missing_entries_key_raises(
-        self, store: CommitAuthorshipStore, worktree: Path
-    ):
+    def test_missing_entries_key_raises(self, store: CommitAuthorshipStore, worktree: Path):
         """Shard JSON without ``entries`` key is treated as corrupt."""
         shard = worktree / SUBSTORE_DIR / "issue-1882.json"
         shard.parent.mkdir(parents=True, exist_ok=True)

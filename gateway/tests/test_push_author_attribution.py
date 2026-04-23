@@ -120,9 +120,7 @@ def _patches_for(
             ),
         ),
         patch.object(gateway, "get_token_for_repo", return_value=("test-token", "bot", "")),
-        patch.object(
-            gateway, "get_changed_files_in_push", return_value=(file_paths, None)
-        ),
+        patch.object(gateway, "get_changed_files_in_push", return_value=(file_paths, None)),
         patch.object(
             gateway, "check_file_restrictions", return_value=FileRestrictionResult.allow()
         ),
@@ -266,9 +264,7 @@ def test_scenario_4_mixed_own_and_pulled_all_allowed(client):
     attributed = AttributedPushRange(
         files=[
             AttributedFile(path="src/main.py", commit_sha=_OWN_SHA, authored_by="coder"),
-            AttributedFile(
-                path="tests/test_main.py", commit_sha=_PULLED_SHA, authored_by="tester"
-            ),
+            AttributedFile(path="tests/test_main.py", commit_sha=_PULLED_SHA, authored_by="tester"),
         ],
         commits=[_OWN_SHA, _PULLED_SHA],
         attribution={_OWN_SHA: "coder", _PULLED_SHA: "tester"},
@@ -301,9 +297,7 @@ def test_scenario_5_pulled_files_would_be_blocked_but_exempt(client):
     attributed = AttributedPushRange(
         files=[
             AttributedFile(path="src/main.py", commit_sha=_OWN_SHA, authored_by="coder"),
-            AttributedFile(
-                path="docs/api.md", commit_sha=_PULLED_SHA, authored_by="documenter"
-            ),
+            AttributedFile(path="docs/api.md", commit_sha=_PULLED_SHA, authored_by="documenter"),
         ],
         commits=[_OWN_SHA, _PULLED_SHA],
         attribution={_OWN_SHA: "coder", _PULLED_SHA: "documenter"},
@@ -335,9 +329,7 @@ def test_scenario_6_own_blocked_with_pulled_preserved(client, monkeypatch):
         files=[
             AttributedFile(path="src/main.py", commit_sha=_OWN_SHA, authored_by="coder"),
             AttributedFile(path="docs/guide.md", commit_sha=_OWN_SHA, authored_by="coder"),
-            AttributedFile(
-                path="tests/test_main.py", commit_sha=_PULLED_SHA, authored_by="tester"
-            ),
+            AttributedFile(path="tests/test_main.py", commit_sha=_PULLED_SHA, authored_by="tester"),
         ],
         commits=[_OWN_SHA, _PULLED_SHA],
         attribution={_OWN_SHA: "coder", _PULLED_SHA: "tester"},

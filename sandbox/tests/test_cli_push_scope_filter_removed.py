@@ -85,12 +85,8 @@ class TestSourceLevelRemoval:
         # Strip single-line comments.
         stripped = re.sub(r"#.*", "", stripped)
         # argparse add_argument("--scope-filter", ...) must be gone.
-        assert "--scope-filter" not in stripped, (
-            "cli_push.py still parses --scope-filter"
-        )
-        assert "def _filter_files" not in stripped, (
-            "cli_push.py still defines _filter_files"
-        )
+        assert "--scope-filter" not in stripped, "cli_push.py still parses --scope-filter"
+        assert "def _filter_files" not in stripped, "cli_push.py still defines _filter_files"
         assert "scope_filter" not in stripped, (
             "cli_push.py still references scope_filter in live code"
         )
@@ -101,23 +97,21 @@ class TestSourceLevelRemoval:
         stripped = re.sub(r'"""[\s\S]*?"""', "", src)
         stripped = re.sub(r"'''[\s\S]*?'''", "", stripped)
         stripped = re.sub(r"#.*", "", stripped)
-        assert (
-            "EGG_AGENT_FILE_PATTERNS" not in stripped
-        ), "cli_push.py still reads EGG_AGENT_FILE_PATTERNS in live code"
+        assert "EGG_AGENT_FILE_PATTERNS" not in stripped, (
+            "cli_push.py still reads EGG_AGENT_FILE_PATTERNS in live code"
+        )
 
     def test_concurrent_executor_no_longer_injects_env_var(self):
         """concurrent_executor.py must not *emit* EGG_AGENT_FILE_PATTERNS (comments OK)."""
-        src = (
-            self._REPO_ROOT / "orchestrator" / "concurrent_executor.py"
-        ).read_text()
+        src = (self._REPO_ROOT / "orchestrator" / "concurrent_executor.py").read_text()
         # Strip docstrings and comments; the file is allowed to
         # document that the emission was removed.
         stripped = re.sub(r'"""[\s\S]*?"""', "", src)
         stripped = re.sub(r"'''[\s\S]*?'''", "", stripped)
         stripped = re.sub(r"#.*", "", stripped)
-        assert (
-            "EGG_AGENT_FILE_PATTERNS" not in stripped
-        ), "concurrent_executor.py still emits EGG_AGENT_FILE_PATTERNS in live code"
+        assert "EGG_AGENT_FILE_PATTERNS" not in stripped, (
+            "concurrent_executor.py still emits EGG_AGENT_FILE_PATTERNS in live code"
+        )
 
     def test_get_agent_env_does_not_include_egg_agent_file_patterns(self):
         """Structural check: concurrent_executor's env builder must not set the var."""

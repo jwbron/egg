@@ -67,10 +67,7 @@ def _make_session(role: str = "coder"):
 
 def _build_range(file_paths: list[str], role: str) -> AttributedPushRange:
     """Every file in the range attributed to ``role`` (own-authored)."""
-    files = [
-        AttributedFile(path=p, commit_sha=_VALID_SHA, authored_by=role)
-        for p in file_paths
-    ]
+    files = [AttributedFile(path=p, commit_sha=_VALID_SHA, authored_by=role) for p in file_paths]
     return AttributedPushRange(
         files=files,
         commits=[_VALID_SHA],
@@ -129,9 +126,7 @@ def _push_context(mock_session, file_paths: list[str]):
             ),
         ),
         patch.object(gateway, "get_token_for_repo", return_value=("test-token", "bot", "")),
-        patch.object(
-            gateway, "get_changed_files_in_push", return_value=(file_paths, None)
-        ),
+        patch.object(gateway, "get_changed_files_in_push", return_value=(file_paths, None)),
         patch.object(
             gateway, "check_file_restrictions", return_value=FileRestrictionResult.allow()
         ),
@@ -175,7 +170,16 @@ class TestAllBlockedResponse:
         session = _make_session("coder")
         files = ["docs/guide.md", "docs/another.md"]
         patches = _push_context(session, files)
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
                 assert response.status_code == 200
@@ -185,7 +189,16 @@ class TestAllBlockedResponse:
     def test_response_includes_nothing_to_push_true(self, client):
         session = _make_session("coder")
         patches = _push_context(session, ["docs/guide.md"])
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
                 body = _body(response)
@@ -195,7 +208,16 @@ class TestAllBlockedResponse:
         session = _make_session("coder")
         files = ["docs/guide.md", "docs/api.md"]
         patches = _push_context(session, files)
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
                 body = _body(response)
@@ -205,7 +227,16 @@ class TestAllBlockedResponse:
         """All-blocked short-circuit never pushes anything to origin."""
         session = _make_session("coder")
         patches = _push_context(session, ["docs/guide.md"])
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
                 body = _body(response)
@@ -216,7 +247,16 @@ class TestAllBlockedResponse:
         """With only own commits, pulled_commits is an empty list."""
         session = _make_session("coder")
         patches = _push_context(session, ["docs/guide.md"])
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
                 body = _body(response)
@@ -234,7 +274,16 @@ class TestAllAllowedResponse:
     def test_plain_push_has_filtered_false(self, client):
         session = _make_session("coder")
         patches = _push_context(session, ["src/main.py"])
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
                 assert response.status_code == 200
@@ -245,7 +294,16 @@ class TestAllAllowedResponse:
         """Plain pushes still carry pulled_commits for observability parity."""
         session = _make_session("coder")
         patches = _push_context(session, ["src/main.py"])
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
                 body = _body(response)
@@ -254,7 +312,16 @@ class TestAllAllowedResponse:
     def test_plain_push_has_nothing_to_push_false(self, client):
         session = _make_session("coder")
         patches = _push_context(session, ["src/main.py"])
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
                 body = _body(response)
@@ -272,7 +339,16 @@ class TestWarnOnlyPassthrough:
     def test_warn_only_returns_200(self, client):
         session = _make_session("coder")
         patches = _push_context(session, ["docs/guide.md"])
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "false"}):
                 response = _do_push(client)
                 assert response.status_code == 200
@@ -383,7 +459,16 @@ class TestNoAgentRole:
         session = _make_session("coder")
         session.agent_role = None
         patches = _push_context(session, ["src/main.py"])
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6], patches[7]:
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
                 assert response.status_code == 200

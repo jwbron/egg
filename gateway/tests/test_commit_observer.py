@@ -406,9 +406,7 @@ class TestCaptureHead:
 
     def test_capture_head_returns_none_on_empty_output(self, monkeypatch):
         def fake_run(*args, **kwargs):
-            return subprocess.CompletedProcess(
-                args=args, returncode=0, stdout="\n", stderr=""
-            )
+            return subprocess.CompletedProcess(args=args, returncode=0, stdout="\n", stderr="")
 
         monkeypatch.setattr(subprocess, "run", fake_run)
         assert capture_head("/repo") is None

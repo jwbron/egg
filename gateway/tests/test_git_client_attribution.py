@@ -49,18 +49,14 @@ def make_run(responses):
         for matcher, result in responses:
             if matcher(cmd):
                 return result
-        return subprocess.CompletedProcess(
-            args=cmd, returncode=0, stdout="", stderr=""
-        )
+        return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
     return fake_run, calls
 
 
 def _cp(returncode=0, stdout="", stderr=""):
     """Shorthand for subprocess.CompletedProcess()."""
-    return subprocess.CompletedProcess(
-        args=[], returncode=returncode, stdout=stdout, stderr=stderr
-    )
+    return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
 
 
 def _cmd_contains(cmd, *needles):
@@ -122,8 +118,7 @@ class TestHappyPath:
         responses = [
             (lambda cmd: "fetch" in cmd, _cp(returncode=0)),
             (
-                lambda cmd: "rev-list" in cmd
-                and "origin/branch..HEAD" in " ".join(cmd),
+                lambda cmd: "rev-list" in cmd and "origin/branch..HEAD" in " ".join(cmd),
                 _cp(returncode=0, stdout="abc1111\n"),
             ),
             (
@@ -156,8 +151,7 @@ class TestHappyPath:
         responses = [
             (lambda cmd: "fetch" in cmd, _cp(returncode=0)),
             (
-                lambda cmd: "rev-list" in cmd
-                and "origin/feature..HEAD" in " ".join(cmd),
+                lambda cmd: "rev-list" in cmd and "origin/feature..HEAD" in " ".join(cmd),
                 _cp(returncode=0, stdout="abc1111\ndef2222\n1234567\n"),
             ),
             (
@@ -200,8 +194,7 @@ class TestRegistryUnavailable:
         responses = [
             (lambda cmd: "fetch" in cmd, _cp(returncode=0)),
             (
-                lambda cmd: "rev-list" in cmd
-                and "origin/branch..HEAD" in " ".join(cmd),
+                lambda cmd: "rev-list" in cmd and "origin/branch..HEAD" in " ".join(cmd),
                 _cp(returncode=0, stdout="abc1111\n"),
             ),
             (
@@ -230,8 +223,7 @@ class TestRegistryUnavailable:
         responses = [
             (lambda cmd: "fetch" in cmd, _cp(returncode=0)),
             (
-                lambda cmd: "rev-list" in cmd
-                and "origin/branch..HEAD" in " ".join(cmd),
+                lambda cmd: "rev-list" in cmd and "origin/branch..HEAD" in " ".join(cmd),
                 _cp(returncode=0, stdout="feedcab\n"),
             ),
             (
@@ -257,8 +249,7 @@ class TestRegistryUnavailable:
         responses = [
             (lambda cmd: "fetch" in cmd, _cp(returncode=0)),
             (
-                lambda cmd: "rev-list" in cmd
-                and "origin/branch..HEAD" in " ".join(cmd),
+                lambda cmd: "rev-list" in cmd and "origin/branch..HEAD" in " ".join(cmd),
                 _cp(returncode=0, stdout="abc1111\ndef2222\n"),
             ),
             (
@@ -291,8 +282,7 @@ class TestDetectionFailures:
         responses = [
             (lambda cmd: "fetch" in cmd, _cp(returncode=0)),
             (
-                lambda cmd: "rev-list" in cmd
-                and "origin/branch..HEAD" in " ".join(cmd),
+                lambda cmd: "rev-list" in cmd and "origin/branch..HEAD" in " ".join(cmd),
                 _cp(returncode=0, stdout="abc1111\n"),
             ),
             (
@@ -421,8 +411,7 @@ class TestEmptyRange:
         responses = [
             (lambda cmd: "fetch" in cmd, _cp(returncode=0)),
             (
-                lambda cmd: "rev-list" in cmd
-                and "origin/branch..HEAD" in " ".join(cmd),
+                lambda cmd: "rev-list" in cmd and "origin/branch..HEAD" in " ".join(cmd),
                 _cp(returncode=0, stdout=""),
             ),
         ]
@@ -448,8 +437,7 @@ class TestSessionRoleIsAdvisory:
         return [
             (lambda cmd: "fetch" in cmd, _cp(returncode=0)),
             (
-                lambda cmd: "rev-list" in cmd
-                and "origin/branch..HEAD" in " ".join(cmd),
+                lambda cmd: "rev-list" in cmd and "origin/branch..HEAD" in " ".join(cmd),
                 _cp(returncode=0, stdout=commits_stdout),
             ),
             (
@@ -494,8 +482,7 @@ class TestRegistryClientResolution:
         responses = [
             (lambda cmd: "fetch" in cmd, _cp(returncode=0)),
             (
-                lambda cmd: "rev-list" in cmd
-                and "origin/branch..HEAD" in " ".join(cmd),
+                lambda cmd: "rev-list" in cmd and "origin/branch..HEAD" in " ".join(cmd),
                 _cp(returncode=0, stdout="abc1111\n"),
             ),
             (
@@ -522,9 +509,7 @@ class TestRegistryClientResolution:
         fake_module.get_client = get_client
         monkeypatch.setitem(sys.modules, "commit_registry_client", fake_module)
 
-        result = get_attributed_changed_files_in_push(
-            "/fake/repo", "origin", "branch"
-        )
+        result = get_attributed_changed_files_in_push("/fake/repo", "origin", "branch")
 
         assert get_client_calls["count"] == 1
         assert result.error is None

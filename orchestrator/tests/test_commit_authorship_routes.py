@@ -128,9 +128,7 @@ class TestRegisterEndpoint:
     def test_register_happy_path_returns_200(self, client, store):
         response = client.post(
             "/api/v1/commit-authorship/register",
-            data=json.dumps(
-                {"sha": _VALID_SHA, "role": "coder", "pipeline_id": "issue-1882"}
-            ),
+            data=json.dumps({"sha": _VALID_SHA, "role": "coder", "pipeline_id": "issue-1882"}),
             content_type="application/json",
         )
         assert response.status_code == 200
@@ -146,9 +144,7 @@ class TestRegisterEndpoint:
         for _ in range(2):
             response = client.post(
                 "/api/v1/commit-authorship/register",
-                data=json.dumps(
-                    {"sha": _VALID_SHA, "role": "coder", "pipeline_id": "issue-1882"}
-                ),
+                data=json.dumps({"sha": _VALID_SHA, "role": "coder", "pipeline_id": "issue-1882"}),
                 content_type="application/json",
             )
             assert response.status_code == 200
@@ -158,16 +154,12 @@ class TestRegisterEndpoint:
         """Different role for same SHA returns 409 with collision details."""
         client.post(
             "/api/v1/commit-authorship/register",
-            data=json.dumps(
-                {"sha": _VALID_SHA, "role": "coder", "pipeline_id": "issue-1882"}
-            ),
+            data=json.dumps({"sha": _VALID_SHA, "role": "coder", "pipeline_id": "issue-1882"}),
             content_type="application/json",
         )
         response = client.post(
             "/api/v1/commit-authorship/register",
-            data=json.dumps(
-                {"sha": _VALID_SHA, "role": "tester", "pipeline_id": "issue-1882"}
-            ),
+            data=json.dumps({"sha": _VALID_SHA, "role": "tester", "pipeline_id": "issue-1882"}),
             content_type="application/json",
         )
         assert response.status_code == 409
@@ -218,9 +210,7 @@ class TestRegisterEndpoint:
     def test_register_non_string_pipeline_returns_400(self, client):
         response = client.post(
             "/api/v1/commit-authorship/register",
-            data=json.dumps(
-                {"sha": _VALID_SHA, "role": "coder", "pipeline_id": 1882}
-            ),
+            data=json.dumps({"sha": _VALID_SHA, "role": "coder", "pipeline_id": 1882}),
             content_type="application/json",
         )
         assert response.status_code == 400
@@ -244,9 +234,7 @@ class TestRegisterEndpoint:
         monkeypatch.setattr(route_mod, "get_store", lambda: _BoomStore())
         response = client.post(
             "/api/v1/commit-authorship/register",
-            data=json.dumps(
-                {"sha": _VALID_SHA, "role": "coder", "pipeline_id": "issue-1882"}
-            ),
+            data=json.dumps({"sha": _VALID_SHA, "role": "coder", "pipeline_id": "issue-1882"}),
             content_type="application/json",
         )
         assert response.status_code == 500
@@ -417,9 +405,7 @@ class TestStoreUnavailable:
         )
         assert response.status_code == 500
 
-    def test_bulk_register_returns_500_when_store_unavailable(
-        self, client, monkeypatch
-    ):
+    def test_bulk_register_returns_500_when_store_unavailable(self, client, monkeypatch):
         self._install_broken_store(monkeypatch)
         response = client.post(
             "/api/v1/commit-authorship/register-bulk",

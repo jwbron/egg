@@ -150,9 +150,7 @@ def _push_context(mock_session, agent_blocked=True):
             ),
         ),
         patch.object(gateway, "get_token_for_repo", return_value=("test-token", "bot", "")),
-        patch.object(
-            gateway, "get_changed_files_in_push", return_value=(changed_files, None)
-        ),
+        patch.object(gateway, "get_changed_files_in_push", return_value=(changed_files, None)),
         patch.object(
             gateway, "check_file_restrictions", return_value=FileRestrictionResult.allow()
         ),
@@ -277,9 +275,7 @@ class TestAgentRestrictionsWarnOnly:
             with patch.dict(os.environ, {}, clear=False):
                 os.environ.pop("EGG_AGENT_RESTRICTIONS_ENFORCE", None)
                 response = _do_push(client)
-                _assert_auto_filtered_all_blocked(
-                    response, "coder", "tests/test_foo.py"
-                )
+                _assert_auto_filtered_all_blocked(response, "coder", "tests/test_foo.py")
 
 
 class TestAgentRestrictionsEnforceMode:
@@ -302,9 +298,7 @@ class TestAgentRestrictionsEnforceMode:
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
-                _assert_auto_filtered_all_blocked(
-                    response, "coder", "tests/test_foo.py"
-                )
+                _assert_auto_filtered_all_blocked(response, "coder", "tests/test_foo.py")
 
     def test_enforce_mode_allows_clean_push(self, client):
         """Enforce mode allows push when agent restrictions pass."""
@@ -342,9 +336,7 @@ class TestAgentRestrictionsEnforceMode:
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "yes"}):
                 response = _do_push(client)
-                _assert_auto_filtered_all_blocked(
-                    response, "coder", "tests/test_foo.py"
-                )
+                _assert_auto_filtered_all_blocked(response, "coder", "tests/test_foo.py")
 
     def test_enforce_accepts_1_value(self, client):
         """EGG_AGENT_RESTRICTIONS_ENFORCE=1 works as enforce."""
@@ -363,9 +355,7 @@ class TestAgentRestrictionsEnforceMode:
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "1"}):
                 response = _do_push(client)
-                _assert_auto_filtered_all_blocked(
-                    response, "coder", "tests/test_foo.py"
-                )
+                _assert_auto_filtered_all_blocked(response, "coder", "tests/test_foo.py")
 
 
 class TestAgentRestrictionsUnknownRole:
@@ -395,9 +385,7 @@ class TestAgentRestrictionsUnknownRole:
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
-                _assert_auto_filtered_all_blocked(
-                    response, "unknown_role", "src/foo.py"
-                )
+                _assert_auto_filtered_all_blocked(response, "unknown_role", "src/foo.py")
 
 
 class TestAgentRestrictionsNoRole:
@@ -663,9 +651,7 @@ class TestTesterEndToEndPushRejection1901:
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
-                _assert_auto_filtered_all_blocked(
-                    response, "tester", "docs/guide.md"
-                )
+                _assert_auto_filtered_all_blocked(response, "tester", "docs/guide.md")
 
 
 class TestDocumenterEndToEndPushRejection1901:
@@ -705,9 +691,7 @@ class TestDocumenterEndToEndPushRejection1901:
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
-                _assert_auto_filtered_all_blocked(
-                    response, "documenter", "gateway/auth.py"
-                )
+                _assert_auto_filtered_all_blocked(response, "documenter", "gateway/auth.py")
 
     def test_documenter_tests_get_auto_filtered(self, client):
         """Documenter cannot push test files → auto-filtered."""
@@ -725,6 +709,4 @@ class TestDocumenterEndToEndPushRejection1901:
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
-                _assert_auto_filtered_all_blocked(
-                    response, "documenter", "tests/test_x.py"
-                )
+                _assert_auto_filtered_all_blocked(response, "documenter", "tests/test_x.py")
