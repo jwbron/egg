@@ -304,10 +304,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Yes — add explicit Don'ts: \\\"Do NOT use for-loops to wrap message poll; do NOT call sleep N to wait; rely on --wait blocking semantics\\\"\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-9",
+      "question": "Should the consensus_wrapper.py \"stay alive\" loop (currently MAX_READY_POLLS × 30s = 300s) be replaced with event-driven blocking on consensus completion?",
+      "context": "Open contract question decision-8, registered by an agent during the refine phase.",
+      "options": [
+        "Replace shell sleep loop with a long XREAD BLOCK or SSE listener tied to is_complete signal",
+        "Keep shell loop but extend MAX_READY_POLLS or accept the suggested poll interval from message_poll_hint_seconds",
+        "Out of scope for this issue (the wrapper is internal, not the source of agent-side patterns)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-23T00:06:37.128781Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-22T23:27:22.582974Z",
-  "updated_at": "2026-04-23T00:06:33.852130Z",
+  "updated_at": "2026-04-23T00:06:37.135590Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -320,5 +339,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 26
+  "version": 27
 }
