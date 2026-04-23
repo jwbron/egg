@@ -271,28 +271,25 @@ class TestConsensusTimeout:
         self, MockExecutor, mock_prompt, mock_lock, mock_emit, mock_monotonic, mock_sleep
     ):
         """When consensus times out, a HITL decision is created."""
-        # Use a callable side_effect instead of a finite list to avoid
-        # StopIteration if leaked threads from other tests call time.monotonic()
-        # while the module-level mock is active.
+        # Use a callable side_effect that (a) starts before the timeout,
+        # (b) jumps past the 30-min consensus timeout, and (c) keeps
+        # advancing so the post-timeout polling budget (#1921) also
+        # exhausts within a bounded number of iterations.
         _calls = [0]
 
         def _monotonic():
             _calls[0] += 1
-            return 0.0 if _calls[0] == 1 else 1801.0
+            if _calls[0] == 1:
+                return 0.0
+            # Each subsequent call jumps 2000s so both the 1800s
+            # consensus timeout and the 3600s post-timeout budget
+            # elapse quickly.
+            return float(1801.0 + _calls[0] * 2000.0)
 
         mock_monotonic.side_effect = _monotonic
 
         executions = [_make_execution(AgentRole.CODER, "coder-1")]
         pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions)
-
-        # Container exits cleanly during the fallback wait
-        mock_docker.wait_for_container.return_value = ContainerInfo(
-            container_id="coder-1",
-            container_name="issue-999-coder",
-            status=ContainerStatus.EXITED,
-            exit_code=0,
-            exited_at=datetime.now(UTC),
-        )
 
         mock_executor_instance = MagicMock()
         mock_executor_instance.spawn_all.return_value = executions
@@ -317,7 +314,12 @@ class TestConsensusTimeout:
                 **_CALL_ARGS,
             )
 
-        assert exit_code == 0
+        # Timeout with no convergence → force-kill path → exit 1 (#1921).
+        # Prior to #1921 this returned 0 because wait_for_container was
+        # mocked to return a clean exit; post-#1921 the polling loop
+        # force-kills still-running containers when the 3600s budget
+        # elapses, which is the realistic outcome.
+        assert exit_code == 1
         # HITL decision should have been created on the pipeline
         mock_add_decision.assert_called_once()
         call_args = mock_add_decision.call_args
@@ -336,11 +338,15 @@ class TestConsensusTimeout:
         """CONSENSUS_TIMEOUT event is emitted on timeout."""
         from events import EventType
 
+        # See test_timeout_creates_hitl_decision for why monotonic must
+        # keep advancing past the 3600s post-timeout budget (#1921).
         _calls = [0]
 
         def _monotonic():
             _calls[0] += 1
-            return 0.0 if _calls[0] == 1 else 1801.0
+            if _calls[0] == 1:
+                return 0.0
+            return float(1801.0 + _calls[0] * 2000.0)
 
         mock_monotonic.side_effect = _monotonic
 
