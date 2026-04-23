@@ -540,16 +540,16 @@
           "answer": ""
         }
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-23T06:46:11.043335Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-23T06:47:31.562891Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Under decision-2 (B3 registry) the attack model is: the sandbox is untrusted and can override git user.email at will, so attribution-for-authorization-decisions must not be read from sandbox-set identity. There is no documented bug where an agent forged another role's email today, but the principle of 'the gateway is the trust boundary for anything that affects authorization' drives B3. File restrictions are ergonomic (not a hard security boundary), but the attribution-for-push-filtering decision is authorization-adjacent and should be gateway-owned, not sandbox-reported.\", \"Q2\": \"Yes — utility roles (conflict_resolver, autofixer) are treated identically to execution roles by the registry. The registry attributes each commit to whichever role's session produced it; no special casing by role category. A coder pulling conflict_resolver's branch would see conflict_resolver's commits marked pulled and exempt from coder's restrictions, same as any cross-role push.\", \"Q3\": \"Yes, acceptable. The filter path inherently rewrites commits (changes tree contents or commit boundaries), which invalidates any signature. If per-role signed commits are introduced later, the rewritten post-filter commit carries gateway attestation (via the registry, logged at push time), not the original signer's signature. The plan phase should document this clearly so the signed-commit path, if added, doesn't assume pre-filter signatures propagate.\", \"Q4\": \"Original pre-filter tip. The post_agent_commit hook records the event 'role R committed SHA X in their sandbox session' — that event happens when the agent commits locally, before any gateway involvement. The gateway's rewrite is a separate gateway-initiated operation and should emit its own audit event (e.g. 'auto_filter_rewrite: original_sha X -> filtered_sha Y, excluded_files [...]'). Two distinct audit events, not one collapsed event.\", \"Q5\": \"Yes, distinguish them. They are operationally distinct: 'auto-filtered push' means the gateway modified the agent's work (intervention); 'pulled-commit exemption' means the gateway accepted another role's commits unchanged (pass-through). Operators triaging incidents need to tell these apart. Suggest distinct audit_log event types: push_auto_filtered (with {original_sha, filtered_sha, excluded_files, pulled_commits}) and push_pulled_exempt (with {pulled_commits} only, no rewrite happened).\", \"Q6\": \"Apply auto-filter uniformly — do not carve out role-specific exemptions. Principle: if a role's AGENT_PATTERNS already allow everything it legitimately needs to touch, auto-filter will be a no-op for that role naturally (no files blocked, no rewrite triggered). If autofixer/conflict_resolver have cross-cutting scope, that scope should be reflected in their AGENT_PATTERNS, not via special-case auto-filter behavior. Keeps the code path uniform.\", \"Q7\": \"If the remote rejects the rewritten commit (protected branch, commit-message format check, etc.), the gateway should surface the failure to the agent as an error response and restore the agent's local HEAD to the pre-rewrite state (atomic rollback, already a constraint from the draft). One specific risk the plan phase should call out: the '[auto-filtered]' suffix from decision-13 could violate strict commit-message format policies on some server-side hooks. If that becomes a problem the suffix can be moved to a trailer line or disabled via config — but don't design for that hypothetical up front.\", \"Q8\": \"EGG_AGENT_FILE_PATTERNS becomes largely obsolete with decision-8/17 (removing egg-orch push --scope-filter). The gateway is the single source of truth for role-restriction patterns. The env var can be removed if nothing else consumes it; if it still serves other purposes (e.g. agents reading it for self-inspection), the sandbox entrypoint should derive it from the gateway's pattern definitions rather than from a parallel source. Plan phase should audit remaining consumers of EGG_AGENT_FILE_PATTERNS and either remove them or refactor them to read from the gateway's canonical source.\"}}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:21:58.997312Z",
-  "updated_at": "2026-04-23T06:46:11.052256Z",
+  "updated_at": "2026-04-23T06:47:31.584569Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -563,5 +563,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:31:28.068349Z",
-  "version": 55
+  "version": 56
 }
