@@ -350,10 +350,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Semantic / verb-based names grouped by agent function, decoupled from CLI taxonomy — e.g. mcp__sdlc__register_open_question, mcp__brc__propose, mcp__phase__get_context, mcp__checkpoint__search. New capabilities with no CLI counterpart slot in naturally. Stable under CLI refactors. (Recommended)\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-11",
+      "question": "What is the iteration-1 agent-facing tool set? (Supersedes decision-6 after re-framing; decision-6 options were phrased as 'which CLI subcommands to cover' and are superseded by the capability-audit-driven scoping.)",
+      "context": "Open contract question decision-8, registered by an agent during the refine phase.",
+      "options": [
+        "BRC + HITL + phase-context core (~15 tools): brc_propose/ack/nack/confirm/get_state/list_blocking; hitl_register_decision/request_feedback/check_answers; phase_get_context/get_assigned_tasks; progress_emit/signal_error/heartbeat; task_complete (Recommended — covers every agent role's BRC lifecycle + HITL + orientation on day one, without boiling the ocean)",
+        "Everything in the capability audit (~30 tools): the core above + peer_send/poll/read_artifact, checkpoint_list/get/search, anchor_init/update/get, task_add_commit/mark_gap, overseer_query_status. Complete from day one but larger surface to get right.",
+        "Only the surface that already has a CLI counterpart — skip new capabilities (brc_get_state, brc_list_blocking, peer_read_artifact, etc.) in iteration 1",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-23T06:55:00.436801Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:22:09.201730Z",
-  "updated_at": "2026-04-23T06:54:59.604796Z",
+  "updated_at": "2026-04-23T06:55:00.446744Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -367,5 +386,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:32:00.470351Z",
-  "version": 52
+  "version": 53
 }
