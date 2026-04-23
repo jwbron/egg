@@ -57,10 +57,10 @@
         {
           "container_id": "e49d47a7-f2ae-4feb-a5ac-8d5600a38293",
           "container_name": "egg-sandbox-egg-agent-issue-1882-refiner",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-23T05:22:42.034286Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-23T05:27:43Z",
+          "exit_code": 1,
           "agent_role": "refiner",
           "session_token": null,
           "pod_name": null,
@@ -97,14 +97,14 @@
       "agents": [
         {
           "role": "refiner",
-          "status": "running",
+          "status": "failed",
           "container_id": "e49d47a7-f2ae-4feb-a5ac-8d5600a38293",
           "container_info": null,
           "started_at": "2026-04-23T05:22:42.034297Z",
-          "completed_at": null,
+          "completed_at": "2026-04-23T05:27:47.332892Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code 1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -153,7 +153,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-23T05:21:58.997312Z",
-  "updated_at": "2026-04-23T05:27:40.882321Z",
+  "updated_at": "2026-04-23T05:27:47.332971Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -167,5 +167,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 8
+  "version": 9
 }
