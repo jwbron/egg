@@ -550,3 +550,80 @@ class TestGHRestrictionsNewRoles:
     def test_empty_role_denies_gh_operations(self):
         allowed, reason = check_agent_gh_operation("", "issue comment 123")
         assert allowed is False
+
+
+# ---------------------------------------------------------------------------
+# Three-role behavior coverage (TASK-5-3, #1901)
+# ---------------------------------------------------------------------------
+
+
+class TestThreeRoleBehavior1901:
+    """TASK-5-3 (#1901): one case per role confirming the allowed/blocked
+    sets from TASK-5-1.  Behavior-level assertions only — no pattern
+    enumeration — so the tests survive a refactor of the pattern shape.
+    """
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "bin/egg",  # extensionless script
+            "sandbox/scripts/gh",  # extensionless shim
+            "LICENSE",  # top-level metadata
+            "path/to/new-thing",  # arbitrary new file
+            "pyproject.toml",  # config
+            ".egg-state/agent-outputs/coder.json",  # carved-back exempt
+            "skills/my-skill/SKILL.md",  # skills exempt
+            "sandbox/agent-config/rules/foo.md",  # rules exempt
+        ],
+    )
+    def test_coder_allowed_blocklist_complement(self, path):
+        pattern = get_agent_pattern(AgentRole.CODER)
+        assert pattern.can_write(path) is True, f"coder must allow {path}"
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "docs/foo.md",
+            "README.md",
+            "tests/test_x.py",
+            "gateway/tests/__init__.py",  # matcher-fix coverage
+            "conftest.py",  # **/conftest.py at root
+            ".egg-state/contracts/spec.json",
+            ".egg-state/drafts/1901-plan.md",
+            ".egg-state/secrets/key",  # future subdir
+        ],
+    )
+    def test_coder_blocked_blocklist_complement(self, path):
+        pattern = get_agent_pattern(AgentRole.CODER)
+        assert pattern.can_write(path) is False, f"coder must block {path}"
+
+    @pytest.mark.parametrize(
+        "path,expected",
+        [
+            ("tests/test_x.py", True),
+            ("gateway/tests/test_y.py", True),
+            ("conftest.py", True),
+            ("gateway/conftest.py", True),
+            ("gateway/server.py", False),  # source code, coder owns
+            ("docs/foo.md", False),  # docs, documenter owns
+            (".egg-state/contracts/spec.json", False),
+        ],
+    )
+    def test_tester_three_role_set(self, path, expected):
+        pattern = get_agent_pattern(AgentRole.TESTER)
+        assert pattern.can_write(path) is expected, f"tester {path} expected {expected}"
+
+    @pytest.mark.parametrize(
+        "path,expected",
+        [
+            ("docs/x.md", True),
+            ("README.md", True),
+            ("CONTRIBUTING.md", True),
+            ("src/app.py", False),  # source code, coder owns
+            ("tests/test_x.py", False),  # tests, tester owns
+            (".egg-state/contracts/spec.json", False),
+        ],
+    )
+    def test_documenter_three_role_set(self, path, expected):
+        pattern = get_agent_pattern(AgentRole.DOCUMENTER)
+        assert pattern.can_write(path) is expected, f"documenter {path} expected {expected}"

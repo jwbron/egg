@@ -343,3 +343,170 @@ class TestAgentRestrictionsNoRole:
                 response = _do_push(client)
                 # Should succeed because agent_role is None, so the check is skipped
                 assert response.status_code == 200
+
+
+def _push_context_real_check(mock_session, changed_files):
+    """Like _push_context but does NOT mock check_agent_restrictions.
+
+    Used for TASK-5-3 end-to-end push-rejection scenarios that drive the
+    real gateway check_agent_restrictions → validate_agent_push code path.
+    """
+    import auth
+
+    mock_result = SessionValidationResult(valid=True, session=mock_session)
+    mock_policy_result = PrivateRepoPolicyResult(
+        allowed=True,
+        reason="Test mode",
+        visibility="public",
+    )
+
+    auth._session_manager = None
+    auth._rate_limiter = None
+    if "gateway.auth" in sys.modules:
+        sys.modules["gateway.auth"]._session_manager = None
+        sys.modules["gateway.auth"]._rate_limiter = None
+
+    current_sm = sys.modules.get("session_manager", session_manager)
+
+    def run_side_effect(*args, **kwargs):
+        cmd = args[0] if args else kwargs.get("args", [])
+        result = MagicMock()
+        result.returncode = 0
+        result.stderr = ""
+        if "remote" in cmd and "get-url" in cmd:
+            result.stdout = "https://github.com/owner/repo.git\n"
+        elif "branch" in cmd and "--show-current" in cmd:
+            result.stdout = "egg-feature\n"
+        elif "push" in cmd:
+            result.stdout = "Everything up-to-date\n"
+        else:
+            result.stdout = ""
+        return result
+
+    return (
+        patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+        patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+        patch("subprocess.run", side_effect=run_side_effect),
+        patch.object(
+            gateway,
+            "get_policy_engine",
+            return_value=MagicMock(
+                check_branch_ownership=MagicMock(
+                    return_value=PolicyResult(
+                        allowed=True,
+                        reason="OK",
+                        details={"branch": "egg-feature"},
+                    )
+                ),
+            ),
+        ),
+        patch.object(gateway, "get_token_for_repo", return_value=("test-token", "bot", "")),
+        patch.object(gateway, "get_changed_files_in_push", return_value=(changed_files, None)),
+        patch.object(
+            gateway, "check_file_restrictions", return_value=FileRestrictionResult.allow()
+        ),
+        # Intentionally NOT mocking check_agent_restrictions — drive the real
+        # validate_agent_push path against the new blocklist-complement
+        # CODER_PATTERNS from #1901.
+    )
+
+
+class TestCoderEndToEndPushRejection1901:
+    """TASK-5-3 (#1901): end-to-end push rejection via the real
+    check_agent_restrictions code path for session_role='coder'.
+
+    These tests assert the real gateway response — they don't mock the
+    agent-restriction decision — so they catch regressions in
+    CODER_PATTERNS, validate_agent_push, the FileRestrictionResult
+    bridge, and the gateway's response shaping in one shot.
+    """
+
+    def _coder_session(self):
+        mock_session = MagicMock()
+        mock_session.mode = "public"
+        mock_session.container_id = "test-container"
+        mock_session.expires_at = None
+        mock_session.agent_role = "coder"
+        mock_session.phase = None
+        return mock_session
+
+    def test_coder_can_push_extensionless_bin_egg(self, client):
+        """bin/egg was previously blocked under the legacy allowlist; now allowed."""
+        session = self._coder_session()
+        patches = _push_context_real_check(session, ["bin/egg"])
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
+                response = _do_push(client)
+                assert response.status_code == 200, response.data
+
+    def test_coder_blocked_from_docs_md(self, client):
+        session = self._coder_session()
+        patches = _push_context_real_check(session, ["docs/x.md"])
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
+                response = _do_push(client)
+                assert response.status_code == 403
+                data = json.loads(response.data)
+                # Format: "...agent role 'coder' cannot modify ... docs/x.md"
+                msg = data["message"].lower()
+                assert "coder" in msg
+                assert "cannot modify" in msg
+                assert "docs/x.md" in data["message"]
+
+    def test_coder_blocked_from_tests(self, client):
+        session = self._coder_session()
+        patches = _push_context_real_check(session, ["tests/test_x.py"])
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
+                response = _do_push(client)
+                assert response.status_code == 403
+                data = json.loads(response.data)
+                msg = data["message"].lower()
+                assert "coder" in msg
+                assert "cannot modify" in msg
+                assert "tests/test_x.py" in data["message"]
+
+    def test_coder_blocked_from_contracts(self, client):
+        session = self._coder_session()
+        patches = _push_context_real_check(session, [".egg-state/contracts/foo.json"])
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+        ):
+            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
+                response = _do_push(client)
+                assert response.status_code == 403
+                data = json.loads(response.data)
+                msg = data["message"].lower()
+                assert "coder" in msg
+                assert "cannot modify" in msg
+                assert ".egg-state/contracts/foo.json" in data["message"]

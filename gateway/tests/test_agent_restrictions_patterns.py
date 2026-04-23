@@ -328,6 +328,190 @@ class TestCoderRole:
         assert pattern.can_write("skills/sdlc/helper.py") is True
 
 
+class TestCoderBlocklistComplement1901:
+    """TASK-5-2 (#1901): mirror of TASK-5-1 against the gateway re-export.
+
+    Same behavior contract as shared/tests/test_egg_restrictions.py — the
+    gateway's ``agent_restrictions`` module re-exports the shared package,
+    so the same assertions must hold here.  Duplicated rather than
+    parametrized because the two test suites historically run in
+    different PYTHONPATH contexts (shared-only vs. gateway+shared).
+    """
+
+    @pytest.fixture
+    def pattern(self):
+        return get_agent_pattern(AgentRole.CODER)
+
+    # --- Allowed (TASK-5-2 mirroring TASK-5-1 True list) ---
+
+    def test_allows_extensionless_bin_egg(self, pattern):
+        assert pattern.can_write("bin/egg") is True
+
+    def test_allows_extensionless_bin_egg_deploy(self, pattern):
+        assert pattern.can_write("bin/egg-deploy") is True
+
+    def test_allows_extensionless_bin_egg_status(self, pattern):
+        assert pattern.can_write("bin/egg-status") is True
+
+    def test_allows_sandbox_egg(self, pattern):
+        assert pattern.can_write("sandbox/egg") is True
+
+    def test_allows_sandbox_bin_egg_health_inspect(self, pattern):
+        assert pattern.can_write("sandbox/bin/egg-health-inspect") is True
+
+    def test_allows_sandbox_scripts_gh(self, pattern):
+        assert pattern.can_write("sandbox/scripts/gh") is True
+
+    def test_allows_sandbox_scripts_git_credential_helper(self, pattern):
+        assert pattern.can_write("sandbox/scripts/git-credential-github-token") is True
+
+    def test_allows_license(self, pattern):
+        assert pattern.can_write("LICENSE") is True
+
+    def test_allows_dockerignore(self, pattern):
+        assert pattern.can_write(".dockerignore") is True
+
+    def test_allows_arbitrary_new_path(self, pattern):
+        assert pattern.can_write("path/to/new-thing") is True
+
+    def test_allows_pyproject_toml(self, pattern):
+        assert pattern.can_write("pyproject.toml") is True
+
+    def test_allows_makefile(self, pattern):
+        assert pattern.can_write("Makefile") is True
+
+    def test_allows_agent_outputs(self, pattern):
+        assert pattern.can_write(".egg-state/agent-outputs/coder.json") is True
+
+    def test_allows_skills_skill_md(self, pattern):
+        assert pattern.can_write("skills/my-skill/SKILL.md") is True
+
+    def test_allows_skills_handler_py(self, pattern):
+        assert pattern.can_write("skills/my-skill/handler.py") is True
+
+    def test_allows_agent_config_rules_md(self, pattern):
+        assert pattern.can_write("sandbox/agent-config/rules/foo.md") is True
+
+    def test_allows_agent_config_commands_md(self, pattern):
+        assert pattern.can_write("sandbox/agent-config/commands/bar.md") is True
+
+    # --- Blocked (TASK-5-2 mirroring TASK-5-1 False list) ---
+
+    def test_blocks_docs_md(self, pattern):
+        assert pattern.can_write("docs/foo.md") is False
+
+    def test_blocks_root_readme(self, pattern):
+        assert pattern.can_write("README.md") is False
+
+    def test_blocks_tests_dir(self, pattern):
+        assert pattern.can_write("tests/test_x.py") is False
+
+    def test_blocks_singular_test_dir(self, pattern):
+        assert pattern.can_write("test/test_y.py") is False
+
+    def test_blocks_nested_tests_init(self, pattern):
+        """gateway/tests/__init__.py — covered by the matcher fix in TASK-2-1."""
+        assert pattern.can_write("gateway/tests/__init__.py") is False
+
+    def test_blocks_root_conftest(self, pattern):
+        # Root-level conftest matches **/conftest.py under the fixed matcher.
+        assert pattern.can_write("conftest.py") is False
+
+    def test_blocks_egg_state_contracts(self, pattern):
+        assert pattern.can_write(".egg-state/contracts/spec.json") is False
+
+    def test_blocks_egg_state_drafts(self, pattern):
+        assert pattern.can_write(".egg-state/drafts/1901-plan.md") is False
+
+    def test_blocks_egg_state_reviews(self, pattern):
+        assert pattern.can_write(".egg-state/reviews/verdict.json") is False
+
+    def test_blocks_egg_state_future_subdir(self, pattern):
+        assert pattern.can_write(".egg-state/secrets/key") is False
+
+    def test_blocks_traversal_via_can_write(self, pattern):
+        # The path-traversal guard lives in _normalize_path via can_write;
+        # asserting at the can_write level (NOT _matches_pattern) per TASK-5-2.
+        assert pattern.can_write("../../etc/passwd") is False
+
+
+class TestMatchesPatternFix1901:
+    """TASK-5-2 (#1901): regression coverage for the _matches_pattern fix.
+
+    Before #1901 the ** branch fell through to fnmatch-on-basename, which
+    incorrectly returned False for nested files under a directory pattern
+    like ``**/tests/``.  These tests pin the new behavior.
+    """
+
+    def test_nested_dir_under_double_star(self):
+        """gateway/tests/__init__.py matches **/tests/ — the bug fix."""
+        assert AgentFilePattern._matches_pattern("gateway/tests/__init__.py", "**/tests/") is True
+
+    def test_unrelated_file_under_double_star_dir(self):
+        """src/foo.py must NOT match **/tests/ — guards against over-match."""
+        assert AgentFilePattern._matches_pattern("src/foo.py", "**/tests/") is False
+
+    def test_top_level_tests_under_double_star(self):
+        """tests/conftest.py matches **/tests/ — ** must accept zero segments."""
+        assert AgentFilePattern._matches_pattern("tests/conftest.py", "**/tests/") is True
+
+    def test_double_star_extension_pattern_unchanged(self):
+        """Regression: **/*.py still matches files anywhere — file-name
+        pattern semantics must not be touched by the directory-pattern fix."""
+        assert AgentFilePattern._matches_pattern("pkg/bar.py", "**/*.py") is True
+
+    def test_leaf_file_named_like_dir_does_not_match(self):
+        """src/tests.py is a Python file named 'tests' — NOT inside a tests/
+        directory, so **/tests/ must not match it."""
+        assert AgentFilePattern._matches_pattern("src/tests.py", "**/tests/") is False
+
+
+class TestNoAllowedPatternsDeniesAll1901:
+    """TASK-5-2 (#1901): empty-allowed-patterns deny-all backstop preserved."""
+
+    def test_no_allowed_patterns_denies_all(self):
+        """Sentinel: pattern with no allow list still denies everything.
+
+        Other roles (architect, refiner, reviewers, …) rely on the
+        absence of an explicit allow list defaulting to deny.  The
+        blocklist-complement rewrite of CODER_PATTERNS must not have
+        broken this for everyone else.
+        """
+        pattern = AgentFilePattern(role="empty", allowed_patterns=[])
+        assert pattern.can_write("anything.py") is False
+        assert pattern.can_write(".egg-state/agent-outputs/x.json") is False
+
+
+class TestTesterScope1901:
+    """TASK-5-2 (#1901): tester-scoped regression tests."""
+
+    @pytest.fixture
+    def pattern(self):
+        return get_agent_pattern(AgentRole.TESTER)
+
+    def test_tester_can_write_test_file(self, pattern):
+        assert pattern.can_write("tests/test_x.py") is True
+
+    def test_tester_cannot_write_gateway_source(self, pattern):
+        """Tester cannot stray into source code (coder owns)."""
+        assert pattern.can_write("gateway/server.py") is False
+
+
+class TestDocumenterScope1901:
+    """TASK-5-2 (#1901): documenter-scoped regression tests."""
+
+    @pytest.fixture
+    def pattern(self):
+        return get_agent_pattern(AgentRole.DOCUMENTER)
+
+    def test_documenter_can_write_docs_md(self, pattern):
+        assert pattern.can_write("docs/x.md") is True
+
+    def test_documenter_cannot_write_source(self, pattern):
+        """Documenter cannot stray into source code (coder owns)."""
+        assert pattern.can_write("src/app.py") is False
+
+
 class TestTesterRole:
     """Verify tester agent can/cannot write expected files."""
 
