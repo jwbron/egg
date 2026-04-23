@@ -593,12 +593,18 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
     Response:
         {
             "success": true,
-            "message": "Phase completed",
+            "message": "Phase 'implement' marked complete; call advance_phase to transition",
             "data": {
                 "phase": "implement",
+                "current_phase": "implement",
                 "next_phase": "pr"
             }
         }
+
+    Note: this endpoint only flips phase_execution.status to COMPLETE. It
+    does NOT advance pipeline.current_phase — callers must call
+    /phase (advance_phase) next. The ``next_phase`` field is the
+    suggested next transition, not the new current_phase.
     """
     # silent=True: Content-Type: application/json with an empty body would
     # otherwise raise BadRequest(400), which breaks callers that omit
@@ -712,9 +718,17 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
         )
 
         return make_success_response(
-            "Phase completed",
+            (
+                f"Phase '{pipeline.current_phase.value}' marked complete; "
+                "call advance_phase to transition"
+            ),
             data={
                 "phase": pipeline.current_phase.value,
+                # Echo current_phase to make it explicit that this endpoint
+                # did NOT advance the pipeline — the pointer is unchanged.
+                # next_phase is the *suggested* transition, not the new
+                # current_phase. See #1940.
+                "current_phase": pipeline.current_phase.value,
                 "next_phase": next_phase.value if next_phase else None,
             },
         )

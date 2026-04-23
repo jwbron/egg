@@ -707,9 +707,25 @@ PIPELINE_TOOLS = [
     {
         "name": "advance_phase",
         "description": (
-            "Advance a pipeline to a target phase. When force=true, stops all "
-            "running containers before advancing to prevent SIGTERM cascading "
-            "into the new phase."
+            "Transition a pipeline from its current phase to target_phase. "
+            "Mutates: marks the current phase_execution COMPLETE with a "
+            "completed_at timestamp, sets pipeline.current_phase = target_phase, "
+            "marks the target phase_execution RUNNING with started_at/"
+            "work_started_at timestamps, sets pipeline.status = RUNNING, bumps "
+            "pipeline.run_epoch, and launches a fresh _run_pipeline driver "
+            "thread that will spawn agents for the new phase. Preconditions "
+            "(force=false): target_phase must be a valid transition from the "
+            "current phase (else 400); the current phase_execution.status must "
+            "be COMPLETE or PENDING (else 400 — not 409); PHASE_COMPLETE "
+            "health checks must not return FAIL_PIPELINE (else 409, with "
+            "health_results in details). Does NOT call populate_contract, even "
+            "when advancing out of plan — callers must invoke populate_contract "
+            "explicitly first if the target phase needs an SDLC contract "
+            "(#1941). When force=true, skips transition validation, the phase-"
+            "status check, and health-check gating, and first stops any "
+            "running containers for the pipeline so their SIGTERM does not "
+            "cascade into the new phase. Response data includes previous_phase "
+            "and current_phase."
         ),
         "inputSchema": {
             "type": "object",
@@ -724,7 +740,7 @@ PIPELINE_TOOLS = [
                 },
                 "force": {
                     "type": "boolean",
-                    "description": "Skip validation and force the transition. Also stops running containers before advancing.",
+                    "description": "Skip transition validation, phase-status check, and health-check gating. Also stops running pipeline containers before advancing so their SIGTERM does not cascade.",
                     "default": False,
                 },
             },
@@ -733,7 +749,19 @@ PIPELINE_TOOLS = [
     },
     {
         "name": "start_phase",
-        "description": "Start execution of the current phase for a pipeline.",
+        "description": (
+            "Flip the current phase's execution status to RUNNING. Mutates: "
+            "sets phase_execution.status = RUNNING on pipeline.current_phase, "
+            "stamps started_at and work_started_at, and sets pipeline.status = "
+            "RUNNING. Does NOT spawn agents — agent spawning is driven by the "
+            "_run_pipeline loop when it observes a RUNNING phase, which is "
+            "already active for pipelines created through the normal submit "
+            "path. Does NOT transition to the next phase — only affects "
+            "pipeline.current_phase. Returns 400 if the current phase is "
+            "already RUNNING. Intended for operator recovery when a phase "
+            "needs to be re-marked RUNNING (e.g. after a crash); not the way "
+            "to move a completed phase forward — use advance_phase for that."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -748,10 +776,19 @@ PIPELINE_TOOLS = [
     {
         "name": "complete_phase",
         "description": (
-            "Mark the current phase as complete for a pipeline, with optional "
-            "artifacts. Returns 409 when the phase still has unresolved HITL "
-            "decisions; pass force=true to abandon them (the abandoned ids are "
-            "recorded in the phase's artifacts for audit)."
+            "Mark the current phase's execution as COMPLETE. Mutates: sets "
+            "phase_execution.status = COMPLETE and stamps completed_at on "
+            "pipeline.current_phase, optionally stores artifacts on that "
+            "phase_execution, persists BRC history for the phase, and clears "
+            "ephemeral inter-agent messaging and consensus state. Does NOT "
+            "advance the pipeline — pipeline.current_phase still points at "
+            "the just-completed phase afterwards; callers must invoke "
+            "advance_phase to move forward. The next_phase field in the "
+            "response data names the canonical next transition, not the new "
+            "current_phase — current_phase is also echoed so callers can "
+            "confirm it has not moved. Returns 409 when the phase still has "
+            "unresolved HITL decisions; pass force=true to abandon them "
+            "(abandoned ids are recorded in the phase's artifacts for audit)."
         ),
         "inputSchema": {
             "type": "object",

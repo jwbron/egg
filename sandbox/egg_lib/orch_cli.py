@@ -681,7 +681,9 @@ def cmd_phase_start(args: argparse.Namespace) -> int:
         return 0
 
     if result.get("success"):
-        print("Phase started")
+        phase_data = result.get("data", {})
+        phase = phase_data.get("phase", "?")
+        print(f"Phase '{phase}' marked running (does not spawn agents)")
         return 0
     print(f"Error: {result.get('message')}", file=sys.stderr)
     return 1
@@ -701,7 +703,15 @@ def cmd_phase_complete(args: argparse.Namespace) -> int:
         return 0
 
     if result.get("success"):
-        print("Phase completed")
+        phase_data = result.get("data", {})
+        phase = phase_data.get("phase", "?")
+        next_phase = phase_data.get("next_phase")
+        suffix = (
+            f"; call `egg-orch phase advance --target-phase {next_phase}` to transition"
+            if next_phase
+            else "; pipeline has no further phases"
+        )
+        print(f"Phase '{phase}' marked complete (pipeline still at '{phase}'){suffix}")
         return 0
     print(f"Error: {result.get('message')}", file=sys.stderr)
     return 1
