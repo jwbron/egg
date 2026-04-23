@@ -189,12 +189,12 @@ class RedisMessageStore:
                 ``from_role=...`` unconditionally, so a Redis backend
                 without this parameter raised ``TypeError`` in production
                 (reviewer_code blocker 1 on #1897 proposal v4).
-            from_tip: If True AND ``since_id`` is not set, start the read at
-                the stream tip (Redis ``$``) so only entries added *after*
-                the call starts can unblock the wait. Required by the
-                ``/messages/wait`` endpoint's "event-driven" contract
-                (issue #1925) — without it, a repeated wait-loop call
-                returns the same already-seen event on every invocation.
+            from_tip: If True AND ``since_id`` is not set AND ``wait > 0``,
+                start the read at the stream tip (Redis ``$``) so only
+                entries added *after* the call starts can unblock the wait.
+                Required by the ``/messages/wait`` endpoint's event-driven
+                contract (issue #1925) — without it, a repeated wait-loop
+                call returns the same already-seen event on every invocation.
         """
         key = _stream_key(pipeline_id)
 

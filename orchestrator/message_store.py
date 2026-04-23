@@ -228,8 +228,8 @@ class MessageStore:
 
         def _filter(all_msgs: list[Message]) -> list[Message]:
             msgs = list(all_msgs)
-            # from_tip takes precedence over since_id (since_id is unset
-            # when we enter the tip branch; guard above).
+            # from_tip branch: since_id is guaranteed unset here (guard
+            # above ensures mutual exclusion).
             if use_tip and tip_index is not None:
                 msgs = msgs[tip_index:]
             # Filter by since_id. If the cursor is unknown, degrade to
