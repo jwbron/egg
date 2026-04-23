@@ -12,7 +12,7 @@
     {
       "id": "phase-1",
       "name": "Implement",
-      "status": "pending",
+      "status": "complete",
       "review_cycles": 0,
       "max_cycles": 3,
       "escalated": false,
@@ -21,8 +21,8 @@
         {
           "id": "task-1-1",
           "description": "In gateway/gateway.py proxy_anthropic_messages() streaming branch, add bounded (1x) retry around client.send() and first-chunk prime on httpx.ReadError/RemoteProtocolError before any downstream byte has been yielded. Close the failed upstream, rebuild the request, retry once. On second failure, fall through to the existing error-return path.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "dc5058ad5",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "When client.send() raises ReadError once, the retry succeeds and downstream sees a clean 200 SSE response. When the first iter_bytes() call raises ReadError, the gateway re-primes and produces a normal stream. Both verified by new unit tests.",
@@ -37,8 +37,8 @@
         {
           "id": "task-1-2",
           "description": "In the generate() closure inside proxy_anthropic_messages(), wrap the iter_bytes() for-loop with try/except for httpx.ReadError and httpx.RemoteProtocolError. On catch, yield a well-formed synthetic SSE frame (event: error with Anthropic-style payload), feed it through the accumulator, log a warning with container_id and bytes_seen, and return cleanly. Preserve the existing finally: upstream.close() and _capture_streaming_response behavior.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "dc5058ad5",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "When iter_bytes() raises after one chunk has been yielded, the downstream body contains the original chunk followed by a well-formed `event: error` SSE frame, the stream closes without raising, and _capture_streaming_response still runs. Verified by a new unit test.",
@@ -53,8 +53,8 @@
         {
           "id": "task-1-3",
           "description": "In tests/gateway/test_anthropic_proxy.py, extend TestStreamingResponse with three tests covering: (a) client.send() raises ReadError once then succeeds on retry; (b) iter_bytes() raises on first iteration then succeeds on retry; (c) iter_bytes() raises RemoteProtocolError after one chunk and the downstream body ends with a synthetic event: error frame. Use a small helper to wrap an iterator so it raises after N yielded chunks.",
-          "status": "pending",
-          "commit": null,
+          "status": "complete",
+          "commit": "dda1f2ad76ecbc08de27ada991a494fd725297d2",
           "checkpoint_id": null,
           "notes": "",
           "acceptance_criteria": "All three new tests pass. Existing tests in TestStreamingResponse (test_streaming_request_detected, test_streaming_content_type_forwarded) continue to pass.",
@@ -68,13 +68,168 @@
         }
       ],
       "dependencies": [],
-      "commit": null,
+      "commit": "dda1f2ad7",
       "review_feedback": []
     }
   ],
   "decisions": [],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-04-23T05:17:59.707253Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": null,
+      "new_value": "db72789ee62acce28330beb54f075d51c4ad11d6",
+      "reason": "Linked commit db72789 to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:20:03.864758Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:20:03.868810Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": "db72789ee62acce28330beb54f075d51c4ad11d6",
+      "new_value": "dc5058ad5995bb3fe256e9b616c69aae8db5c48a",
+      "reason": "Linked commit dc5058a to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:20:04.042735Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:20:04.047658Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": null,
+      "new_value": "dc5058ad5995bb3fe256e9b616c69aae8db5c48a",
+      "reason": "Linked commit dc5058a to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:37:35.829288Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:37:35.841065Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": null,
+      "new_value": "dc5058ad5",
+      "reason": "Linked commit dc5058a to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:37:38.930486Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-2 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:37:38.945356Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": null,
+      "new_value": "dc5058ad5",
+      "reason": "Linked commit dc5058a to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:37:39.133374Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked task-1-3 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:37:39.141146Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.commit",
+      "old_value": null,
+      "new_value": "dda1f2ad7",
+      "reason": "Linked commit dda1f2a to task-1-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:37:41.921920Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.status",
+      "old_value": "pending",
+      "new_value": "complete",
+      "reason": "Marked phase-1 as complete",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:37:41.926047Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.commit",
+      "old_value": null,
+      "new_value": "dda1f2ad7",
+      "reason": "Linked commit dda1f2a to phase-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-23T05:49:21.163369Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.2.commit",
+      "old_value": "dda1f2ad7",
+      "new_value": "dda1f2ad76ecbc08de27ada991a494fd725297d2",
+      "reason": "Linked commit dda1f2a to task-1-3",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
