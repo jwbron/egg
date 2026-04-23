@@ -5032,10 +5032,35 @@ def _finalize_pr_phase_failed(
     pr_url = _auto_create_pr(pipeline, worktree_repo_path, spawner, gateway_mode=gateway_mode)
 
     if pr_url:
+        # Parse the PR number from the URL so downstream consumers
+        # (overseer, get_pipeline_snapshot, babysit-worker handoffs) can
+        # rely on ``pipeline.pr_number`` directly instead of re-deriving
+        # it from the ``pr_url`` artifact.  Match mirrors ``_get_pr_info``.
+        match = re.search(r"/pull/(\d+)", pr_url)
+        parsed_pr_number = int(match.group(1)) if match else None
+        # Best-effort lookup of the created PR's head SHA so we can also
+        # populate ``pipeline.pr_head_sha``.  Failures here must not fail
+        # the PR phase — leave ``pr_head_sha`` null and proceed.  The
+        # read-from-gh (vs. push-intent) is correct because the #1731
+        # fallback path may have opened the PR against the remote HEAD
+        # rather than our locally-pushed commit.
+        head_sha: str | None = None
+        if parsed_pr_number is not None:
+            # ``_fetch_pr_state`` already returns {} on any internal
+            # failure (gh missing, JSON parse error, non-zero exit),
+            # so we don't need an outer try/except wrapper here.
+            pr_state = _fetch_pr_state(parsed_pr_number, pipeline.repo)
+            candidate = pr_state.get("head_sha") if isinstance(pr_state, dict) else None
+            if isinstance(candidate, str) and re.fullmatch(r"[0-9a-f]{7,40}", candidate):
+                head_sha = candidate
         with get_pipeline_state_lock(pipeline_id):
             reloaded = store.load_pipeline(pipeline_id)
             phase_execution = reloaded.get_phase_execution(current_phase)
             phase_execution.artifacts = {"pr_url": pr_url}
+            if parsed_pr_number is not None:
+                reloaded.pr_number = parsed_pr_number
+            if head_sha is not None:
+                reloaded.pr_head_sha = head_sha
             store.save_pipeline(reloaded)
         return False
 
@@ -7929,6 +7954,26 @@ def _run_concurrent_phase(
                         sha = _brc.get_proposal_commit_sha(agent.role.value)
                         if sha and sha != "RECONSTRUCTED_NO_SHA":
                             agent.commit = sha
+                        elif sha is None or sha == "RECONSTRUCTED_NO_SHA":
+                            # Diagnostic only (#1911): log when the BRC
+                            # tracker returns null or the
+                            # RECONSTRUCTED_NO_SHA sentinel for a role
+                            # so we can see on real runs whether the
+                            # three-role implement phase
+                            # (coder/tester/documenter) wiring misses
+                            # SHAs.  Deliberately no auto-fallback —
+                            # that would mask the real bug.  Empty
+                            # string is the expected reviewer default
+                            # (reviewers never propose) — do NOT warn
+                            # for that case or the signal drowns in
+                            # noise.
+                            logger.warning(
+                                "BRC tracker returned no commit sha for completed agent",
+                                pipeline_id=pipeline_id,
+                                phase=phase_str,
+                                role=agent.role.value,
+                                brc_value=sha,
+                            )
 
                 # Also mark containers as exited so the container monitor
                 # doesn't find stale RUNNING entries and mark pipeline FAILED.
