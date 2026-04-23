@@ -246,7 +246,8 @@ orchestrator/
 ├── api.py                  # Flask REST API server with blueprint registration
 ├── cli.py                  # CLI interface (serve, health, pipelines commands)
 ├── models.py               # Pydantic models (Pipeline, AgentExecution, HITLDecision, etc.) with k8s-native fields (pod_name, namespace, job_name)
-├── state_store.py          # Git-backed persistent state storage
+├── state_store.py          # Git-backed persistent state storage (includes the commit-authorship sub-store from #1882 — per-pipeline sharded `{sha → role}` mapping on the `egg/pipeline-state` branch, first-wins semantics)
+├── commit_authorship_store.py  # Sub-store facade over state_store for the commit-authorship registry (#1882)
 ├── kubernetes_client.py    # Kubernetes API client wrapper (Job CRUD, pod logs, status)
 ├── kubernetes_spawner.py   # Agent Job spawning with gateway session integration; agent restart (stop + respawn preserving worktree)
 ├── kubernetes_monitor.py   # Kubernetes Job state monitoring and lifecycle tracking
@@ -295,6 +296,7 @@ orchestrator/
 │   └── utils.py            # Utility functions
 ├── routes/
 │   ├── anchors.py          # Agent anchor CRUD and team anchor generation endpoints
+│   ├── commit_authorship.py # /api/v1/commit-authorship/{register,lookup} — gateway-written registry of {sha → role} for push attribution (#1882)
 │   ├── containers.py       # Container lifecycle endpoints
 │   ├── decisions.py        # HITL decision endpoints
 │   ├── health.py           # Health check endpoints (includes /health/alerts)

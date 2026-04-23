@@ -1,0 +1,519 @@
+"""Commit-authorship registry store.
+
+Maintains a durable mapping of ``commit_sha → role`` sharded per pipeline
+on the ``egg/pipeline-state`` orphan branch.  The gateway's commit
+observer POSTs to the HTTP routes in ``orchestrator/routes/commit_authorship.py``,
+which write through this store; the gateway's push handler later looks
+commits up here to attribute each file in a push range to the role that
+authored it (see issue #1882 B3 decision).
+
+Storage layout (relative to the state worktree):
+
+    .egg-state/commit-authorship/<pipeline_id>.json   # one shard per pipeline
+    .egg-state/commit-authorship/_orphan.json          # fallback for
+                                                        # commits registered
+                                                        # before a pipeline_id
+                                                        # is known.
+
+Each shard is a JSON object:
+
+    {
+      "version": 1,
+      "entries": {
+        "<sha>": {
+          "role": "<role>",
+          "pipeline_id": "<pipeline_id>",
+          "repo": "<owner/repo>",
+          "branch": "<branch>",
+          "registered_at": "<iso8601>"
+        },
+        ...
+      }
+    }
+
+Semantics:
+
+- **First-wins**:  once ``(sha, role)`` is bound, subsequent registrations
+  with a *different* role are rejected (the original binding is preserved
+  and a collision is audit-logged).  Same-role re-registration is a no-op.
+  This prevents a malicious agent from suppressing the observer on its
+  own commit and then re-registering later under a different role to pick
+  attribution.
+- **Idempotent**:  identical re-registrations return success without
+  mutating the shard.
+- **Bulk lookup**:  ``lookup_bulk`` is the primary read path used by the
+  gateway's push handler to partition files by author.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+import subprocess
+import tempfile
+import threading
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from orchestrator.state_store import StateStore
+
+logger = logging.getLogger("orchestrator.commit_authorship_store")
+
+
+SUBSTORE_DIR = ".egg-state/commit-authorship"
+ORPHAN_SHARD_ID = "_orphan"
+
+# A git commit SHA is lowercase hex, 7–64 chars.  We accept the canonical
+# 40-char SHA-1 and the emerging 64-char SHA-256 format without rejecting
+# test data that uses shorter values (our own unit tests do).
+_SHA_RE = re.compile(r"^[0-9a-f]{7,64}$")
+# Role identifier: lowercase alphanumeric + underscore/hyphen.  Matches
+# the AgentRole values used elsewhere in the codebase.
+_ROLE_RE = re.compile(r"^[a-z][a-z0-9_-]{0,63}$")
+# Pipeline ID: same pattern as ``orchestrator.state_store.PIPELINE_ID_PATTERN``
+# plus the orphan sentinel.  We duplicate the validation here so this
+# module can be unit-tested without pulling in the full state_store
+# module graph (which drags in Flask/kubernetes mocks in CI).
+_PIPELINE_ID_RE = re.compile(
+    r"^("
+    r"issue-[0-9]+(-[a-z0-9]+)*"
+    r"|[A-Z][A-Z0-9]+-[0-9]+(-[a-z0-9]+)*"
+    r"|local-[0-9a-f]{8}"
+    r"|pipeline-[0-9a-f]{8}"
+    r"|pr-[0-9]+"
+    r"|_orphan"
+    r")$"
+)
+
+_SCHEMA_VERSION = 1
+
+
+class CommitAuthorshipStoreError(Exception):
+    """Base exception for authorship store errors."""
+
+
+class AuthorshipCollisionError(CommitAuthorshipStoreError):
+    """A later registration tried to re-bind a SHA to a different role.
+
+    Carries the ``existing_role`` so callers can audit-log the attempt
+    without re-reading the store.
+    """
+
+    def __init__(self, sha: str, existing_role: str, attempted_role: str) -> None:
+        self.sha = sha
+        self.existing_role = existing_role
+        self.attempted_role = attempted_role
+        super().__init__(
+            f"Authorship collision for {sha}: "
+            f"existing_role={existing_role!r} attempted_role={attempted_role!r}"
+        )
+
+
+@dataclass
+class AuthorshipEntry:
+    """One row in the authorship store."""
+
+    sha: str
+    role: str
+    pipeline_id: str
+    repo: str | None
+    branch: str | None
+    registered_at: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "role": self.role,
+            "pipeline_id": self.pipeline_id,
+            "repo": self.repo,
+            "branch": self.branch,
+            "registered_at": self.registered_at,
+        }
+
+
+def _validate_sha(sha: str) -> str:
+    sha_s = (sha or "").strip().lower()
+    if not _SHA_RE.match(sha_s):
+        raise CommitAuthorshipStoreError(f"Invalid commit SHA: {sha!r}")
+    return sha_s
+
+
+def _validate_role(role: str) -> str:
+    role_s = (role or "").strip().lower()
+    if not role_s:
+        # Direct Python callers (not through HTTP) would otherwise get a
+        # confusing regex-mismatch error for an empty/whitespace role.
+        raise CommitAuthorshipStoreError("Role is required (got empty string)")
+    if not _ROLE_RE.match(role_s):
+        raise CommitAuthorshipStoreError(f"Invalid role: {role!r}")
+    return role_s
+
+
+def _validate_pipeline_id(pipeline_id: str) -> str:
+    pid = (pipeline_id or "").strip()
+    if pid == "":
+        pid = ORPHAN_SHARD_ID
+    if not _PIPELINE_ID_RE.match(pid):
+        raise CommitAuthorshipStoreError(f"Invalid pipeline ID: {pipeline_id!r}")
+    return pid
+
+
+class CommitAuthorshipStore:
+    """Git-backed, pipeline-sharded commit-authorship store.
+
+    Reuses the state-store worktree so both stores share the same
+    ``egg/pipeline-state`` branch, cross-process ``fcntl`` lock, and
+    remote-sync daemon.  The state-store reference is optional so this
+    module can be exercised in unit tests without standing up a full
+    ``StateStore`` (the tests pass an explicit ``worktree_dir``).
+    """
+
+    # Process-wide lock to serialize in-memory read-modify-write of the
+    # same shard.  Cross-process serialization is provided by the state
+    # store's existing ``fcntl.flock`` on the worktree.
+    _lock: threading.RLock = threading.RLock()
+
+    def __init__(
+        self,
+        *,
+        state_store: StateStore | None = None,
+        worktree_dir: Path | None = None,
+    ) -> None:
+        """Initialize the store.
+
+        Args:
+            state_store: An existing StateStore.  When set, all commits
+                go through its ``_run_git`` + ``_commit_state`` plumbing
+                and are synced to the remote.  When ``None``, ``worktree_dir``
+                must be supplied and the store operates purely on the
+                filesystem (unit-test mode).
+            worktree_dir: Explicit worktree path.  Required when
+                ``state_store`` is None.  Ignored otherwise (the state
+                store's worktree wins).
+        """
+        if state_store is None and worktree_dir is None:
+            raise ValueError("Provide either state_store or worktree_dir")
+        self._state_store = state_store
+        self._worktree_dir = worktree_dir
+
+    # -- worktree resolution ----------------------------------------------
+
+    @property
+    def worktree(self) -> Path:
+        if self._state_store is not None:
+            return self._state_store.worktree
+        assert self._worktree_dir is not None
+        self._worktree_dir.mkdir(parents=True, exist_ok=True)
+        return self._worktree_dir
+
+    @property
+    def _substore_dir(self) -> Path:
+        return self.worktree / SUBSTORE_DIR
+
+    def _shard_path(self, pipeline_id: str) -> Path:
+        """Path to a pipeline's shard file, validating for path traversal."""
+        pid = _validate_pipeline_id(pipeline_id)
+        path = self._substore_dir / f"{pid}.json"
+        # Guard against path traversal — the validated pipeline_id should
+        # already make this impossible, but belt-and-braces.  Use
+        # ``relative_to`` (path-aware) rather than ``str.startswith``
+        # which would wrongly prefix-match a sister directory like
+        # ``commit-authorship-evil`` against ``commit-authorship``.
+        resolved = path.resolve()
+        base_resolved = self._substore_dir.resolve()
+        try:
+            resolved.relative_to(base_resolved)
+        except ValueError as exc:
+            raise CommitAuthorshipStoreError(
+                f"Path traversal detected in pipeline ID: {pipeline_id!r}"
+            ) from exc
+        return path
+
+    def _ensure_substore_dir(self) -> None:
+        self._substore_dir.mkdir(parents=True, exist_ok=True)
+
+    # -- shard I/O --------------------------------------------------------
+
+    def _load_shard(self, pipeline_id: str) -> dict[str, Any]:
+        path = self._shard_path(pipeline_id)
+        if not path.exists():
+            return {"version": _SCHEMA_VERSION, "entries": {}}
+        try:
+            raw = path.read_text()
+            if not raw.strip():
+                return {"version": _SCHEMA_VERSION, "entries": {}}
+            data = json.loads(raw)
+            if not isinstance(data, dict) or "entries" not in data:
+                raise CommitAuthorshipStoreError(
+                    f"Corrupt authorship shard {path}: missing entries"
+                )
+            return data
+        except json.JSONDecodeError as e:
+            raise CommitAuthorshipStoreError(f"Corrupt authorship shard {path}: {e}") from e
+
+    def _write_shard_atomic(self, path: Path, data: dict[str, Any]) -> None:
+        self._ensure_substore_dir()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(data, f, indent=2, sort_keys=True)
+            os.replace(tmp_name, path)
+        except Exception:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
+
+    # -- public API -------------------------------------------------------
+
+    def register(
+        self,
+        sha: str,
+        role: str,
+        pipeline_id: str | None,
+        *,
+        repo: str | None = None,
+        branch: str | None = None,
+        commit: bool = True,
+    ) -> tuple[str, bool, str | None]:
+        """Register a commit's authorship with first-wins semantics.
+
+        Args:
+            sha: The commit SHA being registered.
+            role: The agent role that authored the commit.
+            pipeline_id: The pipeline that produced the commit.  ``None``
+                or empty string routes the entry to the orphan shard.
+            repo: Optional owner/repo string for forensic logging.
+            branch: Optional branch name for forensic logging.
+            commit: When True and a state store is attached, commit the
+                shard change to the state branch.
+
+        Returns:
+            Tuple ``(sha, inserted, existing_role)``:
+              - ``inserted``: True when this call wrote a new binding;
+                False when the call was a no-op (identical re-register).
+              - ``existing_role``: Populated only when the call raised
+                AuthorshipCollisionError; None on the happy paths.
+
+        Raises:
+            AuthorshipCollisionError: When a different role has already
+                bound this SHA.  The original binding is preserved.
+            CommitAuthorshipStoreError: On malformed inputs or I/O errors.
+        """
+        sha_s = _validate_sha(sha)
+        role_s = _validate_role(role)
+        pid = _validate_pipeline_id(pipeline_id or ORPHAN_SHARD_ID)
+
+        with self._lock:
+            shard = self._load_shard(pid)
+            entries = shard.setdefault("entries", {})
+            existing = entries.get(sha_s)
+            if existing is not None:
+                existing_role = (existing or {}).get("role")
+                if existing_role == role_s:
+                    # Idempotent re-register — no-op.
+                    logger.debug(
+                        "authorship_register_noop sha=%s role=%s pipeline_id=%s",
+                        sha_s,
+                        role_s,
+                        pid,
+                    )
+                    return sha_s, False, None
+                # First-wins: reject the conflicting role but preserve the
+                # original binding. Caller audit-logs the collision.
+                logger.warning(
+                    "authorship_register_collision sha=%s existing_role=%s attempted_role=%s "
+                    "pipeline_id=%s",
+                    sha_s,
+                    existing_role,
+                    role_s,
+                    pid,
+                )
+                raise AuthorshipCollisionError(sha_s, existing_role or "", role_s)
+
+            entry = AuthorshipEntry(
+                sha=sha_s,
+                role=role_s,
+                pipeline_id=pid,
+                repo=repo,
+                branch=branch,
+                registered_at=datetime.now(UTC).isoformat(),
+            )
+            entries[sha_s] = entry.to_dict()
+            shard.setdefault("version", _SCHEMA_VERSION)
+
+            path = self._shard_path(pid)
+            self._write_shard_atomic(path, shard)
+
+            if commit and self._state_store is not None:
+                self._commit_shard_to_state_branch(path, sha_s, role_s, pid)
+
+            logger.info(
+                "authorship_register sha=%s role=%s pipeline_id=%s",
+                sha_s,
+                role_s,
+                pid,
+            )
+            return sha_s, True, None
+
+    def lookup(self, sha: str) -> str | None:
+        """Return the attributed role for a commit, or ``None`` if unknown."""
+        try:
+            sha_s = _validate_sha(sha)
+        except CommitAuthorshipStoreError:
+            return None
+        return self._lookup_in_all_shards(sha_s)
+
+    def lookup_bulk(self, shas: list[str]) -> dict[str, str | None]:
+        """Bulk lookup for a push range.
+
+        Returns a dict mapping every *valid* input sha to its role or
+        ``None`` when unregistered.  Invalid shas are silently dropped
+        from the result (the caller treats missing entries as
+        unregistered anyway).
+        """
+        # De-duplicate while preserving insertion order so callers with
+        # a stable iteration order get predictable output.
+        seen: dict[str, None] = {}
+        normalized: list[str] = []
+        for raw in shas or []:
+            try:
+                sha_s = _validate_sha(raw)
+            except CommitAuthorshipStoreError:
+                continue
+            if sha_s in seen:
+                continue
+            seen[sha_s] = None
+            normalized.append(sha_s)
+
+        if not normalized:
+            return {}
+
+        # Scan every shard once rather than once per SHA — the shard set
+        # is bounded by pipeline count and each read is O(1) after load.
+        result: dict[str, str | None] = dict.fromkeys(normalized)
+        for shard in self._iter_all_shards():
+            entries = shard.get("entries", {})
+            for sha_s in normalized:
+                if result[sha_s] is not None:
+                    continue
+                entry = entries.get(sha_s)
+                if entry is not None:
+                    result[sha_s] = entry.get("role")
+        return result
+
+    # -- helpers ----------------------------------------------------------
+
+    def _lookup_in_all_shards(self, sha: str) -> str | None:
+        for shard in self._iter_all_shards():
+            entry = (shard.get("entries") or {}).get(sha)
+            if entry is not None:
+                return entry.get("role")
+        return None
+
+    def _iter_all_shards(self) -> list[dict[str, Any]]:
+        """Load every shard on disk.  Bounded by pipeline count."""
+        if not self._substore_dir.exists():
+            return []
+        shards: list[dict[str, Any]] = []
+        for path in sorted(self._substore_dir.glob("*.json")):
+            try:
+                raw = path.read_text()
+                if not raw.strip():
+                    continue
+                data = json.loads(raw)
+                if isinstance(data, dict):
+                    shards.append(data)
+            except (json.JSONDecodeError, OSError):
+                logger.warning(
+                    "Ignoring corrupt authorship shard: %s",
+                    path,
+                    exc_info=True,
+                )
+        return shards
+
+    def _commit_shard_to_state_branch(
+        self, path: Path, sha: str, role: str, pipeline_id: str
+    ) -> None:
+        """Commit the shard change through the state store's worktree."""
+        assert self._state_store is not None
+        wt = self._state_store.worktree
+        try:
+            rel = str(path.relative_to(wt))
+        except ValueError:
+            # If the shard lives outside the state worktree (shouldn't
+            # happen in production, but can in tests that point
+            # ``worktree_dir`` elsewhere), skip the commit silently.
+            return
+        try:
+            self._state_store._run_git("add", rel, cwd=wt)
+            # Skip commit if no changes staged (e.g., concurrent writer
+            # already flushed the same content).
+            diff = self._state_store._run_git("diff", "--cached", "--quiet", cwd=wt, check=False)
+            if diff.returncode == 0:
+                return
+            msg = f"commit-authorship: register {sha[:12]} as {role} (pipeline={pipeline_id})"
+            self._state_store._run_git("commit", "--no-verify", "-m", msg, cwd=wt)
+            # Best-effort async push; never block the caller on network.
+            try:
+                self._state_store._sync_to_remote_async()
+            except Exception:
+                logger.debug(
+                    "authorship_state_branch_push_deferred",
+                    exc_info=True,
+                )
+        except subprocess.CalledProcessError:
+            logger.warning(
+                "authorship_state_branch_commit_failed sha=%s pipeline_id=%s",
+                sha,
+                pipeline_id,
+                exc_info=True,
+            )
+        except Exception:
+            # Store-level errors (GitOperationError, etc.) must not
+            # poison the registration — the shard is already on disk.
+            logger.warning(
+                "authorship_state_branch_commit_failed sha=%s pipeline_id=%s",
+                sha,
+                pipeline_id,
+                exc_info=True,
+            )
+
+
+_singleton: CommitAuthorshipStore | None = None
+_singleton_lock = threading.Lock()
+
+
+def get_store(state_store: StateStore | None = None) -> CommitAuthorshipStore:
+    """Return a process-wide singleton backed by the state store.
+
+    Unit tests that need isolation should instantiate ``CommitAuthorshipStore``
+    directly with an explicit ``worktree_dir`` rather than calling this
+    helper.
+    """
+    global _singleton
+    with _singleton_lock:
+        if _singleton is None:
+            if state_store is None:
+                # Late import to avoid pulling in the full state_store
+                # module graph at import time.
+                from state_store import StateStore as _SS  # type: ignore[import-not-found]
+
+                repo_path = Path(os.environ.get("EGG_REPO_PATH", "/home/egg/repos/egg"))
+                _singleton = CommitAuthorshipStore(state_store=_SS(repo_path=repo_path))
+            else:
+                _singleton = CommitAuthorshipStore(state_store=state_store)
+        return _singleton
+
+
+def reset_singleton() -> None:
+    """Drop the process-wide singleton.  Intended for tests only."""
+    global _singleton
+    with _singleton_lock:
+        _singleton = None

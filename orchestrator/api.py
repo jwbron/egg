@@ -38,6 +38,7 @@ app = Flask(__name__)
 # Register blueprints
 try:
     from routes.anchors import anchors_bp
+    from routes.commit_authorship import commit_authorship_bp
     from routes.containers import containers_bp
     from routes.contracts import contract_mutations_bp, contracts_bp
     from routes.decisions import decisions_bp
@@ -65,6 +66,7 @@ try:
     app.register_blueprint(metrics_bp)
     app.register_blueprint(progress_bp)
     app.register_blueprint(webhooks_bp)
+    app.register_blueprint(commit_authorship_bp)
 
     # Emit the EGG_MESSAGE_POLL_MAX_WAIT startup log line. RISK-4 (issue
     # #1897): if the cap exceeds 90s we log a WARNING naming the gateway
@@ -77,6 +79,9 @@ try:
         logger.debug("log_poll_max_wait_startup failed", exc_info=True)
 except ImportError:
     from .routes.anchors import anchors_bp  # type: ignore[no-redef]
+    from .routes.commit_authorship import (  # type: ignore[no-redef]
+        commit_authorship_bp,
+    )
     from .routes.containers import containers_bp  # type: ignore[no-redef]
     from .routes.contracts import (  # type: ignore[no-redef]
         contract_mutations_bp,
@@ -107,6 +112,7 @@ except ImportError:
     app.register_blueprint(metrics_bp)
     app.register_blueprint(progress_bp)
     app.register_blueprint(webhooks_bp)
+    app.register_blueprint(commit_authorship_bp)
 
     try:
         from .routes.messages import log_poll_max_wait_startup  # type: ignore[no-redef]
