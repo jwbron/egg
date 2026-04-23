@@ -281,154 +281,15 @@
     },
     "implement": {
       "phase": "implement",
-      "status": "running",
-      "started_at": "2026-04-23T06:27:48.103191Z",
-      "work_started_at": "2026-04-23T06:27:49.741290Z",
+      "status": "pending",
+      "started_at": null,
+      "work_started_at": null,
       "completed_at": null,
-      "containers": [
-        {
-          "container_id": "c156a0a3-b463-4d18-bc98-454c5fdd77e2",
-          "container_name": "egg-sandbox-egg-agent-issue-1897-tester",
-          "status": "failed",
-          "started_at": "2026-04-23T06:27:52.964694Z",
-          "exited_at": "2026-04-23T07:24:35Z",
-          "exit_code": 1,
-          "agent_role": "tester",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-1897-tester"
-        },
-        {
-          "container_id": "3acc5471-58d5-45d9-a609-5cc4f84d5dd0",
-          "container_name": "egg-sandbox-egg-agent-issue-1897-coder",
-          "status": "failed",
-          "started_at": "2026-04-23T06:27:52.964712Z",
-          "exited_at": "2026-04-23T07:23:22Z",
-          "exit_code": 1,
-          "agent_role": "coder",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-1897-coder"
-        },
-        {
-          "container_id": "ff8615fc-478b-469d-8f0d-0e04ee6ed939",
-          "container_name": "egg-sandbox-egg-agent-issue-1897-reviewer-code",
-          "status": "failed",
-          "started_at": "2026-04-23T06:27:52.964717Z",
-          "exited_at": "2026-04-23T07:23:32Z",
-          "exit_code": 1,
-          "agent_role": "reviewer_code",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-1897-reviewer-code"
-        },
-        {
-          "container_id": "870f6154-ab37-4d49-9851-d4329a87881a",
-          "container_name": "egg-sandbox-egg-agent-issue-1897-reviewer-contract",
-          "status": "running",
-          "started_at": "2026-04-23T06:27:52.964721Z",
-          "exited_at": null,
-          "exit_code": null,
-          "agent_role": "reviewer_contract",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-1897-reviewer-contract"
-        },
-        {
-          "container_id": "3a72c360-426b-45be-b06e-faa0128fd8f3",
-          "container_name": "egg-sandbox-egg-agent-issue-1897-documenter",
-          "status": "exited",
-          "started_at": "2026-04-23T06:27:52.964725Z",
-          "exited_at": "2026-04-23T07:23:21Z",
-          "exit_code": 0,
-          "agent_role": "documenter",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-1897-documenter"
-        }
-      ],
-      "agents": [
-        {
-          "role": "tester",
-          "status": "failed",
-          "container_id": "c156a0a3-b463-4d18-bc98-454c5fdd77e2",
-          "container_info": null,
-          "started_at": "2026-04-23T06:27:52.964706Z",
-          "completed_at": "2026-04-23T07:24:43.124621Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "coder",
-          "status": "failed",
-          "container_id": "3acc5471-58d5-45d9-a609-5cc4f84d5dd0",
-          "container_info": null,
-          "started_at": "2026-04-23T06:27:52.964714Z",
-          "completed_at": "2026-04-23T07:23:27.431842Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "reviewer_code",
-          "status": "failed",
-          "container_id": "ff8615fc-478b-469d-8f0d-0e04ee6ed939",
-          "container_info": null,
-          "started_at": "2026-04-23T06:27:52.964719Z",
-          "completed_at": "2026-04-23T07:23:40.315760Z",
-          "commit": null,
-          "outputs": {},
-          "error": "Container exited with code 1",
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "reviewer_contract",
-          "status": "running",
-          "container_id": "870f6154-ab37-4d49-9851-d4329a87881a",
-          "container_info": null,
-          "started_at": "2026-04-23T06:27:52.964722Z",
-          "completed_at": null,
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "documenter",
-          "status": "complete",
-          "container_id": "3a72c360-426b-45be-b06e-faa0128fd8f3",
-          "container_info": null,
-          "started_at": "2026-04-23T06:27:52.964727Z",
-          "completed_at": "2026-04-23T07:23:25.054948Z",
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": []
-        }
-      ],
+      "containers": [],
+      "agents": [],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
-      "cycle_timings": [
-        {
-          "cycle": 0,
-          "started_at": "2026-04-23T06:27:49.741290Z",
-          "completed_at": null,
-          "commit_sha": "2e1b16b2b6dbbb6281a93b139c45c4b782c29714"
-        }
-      ],
+      "cycle_timings": [],
       "artifacts": {},
       "error": null,
       "hitl_feedback": null,
@@ -650,7 +511,7 @@
     }
   ],
   "created_at": "2026-04-22T23:27:22.582974Z",
-  "updated_at": "2026-04-23T07:24:43.124702Z",
+  "updated_at": "2026-04-23T07:27:44.038501Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -663,6 +524,6 @@
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
-  "run_epoch": "2026-04-23T06:27:48.103193Z",
-  "version": 66
+  "run_epoch": "2026-04-23T07:27:44.037815Z",
+  "version": 67
 }
