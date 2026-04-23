@@ -9389,7 +9389,7 @@ def _queue_and_await_contract_decisions(
         )
         queued_decisions.append((contract_decision.id, queued))
 
-    queued_feedback: Any = None
+    queued_feedback: HITLDecision | None = None
     if pending_feedback is not None:
         questions_payload = [
             {"id": q.id, "question": q.question, "answer": ""} for q in pending_feedback.questions

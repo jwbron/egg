@@ -439,3 +439,14 @@ def test_bridge_queues_all_decisions_before_waiting(tmp_path: Path) -> None:
     first_wait_idx = next(i for i, e in enumerate(dq.events) if e[0] == "wait")
     for e in dq.events[:first_wait_idx]:
         assert e[0] == "queue", f"queue-before-wait invariant broken: {dq.events}"
+
+    # Verify contract persistence: all choice decisions resolved with correct
+    # values, and feedback marked submitted with the expected answer.
+    data = json.loads((tmp_path / ".egg-state/contracts/issue-42.json").read_text())
+    for i, expected_res in enumerate(["A", "B", "A"], start=1):
+        d = next(d for d in data["decisions"] if d["id"] == f"decision-{i}")
+        assert d["resolved"] is True, f"decision-{i} not resolved"
+        assert d["resolution"] == expected_res, f"decision-{i} resolution mismatch"
+    fb = data["feedback"]
+    assert fb["submitted"] is True
+    assert fb["questions"][0]["answer"] == "ok"
