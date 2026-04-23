@@ -282,12 +282,34 @@ def cmd_serve(args: argparse.Namespace) -> int:
         app.run(host=host, port=port, debug=True)
     else:
         # Use waitress for production.
-        # 16 threads handles concurrent requests including Redis XREAD BLOCK
-        # long-polling (capped at 60s per request in messages.py). Waitress
-        # thread pool accommodates blocking I/O without requiring async workers.
+        # Thread count is now configurable via EGG_ORCHESTRATOR_WORKER_THREADS
+        # (default 64) to absorb the new long-poll volume from the
+        # ``egg-orch message wait`` primitive (issue #1897, RISK-3).  The
+        # previous hard-coded 16 threads could saturate under a modest
+        # number of concurrently blocked wait requests.
+        #
+        # ``channel_timeout`` is set to 2× the effective
+        # ``EGG_MESSAGE_POLL_MAX_WAIT`` so the server does not close a
+        # long-poll socket before the request's own timeout fires.
         from waitress import serve
 
-        serve(app, host=host, port=port, threads=16)
+        threads = int(os.environ.get("EGG_ORCHESTRATOR_WORKER_THREADS", "64"))
+        poll_cap = int(os.environ.get("EGG_MESSAGE_POLL_MAX_WAIT", "60") or 60)
+        channel_timeout = max(poll_cap * 2 + 30, 120)
+        logger.info(
+            "Starting waitress server",
+            host=host,
+            port=port,
+            threads=threads,
+            channel_timeout=channel_timeout,
+        )
+        serve(
+            app,
+            host=host,
+            port=port,
+            threads=threads,
+            channel_timeout=channel_timeout,
+        )
 
     return 0
 

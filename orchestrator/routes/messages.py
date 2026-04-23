@@ -37,6 +37,38 @@ from state_store import InvalidPipelineIdError, PipelineNotFoundError
 
 logger = get_logger("orchestrator.messages")
 
+# In-flight long-poll gauge (RISK-3, issue #1897). Incremented when a
+# caller enters a blocking read and decremented when the call returns.
+# Used by operators to detect worker-pool saturation — when this number
+# approaches the configured thread count, raise
+# ``EGG_ORCHESTRATOR_WORKER_THREADS``.
+try:
+    from metrics import get_metrics_registry
+
+    _inflight_long_polls = get_metrics_registry().gauge(
+        "egg_inflight_long_polls",
+        labels={"endpoint": "messages"},
+    )
+except Exception:  # pragma: no cover - metrics best-effort
+    _inflight_long_polls = None
+
+
+def _track_long_poll_start() -> None:
+    if _inflight_long_polls is not None:
+        try:
+            _inflight_long_polls.inc()
+        except Exception:  # pragma: no cover
+            pass
+
+
+def _track_long_poll_end() -> None:
+    if _inflight_long_polls is not None:
+        try:
+            _inflight_long_polls.dec()
+        except Exception:  # pragma: no cover
+            pass
+
+
 messages_bp = Blueprint("messages", __name__, url_prefix="/api/v1/pipelines")
 
 # Default cap on the ``wait`` query parameter.  Operators can raise this via
@@ -261,7 +293,13 @@ def poll_messages(pipeline_id: str) -> tuple[Response, int]:
     # did not accept ``wait``. That silent fallback has been removed (issue
     # #1897) — both backends now support ``wait`` natively. A TypeError here
     # indicates a regression and must propagate so CI catches it.
-    messages = message_store.get_messages(pipeline_id, **kwargs)
+    if wait > 0:
+        _track_long_poll_start()
+    try:
+        messages = message_store.get_messages(pipeline_id, **kwargs)
+    finally:
+        if wait > 0:
+            _track_long_poll_end()
 
     messages = _apply_delphi_filter(pipeline_id, role, messages)
 
@@ -378,14 +416,18 @@ def wait_messages(pipeline_id: str) -> tuple[Response, int]:
 
     message_store = get_message_store()
 
-    messages = message_store.get_messages(
-        pipeline_id,
-        role=role,
-        since_id=since_id,
-        limit=limit,
-        wait=timeout,
-        wait_for_types=wait_for_types,
-    )
+    _track_long_poll_start()
+    try:
+        messages = message_store.get_messages(
+            pipeline_id,
+            role=role,
+            since_id=since_id,
+            limit=limit,
+            wait=timeout,
+            wait_for_types=wait_for_types,
+        )
+    finally:
+        _track_long_poll_end()
 
     # Apply the from-role filter last (server-side; cheap).
     if from_role:
