@@ -628,7 +628,7 @@ class TestOrchCliConsensusProposePush:
         parser = create_parser()
         return parser.parse_args(argv)
 
-    @patch("egg_lib.orch_cli.orch_request")
+    @patch("egg_agent_tools.handlers.brc.orchestrator_request")
     @patch("egg_lib.orch_cli._consensus_push")
     def test_push_success_then_propose(self, mock_push, mock_request):
         """--push calls _consensus_push() before sending the proposal.
@@ -637,6 +637,12 @@ class TestOrchCliConsensusProposePush:
         handles the consensus_push marker (direct gateway API or env var
         fallback).  Detailed tests for _consensus_push() live in
         test_orch_cli_consensus_push.py.
+
+        Post-#1765: cmd_consensus_propose delegates to
+        ``egg_agent_tools.handlers.brc.brc_propose`` → ``orchestrator_request``
+        from ``egg_agent_tools.handlers._gateway`` — the legacy
+        ``egg_lib.orch_cli.orch_request`` is no longer on the call path,
+        so we patch the new handler's gateway helper instead.
         """
         mock_push.return_value = 0
         mock_request.return_value = {"success": True, "data": {}}
@@ -710,10 +716,15 @@ class TestOrchCliConsensusProposePush:
 
         assert rc == 1
 
-    @patch("egg_lib.orch_cli.orch_request")
+    @patch("egg_agent_tools.handlers.brc.orchestrator_request")
     @patch("egg_lib.orch_cli.subprocess.check_output")
     def test_no_push_flag_skips_git_push(self, mock_subprocess, mock_request):
-        """Without --push, git push is not called (only rev-parse for commit)."""
+        """Without --push, git push is not called (only rev-parse for commit).
+
+        Post-#1765: patch the handler's gateway helper rather than the
+        legacy ``egg_lib.orch_cli.orch_request`` because
+        cmd_consensus_propose now delegates through the handler.
+        """
         mock_subprocess.return_value = "abc123\n"
         mock_request.return_value = {"success": True, "data": {}}
 
