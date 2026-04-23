@@ -292,10 +292,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Keep both indefinitely — CLIs are used by humans, tests, entrypoint scripts, and bash wrappers; MCP tools are additive for agents (Recommended — matches AC 'existing CLIs keep working')\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-8",
+      "question": "How should MCP tools be named so agents can pattern-match them quickly?",
+      "context": "Open contract question decision-5, registered by an agent during the refine phase.",
+      "options": [
+        "Flat namespace under one server: mcp__egg__contract_add_decision, mcp__egg__orch_pipeline_status, mcp__egg__checkpoint_search (one server, flat names)",
+        "Per-CLI servers: mcp__egg_contract__add_decision, mcp__egg_orch__pipeline_status, etc. (one SDK server per CLI binary) (Recommended — mirrors the CLI surface the humans already know)",
+        "Subcommand-join form: mcp__egg__contract/add-decision (preserve the exact shell command as the tool name suffix)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-23T06:52:49.660338Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-23T05:22:09.201730Z",
-  "updated_at": "2026-04-23T06:52:47.637792Z",
+  "updated_at": "2026-04-23T06:52:49.670196Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -309,5 +328,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:32:00.470351Z",
-  "version": 46
+  "version": 47
 }
