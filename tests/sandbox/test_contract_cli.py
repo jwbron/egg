@@ -486,7 +486,8 @@ def create_mock_gateway_handler(responses_dict: dict):
 
         def do_GET(self):
             """Handle GET requests."""
-            response = self.responses.get(("GET", self.path), {"success": True})
+            path = self.path.split("?")[0]
+            response = self.responses.get(("GET", path), {"success": True})
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
@@ -499,7 +500,8 @@ def create_mock_gateway_handler(responses_dict: dict):
             if content_length:
                 self.rfile.read(content_length)
 
-            response = self.responses.get(("POST", self.path), {"success": True})
+            path = self.path.split("?")[0]
+            response = self.responses.get(("POST", path), {"success": True})
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
