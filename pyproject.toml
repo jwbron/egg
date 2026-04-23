@@ -184,6 +184,13 @@ python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
 addopts = "-v --tb=short"
+# Per-test timeout cap. Any test that blocks on a condition variable,
+# event, or polling loop without a notify partner (or with a frozen
+# time mock) will be killed by pytest-timeout instead of spinning
+# until CI times out or the developer's machine seizes up.
+# Individual tests can override with @pytest.mark.timeout(N).
+# See issue #1928 for the incident that motivated this default.
+timeout = 60
 filterwarnings = ["ignore::DeprecationWarning"]
 markers = [
     "integration: marks tests as integration tests (require Docker, may be slow)",

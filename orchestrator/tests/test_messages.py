@@ -648,8 +648,19 @@ class TestLongPolling:
                 resp = client.get("/api/v1/pipelines/test-pipeline/messages?wait=-5")
                 assert resp.status_code == 200
 
-    def test_wait_capped_at_sixty(self, client, app):
-        """Wait should be capped at 60 seconds."""
+    def test_wait_capped_at_sixty(self, client, app, monkeypatch):
+        """Wait should be capped by EGG_MESSAGE_POLL_MAX_WAIT.
+
+        The route clamps any client-supplied ``wait`` to the configured
+        cap before calling ``MessageStore.get_messages``.  We verify the
+        clamp empirically by lowering the cap to 2s and sending
+        ``wait=999`` — the request must return in well under 999s.
+        Without the clamp, this test would block on ``cv.wait`` for the
+        full 999-second budget (issue #1928).
+        """
+        import time as _t
+
+        monkeypatch.setenv("EGG_MESSAGE_POLL_MAX_WAIT", "2")
         store = MessageStore()
 
         with app.test_request_context():
@@ -661,8 +672,12 @@ class TestLongPolling:
             ):
                 mock_get_store_for_pipeline.return_value = (MagicMock(), _make_pipeline_mock())
 
+                start = _t.monotonic()
                 resp = client.get("/api/v1/pipelines/test-pipeline/messages?wait=999")
+                elapsed = _t.monotonic() - start
+
                 assert resp.status_code == 200
+                assert elapsed < 5, f"wait=999 with cap=2 took {elapsed:.1f}s; clamp not applied"
 
     def test_wait_invalid_defaults_to_zero(self, client, app):
         """Invalid wait parameter should default to 0."""
