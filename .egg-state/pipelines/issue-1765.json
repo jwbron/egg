@@ -172,10 +172,10 @@
         {
           "container_id": "606b6f9b-411c-45ac-9049-ea4489e0af33",
           "container_name": "egg-sandbox-egg-agent-issue-1765-task-planner",
-          "status": "running",
+          "status": "exited",
           "started_at": "2026-04-23T06:59:01.238136Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-23T07:23:22Z",
+          "exit_code": 0,
           "agent_role": "task_planner",
           "session_token": null,
           "pod_name": null,
@@ -225,11 +225,11 @@
       "agents": [
         {
           "role": "task_planner",
-          "status": "running",
+          "status": "complete",
           "container_id": "606b6f9b-411c-45ac-9049-ea4489e0af33",
           "container_info": null,
           "started_at": "2026-04-23T06:59:01.238150Z",
-          "completed_at": null,
+          "completed_at": "2026-04-23T07:23:31.681384Z",
           "commit": null,
           "outputs": {},
           "error": null,
@@ -556,7 +556,7 @@
     }
   ],
   "created_at": "2026-04-23T05:22:09.201730Z",
-  "updated_at": "2026-04-23T07:23:25.058812Z",
+  "updated_at": "2026-04-23T07:23:31.682719Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -570,5 +570,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-23T05:32:00.470351Z",
-  "version": 62
+  "version": 63
 }
