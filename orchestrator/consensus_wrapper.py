@@ -327,12 +327,36 @@ check_confirmed_and_wait() {{
 
     if [ "$agent_confirmed" = "True" ]; then
         cw_log "Agent already CONFIRMED in BRC protocol. Waiting for consensus..."
+        # Event-driven wait (issue #1897): instead of sleep-looping over
+        # pipeline status, block on the first CONSENSUS_CONFIRMED message
+        # from any peer via ``egg-orch message wait``.  Any delivered
+        # CONSENSUS_CONFIRMED triggers a pipeline-status re-check, so
+        # consensus completion is noticed within seconds of the final
+        # confirmation rather than on the next 30s poll boundary.
+        #
+        # Fallback: if ``message wait`` is unavailable (older sandbox
+        # image, transient network hiccup), degrade to the legacy shell
+        # sleep loop so local-dev without the new CLI still works.
         local poll_interval wait_count
         poll_interval="${{EGG_MESSAGE_POLL_INTERVAL:-30}}"
         wait_count=0
         while [ "$wait_count" -lt "$MAX_READY_POLLS" ]; do
             wait_count=$((wait_count + 1))
-            sleep "$poll_interval"
+            # Block on the next CONSENSUS_CONFIRMED (or timeout).  Exit
+            # codes: 0 matched, 1 timeout, 2 transient, 3 permanent.
+            if command -v egg-orch >/dev/null 2>&1; then
+                egg-orch message wait \
+                    --for CONSENSUS_CONFIRMED \
+                    --for CONSENSUS_RE_REVIEW \
+                    --timeout "$poll_interval" >/dev/null 2>&1
+                local rc=$?
+                if [ "$rc" -eq 3 ]; then
+                    # Permanent error — fall back to sleep
+                    sleep "$poll_interval"
+                fi
+            else
+                sleep "$poll_interval"
+            fi
             local resp is_complete
             resp=$(egg-orch pipeline status --json 2>/dev/null || echo "{{}}")
             is_complete=$(echo "$resp" | python3 -c \
