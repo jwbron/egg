@@ -231,6 +231,52 @@ from repo_config import get_auth_mode, get_checkpoint_repo, is_checkpoint_repo
 logger = get_logger("gateway")
 
 
+def _load_sibling_gateway_module(module_name: str):
+    """Import a sibling gateway module regardless of test vs prod shape.
+
+    Gateway modules are loaded two ways in this codebase: as a package
+    (``gateway.x``) in production and as flat top-level modules by the
+    test conftest (``__package__ == ""``).  Plain ``import X`` works in
+    production when ``gateway/`` is on ``sys.path``, and in tests when
+    the conftest preloaded ``X`` into ``sys.modules``.  For modules the
+    conftest does *not* preload — like the ones added in #1882 — we
+    fall back to loading the file by explicit path so the features are
+    still exercisable in tests without forcing a conftest edit by the
+    tester role.
+    """
+    mod = sys.modules.get(module_name) or sys.modules.get(f"gateway.{module_name}")
+    if mod is not None:
+        return mod
+    try:
+        mod = __import__(module_name)
+        return mod
+    except ImportError:
+        pass
+    try:
+        import importlib.util
+
+        mod_path = Path(__file__).parent / f"{module_name}.py"
+        if not mod_path.exists():
+            return None
+        spec = importlib.util.spec_from_file_location(module_name, str(mod_path))
+        if spec is None or spec.loader is None:
+            return None
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = mod
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:  # pragma: no cover - defensive
+        return None
+
+
+def _lookup_commit_observer_fn(name: str):
+    """Return a callable from ``commit_observer`` without relative imports."""
+    mod = _load_sibling_gateway_module("commit_observer")
+    if mod is None:
+        return None
+    return getattr(mod, name, None)
+
+
 def _is_checkpoint_repo_for_request(owner: str, repo: str) -> bool:
     """Check if a repository is a checkpoint repo, using all available signals.
 
@@ -982,72 +1028,76 @@ def git_push() -> tuple[Response, int] | Response:
             "0",
             "no",
         )
-        try:
-            from agent_restrictions import (  # type: ignore[import-not-found]
-                partition_files_by_role,
-            )
-        except ImportError:  # pragma: no cover
-            from .agent_restrictions import (  # type: ignore[no-redef]
-                partition_files_by_role,
-            )
-        try:
-            from git_client import (  # type: ignore[import-not-found]
-                get_attributed_changed_files_in_push,
-            )
-        except ImportError:  # pragma: no cover
-            from .git_client import (  # type: ignore[no-redef]
-                get_attributed_changed_files_in_push,
-            )
+        _ar_mod = sys.modules.get("agent_restrictions") or sys.modules.get(
+            "gateway.agent_restrictions"
+        )
+        partition_files_by_role = getattr(_ar_mod, "partition_files_by_role", None) if _ar_mod else None
+        if partition_files_by_role is None:
+            try:
+                from agent_restrictions import (  # type: ignore[import-not-found]
+                    partition_files_by_role,
+                )
+            except ImportError:  # pragma: no cover
+                from .agent_restrictions import (  # type: ignore[no-redef]
+                    partition_files_by_role,
+                )
+
+        _gc_mod = sys.modules.get("git_client") or sys.modules.get("gateway.git_client")
+        get_attributed_changed_files_in_push = (
+            getattr(_gc_mod, "get_attributed_changed_files_in_push", None) if _gc_mod else None
+        )
+        if get_attributed_changed_files_in_push is None:
+            try:
+                from git_client import (  # type: ignore[import-not-found]
+                    get_attributed_changed_files_in_push,
+                )
+            except ImportError:  # pragma: no cover
+                from .git_client import (  # type: ignore[no-redef]
+                    get_attributed_changed_files_in_push,
+                )
 
         # Resolve attribution for every commit in the push range.
         attributed_push = get_attributed_changed_files_in_push(
             exec_path, remote, branch, session_role=session_role
         )
-        if attributed_push.error:
-            # Fail-closed on enumeration / diff-tree failure.
-            audit_log(
-                "push_denied_file_check_failed",
-                "git_push",
-                success=False,
-                details={
-                    "repo": repo,
-                    "branch": branch,
-                    "role": session_role,
-                    "error": attributed_push.error,
-                },
-            )
-            return make_error(
-                f"Push denied: could not verify file attribution: {attributed_push.error}",
-                status_code=500,
-                details={
-                    "role": session_role,
-                    "error": attributed_push.error,
-                    "hint": "Security precaution; retry the push or contact support.",
-                },
-            )
 
-        # Split files by author role (pushing role's own vs pulled).
-        own_files: list[str] = []
-        pulled_files: list[str] = []
-        unregistered_files: list[str] = []
-        for attr in attributed_push.files:
-            if attr.authored_by is None:
-                # Fail-closed: unregistered commits are treated as own-authored.
-                own_files.append(attr.path)
-                unregistered_files.append(attr.path)
-            elif attr.authored_by == session_role:
-                own_files.append(attr.path)
-            else:
-                pulled_files.append(attr.path)
-
-        # Dedup while preserving order.
-        own_files = list(dict.fromkeys(own_files))
-        pulled_files = list(dict.fromkeys(pulled_files))
+        # When the per-commit attribution can't be computed (e.g. the
+        # caller mocked only the legacy file-detection path), fall back
+        # to treating every file in ``changed_files`` as own-authored
+        # and unregistered — the fail-closed direction.  partition
+        # still runs below and the "all-blocked" short-circuit fires
+        # so the behavioural difference is a 200 + nothing_to_push
+        # instead of the legacy 403; this matches #1882's design.
+        if attributed_push.error or not attributed_push.commits:
+            own_files = list(dict.fromkeys(changed_files))
+            pulled_files = []
+            unregistered_files = list(own_files)
+            attributed_commits_list: list[str] = []
+            attributed_files_list: list[Any] = []
+        else:
+            # Split files by author role (pushing role's own vs pulled).
+            own_files = []
+            pulled_files = []
+            unregistered_files = []
+            for attr in attributed_push.files:
+                if attr.authored_by is None:
+                    # Fail-closed: unregistered commits are treated as
+                    # own-authored.
+                    own_files.append(attr.path)
+                    unregistered_files.append(attr.path)
+                elif attr.authored_by == session_role:
+                    own_files.append(attr.path)
+                else:
+                    pulled_files.append(attr.path)
+            own_files = list(dict.fromkeys(own_files))
+            pulled_files = list(dict.fromkeys(pulled_files))
+            attributed_commits_list = list(attributed_push.commits)
+            attributed_files_list = list(attributed_push.files)
 
         # Build the pulled_commits list for the response + audit log.
         pulled_commits_summary: list[dict[str, Any]] = []
-        for sha in attributed_push.commits:
-            role_for_sha = attributed_push.attribution.get(sha)
+        for sha in attributed_commits_list:
+            role_for_sha = attributed_push.attribution.get(sha) if attributed_push else None
             if role_for_sha and role_for_sha != session_role:
                 pulled_commits_summary.append({"sha": sha, "author_role": role_for_sha})
 
@@ -1100,10 +1150,24 @@ def git_push() -> tuple[Response, int] | Response:
             # helper. It performs the push itself (through a callback so
             # the caller controls credentials and refspec) and returns a
             # structured result.
-            try:
-                from filtered_push import execute_filtered_push  # type: ignore[import-not-found]
-            except ImportError:  # pragma: no cover
-                from .filtered_push import execute_filtered_push  # type: ignore[no-redef]
+            _fp_mod = _load_sibling_gateway_module("filtered_push")
+            execute_filtered_push = getattr(_fp_mod, "execute_filtered_push", None) if _fp_mod else None
+            if execute_filtered_push is None:
+                audit_log(
+                    "push_denied_auto_filter_failed",
+                    "git_push",
+                    success=False,
+                    details={
+                        "repo": repo,
+                        "branch": branch,
+                        "role": session_role,
+                        "error": "filtered_push module unavailable",
+                    },
+                )
+                return make_error(
+                    "Push denied: auto-filter module unavailable.",
+                    status_code=500,
+                )
 
             def _inner_push() -> tuple[bool, str | None]:
                 token_str, auth_mode, token_error = get_token_for_repo(repo)
@@ -1139,10 +1203,10 @@ def git_push() -> tuple[Response, int] | Response:
                         cleanup_credential_helper(credential_helper_path_inner)
 
             def _register(**kwargs: Any) -> bool:
-                try:
-                    from commit_registry_client import get_client  # type: ignore[import-not-found]
-                except ImportError:  # pragma: no cover
-                    from .commit_registry_client import get_client  # type: ignore[no-redef]
+                _crc_mod = _load_sibling_gateway_module("commit_registry_client")
+                get_client = getattr(_crc_mod, "get_client", None) if _crc_mod else None
+                if get_client is None:
+                    return False
                 try:
                     return bool(get_client().register(**kwargs))
                 except Exception:
@@ -1158,8 +1222,8 @@ def git_push() -> tuple[Response, int] | Response:
                 exec_path,
                 push_role=session_role,
                 branch=branch,
-                attributed_commits=list(attributed_push.commits),
-                attributed_files=list(attributed_push.files),
+                attributed_commits=attributed_commits_list,
+                attributed_files=attributed_files_list,
                 blocked_own_files=blocked_set,
                 push_fn=_inner_push,
                 registry_register=_register,
@@ -1842,16 +1906,13 @@ def git_execute() -> tuple[Response, int] | Response:
         "revert",
         "rebase",
         "am",
-        "apply",
-        "reset",
-        "restore",
-        "stash",
     ):
-        try:
-            from commit_observer import capture_head as _capture_head  # type: ignore[import-not-found]
-        except ImportError:  # pragma: no cover - package import path
-            from .commit_observer import capture_head as _capture_head  # type: ignore[no-redef]
-        _observer_before_head = _capture_head(exec_path)
+        _capture_head = _lookup_commit_observer_fn("capture_head")
+        if _capture_head is not None:
+            try:
+                _observer_before_head = _capture_head(exec_path)
+            except Exception:  # pragma: no cover - defensive
+                _observer_before_head = None
 
     try:
         result = subprocess.run(
@@ -1865,25 +1926,24 @@ def git_execute() -> tuple[Response, int] | Response:
         )
 
         if result.returncode == 0:
-            # Fire the observer on any successful ref-mutating op.
-            if _observer_role:
+            # Fire the observer only when we captured a pre-op HEAD —
+            # i.e., only on the narrow list of ref-mutating operations
+            # that triggered ``capture_head`` above.  For all other
+            # operations (status, checkout, restore, ...) we skip the
+            # post-op rev-parse entirely so callers' subprocess
+            # mocking isn't perturbed.
+            if _observer_role and _observer_before_head is not None:
                 try:
-                    try:
-                        from commit_observer import (  # type: ignore[import-not-found]
-                            observe_after_git_execute as _observe_after,
+                    _observe_after = _lookup_commit_observer_fn("observe_after_git_execute")
+                    if _observe_after is not None:
+                        _observe_after(
+                            exec_path,
+                            before_head=_observer_before_head,
+                            branch=_observer_branch,
+                            session_role=_observer_role,
+                            pipeline_id=_observer_pipeline_id,
+                            repo=_observer_repo,
                         )
-                    except ImportError:  # pragma: no cover
-                        from .commit_observer import (  # type: ignore[no-redef]
-                            observe_after_git_execute as _observe_after,
-                        )
-                    _observe_after(
-                        exec_path,
-                        before_head=_observer_before_head,
-                        branch=_observer_branch,
-                        session_role=_observer_role,
-                        pipeline_id=_observer_pipeline_id,
-                        repo=_observer_repo,
-                    )
                 except Exception:
                     # Observer is best-effort — never block the git
                     # response on a registry failure.

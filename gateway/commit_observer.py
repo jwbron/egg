@@ -160,10 +160,35 @@ def observe(
     # know about the singleton.
     client = registry_client
     if client is None:
-        try:
-            from commit_registry_client import get_client  # type: ignore[import-not-found]
-        except ImportError:  # pragma: no cover
-            from .commit_registry_client import get_client  # type: ignore[no-redef]
+        import sys as _sys
+
+        _crc_mod = _sys.modules.get("commit_registry_client") or _sys.modules.get(
+            "gateway.commit_registry_client"
+        )
+        get_client = getattr(_crc_mod, "get_client", None) if _crc_mod else None
+        if get_client is None:
+            try:
+                from commit_registry_client import get_client  # type: ignore[import-not-found]
+            except ImportError:  # pragma: no cover
+                try:
+                    import importlib.util as _util
+                    from pathlib import Path as _Path
+
+                    _p = _Path(__file__).parent / "commit_registry_client.py"
+                    if _p.exists():
+                        _spec = _util.spec_from_file_location(
+                            "commit_registry_client", str(_p)
+                        )
+                        if _spec and _spec.loader:
+                            _m = _util.module_from_spec(_spec)
+                            _sys.modules["commit_registry_client"] = _m
+                            _spec.loader.exec_module(_m)
+                            get_client = getattr(_m, "get_client", None)
+                except Exception:
+                    get_client = None
+        if get_client is None:
+            logger.warning("commit_observer_client_unavailable")
+            return []
         client = get_client()
 
     if len(shas) == 1:

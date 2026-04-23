@@ -1551,6 +1551,9 @@ class AttributedPushRange:
     error: str | None = None
 
 
+_SHA_LINE_RE = re.compile(r"^[0-9a-f]{7,64}$")
+
+
 def _enumerate_push_commits(
     repo_path: str, remote: str, branch: str
 ) -> tuple[list[str], str | None]:
@@ -1559,7 +1562,10 @@ def _enumerate_push_commits(
     Mirrors ``get_changed_files_in_push`` rev-list logic: prefers
     ``<remote>/<branch>..HEAD``, then falls back to merge-base with
     main/master for new-branch pushes.  On any error, returns
-    ``([], "...")`` — the caller then fails closed.
+    ``([], "...")`` — the caller then fails closed.  Output lines
+    that don't parse as a git SHA (7–64 lowercase hex) are
+    rejected so that a misbehaving git wrapper can't smuggle
+    arbitrary strings into the commit list.
     """
     import subprocess
 
@@ -1576,6 +1582,17 @@ def _enumerate_push_commits(
     except Exception:
         pass
 
+    def _parse_shas(text: str) -> list[str] | None:
+        out: list[str] = []
+        for line in (text or "").splitlines():
+            s = line.strip()
+            if not s:
+                continue
+            if not _SHA_LINE_RE.match(s):
+                return None
+            out.append(s)
+        return out
+
     def _rev_list(base: str) -> list[str] | None:
         result = subprocess.run(
             git_cmd("rev-list", "--reverse", f"{base}..HEAD"),
@@ -1587,7 +1604,7 @@ def _enumerate_push_commits(
         )
         if result.returncode != 0:
             return None
-        return [line.strip() for line in (result.stdout or "").splitlines() if line.strip()]
+        return _parse_shas(result.stdout)
 
     primary = _rev_list(f"{remote}/{branch}")
     if primary is not None:
@@ -1605,7 +1622,7 @@ def _enumerate_push_commits(
         if mb.returncode != 0:
             continue
         fork_point = (mb.stdout or "").strip()
-        if not fork_point:
+        if not _SHA_LINE_RE.match(fork_point):
             continue
         rl = _rev_list(fork_point)
         if rl is not None:
@@ -1690,13 +1707,36 @@ def get_attributed_changed_files_in_push(
     attribution: dict[str, str | None] = {}
     if commits:
         if registry_client is None:
-            try:
-                from commit_registry_client import get_client  # type: ignore[import-not-found]
-            except ImportError:  # pragma: no cover
+            # Resolve ``get_client`` from the sibling commit_registry_client
+            # module.  The conftest used by gateway tests does not preload
+            # that module, so we fall back to an explicit file-path load.
+            import sys as _sys
+
+            _crc_mod = _sys.modules.get("commit_registry_client") or _sys.modules.get(
+                "gateway.commit_registry_client"
+            )
+            get_client = getattr(_crc_mod, "get_client", None) if _crc_mod else None
+            if get_client is None:
                 try:
-                    from .commit_registry_client import get_client  # type: ignore[no-redef]
+                    from commit_registry_client import get_client  # type: ignore[import-not-found]
                 except ImportError:
-                    get_client = None  # type: ignore[assignment]
+                    try:
+                        import importlib.util as _util
+
+                        from pathlib import Path as _Path
+
+                        _p = _Path(__file__).parent / "commit_registry_client.py"
+                        if _p.exists():
+                            _spec = _util.spec_from_file_location(
+                                "commit_registry_client", str(_p)
+                            )
+                            if _spec and _spec.loader:
+                                _m = _util.module_from_spec(_spec)
+                                _sys.modules["commit_registry_client"] = _m
+                                _spec.loader.exec_module(_m)
+                                get_client = getattr(_m, "get_client", None)
+                    except Exception:
+                        get_client = None
             if get_client is not None:
                 registry_client = get_client()
         if registry_client is not None:
