@@ -1303,3 +1303,217 @@ class TestInflightLongPollGauge:
         # Calling either should not raise even if the gauge is None.
         _track_long_poll_start()
         _track_long_poll_end()
+
+
+class TestHeartbeatRoute:
+    """POST /api/v1/pipelines/<id>/heartbeat — plan TASK-3-2 and TASK-3-4.
+
+    Non-blocking items from reviewer_code NACK: add coverage for the
+    dedicated heartbeat route so the dedup + rate-limit plumbing has a
+    regression guard. Without these tests, a future refactor could
+    silently break the 429 response shape or the (state, waiting_on)
+    dedup and only surface in prod.
+    """
+
+    def test_heartbeat_route_accepts_valid_payload(self, client, app):
+        """Happy path: POST a valid heartbeat, get 200 + non-deduped."""
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                # Use a unique role so the global coordinator state from
+                # a prior test doesn't trigger dedup.
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={"from_role": "heartbeat-route-role-a", "state": "WORKING"},
+                )
+                assert resp.status_code == 200
+                data = json.loads(resp.data)
+                assert data["success"] is True
+                assert data["data"]["deduped"] is False
+
+    def test_heartbeat_route_dedups_repeat_state(self, client, app):
+        """Plan TASK-3-2: repeated (state, waiting_on) tuples dedupe."""
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                # Use a unique role for this test.
+                role = "heartbeat-route-role-b"
+                resp1 = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={"from_role": role, "state": "WORKING"},
+                )
+                assert resp1.status_code == 200
+                assert json.loads(resp1.data)["data"]["deduped"] is False
+
+                # Second identical call MUST dedupe.
+                resp2 = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={"from_role": role, "state": "WORKING"},
+                )
+                assert resp2.status_code == 200
+                assert json.loads(resp2.data)["data"]["deduped"] is True
+
+    def test_heartbeat_route_requires_from_role(self, client, app):
+        """Missing from_role -> 400."""
+        with app.test_request_context():
+            with patch("routes.messages.get_state_store_for_pipeline"):
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={"state": "WORKING"},
+                )
+                assert resp.status_code == 400
+
+    def test_heartbeat_route_rejects_invalid_state(self, client, app):
+        """Invalid state values rejected with 400."""
+        with app.test_request_context():
+            with patch("routes.messages.get_state_store_for_pipeline"):
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={"from_role": "coder", "state": "BOGUS"},
+                )
+                assert resp.status_code == 400
+                assert b"state must be one of" in resp.data
+
+    def test_heartbeat_route_waiting_on_role_requires_waiting_on(self, client, app):
+        """state=WAITING_ON_ROLE must include waiting_on."""
+        with app.test_request_context():
+            with patch("routes.messages.get_state_store_for_pipeline"):
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={"from_role": "coder", "state": "WAITING_ON_ROLE"},
+                )
+                assert resp.status_code == 400
+                assert b"waiting_on" in resp.data
+
+    def test_heartbeat_rate_limit_429_response_shape(self, client, app, monkeypatch):
+        """Plan TASK-3-4: exceeding EGG_HEARTBEAT_RATE_LIMIT returns 429
+        with retry_after in the body.
+
+        Response-shape pin: body MUST include ``retry_after`` (integer
+        seconds) so clients can back off deterministically. Without
+        this, a misbehaving agent could hot-loop on a rejected
+        heartbeat and saturate the waitress pool.
+        """
+        # Set a very low rate limit so we can blow through it cheaply.
+        monkeypatch.setenv("EGG_HEARTBEAT_RATE_LIMIT", "2")
+        # Reset the heartbeat coordinator so this test's rate-limit
+        # window starts empty.
+        import heartbeat as _hb
+
+        _hb._coordinator = None  # type: ignore[attr-defined]
+
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                # Need heartbeats that are NOT deduped by (state, waiting_on).
+                # Alternate states so each passes the dedup filter; then
+                # we exceed the rate limit on the third call.
+                role = "rate-limit-role-unique"
+                # First heartbeat: WORKING (allowed, non-dup).
+                r1 = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={"from_role": role, "state": "WORKING"},
+                )
+                assert r1.status_code == 200
+                # Second: PROPOSED (allowed, non-dup).
+                r2 = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={"from_role": role, "state": "PROPOSED"},
+                )
+                assert r2.status_code == 200
+                # Third: IDLE should trip the limit of 2/min.
+                r3 = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={"from_role": role, "state": "IDLE"},
+                )
+                assert r3.status_code == 429
+                body = json.loads(r3.data)
+                # Required fields per plan TASK-3-4.
+                assert body["success"] is False
+                assert "retry_after" in body
+                assert isinstance(body["retry_after"], int)
+                # retry_after should be in [0, 60] for a per-minute window.
+                assert 0 <= body["retry_after"] <= 60
+
+    def test_heartbeat_route_accepts_optional_since_field(self, client, app):
+        """Optional ``since`` field passed through into message metadata."""
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={
+                        "from_role": "heartbeat-route-role-since",
+                        "state": "WORKING",
+                        "since": "2026-04-23T07:00:00Z",
+                    },
+                )
+                assert resp.status_code == 200
+                data = json.loads(resp.data)
+                assert data["data"]["message"]["metadata"]["since"] == ("2026-04-23T07:00:00Z")
+
+
+class TestWaitTimeoutFloorRegression:
+    """Plan non-blocking: ``timeout <= 0`` is silently coerced to 1s
+    in routes/messages.py (see line 382-385). Pin the current behavior
+    so a future refactor doesn't accidentally return immediately on
+    timeout=0 (which would make /messages/wait behave like the
+    non-blocking /messages endpoint).
+    """
+
+    def test_timeout_zero_coerced_to_1s_minimum(self, client, app):
+        """A caller passing timeout=0 MUST still observe blocking
+        semantics for >= 1s rather than returning instantly.
+
+        This is a surprising-but-documented behavior — the wait endpoint
+        is explicitly blocking; a caller that wants non-blocking should
+        use /messages instead.
+        """
+        import time as _t
+
+        store = MessageStore()
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                start = _t.monotonic()
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    "?for=CONSENSUS_CONFIRMED&timeout=0"
+                )
+                elapsed = _t.monotonic() - start
+        assert resp.status_code == 200
+        # Coerced to 1s — expect the call to block at least close to 1s.
+        # Allow generous upper bound (3s) to tolerate slow CI.
+        assert 0.8 <= elapsed <= 3.0, (
+            f"timeout=0 elapsed={elapsed:.2f}s; expected ~1s floor "
+            "per routes/messages.py:382-385. If this drops to ~0s, "
+            "the silent floor has been removed — update the docstring."
+        )

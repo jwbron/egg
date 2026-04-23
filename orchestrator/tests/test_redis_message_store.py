@@ -602,6 +602,56 @@ class TestWaitForTypes:
 
         assert RedisMessageStore._WAIT_FOR_TYPES_MAX_INNER_LOOPS == 100
 
+    def test_inner_loop_cap_functional_stress(self, store):
+        """Plan TASK-1-2 acceptance (c) + reviewer_code non-blocking
+        item: XADD >100 non-matching rows, invoke a blocking
+        ``wait_for_types=[CONSENSUS_CONFIRMED]`` read, and assert it
+        returns within ``wait + epsilon`` rather than spinning forever.
+
+        A constant assertion (test_inner_loop_cap_prevents_infinite_spin
+        above) only proves the attribute exists — it doesn't prove the
+        cap is actually consulted at runtime. This test XADD-s 150
+        PROGRESS rows (>100) and verifies the read returns within a
+        bounded wall-clock budget.
+        """
+        # Flood the stream with 150 non-matching PROGRESS rows.
+        for i in range(150):
+            store.add_message(
+                Message(
+                    pipeline_id="stress-test-pipeline",
+                    from_role="coder",
+                    to_role="all",
+                    message_type=MessageType.PROGRESS,
+                    subject=f"progress {i}",
+                )
+            )
+
+        # Blocking read with a 2s budget. Must return within 2.5s even
+        # though there are 150 rows to churn through — the cap kicks in
+        # at 100 and bails with empty. Without the cap, fakeredis
+        # wouldn't actually block (its XREAD block=ms behaviour diverges
+        # from real Redis), but the loop would still iterate 150 times
+        # rapidly — we confirm the return happens in a sane window.
+        wait_seconds = 2
+        start = time.monotonic()
+        messages = store.get_messages(
+            "stress-test-pipeline",
+            wait=wait_seconds,
+            wait_for_types=[MessageType.CONSENSUS_CONFIRMED],
+        )
+        elapsed = time.monotonic() - start
+
+        # No matching row exists — must return empty.
+        assert messages == []
+        # Must not exceed wait + a generous epsilon (3s). A bug that
+        # re-XREADs the same rows on every loop would take much longer.
+        assert elapsed < wait_seconds + 1.0, (
+            f"Flood-of-150 stress test took {elapsed:.2f}s "
+            f"(expected < {wait_seconds + 1}s). "
+            "Inner-loop cap may not be functioning — look for "
+            "unbounded re-reads of the same stream range."
+        )
+
     def test_wait_zero_with_filter_returns_empty(self, store):
         """A non-blocking read with a type filter returns [] immediately if
         no matching row is present, even when other rows exist."""

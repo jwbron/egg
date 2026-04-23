@@ -346,3 +346,61 @@ class TestNotifyMultipleWaiters:
         assert not tb.is_alive()
         assert len(got_a[0]) == 1
         assert len(got_b[0]) == 1
+
+
+class TestClearRemovesConditionVariable:
+    """Plan non-blocking (reviewer_code NACK): ``clear()`` MUST pop the
+    per-pipeline condition variable in addition to the message list.
+
+    Without this, long-lived orchestrators accumulate stale ``_cond``
+    entries indefinitely (each distinct pipeline_id leaks one Condition
+    + one underlying lock reference) — a slow memory leak that would
+    eventually matter on a fleet handling thousands of pipelines.
+    """
+
+    def test_clear_pops_condition_variable(self, store: MessageStore) -> None:
+        """After clear(), the _cond dict should not have the pipeline_id
+        key — a fresh blocking read will lazily re-create it."""
+        # Seed a blocking read so the cv gets created.
+        got: list[list[Message]] = []
+
+        def _block() -> None:
+            got.append(store.get_messages("pipe-cv-test", wait=5))
+
+        t = threading.Thread(target=_block)
+        t.start()
+        time.sleep(0.2)
+        # Confirm cv was created (whitebox assertion — the test is on
+        # memory-leak prevention, which is inherently a whitebox concern).
+        assert "pipe-cv-test" in store._cond
+
+        store.clear("pipe-cv-test")
+        t.join(timeout=2)
+
+        # cv should be popped after clear() (RISK-5 memory-leak fix).
+        assert "pipe-cv-test" not in store._cond, (
+            "clear() did not pop _cond[pipe-cv-test]; long-lived orchestrators "
+            "will accumulate stale condition variables"
+        )
+
+    def test_fresh_wait_after_clear_lazily_recreates_cv(self, store: MessageStore) -> None:
+        """A new blocking read AFTER clear() must lazily re-create the
+        cv without any stale-state side effects.
+
+        This is the invariant that makes cv-cleanup safe: we don't break
+        the next wait because the wait handler creates one on demand.
+        """
+        store.add_message(_make_message(pipeline_id="pipe-recreate"))
+        store.clear("pipe-recreate")
+        # cv must be gone.
+        assert "pipe-recreate" not in store._cond
+
+        # A fresh wait must succeed (times out cleanly — no stale signal).
+        start = time.monotonic()
+        msgs = store.get_messages("pipe-recreate", wait=1)
+        elapsed = time.monotonic() - start
+
+        assert msgs == []
+        assert 0.8 <= elapsed <= 2.0, (
+            f"Fresh wait after clear took {elapsed:.2f}s; expected ~1s (normal timeout path)"
+        )
