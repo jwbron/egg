@@ -355,6 +355,16 @@ The system follows a progressive escalation ladder:
 
 If all agents have confirmed BRC consensus but the pipeline phase has not transitioned within ~90 seconds (3× the poll interval), the overseer escalates with a HITL decision, Slack notification, and message bus broadcast (`OVERSEER_ALERT`). This detects potential orchestrator transition failures after a successful concurrent phase. The escalation fires only once per consensus cycle to avoid duplicate alerts.
 
+**Transition-completion short-circuit:** Before applying the 90-second grace window, the detector loads the pipeline and returns early (no alert, no HITL decision, no Slack) when any of the following indicate the post-consensus transition already succeeded:
+
+- `pipeline.current_phase != "implement"` — the pipeline has already advanced out of implement (e.g., into `pr` or `complete`)
+- `pipeline.pr_number is not None` — an auto-created PR number has been written back to the pipeline record (see [`_finalize_pr_phase_failed` in `orchestrator/routes/pipelines.py`](../architecture/orchestrator.md#special-case-pr-phase))
+- `phases["pr"].artifacts["pr_url"]` is set — the PR phase has already recorded a `pr_url` artifact
+
+When the short-circuit fires, the grace-period timer (`_post_consensus_stall_first_seen`) is reset so a subsequent genuine stall gets a fresh grace window. If loading the pipeline raises an exception, the detector falls through to the existing behaviour (fail open — a bug in the short-circuit must not suppress genuine alerts).
+
+This short-circuit was added in response to issue #1911, where successful `/sdlc` runs were producing false-positive `post-consensus-push-stall` alerts because the overseer observed `consensus.is_complete` and `pipeline.status == "running"` before the post-consensus push/PR flow had a chance to advance the phase. The three conditions above give the detector three independent signals of successful transition; a genuine post-consensus stall populates none of them.
+
 ### Incomplete Consensus Stall Detection
 
 A complementary scenario: consensus is **incomplete** and the same blocking agents are not progressing — typically after a re-review cycle that cleared their confirmed status, leaving them stuck in a heartbeat loop. Two layers handle this:

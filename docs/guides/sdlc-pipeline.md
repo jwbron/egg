@@ -129,6 +129,8 @@ Once a pull request is created during the PR phase, two additional fields appear
 
 This avoids a separate `gh pr list` call by monitoring clients.
 
+> **Pipeline record fields (issue #1911).** The auto-PR path also writes `pipeline.pr_number` and (best-effort) `pipeline.pr_head_sha` onto the pipeline record itself, not only the `pr_url` phase artifact. Consumers that load the pipeline via `get_pipeline_snapshot` / the pipeline JSON can rely on `pipeline.pr_number` directly — the overseer's `post-consensus-push-stall` detector uses this as one of the three signals that the post-consensus transition succeeded. `pipeline.pr_head_sha` is populated when `gh pr view` returns a valid hex SHA; if the `gh` call fails or propagation is still in flight, the field is left `None` and the PR phase still succeeds.
+
 When `pending_decisions > 0`, the `data` object includes an additional `pending_decision` field with the first pending decision's details, so consumers don't need a second round-trip to fetch it:
 
 ```json
