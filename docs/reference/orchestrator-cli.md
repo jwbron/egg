@@ -244,6 +244,28 @@ All tools require `task_id` (the pipeline ID). Additional parameters:
   - `force_reason` (string, optional) — audit note explaining why `force=true` was used.
 - **`populate_contract`**: No additional parameters. Resolves the pipeline's worktree path, reads the plan document, extracts task structure, and writes tasks and acceptance criteria to the contract. Returns phase and task counts on success.
 
+**Error reason codes** (#1939): All four endpoints include a stable, machine-readable `reason` field in error responses. Switch on `reason` rather than parsing the human-readable `message`. Key codes:
+
+| Endpoint | `reason` | HTTP | Meaning / fix |
+|----------|----------|------|---------------|
+| `advance_phase` | `missing_target_phase` | 400 | `target_phase` omitted from request |
+| `advance_phase` | `invalid_phase` | 400 | `target_phase` is not a known phase value |
+| `advance_phase` | `invalid_phase_transition` | 400 | Not a valid transition from the current phase; change target or pass `force=true` |
+| `advance_phase` | `previous_phase_not_complete` | 400 | Current phase still running or failed; call `complete_phase` first, or pass `force=true` |
+| `advance_phase` | `health_checks_failed` | 409 | Tier 1/2 health checks returned `FAIL_PIPELINE`; `details.health_results` lists failing checks. Resolve the underlying issue or pass `force=true` |
+| `start_phase` | `phase_already_running` | 400 | Phase is already in `RUNNING` status; no action needed |
+| `complete_phase` | `unresolved_hitl_decisions` | 409 | Phase has pending HITL decisions; `details.unresolved_decision_ids` lists them. Resolve or pass `force=true` |
+| `complete_phase` | `invalid_artifacts` | 400 | `artifacts` must be a JSON object with string values |
+| `complete_phase` | `invalid_force_reason` | 400 | `force_reason` must be a non-empty string |
+| `populate_contract` | `populate_contract_failed` | 500 | Internal error during contract population |
+| `advance_phase`, `start_phase`, `complete_phase`, `fail_phase` | `version_conflict` | 409 | Concurrent modification detected; retry the request |
+| all | `invalid_pipeline_id` | 400 | Pipeline ID format is invalid |
+| all | `pipeline_not_found` | 404 | No pipeline with that ID exists |
+
+The REST-only endpoints `fail_phase` and `get_current_phase` also include `reason` in error responses (e.g., `missing_error_message` for `fail_phase`) plus the shared `invalid_pipeline_id` and `pipeline_not_found` codes. `fail_phase` additionally emits `version_conflict`.
+
+Note: reason codes are present in the raw HTTP response. The MCP handler layer does not yet surface them to tool callers.
+
 **Recovery workflow example (stuck pipeline):**
 ```bash
 # 1. Check current state
