@@ -1792,6 +1792,50 @@ class TestTesterRepoChecksInjection:
         assert "checks_passed" in result
         assert "attestation" in result.lower()
 
+    def test_tester_prompt_has_source_failure_procedure(self):
+        """Tester prompt includes the explicit source-failure procedure (#1966).
+
+        The prompt must give an unambiguous procedure for the case where the
+        coder's source code breaks a configured check, so the tester does not
+        rationalise either fixing source itself or proposing consensus with an
+        invented `checks_passed` name (the #1964 antipattern).
+        """
+        checks = [{"name": "lint", "command": "make lint"}]
+        with patch("routes.pipelines.get_repo_checks", return_value=checks):
+            result = _build_agent_prompt(
+                role_value="tester",
+                phase="implement",
+                pipeline_id="pid-1",
+                pipeline_mode="issue",
+                prompt="# Feature",
+                issue_number=1,
+                repo="org/repo",
+            )
+        assert "When Source-Code Checks Fail (CRITICAL)" in result
+        # The three load-bearing instructions:
+        assert "do NOT propose consensus" in result
+        assert "Do NOT invent" in result
+        assert "egg-orch message send --to coder --type HANDOFF" in result
+        # And the wait-loop pointer rather than a sleep loop:
+        assert "egg-orch message wait-loop" in result
+
+    def test_tester_attestation_forbids_adhoc_check_names(self):
+        """Attestation block explicitly forbids inventing ad-hoc check names (#1966)."""
+        checks = [{"name": "lint", "command": "make lint"}]
+        with patch("routes.pipelines.get_repo_checks", return_value=checks):
+            result = _build_agent_prompt(
+                role_value="tester",
+                phase="implement",
+                pipeline_id="pid-1",
+                pipeline_mode="issue",
+                prompt="# Feature",
+                issue_number=1,
+                repo="org/repo",
+            )
+        # Calls out the actual ad-hoc patterns seen on #1964:
+        assert "ruff-check-tester-files" in result
+        assert "do NOT invent ad-hoc names" in result
+
 
 class TestTesterCheckCoverageValidation:
     """Tests for _validate_tester_check_coverage in signals.py (#1459, #1966)."""

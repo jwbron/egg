@@ -7184,10 +7184,50 @@ def _build_agent_prompt(
             "- [ ] All checks pass (or failures have been auto-fixed and re-verified)",
             "- [ ] Any auto-fix commits have been pushed",
             "",
+            # Source-failure handling — without this, agents have rationalised
+            # inventing ad-hoc check names so their attestation passes, masking
+            # red CI on the initial push (issue #1966).
+            "### When Source-Code Checks Fail (CRITICAL)\n",
+            "If a configured check fails because of the **coder's source code** "
+            "(not test files you wrote), you have a binding choice: "
+            "**do NOT propose consensus**. The role boundary above forbids you "
+            "from fixing source code, and the rules below forbid you from "
+            "papering over the failure. Instead:\n",
+            "1. **Do NOT fix it yourself** — that crosses the tester role boundary.",
+            "2. **Do NOT invent a narrower or renamed check** "
+            "(e.g. `pytest-<your-suite>`, `ruff-check-tester-files`) and attest to "
+            "*that* in `checks_passed`. Only the literal names from "
+            "`repositories.yaml` (`lint`, `test`, `security`, etc.) are valid; "
+            "the server will reject anything else, and substituting narrower names "
+            "hides real CI failures from reviewers.",
+            "3. **Send a HANDOFF message to the coder** describing the failing "
+            "check, the command, and the diagnostic output, e.g.:",
+            "   ```",
+            "   egg-orch message send --to coder --type HANDOFF \\",
+            '     --subject "lint failing on src/foo.py" \\',
+            '     --body "make lint exits 1: mypy errors in src/foo.py:42 '
+            '(incompatible types). Please fix and push; I will re-run lint."',
+            "   ```",
+            "   If you are also reviewing the coder's own consensus proposal, "
+            "NACK it for the same reason — the two channels reinforce each other.",
+            "4. **Wait** for the coder to push a fix, then **re-run every "
+            "configured check** from scratch. Use `egg-orch message wait-loop` "
+            "(see Producer Lifecycle) — do not spin in a shell `for` loop or "
+            "prefix with `sleep`.",
+            "5. **Only propose consensus once every configured check passes "
+            "literally**, with the configured names in `checks_passed`.",
+            "",
+            "If the coder is unresponsive or the failure genuinely cannot be "
+            "fixed within this phase, document it in `gaps_found` and let the "
+            "orchestrator escalate via `OVERSEER_ALERT`. Do NOT work around the "
+            "block by proposing with a partial or renamed `checks_passed` list.",
+            "",
             "### Attestation: `checks_passed` (REQUIRED)\n",
             "When proposing consensus, your attestation MUST include a `checks_passed` "
             "list containing the **name** of every configured check that **passed**. "
-            "Do NOT include checks that failed — only checks with a clean exit. "
+            "Do NOT include checks that failed, and do NOT invent ad-hoc names "
+            "(e.g. `pytest-<scope>`, `ruff-check-tester-files`) — only the literal "
+            "names from `repositories.yaml`. "
             "For example, if the repo has `lint` and `test` checks and both pass, "
             'your attestation must include `"checks_passed": ["lint", "test"]`. '
             "The server will reject your proposal if any configured check is missing "
