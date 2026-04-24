@@ -95,6 +95,12 @@ async def run_agent_async(
     """
     model = model or DEFAULT_MODEL
 
+    # Resolve cwd: explicit arg > EGG_REPO_PATH > SDK default (os.getcwd()).
+    # Sandbox agents start at HOME (/home/egg) while the repo lives at
+    # /home/egg/repos/<repo> (EGG_REPO_PATH).  Defaulting to EGG_REPO_PATH
+    # lands the agent in the repo on its first tool call.  See #1993.
+    resolved_cwd: str | None = str(cwd) if cwd else os.environ.get("EGG_REPO_PATH")
+
     # --- Harness selection (opt-in via EGG_HARNESS env var) ---
     harness = os.environ.get("EGG_HARNESS", "claude-sdk")
     if harness == "egg":
@@ -106,7 +112,7 @@ async def run_agent_async(
             model=model,
             max_turns=max_turns or 200,
             system_prompt=system_prompt,
-            cwd=str(cwd) if cwd else None,
+            cwd=resolved_cwd,
             timeout=timeout,
             on_output=on_output,
             env=env,
@@ -194,7 +200,7 @@ async def run_agent_async(
     options = ClaudeAgentOptions(
         permission_mode="bypassPermissions",
         model=model,
-        cwd=str(cwd) if cwd else None,
+        cwd=resolved_cwd,
         env=env or {},
         # Read CLAUDE.md and settings.json from the filesystem so the agent
         # picks up sandbox rules (BRC protocol, egg-orch CLI, git safety, etc.).
@@ -275,10 +281,11 @@ async def run_agent_async(
     actual_model: str | None = None
     result_meta: dict[str, Any] = {}
 
-    # Log the effective cwd — when the caller did not pass one, the SDK
-    # inherits os.getcwd(), so log that rather than None.  Keeps
-    # session-init lines diagnostically useful (see #1954).
-    effective_cwd = str(cwd) if cwd else os.getcwd()
+    # Log the effective cwd — when the caller did not pass one and
+    # EGG_REPO_PATH is unset, the SDK inherits os.getcwd(), so log
+    # that rather than None.  Keeps session-init lines diagnostically
+    # useful (see #1954, #1993).
+    effective_cwd = resolved_cwd or os.getcwd()
     logger.info(
         "Agent session init",
         event_type="system",

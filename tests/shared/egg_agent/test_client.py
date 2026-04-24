@@ -339,8 +339,12 @@ class TestRunAgentAsync:
 
     @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
     def test_init_log_cwd_fallback(self, mock_query):
-        """Test that cwd falls back to os.getcwd() when not provided."""
-        with patch("egg_agent.client.logger") as mock_logger:
+        """Test that cwd falls back to os.getcwd() when neither arg nor env is set."""
+        with (
+            patch("egg_agent.client.logger") as mock_logger,
+            patch.dict(os.environ, {}, clear=False) as env,
+        ):
+            env.pop("EGG_REPO_PATH", None)
             _run_async(run_agent_async("test prompt"))
 
             init_calls = [
@@ -364,6 +368,40 @@ class TestRunAgentAsync:
             ]
             assert len(init_calls) == 1
             assert init_calls[0].kwargs["cwd"] == "/tmp/test-dir"
+
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_init_log_cwd_falls_back_to_egg_repo_path(self, mock_query):
+        """When no cwd is passed, EGG_REPO_PATH should be used (see #1993)."""
+        with (
+            patch("egg_agent.client.logger") as mock_logger,
+            patch.dict(os.environ, {"EGG_REPO_PATH": "/home/egg/repos/myrepo"}),
+        ):
+            _run_async(run_agent_async("test prompt"))
+
+            init_calls = [
+                c
+                for c in mock_logger.info.call_args_list
+                if c.args and c.args[0] == "Agent session init"
+            ]
+            assert len(init_calls) == 1
+            assert init_calls[0].kwargs["cwd"] == "/home/egg/repos/myrepo"
+
+    @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
+    def test_explicit_cwd_wins_over_egg_repo_path(self, mock_query):
+        """Explicit cwd argument must take precedence over EGG_REPO_PATH."""
+        with (
+            patch("egg_agent.client.logger") as mock_logger,
+            patch.dict(os.environ, {"EGG_REPO_PATH": "/home/egg/repos/myrepo"}),
+        ):
+            _run_async(run_agent_async("test prompt", cwd="/tmp/explicit"))
+
+            init_calls = [
+                c
+                for c in mock_logger.info.call_args_list
+                if c.args and c.args[0] == "Agent session init"
+            ]
+            assert len(init_calls) == 1
+            assert init_calls[0].kwargs["cwd"] == "/tmp/explicit"
 
     @patch("claude_agent_sdk.query", side_effect=_mock_query_error)
     def test_structured_logging_on_error(self, mock_query):

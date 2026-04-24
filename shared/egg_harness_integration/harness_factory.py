@@ -111,7 +111,9 @@ def create_egg_harness(
     provider = RetryProvider(inner_provider)
 
     # -- Tool registry -----------------------------------------------------
-    cwd_str = str(cwd) if cwd is not None else None
+    # Default cwd to EGG_REPO_PATH so sandbox agents start inside the repo
+    # rather than at HOME (/home/egg).  See #1993.
+    cwd_str = str(cwd) if cwd is not None else os.environ.get("EGG_REPO_PATH")
 
     registry = ToolRegistry()
 
