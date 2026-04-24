@@ -159,3 +159,44 @@ class TestLoadMountMapping:
 
         with patch("gateway.open", _raise):
             assert gateway_module._load_mount_mapping() == []
+
+    def test_returns_empty_when_disable_flag_set(self, tmp_path):
+        """``EGG_DISABLE_MOUNTINFO=1`` skips the read entirely."""
+        # mountinfo exists and is parseable — but the env flag should
+        # short-circuit before opening it.
+        mountinfo = tmp_path / "mountinfo"
+        mountinfo.write_text("1 0 0:1 /r /m rw,relatime - tmpfs tmpfs rw\n")
+
+        def _fail_if_opened(*_a, **_kw):
+            raise AssertionError("should not open mountinfo when disabled")
+
+        with patch.dict("os.environ", {"EGG_DISABLE_MOUNTINFO": "1"}):
+            with patch("gateway.open", _fail_if_opened):
+                assert gateway_module._load_mount_mapping() == []
+
+    @pytest.mark.parametrize("value", ["1", "true", "TRUE", "yes", "on"])
+    def test_disable_flag_accepts_truthy_values(self, value):
+        with patch.dict("os.environ", {"EGG_DISABLE_MOUNTINFO": value}):
+            assert gateway_module._mountinfo_disabled() is True
+
+    @pytest.mark.parametrize("value", ["", "0", "false", "no", "off", "anything-else"])
+    def test_disable_flag_rejects_falsy_values(self, value):
+        with patch.dict("os.environ", {"EGG_DISABLE_MOUNTINFO": value}):
+            assert gateway_module._mountinfo_disabled() is False
+
+
+class TestDisableMountinfoWithHostHome:
+    """When mountinfo is disabled, ``HOST_HOME`` takes over."""
+
+    def test_disable_flag_lets_host_home_translate(self, override_mounts, override_host_home):
+        # Simulate a container with a realistic rootfs ``/ → /`` entry
+        # that would otherwise short-circuit every lookup as an identity
+        # translation. With the disable flag and HOST_HOME set, the
+        # fallback path is the only active strategy.
+        override_mounts([])  # Simulate EGG_DISABLE_MOUNTINFO having cleared the table.
+        override_host_home("/home/user")
+
+        assert (
+            gateway_module.translate_to_host_path("/home/egg/.egg-worktrees/x")
+            == "/home/user/.egg-worktrees/x"
+        )

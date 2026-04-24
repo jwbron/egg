@@ -426,11 +426,25 @@ HEALTH_CHECK_PORT = int(os.environ.get("GATEWAY_HEALTH_PORT", "9851"))
 #
 # Normally we discover the host path directly from /proc/self/mountinfo
 # (see ``translate_to_host_path``) so no env-var configuration is
-# required. ``HOST_HOME`` remains as an explicit escape hatch for test
-# environments and unusual setups where mountinfo doesn't reflect the
-# real mapping.
+# required.  ``HOST_HOME`` is the escape hatch for environments where
+# mountinfo doesn't reflect the real host layout (e.g. multi-partition
+# setups, or an operator who wants to override the discovered value).
+# Set ``EGG_DISABLE_MOUNTINFO=1`` to skip mountinfo entirely and force
+# the ``HOST_HOME`` path — needed because real Linux containers always
+# expose a rootfs ``/ → /`` entry that matches every path under longest-
+# prefix lookup, so without the disable flag the env-var fallback is
+# unreachable.
 HOST_HOME = os.environ.get("HOST_HOME", "")
 CONTAINER_HOME = "/home/egg"
+
+
+def _mountinfo_disabled() -> bool:
+    return os.environ.get("EGG_DISABLE_MOUNTINFO", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def _load_mount_mapping() -> list[tuple[str, str]]:
@@ -455,6 +469,8 @@ def _load_mount_mapping() -> list[tuple[str, str]]:
     but worth knowing if paths ever contain whitespace.
     """
     entries: list[tuple[str, str]] = []
+    if _mountinfo_disabled():
+        return entries
     try:
         with open("/proc/self/mountinfo") as fh:
             for line in fh:
@@ -479,9 +495,12 @@ def translate_to_host_path(container_path: str) -> str:
     Tries in order:
     1. /proc/self/mountinfo — find the longest mount_point that is a
        prefix of ``container_path`` and substitute with its host root.
-       This works for any hostPath volume without configuration.
-    2. ``HOST_HOME`` env var — explicit override, used when mountinfo is
-       not available or needs to be bypassed (tests, unusual setups).
+       This works for any hostPath volume without configuration. Real
+       Linux containers always include a rootfs ``/ → /`` entry, so
+       this strategy is reachable unless explicitly disabled.
+    2. ``HOST_HOME`` env var — explicit override. To reach this branch
+       on Linux, set ``EGG_DISABLE_MOUNTINFO=1`` to skip the mountinfo
+       lookup (otherwise the ``/`` entry always matches first).
 
     Args:
         container_path: Path inside the gateway container

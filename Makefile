@@ -402,7 +402,7 @@ deploy: k3s-secrets  ## Deploy egg to k3s
 	echo "  EGG_HOST_REPO_MAP=$$EGG_HOST_REPO_MAP" && \
 	kubectl kustomize k8s/overlays/local/ | \
 		envsubst '$$EGG_HOST_HOME $$EGG_HOST_REPO_MAP' | \
-		sed -E "s|^(\s*value: )(\{.*\})$$|\1'\2'|" | \
+		sed -E "/name: EGG_HOST_REPO_MAP$$/{N;s|^(\s*- name: EGG_HOST_REPO_MAP\s*\n\s*value: )(\{.*\})$$|\1'\2'|}" | \
 		sed -e "s|egg-orchestrator:latest|egg-orchestrator:$(EGG_IMAGE_TAG)|g" \
 		    -e "s|egg-gateway:latest|egg-gateway:$(EGG_IMAGE_TAG)|g" \
 		    -e "s|egg-sandbox:latest|egg-sandbox:$(EGG_IMAGE_TAG)|g" | \
