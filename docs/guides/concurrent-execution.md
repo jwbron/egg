@@ -575,6 +575,7 @@ egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.
 # that agents cannot perform (e.g. git mv, secret rotation, config flip in another repo).
 # The obligation is rendered as a "Pre-merge Obligations" section on the PR — do NOT use
 # this to smuggle blocking issues past the producer; NACK if the producer can fix it.
+# --pre-merge-condition is validated like --reason: boilerplate and short values are rejected with 400.
 egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py \
   --reason "Reviewed src/feature.py lines 10-85 and tests/test_feature.py. Code is correct. One rename cannot be automated." \
   --pre-merge-condition "A human must \`git mv legacy/auth.py src/auth.py\` before merging — agents cannot push renames through the gateway"
