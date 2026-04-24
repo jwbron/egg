@@ -640,16 +640,16 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-24T20:54:09.352796Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-24T20:55:27.620070Z",
+      "resolution": "{\"action\": \"approve\", \"context\": \"Plan passed BRC consensus after 3 proposal rounds. reviewer_plan caught R1 (gateway importlib loader static-analysis blind spot) and partial-fix on R2 (source staleness guard) as blockers; both fully addressed in final plan. All 13 refine decisions + 16 Q's are locked-in as constraints. Risk mitigations adopted for R1/R2/R5/R6/R7/R10/R14. Test strategy covers graph construction, fallback triggers, baseline resolution, LKG I/O, PYTEST_ARGS intersect, --why introspection, structured logging, canary, monorepo staleness, read-only roles, fail-open contract, and end-to-end Makefile flow. No novel approvals needed from human.\"}",
       "phase": "plan",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-24T19:39:48.417158Z",
-  "updated_at": "2026-04-24T20:54:09.406127Z",
+  "updated_at": "2026-04-24T20:55:27.645412Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -663,6 +663,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 48,
+  "version": 49,
   "jira_ticket": null
 }
