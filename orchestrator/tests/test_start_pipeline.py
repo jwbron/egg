@@ -610,3 +610,246 @@ class TestStartAwaitingHumanPipeline:
         mock_msg_store.clear.assert_called_once_with("issue-42")
         mock_remove_tracker.assert_called_once_with("issue-42")
         mock_evaluator.clear.assert_called_once_with("issue-42")
+
+
+# -----------------------------------------------------------------------------
+# Issue #1556 — Jira ticket plumbing
+# -----------------------------------------------------------------------------
+
+
+class TestPipelineJiraTicketField:
+    """``Pipeline.jira_ticket`` round-trips cleanly and validates."""
+
+    def test_default_is_none(self):
+        pipeline = Pipeline(
+            id="issue-1",
+            issue_number=1,
+            repo="owner/repo",
+            branch="egg/test",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.REFINE,
+        )
+        assert pipeline.jira_ticket is None
+
+    def test_accepts_valid_ticket(self):
+        pipeline = Pipeline(
+            id="issue-1",
+            issue_number=1,
+            repo="owner/repo",
+            branch="egg/test",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.REFINE,
+            jira_ticket="ENG-123",
+        )
+        assert pipeline.jira_ticket == "ENG-123"
+
+    def test_strips_surrounding_whitespace(self):
+        pipeline = Pipeline(
+            id="issue-1",
+            issue_number=1,
+            repo="owner/repo",
+            branch="egg/test",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.REFINE,
+            jira_ticket="  ENG-123  ",
+        )
+        assert pipeline.jira_ticket == "ENG-123"
+
+    def test_empty_string_normalised_to_none(self):
+        pipeline = Pipeline(
+            id="issue-1",
+            issue_number=1,
+            repo="owner/repo",
+            branch="egg/test",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.REFINE,
+            jira_ticket="   ",
+        )
+        assert pipeline.jira_ticket is None
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "foo-1",  # lowercase
+            "FOO",  # missing -<digits>
+            "FOO-",  # missing digits
+            "FOO-abc",  # non-digit trailing
+            "foo bar",
+            "ENG_123",  # missing hyphen
+        ],
+    )
+    def test_rejects_malformed_ticket(self, bad: str):
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            Pipeline(
+                id="issue-1",
+                issue_number=1,
+                repo="owner/repo",
+                branch="egg/test",
+                mode="issue",
+                status=PipelineStatus.RUNNING,
+                current_phase=PipelinePhase.REFINE,
+                jira_ticket=bad,
+            )
+
+    def test_round_trip_via_model_dump(self):
+        pipeline = Pipeline(
+            id="issue-1",
+            issue_number=1,
+            repo="owner/repo",
+            branch="egg/test",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.REFINE,
+            jira_ticket="ENG-123",
+        )
+        dumped = pipeline.model_dump()
+        assert dumped["jira_ticket"] == "ENG-123"
+        restored = Pipeline.model_validate(dumped)
+        assert restored.jira_ticket == "ENG-123"
+
+    def test_round_trip_with_none(self):
+        """Legacy pipelines without the field deserialize cleanly."""
+        pipeline = Pipeline(
+            id="issue-1",
+            issue_number=1,
+            repo="owner/repo",
+            branch="egg/test",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.REFINE,
+        )
+        dumped = pipeline.model_dump()
+        assert dumped["jira_ticket"] is None
+        restored = Pipeline.model_validate(dumped)
+        assert restored.jira_ticket is None
+
+    def test_legacy_dict_without_jira_ticket_deserializes(self):
+        """A dict saved BEFORE issue #1556 must still load — jira_ticket
+        defaults to None."""
+        legacy = {
+            "id": "issue-1",
+            "issue_number": 1,
+            "repo": "owner/repo",
+            "branch": "egg/test",
+            "mode": "issue",
+            "status": PipelineStatus.RUNNING.value,
+            "current_phase": PipelinePhase.REFINE.value,
+            "phases": {},
+        }
+        restored = Pipeline.model_validate(legacy)
+        assert restored.jira_ticket is None
+
+
+class TestSandboxJiraEnvBuilder:
+    """Mirror the inline env-builder snippet in ``orchestrator/routes/pipelines.py``.
+
+    The snippet is:
+
+        jira_ticket_value = (getattr(pipeline, "jira_ticket", None) or "")
+        sandbox_env["EGG_JIRA_TICKET"] = jira_ticket_value
+        if jira_ticket_value and "-" in jira_ticket_value:
+            sandbox_env["EGG_JIRA_PROJECT"] = jira_ticket_value.split("-", 1)[0]
+        else:
+            sandbox_env["EGG_JIRA_PROJECT"] = ""
+
+    We reproduce it here so a regression that drops or mangles the env
+    export fails the test.  This is a focused unit check; the full spawn
+    path is covered in orchestrator/tests/test_run_pipeline*.py.
+    """
+
+    @staticmethod
+    def _build_env(pipeline) -> dict[str, str]:
+        sandbox_env: dict[str, str] = {}
+        jira_ticket_value = getattr(pipeline, "jira_ticket", None) or ""
+        sandbox_env["EGG_JIRA_TICKET"] = jira_ticket_value
+        if jira_ticket_value and "-" in jira_ticket_value:
+            sandbox_env["EGG_JIRA_PROJECT"] = jira_ticket_value.split("-", 1)[0]
+        else:
+            sandbox_env["EGG_JIRA_PROJECT"] = ""
+        return sandbox_env
+
+    def test_populated_ticket_exports_both(self):
+        pipeline = Pipeline(
+            id="issue-1",
+            issue_number=1,
+            repo="owner/repo",
+            branch="egg/test",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.REFINE,
+            jira_ticket="ENG-123",
+        )
+        env = self._build_env(pipeline)
+        assert env["EGG_JIRA_TICKET"] == "ENG-123"
+        assert env["EGG_JIRA_PROJECT"] == "ENG"
+
+    def test_absent_ticket_exports_empty_strings(self):
+        pipeline = Pipeline(
+            id="issue-1",
+            issue_number=1,
+            repo="owner/repo",
+            branch="egg/test",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.REFINE,
+        )
+        env = self._build_env(pipeline)
+        assert env["EGG_JIRA_TICKET"] == ""
+        assert env["EGG_JIRA_PROJECT"] == ""
+
+    def test_zero_credentials_invariant(self):
+        """Risk R7: the env builder must NOT export any of the Atlassian
+        credential keys to the sandbox.  This snapshot-tests the current
+        snippet; if someone extends the builder to plumb secrets through,
+        the test fails."""
+        pipeline = Pipeline(
+            id="issue-1",
+            issue_number=1,
+            repo="owner/repo",
+            branch="egg/test",
+            mode="issue",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.REFINE,
+            jira_ticket="ENG-123",
+        )
+        env = self._build_env(pipeline)
+        for forbidden in ("JIRA_BASE_URL", "JIRA_USERNAME", "JIRA_API_TOKEN"):
+            assert forbidden not in env, (
+                f"sandbox env must never carry {forbidden} — credentials must "
+                "remain on the gateway (issue #1556 risk R7)."
+            )
+
+
+class TestSandboxJiraEnvBuilderSourceSnippet:
+    """Guard against drift: the snippet this file reproduces MUST match
+    what ``orchestrator/routes/pipelines.py`` actually does.
+
+    If the live source changes shape (new keys, different sentinel), the
+    copy above in ``TestSandboxJiraEnvBuilder`` is silently stale.  This
+    test reads the source file and asserts the key markers are present so
+    a reviewer catches drift early.
+    """
+
+    def test_source_exports_egg_jira_ticket_and_project(self):
+        src = (Path(__file__).parent.parent / "routes" / "pipelines.py").read_text()
+        assert 'sandbox_env["EGG_JIRA_TICKET"]' in src
+        assert 'sandbox_env["EGG_JIRA_PROJECT"]' in src
+
+    def test_source_never_exports_jira_secrets(self):
+        """A regression check: the spawn-env assembly must never put
+        ``JIRA_BASE_URL`` / ``JIRA_USERNAME`` / ``JIRA_API_TOKEN`` into
+        ``sandbox_env`` (risk R7)."""
+        src = (Path(__file__).parent.parent / "routes" / "pipelines.py").read_text()
+        for forbidden in ("JIRA_BASE_URL", "JIRA_USERNAME", "JIRA_API_TOKEN"):
+            # Scan for any write to sandbox_env[<forbidden>].
+            assert f'sandbox_env["{forbidden}"]' not in src, (
+                f"orchestrator/routes/pipelines.py writes {forbidden} into "
+                "sandbox_env; this violates the zero-credential invariant "
+                "(issue #1556 risk R7)."
+            )
