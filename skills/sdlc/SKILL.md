@@ -641,6 +641,18 @@ Handle each response:
 
 When the cached `last_status` (sourced from `get_status` or a `wait_for_status_change` Path A response — `wait_for_status_change` wakes immediately on `DECISION_CREATED`, so a freshly-created decision shows up on the very next response) carries a non-empty `pending_decisions` list, partition the batch by `decision_type` and handle each group as described below. A single response can surface multiple pending decisions at once (e.g. a refiner that registered 10 `choice` decisions via `register_open_question`); when that happens, group them so the user sees up to 4 per `AskUserQuestion` call rather than one prompt per decision.
 
+### Two-wave surfacing
+
+A phase that registers agent-level `choice` / `feedback` decisions (via `register_open_question` / `register_feedback_request`) surfaces them to the operator in **two waves**, not a single batch:
+
+1. **Wave 1 — phase_gate only.** When the phase first reaches `awaiting_human`, `pending_decisions` contains exactly one entry: the `phase_gate`. The agent-registered choice/feedback decisions are **deferred behind the gate** and are not yet in `pending_decisions`, even if the draft document enumerates them.
+
+   The operator resolves the `phase_gate` via `provide_input` (`approve` / `request_changes` / `change_approach`).
+
+2. **Wave 2 — deferred decisions.** On `approve`, the pipeline **stays in `awaiting_human`** and the orchestrator moves the deferred choice/feedback decisions into `pending_decisions`. They wake the next `wait_for_status_change` via `DECISION_CREATED`. The next phase does not start until all of them are resolved. On `request_changes` / `change_approach`, the deferred decisions are discarded with the phase reset — no Wave 2.
+
+**Operator messaging implications** — when narrating a `phase_gate` approval to the user, do not say "approves and moves to the next phase". The accurate framing is: "approves the draft; if the phase registered deferred decisions, they will surface next for you to resolve before `<next phase>` starts." When the draft lists open questions that are not in the current `pending_decisions` snapshot, frame them as "these will surface as `<phase>`-phase decisions once the gate is approved", not "these will come up in the `<next phase>` phase".
+
 **Handling rules by `decision_type`**:
 
 - **`phase_gate`** — always alone. Handle individually per the section below.
@@ -712,7 +724,7 @@ The status response (from `get_status` or a `wait_for_status_change` Path A resp
    - The draft mentions risks, unknowns, or assumptions that the user should validate
    - There are scope or strategy decisions that affect downstream phases
 
-   **Deduplication** — Some questions in the draft may also appear as separate `pending_decisions` (choice/feedback type) that you'll handle individually in the next sections. To avoid double-prompting, compare question text (case-insensitive, trimmed) against the `question` field of all `pending_decisions` in the current batch. If a draft question matches a pending decision, skip it here — it will be handled when you process that decision type below.
+   **Deduplication** — Some questions in the draft may also appear as separate `pending_decisions` (choice/feedback type) that you'll handle individually in the next sections. To avoid double-prompting, compare question text (case-insensitive, trimmed) against the `question` field of all `pending_decisions` in the current batch. If a draft question matches a pending decision, skip it here — it will be handled when you process that decision type below. (Under two-wave surfacing, this check is a no-op during Wave 1 since choice/feedback decisions are deferred; `resolved_questions_map` handles cross-wave deduplication.)
 
    For each question or decision you identify, present an `AskUserQuestion`:
    - For **decisions with discrete options**: list the options from the draft as choices
@@ -735,7 +747,7 @@ The status response (from `get_status` or a `wait_for_status_change` Path A resp
    - **Question**: "Phase '<phase>' is complete. Do you approve the output above to proceed?"
    - **Header**: "Approval"
    - **Options**:
-     - **"Approve"** — description: "Proceed to the next phase"
+     - **"Approve"** — description: "Accept the draft and proceed (if the phase registered deferred decisions, they surface before the next phase begins)"
      - **"Request changes"** — description: "Send feedback for agents to address, then re-review"
      - **"Change approach"** — description: "Reject this approach entirely and re-run the phase from scratch with new direction"
      - **"Cancel and re-run pipeline"** — description: "Fundamental issues — cancel this pipeline and start over"
@@ -788,7 +800,7 @@ The status response (from `get_status` or a `wait_for_status_change` Path A resp
      {"action": "request_changes", "feedback": "<user's text>", "context": "<resolved questions from 7a, or omit>"}
      ```
 
-After resolving this decision, move to the next pending decision (if any) before resuming monitoring.
+After resolving this decision, move to the next pending decision (if any) before resuming monitoring. **On `approve`**, resume monitoring — do not announce the next phase has started yet. If the phase had deferred choice/feedback decisions, the pipeline stays in `awaiting_human` and Wave 2 surfaces them (see [Two-wave surfacing](#two-wave-surfacing)); tell the user: "Approved. The phase's deferred decisions will surface next." If no deferred decisions exist, the pipeline transitions to the next phase normally — you will see the phase change on the next `wait_for_status_change` response.
 
 ### For `choice` type decisions:
 
