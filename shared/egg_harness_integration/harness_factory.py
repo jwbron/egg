@@ -111,7 +111,9 @@ def create_egg_harness(
     provider = RetryProvider(inner_provider)
 
     # -- Tool registry -----------------------------------------------------
-    cwd_str = str(cwd) if cwd is not None else None
+    # Default cwd to EGG_REPO_PATH so sandbox agents start inside the repo
+    # rather than at HOME (/home/egg).  See #1993.
+    cwd_str = str(cwd) if cwd is not None else (os.environ.get("EGG_REPO_PATH") or None)
 
     registry = ToolRegistry()
 
@@ -163,6 +165,10 @@ def create_egg_harness(
     if system_prompt is None:
         # Look for project CLAUDE.md relative to cwd or EGG_REPO_PATH.
         project_claude_md: str | None = None
+        # cwd_str already incorporates the EGG_REPO_PATH fallback (line 116),
+        # so the `or` branch is redundant when called from client.py.  It is
+        # kept for direct callers of create_egg_harness (e.g. validate_harness_parity.py)
+        # that may pass cwd=None without the env-var resolution layer.
         repo_path = cwd_str or os.environ.get("EGG_REPO_PATH")
         if repo_path:
             candidate = os.path.join(repo_path, "CLAUDE.md")
