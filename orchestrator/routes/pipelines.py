@@ -1743,13 +1743,16 @@ def _cleanup_remote_branches(
     pipeline: "Pipeline",
     repo_path: Path,
 ) -> None:
-    """Best-effort cleanup of remote worktree branches for a pipeline.
+    """Best-effort cleanup of remote branches for a pipeline.
 
-    Iterates all containers across all phase executions and deletes their
-    remote worktree branches (``egg/{container_id}/work``).  Failures are
-    logged as warnings and do not block pipeline deletion.
+    Deletes the pipeline's shared branch (``pipeline.branch``, typically
+    ``egg/{pipeline_id}``) and every per-container worktree branch
+    (``egg/{container_id}/work``).  Failures are logged as warnings and do
+    not block pipeline deletion.
     """
     branches: set[str] = set()
+    if pipeline.branch:
+        branches.add(pipeline.branch)
     for phase_exec in pipeline.phases.values():
         for container in phase_exec.containers:
             branches.add(f"egg/{container.container_id}/work")
@@ -1768,7 +1771,7 @@ def _cleanup_remote_branches(
 
     if deleted:
         logger.info(
-            "Cleaned up remote worktree branches",
+            "Cleaned up remote branches",
             pipeline_id=pipeline_id,
             branches_deleted=deleted,
             branches_total=len(branches),
@@ -1819,12 +1822,12 @@ def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
                 exc_info=True,
             )
 
-        # Clean up remote worktree branches (best-effort)
+        # Clean up remote branches (best-effort)
         try:
             _cleanup_remote_branches(pipeline_id, _pipeline, repo_path)
         except Exception as e:
             logger.warning(
-                "Failed to clean up remote worktree branches",
+                "Failed to clean up remote branches",
                 pipeline_id=pipeline_id,
                 error=str(e),
             )
