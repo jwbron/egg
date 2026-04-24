@@ -203,6 +203,16 @@ except ImportError:
         resolve_gh_api_template_variables,
         validate_gh_api_path,
     )
+    # The Jira modules are new in issue #1556 and the flat-module test
+    # conftest does not yet preload them.  Make the gateway directory
+    # discoverable before the fallback import so standalone / test loading
+    # still finds jira_client, jira_credentials, jira_policy, jira_search,
+    # and mode_gate by name.  In production (package import), the relative
+    # ``from .jira_client import ...`` path above succeeds and this branch
+    # never runs.
+    _egg_gateway_dir = str(Path(__file__).parent)
+    if _egg_gateway_dir not in sys.path:
+        sys.path.insert(0, _egg_gateway_dir)
     from jira_client import (  # type: ignore[no-redef, import-untyped]
         JiraCredentialsUnavailable,
         JiraUpstreamError,
