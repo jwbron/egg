@@ -226,10 +226,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Minimal envelope: {changed: false, current_phase, status, phase_elapsed_seconds} — cheap re-render, SKILL.md must branch on `changed`\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Should we expose a `since` / `since_event_id` cursor parameter to avoid re-firing on already-seen events?",
+      "context": "Open contract question decision-4, registered by an agent during the refine phase.",
+      "options": [
+        "Yes: add `since` string parameter; host passes the most recent event ID from the prior call (prevents stuck-on-same-event races)",
+        "No: rely on default `from_tip=True` semantics from #1925 and accept the transition-race window",
+        "Auto-session: server stores per-session cursors keyed on (pipeline_id, caller-token) — avoids client-side bookkeeping but adds state to a stateless transport",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T03:11:23.025285Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:08:18.054872Z",
-  "updated_at": "2026-04-24T03:11:20.455964Z",
+  "updated_at": "2026-04-24T03:11:23.039078Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -243,5 +262,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 18
+  "version": 19
 }
