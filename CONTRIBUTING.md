@@ -76,7 +76,10 @@ Coverage requirements:
 
 Run tests:
 ```bash
-# All tests
+# All tests (full suite — what CI runs)
+make test-all
+
+# Changeset-aware (narrows to tests reachable from your diff; the inner-loop default)
 make test
 
 # Specific test file
@@ -85,6 +88,8 @@ make test
 # Custom harness tests
 .venv/bin/pytest shared/tests/test_egg_harness/ -v
 ```
+
+See [`docs/guides/testing.md`](docs/guides/testing.md) for changeset-aware test selection, LKG semantics, and fallback triggers.
 
 ## Pull Request Process
 
