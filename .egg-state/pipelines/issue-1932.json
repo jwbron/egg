@@ -297,16 +297,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-24T03:13:09.813203Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-24T03:13:39.562836Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Filter out DECISION_RESOLVED events from the trigger set — wait only on decisions that still need input\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:08:18.054872Z",
-  "updated_at": "2026-04-24T03:13:09.891781Z",
+  "updated_at": "2026-04-24T03:13:39.586373Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -320,5 +320,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 25
+  "version": 26
 }
