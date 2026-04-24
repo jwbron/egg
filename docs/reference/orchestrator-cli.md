@@ -325,6 +325,13 @@ egg-orch consensus propose --push --summary "Implemented feature X with JWT vali
 egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py \
   --reason "Reviewed src/feature.py lines 10-85: token validation handles expiry and invalid signatures. Tests cover all branches."
 
+# Reviewer: conditional ACK — work approved but requires a human action at merge time
+# Use when the work is correct but agents cannot perform the required action (e.g. a git mv, secret rotation).
+# The obligation surfaces as a "Pre-merge Obligations" section on the auto-created PR.
+egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py \
+  --reason "Reviewed src/feature.py lines 10-85: token validation is correct. One rename is required before merge." \
+  --pre-merge-condition "A human must \`git mv legacy/auth.py src/auth.py\` before merging — agents cannot push renames through the gateway"
+
 # Reviewer: NACK a producer's proposal
 egg-orch consensus nack coder --reason "Missing error handling in edge case on line 42 of src/feature.py" --files-reviewed src/feature.py
 
