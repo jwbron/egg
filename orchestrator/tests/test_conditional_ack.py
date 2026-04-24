@@ -492,7 +492,10 @@ class TestSignalPathIntegration:
             assert status_code == 200
             body = json.loads(response.data)
             assert body["success"] is True
-            assert body["data"]["pre_merge_condition"] == "git mv legacy/x new/x before merge — rename required for module restructure"
+            assert (
+                body["data"]["pre_merge_condition"]
+                == "git mv legacy/x new/x before merge — rename required for module restructure"
+            )
 
         section = p._build_pre_merge_obligations_section(_SIGNAL_PIPELINE_ID)
         assert "Pre-merge Obligations" in section
