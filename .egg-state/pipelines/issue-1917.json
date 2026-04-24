@@ -336,16 +336,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-24T03:13:19.711883Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-24T03:13:53.138058Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Keep the flag for iter-2 burn-in and remove in a third follow-up — same stepped rollout iter 1 used\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:10:06.375518Z",
-  "updated_at": "2026-04-24T03:13:19.726006Z",
+  "updated_at": "2026-04-24T03:13:53.151791Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -359,5 +359,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 29
+  "version": 30
 }
