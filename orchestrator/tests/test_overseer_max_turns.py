@@ -989,3 +989,167 @@ class TestBackwardsCompatibility:
         command = create_call.kwargs.get("command", [])
         max_turns_idx = command.index("--max-turns")
         assert command[max_turns_idx + 1] == "2000"
+
+
+# ---------------------------------------------------------------------------
+# Scenario 9: Skip respawn when run_epoch has been superseded (#1916)
+# ---------------------------------------------------------------------------
+
+
+class TestRespawnSkipsWhenRunEpochChanged:
+    """Verify respawn is skipped when the pipeline's run_epoch no longer
+    matches the caller's expected_run_epoch.
+
+    This guards against the dual-respawn-chain race produced by
+    ``advance_phase(force=true)`` and ``restart_phase``: the old run's
+    poll thread sees its externally-stopped overseer as EXITED and would
+    otherwise respawn it independently of the new run's overseer (#1916).
+    """
+
+    def test_skips_respawn_when_epoch_mismatches(
+        self, mock_spawner, mock_docker_client, running_pipeline
+    ):
+        """Mismatched epochs short-circuit before spawn / broadcast."""
+        original_id = "overseer-stale-run"
+        mock_docker_client.get_container_info.return_value = ContainerInfo(
+            container_id=original_id,
+            container_name="egg-issue-1562-overseer",
+            status=ContainerStatus.EXITED,
+            exit_code=None,
+        )
+
+        # The pipeline reload in _check_and_respawn_overseer returns a
+        # newer run_epoch than the caller captured.
+        old_epoch = datetime(2026, 4, 23, 6, 12, 0, tzinfo=UTC)
+        new_epoch = datetime(2026, 4, 23, 6, 27, 0, tzinfo=UTC)
+        store = MagicMock()
+        store.load_pipeline.return_value = Pipeline(
+            id="issue-1562",
+            issue_number=1562,
+            status=PipelineStatus.RUNNING,
+            run_epoch=new_epoch,
+        )
+
+        new_id, new_count = _check_and_respawn_overseer(
+            spawner=mock_spawner,
+            store=store,
+            pipeline_id="issue-1562",
+            pipeline=running_pipeline,
+            overseer_container_id=original_id,
+            overseer_respawn_count=0,
+            max_overseer_respawns=3,
+            gateway_mode="public",
+            pipeline_repos=None,
+            certs_volume=None,
+            expected_run_epoch=old_epoch,
+        )
+
+        # No respawn, original ID and count returned unchanged
+        assert new_id == original_id
+        assert new_count == 0
+        mock_spawner.spawn_overseer_container.assert_not_called()
+
+    def test_respawns_normally_when_epoch_matches(
+        self, mock_spawner, mock_docker_client, running_pipeline
+    ):
+        """Matching epoch goes through the normal respawn path."""
+        original_id = "overseer-matching-epoch"
+        mock_docker_client.get_container_info.return_value = ContainerInfo(
+            container_id=original_id,
+            container_name="egg-issue-1562-overseer",
+            status=ContainerStatus.EXITED,
+            exit_code=0,
+        )
+
+        epoch = datetime(2026, 4, 23, 6, 12, 0, tzinfo=UTC)
+        store = MagicMock()
+        store.load_pipeline.return_value = Pipeline(
+            id="issue-1562",
+            issue_number=1562,
+            status=PipelineStatus.RUNNING,
+            run_epoch=epoch,
+        )
+
+        new_id, new_count = _check_and_respawn_overseer(
+            spawner=mock_spawner,
+            store=store,
+            pipeline_id="issue-1562",
+            pipeline=running_pipeline,
+            overseer_container_id=original_id,
+            overseer_respawn_count=0,
+            max_overseer_respawns=3,
+            gateway_mode="public",
+            pipeline_repos=None,
+            certs_volume=None,
+            expected_run_epoch=epoch,
+        )
+
+        assert new_id == "overseer-respawned-1562"
+        assert new_count == 1
+        mock_spawner.spawn_overseer_container.assert_called_once()
+
+    def test_respawns_when_expected_epoch_is_none(
+        self, mock_spawner, mock_docker_client, mock_store, running_pipeline
+    ):
+        """Backwards-compatible: omitting expected_run_epoch disables the check."""
+        original_id = "overseer-no-epoch-arg"
+        mock_docker_client.get_container_info.return_value = ContainerInfo(
+            container_id=original_id,
+            container_name="egg-issue-1562-overseer",
+            status=ContainerStatus.EXITED,
+            exit_code=0,
+        )
+
+        new_id, new_count = _check_and_respawn_overseer(
+            spawner=mock_spawner,
+            store=mock_store,
+            pipeline_id="issue-1562",
+            pipeline=running_pipeline,
+            overseer_container_id=original_id,
+            overseer_respawn_count=0,
+            max_overseer_respawns=3,
+            gateway_mode="public",
+            pipeline_repos=None,
+            certs_volume=None,
+        )
+
+        assert new_id == "overseer-respawned-1562"
+        assert new_count == 1
+        mock_spawner.spawn_overseer_container.assert_called_once()
+
+    def test_skips_respawn_on_container_not_found_when_epoch_mismatches(
+        self, mock_spawner, mock_docker_client, running_pipeline
+    ):
+        """ContainerNotFoundError sets needs_respawn=True but epoch guard
+        still prevents the respawn when epochs mismatch."""
+        original_id = "overseer-deleted-stale"
+        mock_docker_client.get_container_info.side_effect = ContainerNotFoundError(original_id)
+
+        old_epoch = datetime(2026, 4, 23, 6, 12, 0, tzinfo=UTC)
+        new_epoch = datetime(2026, 4, 23, 6, 27, 0, tzinfo=UTC)
+        store = MagicMock()
+        store.load_pipeline.return_value = Pipeline(
+            id="issue-1562",
+            issue_number=1562,
+            status=PipelineStatus.RUNNING,
+            run_epoch=new_epoch,
+        )
+
+        new_id, new_count = _check_and_respawn_overseer(
+            spawner=mock_spawner,
+            store=store,
+            pipeline_id="issue-1562",
+            pipeline=running_pipeline,
+            overseer_container_id=original_id,
+            overseer_respawn_count=0,
+            max_overseer_respawns=3,
+            gateway_mode="public",
+            pipeline_repos=None,
+            certs_volume=None,
+            expected_run_epoch=old_epoch,
+        )
+
+        # Epoch mismatch prevents respawn even though container was not found
+        assert new_id == original_id
+        assert new_count == 0
+        mock_spawner.spawn_overseer_container.assert_not_called()
