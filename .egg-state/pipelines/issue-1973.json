@@ -326,10 +326,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-10",
+      "question": "LKG storage medium: where should the last-known-good sha live?",
+      "context": "Open contract question decision-9, registered by an agent during the refine phase.",
+      "options": [
+        "Non-tracked sidecar in `.egg-state/last-known-good/<branch>.sha` (gitignored; per-branch; no merge/history noise; analysis-recommended) — flips the issue's default",
+        "Tracked file `.egg/last-known-good` (the issue's proposal; cross-sandbox portable; auto-commits interact with gateway role-boundary rules)",
+        "Git notes on `refs/notes/egg-lkg` (invisible to diff/history; requires fetch/push of notes; gateway has no existing policy for notes)",
+        "Abandon LKG entirely — always baseline on `$(BASE_BRANCH)` (simplest; loses the narrow-diff-after-many-local-commits benefit)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T20:10:43.539988Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T19:39:48.417158Z",
-  "updated_at": "2026-04-24T20:10:43.477639Z",
+  "updated_at": "2026-04-24T20:10:43.562920Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -343,6 +363,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 20,
+  "version": 21,
   "jira_ticket": null
 }
