@@ -1008,45 +1008,12 @@ def git_push() -> tuple[Response, int] | Response:
     # SECURITY: Pipeline and concurrent-mode push enforcement.
     # Infrastructure pushes (checkpoint branches, etc.) are exempt from both checks.
     if not is_infrastructure_push:
-        # Push-target enforcement: in pipeline mode, agents must push only to
-        # their assigned branch. Prevents improvising branch names on push failure.
-        # Killswitch: set PUSH_TARGET_ENFORCEMENT=false to disable.
-        push_target_enforcement = os.environ.get("PUSH_TARGET_ENFORCEMENT", "true").lower() not in (
-            "false",
-            "0",
-            "no",
-        )
-        if push_target_enforcement and hasattr(g, "session") and g.session:
-            session_pipeline_id = getattr(g.session, "pipeline_id", None)
-            session_assigned_branch = getattr(g.session, "assigned_branch", None)
-            if isinstance(session_pipeline_id, str) and isinstance(session_assigned_branch, str):
-                if branch != session_assigned_branch:
-                    audit_log(
-                        "push_denied_wrong_branch",
-                        "git_push",
-                        success=False,
-                        details={
-                            "repo": repo,
-                            "branch": branch,
-                            "assigned_branch": session_assigned_branch,
-                            "pipeline_id": session_pipeline_id,
-                        },
-                    )
-                    return make_error(
-                        f"Pipeline sessions must push to their assigned branch "
-                        f"'{session_assigned_branch}'. Got '{branch}'.",
-                        status_code=403,
-                        details={
-                            "assigned_branch": session_assigned_branch,
-                            "attempted_branch": branch,
-                            "pipeline_id": session_pipeline_id,
-                        },
-                    )
-
-        # Concurrent-mode enforcement: in concurrent/BRC mode, agents must push
-        # through the consensus protocol (egg-orch consensus propose --push)
-        # which sets a consensus_push marker. Direct pushes are blocked to ensure
-        # all changes go through peer review.
+        # Concurrent-mode enforcement runs FIRST.  In BRC mode the agent's
+        # work branch (e.g. egg/<pid>-<role>/work) never matches the
+        # assigned branch, so the wrong-branch check below would almost
+        # always fire first with a misleading message — sending agents
+        # down a refspec-guessing rabbit hole.  The concurrent-mode
+        # error points at the actionable tool (#1994).
         # Killswitch: set CONCURRENT_PUSH_ENFORCEMENT=false to disable.
         concurrent_push_enforcement = os.environ.get(
             "CONCURRENT_PUSH_ENFORCEMENT", "true"
@@ -1070,13 +1037,60 @@ def git_push() -> tuple[Response, int] | Response:
                         },
                     )
                     return make_error(
-                        "Direct push blocked in concurrent mode. "
-                        "Use: egg-orch consensus propose --push",
+                        "Direct git push is blocked in BRC mode. "
+                        "Publish your artifact via the mcp__brc__propose "
+                        "tool (which pushes to origin and sends "
+                        "CONSENSUS_PROPOSE in one step). Fallback CLI: "
+                        "`egg-orch consensus propose --push`.",
                         status_code=403,
                         details={
                             "mode": "concurrent",
                             "pipeline_id": session_pipeline_id,
                             "requirement": "consensus_push",
+                            "recommended_tool": "mcp__brc__propose",
+                        },
+                    )
+
+        # Push-target enforcement: in pipeline mode (non-concurrent or
+        # concurrent with the consensus_push marker set), agents must
+        # push only to their assigned branch.  Prevents improvising
+        # branch names on push failure.
+        # Killswitch: set PUSH_TARGET_ENFORCEMENT=false to disable.
+        push_target_enforcement = os.environ.get("PUSH_TARGET_ENFORCEMENT", "true").lower() not in (
+            "false",
+            "0",
+            "no",
+        )
+        if push_target_enforcement and hasattr(g, "session") and g.session:
+            session_pipeline_id = getattr(g.session, "pipeline_id", None)
+            session_assigned_branch = getattr(g.session, "assigned_branch", None)
+            if isinstance(session_pipeline_id, str) and isinstance(session_assigned_branch, str):
+                if branch != session_assigned_branch:
+                    audit_log(
+                        "push_denied_wrong_branch",
+                        "git_push",
+                        success=False,
+                        details={
+                            "repo": repo,
+                            "branch": branch,
+                            "assigned_branch": session_assigned_branch,
+                            "pipeline_id": session_pipeline_id,
+                        },
+                    )
+                    hint = (
+                        " In BRC mode, call mcp__brc__propose — it handles "
+                        "branch targeting for you."
+                        if concurrent_mode
+                        else ""
+                    )
+                    return make_error(
+                        f"Pipeline sessions must push to their assigned branch "
+                        f"'{session_assigned_branch}'. Got '{branch}'.{hint}",
+                        status_code=403,
+                        details={
+                            "assigned_branch": session_assigned_branch,
+                            "attempted_branch": branch,
+                            "pipeline_id": session_pipeline_id,
                         },
                     )
 
@@ -1374,7 +1388,7 @@ def git_push() -> tuple[Response, int] | Response:
                     status_code=500,
                 )
 
-            def _inner_push() -> tuple[bool, str | None]:
+            def _inner_push(tip_sha: str) -> tuple[bool, str | None]:
                 token_str, auth_mode, token_error = get_token_for_repo(repo)
                 if not token_str:
                     return False, token_error
@@ -1382,7 +1396,12 @@ def git_push() -> tuple[Response, int] | Response:
                 push_args = ["push", "--no-verify"]
                 if force:
                     push_args.append("--force")
-                push_args.extend([push_target, refspec] if refspec else [push_target])
+                # Push by SHA so we don't depend on a local
+                # refs/heads/<branch> — sibling worktrees may hold a
+                # directory-style ref (e.g. refs/heads/<branch>/work)
+                # that blocks creating the leaf ref.  See #1994.
+                push_refspec = f"{tip_sha}:refs/heads/{branch}"
+                push_args.extend([push_target, push_refspec])
                 cmd_inner = git_cmd("-c", "http.extraheader=", *push_args)
                 credential_helper_path_inner = None
                 try:
@@ -1656,6 +1675,12 @@ def git_push() -> tuple[Response, int] | Response:
     push_args = ["push", "--no-verify"]
     if force:
         push_args.append("--force")
+    # NOTE: The non-filtered push path uses the original refspec (not a
+    # SHA-based refspec) because it never calls ``update-ref`` pre-push,
+    # so the directory-style ref collision that affects the filtered path
+    # (sibling worktree refs like ``refs/heads/<branch>/work``) does not
+    # apply here.  The filtered path in ``filtered_push.py`` pushes by
+    # SHA to avoid that collision — see #1994 for context.
     push_args.extend([push_target, refspec] if refspec else [push_target])
     # Clear any http.extraheader from .git/config to ensure the gateway's
     # credential helper (GIT_ASKPASS) is used. actions/checkout@v4 persists

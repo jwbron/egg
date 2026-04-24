@@ -480,15 +480,15 @@ When a producer pushes new commits after proposing, existing reviews become stal
 
 ### Gateway-Level Push Enforcement (Concurrent Mode)
 
-While auto re-propose provides a **safety net** for stale reviews, it relies on the orchestrator detecting post-proposal pushes. A stronger guarantee comes from the gateway itself: in concurrent mode, **direct `git push` is blocked** — all pushes must go through `egg-orch consensus propose --push`.
+While auto re-propose provides a **safety net** for stale reviews, it relies on the orchestrator detecting post-proposal pushes. A stronger guarantee comes from the gateway itself: in concurrent mode, **direct `git push` is blocked** — all pushes must go through `mcp__brc__propose` (the fallback CLI is `egg-orch consensus propose --push`).
 
 **How the marker flows:**
 
-1. Agent runs `egg-orch consensus propose --push`
-2. The orch CLI calls the gateway push API directly (bypassing the git wrapper) with `"consensus_push": true` in the JSON payload
+1. Agent calls `mcp__brc__propose(...)` (push defaults to true) — or runs `egg-orch consensus propose --push`
+2. Both surfaces delegate to `egg_agent_tools.push.consensus_push()`, which calls the gateway push API directly (bypassing the git wrapper) with `"consensus_push": true` in the JSON payload
 3. The gateway checks: if `EGG_CONCURRENT_MODE=true` AND the session has a `pipeline_id` AND the push is not infrastructure (checkpoints/pipeline state), then `consensus_push` must be present
-4. Pushes without the marker are rejected with HTTP 403
-5. Fallback: when `GATEWAY_URL` is not set (e.g., local development), the orch CLI falls back to plain `git push`. No concurrent-mode enforcement exists in this path — the gateway is not running to enforce it
+4. Pushes without the marker are rejected with HTTP 403 and the error points at `mcp__brc__propose`
+5. Fallback: when `GATEWAY_URL` is not set (e.g., local development), the helper falls back to plain `git push`. No concurrent-mode enforcement exists in this path — the gateway is not running to enforce it
 
 **Relationship to auto re-propose:** Gateway enforcement makes auto re-propose less critical in concurrent mode — every push IS a proposal, so there are no "orphan pushes" to detect. Auto re-propose remains as defense-in-depth for edge cases (e.g., if an agent manages to push through an alternative path).
 
@@ -496,7 +496,9 @@ While auto re-propose provides a **safety net** for stale reviews, it relies on 
 
 **Error message for agents:**
 ```
-Direct push blocked in concurrent mode. Use: egg-orch consensus propose --push
+Direct git push is blocked in BRC mode. Publish your artifact via the
+mcp__brc__propose tool (which pushes to origin and sends CONSENSUS_PROPOSE
+in one step). Fallback CLI: `egg-orch consensus propose --push`.
 ```
 
 See [Gateway README — Concurrent-Mode Push Enforcement](../../gateway/README.md#concurrent-mode-push-enforcement-brc-sessions) for implementation details. See [#1669](https://github.com/jwbron/egg/issues/1669) for the motivating incident and design rationale.

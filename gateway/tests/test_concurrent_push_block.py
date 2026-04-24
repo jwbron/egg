@@ -1,12 +1,14 @@
-"""Tests for concurrent-mode push blocking (#1669).
+"""Tests for concurrent-mode push blocking (#1669, refined in #1994).
 
 When EGG_CONCURRENT_MODE=true, direct git pushes from pipeline agents must be
-blocked. Agents must use `egg-orch consensus propose --push` instead, which
-sets a `consensus_push` marker in the request payload.
+blocked. Agents must use `mcp__brc__propose` (or the fallback CLI
+`egg-orch consensus propose --push`), which sets a `consensus_push` marker
+in the request payload.
 
-The gateway enforces this AFTER the push-target enforcement and BEFORE the
-branch ownership check. Infrastructure pushes (checkpoints, pipeline state)
-are always exempt.
+The gateway enforces this BEFORE the push-target enforcement so BRC agents
+on per-role work branches see the actionable "use mcp__brc__propose" error
+first rather than a misleading wrong-branch message (#1994). Infrastructure
+pushes (checkpoints, pipeline state) are always exempt.
 
 Test scenarios:
   1. Push blocked in concurrent mode without consensus_push marker
@@ -173,8 +175,8 @@ class TestConcurrentPushBlock:
                 assert response.status_code == 403
                 data = json.loads(response.data)
                 assert data["success"] is False
-                assert "concurrent mode" in data["message"].lower()
-                assert "consensus" in data["message"].lower()
+                assert "brc mode" in data["message"].lower()
+                assert "mcp__brc__propose" in data["message"]
 
     def test_push_allowed_with_consensus_marker(self, client):
         """Push with consensus_push=true should be allowed in concurrent mode."""
@@ -308,7 +310,7 @@ class TestConcurrentPushBlock:
                 # concurrent-mode check specifically does not block it.
                 response = _do_push(client, refspec=CHECKPOINT_BRANCH)
                 assert response.status_code != 403 or (
-                    "concurrent mode" not in json.loads(response.data)["message"].lower()
+                    "brc mode" not in json.loads(response.data)["message"].lower()
                 ), "Infrastructure push should not be blocked by concurrent mode enforcement"
 
 
@@ -364,7 +366,7 @@ class TestConcurrentPushBlockEdgeCases:
                 response = _do_push(client, consensus_push=False)
                 assert response.status_code == 403
                 data = json.loads(response.data)
-                assert "concurrent mode" in data["message"].lower()
+                assert "brc mode" in data["message"].lower()
 
     def test_error_response_includes_details(self, client):
         """The 403 error should include mode, pipeline_id, and requirement details."""
@@ -394,7 +396,8 @@ class TestConcurrentPushBlockEdgeCases:
                 assert "mode" in resp_data or "pipeline_id" in resp_data
 
     def test_error_message_suggests_consensus_propose(self, client):
-        """The 403 error message should mention 'egg-orch consensus propose --push'."""
+        """The 403 error message should point at mcp__brc__propose (primary)
+        and list the CLI fallback (#1994)."""
         session = _make_session("coder")
         patches = _push_context(session)
 
@@ -416,7 +419,9 @@ class TestConcurrentPushBlockEdgeCases:
                 response = _do_push(client)
                 assert response.status_code == 403
                 data = json.loads(response.data)
+                assert "mcp__brc__propose" in data["message"]
                 assert "egg-orch consensus propose --push" in data["message"]
+                assert data.get("data", {}).get("recommended_tool") == "mcp__brc__propose"
 
     def test_concurrent_mode_not_set_allows_push(self, client):
         """When EGG_CONCURRENT_MODE is not set at all, push should not be blocked."""
