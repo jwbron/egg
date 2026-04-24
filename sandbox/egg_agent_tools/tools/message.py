@@ -36,7 +36,14 @@ _WAIT_PROPS: dict[str, Any] = {
     },
     "role": {"type": "string", "description": "Filter for this receiver role"},
     "from_role": {"type": "string", "description": "Filter by sender role"},
-    "since": {"type": "string", "description": "Return messages after this ID"},
+    "since": {
+        "type": "string",
+        "description": (
+            "Return messages after this ID. Thread the ``cursor`` from the "
+            "previous wait_for_event / wait_loop response here to avoid "
+            "missing events that arrive between successive calls."
+        ),
+    },
     "limit": {"type": "integer", "description": "Max messages to return"},
     "timeout": {
         "type": "integer",

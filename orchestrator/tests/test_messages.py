@@ -1339,6 +1339,187 @@ class TestWaitEndpoint:
                 )
                 assert resp.status_code == 400
 
+    def test_wait_returns_cursor_on_match(self, client, app):
+        """Issue #1995: wait response includes the ID of the last
+        delivered message so the caller can thread it on the next call."""
+        import threading
+        import time as _t
+
+        store = MessageStore()
+
+        def _add_after_delay() -> None:
+            _t.sleep(0.15)
+            store.add_message(
+                Message(
+                    pipeline_id="test-pipeline",
+                    from_role="coder",
+                    to_role="all",
+                    message_type=MessageType.CONSENSUS_CONFIRMED,
+                    subject="done",
+                )
+            )
+
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                t = threading.Thread(target=_add_after_delay)
+                t.start()
+                try:
+                    resp = client.get(
+                        "/api/v1/pipelines/test-pipeline/messages/wait"
+                        "?for=CONSENSUS_CONFIRMED&timeout=3"
+                    )
+                finally:
+                    t.join(timeout=2)
+                assert resp.status_code == 200
+                data = json.loads(resp.data)
+                assert data["data"]["matched"] is True
+                # Cursor must equal the ID of the last delivered message so
+                # the next wait can resume strictly after it.
+                assert data["data"]["cursor"] == data["data"]["messages"][-1]["id"]
+
+    def test_wait_returns_cursor_on_timeout(self, client, app):
+        """Issue #1995: on timeout with no match the server still returns
+        a cursor (current stream tip) so the next wait can pick up
+        anything that arrived while the caller was round-tripping."""
+        store = MessageStore()
+        # Seed one non-matching message so the stream has a tip.
+        seeded = store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="documenter",
+                to_role="all",
+                message_type=MessageType.PROGRESS,
+                subject="ignore me",
+            )
+        )
+
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    "?for=CONSENSUS_CONFIRMED&timeout=1"
+                )
+                assert resp.status_code == 200
+                data = json.loads(resp.data)
+                assert data["data"]["matched"] is False
+                assert data["data"]["cursor"] == seeded.id
+
+    def test_wait_returns_null_cursor_when_stream_empty(self, client, app):
+        """Stream has never had a message → cursor is null. Next call
+        may safely omit ``since_id`` and the server will snap to a fresh
+        tip as before."""
+        store = MessageStore()
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    "?for=CONSENSUS_CONFIRMED&timeout=1"
+                )
+                assert resp.status_code == 200
+                data = json.loads(resp.data)
+                assert data["data"]["matched"] is False
+                assert data["data"]["cursor"] is None
+
+    def test_wait_cursor_threading_closes_between_call_race(self, client, app):
+        """Issue #1995 regression: reproduces the BRC deadlock scenario.
+
+        Timeline:
+          1. Reviewer A ACKs → wait #1 returns with messages=[ack_a],
+             cursor=ack_a.id.
+          2. Reviewer B ACKs *between* wait #1 returning and wait #2
+             starting. Without cursor threading, wait #2 would snap to
+             a new tip past ack_b and deadlock.
+          3. Producer threads cursor=ack_a.id as since_id on wait #2;
+             ack_b is delivered immediately.
+        """
+        store = MessageStore()
+
+        ack_a = store.add_message(
+            Message(
+                pipeline_id="test-pipeline",
+                from_role="reviewer_agent_design",
+                to_role="all",
+                message_type=MessageType.CONSENSUS_ACK,
+                subject="ack-a",
+            )
+        )
+
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=store),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                # Wait #1: caller passes since_id=<pre-existing tip> so
+                # the pre-existing ack_a is delivered.  Here we thread
+                # a since_id of an unknown id so the server falls back
+                # to "return full history", which delivers ack_a.
+                resp1 = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    "?for=CONSENSUS_ACK&timeout=1&since_id=unknown-sentinel"
+                )
+                assert resp1.status_code == 200
+                data1 = json.loads(resp1.data)
+                assert data1["data"]["matched"] is True
+                cursor1 = data1["data"]["cursor"]
+                assert cursor1 == ack_a.id
+
+                # Simulate the between-calls race: ack_b lands right now.
+                ack_b = store.add_message(
+                    Message(
+                        pipeline_id="test-pipeline",
+                        from_role="reviewer_refine",
+                        to_role="all",
+                        message_type=MessageType.CONSENSUS_ACK,
+                        subject="ack-b",
+                    )
+                )
+
+                # Wait #2: caller threads cursor1 as since_id. Without
+                # cursor threading this call would deadlock (bug #1995);
+                # with it, ack_b is delivered immediately.
+                resp2 = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    f"?for=CONSENSUS_ACK&timeout=1&since_id={cursor1}"
+                )
+                assert resp2.status_code == 200
+                data2 = json.loads(resp2.data)
+                assert data2["data"]["matched"] is True
+                assert data2["data"]["messages"][0]["id"] == ack_b.id
+                assert data2["data"]["cursor"] == ack_b.id
+
     def test_wait_timeout_clamped_to_env_cap(self, client, app, monkeypatch):
         """``timeout`` is clamped by ``EGG_MESSAGE_POLL_MAX_WAIT``.
 

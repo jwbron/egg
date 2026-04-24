@@ -95,6 +95,63 @@ class TestMessageWait:
             with pytest.raises(GatewayError):
                 message.message_wait({"pipeline_id": "p", "for_types": ["X"]})
 
+    def test_cursor_surfaced_on_match(self):
+        """Issue #1995: server cursor is threaded through the handler."""
+        server = {
+            "success": True,
+            "data": {
+                "matched": True,
+                "messages": [{"id": "m-7", "message_type": "CONSENSUS_ACK"}],
+                "cursor": "m-7",
+            },
+        }
+        with patch(
+            "egg_agent_tools.handlers.message.orchestrator_request",
+            return_value=server,
+        ):
+            resp = message.message_wait({"pipeline_id": "p", "for_types": ["CONSENSUS_ACK"]})
+        assert resp["cursor"] == "m-7"
+
+    def test_cursor_surfaced_on_timeout(self):
+        """Issue #1995: even on timeout the server reports the stream tip."""
+        server = {
+            "success": True,
+            "data": {"matched": False, "messages": [], "cursor": "tip-12"},
+        }
+        with patch(
+            "egg_agent_tools.handlers.message.orchestrator_request",
+            return_value=server,
+        ):
+            resp = message.message_wait({"pipeline_id": "p", "for_types": ["X"]})
+        assert resp["matched"] is False
+        assert resp["cursor"] == "tip-12"
+
+    def test_cursor_defaults_to_none_when_server_omits(self):
+        """Older orchestrators that don't emit ``cursor`` must not crash."""
+        server = {"success": True, "data": {"matched": False, "messages": []}}
+        with patch(
+            "egg_agent_tools.handlers.message.orchestrator_request",
+            return_value=server,
+        ):
+            resp = message.message_wait({"pipeline_id": "p", "for_types": ["X"]})
+        assert resp["cursor"] is None
+
+    def test_since_param_forwarded_to_endpoint(self):
+        server = {"success": True, "data": {"matched": False, "messages": []}}
+        with patch(
+            "egg_agent_tools.handlers.message.orchestrator_request",
+            return_value=server,
+        ) as req:
+            message.message_wait(
+                {
+                    "pipeline_id": "p",
+                    "for_types": ["X"],
+                    "since": "m-3",
+                }
+            )
+        endpoint = req.call_args.args[0]
+        assert "since_id=m-3" in endpoint
+
 
 class TestMessageWaitLoop:
     def test_matches_on_first_iteration(self):
@@ -181,6 +238,83 @@ class TestMessageWaitLoop:
             )
         assert resp["matched"] is False
         assert resp["iterations"] == 2
+
+    def test_cursor_threaded_between_iterations(self):
+        """Issue #1995: each timeout hands its cursor to the next call.
+
+        Without this, an event that lands on the bus between iteration N
+        returning (timeout) and iteration N+1 starting would be invisible
+        because from_tip=True would snap to a new tip past it.
+        """
+        observed_since: list[str | None] = []
+        responses = [
+            {"ok": True, "matched": False, "messages": [], "cursor": "tip-1"},
+            {"ok": True, "matched": False, "messages": [], "cursor": "tip-2"},
+            {
+                "ok": True,
+                "matched": True,
+                "messages": [{"id": "m-final"}],
+                "cursor": "m-final",
+            },
+        ]
+
+        def fake_wait(req):
+            observed_since.append(req.get("since"))
+            return responses.pop(0)
+
+        with patch("egg_agent_tools.handlers.message.message_wait", side_effect=fake_wait):
+            resp = message.message_wait_loop(
+                {"pipeline_id": "p", "for_types": ["CONSENSUS_ACK"], "max_iterations": 5}
+            )
+        assert resp["matched"] is True
+        assert resp["cursor"] == "m-final"
+        # First call: caller passed no ``since``.
+        # Subsequent calls: handler must thread the cursor from the
+        # prior server response so the gap between iterations is closed.
+        assert observed_since == [None, "tip-1", "tip-2"]
+
+    def test_cursor_from_initial_since_preserved_if_server_returns_none(self):
+        """Stream empty → server sends cursor=None. Handler must not
+        overwrite the caller-supplied ``since`` with None — otherwise the
+        next iteration would re-scan from start / tip."""
+        observed_since: list[str | None] = []
+        responses = [
+            {"ok": True, "matched": False, "messages": [], "cursor": None},
+            {"ok": True, "matched": True, "messages": [{"id": "m-x"}], "cursor": "m-x"},
+        ]
+
+        def fake_wait(req):
+            observed_since.append(req.get("since"))
+            return responses.pop(0)
+
+        with patch("egg_agent_tools.handlers.message.message_wait", side_effect=fake_wait):
+            message.message_wait_loop(
+                {
+                    "pipeline_id": "p",
+                    "for_types": ["X"],
+                    "since": "m-caller",
+                    "max_iterations": 5,
+                }
+            )
+        assert observed_since == ["m-caller", "m-caller"]
+
+    def test_cursor_surfaced_on_safety_cap(self):
+        """When the safety cap trips, the last seen cursor must still
+        be surfaced so the caller can resume cleanly."""
+        responses = [
+            {"ok": True, "matched": False, "messages": [], "cursor": "tip-a"},
+            {"ok": True, "matched": False, "messages": [], "cursor": "tip-b"},
+        ]
+
+        def fake_wait(req):
+            return responses.pop(0)
+
+        with patch("egg_agent_tools.handlers.message.message_wait", side_effect=fake_wait):
+            resp = message.message_wait_loop(
+                {"pipeline_id": "p", "for_types": ["X"], "max_iterations": 2}
+            )
+        assert resp["matched"] is False
+        assert resp["cursor"] == "tip-b"
 
 
 class TestMessageHeartbeat:
