@@ -131,9 +131,7 @@ def _validate_brc_content(body: str, kind: str) -> str | None:
             f"what was read/built, what was checked/tested, why the verdict follows"
         )
     min_length = (
-        _BRC_CONDITION_MIN_LEN
-        if kind.lower() in _BRC_CONDITION_KINDS
-        else _BRC_MIN_CONTENT_LEN
+        _BRC_CONDITION_MIN_LEN if kind.lower() in _BRC_CONDITION_KINDS else _BRC_MIN_CONTENT_LEN
     )
     if len(stripped) < min_length:
         return (
