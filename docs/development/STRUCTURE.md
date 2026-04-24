@@ -62,6 +62,11 @@ gateway/
 ├── auth.py                 # Session authentication
 ├── token_refresher.py      # GitHub App token management (bot and optional reviewer)
 ├── anthropic_credentials.py # API key injection for Claude
+├── jira_credentials.py     # Atlassian credential loading from secrets.env (mtime refresh, basic-auth header helper)
+├── jira_client.py          # Jira REST client + validate_jira_api_path regex allowlist + 429 retry + 404 envelope
+├── jira_policy.py          # Project allowlist loader for config/context-filters.yaml (jira.projects)
+├── jira_search.py          # Conservative static JQL project-scope extractor (deny-on-ambiguity)
+├── mode_gate.py            # @require_private_mode decorator (fails closed in public mode)
 ├── checkpoint_handler.py   # Checkpoint capture (commit and session-end triggers)
 ├── transcript_buffer.py    # API proxy transcript capture buffer
 ├── worktree_manager.py     # Git worktree lifecycle
@@ -488,7 +493,8 @@ Key workflows for PR automation (see `.github/workflows/` for complete list):
 config/
 ├── config.yaml.example        # Configuration template (copy to ~/.config/egg/config.yaml)
 ├── repositories.yaml.example  # Repository access configuration template
-├── secrets.template.env        # Secrets template
+├── secrets.template.env        # Secrets template (includes Jira credential placeholders)
+├── context-filters.yaml        # Operator allowlists for external integrations (jira.projects)
 ├── repo_config.py              # Python API for repo access
 └── README.md
 ```
