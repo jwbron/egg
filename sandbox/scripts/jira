@@ -103,7 +103,12 @@ call_gateway() {
     local tmpfile curl_errfile
     tmpfile=$(mktemp)
     curl_errfile=$(mktemp)
-    trap 'rm -f "$tmpfile" "$curl_errfile"' EXIT
+    # Use RETURN trap for function-scoped cleanup (not EXIT, which is
+    # process-global and would be overwritten by a second call_gateway
+    # invocation). Mirrors the pattern in sandbox/scripts/gh line 730.
+    # Use ${var:-} to avoid unbound-variable errors if the trap fires in
+    # a parent scope after call_gateway returns.
+    trap 'rm -f "${tmpfile:-}" "${curl_errfile:-}"' RETURN
 
     local http_code
     http_code=$(curl -s -w "%{http_code}" \
@@ -118,11 +123,8 @@ call_gateway() {
     if [ $curl_exit -ne 0 ]; then
         echo "ERROR: Failed to connect to gateway (curl exit $curl_exit)" >&2
         cat "$curl_errfile" >&2
-        rm -f "$tmpfile" "$curl_errfile"
-        trap - EXIT
         return 1
     fi
-    rm -f "$curl_errfile"
 
     # Parse response: on success print .data as JSON to stdout; on failure
     # print error message to stderr and exit non-zero.
@@ -152,10 +154,7 @@ else:
     sys.exit(1)
 " "$tmpfile" "$http_code"
 
-    local py_exit=$?
-    rm -f "$tmpfile"
-    trap - EXIT
-    return $py_exit
+    return $?
 }
 
 # --- Verb handlers ---
