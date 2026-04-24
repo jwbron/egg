@@ -467,16 +467,16 @@
           "answer": ""
         }
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-24T03:16:51.914884Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-24T03:17:36.263173Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Authoritative docs set for iter-2 updates: (1) docs/reference/agent-tools.md — tool inventory table + the '15 tools' claims on lines 25/39/41/126/293 need refreshing to reflect the post-iter-2 count; (2) docs/releases/agent-mcp-tools.md — append an iter-2 changelog entry; (3) sandbox/agent-config/rules/contract.md — add 'Prefer mcp__* over ...' entries for the new contract-surface verbs (show_contract, task.add_commit/update_notes, phase.complete_phase, sdlc.verify_criterion); (4) sandbox/agent-config/rules/orchestrator.md — rewrite lines 20-24 to retract the phantom `egg-orch anchor *` CLI references, now that anchor is deferred; (5) sandbox/egg_lib/data/hitl_editing_rules.md — add entries for any new HITL-adjacent verbs; (6) a new sandbox/agent-config/rules/checkpoint.md rule file if the `checkpoint` namespace lands. Plan phase should produce a per-doc diff enumeration as a documenter-role task.\", \"Q2\": \"Track the same metric iter 1 used (`mcp__* in first N turns`) against the new verbs, plus one specific negative check: zero `Bash egg-contract show` calls in a refine-phase reviewer checkpoint post-iter-2. Don't invent new per-phase metrics — consistency with iter-1's success signal is more valuable than perfect per-verb coverage. Checkpoint-browser manual review remains the fallback.\", \"Q3\": \"None identified beyond the capability audit at .egg-state/drafts/1765-analysis.md:317-335. Plan phase should verify against iter-1 burn-in checkpoints (any `Bash egg-*` calls from iter-1-enabled pipelines that do NOT correspond to a verb in this iter-2 scope indicate a missed audit entry). If plan finds new verbs, file them as a third-iteration sub-issue rather than expanding iter-2 scope.\", \"Q4\": \"Yes — publish an explicit human-operator-only list per AC1.b in docs/reference/agent-tools.md. Starting set from the analysis: egg-orch health/pipeline/container/gateway/env/decision (operator debug); egg-contract populate/validate/agent-{status,start,complete,fail,next} (orchestrator-driven, not agent-driven); egg-orch consensus withdraw/message status (rare debug). Each entry needs a one-line rationale. This closes the audit loop (AC1.b) and makes future drift auditable.\"}}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:10:06.375518Z",
-  "updated_at": "2026-04-24T03:16:51.980225Z",
+  "updated_at": "2026-04-24T03:17:36.281569Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -490,5 +490,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 41
+  "version": 42
 }
