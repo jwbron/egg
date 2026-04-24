@@ -39,7 +39,12 @@ from egg_contracts.loader import ContractNotFoundError
 from egg_contracts.orchestrator import create_orchestrator
 from handoffs import AgentOutput, save_agent_output
 from models import AgentExecutionStatus, AgentRole, Pipeline, PipelineStatus
-from state_store import InvalidPipelineIdError, PipelineNotFoundError, get_state_store
+from state_store import (
+    InvalidPipelineIdError,
+    PipelineNotFoundError,
+    StateStoreError,
+    get_state_store,
+)
 
 logger = get_logger("orchestrator.signals")
 
@@ -829,7 +834,7 @@ def _validate_tester_check_coverage(
 
     try:
         pipeline = get_state_store(repo_path).load_pipeline(pipeline_id)
-    except (PipelineNotFoundError, InvalidPipelineIdError):
+    except StateStoreError:
         return
 
     repo = pipeline.repo
@@ -844,7 +849,15 @@ def _validate_tester_check_coverage(
         except ImportError:
             return
 
-    configured_checks = get_repo_checks(repo)
+    try:
+        configured_checks = get_repo_checks(repo)
+    except Exception:
+        logger.warning(
+            "Failed to load repo checks config, skipping coverage validation",
+            pipeline_id=pipeline_id,
+            repo=repo,
+        )
+        return
     if not configured_checks:
         return
 
@@ -1324,7 +1337,7 @@ def handle_consensus_confirmed_signal(
                 _pip = get_state_store(repo_path).load_pipeline(pipeline_id)
                 _phase = _pip.current_phase.value
                 _repo = _pip.repo
-            except (PipelineNotFoundError, InvalidPipelineIdError):
+            except StateStoreError:
                 pass
 
             graph = get_review_graph_for_phase(_phase, repo=_repo)

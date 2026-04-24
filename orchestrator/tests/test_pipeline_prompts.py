@@ -1888,6 +1888,21 @@ class TestTesterCheckCoverageValidation:
             # Should not raise — graceful degradation
             _validate_tester_check_coverage("pid-1", payload, Path("/tmp"))
 
+    def test_state_validation_error_skips_validation(self):
+        """When pipeline state is corrupt, validation is skipped gracefully."""
+        from routes.signals import _validate_tester_check_coverage
+        from state_store import StateValidationError
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.side_effect = StateValidationError("corrupt state")
+
+        with patch("routes.signals.get_state_store", return_value=mock_store):
+            payload = {
+                "attestation": {"checks_passed": ["test"]},
+            }
+            # Should not raise — graceful degradation for corrupt state
+            _validate_tester_check_coverage("pid-1", payload, Path("/tmp"))
+
     def test_rejects_adhoc_check_names(self):
         """Ad-hoc check names that don't match configured names are rejected (#1966).
 
@@ -1914,7 +1929,7 @@ class TestTesterCheckCoverageValidation:
                     ],
                 },
             }
-            with pytest.raises(ValueError, match="lint.*security.*test|security.*test|test"):
+            with pytest.raises(ValueError, match="lint.*security.*test"):
                 _validate_tester_check_coverage("pid-1", payload, Path("/tmp"))
 
     def test_tests_execution_blocked_skips_validation(self):
