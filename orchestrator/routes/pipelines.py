@@ -5732,9 +5732,7 @@ def _build_phase_prompt(
             lines.append("## Prior Review Feedback\n")
         has_tester_findings = TESTER_FINDINGS_HEADER in review_feedback
         if phase == "implement":
-            revision_action = (
-                "Address the feedback below and revise your implementation."
-            )
+            revision_action = "Address the feedback below and revise your implementation."
         else:
             revision_action = (
                 "Address the feedback below and revise your draft **in-place** "
