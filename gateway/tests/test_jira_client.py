@@ -85,7 +85,6 @@ class TestValidateJiraApiPath:
             "issue/FOO-1/comment",
             "issue/A1-7",
             "issue/PROJ_X-42",
-            "search/jql",
             "project",
             "project/FOO",
             "project/ENG",
@@ -95,6 +94,16 @@ class TestValidateJiraApiPath:
     def test_positive_get_paths(self, path: str):
         ok, reason = validate_jira_api_path(path, "GET")
         assert ok, f"{path!r} should have been accepted: {reason}"
+
+    def test_search_jql_removed_from_execute_allowlist(self):
+        """Cycle-2 fix: ``search/jql`` is intentionally NOT in the execute
+        allowlist so ``POST /api/v1/jira/execute`` cannot bypass the JQL
+        project-scope extractor (see commit 7895474bb).  The dedicated
+        ``/api/v1/jira/search`` route remains the only path to Atlassian's
+        JQL search."""
+        ok, reason = validate_jira_api_path("search/jql", "GET")
+        assert not ok
+        assert "allowlist" in reason.lower()
 
     @pytest.mark.parametrize("method", ["POST", "PUT", "PATCH", "DELETE", "HEAD", ""])
     def test_non_get_methods_rejected(self, method: str):
