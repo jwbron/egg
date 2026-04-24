@@ -317,16 +317,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-24T03:12:44.356105Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-24T03:13:17.037612Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Local .egg-state/brc-history/*.json files — simplest; no new endpoint; matches where reviewers dig today\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:10:06.375518Z",
-  "updated_at": "2026-04-24T03:12:44.373301Z",
+  "updated_at": "2026-04-24T03:13:17.059969Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -340,5 +340,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 27
+  "version": 28
 }
