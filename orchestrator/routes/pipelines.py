@@ -233,6 +233,12 @@ def _check_and_respawn_overseer(
                         current_epoch=current_epoch.isoformat(),
                     )
                     return overseer_container_id, overseer_respawn_count
+            else:
+                logger.debug(
+                    "Epoch guard skipped — expected_run_epoch not provided",
+                    pipeline_id=pipeline_id,
+                    container_id=overseer_container_id[:12],
+                )
 
             if pipeline_check.status in (PipelineStatus.RUNNING, PipelineStatus.AWAITING_HUMAN):
                 logger.warning(
