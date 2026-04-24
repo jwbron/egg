@@ -14,7 +14,7 @@ The desired outcome is a `make test` target that runs **only the tests that coul
 - `pyproject.toml:181-201` (there is no `pytest.ini` / `setup.cfg`) defines `testpaths`, `timeout = 60`, and the custom markers (`integration`, `functional`, `e2e`, `security`, `agent_flaky`).
 - `pyproject.toml:208` builds wheels for 8 packages: `gateway`, `shared/egg_config`, `shared/egg_container`, `shared/egg_contracts`, `shared/egg_logging`, `shared/egg_git`, `shared/egg_restrictions`, `sandbox/egg_lib`. `orchestrator/` is **not** a wheel — it is imported as bare modules via the `PYTHONPATH` tweak and `orchestrator/tests/conftest.py:22-29`.
 - **Four `conftest.py` files** do `sys.path` injection before tests run: `tests/conftest.py:12-16`, `shared/tests/conftest.py:13-16`, `gateway/tests/conftest.py` (+ `importlib` rewrite for hyphenated dir), `orchestrator/tests/conftest.py:22-29`. Tests import via bare names (`from models import Pipeline`), not fully-qualified package paths.
-- **Dynamic imports** in source: `gateway/gateway.py:304` (`__import__`), `gateway/gateway.py:309-317` (`importlib.util.spec_from_file_location`), `gateway/commit_observer.py:182` and `gateway/git_client.py:1727` (`importlib.util`), plus `__import__("re")` / `__import__("threading")` string-literal patterns in `gateway/filtered_push.py` and `gateway/gateway.py:2837`. Tests also use `SourceFileLoader` to load hyphenated scripts (`tests/tools/test_discover_tests.py:13-20`). `sandbox/egg_lib/__init__.py:7` notes `SourceFileLoader` is used by the `egg` launcher.
+- **Dynamic imports** in source: `gateway/gateway.py:304` (`__import__`), `gateway/gateway.py:309-322` (`importlib.util.spec_from_file_location` + `exec_module` block), `gateway/commit_observer.py:182` and `gateway/git_client.py:1727` (`importlib.util`), plus `__import__("re")` / `__import__("threading")` string-literal patterns in `gateway/filtered_push.py` and `gateway/gateway.py:2837`. Tests also use `SourceFileLoader` to load hyphenated scripts (`tests/tools/test_discover_tests.py:13-20`). `sandbox/egg_lib/__init__.py:7` notes `SourceFileLoader` is used by the `egg` launcher.
 - **CI** (`.github/workflows/test.yml:31-37`) invokes `make test PYTEST_ARGS="--cov=gateway --cov=shared --cov=sandbox --cov-report=term-missing --cov-fail-under=80"`. The `--cov-fail-under=80` gate is computed against the tests that actually run — narrowing the set will drop aggregate coverage below 80% and fail CI unless the gate is disabled for narrowed runs.
 - **Checkout** in CI uses `actions/checkout@v4` with default `fetch-depth: 1`, so `origin/main` is not locally available for `git diff` without an explicit deeper fetch.
 - **No existing test-selection tooling** in the repo: no `pytest-testmon`, no `grimp`, no `pydeps`/`importlab`, no `pyan`. The only existing graph infrastructure is `shared/egg_contracts/dependency_graph.py` (an agent-role DAG, not an import graph) and `orchestrator/review_graph.py` (BRC reviewer graph). `scripts/check-claude-imports.py` is regex-only.
@@ -80,7 +80,7 @@ The desired outcome is a `make test` target that runs **only the tests that coul
 **Cons**:
 - Requires a seed full run to populate the database; the DB must travel with the branch or be rebuilt per CI job (the tarpas/testmon maintainers explicitly recommend full runs on main to avoid drift).
 - `.testmondata` is the equivalent of LKG but with much larger storage (coverage map, not a SHA) — either tracked in git (noisy, binary), stored as a CI artifact (CI-only, doesn't help the local inner loop), or rebuilt every run (defeats the point).
-- Subprocess calls, file-based data, and test-order-dependent state are explicit weak spots (per testmon's own docs) — in this codebase `gateway/gateway.py:304-317` dynamically loads modules, which is exactly the shape testmon also struggles with *when run inside the same process*.
+- Subprocess calls, file-based data, and test-order-dependent state are the explicit weak spots (per testmon's own docs). Same-process dynamic imports like `gateway/gateway.py:304` / `:309-322` **are** observed by testmon via `coverage.py`, so the real miss-mode for this codebase is subprocess-crossing coverage (sandbox launches, child `pytest` invocations), not in-process `importlib`.
 - Interacts awkwardly with `pytest --cov` (our CI coverage gate) — both plugins instrument coverage.py differently.
 
 ### Option D: Hybrid — static graph (grimp) as first-pass + pytest-testmon under `make test-fast` (or similar)
@@ -122,7 +122,7 @@ The load-bearing constraints from the issue (correctness-first, minimal waste, f
 
 ## Open Questions
 
-Every ambiguity below needs an answer from the human before the plan phase can design the implementation. **All items are registered via `egg-contract` below**; this prose list mirrors them for readability.
+Every ambiguity below needs an answer from the human before the plan phase can design the implementation. **All items are registered via `egg-contract`**; this prose list mirrors the nine HITL decisions and the eleven most important feedback questions for readability. The contract also holds one additional free-form feedback item — **"Fallback-trigger list completeness"** (`feedback-1/Q10`) — not duplicated below.
 
 ### Decision questions (multiple-choice — see contract)
 
