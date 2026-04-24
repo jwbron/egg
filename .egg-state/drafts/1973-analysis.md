@@ -122,33 +122,41 @@ The load-bearing constraints from the issue (correctness-first, minimal waste, f
 
 ## Open Questions
 
-Every ambiguity below needs an answer from the human before the plan phase can design the implementation. **All items are registered via `egg-contract`**; this prose list mirrors the nine HITL decisions and the eleven most important feedback questions for readability. The contract also holds one additional free-form feedback item — **"Fallback-trigger list completeness"** (`feedback-1/Q10`) — not duplicated below.
+Every ambiguity below needs an answer from the human before the plan phase can design the implementation. **All items are registered via `egg-contract`**; this prose list cross-references the 12 HITL decisions and the 16 open-ended feedback questions currently on the contract (`feedback-3`).
 
 ### Decision questions (multiple-choice — see contract)
 
-1. **Selection mechanism** — grimp vs hand-rolled AST vs pytest-testmon vs hybrid. The recommendation is grimp; the issue explicitly flags this as reopen-able.
-2. **LKG storage** — tracked file (`.egg/last-known-good`), git notes, non-tracked sidecar in `.egg-state/`, or abandon LKG entirely and always baseline on `$(BASE_BRANCH)`. The recommendation flips the proposal's default to sidecar.
-3. **LKG update mechanism** — auto-commit after every passing `make test-all`, amend onto HEAD, sidecar file write (no commit), or manual-only (`make test-record-good`).
-4. **Merge behaviour for LKG** — rewrite to main's pre-merge HEAD (proposal), strip on merge, leave branch-local values alone, or N/A (if we pick sidecar).
-5. **Dynamic-import handling** — grep-and-widen on any match, widen-only-if-closure-overlap, runtime import-hook-on-seed-run, or a shadow-imports file (Qik `qikimports.py` style).
-6. **CI behaviour** — CI uses `make test-all` (full suite always), CI uses `make test` with narrowing enabled, or CI uses `make test` but without the `--cov-fail-under=80` gate when narrowing is active.
-7. **Shallow checkout** — deepen `actions/checkout` to `fetch-depth: 0`, fetch baseline ref on demand inside `make test`, or require callers to have baseline already fetched (fall back to full suite when absent).
-8. **Target name** — `make test-all` (issue proposal), `make test-full`, or keep `make test` as full-suite and introduce a new narrowed target (`make test-changed` / `make test-fast`).
-9. **Graph granularity** — module-level (grimp default), file-level (one node per `.py`), or function-level (requires pyan or testmon).
+- `decision-1` — **LKG update mechanism**: auto-commit after every passing `make test-all`, amend onto HEAD, ride-along on the next commit, or manual-only (`make test-record-good`).
+- `decision-2` — **CI integration given `--cov-fail-under=80`**: CI uses `make test-all`, coverage-aware auto-degrade, narrowed + drop coverage gate on PRs, or narrowed + changed-files-only coverage.
+- `decision-3` — **Selection mechanism**: grimp, pytest-testmon, hybrid, path-mapping, or hand-rolled AST. The recommendation is grimp.
+- `decision-4` — **`.egg/last-known-good` file format**: bare sha, structured JSON, or bare + invalidation marker.
+- `decision-5` — **Non-`.py` resource fallback policy (v1)**: full suite on any non-`.py` change (recommended), explicit allowlist, or map-to-tests.
+- `decision-6` — **Merge behaviour**: merge-queue step, pre-push hook, squash-merge + post-merge workflow, or leave as-is.
+- `decision-7` — **Target naming**: `make test-all`, `make test-full`, or `make test` stays full-suite with a new `make test-fast`.
+- `decision-8` — **Gateway / role policy for LKG pushes**: broad allowlist, gateway-side observer, test-runner-only role, or untracked file.
+- `decision-9` — **LKG storage medium**: non-tracked sidecar in `.egg-state/` (analysis-recommended, flips the issue's default), tracked `.egg/last-known-good`, git notes, or abandon LKG.
+- `decision-10` — **Dynamic-import handling**: grep-and-widen, scan-during-graph-construction, runtime import-hook on seed run, or shadow-imports file.
+- `decision-11` — **CI checkout depth**: deepen `actions/checkout` to `fetch-depth: 0`, fetch baseline on demand inside `make test`, caller-fetches-or-full-suite, or N/A under decision-2.
+- `decision-12` — **Graph granularity**: module-level (grimp default), file-level, or function-level.
 
-### Open-ended questions (free-form — see contract)
+### Open-ended questions (free-form — see contract, `feedback-3`)
 
-10. What performance/size target makes this issue successful? (e.g., "a one-file change in a `gateway/` leaf module should select ≤ N tests and complete in ≤ T seconds on the reference runner.") Without a target, we cannot validate the implementation.
-11. How should the narrowed `make test` interact with coverage reporting — drop coverage entirely, run coverage only against the selected source set, or keep global coverage but skip the threshold gate?
-12. For the `shared/tests/` fixtures that are "used repo-wide," which exact files should trigger a full-suite fallback? (Currently ambiguous; recommend enumerating.)
-13. Are there non-Python files under the repo (YAML/JSON/text) loaded at test runtime that should either (a) force a full-suite fallback or (b) be added to an explicit no-impact allowlist? Spot-check didn't turn up fixture directories, but the human may know of some.
-14. Does the gateway's file-boundary policy permit the **refiner/coder/tester** roles to push an auto-commit that touches `.egg/last-known-good`? If not, the tracked-file design is dead on arrival for agent-driven runs regardless of other merits.
-15. In worktree scenarios (agents running multiple branches in parallel via `git worktree`), is a sidecar file keyed by `<branch>` sufficient, or do we need keying by worktree path too?
-16. Should there be a "canary" mode — e.g., every Nth `make test` run on a branch forces a full suite to catch cases where static selection silently misses a test — and if so, what cadence?
-17. Is there an appetite for adding `pytest-testmon` in a follow-up issue (Option D), or should we treat this issue as closing the door on dynamic selection entirely?
-18. How should `make test` behave when invoked with explicit paths/args (e.g., `make test PYTEST_ARGS="gateway/tests/test_specific.py"`) — bypass narrowing (treat as developer override), intersect with the narrowed set, or union?
-19. Should the implementation surface *why* a test was selected (e.g., a `--why` flag that prints the import chain from changed module → test)? Useful for agents diagnosing "I expected this test to run and it didn't."
-20. When `make test` falls back to the full suite due to a trigger file change, should it still print which trigger caused the fallback, or is the existing verbose log sufficient?
+- `Q1` — Performance/size target (e.g. "≤N tests, ≤T seconds" for a one-file leaf-module change on the reference runner).
+- `Q2` — Shared-fixture fallback enumeration: which exact files under `shared/tests/` trigger a full-suite fallback?
+- `Q3` — Fallback-trigger list completeness: review and sign off on the proposed trigger set.
+- `Q4` — Canary mode: every Nth `make test` run forces a full suite to catch silent misses — do we want it, and at what cadence?
+- `Q5` — Explicit pytest args: bypass narrowing (developer override), intersect, or union?
+- `Q6` — Introspection `--why` flag to print the import chain that selected a test.
+- `Q7` — Fallback-cause printing: generic "falling back" or explicit trigger identification?
+- `Q8` — Testmon follow-up appetite for a later issue.
+- `Q9` — Parallel-agent race on LKG: last-writer-wins acceptable, or need coordination?
+- `Q10` — Integration / e2e / security scope: stay full-suite-only for this PR or follow-up?
+- `Q11` — Documentation placement: `CONTRIBUTING.md`, new `docs/guides/testing.md`, `make help`, or combination?
+- `Q12` — Partial-pass LKG behavior: confirm "never update on partial pass" holds under the chosen storage scheme.
+- `Q13` — Read-only agent phases: can they READ LKG, or always fall back to base branch?
+- `Q14` — Bootstrap / first-use: how is LKG initialized on branches that predate the change?
+- `Q15` — Selection-decision logging: stderr, JSON file at `.egg-state/selection/<sha>.json`, or both?
+- `Q16` — Worktree keying: `<branch>` key sufficient, or do we also key by worktree path?
 
 ---
 
