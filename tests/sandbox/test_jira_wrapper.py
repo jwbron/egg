@@ -54,7 +54,8 @@ def _locate_wrapper() -> Path:
         return _ARTIFACT
     pytest.skip(
         "sandbox jira wrapper not found at "
-        f"{_CANONICAL} or {_ARTIFACT} — coder proposal #1556 may be incomplete."
+        f"{_CANONICAL} or {_ARTIFACT} — coder proposal #1556 may be incomplete.",
+        allow_module_level=True,
     )
 
 
