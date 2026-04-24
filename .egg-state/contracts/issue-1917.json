@@ -514,10 +514,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"brc \u2014 extend existing namespace; groups all messaging verbs together\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:58:12.761119Z",
       "debounce_until": null
     },
     {
@@ -547,10 +547,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Ship \u2014 minimal read-only view over GET /api/v1/pipelines/<pid>/status (Recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:58:48.099287Z",
       "debounce_until": null
     },
     {
@@ -580,10 +580,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"First-class gaps[] field on task \u2014 cleaner query surface but requires gateway + contract-schema migration\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:59:28.354907Z",
       "debounce_until": null
     },
     {
@@ -613,10 +613,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"One PR \u2014 follows iteration 1's shape; single coordinated release (Recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T04:00:03.681306Z",
       "debounce_until": null
     },
     {
@@ -641,10 +641,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Neither \u2014 anchor is deferred to iter 3 per decision-2, so this iter-2 plan should NOT ship mcp__anchor__* tools and should NOT update the anchor rule docs. The phantom `egg-orch anchor *` CLI references in sandbox/agent-config/rules/orchestrator.md:20-24 stay as-is until iter 3, when the anchor trio lands and the retraction happens together. A post-merge follow-up issue will track the iter-3 anchor work including the rule-doc retraction. No action in iter 2.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T04:00:49.100120Z",
       "debounce_until": null
     },
     {
@@ -674,10 +674,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"shared/egg_contracts/checkpoint_handlers.py + sandbox re-export \u2014 avoids layering violation (Recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T04:01:34.608750Z",
       "debounce_until": null
     },
     {
