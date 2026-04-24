@@ -342,10 +342,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Keep the flag for iter-2 burn-in and remove in a third follow-up — same stepped rollout iter 1 used\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-11",
+      "question": "Harness coverage: iter 1 decision-3 deferred EGG_HARNESS=egg parallel wiring. Should iter 2 address it?",
+      "context": "Open contract question decision-10, registered by an agent during the refine phase.",
+      "options": [
+        "Still defer — EGG_HARNESS=egg remains experimental; agents on that path keep shelling out",
+        "Add parallel wiring in this iter-2 PR — register iter-2 verbs on the egg harness too via shared/egg_harness_integration/",
+        "Track in a new follow-up issue — call out the gap but don't expand iter-2 scope",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T03:13:55.096750Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:10:06.375518Z",
-  "updated_at": "2026-04-24T03:13:53.151791Z",
+  "updated_at": "2026-04-24T03:13:55.115445Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -359,5 +378,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 30
+  "version": 31
 }
