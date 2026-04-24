@@ -247,10 +247,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"No-CLI new capability (like brc_read_peer_artifact) — ship it MCP-only with cli_command=None; operators don't need it\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Namespace strategy: how should iter-2 verbs be grouped into mcp__<namespace>__* names?",
+      "context": "Open contract question decision-5, registered by an agent during the refine phase.",
+      "options": [
+        "Add new namespaces as needed — `checkpoint`, `overseer`, `anchor`, `peer` (up to 4 new namespaces); keeps each tool discoverable by semantic function",
+        "Stuff everything into the existing 5 namespaces — `sdlc` (show_contract, verify_criterion), `brc` (peer_read_artifact, send_message, poll_messages), `task` (add_commit, update_notes, mark_gap), plus overseer/checkpoint/anchor fit somewhere",
+        "Hybrid — add a new namespace only when the semantic group has >2 verbs (so: `checkpoint`, `anchor` likely yes; `overseer`/`peer` fold into existing namespaces)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T03:10:57.886624Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:10:06.375518Z",
-  "updated_at": "2026-04-24T03:10:56.953842Z",
+  "updated_at": "2026-04-24T03:10:57.901436Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -264,5 +283,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 20
+  "version": 21
 }
