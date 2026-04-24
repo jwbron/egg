@@ -182,10 +182,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-24T20:10:42.973994Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-24T20:12:02.261708Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Other: Automatic write to the sidecar file (.egg-state/last-known-good/<branch>.sha) after every green `make test-all` pass — no commit involved since decision-10 = sidecar. `make test-record-good` is the manual override. Commit-based options don't apply under sidecar storage.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -503,7 +503,7 @@
     }
   ],
   "created_at": "2026-04-24T19:39:48.417158Z",
-  "updated_at": "2026-04-24T20:10:43.850865Z",
+  "updated_at": "2026-04-24T20:12:02.284562Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -517,6 +517,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 25,
+  "version": 26,
   "jira_ticket": null
 }
