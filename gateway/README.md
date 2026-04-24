@@ -38,7 +38,7 @@ The gateway sidecar is the **trusted** component that holds credentials and vali
 
 | Operation | Policy | Check |
 |-----------|--------|-------|
-| `git push` | Branch ownership + Phase filter + Concurrent-mode consensus | Branch has open PR authored by egg, OR branch starts with `egg-` or `egg/`, AND operation is allowed in current phase, AND in concurrent mode push must come through consensus protocol (`consensus_push` marker) |
+| `git push` | Branch ownership + Phase filter + Pipeline-push consensus | Branch has open PR authored by egg, OR branch starts with `egg-` or `egg/`, AND operation is allowed in current phase, AND in pipeline sessions push must come through consensus protocol (`consensus_push` marker) |
 | `gh pr create` | Phase filter + mode policy | Operation is allowed in current phase (typically only in 'pr' phase)<br>In user mode, PR is forced to draft<br>Blocked in reviewer mode |
 | `gh pr comment` | Allowed on any PR | PR must exist and be accessible |
 | `gh pr merge` | **BLOCKED** | No merge endpoint - human must merge via GitHub UI |
@@ -94,7 +94,7 @@ The gateway enforces file-level access restrictions to prevent certain roles fro
 - `Push denied: Role 'X' cannot modify: <files>. <reason>` (HTTP 403) — Phase / contract / protected-file violation (non-agent-role restrictions)
 - `Push denied: Could not verify file changes for security check: <error>` (HTTP 500) — Detection failure
 
-**Agent-role restrictions auto-filter on push.** As of [#1882](https://github.com/jwbron/egg/issues/1882), the push handler no longer returns `403` for *agent-role* file-restriction violations. Instead, the gateway attributes each commit in the unpushed range via the commit-authorship registry and dispatches one of four outcomes — plain push, per-commit rewrite with `Auto-Filtered: true` trailer on own commits, `nothing_to_push: true` when every own file is blocked, or (with the kill switch set) warn-only plain push. Pulled cross-role commits pass through bitwise-unchanged. Phase / contract / protected-file / branch-ownership / private-mode / concurrent-mode checks keep their `403` behavior — only agent-role file restrictions auto-filter. See [Gateway Auto-Filter Architecture](../docs/architecture/gateway-auto-filter.md) for the full design.
+**Agent-role restrictions auto-filter on push.** As of [#1882](https://github.com/jwbron/egg/issues/1882), the push handler no longer returns `403` for *agent-role* file-restriction violations. Instead, the gateway attributes each commit in the unpushed range via the commit-authorship registry and dispatches one of four outcomes — plain push, per-commit rewrite with `Auto-Filtered: true` trailer on own commits, `nothing_to_push: true` when every own file is blocked, or (with the kill switch set) warn-only plain push. Pulled cross-role commits pass through bitwise-unchanged. Phase / contract / protected-file / branch-ownership / private-mode / pipeline-push checks keep their `403` behavior — only agent-role file restrictions auto-filter. See [Gateway Auto-Filter Architecture](../docs/architecture/gateway-auto-filter.md) for the full design.
 
 ### Branch Lock (Pipeline Sessions)
 
@@ -517,7 +517,7 @@ gateway/
 │   ├── test_transcript_buffer.py
 │   ├── test_phase_worktree.py
 │   ├── test_assigned_branch.py  # Push-target enforcement and branch lock tests
-│   ├── test_concurrent_push_block.py  # Concurrent-mode push enforcement tests
+│   ├── test_pipeline_push_block.py  # Pipeline-push enforcement tests
 │   ├── integration_test.sh
 │   └── README-integration.md
 └── README.md               # This file

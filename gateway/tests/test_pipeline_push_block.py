@@ -63,9 +63,9 @@ def _make_session(
 
 
 def _push_context(mock_session):
-    """Return context managers for a push request that reaches the concurrent check.
+    """Return context managers for a push request that reaches the pipeline-push check.
 
-    Mocks everything that happens before the concurrent-mode enforcement
+    Mocks everything that happens before pipeline-push enforcement
     so the request reaches that code path.
     """
     import auth

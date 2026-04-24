@@ -306,18 +306,6 @@ def _do_push(client, headers, refspec="egg/issue-42"):
 class TestPushTargetEnforcement:
     """Push-target enforcement: pipeline sessions must push to assigned branch."""
 
-    @pytest.fixture(autouse=True)
-    def _clear_concurrent_mode(self):
-        """Ensure concurrent-mode push enforcement (#1669) doesn't interfere.
-
-        These tests focus on push-target enforcement, not concurrent-mode
-        enforcement.  If EGG_CONCURRENT_MODE leaks from the test runner
-        environment (e.g. when tests run inside a concurrent pipeline), it
-        would block every pipeline-session push that lacks consensus_push.
-        """
-        with patch.dict(os.environ, {"EGG_CONCURRENT_MODE": ""}):
-            yield
-
     def test_pipeline_push_to_assigned_branch_succeeds(self, push_client, mock_push_policy):
         """(a) Pipeline session pushing to assigned branch should succeed."""
         session = _make_pipeline_session(assigned_branch="egg/issue-42")
