@@ -139,6 +139,12 @@ module = ["kubernetes", "kubernetes.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+# grimp ships no type stubs; it's a dev-time dependency for the
+# changeset-aware test selector (scripts/select_tests.py).
+module = ["grimp", "grimp.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = [
     "repo_config",
     "repo_config.*",
