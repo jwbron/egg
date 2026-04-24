@@ -8,7 +8,6 @@ from egg_agent_tools.handlers._gateway import (
     container_id_field,
     gateway_request,
     get_contract_identifier,
-    get_phase,
     get_repo_path,
 )
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError
@@ -221,7 +220,9 @@ def check_hitl_answers(req: dict[str, Any]) -> dict[str, Any]:
 
     Request:
         phase (str): optional filter — only return decisions/feedback
-            attached to the given phase.
+            attached to the given phase. When omitted, returns HITL for
+            *all* phases of the pipeline so a later-phase caller can see
+            what earlier phases already resolved.
         include_unresolved (bool): if True, also include unresolved
             decisions. Defaults to False.
         repo_path, pipeline_id, issue: optional overrides.
@@ -229,7 +230,9 @@ def check_hitl_answers(req: dict[str, Any]) -> dict[str, Any]:
     Response:
         { ok: True, decisions: [...], feedback: {...}|None }
     """
-    phase = req.get("phase") or get_phase()
+    phase = req.get("phase")
+    if phase is not None and phase not in _VALID_PHASES:
+        raise HandlerError(f"'phase' must be one of {sorted(_VALID_PHASES)}; got {phase!r}")
     include_unresolved = bool(req.get("include_unresolved", False))
     repo_path = req.get("repo_path") or get_repo_path()
     identifier = _resolve_identifier(req)
