@@ -795,6 +795,92 @@
       },
       "reason": "Created feedback request with 10 question(s)",
       "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:45:19.444452Z",
+      "actor": "egg",
+      "role": "reviewer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Which Atlassian projects should be on the v1 allowlist? (Provide project keys, comma-separated, e.g. `ENG,WEBAPP,INFRA`.)",
+            "answer": "Configurable \u2014 project allowlist lives in the new `jira:` section of `config/context-filters.yaml`; ops populate it at setup time. Gateway ships with an empty allowlist (fails closed on any project)."
+          },
+          {
+            "id": "Q2",
+            "question": "What is the expected request volume per pipeline (peak JQL searches/min, peak ticket reads/min)? This feeds rate-limit defaults.",
+            "answer": "Low (<10/min each) for v1. Rate-limit defaults should be conservative and tunable via gateway config."
+          },
+          {
+            "id": "Q3",
+            "question": "Is there a preferred Atlassian bot-account naming / identity convention (display name, email, avatar) we should align with, or is this greenfield?",
+            "answer": "Greenfield \u2014 pick at setup; no existing convention to align with."
+          },
+          {
+            "id": "Q4",
+            "question": "Beyond `accountId`, `emailAddress`, and attachment URLs, are there custom fields or other response fields we should redact before sandbox-visible responses?",
+            "answer": "N/A \u2014 no redaction. Jira is private-mode only, and in that mode the session is already a constrained, trusted context (matches earlier decision on redaction)."
+          },
+          {
+            "id": "Q5",
+            "question": "On Atlassian 429 (rate-limited) responses with `Retry-After`: pass the 429 through verbatim to the sandbox, or have the gateway swallow + retry once with honoured backoff?",
+            "answer": "Gateway swallows + retries once, honouring `Retry-After`. If the retry also fails, pass the 429 through so the failure still surfaces to the agent."
+          },
+          {
+            "id": "Q6",
+            "question": "Should Jira audit logs ship to the same sink as existing gateway audit logs, or a separate Jira-scoped sink?",
+            "answer": "Same sink as existing gateway audit logs. Jira ops are tagged in structured log entries so they can be filtered at query time."
+          },
+          {
+            "id": "Q7",
+            "question": "For the `/api/v1/jira/execute` passthrough, is there any path pattern outside `GET /rest/api/3/issue/...`, `GET /rest/api/3/search/...`, and `GET /rest/api/3/project/...` you want permitted in v1?",
+            "answer": "No \u2014 only `GET /rest/api/3/issue/...`, `GET /rest/api/3/search/...`, and `GET /rest/api/3/project/...`. Anything outside those three families requires a narrow route (future work)."
+          },
+          {
+            "id": "Q8",
+            "question": "How should the gateway handle deleted / archived tickets in responses \u2014 404 passthrough, or synthesize a `{\"status\":\"not_found\"}` envelope for consistency with other gateway endpoints?",
+            "answer": "Synthesize `{\"status\":\"not_found\"}` envelope \u2014 consistent with how other gateway endpoints shape errors."
+          },
+          {
+            "id": "Q9",
+            "question": "Looking ahead to the future write scope (create ticket / update ticket / create comment, out of scope here but informing v1 design): should the gateway enforce idempotency (e.g., refuse duplicate `comment create` within N seconds), or leave that to Atlassian's own semantics?",
+            "answer": "Out of scope for v1 (which is read-only). When writes land, start by relying on Atlassian's own semantics + operator discipline rather than gateway-enforced idempotency; revisit only if duplicate-write issues surface."
+          },
+          {
+            "id": "Q10",
+            "question": "Is the intent strictly \"private mode only\" for Jira, or do you anticipate a hypothetical \"internal-dev\" mode (trusted agents, locked-down network) that should also see Jira endpoints? (No such mode exists today.)",
+            "answer": "Private mode only. No internal-dev mode exists today, and inventing one just to widen Jira reachability is out of scope for #1556. If such a mode is added later, reachability for Jira can be reconsidered then."
+          }
+        ],
+        "submitted": true,
+        "submitted_by": "human",
+        "submitted_at": "2026-04-23T23:35:58.555502Z",
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "new_value": {
+        "id": "feedback-2",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Task 3-1 / Task 5-1 plan\u2194policy conflict (issue #1556 implement phase). The task_planner wrote Task 3-1 as writing `sandbox/scripts/jira` and Task 5-1 as editing `config/README.md`, but the coder role's deployed file-access policy in `shared/egg_restrictions/patterns.py` blocks both paths (`sandbox/scripts/` wholesale at line 257, `**/README.md` at line 231). The coder's cycle-2 re-proposal (commit 985c166b5) added a narrow `block_exempt_patterns` entry for the exact path `sandbox/scripts/jira` (lines 281-288) \u2014 this will take effect once the PR merges and the gateway pod reloads patterns.py. The coder also sent a HANDOFF (msg 4b40043b-92eb-49) to the documenter asking them to update `config/README.md`. The wrapper is currently staged at `.egg-state/agent-outputs/1556-sandbox-scripts-jira` (executable, 472 lines, content-complete). Two resolutions need a human call:\n\n(a) sandbox/scripts/jira location \u2014 should a post-merge step (manual `git mv` or orchestrator-driven follow-up commit, after the patterns.py exemption is live on the gateway) move the file to `sandbox/scripts/jira`? Tester's Task 4-5 subprocess tests and the runtime sandbox `$PATH` assume that final path.\n\n(b) config/README.md \u2014 accept the coder's HANDOFF and confirm the documenter will expand the `## context-filters.yaml` section with the `jira.projects` schema + cross-link to `docs/reference/jira-wrapper.md`? Otherwise Task 5-1's acceptance criterion for README remains unmet.\n\nBoth conflicts are plan-phase oversights (paths were specified without checking role blocklists). Contract task-planner should know for next time.",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 1 question(s)",
+      "checkpoint_id": null
     }
   ],
   "refine_review_cycles": 0,
@@ -803,63 +889,18 @@
   "plan_review_feedback": "",
   "pr": null,
   "feedback": {
-    "id": "feedback-1",
+    "id": "feedback-2",
     "phase": "refine",
     "questions": [
       {
         "id": "Q1",
-        "question": "Which Atlassian projects should be on the v1 allowlist? (Provide project keys, comma-separated, e.g. `ENG,WEBAPP,INFRA`.)",
-        "answer": "Configurable \u2014 project allowlist lives in the new `jira:` section of `config/context-filters.yaml`; ops populate it at setup time. Gateway ships with an empty allowlist (fails closed on any project)."
-      },
-      {
-        "id": "Q2",
-        "question": "What is the expected request volume per pipeline (peak JQL searches/min, peak ticket reads/min)? This feeds rate-limit defaults.",
-        "answer": "Low (<10/min each) for v1. Rate-limit defaults should be conservative and tunable via gateway config."
-      },
-      {
-        "id": "Q3",
-        "question": "Is there a preferred Atlassian bot-account naming / identity convention (display name, email, avatar) we should align with, or is this greenfield?",
-        "answer": "Greenfield \u2014 pick at setup; no existing convention to align with."
-      },
-      {
-        "id": "Q4",
-        "question": "Beyond `accountId`, `emailAddress`, and attachment URLs, are there custom fields or other response fields we should redact before sandbox-visible responses?",
-        "answer": "N/A \u2014 no redaction. Jira is private-mode only, and in that mode the session is already a constrained, trusted context (matches earlier decision on redaction)."
-      },
-      {
-        "id": "Q5",
-        "question": "On Atlassian 429 (rate-limited) responses with `Retry-After`: pass the 429 through verbatim to the sandbox, or have the gateway swallow + retry once with honoured backoff?",
-        "answer": "Gateway swallows + retries once, honouring `Retry-After`. If the retry also fails, pass the 429 through so the failure still surfaces to the agent."
-      },
-      {
-        "id": "Q6",
-        "question": "Should Jira audit logs ship to the same sink as existing gateway audit logs, or a separate Jira-scoped sink?",
-        "answer": "Same sink as existing gateway audit logs. Jira ops are tagged in structured log entries so they can be filtered at query time."
-      },
-      {
-        "id": "Q7",
-        "question": "For the `/api/v1/jira/execute` passthrough, is there any path pattern outside `GET /rest/api/3/issue/...`, `GET /rest/api/3/search/...`, and `GET /rest/api/3/project/...` you want permitted in v1?",
-        "answer": "No \u2014 only `GET /rest/api/3/issue/...`, `GET /rest/api/3/search/...`, and `GET /rest/api/3/project/...`. Anything outside those three families requires a narrow route (future work)."
-      },
-      {
-        "id": "Q8",
-        "question": "How should the gateway handle deleted / archived tickets in responses \u2014 404 passthrough, or synthesize a `{\"status\":\"not_found\"}` envelope for consistency with other gateway endpoints?",
-        "answer": "Synthesize `{\"status\":\"not_found\"}` envelope \u2014 consistent with how other gateway endpoints shape errors."
-      },
-      {
-        "id": "Q9",
-        "question": "Looking ahead to the future write scope (create ticket / update ticket / create comment, out of scope here but informing v1 design): should the gateway enforce idempotency (e.g., refuse duplicate `comment create` within N seconds), or leave that to Atlassian's own semantics?",
-        "answer": "Out of scope for v1 (which is read-only). When writes land, start by relying on Atlassian's own semantics + operator discipline rather than gateway-enforced idempotency; revisit only if duplicate-write issues surface."
-      },
-      {
-        "id": "Q10",
-        "question": "Is the intent strictly \"private mode only\" for Jira, or do you anticipate a hypothetical \"internal-dev\" mode (trusted agents, locked-down network) that should also see Jira endpoints? (No such mode exists today.)",
-        "answer": "Private mode only. No internal-dev mode exists today, and inventing one just to widen Jira reachability is out of scope for #1556. If such a mode is added later, reachability for Jira can be reconsidered then."
+        "question": "Task 3-1 / Task 5-1 plan\u2194policy conflict (issue #1556 implement phase). The task_planner wrote Task 3-1 as writing `sandbox/scripts/jira` and Task 5-1 as editing `config/README.md`, but the coder role's deployed file-access policy in `shared/egg_restrictions/patterns.py` blocks both paths (`sandbox/scripts/` wholesale at line 257, `**/README.md` at line 231). The coder's cycle-2 re-proposal (commit 985c166b5) added a narrow `block_exempt_patterns` entry for the exact path `sandbox/scripts/jira` (lines 281-288) \u2014 this will take effect once the PR merges and the gateway pod reloads patterns.py. The coder also sent a HANDOFF (msg 4b40043b-92eb-49) to the documenter asking them to update `config/README.md`. The wrapper is currently staged at `.egg-state/agent-outputs/1556-sandbox-scripts-jira` (executable, 472 lines, content-complete). Two resolutions need a human call:\n\n(a) sandbox/scripts/jira location \u2014 should a post-merge step (manual `git mv` or orchestrator-driven follow-up commit, after the patterns.py exemption is live on the gateway) move the file to `sandbox/scripts/jira`? Tester's Task 4-5 subprocess tests and the runtime sandbox `$PATH` assume that final path.\n\n(b) config/README.md \u2014 accept the coder's HANDOFF and confirm the documenter will expand the `## context-filters.yaml` section with the `jira.projects` schema + cross-link to `docs/reference/jira-wrapper.md`? Otherwise Task 5-1's acceptance criterion for README remains unmet.\n\nBoth conflicts are plan-phase oversights (paths were specified without checking role blocklists). Contract task-planner should know for next time.",
+        "answer": null
       }
     ],
-    "submitted": true,
-    "submitted_by": "human",
-    "submitted_at": "2026-04-23T23:35:58.555502Z",
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
     "comment_id": null,
     "debounce_until": null
   },
