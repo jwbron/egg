@@ -210,7 +210,7 @@ class TestBranchReadFallback:
 
     PIPELINE_ID = "issue-1977"
 
-    def _fake_pipeline(self, tmp_path: Path, branch: str = "egg/issue-1977"):
+    def _fake_pipeline(self, tmp_path: Path, branch: str | None = "egg/issue-1977"):
         repo_path = tmp_path / "repo"
         repo_path.mkdir()
         store = SimpleNamespace(repo_path=repo_path)
@@ -380,6 +380,7 @@ class TestBranchReadFallback:
             "show",
             f"origin/egg/{self.PIPELINE_ID}:.egg-state/contracts/{self.PIPELINE_ID}.json",
         ]
+        assert run_mock.call_args_list[0].kwargs["cwd"] == store.repo_path
 
     def test_exists_returns_404_when_worktree_and_branch_both_miss(
         self, client, tmp_path, monkeypatch
