@@ -306,10 +306,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-9",
+      "question": "Gateway / role policy for `.egg/last-known-good` pushes",
+      "context": "Open contract question decision-8, registered by an agent during the refine phase.",
+      "options": [
+        "Add `.egg/last-known-good` to the push allowlist for every role that runs `make test` (refiner, planner, coder, tester, reviewers, …) — broad but simple. Recommended.",
+        "Route LKG updates through a gateway-side observer: the sandbox never writes the file directly; the gateway observes a passing full-run signal (e.g. via a structured pytest report) and commits LKG itself on the agent's branch.",
+        "Restrict LKG writes to a dedicated 'test-runner' role only — means other roles can't update LKG, so the file only advances when that role runs tests.",
+        "Make the file untracked (.gitignore) and accept the loss of cross-sandbox continuity — sidesteps gateway policy entirely.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T20:10:43.453280Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T19:39:48.417158Z",
-  "updated_at": "2026-04-24T20:10:43.400035Z",
+  "updated_at": "2026-04-24T20:10:43.477639Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -323,6 +343,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 19,
+  "version": 20,
   "jira_ticket": null
 }
