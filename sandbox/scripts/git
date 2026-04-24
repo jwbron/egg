@@ -271,17 +271,19 @@ print(json.dumps({
         case "$http_code" in
             401) echo "Authentication failed - check session token" >&2 ;;
             403)
-                # Check if this is a concurrent-mode block
-                concurrent_block=$(echo "$response" | python3 -c "import sys, json; print('concurrent' in json.load(sys.stdin).get('message', '').lower())" 2>/dev/null)
-                if [ "$concurrent_block" = "True" ]; then
+                # Pipeline-session pushes must route through mcp__brc__propose.
+                # The gateway marks those with recommended_tool="mcp__brc__propose"
+                # in the error details.
+                pipeline_block=$(echo "$response" | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('data', {}).get('recommended_tool') == 'mcp__brc__propose' or 'pipeline sessions' in d.get('message', '').lower())" 2>/dev/null)
+                if [ "$pipeline_block" = "True" ]; then
                     cat >&2 << 'EOF'
 
 ================================================================================
-  PUSH BLOCKED — CONCURRENT MODE
+  PUSH BLOCKED — PIPELINE SESSION
 ================================================================================
 
-Direct git push is blocked in concurrent mode.
-Use: egg-orch consensus propose --push
+Direct git push is blocked for pipeline sessions.
+Use: mcp__brc__propose  (or CLI fallback: egg-orch consensus propose --push)
 
 See error details above for more information.
 

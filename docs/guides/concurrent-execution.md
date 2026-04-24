@@ -494,18 +494,18 @@ While auto re-propose provides a **safety net** for stale reviews, it relies on 
 
 1. Agent calls `mcp__brc__propose(...)` (push defaults to true) — or runs `egg-orch consensus propose --push`
 2. Both surfaces delegate to `egg_agent_tools.push.consensus_push()`, which calls the gateway push API directly (bypassing the git wrapper) with `"consensus_push": true` in the JSON payload
-3. The gateway checks: if `EGG_CONCURRENT_MODE=true` AND the session has a `pipeline_id` AND the push is not infrastructure (checkpoints/pipeline state), then `consensus_push` must be present
+3. The gateway checks: if the session has a `pipeline_id` AND the push is not infrastructure (checkpoints/pipeline state), then `consensus_push` must be present. The check no longer requires `EGG_CONCURRENT_MODE=true` — all SDLC producer phases are BRC phases, so direct push is blocked for every pipeline session ([#2028](https://github.com/jwbron/egg/issues/2028))
 4. Pushes without the marker are rejected with HTTP 403 and the error points at `mcp__brc__propose`
-5. Fallback: when `GATEWAY_URL` is not set (e.g., local development), the helper falls back to plain `git push`. No concurrent-mode enforcement exists in this path — the gateway is not running to enforce it
+5. Fallback: when `GATEWAY_URL` is not set (e.g., local development), the helper falls back to plain `git push`. No pipeline-push enforcement exists in this path — the gateway is not running to enforce it
 
-**Relationship to auto re-propose:** Gateway enforcement makes auto re-propose less critical in concurrent mode — every push IS a proposal, so there are no "orphan pushes" to detect. Auto re-propose remains as defense-in-depth for edge cases (e.g., if an agent manages to push through an alternative path).
+**Relationship to auto re-propose:** Gateway enforcement makes auto re-propose less critical — every push IS a proposal, so there are no "orphan pushes" to detect. Auto re-propose remains as defense-in-depth for edge cases (e.g., if an agent manages to push through an alternative path).
 
-**Killswitch:** Set `CONCURRENT_PUSH_ENFORCEMENT=false` on the gateway to disable. Use only for emergency bypass.
+**Killswitch:** Set `PIPELINE_PUSH_ENFORCEMENT=false` (or the legacy alias `CONCURRENT_PUSH_ENFORCEMENT=false`) on the gateway to disable. Use only for emergency bypass.
 
 **Error message for agents:**
 ```
-Direct git push is blocked in BRC mode. Publish your artifact via the
-mcp__brc__propose tool (which pushes to origin and sends CONSENSUS_PROPOSE
+Direct git push is blocked for pipeline sessions. Publish your artifact via
+the mcp__brc__propose tool (which pushes to origin and sends CONSENSUS_PROPOSE
 in one step). Fallback CLI: `egg-orch consensus propose --push`.
 ```
 

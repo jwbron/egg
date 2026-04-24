@@ -284,13 +284,20 @@ def mock_push_policy():
 
 
 def _do_push(client, headers, refspec="egg/issue-42"):
-    """Send a push request."""
+    """Send a push request.
+
+    Includes ``consensus_push=True`` so the request passes the pipeline-push
+    block (#2028) and reaches the push-target enforcement under test.  These
+    tests exercise the defense-in-depth branch check that runs after a
+    well-formed propose call.
+    """
     return client.post(
         "/api/v1/git/push",
         json={
             "repo_path": "/home/egg/repos/test-repo",
             "remote": "origin",
             "refspec": refspec,
+            "consensus_push": True,
         },
         headers=headers,
     )
