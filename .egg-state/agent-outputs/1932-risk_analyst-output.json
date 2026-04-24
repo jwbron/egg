@@ -33,7 +33,8 @@
       ],
       "mitigations": [
         "Trigger set MUST exclude DECISION_RESOLVED (per HITL resolution). Plan should call this out in the route handler as an explicit allowlist rather than a denylist.",
-        "Assert via test: resolve a decision via provide_input and verify the in-flight `wait_for_status_change` call does not return on DECISION_RESOLVED."
+        "Assert via test: resolve a decision via provide_input and verify the in-flight `wait_for_status_change` call does not return on DECISION_RESOLVED.",
+        "Note the subtle secondary race: `provide_input` synchronously resolves the decision (orchestrator/routes/decisions.py:440-462), emits DECISION_RESOLVED, and returns the HTTP 200 to the caller; there is a tiny window in which the host could theoretically observe the HTTP response before the event crosses the EventBus. The allowlist mitigation (exclude DECISION_RESOLVED) makes this window irrelevant because the event would not wake the host even if observed, but the exclusion is precisely why the race is benign — document the reasoning in the handler comment so a future refactor doesn't accidentally reintroduce it."
       ],
       "rollback": "Revert SKILL.md to call get_status instead — existing behaviour is preserved. The new MCP tool can stay dormant.",
       "needs_human_review": false
@@ -70,8 +71,8 @@
         "orchestrator/events.py:94-142 (Event, EventBus._history)"
       ],
       "mitigations": [
-        "Preferred: add a per-pipeline monotonic event_id (int counter) emitted in the Event dataclass. Backwards-compatible because the field is additive. Three-line change in Event + _deliver_event (orchestrator/events.py:94-165).",
-        "Alternative: combine timestamp with a tiebreaker (monotonic counter within the same microsecond) into the cursor. Slightly uglier but contains blast radius.",
+        "Preferred: add a per-pipeline monotonic event_id (int counter) emitted in the Event dataclass. Backwards-compatible because the field is additive. The Event dataclass itself is a ~3-line change (orchestrator/events.py:94-103), but the counter must be updated under the existing `self._lock` in `EventBus._deliver_event` (orchestrator/events.py:148-165) — add a per-pipeline counter dict guarded by the same `threading.RLock` instance, and increment it at emit time before the event reaches the history buffer. Realistic estimate: ~15 lines plus a test that asserts monotonicity under concurrent emits.",
+        "Alternative: combine timestamp with a tiebreaker (monotonic counter within the same microsecond) into the cursor. Slightly uglier but contains blast radius and still needs the same lock.",
         "Document the chosen scheme in the new wait-endpoint handler and in docs/reference/agent-wait-patterns.md so future consumers don't reinvent it."
       ],
       "rollback": "If the cursor design is too intrusive, fall back to 'no cursor, accept R2 race' and only filter on the message-type side where Redis stream IDs solve the problem cleanly.",
@@ -91,10 +92,10 @@
         "orchestrator/mcp_server.py:160-173 (anyio.to_thread.run_sync path — but note the async wait is pre-sync-handler, so event-triggered block does NOT hold a worker; only the short sync fetch after wake-up does)"
       ],
       "mitigations": [
-        "Confirm the wait-primitive is truly async (blocks on the event loop, not inside anyio.to_thread.run_sync) — this is the existing pattern at orchestrator/mcp_server.py:162-173 where `_apply_get_status_wait` runs before `run_sync`. If the implementation follows that pattern, each in-flight wait costs ZERO worker threads during the blocking period — only the brief post-wake get_status fetch pins a thread (~50ms). This materially alters the math: the pool budget is paid only during the fetch, not during the wait.",
-        "Add egg_inflight_host_waits metric (HITL-approved). Emit at async-wait-enter / async-wait-exit boundary.",
+        "Confirm the wait-primitive is truly async (blocks on the event loop, not inside anyio.to_thread.run_sync). The precise anchor: `anyio.to_thread.run_sync(...)` at orchestrator/mcp_server.py:173 is the boundary — code BEFORE that call runs on the event loop (free), code INSIDE runs on a worker thread (pinned). The existing pattern at orchestrator/mcp_server.py:160-173 has `await _apply_get_status_wait(...)` on line 163 running BEFORE the `run_sync` call, so during the wait no worker thread is held. The new wait_for_status_change MUST follow the same ordering: event-triggered block before run_sync, sync fetch inside run_sync.",
+        "Add egg_inflight_host_waits metric (HITL-approved). Emit at async-wait-enter / async-wait-exit boundary. Also emit a structured log line with the wake-reason (event_type that fired, or 'timeout') for production debuggability — aids operators correlating wake patterns with pipeline behaviour without adding another metric.",
         "Document the concurrency math in the plan phase: 'N pipelines × (1 host wait + K agent waits) × (async-only during block + brief sync fetch) = << 16 thread-seconds per cycle'.",
-        "If implementation deviates from the 'block on event loop first' pattern (e.g., the new /status/wait route itself is a Flask sync view that blocks), we double the thread cost per host-poll. The plan phase should EXPLICITLY choose a pattern: either (a) compose the wait inside the async MCP wrapper so the HTTP round-trip is not made during the wait, OR (b) make the Flask route async-ready and carry the event-loop block into it. Option (a) is the safer bet — it keeps the MCP async wrapper as the coordination point and avoids touching orchestrator routes' sync/async model."
+        "If implementation deviates from the 'block on event loop first' pattern (e.g., the new /status/wait route itself is a Flask sync view that blocks on `anyio.from_thread.run(...)` or similar from inside run_sync), we double the thread cost per host-poll. The plan phase should EXPLICITLY choose a pattern: either (a) compose the wait inside the async MCP wrapper so the HTTP round-trip is not made during the wait, OR (b) make the Flask route async-ready and carry the event-loop block into it. Option (a) is the safer bet — it keeps the MCP async wrapper as the coordination point and avoids touching orchestrator routes' sync/async model."
       ],
       "rollback": "Drop the wait=25 default in SKILL.md to wait=5 — reduces per-poll thread holding time at cost of more polls. Orthogonally, raising EGG_ORCH_WAITRESS_THREADS is a single env var change.",
       "needs_human_review": true,
@@ -153,7 +154,8 @@
       "mitigations": [
         "Spec: the skill MUST re-enter the get_status/wait loop on every timeout with zero in-prompt conditional skips. Add explicit wording 'Even if {changed:false}, always re-issue wait_for_status_change within 1s of return — do not apply conditional sleeps or side-exits'.",
         "Add a host-side timer-of-last-resort: if elapsed since last wake > 60s, force a full get_status call and full render. This is the explicit liveness floor from the issue body. (HITL deferred the literal vs aspirational interpretation to the plan; recommend literal = 60s.)",
-        "Emit a metric for mean-time-between-wakes on the host to detect drift in production."
+        "Emit a metric for mean-time-between-wakes on the host to detect drift in production.",
+        "Quantify the cost of the aspirational interpretation for the plan-phase decision: each fully-quiet cycle (no events in 25s) costs exactly 1 loop re-entry = 1 minimal-envelope network round-trip + 1 SKILL.md branch re-evaluation by the LLM ≈ <50 tokens of LLM context (the minimal envelope is ~5 keys). Over a 1-hour quiet window that is 144 cycles × <50 tokens = ~7.2k tokens, roughly 2× a full dashboard render. The LITERAL interpretation adds one forced full get_status every 60s = 60 cycles × ~500-token full envelope = ~30k tokens over the same hour. Aspirational is cheaper in tokens; literal is more robust to LLM drift. The plan should decide based on expected drift risk, not token cost alone."
       ],
       "rollback": "Revert to get_status(wait=25) — time-based polling has no liveness drift issue.",
       "needs_human_review": true,
@@ -238,6 +240,25 @@
       "human_review_reason": "HITL deferred this explicitly. The plan phase is the venue to close it."
     },
     {
+      "id": "R13",
+      "title": "Authz / Delphi-filter inheritance for new wait endpoint",
+      "category": "security",
+      "impact": "low",
+      "likelihood": "low",
+      "description": "The existing `/messages/wait` endpoint applies a Delphi filter that redacts the body of in-flight `CONSENSUS_PROPOSE` messages for reviewers who haven't yet reviewed them (orchestrator/routes/messages.py:401-425, `_apply_delphi_filter`). If the new `/status/wait` endpoint composes `message_store.get_messages` with `wait_for_types`, it inherits the same filter for free — but only if the implementation explicitly applies it. A naïve composition that bypasses the filter (e.g., by reading from the store directly without passing through `_apply_delphi_filter`) would leak proposal bodies to reviewers that should see only redacted stubs, potentially enabling cross-review contamination.",
+      "affected_files": [
+        "orchestrator/routes/messages.py:401-425 (_apply_delphi_filter)",
+        "orchestrator/routes/messages.py:287-319 (_track_long_poll_start/end pattern)"
+      ],
+      "mitigations": [
+        "Plan-phase requirement: the new `/status/wait` route MUST apply `_apply_delphi_filter` on any recent_messages or wake-triggering messages it returns to the caller, matching the existing `/messages/wait` behaviour.",
+        "Add a regression test: submit a CONSENSUS_PROPOSE from producer-A, then call the new wait endpoint as reviewer-B who hasn't reviewed yet, and assert the propose body is redacted in the response.",
+        "The host calling context is the Claude Code user's session, not a sandbox reviewer — so in practice the filter should always pass-through (the user is not a reviewer role). Still, asserting the filter is applied keeps the defense-in-depth contract."
+      ],
+      "rollback": "Drop message-body inclusion from the wait response entirely — return only the message type + ID and make the host fetch full payloads via `get_status` on changed==true. Trades a small latency hit for zero filter risk.",
+      "needs_human_review": false
+    },
+    {
       "id": "R12",
       "title": "Test flakiness from event-triggered timing",
       "category": "quality",
@@ -313,7 +334,9 @@
   ],
   "notes": [
     "This assessment was produced without the ARCHITECT agent's output (not yet published to origin/egg/issue-1932 at time of risk analysis). It is grounded in the HITL-resolved design envelope from the refine phase gate (all seven choice decisions plus six feedback items resolved). If architect output materially diverges from Option A + 'Issue-as-written' event set + minimal envelope + `since` cursor + both-source subscription + metric, this risk assessment needs a re-review and re-propose cycle.",
+    "Concrete architect-divergence trigger heuristic: re-propose this risk assessment if ANY of the following is true in the architect artifact — (a) R4 pattern chosen is Flask-async-route (option b) instead of MCP-wrapper composition (option a); (b) R3 chosen cursor scheme is NOT per-pipeline monotonic event_id (e.g., UUIDv7 or synthesized timestamp+counter requires updating R3's ~15-line estimate and test plan); (c) any risk-affecting file from `affected_files` is architecturally replaced (e.g., EventBus is swapped for Redis pub/sub, which changes R8 backend-parity scope); (d) the trigger event set gains or loses items versus the HITL-resolved 'issue-as-written' choice.",
     "The heaviest single risk is R3 (cursor semantics); it touches the EventBus and has cross-cutting ripples. R4 is the most likely to cause production incidents (thread-pool math). R7 is the most likely to cause user-visible staleness in the field.",
-    "None of the risks block the plan phase — all have named mitigations. Four items (R3, R4, R7, R11) benefit from explicit human review at plan-gate; the other eight are straightforwardly closable by the TASK_PLANNER via acceptance criteria."
+    "None of the risks block the plan phase — all have named mitigations. Four items (R3, R4, R7, R11) benefit from explicit human review at plan-gate; the other nine are straightforwardly closable by the TASK_PLANNER via acceptance criteria.",
+    "Updated in v2: added R13 (authz/Delphi-filter inheritance for new wait endpoint), reinforced R1 with the provide_input return/emit ordering race note, tightened R3 estimate from '3 lines' to '~15 lines plus test' and named the threading.RLock, quantified the token cost of R7's aspirational-vs-literal floor (~7.2k vs ~30k tokens per quiet hour), and named `anyio.to_thread.run_sync` at orchestrator/mcp_server.py:173 as the precise R4 boundary. All changes respond to reviewer_plan's non-blocking ACK feedback."
   ]
 }
