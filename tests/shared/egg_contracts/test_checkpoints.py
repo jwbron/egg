@@ -518,9 +518,9 @@ class TestCheckpointV2:
             session=session,
             created_at=now,
             session_started_at=now,
-            repo="jwbron/egg",
+            repo="owner/repo",
         )
-        assert checkpoint.repo == "jwbron/egg"
+        assert checkpoint.repo == "owner/repo"
 
     def test_empty_commit_sha_becomes_none(self):
         """Test that empty string commit_sha is converted to None."""
@@ -619,10 +619,10 @@ class TestCheckpointSummaryV2:
             session=session,
             created_at=now,
             session_started_at=now,
-            repo="jwbron/egg",
+            repo="owner/repo",
         )
         summary = CheckpointSummaryV2.from_checkpoint(checkpoint)
-        assert summary.repo == "jwbron/egg"
+        assert summary.repo == "owner/repo"
 
     def test_from_checkpoint_files_touched_count(self):
         """Test that files_touched_count is computed from checkpoint."""
@@ -818,10 +818,10 @@ class TestCheckpointIndexV2:
         index = CheckpointIndexV2(
             last_updated=now,
             by_repo={
-                "jwbron/egg": ["ckpt-aa00000001", "ckpt-bb00000002"],
+                "owner/repo": ["ckpt-aa00000001", "ckpt-bb00000002"],
                 "entireio/cli": ["ckpt-cc00000003"],
             },
         )
-        assert index.get_by_repo("jwbron/egg") == ["ckpt-aa00000001", "ckpt-bb00000002"]
+        assert index.get_by_repo("owner/repo") == ["ckpt-aa00000001", "ckpt-bb00000002"]
         assert index.get_by_repo("entireio/cli") == ["ckpt-cc00000003"]
         assert index.get_by_repo("nonexistent/repo") == []

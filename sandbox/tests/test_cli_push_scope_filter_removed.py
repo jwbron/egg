@@ -131,7 +131,7 @@ class TestSourceLevelRemoval:
         pipeline.branch = "egg/issue-1882"
         pipeline.current_phase = MagicMock()
         pipeline.current_phase.value = "implement"
-        pipeline.repo = "jwbron/egg"
+        pipeline.repo = "owner/repo"
         pipeline.id = "issue-1882"
 
         def fake_spawn(**_kwargs):

@@ -68,7 +68,7 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 
 ### `reviewer_agent_design`
 
-**Scope**: Egg repo only (`jwbron/egg`). Not spawned for pipelines on other repos.
+**Scope**: Egg repo only (`jwbron/egg`). Not spawned for pipelines on other repos. The canonical repo string is hardcoded in `shared/egg_contracts/agent_roles.py` (`EGG_REPO`).
 
 **Purpose**: Review the analysis for agent-mode alignment and anti-patterns (e.g., correct use of egg's structural enforcement model).
 

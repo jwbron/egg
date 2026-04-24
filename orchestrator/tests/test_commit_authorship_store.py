@@ -103,12 +103,12 @@ class TestRoundTrip:
             _VALID_SHA,
             "coder",
             "issue-1882",
-            repo="jwbron/egg",
+            repo="owner/repo",
             branch="egg/issue-1882",
         )
         shard = store.worktree / SUBSTORE_DIR / "issue-1882.json"
         entry = json.loads(shard.read_text())["entries"][_VALID_SHA]
-        assert entry["repo"] == "jwbron/egg"
+        assert entry["repo"] == "owner/repo"
         assert entry["branch"] == "egg/issue-1882"
         assert entry["registered_at"]  # non-empty ISO8601
 
@@ -202,7 +202,7 @@ class TestFirstWinsCollision:
             _VALID_SHA,
             "coder",
             "issue-1882",
-            repo="jwbron/egg",
+            repo="owner/repo",
             branch="egg/issue-1882",
         )
         shard = worktree / SUBSTORE_DIR / "issue-1882.json"

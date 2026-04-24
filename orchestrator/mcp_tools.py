@@ -621,7 +621,7 @@ PIPELINE_TOOLS = [
                 },
                 "repo": {
                     "type": "string",
-                    "description": "Checkpoint repository in owner/repo format, e.g. jwbron/egg-checkpoints",
+                    "description": "Checkpoint repository in owner/repo format, e.g. owner/repo-checkpoints",
                 },
             },
         },
@@ -659,7 +659,7 @@ PIPELINE_TOOLS = [
                 },
                 "repo": {
                     "type": "string",
-                    "description": "Checkpoint repository in owner/repo format, e.g. jwbron/egg-checkpoints",
+                    "description": "Checkpoint repository in owner/repo format, e.g. owner/repo-checkpoints",
                 },
             },
             "required": ["text"],

@@ -676,7 +676,7 @@ class KubernetesSpawner:
             for owner_repo, host_path in (repo_volumes or {}).items():
                 # Include the owner in the k8s volume name so two repos
                 # with the same basename from different orgs don't collide
-                # (e.g. "Khan/webapp" and "other-org/webapp" both produce
+                # (e.g. "my-org/webapp" and "other-org/webapp" both produce
                 # container path /home/egg/repos/webapp, but need distinct
                 # volume names). Normalize to RFC-1123 (lowercase, hyphens)
                 # and truncate to fit the 63-char name limit.

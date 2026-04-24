@@ -359,37 +359,37 @@ class TestGetCheckpointRepoFromArgs:
         assert checkpoint_repo == "owner/explicit-repo"
         assert source_repo is None
 
-    @patch("config.repo_config.get_checkpoint_repo", return_value="jwbron/egg-checkpoints")
+    @patch("config.repo_config.get_checkpoint_repo", return_value="owner/repo-checkpoints")
     @patch("egg_contracts.checkpoint_cli.run_git")
     def test_auto_detects_from_https_remote(self, mock_git, mock_config):
         """Auto-detects checkpoint_repo from HTTPS remote URL."""
         mock_git.return_value = subprocess.CompletedProcess(
             args=[],
             returncode=0,
-            stdout="https://github.com/jwbron/egg.git\n",
+            stdout="https://github.com/owner/repo.git\n",
             stderr="",
         )
         args = self._make_args()
         checkpoint_repo, source_repo = _get_checkpoint_repo_from_args(args)
-        assert checkpoint_repo == "jwbron/egg-checkpoints"
-        assert source_repo == "jwbron/egg"
-        mock_config.assert_called_once_with("jwbron/egg")
+        assert checkpoint_repo == "owner/repo-checkpoints"
+        assert source_repo == "owner/repo"
+        mock_config.assert_called_once_with("owner/repo")
 
-    @patch("config.repo_config.get_checkpoint_repo", return_value="jwbron/egg-checkpoints")
+    @patch("config.repo_config.get_checkpoint_repo", return_value="owner/repo-checkpoints")
     @patch("egg_contracts.checkpoint_cli.run_git")
     def test_auto_detects_from_ssh_remote(self, mock_git, mock_config):
         """Auto-detects checkpoint_repo from SSH remote URL."""
         mock_git.return_value = subprocess.CompletedProcess(
             args=[],
             returncode=0,
-            stdout="git@github.com:jwbron/egg.git\n",
+            stdout="git@github.com:owner/repo.git\n",
             stderr="",
         )
         args = self._make_args()
         checkpoint_repo, source_repo = _get_checkpoint_repo_from_args(args)
-        assert checkpoint_repo == "jwbron/egg-checkpoints"
-        assert source_repo == "jwbron/egg"
-        mock_config.assert_called_once_with("jwbron/egg")
+        assert checkpoint_repo == "owner/repo-checkpoints"
+        assert source_repo == "owner/repo"
+        mock_config.assert_called_once_with("owner/repo")
 
     @patch("config.repo_config.get_checkpoint_repo", return_value=None)
     @patch("egg_contracts.checkpoint_cli.run_git")

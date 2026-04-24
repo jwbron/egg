@@ -440,7 +440,7 @@ class TestResolveCheckpointRepo:
             mock_get_handler.return_value = mock_handler
 
             response = client.get(
-                "/api/v1/checkpoints?issue=738&source_repo=jwbron/egg",
+                "/api/v1/checkpoints?issue=738&source_repo=owner/repo",
                 headers=auth_headers,
             )
             assert response.status_code == 200
@@ -566,7 +566,7 @@ class TestResolveCheckpointToken:
         """Falls back to source_repo param for token resolution."""
         import gateway as gw
 
-        with app.test_request_context("/?source_repo=jwbron/egg"):
+        with app.test_request_context("/?source_repo=owner/repo"):
             with (
                 patch("checkpoint_handler._resolve_github_token", return_value=None),
                 patch.object(gw, "get_token_for_repo", return_value=("ghp_test", "bot", "")),
@@ -578,7 +578,7 @@ class TestResolveCheckpointToken:
         """Uses standard token resolution when repo_path has a remote."""
         import gateway as gw
 
-        with app.test_request_context("/?source_repo=jwbron/egg"):
+        with app.test_request_context("/?source_repo=owner/repo"):
             with patch("checkpoint_handler._resolve_github_token", return_value="ghp_from_remote"):
                 result = gw._resolve_checkpoint_token("/repo")
                 assert result == "ghp_from_remote"

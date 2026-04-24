@@ -73,7 +73,7 @@ class TestNonAgentSession:
             branch="main",
             session_role=None,
             pipeline_id="issue-1882",
-            repo="jwbron/egg",
+            repo="owner/repo",
             registry_client=client,
         )
         assert result == []
@@ -89,7 +89,7 @@ class TestNonAgentSession:
             branch="main",
             session_role="",
             pipeline_id="issue-1882",
-            repo="jwbron/egg",
+            repo="owner/repo",
             registry_client=client,
         )
         assert result == []
@@ -125,7 +125,7 @@ class TestNoChange:
             branch="main",
             session_role="coder",
             pipeline_id="issue-1882",
-            repo="jwbron/egg",
+            repo="owner/repo",
             registry_client=client,
         )
         assert result == []
@@ -140,7 +140,7 @@ class TestNoChange:
             branch="main",
             session_role="coder",
             pipeline_id="issue-1882",
-            repo="jwbron/egg",
+            repo="owner/repo",
             registry_client=client,
         )
         assert result == []
@@ -175,7 +175,7 @@ class TestSingleCommit:
             branch="egg/issue-1882",
             session_role="coder",
             pipeline_id="issue-1882",
-            repo="jwbron/egg",
+            repo="owner/repo",
             registry_client=client,
         )
         assert result == [after]
@@ -198,7 +198,7 @@ class TestSingleCommit:
             branch="egg/issue-1882",
             session_role="coder",
             pipeline_id="issue-1882",
-            repo="jwbron/egg",
+            repo="owner/repo",
             registry_client=client,
         )
         # No rev-list walk → no subprocess → falls back to [after_head].
@@ -235,7 +235,7 @@ class TestMultiCommit:
             branch="egg/issue-1882",
             session_role="coder",
             pipeline_id="issue-1882",
-            repo="jwbron/egg",
+            repo="owner/repo",
             registry_client=client,
         )
         assert result == new_shas
@@ -247,7 +247,7 @@ class TestMultiCommit:
         for item in items:
             assert item["role"] == "coder"
             assert item["pipeline_id"] == "issue-1882"
-            assert item["repo"] == "jwbron/egg"
+            assert item["repo"] == "owner/repo"
 
     def test_rev_list_nonzero_falls_back_to_after_head(self, monkeypatch):
         """If rev-list fails (e.g. rewritten history), register just the tip."""
@@ -271,7 +271,7 @@ class TestMultiCommit:
             branch="egg/issue-1882",
             session_role="coder",
             pipeline_id="issue-1882",
-            repo="jwbron/egg",
+            repo="owner/repo",
             registry_client=client,
         )
         assert result == [after]

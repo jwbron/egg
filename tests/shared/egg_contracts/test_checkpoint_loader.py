@@ -436,14 +436,14 @@ class TestAddCheckpointToIndexV2:
                 checkpoint_id="ckpt-aa00000001",
                 session_id="session-1",
                 commit_sha="aaa1234567890",
-                repo="jwbron/egg",
+                repo="owner/repo",
                 now=now,
             )
             cp2 = _make_v2_checkpoint(
                 checkpoint_id="ckpt-bb00000002",
                 session_id="session-2",
                 commit_sha="bbb1234567890",
-                repo="jwbron/egg",
+                repo="owner/repo",
                 now=now + timedelta(seconds=1),
             )
             cp3 = _make_v2_checkpoint(
@@ -458,7 +458,7 @@ class TestAddCheckpointToIndexV2:
             add_checkpoint_to_index_v2(cp2, index_path)
             index = add_checkpoint_to_index_v2(cp3, index_path)
 
-            assert len(index.get_by_repo("jwbron/egg")) == 2
+            assert len(index.get_by_repo("owner/repo")) == 2
             assert len(index.get_by_repo("entireio/cli")) == 1
             assert index.get_by_repo("nonexistent/repo") == []
 
@@ -792,7 +792,7 @@ class TestListCheckpointsV2:
                 checkpoint_id="ckpt-aa00000001",
                 session_id="session-1",
                 commit_sha="aaa1234567890",
-                repo="jwbron/egg",
+                repo="owner/repo",
                 now=now,
             )
             cp2 = _make_v2_checkpoint(
@@ -808,7 +808,7 @@ class TestListCheckpointsV2:
             add_checkpoint_to_index_v2(cp1, index_path)
             add_checkpoint_to_index_v2(cp2, index_path)
 
-            results = list_checkpoints_v2(checkpoints_dir, index_path, repo="jwbron/egg")
+            results = list_checkpoints_v2(checkpoints_dir, index_path, repo="owner/repo")
             assert len(results) == 1
             assert results[0].id == "ckpt-aa00000001"
 

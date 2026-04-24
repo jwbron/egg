@@ -42,7 +42,7 @@ def _make_status(decisions: list[dict], current_phase: str = "refine") -> dict:
     }
 
 
-def _make_pipeline_data(repo: str = "jwbron/egg", issue_number: int = 42) -> dict:
+def _make_pipeline_data(repo: str = "owner/repo", issue_number: int = 42) -> dict:
     return {"repo": repo, "issue_number": issue_number}
 
 

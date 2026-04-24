@@ -322,7 +322,7 @@ These tools require a `gateway_url` and authenticate via a gateway session. The 
 | `search_checkpoints` | Search checkpoint metadata by text with filters (issue, pipeline, agent_type, repo, limit) |
 | `get_contract` | Get SDLC contract state by issue number or task ID |
 
-Both checkpoint tools accept an optional `repo` parameter (string, `owner/repo` format) to specify the checkpoint repository when checkpoints are stored separately (e.g., `jwbron/egg-checkpoints`). The value is forwarded as `source_repo` to the gateway.
+Both checkpoint tools accept an optional `repo` parameter (string, `owner/repo` format) to specify the checkpoint repository when checkpoints are stored separately (e.g., `owner/repo-checkpoints`). The value is forwarded as `source_repo` to the gateway.
 
 ### Orchestrator-Backed Tools
 

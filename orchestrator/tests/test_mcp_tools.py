@@ -532,11 +532,11 @@ class TestListCheckpoints:
             mock_gw.return_value = {"success": True, "data": {"checkpoints": []}}
             handler.handle_tool_call(
                 "list_checkpoints",
-                {"repo": "jwbron/egg-checkpoints", "issue": 42},
+                {"repo": "owner/repo-checkpoints", "issue": 42},
             )
 
         call_url = mock_gw.call_args[0][0]
-        assert "source_repo=jwbron%2Fegg-checkpoints" in call_url
+        assert "source_repo=owner%2Frepo-checkpoints" in call_url
         assert "issue=42" in call_url
 
     def test_without_repo_param_no_source_repo(self, handler):
@@ -609,11 +609,11 @@ class TestSearchCheckpoints:
             mock_gw.return_value = {"data": {"checkpoints": []}}
             handler.handle_tool_call(
                 "search_checkpoints",
-                {"text": "coder", "repo": "jwbron/egg-checkpoints"},
+                {"text": "coder", "repo": "owner/repo-checkpoints"},
             )
 
         call_url = mock_gw.call_args[0][0]
-        assert "source_repo=jwbron%2Fegg-checkpoints" in call_url
+        assert "source_repo=owner%2Frepo-checkpoints" in call_url
 
     def test_without_repo_param_no_source_repo(self, handler):
         """Verify source_repo is not added when repo is not provided."""
@@ -2535,7 +2535,7 @@ class TestPruneStaleWorktreesTool:
             return_value={"success": True, "data": {}},
         ) as mock_req:
             handler.handle_tool_call(
-                "prune_stale_worktrees", {"dry_run": True, "repo": "jwbron/egg"}
+                "prune_stale_worktrees", {"dry_run": True, "repo": "owner/repo"}
             )
         kwargs = mock_req.call_args.kwargs
         assert "repo" not in kwargs["data"], (

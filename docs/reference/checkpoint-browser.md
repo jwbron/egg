@@ -24,8 +24,8 @@ The `--checkpoint-repo` and `--repo-path` flags can be placed **before or after*
 
 ```bash
 # Both of these are equivalent:
-egg-checkpoint --checkpoint-repo jwbron/egg-checkpoints list --issue 42
-egg-checkpoint list --checkpoint-repo jwbron/egg-checkpoints --issue 42
+egg-checkpoint --checkpoint-repo owner/repo-checkpoints list --issue 42
+egg-checkpoint list --checkpoint-repo owner/repo-checkpoints --issue 42
 ```
 
 If the flag is supplied in both positions, the last value wins (standard argparse behavior).
@@ -52,7 +52,7 @@ All list/context filters use AND logic. Common filters:
 | Issue | `--issue N` | `--issue 530` |
 | PR | `--pr N` | `--pr 42` |
 | Pipeline | `--pipeline ID` | `--pipeline issue-530` |
-| Repo | `--repo OWNER/REPO` | `--repo jwbron/egg` |
+| Repo | `--repo OWNER/REPO` | `--repo owner/repo` |
 | Agent | `--agent-type TYPE` | `--agent-type coder` or `--agent-type reviewer_code` |
 | Phase | `--phase PHASE` | `--phase implement` |
 | Status | `--status STATUS` | `--status failed` |
@@ -88,7 +88,7 @@ egg-checkpoint list --agent-type reviewer --pipeline $EGG_PIPELINE_ID
 When a query matches no checkpoints, the CLI prints the repository and branch that were searched to stderr, helping diagnose whether the correct checkpoint source was used:
 
 ```
-Searched jwbron/egg branch egg/checkpoints/v2
+Searched owner/repo branch egg/checkpoints/v2
 No checkpoints found matching filters
 ```
 
@@ -133,7 +133,7 @@ egg-checkpoint cost --issue $EGG_ISSUE_NUMBER
 
 ## Troubleshooting
 
-**"No checkpoints found"**: The CLI now prints which repository and branch it searched (e.g., `Searched jwbron/egg branch egg/checkpoints/v2`) to stderr, making it easier to diagnose configuration issues. If the repo/branch shown is unexpected:
+**"No checkpoints found"**: The CLI now prints which repository and branch it searched (e.g., `Searched owner/repo branch egg/checkpoints/v2`) to stderr, making it easier to diagnose configuration issues. If the repo/branch shown is unexpected:
 1. Check if checkpoints are in a separate repo — set `EGG_CHECKPOINT_REPO=OWNER/REPO` or use `--checkpoint-repo`
 2. Check if `repositories.yaml` exists (it may not be present in the sandbox)
 3. Try listing without metadata filters — some checkpoints (ad-hoc sessions) have no issue/pipeline metadata
@@ -153,13 +153,13 @@ The orchestrator MCP server (port 9850) exposes checkpoint data via two tools:
 | `list_checkpoints` | List checkpoints with filters (issue, pipeline, agent_type, phase, status, repo) |
 | `search_checkpoints` | Search checkpoint metadata by text with filters (issue, pipeline, agent_type, repo) |
 
-Both tools accept an optional `repo` parameter to specify the checkpoint repository in `owner/repo` format (e.g., `jwbron/egg-checkpoints`). This is useful when checkpoints are stored in a separate repository from the main codebase.
+Both tools accept an optional `repo` parameter to specify the checkpoint repository in `owner/repo` format (e.g., `owner/repo-checkpoints`). This is useful when checkpoints are stored in a separate repository from the main codebase.
 
 **Examples:**
 ```
 list_checkpoints(issue=1489, phase="implement")
-list_checkpoints(issue=1489, repo="jwbron/egg-checkpoints")
-search_checkpoints(text="coder", pipeline="issue-1489", repo="jwbron/egg-checkpoints")
+list_checkpoints(issue=1489, repo="owner/repo-checkpoints")
+search_checkpoints(text="coder", pipeline="issue-1489", repo="owner/repo-checkpoints")
 ```
 
 ## Related CLIs

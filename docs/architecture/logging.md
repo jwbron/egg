@@ -69,7 +69,7 @@ All log entries include these fields:
   "traceFlags": "01",
   "context": {
     "task_id": "bd-xyz789",
-    "repository": "jwbron/egg",
+    "repository": "owner/repo",
     "pr_number": 123
   }
 }

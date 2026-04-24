@@ -802,10 +802,10 @@ def restore_prebuilt_deps(
         # already restored by the Dockerfile; skip it here.
         if repo_dir.name == "__egg_system_dirs__":
             continue
-        # repo_dir is like /opt/prebuilt-deps/Khan--webapp
+        # repo_dir is like /opt/prebuilt-deps/owner--repo
         # Convert back to repo name to find mount point
         # Try each mounted repo to find a match
-        repo_dir_name = repo_dir.name  # e.g. "Khan--webapp"
+        repo_dir_name = repo_dir.name  # e.g. "owner--repo"
 
         # Find the matching mounted repo directory
         target_repo = None

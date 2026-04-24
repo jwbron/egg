@@ -476,7 +476,7 @@ The local orchestrator handles concurrent contract updates through `orchestrator
     }
   ],
   "decisions": [],
-  "workflow_owner": "jwbron",
+  "workflow_owner": "my-org",
   "audit_log": []
 }
 ```

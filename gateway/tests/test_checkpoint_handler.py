@@ -431,7 +431,7 @@ class TestCaptureSessionEndCheckpoint:
             session=session,
             session_status=SessionStatus.COMPLETED,
             repo_path="/home/egg/repos/test-repo",
-            checkpoint_repo="jwbron/egg-checkpoints",
+            checkpoint_repo="owner/repo-checkpoints",
             async_store=False,
         )
 
@@ -440,8 +440,8 @@ class TestCaptureSessionEndCheckpoint:
         mock_auto_detect.assert_not_called()
         # store_checkpoint_v2 should receive the explicit checkpoint_repo
         call_kwargs = mock_handler.store_checkpoint_v2.call_args
-        assert call_kwargs[1].get("checkpoint_repo") == "jwbron/egg-checkpoints" or (
-            len(call_kwargs[0]) > 2 and call_kwargs[0][2] == "jwbron/egg-checkpoints"
+        assert call_kwargs[1].get("checkpoint_repo") == "owner/repo-checkpoints" or (
+            len(call_kwargs[0]) > 2 and call_kwargs[0][2] == "owner/repo-checkpoints"
         )
 
     @patch("checkpoint_handler._get_checkpoint_repo_for_path")
@@ -457,7 +457,7 @@ class TestCaptureSessionEndCheckpoint:
             TriggerType,
         )
 
-        mock_auto_detect.return_value = "jwbron/egg-checkpoints"
+        mock_auto_detect.return_value = "owner/repo-checkpoints"
 
         now = datetime.now(UTC)
         mock_handler = MagicMock()
@@ -486,7 +486,7 @@ class TestCaptureSessionEndCheckpoint:
         mock_auto_detect.assert_called_once_with("/home/egg/repos/test-repo")
         # store_checkpoint_v2 should receive the auto-detected checkpoint_repo
         call_kwargs = mock_handler.store_checkpoint_v2.call_args
-        assert call_kwargs[1].get("checkpoint_repo") == "jwbron/egg-checkpoints"
+        assert call_kwargs[1].get("checkpoint_repo") == "owner/repo-checkpoints"
 
 
 class TestAutoCommitShaInCheckpoint:
@@ -621,7 +621,7 @@ class TestStoreCheckpointV2GitOps:
 
         try:
             handler.store_checkpoint_v2(
-                checkpoint, "/fake/repo", checkpoint_repo="jwbron/egg-checkpoints"
+                checkpoint, "/fake/repo", checkpoint_repo="owner/repo-checkpoints"
             )
         except Exception:
             pass
@@ -973,27 +973,27 @@ class TestExtractRepoFromRemote:
         """Extracts owner/repo from HTTPS remote URL."""
         mock_run.return_value = MagicMock(
             returncode=0,
-            stdout="https://github.com/jwbron/egg.git\n",
+            stdout="https://github.com/owner/repo.git\n",
         )
-        assert _extract_repo_from_remote("/some/repo") == "jwbron/egg"
+        assert _extract_repo_from_remote("/some/repo") == "owner/repo"
 
     @patch("checkpoint_handler.subprocess.run")
     def test_https_url_without_git_suffix(self, mock_run):
         """Extracts owner/repo from HTTPS URL without .git suffix."""
         mock_run.return_value = MagicMock(
             returncode=0,
-            stdout="https://github.com/jwbron/egg\n",
+            stdout="https://github.com/owner/repo\n",
         )
-        assert _extract_repo_from_remote("/some/repo") == "jwbron/egg"
+        assert _extract_repo_from_remote("/some/repo") == "owner/repo"
 
     @patch("checkpoint_handler.subprocess.run")
     def test_ssh_url(self, mock_run):
         """Extracts owner/repo from SSH remote URL."""
         mock_run.return_value = MagicMock(
             returncode=0,
-            stdout="git@github.com:jwbron/egg.git\n",
+            stdout="git@github.com:owner/repo.git\n",
         )
-        assert _extract_repo_from_remote("/some/repo") == "jwbron/egg"
+        assert _extract_repo_from_remote("/some/repo") == "owner/repo"
 
     @patch("checkpoint_handler.subprocess.run")
     def test_ssh_url_without_git_suffix(self, mock_run):
@@ -1081,10 +1081,10 @@ class TestResolveRepo:
         """Resolves repo from repo_path."""
         from checkpoint_handler import CheckpointHandler
 
-        mock_extract.return_value = "jwbron/egg"
+        mock_extract.return_value = "owner/repo"
         handler = CheckpointHandler()
         result = handler._resolve_repo("/home/egg/repos/egg", None)
-        assert result == "jwbron/egg"
+        assert result == "owner/repo"
         mock_extract.assert_called_once_with("/home/egg/repos/egg")
 
     @patch("checkpoint_handler._extract_repo_from_remote")
@@ -1119,12 +1119,12 @@ class TestResolveRepo:
         """Uses session.last_repo_path when repo_path is None."""
         from checkpoint_handler import CheckpointHandler
 
-        mock_extract.return_value = "jwbron/egg"
+        mock_extract.return_value = "owner/repo"
         handler = CheckpointHandler()
         session = _make_test_session()
         session.last_repo_path = "/home/egg/repos/egg"
         result = handler._resolve_repo(None, session)
-        assert result == "jwbron/egg"
+        assert result == "owner/repo"
         mock_extract.assert_called_once_with("/home/egg/repos/egg")
 
     @patch("checkpoint_handler._extract_repo_from_remote")

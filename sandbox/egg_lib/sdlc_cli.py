@@ -86,7 +86,7 @@ def _clear_screen() -> None:
 def _resolve_repo_dir(repo_dir: str) -> str | None:
     """Resolve a repo directory name to owner/repo format.
 
-    Looks up the directory name in EGG_REPOS (e.g. "egg" matches "jwbron/egg")
+    Looks up the directory name in EGG_REPOS (e.g. "repo" matches "owner/repo")
     and changes to the repo directory if it exists.
 
     Side effect: calls os.chdir() to the repo directory on success, so that

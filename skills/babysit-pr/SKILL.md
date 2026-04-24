@@ -45,7 +45,7 @@ If a bare PR number is supplied, auto-detect the repo the same way
 1. Run `git -C "$EGG_REPO_PATH" remote get-url origin 2>/dev/null` (or fall
    back to `git remote -v` from the working directory).
 2. Parse the `owner/name` from the URL (e.g. `https://github.com/jwbron/egg.git`
-   → `jwbron/egg`).
+   → `owner/repo`).
 3. If a `--repo` flag was passed, use that instead.
 
 Only ask for the repo if detection fails AND no `--repo` flag was provided.

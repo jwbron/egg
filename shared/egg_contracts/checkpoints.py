@@ -261,7 +261,7 @@ class CheckpointV2(BaseModel):
     repo: str | None = Field(
         default=None,
         pattern=r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$",
-        description="Source repository in owner/repo format (e.g. 'jwbron/egg')",
+        description="Source repository in owner/repo format (e.g. 'owner/repo')",
     )
 
     # Session details

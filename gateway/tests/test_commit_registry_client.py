@@ -63,7 +63,7 @@ class TestRegister:
                 sha=_VALID_SHA,
                 role="coder",
                 pipeline_id="issue-1882",
-                repo="jwbron/egg",
+                repo="owner/repo",
                 branch="egg/issue-1882",
             )
             is True
@@ -74,7 +74,7 @@ class TestRegister:
         assert payload["sha"] == _VALID_SHA
         assert payload["role"] == "coder"
         assert payload["pipeline_id"] == "issue-1882"
-        assert payload["repo"] == "jwbron/egg"
+        assert payload["repo"] == "owner/repo"
         assert payload["branch"] == "egg/issue-1882"
 
     def test_register_409_is_benign_success(self, client, monkeypatch):
