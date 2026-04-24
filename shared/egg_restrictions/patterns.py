@@ -278,6 +278,14 @@ CODER_PATTERNS = AgentFilePattern(
         "sandbox/agent-config/commands/*.md",
         # Top-level skills directory (skill definitions are functional code)
         "skills/",
+        # Jira sandbox wrapper — new in #1556.  ``sandbox/scripts/`` is
+        # blocked wholesale to keep agents from retargeting the existing
+        # ``gh`` / ``git`` credential shims; this exemption lets the coder
+        # land the NEW ``jira`` wrapper alongside them.  The file is
+        # functionally identical in shape (bash wrapper that POSTs to a
+        # gateway REST endpoint — never holds credentials locally) and is
+        # the only addition permitted under the broader block.
+        "sandbox/scripts/jira",
     ],
 )
 
