@@ -1,0 +1,319 @@
+{
+  "issue": 1932,
+  "phase": "plan",
+  "role": "risk_analyst",
+  "title": "Risk assessment — event-driven wake for SDLC monitor loop (host-side)",
+  "summary": "Issue #1932 introduces a new `wait_for_status_change` sibling MCP tool that blocks on EventBus (PHASE_STARTED / PHASE_COMPLETED / DECISION_CREATED / PIPELINE_COMPLETED / PIPELINE_FAILED) plus a message-type long-poll (OVERSEER_ALERT / CONSENSUS_CONFIRMED / CONSENSUS_NACK / CONSENSUS_RE_REVIEW) and returns a minimal {changed:false,...} envelope on 25s timeout. Risk surface is medium-small: all primitives already exist from #1919 / #1925 (orchestrator/routes/messages.py:347-436, orchestrator/events.py:119-319, orchestrator/redis_message_store.py:158-329). The sharp edges are race conditions at the get_status→wait boundary, self-wake from host-originated events (provide_input → DECISION_CREATED/RESOLVED), EventBus cursor semantics (no stable event IDs — only timestamps, orchestrator/events.py:94-103), Waitress thread-budget erosion with >10 concurrent pipelines (EGG_ORCH_WAITRESS_THREADS=16 default, orchestrator/cli.py:280-310), SKILL.md prompt drift when branching on `changed`, and invisible state changes in concurrent.consensus that don't emit a message proxy. The HITL-resolved design is sound; most risks have concrete mitigations already named in the analysis — we flag four that the plan phase must still close, and three that warrant human review before implementation.",
+  "scope": {
+    "in_scope_changes": [
+      "New MCP tool `wait_for_status_change` in orchestrator/mcp_tools.py PIPELINE_TOOLS (around the existing get_status at lines 277-304) + handler function alongside _handle_get_status (orchestrator/mcp_tools.py:1548-1655)",
+      "Async wrapper in orchestrator/mcp_server.py:50-67 (alongside _apply_get_status_wait) that does the event-triggered block on the event loop before running the sync status fetch",
+      "New route `/api/v1/pipelines/<id>/status/wait` (or reuse the composition pattern of /messages/wait at orchestrator/routes/messages.py:347-436) that subscribes to EventBus + long-polls message_store.get_messages with wait_for_types",
+      "SKILL.md update: §Phase 3 step 1 (skills/sdlc/SKILL.md:313-347) and §Phase S5 step 1 (skills/sdlc/SKILL.md:1174-1206), plus §MCP Tools Reference — switch from get_status(wait=25) to wait_for_status_change(task_id, wait=25, since=<last_id>) on subsequent polls",
+      "New metric egg_inflight_host_waits (parallel to egg_inflight_long_polls at orchestrator/routes/messages.py:81-96) so operators can see host-side wait load separately from sandbox-side wait load"
+    ],
+    "out_of_scope": [
+      "Raising the 25s cap (anthropics/claude-code#20335 — Claude Code streamable-HTTP MCP client timeout) — per issue's Out of Scope section",
+      "Sandbox-side agent wait changes (already covered in #1919)",
+      "Altering existing get_status semantics or contract (Option A keeps it unchanged)"
+    ]
+  },
+  "risks": [
+    {
+      "id": "R1",
+      "title": "Self-wake from host-originated provide_input (DECISION_RESOLVED feedback loop)",
+      "category": "correctness",
+      "impact": "high",
+      "likelihood": "high",
+      "description": "When the user answers a HITL decision via `provide_input` (orchestrator/mcp_tools.py:1829-1839), the orchestrator resolves the decision and emits EventType.DECISION_RESOLVED (orchestrator/routes/decisions.py:450-455). If the host's next `wait_for_status_change` call subscribes to DECISION_RESOLVED (or inherits broad subscription to decision.*), the host wakes itself on the event it just caused and re-renders the dashboard immediately — burning tokens and potentially re-prompting. The HITL gate in refine picked the correct mitigation ('Filter out DECISION_RESOLVED events from the trigger set — wait only on decisions that still need input'), but the implementation must actually wire this in two places: (1) the event subscription filter set, and (2) NOT the message-type wait list (DECISION_* is an EventBus event, not a message type, so this specific case only affects EventBus subscription). The plan must also name what happens with DECISION_CREATED for the same pipeline — if the host creates one decision, does it wake on the creation? Per issue body DECISION_CREATED IS in the trigger set, but the create-path is `register_open_question` on a sandbox agent, not a host action — so DECISION_CREATED is by construction peer-originated. Safe, but worth asserting in the plan.",
+      "affected_files": [
+        "orchestrator/routes/decisions.py:440-462",
+        "orchestrator/mcp_tools.py:1829-1839",
+        "orchestrator/events.py:80 (DECISION_RESOLVED)"
+      ],
+      "mitigations": [
+        "Trigger set MUST exclude DECISION_RESOLVED (per HITL resolution). Plan should call this out in the route handler as an explicit allowlist rather than a denylist.",
+        "Assert via test: resolve a decision via provide_input and verify the in-flight `wait_for_status_change` call does not return on DECISION_RESOLVED."
+      ],
+      "rollback": "Revert SKILL.md to call get_status instead — existing behaviour is preserved. The new MCP tool can stay dormant.",
+      "needs_human_review": false
+    },
+    {
+      "id": "R2",
+      "title": "Transition-race window between first get_status and first wait_for_status_change",
+      "category": "correctness",
+      "impact": "medium",
+      "likelihood": "medium",
+      "description": "The SDLC skill flow is: 'First poll: get_status(task_id). Subsequent polls: wait_for_status_change(task_id, wait=25, since=<cursor>)'. Between the get_status call returning (snapshot at T0) and the first wait_for_status_change entering its server-side block (at T1), any event emitted in [T0, T1) is observable via snapshot (if it had already occurred) or permanently missed (if it occurred during the window and the wait uses default from_tip=True). Messages/wait has exactly this pitfall and #1925 fixed the same-event-seen-twice case by defaulting to from_tip=True; the inverse problem (event-seen-zero-times) is now the exposed edge. The HITL resolution correctly chose 'Yes — add `since` string parameter; host passes the most recent event ID from the prior call' to plug this.",
+      "affected_files": [
+        "orchestrator/message_store.py:188-294 (from_tip semantics)",
+        "orchestrator/redis_message_store.py:158-329 (XREAD BLOCK + from_tip)",
+        "docs/reference/agent-wait-patterns.md:18-80"
+      ],
+      "mitigations": [
+        "Define a single canonical cursor type. The message bus exposes Redis-stream-style IDs (orchestrator/redis_message_store.py:87-116); the EventBus dataclass has no stable ID, only timestamp (orchestrator/events.py:94-103). The plan MUST decide how `since` identifies both sources: either (a) synthesize a compound cursor `<message_id>:<event_ts>` and check each source separately, or (b) give EventBus events a monotonic ID now (orchestrator/events.py needs an `event_id` counter + persistence story — probably too heavy for this issue).",
+        "Option (a) is the pragmatic choice — `since` is a string, opaque to callers, internally parsed to (message_id_or_None, event_timestamp_or_None). Both backends already support since_id for messages; EventBus can replay history filtered by timestamp from its in-memory _history buffer (orchestrator/events.py:136-142).",
+        "Limit EventBus history to its existing 100-entry buffer as the lookback budget; if the caller's `since` timestamp is older than the oldest entry, the server returns `{changed: true, stale_cursor: true, ...}` and the skill falls back to a full get_status. This bounds memory and sidesteps a full persistence refactor.",
+        "Acceptance criterion: emit an event during the snapshot→wait gap in a test, and verify the next wait_for_status_change returns early on that event."
+      ],
+      "rollback": "Dropping `since` param or defaulting it to empty string retains the from_tip=True default and falls back to the current #1925 behaviour — race stays, but tolerable for slow-changing pipelines.",
+      "needs_human_review": false
+    },
+    {
+      "id": "R3",
+      "title": "EventBus events lack stable IDs — cursor design needs explicit decision",
+      "category": "architecture",
+      "impact": "medium",
+      "likelihood": "high",
+      "description": "orchestrator/events.py:94-103 defines Event with (event_type, pipeline_id, timestamp, data, source) — NO stable ID field. Using timestamp as a cursor is race-prone under clock skew and duplicate timestamps (events emitted in the same microsecond are not rare under load). This directly affects the `since` param contract (R2). The message bus has no such issue — Redis stream IDs are globally ordered per pipeline and in-memory store uses an equivalent monotonic counter.",
+      "affected_files": [
+        "orchestrator/events.py:94-142 (Event, EventBus._history)"
+      ],
+      "mitigations": [
+        "Preferred: add a per-pipeline monotonic event_id (int counter) emitted in the Event dataclass. Backwards-compatible because the field is additive. Three-line change in Event + _deliver_event (orchestrator/events.py:94-165).",
+        "Alternative: combine timestamp with a tiebreaker (monotonic counter within the same microsecond) into the cursor. Slightly uglier but contains blast radius.",
+        "Document the chosen scheme in the new wait-endpoint handler and in docs/reference/agent-wait-patterns.md so future consumers don't reinvent it."
+      ],
+      "rollback": "If the cursor design is too intrusive, fall back to 'no cursor, accept R2 race' and only filter on the message-type side where Redis stream IDs solve the problem cleanly.",
+      "needs_human_review": true,
+      "human_review_reason": "This is the single most architecturally-opinionated decision in the plan — either add a lightweight event_id counter (my recommendation) or accept the race. It deserves explicit approval before implementation starts."
+    },
+    {
+      "id": "R4",
+      "title": "Waitress thread-pool starvation under high pipeline concurrency",
+      "category": "performance",
+      "impact": "medium",
+      "likelihood": "low-medium",
+      "description": "EGG_ORCH_WAITRESS_THREADS defaults to 16 with a refuse-to-boot floor of 4 (orchestrator/cli.py:280-310). Every in-flight `wait_for_status_change` holds one thread for up to 25s, parallel to every sandbox-side `message wait-loop` and every SSE stream (/api/v1/pipelines/<id>/stream). With 10 concurrent pipelines, the host adds +10 long-polls on top of per-agent waits (which can be 2-5 agents × 1 wait-loop each = 20-50). The theoretical worst-case is >60 simultaneous long-polls, which exceeds the default 16-thread budget. Metric egg_inflight_long_polls (orchestrator/routes/messages.py:81-96) would expose the saturation, but the current metric conflates host and sandbox waits; the HITL gate correctly prescribed a new egg_inflight_host_waits metric.",
+      "affected_files": [
+        "orchestrator/cli.py:280-310 (thread pool + channel_timeout)",
+        "orchestrator/routes/messages.py:81-96 (metric)",
+        "orchestrator/mcp_server.py:160-173 (anyio.to_thread.run_sync path — but note the async wait is pre-sync-handler, so event-triggered block does NOT hold a worker; only the short sync fetch after wake-up does)"
+      ],
+      "mitigations": [
+        "Confirm the wait-primitive is truly async (blocks on the event loop, not inside anyio.to_thread.run_sync) — this is the existing pattern at orchestrator/mcp_server.py:162-173 where `_apply_get_status_wait` runs before `run_sync`. If the implementation follows that pattern, each in-flight wait costs ZERO worker threads during the blocking period — only the brief post-wake get_status fetch pins a thread (~50ms). This materially alters the math: the pool budget is paid only during the fetch, not during the wait.",
+        "Add egg_inflight_host_waits metric (HITL-approved). Emit at async-wait-enter / async-wait-exit boundary.",
+        "Document the concurrency math in the plan phase: 'N pipelines × (1 host wait + K agent waits) × (async-only during block + brief sync fetch) = << 16 thread-seconds per cycle'.",
+        "If implementation deviates from the 'block on event loop first' pattern (e.g., the new /status/wait route itself is a Flask sync view that blocks), we double the thread cost per host-poll. The plan phase should EXPLICITLY choose a pattern: either (a) compose the wait inside the async MCP wrapper so the HTTP round-trip is not made during the wait, OR (b) make the Flask route async-ready and carry the event-loop block into it. Option (a) is the safer bet — it keeps the MCP async wrapper as the coordination point and avoids touching orchestrator routes' sync/async model."
+      ],
+      "rollback": "Drop the wait=25 default in SKILL.md to wait=5 — reduces per-poll thread holding time at cost of more polls. Orthogonally, raising EGG_ORCH_WAITRESS_THREADS is a single env var change.",
+      "needs_human_review": true,
+      "human_review_reason": "Pattern choice (composed-in-MCP-wrapper vs Flask-async-route) is a design decision with performance and maintainability consequences; plan-phase reviewers and a human operator should sign off."
+    },
+    {
+      "id": "R5",
+      "title": "Invisible consensus state changes (no message proxy)",
+      "category": "correctness",
+      "impact": "medium",
+      "likelihood": "low",
+      "description": "The HITL-resolved trigger set uses CONSENSUS_CONFIRMED / CONSENSUS_NACK / CONSENSUS_RE_REVIEW message types as proxies for 'concurrent.consensus state changed'. However, the dashboard consumes concurrent.consensus which is a server-computed structure (see skills/sdlc/SKILL.md:883-890 referencing `concurrent.consensus` field) that aggregates per-reviewer ACK state. A state mutation that happens purely via state write — e.g., a reviewer silently dropping out of the matrix — may not emit one of the three message types, so the dashboard can drift until the next genuine consensus message fires. The refine analysis flags this as an open risk at the end.",
+      "affected_files": [
+        "orchestrator/mcp_tools.py:1548-1655 (get_status consensus enrichment)",
+        "skills/sdlc/SKILL.md:401-420 (consensus dashboard + fallback)"
+      ],
+      "mitigations": [
+        "Plan phase should enumerate ALL concurrent.consensus-affecting transitions and confirm each either (a) emits one of the trigger message types, or (b) emits a dedicated EventBus event (e.g., CONSENSUS_REACHED / CONSENSUS_TIMEOUT — already enum values at orchestrator/events.py:66-68) that can be added to the subscription set.",
+        "Add CONSENSUS_REACHED and CONSENSUS_TIMEOUT to the EventBus subscription side of the trigger set — they are already enum values but the plan must verify they are actually emitted on state mutations.",
+        "Accept residual drift: the minimal-envelope {changed:false, current_phase, status} on timeout means the dashboard will refresh with fresh concurrent.consensus data exactly every 25s max (when the timeout path fires and the skill re-enters the loop and re-queries get_status). This is a 25s worst-case drift, same order of magnitude as today's poll cadence — acceptable."
+      ],
+      "rollback": "Add concurrent.consensus to the minimal envelope payload so even the timeout path carries fresh consensus data — eliminates drift entirely at cost of slightly larger timeout payload.",
+      "needs_human_review": false
+    },
+    {
+      "id": "R6",
+      "title": "Prompt drift on minimal-envelope branching in SKILL.md",
+      "category": "quality",
+      "impact": "medium",
+      "likelihood": "medium",
+      "description": "The HITL resolution picked 'Minimal envelope: {changed:false, current_phase, status, phase_elapsed_seconds}' on the timeout path. This forces SKILL.md to add branching logic: if changed==true → full dashboard render + recent_messages fetch + consensus check; if changed==false → cheap render only. LLMs are imperfect at branching in prompt-driven code; Claude Code may render the full dashboard on the minimal envelope (reverting savings) or skip the full render on the changed path (missing an OVERSEER_ALERT). This is the same class of risk that made the existing OVERSEER_ALERT deduplication prone to bugs (fixed by moving to UUID-based set, skills/sdlc/SKILL.md:397).",
+      "affected_files": [
+        "skills/sdlc/SKILL.md:313-347 (Phase 3)",
+        "skills/sdlc/SKILL.md:1174-1206 (Phase S5)"
+      ],
+      "mitigations": [
+        "Give the minimal envelope a distinct top-level key (e.g., `no_change: true`) AND omit the full-fat fields (phases, agents, pending_decisions, recent_messages) — truncation forces the branching by structure rather than by conditional prompt logic.",
+        "Add an explicit worked example to §Phase 3 step 1 showing both envelopes side-by-side with arrows to the correct handler.",
+        "Add a regression test that snapshots the skill's rendered dashboard for both envelope shapes; drift in the prompt will show up in the snapshot diff.",
+        "Keep seen_alert_ids / pending_decisions dedup on the host side (SKILL.md:397 already) so that if the LLM does over-trigger, idempotence saves us."
+      ],
+      "rollback": "Fallback to 'full envelope' (HITL option 2) — zero SKILL.md branching, slightly higher cost per timeout. One-line orchestrator change, larger SKILL.md revert.",
+      "needs_human_review": false
+    },
+    {
+      "id": "R7",
+      "title": "Liveness-floor drift if overseer itself wedges",
+      "category": "correctness",
+      "impact": "medium",
+      "likelihood": "low",
+      "description": "The refine analysis correctly flags: 'if the overseer itself wedges, no event may ever arrive'. The 25s cap on each wait_for_status_change call is a natural liveness floor — the skill re-enters the loop every 25s regardless, re-issues the tool, and the dashboard refreshes. HOWEVER: if the skill's LLM drift (R6) causes it to skip the render-path when changed==false, a silent pipeline can go indefinitely without user-visible update. Literal interpretation of the issue's '60s max quiet interval' is satisfied as long as the skill re-enters the loop on every timeout.",
+      "affected_files": [
+        "skills/sdlc/SKILL.md:313-347",
+        "orchestrator/overseer.py (existence check — per refine analysis already emits OVERSEER_ALERT on stall)"
+      ],
+      "mitigations": [
+        "Spec: the skill MUST re-enter the get_status/wait loop on every timeout with zero in-prompt conditional skips. Add explicit wording 'Even if {changed:false}, always re-issue wait_for_status_change within 1s of return — do not apply conditional sleeps or side-exits'.",
+        "Add a host-side timer-of-last-resort: if elapsed since last wake > 60s, force a full get_status call and full render. This is the explicit liveness floor from the issue body. (HITL deferred the literal vs aspirational interpretation to the plan; recommend literal = 60s.)",
+        "Emit a metric for mean-time-between-wakes on the host to detect drift in production."
+      ],
+      "rollback": "Revert to get_status(wait=25) — time-based polling has no liveness drift issue.",
+      "needs_human_review": true,
+      "human_review_reason": "HITL explicitly deferred the 60s liveness-floor interpretation ('Not sure / skip — defer to plan phase'). The plan phase needs a human decision here: is the floor literal (enforced by a host-side timer) or aspirational (any re-entry of the loop counts)?"
+    },
+    {
+      "id": "R8",
+      "title": "Backend parity — in-memory vs Redis XREAD BLOCK behaviour",
+      "category": "quality",
+      "impact": "medium",
+      "likelihood": "low",
+      "description": "The refine analysis notes: 'The new event wake must work identically on the Redis backend (XREAD BLOCK) and the in-memory backend (condition variable). The in-memory backend is what CI exercises by default.' Both backends already implement `wait_for_types` and `from_tip` (orchestrator/message_store.py:188-294, orchestrator/redis_message_store.py:158-329), but adding EventBus subscription into the same wait-endpoint is a NEW code path that must work for both. In particular, EventBus is process-local (orchestrator/events.py:119) — in a multi-process Redis deployment, an event emitted on one gunicorn worker is invisible to another worker's subscribers. The orchestrator today uses a single Waitress process (orchestrator/cli.py:280-322), so this is not an immediate issue, but the plan must NOT assume multi-process safety.",
+      "affected_files": [
+        "orchestrator/events.py:119-319",
+        "orchestrator/message_store.py",
+        "orchestrator/redis_message_store.py",
+        "orchestrator/cli.py:280-322"
+      ],
+      "mitigations": [
+        "Document the single-process assumption in the new route's docstring.",
+        "Add tests for both backends: in-memory CI (existing default) + a Redis-backed CI run (#1919 already parametrizes `test_wait_*` over backends; extend the new endpoint tests to match).",
+        "If multi-process becomes a target later, route EventBus events through Redis pub/sub — out of scope for this issue, but call it out as a follow-up."
+      ],
+      "rollback": "Subscribe ONLY to message_store events (drop the EventBus subscription side). Covers OVERSEER_ALERT / CONSENSUS_*, loses phase/decision/terminal events. The HITL resolution explicitly chose 'Both' — so this rollback requires re-consent.",
+      "needs_human_review": false
+    },
+    {
+      "id": "R9",
+      "title": "Rate limiter interaction (30 req/min per MCP client)",
+      "category": "availability",
+      "impact": "low",
+      "likelihood": "low",
+      "description": "orchestrator/mcp_server.py:36, 73 — DEFAULT_RATE_LIMIT = 30 requests per minute. With event-driven wake, the host may receive bursts of early returns (e.g., a rapid sequence of phase transitions) that push call frequency above 30/min. The current rate-limit message is 'Rate limit exceeded' (mcp_server.py:161), which the SDLC skill does not gracefully handle today.",
+      "affected_files": [
+        "orchestrator/mcp_server.py:36,73-93,160-161"
+      ],
+      "mitigations": [
+        "Baseline: under steady state with events firing rarely, 25s between wakes = ~2-3 calls/min, well under 30.",
+        "Burst case: a failure cascade could emit 10+ events in 1s. The host sees ~10 early-returns back-to-back. Still well under 30/min, but worth measuring.",
+        "If rate-limit hits become frequent, raise DEFAULT_RATE_LIMIT for the new tool specifically (tool-scoped limits — small refactor at mcp_server.py:73-93). Not required at launch."
+      ],
+      "rollback": "N/A — rate limit is per-process and non-persistent.",
+      "needs_human_review": false
+    },
+    {
+      "id": "R10",
+      "title": "Client disconnect cancellation — avoid orphaned long-polls",
+      "category": "availability",
+      "impact": "low-medium",
+      "likelihood": "medium",
+      "description": "Claude Code's streamable-HTTP MCP transport abandons tool calls at ~30s (anthropics/claude-code#20335). When this happens the client TCP connection closes, but the server-side async block (either on EventBus subscription or XREAD BLOCK) may not observe the cancellation immediately and keep consuming thread-budget until the wait timeout elapses. For `/messages/wait` this is already handled via `_track_long_poll_end()` in a finally (orchestrator/routes/messages.py:401-425), but the Flask request context is torn down only when the sync view returns. If the new route composes EventBus subscription with XREAD BLOCK, cancellation semantics must be verified.",
+      "affected_files": [
+        "orchestrator/routes/messages.py:401-425",
+        "orchestrator/mcp_server.py:140-176"
+      ],
+      "mitigations": [
+        "Prefer the 'block in MCP async wrapper' pattern (see R4) where `anyio`'s cancellation model cleanly cancels the wait when the streamable-HTTP client times out. This is the existing working pattern for `_apply_get_status_wait`.",
+        "If the event-triggered wait is implemented as a Flask route, ensure it uses a cancellable block (XREAD BLOCK already cancellable; EventBus subscription needs an explicit unsubscribe in a `finally`).",
+        "Add an integration test: simulate client disconnect mid-block, assert thread is released within 1s."
+      ],
+      "rollback": "Shorten the server-side cap from 25s to 20s — reduces orphan duration without changing semantics.",
+      "needs_human_review": false
+    },
+    {
+      "id": "R11",
+      "title": "Python SDK MCP tool-surface parity deferred",
+      "category": "compatibility",
+      "impact": "low",
+      "likelihood": "medium",
+      "description": "HITL deferred 'Should `wait_for_status_change` be available over the Python SDK MCP tools surface (PR #1920) as well as the streamable-HTTP MCP server?' The risk is silent divergence: if PR #1920 lands and a Python-SDK consumer later tries to use `wait_for_status_change`, it will fail with 'tool not found' unless the tool is registered in both surfaces. This is a docs/compatibility risk, not a correctness risk.",
+      "affected_files": [
+        "orchestrator/mcp_tools.py (PIPELINE_TOOLS list — single source of truth)",
+        "PR #1920 integration points (out of scope but flagged for plan review)"
+      ],
+      "mitigations": [
+        "Plan-phase decision: register the new tool in PIPELINE_TOOLS (single source of truth that both transports consume, orchestrator/mcp_tools.py:277-304). If implemented that way, parity is free.",
+        "Explicit test: import PIPELINE_TOOLS in PR #1920's SDK test harness and assert `wait_for_status_change` is present.",
+        "Document the decision in the plan with one sentence so reviewer_plan can enforce it."
+      ],
+      "rollback": "N/A — deferred decision; worst case a follow-up issue registers the tool for the SDK surface.",
+      "needs_human_review": true,
+      "human_review_reason": "HITL deferred this explicitly. The plan phase is the venue to close it."
+    },
+    {
+      "id": "R12",
+      "title": "Test flakiness from event-triggered timing",
+      "category": "quality",
+      "impact": "low-medium",
+      "likelihood": "medium",
+      "description": "Event-triggered tests are historically more flaky than time-triggered tests — the test has to emit the trigger event, verify the return, and avoid false-positive early-returns from unrelated fixture events. The #1919 landed suite already wrestled with this (see tests/orchestrator/test_wait_*). The in-memory backend's condition-variable implementation is deterministic (orchestrator/message_store.py:267-294), which mitigates most flakiness in CI.",
+      "affected_files": [
+        "orchestrator/tests/test_wait_*.py (existing #1919 patterns)",
+        "New tests for wait_for_status_change"
+      ],
+      "mitigations": [
+        "Reuse the helper patterns from orchestrator/tests/test_wait_*.py (fixture-level event emission, explicit since_id assertions, pytest-timeout on every test).",
+        "Test matrix: (backend=in-memory, redis) × (trigger=event, message, timeout) × (cursor=present, absent, stale) — 12 cases. Parametrize via pytest.",
+        "Add a 60s test timeout via pyproject.toml (already done for #1928 via issue-linked PR)."
+      ],
+      "rollback": "N/A — test code only.",
+      "needs_human_review": false
+    }
+  ],
+  "contingency": {
+    "full_rollback": "Revert the three PRs (orchestrator tool, SKILL.md update, metric) together. get_status semantics are unchanged so no pipelines are broken by the revert. The SKILL.md change is backwards-compatible with get_status(wait=25) for any host that doesn't pull the new version.",
+    "partial_rollback": "SKILL.md revert alone restores old behaviour while leaving the new MCP tool dormant — useful if a bug surfaces in the skill but the server-side primitive is sound.",
+    "feature_flag": "The new tool is opt-in — SKILL.md controls the switch. No server-side flag is needed. If granularity is wanted, a `EGG_SDLC_EVENT_WAIT` env var gating the SKILL.md branch (or reading it from task_id response) would allow gradual rollout."
+  },
+  "human_review_items": [
+    {
+      "topic": "EventBus cursor design",
+      "question": "Add a monotonic event_id to orchestrator/events.py:Event, or synthesize a (timestamp + counter) cursor without schema changes?",
+      "risk_ref": "R3",
+      "default": "Add event_id (recommended by risk_analyst — cleanest, backwards-compatible, ~5 lines)"
+    },
+    {
+      "topic": "Wait-endpoint threading pattern",
+      "question": "Compose the event-triggered block in the MCP async wrapper (recommended), or make the Flask route itself async-ready?",
+      "risk_ref": "R4",
+      "default": "Compose in MCP wrapper — matches existing _apply_get_status_wait pattern, avoids touching Flask sync/async model"
+    },
+    {
+      "topic": "60s liveness-floor interpretation",
+      "question": "Literal (host-side 60s timer-of-last-resort that forces a full get_status call regardless of events) or aspirational (25s timeout cap is sufficient because the skill re-enters the loop immediately)?",
+      "risk_ref": "R7",
+      "default": "Literal — add an explicit 60s no-wake watchdog in the skill. Cost: one extra full get_status call per wedged minute. Benefit: guaranteed user-visible liveness even if overseer itself wedges."
+    },
+    {
+      "topic": "Python SDK MCP tool-surface parity (PR #1920)",
+      "question": "Register wait_for_status_change in PIPELINE_TOOLS (single source, both surfaces get it) or defer to a follow-up?",
+      "risk_ref": "R11",
+      "default": "Register in PIPELINE_TOOLS — free parity, no downside"
+    }
+  ],
+  "acceptance_criteria_for_plan_phase": [
+    "Plan lists the new tool's exact input schema (task_id, wait, since) and output schema for both {changed:true, ...full payload} and {changed:false, no_change:true, current_phase, status, phase_elapsed_seconds}.",
+    "Plan names the exact EventBus subscription set (PHASE_STARTED, PHASE_COMPLETED, DECISION_CREATED, PIPELINE_COMPLETED, PIPELINE_FAILED — NOT DECISION_RESOLVED) and message-type wait_for_types set (OVERSEER_ALERT, CONSENSUS_CONFIRMED, CONSENSUS_NACK, CONSENSUS_RE_REVIEW).",
+    "Plan makes a call on R3 (event_id vs synthesized cursor), R4 (MCP wrapper vs Flask async), R7 (literal vs aspirational floor), R11 (SDK parity) and records the choices.",
+    "Plan includes the egg_inflight_host_waits metric as an explicit task.",
+    "Plan includes a task to update the §MCP Tools Reference section in SKILL.md alongside §Phase 3 and §Phase S5.",
+    "Plan names the test matrix (backend × trigger × cursor) and the client-disconnect cancellation test."
+  ],
+  "artifacts_reviewed": [
+    ".egg-state/drafts/1932-analysis.md",
+    ".egg-state/contracts/issue-1932.json (HITL resolutions at refine gate)",
+    ".egg-state/brc-history/1932-refine.md (refine phase consensus record)",
+    "orchestrator/mcp_server.py:36-176",
+    "orchestrator/mcp_tools.py:260-304,1548-1839",
+    "orchestrator/routes/messages.py:60-425",
+    "orchestrator/routes/pipelines.py:11015-11050,11990-12080",
+    "orchestrator/routes/decisions.py:440-462",
+    "orchestrator/events.py:35-319",
+    "orchestrator/message_store.py:188-294",
+    "orchestrator/redis_message_store.py:158-329",
+    "orchestrator/cli.py:280-322",
+    "skills/sdlc/SKILL.md:310-420,1174-1210"
+  ],
+  "notes": [
+    "This assessment was produced without the ARCHITECT agent's output (not yet published to origin/egg/issue-1932 at time of risk analysis). It is grounded in the HITL-resolved design envelope from the refine phase gate (all seven choice decisions plus six feedback items resolved). If architect output materially diverges from Option A + 'Issue-as-written' event set + minimal envelope + `since` cursor + both-source subscription + metric, this risk assessment needs a re-review and re-propose cycle.",
+    "The heaviest single risk is R3 (cursor semantics); it touches the EventBus and has cross-cutting ripples. R4 is the most likely to cause production incidents (thread-pool math). R7 is the most likely to cause user-visible staleness in the field.",
+    "None of the risks block the plan phase — all have named mitigations. Four items (R3, R4, R7, R11) benefit from explicit human review at plan-gate; the other eight are straightforwardly closable by the TASK_PLANNER via acceptance criteria."
+  ]
+}
