@@ -100,7 +100,7 @@ that requires the handler docstring to explain why no CLI exists.
 
 | Tool | Purpose | Handler | CLI counterpart |
 |------|---------|---------|-----------------|
-| `mcp__brc__propose` | Push committed changes to origin via the gateway then broadcast a CONSENSUS_PROPOSE signal. The `push` parameter (default `true`) can be set to `false` if you have already pushed through another route. Push failure short-circuits the handler — no proposal is sent for an un-pushed artifact. | `handlers.brc.brc_propose` | `egg-orch consensus propose --push` |
+| `mcp__brc__propose` | Push committed changes to origin then broadcast a `CONSENSUS_PROPOSE` signal. See [push behavior](#brc-propose-push-behavior) below. | `handlers.brc.brc_propose` | `egg-orch consensus propose --push` |
 | `mcp__brc__ack` | Acknowledge (ACK) a peer's proposal. | `handlers.brc.brc_ack` | `egg-orch consensus ack` |
 | `mcp__brc__nack` | Reject (NACK) a peer's proposal with blocker list. | `handlers.brc.brc_nack` | `egg-orch consensus nack` |
 | `mcp__brc__confirm` | Signal CONFIRMED — producer acknowledges all reviewer ACKs. | `handlers.brc.brc_confirm` | `egg-orch consensus confirmed` |
@@ -110,6 +110,14 @@ that requires the handler docstring to explain why no CLI exists.
 | `mcp__brc__wait_loop` | Loop `wait_for_event` until a match arrives or `max_iterations` trips; rides through timeouts and short transient gateway errors. Threads `cursor` internally between iterations and surfaces the final `cursor` for chaining across calls (#1995). | `handlers.message.message_wait_loop` | `egg-orch message wait-loop` |
 | `mcp__brc__send_heartbeat` | Emit a structured `HEARTBEAT` (schema-validated, per-role deduped, rate-limited) to the dedicated `/heartbeat` endpoint. Use `state=WAITING_ON_ROLE` + `waiting_on=<peer>` while blocking on BRC. | `handlers.message.message_heartbeat` | `egg-orch message heartbeat` |
 | `mcp__brc__read_peer_artifact` | Read entries from `.egg-state/brc-history/<pipeline_id>-<phase>.json` filtered by `peer_role`, with `limit`/`cursor` pagination (default `limit=50`). `pipeline_id` is resolved server-side from `EGG_PIPELINE_ID` / `EGG_ISSUE_NUMBER` (agents cannot pass an arbitrary id; path-traversal hardening). Returns `{items: [...], next_cursor: <str|None>, skipped_malformed: <int>}`. | `handlers.brc.read_peer_artifact` | — *(no CLI; reviewer-forensics helper that reads local files; operators inspect the files directly)* |
+
+#### `brc_propose` push behavior {#brc-propose-push-behavior}
+
+`mcp__brc__propose` pushes committed changes to origin via the gateway
+before broadcasting the proposal. The `push` parameter defaults to
+`true`; set it to `false` if you have already pushed through another
+route. Push failure short-circuits the handler — no proposal is sent
+for an un-pushed artifact.
 
 ### `mcp__phase__*` — Phase context
 
