@@ -1903,6 +1903,23 @@ class TestTesterCheckCoverageValidation:
             # Should not raise — graceful degradation for corrupt state
             _validate_tester_check_coverage("pid-1", payload, Path("/tmp"))
 
+    def test_repo_checks_failure_skips_validation(self):
+        """When get_repo_checks raises, validation is skipped gracefully."""
+        from routes.signals import _validate_tester_check_coverage
+
+        with (
+            self._patched_store(),
+            patch(
+                "config.repo_config.get_repo_checks",
+                side_effect=FileNotFoundError("repositories.yaml not found"),
+            ),
+        ):
+            payload = {
+                "attestation": {"checks_passed": ["test"]},
+            }
+            # Should not raise — missing config degrades gracefully
+            _validate_tester_check_coverage("pid-1", payload, Path("/tmp"))
+
     def test_rejects_adhoc_check_names(self):
         """Ad-hoc check names that don't match configured names are rejected (#1966).
 
