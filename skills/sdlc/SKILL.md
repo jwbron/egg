@@ -641,6 +641,16 @@ Handle each response:
 
 When the cached `last_status` (sourced from `get_status` or a `wait_for_status_change` Path A response — `wait_for_status_change` wakes immediately on `DECISION_CREATED`, so a freshly-created decision shows up on the very next response) carries a non-empty `pending_decisions` list, partition the batch by `decision_type` and handle each group as described below. A single response can surface multiple pending decisions at once (e.g. a refiner that registered 10 `choice` decisions via `register_open_question`); when that happens, group them so the user sees up to 4 per `AskUserQuestion` call rather than one prompt per decision.
 
+### Two-wave surfacing
+
+A phase that registers agent-level `choice` / `feedback` decisions (via `register_open_question` / `register_feedback_request`) surfaces them to the operator in **two waves**, not a single batch:
+
+1. **Wave 1 — phase_gate only.** When the phase first reaches `awaiting_human`, `pending_decisions` contains exactly one entry: the `phase_gate`. The agent-registered choice/feedback decisions are **deferred behind the gate** and are not yet in `pending_decisions`, even if the draft document enumerates them.
+2. **Gate resolution.** Operator resolves the `phase_gate` via `provide_input` (`approve` / `request_changes` / `change_approach`).
+3. **Wave 2 — deferred decisions.** On `approve`, the pipeline **stays in `awaiting_human`** and the orchestrator moves the deferred choice/feedback decisions into `pending_decisions`. They wake the next `wait_for_status_change` via `DECISION_CREATED`. The next phase does not start until all of them are resolved. On `request_changes` / `change_approach`, the deferred decisions are discarded with the phase reset — no Wave 2.
+
+**Operator messaging implications** — when narrating a `phase_gate` approval to the user, do not say "approves and moves to the next phase". The accurate framing is: "approves the draft; any deferred `<phase>`-phase decisions will surface next for you to resolve, then `<next phase>` starts." When the draft lists open questions that are not in the current `pending_decisions` snapshot, frame them as "these will surface as `<phase>`-phase decisions once the gate is approved", not "these will come up in the `<next phase>` phase".
+
 **Handling rules by `decision_type`**:
 
 - **`phase_gate`** — always alone. Handle individually per the section below.
@@ -735,7 +745,7 @@ The status response (from `get_status` or a `wait_for_status_change` Path A resp
    - **Question**: "Phase '<phase>' is complete. Do you approve the output above to proceed?"
    - **Header**: "Approval"
    - **Options**:
-     - **"Approve"** — description: "Proceed to the next phase"
+     - **"Approve"** — description: "Accept the draft. Any deferred choice/feedback decisions registered during this phase will surface next; the next phase starts once they're all resolved"
      - **"Request changes"** — description: "Send feedback for agents to address, then re-review"
      - **"Change approach"** — description: "Reject this approach entirely and re-run the phase from scratch with new direction"
      - **"Cancel and re-run pipeline"** — description: "Fundamental issues — cancel this pipeline and start over"
@@ -788,7 +798,7 @@ The status response (from `get_status` or a `wait_for_status_change` Path A resp
      {"action": "request_changes", "feedback": "<user's text>", "context": "<resolved questions from 7a, or omit>"}
      ```
 
-After resolving this decision, move to the next pending decision (if any) before resuming monitoring.
+After resolving this decision, move to the next pending decision (if any) before resuming monitoring. **On `approve`**, expect Wave 2 (see [Two-wave surfacing](#two-wave-surfacing) above) — the pipeline stays in `awaiting_human` and the next `wait_for_status_change` will wake on `DECISION_CREATED` for the phase's deferred choice/feedback decisions. Tell the user plainly: "Approved. Waiting for the phase's deferred decisions to surface" rather than announcing the next phase has started.
 
 ### For `choice` type decisions:
 
