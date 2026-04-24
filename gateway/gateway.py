@@ -3943,9 +3943,10 @@ def jira_execute() -> tuple[Response, int] | Response:
         )
 
     # Path is structurally OK — extract project key (if any) and allowlist it.
-    # The accepted shapes are ``issue/<KEY>[/comment]``, ``search/jql``,
-    # ``project``, and ``project/<KEY>``.  Only the first and last carry a
-    # project key inline; the others are covered by the path allowlist.
+    # The accepted shapes are ``issue/<KEY>[/comment]`` and
+    # ``project/<KEY>``.  Both carry a project key inline that is checked
+    # against the allowlist.  Bare ``project`` is excluded (would leak all
+    # projects visible to the API token).
     stripped = path.strip("/").split("?", 1)[0]
     ticket: str | None = None
     project: str | None = None

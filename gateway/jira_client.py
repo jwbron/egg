@@ -126,7 +126,11 @@ JIRA_API_ALLOWED_PATHS: list[re.Pattern[str]] = [
     # Atlassian.  Allowing ``search/jql`` through ``/api/v1/jira/execute``
     # would bypass that extractor and let an agent read issues from any
     # project (reviewer_code cycle 1 finding #3).
-    re.compile(r"^project$"),
+    #
+    # ``^project$`` (bare, no key suffix) is intentionally excluded:
+    # ``GET /rest/api/3/project`` returns ALL projects visible to the API
+    # token, bypassing the project allowlist.  Agents should use
+    # ``project/<KEY>`` for specific, allowlisted projects only.
     re.compile(rf"^project/{_PROJECT_KEY}$"),
 ]
 

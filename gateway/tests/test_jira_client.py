@@ -85,7 +85,6 @@ class TestValidateJiraApiPath:
             "issue/FOO-1/comment",
             "issue/A1-7",
             "issue/PROJ_X-42",
-            "project",
             "project/FOO",
             "project/ENG",
             "project/PROJ_X",
@@ -94,6 +93,14 @@ class TestValidateJiraApiPath:
     def test_positive_get_paths(self, path: str):
         ok, reason = validate_jira_api_path(path, "GET")
         assert ok, f"{path!r} should have been accepted: {reason}"
+
+    def test_bare_project_removed_from_execute_allowlist(self):
+        """Bare ``project`` path returns ALL projects visible to the API
+        token, bypassing the project allowlist.  Only ``project/<KEY>``
+        is permitted (reviewer_code finding #2)."""
+        ok, reason = validate_jira_api_path("project", "GET")
+        assert not ok
+        assert "allowlist" in reason.lower()
 
     def test_search_jql_removed_from_execute_allowlist(self):
         """Cycle-2 fix: ``search/jql`` is intentionally NOT in the execute

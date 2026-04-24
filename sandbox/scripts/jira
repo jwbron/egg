@@ -1,0 +1,355 @@
+#!/bin/bash
+#
+# Jira CLI wrapper for egg container
+# Routes Jira commands through the gateway sidecar for policy enforcement.
+#
+# Security: Requires gateway sidecar - fails closed if gateway unavailable.
+# The gateway sidecar holds the Atlassian credentials and enforces policies:
+# - Project allowlist restricts which projects agents can access
+# - Read-only: only GET operations are permitted
+# - JQL scope extraction prevents cross-project data access
+#
+# Verbs:
+#   jira ticket get <KEY> [--fields f1,f2]
+#   jira ticket comments <KEY>
+#   jira search <JQL> [--max-results N] [--fields f1,f2] [--next-page-token TOK]
+#   jira execute <METHOD> <PATH> [--query key=val,key2=val2]
+#   jira help
+#
+
+set -euo pipefail
+
+# --- Environment checks (fail closed) ---
+
+if [ -z "${GATEWAY_URL:-}" ]; then
+    echo "ERROR: GATEWAY_URL environment variable is not set." >&2
+    echo "This variable must be set by the container launcher." >&2
+    exit 1
+fi
+
+if [ -z "${EGG_SESSION_TOKEN:-}" ]; then
+    echo "ERROR: EGG_SESSION_TOKEN environment variable is not set." >&2
+    echo "Session token is required for gateway access." >&2
+    exit 1
+fi
+
+# --- Gateway health check ---
+
+check_gateway_available() {
+    if command -v curl >/dev/null 2>&1; then
+        curl -s --connect-timeout 2 "${GATEWAY_URL}/api/v1/health" >/dev/null 2>&1
+        return $?
+    fi
+    return 1
+}
+
+show_no_gateway_message() {
+    cat >&2 << 'EOF'
+
+================================================================================
+  GATEWAY SIDECAR NOT AVAILABLE
+================================================================================
+
+Cannot run jira command: The gateway sidecar is required but not reachable.
+
+The gateway enforces project allowlist policies and holds Atlassian credentials.
+Without it, Jira operations are not allowed.
+
+Please ensure:
+  1. Gateway sidecar is running on the host
+  2. The container can reach the gateway:
+     curl $GATEWAY_URL/api/v1/health
+
+================================================================================
+
+EOF
+    exit 1
+}
+
+if ! check_gateway_available; then
+    show_no_gateway_message
+fi
+
+# --- Usage ---
+
+show_usage() {
+    cat << 'EOF'
+Usage: jira <command> [options]
+
+Commands:
+  jira ticket get <KEY> [--fields f1,f2]
+      Fetch a Jira ticket by key (e.g. ENG-123).
+
+  jira ticket comments <KEY>
+      Fetch comments on a Jira ticket.
+
+  jira search <JQL> [--max-results N] [--fields f1,f2] [--next-page-token TOK]
+      Search for issues using JQL. Project scope is enforced by the gateway.
+
+  jira execute <METHOD> <PATH> [--query key=val,key2=val2]
+      Execute a raw read-only Jira REST API call through the gateway.
+
+  jira help
+      Show this usage information.
+EOF
+}
+
+# --- Gateway call helper ---
+
+call_gateway() {
+    local endpoint="$1"
+    local payload="$2"
+
+    local tmpfile curl_errfile
+    tmpfile=$(mktemp)
+    curl_errfile=$(mktemp)
+    trap 'rm -f "$tmpfile" "$curl_errfile"' EXIT
+
+    local http_code
+    http_code=$(curl -s -w "%{http_code}" \
+        -X POST \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer ${EGG_SESSION_TOKEN}" \
+        -d "$payload" \
+        -o "$tmpfile" \
+        "${GATEWAY_URL}${endpoint}" 2>"$curl_errfile")
+
+    local curl_exit=$?
+    if [ $curl_exit -ne 0 ]; then
+        echo "ERROR: Failed to connect to gateway (curl exit $curl_exit)" >&2
+        cat "$curl_errfile" >&2
+        rm -f "$tmpfile" "$curl_errfile"
+        trap - EXIT
+        return 1
+    fi
+    rm -f "$curl_errfile"
+
+    # Parse response: on success print .data as JSON to stdout; on failure
+    # print error message to stderr and exit non-zero.
+    python3 -c "
+import json, sys
+
+try:
+    with open(sys.argv[1]) as f:
+        data = json.load(f)
+except (json.JSONDecodeError, OSError) as e:
+    print(f'ERROR: Failed to parse gateway response: {e}', file=sys.stderr)
+    sys.exit(1)
+
+http_code = sys.argv[2]
+
+if data.get('success'):
+    payload = data.get('data', {})
+    print(json.dumps(payload, indent=2))
+    sys.exit(0)
+else:
+    message = data.get('message', 'Unknown error')
+    details = data.get('details', {})
+    print(f'ERROR: {message}', file=sys.stderr)
+    if details:
+        for k, v in details.items():
+            print(f'  {k}: {v}', file=sys.stderr)
+    sys.exit(1)
+" "$tmpfile" "$http_code"
+
+    local py_exit=$?
+    rm -f "$tmpfile"
+    trap - EXIT
+    return $py_exit
+}
+
+# --- Verb handlers ---
+
+handle_ticket_get() {
+    shift  # consume "get"
+    if [ $# -lt 1 ]; then
+        echo "ERROR: Ticket key required. Usage: jira ticket get <KEY> [--fields f1,f2]" >&2
+        exit 1
+    fi
+    local ticket_key="$1"
+    shift
+
+    local fields=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --fields)
+                shift
+                fields="${1:-}"
+                shift || true
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    local payload
+    payload=$(python3 -c "
+import json, sys
+body = {'ticket': sys.argv[1]}
+fields = sys.argv[2]
+if fields:
+    body['fields'] = [f.strip() for f in fields.split(',')]
+print(json.dumps(body))
+" "$ticket_key" "$fields")
+
+    call_gateway "/api/v1/jira/ticket/get" "$payload"
+}
+
+handle_ticket_comments() {
+    shift  # consume "comments"
+    if [ $# -lt 1 ]; then
+        echo "ERROR: Ticket key required. Usage: jira ticket comments <KEY>" >&2
+        exit 1
+    fi
+    local ticket_key="$1"
+
+    local payload
+    payload=$(python3 -c "
+import json, sys
+print(json.dumps({'ticket': sys.argv[1]}))
+" "$ticket_key")
+
+    call_gateway "/api/v1/jira/ticket/comments" "$payload"
+}
+
+handle_search() {
+    if [ $# -lt 1 ]; then
+        echo "ERROR: JQL query required. Usage: jira search <JQL> [options]" >&2
+        exit 1
+    fi
+    local jql="$1"
+    shift
+
+    local max_results="" fields="" next_page_token=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --max-results)
+                shift
+                max_results="${1:-}"
+                if ! [[ "$max_results" =~ ^[0-9]+$ ]]; then
+                    echo "ERROR: --max-results must be an integer, got: $max_results" >&2
+                    exit 1
+                fi
+                shift || true
+                ;;
+            --fields)
+                shift
+                fields="${1:-}"
+                shift || true
+                ;;
+            --next-page-token)
+                shift
+                next_page_token="${1:-}"
+                shift || true
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    local payload
+    payload=$(python3 -c "
+import json, sys
+body = {'jql': sys.argv[1]}
+max_results = sys.argv[2]
+fields = sys.argv[3]
+next_page_token = sys.argv[4]
+if max_results:
+    body['maxResults'] = int(max_results)
+if fields:
+    body['fields'] = [f.strip() for f in fields.split(',')]
+if next_page_token:
+    body['nextPageToken'] = next_page_token
+print(json.dumps(body))
+" "$jql" "$max_results" "$fields" "$next_page_token")
+
+    call_gateway "/api/v1/jira/search" "$payload"
+}
+
+handle_execute() {
+    if [ $# -lt 2 ]; then
+        echo "ERROR: Method and path required. Usage: jira execute <METHOD> <PATH> [--query k=v,k2=v2]" >&2
+        exit 1
+    fi
+    local method="$1"
+    local api_path="$2"
+    shift 2
+
+    local query_str=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --query)
+                shift
+                query_str="${1:-}"
+                shift || true
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    local payload
+    payload=$(python3 -c "
+import json, sys
+body = {'method': sys.argv[1], 'path': sys.argv[2]}
+query_str = sys.argv[3]
+if query_str:
+    query = {}
+    for pair in query_str.split(','):
+        if '=' in pair:
+            k, v = pair.split('=', 1)
+            query[k.strip()] = v.strip()
+    body['query'] = query
+print(json.dumps(body))
+" "$method" "$api_path" "$query_str")
+
+    call_gateway "/api/v1/jira/execute" "$payload"
+}
+
+# --- Main dispatch ---
+
+if [ $# -lt 1 ]; then
+    show_usage >&2
+    exit 1
+fi
+
+case "$1" in
+    ticket)
+        shift
+        if [ $# -lt 1 ]; then
+            echo "ERROR: Missing ticket subcommand. Usage: jira ticket get|comments <KEY>" >&2
+            exit 1
+        fi
+        case "$1" in
+            get)
+                handle_ticket_get "$@"
+                ;;
+            comments)
+                handle_ticket_comments "$@"
+                ;;
+            *)
+                echo "ERROR: Unknown ticket subcommand '$1'. Use: get, comments" >&2
+                exit 1
+                ;;
+        esac
+        ;;
+    search)
+        shift
+        handle_search "$@"
+        ;;
+    execute)
+        shift
+        handle_execute "$@"
+        ;;
+    help|--help|-h)
+        show_usage
+        exit 0
+        ;;
+    *)
+        echo "ERROR: Unknown command '$1'. Use: ticket, search, execute, help" >&2
+        exit 1
+        ;;
+esac

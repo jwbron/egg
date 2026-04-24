@@ -28,7 +28,7 @@ from pathlib import Path
 
 # Add shared directory to path for egg_logging
 _shared_path = Path(__file__).parent.parent / "shared"
-if _shared_path.exists():
+if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 from egg_logging import get_logger
 
@@ -163,7 +163,7 @@ class JiraCredentialsManager:
             "Jira credentials loaded",
             base_url=base_url,
             username=username,
-            token_prefix=api_token[:6] + "...",
+            token_prefix=api_token[:4] + "...",
         )
 
     def reload(self) -> None:
@@ -175,14 +175,16 @@ class JiraCredentialsManager:
 
 # Global singleton — resolved lazily so that tests can reset it.
 _credentials_manager: JiraCredentialsManager | None = None
+_credentials_manager_lock = threading.Lock()
 
 
 def get_jira_credentials_manager() -> JiraCredentialsManager:
     """Get or create the process-wide Jira credentials manager."""
     global _credentials_manager
-    if _credentials_manager is None:
-        _credentials_manager = JiraCredentialsManager()
-    return _credentials_manager
+    with _credentials_manager_lock:
+        if _credentials_manager is None:
+            _credentials_manager = JiraCredentialsManager()
+        return _credentials_manager
 
 
 def get_jira_credentials() -> JiraCredentials:
@@ -207,4 +209,5 @@ def reload_jira_credentials() -> None:
 def reset_jira_credentials_manager() -> None:
     """Drop the module-level singleton (test helper)."""
     global _credentials_manager
-    _credentials_manager = None
+    with _credentials_manager_lock:
+        _credentials_manager = None
