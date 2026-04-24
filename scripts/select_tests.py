@@ -335,15 +335,22 @@ def _atomic_write_text(path: Path, content: str) -> None:
 # ----------------------------------------------------------------------
 
 
-def _sidecar_path(branch: str) -> Path:
-    return SIDECAR_DIR / f"{branch}.sha"
+def _resolve_root(repo_root: Path | None) -> Path:
+    """Default repo_root to the resolved git toplevel when callers
+    don't pass one explicitly.  Centralised so every sidecar I/O
+    call site goes through the same fallback (tester blocking #2)."""
+    return repo_root if repo_root is not None else _git_repo_root()
 
 
-def _canary_path(branch: str) -> Path:
-    return SIDECAR_DIR / f"{branch}.canary"
+def _sidecar_path(branch: str, repo_root: Path | None = None) -> Path:
+    return _resolve_root(repo_root) / SIDECAR_DIR / f"{branch}.sha"
 
 
-def read_sidecar_lkg(branch: str | None) -> str | None:
+def _canary_path(branch: str, repo_root: Path | None = None) -> Path:
+    return _resolve_root(repo_root) / SIDECAR_DIR / f"{branch}.canary"
+
+
+def read_sidecar_lkg(branch: str | None, repo_root: Path | None = None) -> str | None:
     """Read the LKG sidecar for `branch`; return the sha or None.
 
     Returns None if:
@@ -351,10 +358,14 @@ def read_sidecar_lkg(branch: str | None) -> str | None:
       - sidecar file is missing
       - sidecar contents fail the 40-hex regex (treated as absent;
         matches "no LKG" semantics).
+
+    `repo_root` defaults to the git toplevel — passing None when the
+    caller is running from a non-repo-root CWD would previously
+    write/read under the wrong directory (tester blocking #2).
     """
     if branch is None:
         return None
-    path = _sidecar_path(branch)
+    path = _sidecar_path(branch, repo_root)
     if not path.exists():
         return None
     try:
@@ -366,15 +377,15 @@ def read_sidecar_lkg(branch: str | None) -> str | None:
     return content
 
 
-def write_sidecar_lkg(branch: str, sha: str) -> None:
+def write_sidecar_lkg(branch: str, sha: str, repo_root: Path | None = None) -> None:
     """Atomically write `sha` to the LKG sidecar for `branch`."""
-    _atomic_write_text(_sidecar_path(branch), sha + "\n")
+    _atomic_write_text(_sidecar_path(branch, repo_root), sha + "\n")
 
 
-def read_canary_count(branch: str | None) -> int:
+def read_canary_count(branch: str | None, repo_root: Path | None = None) -> int:
     if branch is None:
         return 0
-    path = _canary_path(branch)
+    path = _canary_path(branch, repo_root)
     if not path.exists():
         return 0
     try:
@@ -383,8 +394,8 @@ def read_canary_count(branch: str | None) -> int:
         return 0
 
 
-def write_canary_count(branch: str, count: int) -> None:
-    _atomic_write_text(_canary_path(branch), str(count) + "\n")
+def write_canary_count(branch: str, count: int, repo_root: Path | None = None) -> None:
+    _atomic_write_text(_canary_path(branch, repo_root), str(count) + "\n")
 
 
 # ----------------------------------------------------------------------
@@ -434,13 +445,13 @@ def record_good(sha_arg: str | None, repo_root: Path | None = None) -> int:
     if not _git_is_ancestor(sha, "HEAD", cwd=repo_root):
         raise RecordGoodValidationError(f"sha {sha} is not an ancestor of HEAD")
 
-    write_sidecar_lkg(branch, sha)
+    write_sidecar_lkg(branch, sha, repo_root=repo_root)
     # `make test-all` runs --record-good on green; resetting the canary
     # here means the developer doesn't get punished by a canary-fired
     # full-suite re-run on their VERY NEXT `make test` after they
     # already exercised the full suite (reviewer non-blocking #5).
     try:
-        write_canary_count(branch, 0)
+        write_canary_count(branch, 0, repo_root=repo_root)
     except OSError:
         pass
     return 0
@@ -480,7 +491,7 @@ def resolve_baseline(
 
     # (1) LKG sidecar — skipped on read-only role.
     if not readonly and branch is not None:
-        sidecar_sha = read_sidecar_lkg(branch)
+        sidecar_sha = read_sidecar_lkg(branch, repo_root=repo_root)
         if sidecar_sha is not None and _git_is_ancestor(sidecar_sha, "HEAD", cwd=repo_root):
             return sidecar_sha, "LKG", branch
         # Sidecar exists but fails ancestry — caller will surface this
@@ -507,7 +518,7 @@ def lkg_is_stale(repo_root: Path | None = None) -> bool:
     branch = _git_current_branch(cwd=repo_root)
     if branch is None:
         return False
-    sidecar_sha = read_sidecar_lkg(branch)
+    sidecar_sha = read_sidecar_lkg(branch, repo_root=repo_root)
     if sidecar_sha is None:
         return False
     return not _git_is_ancestor(sidecar_sha, "HEAD", cwd=repo_root)
@@ -1267,9 +1278,9 @@ def _run_narrow_or_fallback(repo_root: Path) -> int:
     # counter (sidecar dir is per-branch and not theirs to mutate).
     canary_fired = False
     if not role_readonly and branch is not None:
-        count = read_canary_count(branch) + 1
+        count = read_canary_count(branch, repo_root=repo_root) + 1
         canary_fired = count % 10 == 0
-        write_canary_count(branch, 0 if canary_fired else count)
+        write_canary_count(branch, 0 if canary_fired else count, repo_root=repo_root)
 
     # Compute the diff against the baseline (or empty list when
     # baseline_source == "UNRESOLVABLE").
@@ -1527,7 +1538,7 @@ def _main_inner(argv: list[str] | None = None) -> int:
         branch = _git_current_branch(cwd=repo_root)
         if branch is not None:
             try:
-                write_canary_count(branch, 0)
+                write_canary_count(branch, 0, repo_root=repo_root)
             except OSError:
                 pass
         return emit_full_suite()
