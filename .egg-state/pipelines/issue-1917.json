@@ -241,16 +241,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-24T03:10:22.592347Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-24T03:10:56.940395Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"No-CLI new capability (like brc_read_peer_artifact) — ship it MCP-only with cli_command=None; operators don't need it\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:10:06.375518Z",
-  "updated_at": "2026-04-24T03:10:22.608996Z",
+  "updated_at": "2026-04-24T03:10:56.953842Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -264,5 +264,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 19
+  "version": 20
 }
