@@ -168,10 +168,30 @@
       "resolution": "{\"action\": \"approve\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Which option (or combination) should the plan phase pursue for improving reviewer thoroughness?",
+      "context": "Open contract question decision-1, registered by an agent during the refine phase.",
+      "options": [
+        "Option A: subagent delegation inside reviewer_code only",
+        "Option B: new specialised reviewer roles (reviewer_security, reviewer_concurrency, etc.)",
+        "Option D: pre-PR GHA-equivalent gate inside the pipeline",
+        "Option F: hybrid — A + D + severity-rubric update + deferred-fix policy (recommended)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T19:59:30.270102Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T19:45:30.059639Z",
-  "updated_at": "2026-04-24T19:59:26.990037Z",
+  "updated_at": "2026-04-24T19:59:30.293618Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -185,6 +205,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 12,
+  "version": 13,
   "jira_ticket": null
 }
