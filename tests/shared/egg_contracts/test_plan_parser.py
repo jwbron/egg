@@ -1254,6 +1254,95 @@ phases:
         assert tasks[2].role is None
 
 
+class TestAlphaSuffixAndDuplicates:
+    """Regression tests for #1988 — task id regex was unanchored, letting
+    TASK-1-3A and TASK-1-3B both collapse to task-1-3."""
+
+    def test_alpha_suffix_task_ids_do_not_collide(self):
+        """TASK-1-3A and TASK-1-3B should each get a unique contract id."""
+        yaml_data = {
+            "phases": [
+                {
+                    "id": 1,
+                    "name": "Setup",
+                    "tasks": [
+                        {"id": "TASK-1-1", "description": "First", "acceptance": "Done"},
+                        {"id": "TASK-1-2", "description": "Second", "acceptance": "Done"},
+                        {"id": "TASK-1-3A", "description": "Third-a", "acceptance": "Done"},
+                        {"id": "TASK-1-3B", "description": "Third-b", "acceptance": "Done"},
+                    ],
+                }
+            ]
+        }
+        phases, warnings = parse_phases_from_yaml(yaml_data)
+        contract_ids = [t.to_contract_task().id for t in phases[0].tasks]
+        assert len(contract_ids) == len(set(contract_ids)), (
+            f"Expected unique task ids, got: {contract_ids}"
+        )
+
+    def test_alpha_suffix_task_ids_emit_warnings(self):
+        """Parser should warn when an alpha-suffixed id falls through to the
+        synthesized-id path so reviewers see it."""
+        yaml_data = {
+            "phases": [
+                {
+                    "id": 1,
+                    "name": "Setup",
+                    "tasks": [
+                        {"id": "TASK-1-3A", "description": "A", "acceptance": "Done"},
+                        {"id": "TASK-1-3B", "description": "B", "acceptance": "Done"},
+                    ],
+                }
+            ]
+        }
+        _, warnings = parse_phases_from_yaml(yaml_data)
+        messages = [w.message for w in warnings]
+        assert any("TASK-1-3A" in m for m in messages), messages
+        assert any("TASK-1-3B" in m for m in messages), messages
+
+    def test_plain_numeric_ids_still_parse(self):
+        """Regression: anchoring must not break the common case."""
+        yaml_data = {
+            "phases": [
+                {
+                    "id": 1,
+                    "name": "Setup",
+                    "tasks": [
+                        {"id": "TASK-1-1", "description": "One", "acceptance": "Done"},
+                        {"id": "TASK-1-2", "description": "Two", "acceptance": "Done"},
+                    ],
+                }
+            ]
+        }
+        phases, warnings = parse_phases_from_yaml(yaml_data)
+        # No synthesized-id or duplicate warnings for plain numeric ids.
+        unexpected = [
+            w
+            for w in warnings
+            if "doesn't match pattern" in w.message or "Duplicate task id" in w.message
+        ]
+        assert unexpected == [], unexpected
+        contract_ids = [t.to_contract_task().id for t in phases[0].tasks]
+        assert contract_ids == ["task-1-1", "task-1-2"]
+
+    def test_duplicate_plain_ids_warn(self):
+        """Two identical TASK-1-3 entries should surface a duplicate warning."""
+        yaml_data = {
+            "phases": [
+                {
+                    "id": 1,
+                    "name": "Setup",
+                    "tasks": [
+                        {"id": "TASK-1-3", "description": "First", "acceptance": "Done"},
+                        {"id": "TASK-1-3", "description": "Second", "acceptance": "Done"},
+                    ],
+                }
+            ]
+        }
+        _, warnings = parse_phases_from_yaml(yaml_data)
+        assert any("Duplicate task id" in w.message for w in warnings), warnings
+
+
 class TestParsePlanWithYamlCodeFence:
     """Integration tests for parse_plan with yaml-tasks code fence."""
 
