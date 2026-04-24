@@ -57,3 +57,12 @@ Thumbs.db
 
 # uv lockfile (commit this for reproducibility)
 # uv.lock
+
+# changeset-aware test selection (issue #1973)
+# Sidecar Last-Known-Good shas + per-invocation selection logs +
+# grimp's on-disk graph cache.  Keep .egg-state/ as a whole tracked
+# (drafts, contracts, reviews, brc-history, oversight, agent-outputs
+# all live there) — only these three subdirectories are ignored.
+.egg-state/last-known-good/
+.egg-state/selection/
+.egg-state/grimp-cache/
