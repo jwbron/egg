@@ -399,10 +399,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-24T20:10:43.749220Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-24T20:12:27.044591Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Module-level (grimp default; one node per import-resolvable module; sufficient for file-level test selection) — recommended\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -503,7 +503,7 @@
     }
   ],
   "created_at": "2026-04-24T19:39:48.417158Z",
-  "updated_at": "2026-04-24T20:12:25.316422Z",
+  "updated_at": "2026-04-24T20:12:27.069360Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -517,6 +517,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 36,
+  "version": 37,
   "jira_ticket": null
 }
