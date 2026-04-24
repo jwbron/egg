@@ -78,6 +78,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [MCP Deployment Tools](reference/mcp-deployment-tools.md) | Six k8s-facing MCP tools: `get_deployment_context`, `validate_deployment_manifests`, `prune_stale_worktrees`, `validate_network_isolation`, `rebuild_and_rollout`, `get_service_logs` |
 | [Agent MCP Tools](reference/agent-tools.md) | In-process SDK MCP tools sandbox agents call on the `tool_use` stream (15 iteration-1 verbs: `mcp__sdlc__*`, `mcp__brc__*`, `mcp__phase__*`, `mcp__progress__*`, `mcp__task__*`); on by default — set `EGG_MCP_TOOLS=false` to opt out |
 | [Agent Wait Patterns](reference/agent-wait-patterns.md) | Canonical `egg-orch message wait-loop` idiom for BRC STAY ALIVE, the four anti-patterns to avoid, the `egg-orch message wait` exit-code contract, the `HEARTBEAT` metadata schema, and the `EGG_MESSAGE_POLL_MAX_WAIT` / `EGG_ORCH_WAITRESS_THREADS` env-var couplings |
+| [Jira Wrapper](reference/jira-wrapper.md) | `/api/v1/jira/*` read-only gateway endpoints (ticket read, JQL search with static project-scope extraction, ticket comments, GET-only execute passthrough); private-mode only; project allowlist via `config/context-filters.yaml`; `not_found` envelope; future write-verb extension points |
 
 ### SDLC Pipeline Templates
 
