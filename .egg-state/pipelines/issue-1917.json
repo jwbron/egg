@@ -694,10 +694,28 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"One PR — follows iteration 1's shape; single coordinated release (Recommended)\"}",
       "phase": "plan",
       "content_changed": null
+    },
+    {
+      "id": "decision-22",
+      "question": "Anchor CLI parity: update docs to point at mcp__anchor__* tools (recommended — there's no egg-orch anchor CLI today despite docs referencing it), or ship a thin egg-orch anchor CLI wrapping the same handlers?",
+      "context": "Open contract question decision-19, registered by an agent during the plan phase.",
+      "options": [
+        "Update docs only — point orchestrator-cli.md and anchor-recovery.md at mcp__anchor__*; file a follow-up issue if human-operator CLI becomes useful (Recommended)",
+        "Ship egg-orch anchor CLI — extract into sandbox/egg_lib/orch_cli.py; humans get a CLI and existing docs stay truthful",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T04:00:03.717422Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "plan",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:10:06.375518Z",
-  "updated_at": "2026-04-24T04:00:03.509127Z",
+  "updated_at": "2026-04-24T04:00:03.730953Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -711,5 +729,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 60
+  "version": 61
 }
