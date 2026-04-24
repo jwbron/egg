@@ -5723,6 +5723,21 @@ _PR_DESCRIPTION_YAML_EXAMPLE = [
     "    components as a result.",
 ]
 
+# YAML safety guidance for planner prompts. Plain (unquoted) scalars break
+# when they contain ``: `` sequences — e.g. "Add `sequence: int = 0` field"
+# parses as a nested mapping and raises ScannerError. Block scalars (``|-``)
+# take the whole indented block literally, so backticks, colons, quotes, and
+# other punctuation are safe. See issue #1974.
+_YAML_TASKS_SAFETY_GUIDANCE = [
+    "**YAML safety**: Use block scalars (`|-`) for every prose field — "
+    "`name`, `goal`, `description`, `acceptance`. Plain unquoted scalars "
+    "break when the text contains `` `code: type` ``, colons in URLs, or "
+    "other `: ` sequences, because PyYAML reads them as nested mappings "
+    "and the parser drops back to markdown fallback (silently losing the "
+    "`pr:` block). Follow the example above literally — do not inline these "
+    "values on the same line as the key.",
+]
+
 
 def _build_phase_prompt(
     phase: str,
@@ -5972,16 +5987,23 @@ def _build_phase_prompt(
                 "    Post-merge: any required steps after merging",
                 "phases:",
                 "  - id: 1",
-                "    name: Phase Name",
-                "    goal: What this phase achieves",
+                "    name: |-",
+                "      Phase Name",
+                "    goal: |-",
+                "      What this phase achieves",
                 "    tasks:",
                 "      - id: TASK-1-1",
-                "        description: What to do",
-                "        acceptance: How to verify it is done",
+                "        description: |-",
+                "          What to do — safe to include `code: type` snippets,",
+                "          URLs, and other punctuation inside a block scalar.",
+                "        acceptance: |-",
+                "          How to verify it is done",
                 "        files:",
                 "          - path/to/file.py",
                 "```",
                 "````",
+                "",
+                *_YAML_TASKS_SAFETY_GUIDANCE,
                 "",
                 "Do NOT use a `pr_plan` key or propose multiple PRs.",
                 "",
@@ -7391,17 +7413,24 @@ def _build_agent_prompt(
                 "    Post-merge: any required steps after merging",
                 "phases:",
                 "  - id: 1",
-                "    name: Phase Name",
-                "    goal: What this phase achieves",
+                "    name: |-",
+                "      Phase Name",
+                "    goal: |-",
+                "      What this phase achieves",
                 "    tasks:",
                 "      - id: TASK-1-1",
-                "        description: What to do",
-                "        acceptance: How to verify it is done",
+                "        description: |-",
+                "          What to do — safe to include `code: type` snippets,",
+                "          URLs, and other punctuation inside a block scalar.",
+                "        acceptance: |-",
+                "          How to verify it is done",
                 "        role: coder  # optional: coder (default), tester, or documenter",
                 "        files:",
                 "          - path/to/file.py",
                 "```",
                 "````",
+                "",
+                *_YAML_TASKS_SAFETY_GUIDANCE,
                 "",
                 "Do NOT use a `pr_plan` key or propose multiple PRs.",
                 "",
