@@ -245,6 +245,31 @@ class TestCheckHitlAnswers:
             resp = sdlc.check_hitl_answers({"phase": "plan", "include_unresolved": True})
         assert {d["id"] for d in resp["decisions"]} == {"d1", "d2"}
 
+    def test_no_phase_returns_all_phases_resolved(self):
+        """With no ``phase`` argument, resolved decisions from every phase
+        are returned — including prior phases the operator already closed
+        out. Regression test for #1959."""
+        decisions = [
+            {"id": "d1", "phase": "refine", "resolved": True, "resolution": {"id": "opt-1"}},
+            {"id": "d2", "phase": "refine", "resolved": True, "resolution": {"id": "opt-2"}},
+            {"id": "d3", "phase": "plan", "resolved": False, "resolution": None},
+            {"id": "d4", "phase": "plan", "resolved": True, "resolution": {"id": "opt-4"}},
+        ]
+        feedback = {"id": "feedback-1", "phase": "refine", "submitted": True}
+        data = {"decisions": decisions, "feedback": feedback}
+        with (
+            patch(
+                "egg_agent_tools.handlers.sdlc.gateway_request",
+                return_value={"success": True, "data": data},
+            ),
+            patch("egg_agent_tools.handlers.sdlc.get_contract_identifier", return_value=1),
+            # EGG_PHASE must NOT affect the default — prove it by setting one.
+            patch.dict("os.environ", {"EGG_PHASE": "plan"}, clear=False),
+        ):
+            resp = sdlc.check_hitl_answers({})
+        assert {d["id"] for d in resp["decisions"]} == {"d1", "d2", "d4"}
+        assert resp["feedback"] == feedback
+
     def test_phase_filter_applied_to_feedback(self):
         data = {
             "decisions": [],
@@ -271,6 +296,10 @@ class TestCheckHitlAnswers:
         ):
             with pytest.raises(GatewayError):
                 sdlc.check_hitl_answers({})
+
+    def test_invalid_phase_rejected(self):
+        with pytest.raises(HandlerError):
+            sdlc.check_hitl_answers({"phase": "bogus"})
 
     def test_response_shape_matches_declared_schema(self):
         """Assert the response dict has the documented keys."""

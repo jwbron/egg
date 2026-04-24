@@ -56,7 +56,10 @@ _HITL_ANSWERS_SCHEMA: dict[str, Any] = {
         "phase": {
             "type": "string",
             "enum": ["refine", "plan", "implement", "pr"],
-            "description": "Optional phase filter (defaults to EGG_PHASE)",
+            "description": (
+                "Optional phase filter. When omitted, returns HITL from all "
+                "phases so later-phase callers can see earlier-phase answers."
+            ),
         },
         "include_unresolved": {
             "type": "boolean",
@@ -92,9 +95,10 @@ async def request_feedback(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "check_hitl_answers",
-    "Fetch resolved HITL decisions and submitted feedback for the current contract, "
-    "optionally filtered by phase. No CLI counterpart — reads straight from the "
-    "contract gateway.",
+    "Fetch resolved HITL decisions and feedback (submitted or pending) for the current "
+    "contract. With no args, returns everything the operator has already "
+    "resolved across all phases; pass 'phase' to narrow to a single phase. "
+    "No CLI counterpart — reads straight from the contract gateway.",
     _HITL_ANSWERS_SCHEMA,
 )
 async def check_hitl_answers(args: dict[str, Any]) -> dict[str, Any]:
