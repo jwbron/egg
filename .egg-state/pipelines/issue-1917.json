@@ -323,10 +323,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Local .egg-state/brc-history/*.json files — simplest; no new endpoint; matches where reviewers dig today\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-10",
+      "question": "EGG_MCP_TOOLS flag fate: #1946 flipped it default-on. What is iter-2's plan for the flag?",
+      "context": "Open contract question decision-9, registered by an agent during the refine phase.",
+      "options": [
+        "Remove the flag entirely during iter 2 — burn-in from iter 1 was sufficient; simplifies the code path",
+        "Keep the flag for iter-2 burn-in and remove in a third follow-up — same stepped rollout iter 1 used",
+        "Keep indefinitely as a kill-switch — never remove; always want the opt-out path",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T03:13:19.711883Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:10:06.375518Z",
-  "updated_at": "2026-04-24T03:13:17.059969Z",
+  "updated_at": "2026-04-24T03:13:19.726006Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -340,5 +359,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 28
+  "version": 29
 }
