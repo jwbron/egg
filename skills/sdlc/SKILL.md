@@ -582,9 +582,15 @@ Handle each response:
 
 ## Phase 4 — HITL (Human-in-the-Loop)
 
-When `get_status` returns `pending_decisions`, handle each decision based on its `decision_type`:
+When `get_status` returns `pending_decisions`, partition the batch by `decision_type` and handle each group as described below. A single `get_status` response can surface multiple pending decisions at once (e.g. a refiner that registered 10 `choice` decisions via `register_open_question`); when that happens, group them so the user sees up to 4 per `AskUserQuestion` call rather than one prompt per decision.
 
-Iterate through `pending_decisions` and handle each one individually before resuming monitoring. For each decision, check its `decision_type`:
+**Handling rules by `decision_type`**:
+
+- **`phase_gate`** — always alone. Handle individually per the section below.
+- **`choice`** — may arrive in multiples. Apply the `resolved_questions_map` auto-resolution check (see below) to each one first; auto-resolved decisions are submitted immediately via `provide_input` and omitted from the prompt. For the remaining decisions, **group up to 4 into a single multi-question `AskUserQuestion` call** (one question per decision, that decision's `options` as the choices). After the user answers, call `provide_input` once per `decision_id` with `{"action": "select", "selected": "<chosen option>"}`. Repeat in groups of 4 until every choice decision is resolved. This collapses what was previously N prompts and N polling cycles into ~⌈N/4⌉ prompts and one cycle (#1956).
+- **`feedback`** — typically at most one per phase. Handle individually; within a single feedback decision, continue to batch its `questions[]` array up to 4 per `AskUserQuestion` call (existing behavior, see the `feedback` subsection below).
+
+For the rest of this section, "the decision" refers to a single entry being processed. When multiple `choice` decisions are pending, apply the batching rule above rather than prompting one at a time.
 
 ### Resolved Questions Map
 
@@ -744,6 +750,8 @@ After resolving this decision, move to the next pending decision (if any) before
    ```
    Proceed to the next pending decision.
 5. **On no match, or if the stored answer is a free-text / "Other" value that doesn't correspond to any option in `decision.options`**: fall through to the normal prompt flow below. Do not force an invalid selection.
+
+**When multiple `choice` decisions are pending in the same batch, group up to 4 into a single multi-question `AskUserQuestion` call** (see the Phase 4 intro above). The per-decision formatting rules below still apply — each decision contributes one question (its `question` field) and a set of options (its `options` array) to the batched prompt. After collecting the user's answers, call `provide_input` once per `decision_id`.
 
 If the decision includes a `draft_content` field, display it to the user first as context for the decision. If the content is long, show a summary of the key sections (headings and first paragraph of each) followed by the full content. This is especially important for decisions from the refine and plan phases, where the draft contains the analysis or plan that motivates the decision.
 

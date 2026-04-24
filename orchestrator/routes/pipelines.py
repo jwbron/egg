@@ -9300,6 +9300,12 @@ def _queue_and_await_contract_decisions(
     (e.g. the ``/sdlc`` skill's Phase 4 handler) surface them as individual
     ``choice`` / ``feedback`` decisions.  Resolutions are written back to
     the contract so implement-phase agents see the human's answers.
+
+    All pending decisions (plus the feedback entry, if any) are queued up
+    front before any ``wait_for_decision`` call, so ``get_status`` surfaces
+    them as a single batch.  Callers can then prompt for up to 4 at a time
+    and submit answers in parallel, collapsing what was previously N prompts
+    and N polling cycles into ~⌈N/4⌉ prompts and one cycle (issue #1956).
     """
     try:
         from egg_contracts.loader import load_contract, save_contract
@@ -9367,6 +9373,8 @@ def _queue_and_await_contract_decisions(
                 error=str(e),
             )
 
+    # Pass 1: queue every pending decision + feedback up front.
+    queued_decisions: list[tuple[str, Any]] = []
     for contract_decision in pending_decisions:
         options_labels = [opt.label for opt in contract_decision.options]
         queued = dq.queue_decision(
@@ -9379,14 +9387,33 @@ def _queue_and_await_contract_decisions(
             decision_type="choice",
             phase=phase,
         )
+        queued_decisions.append((contract_decision.id, queued))
+
+    queued_feedback: HITLDecision | None = None
+    if pending_feedback is not None:
+        questions_payload = [
+            {"id": q.id, "question": q.question, "answer": ""} for q in pending_feedback.questions
+        ]
+        queued_feedback = dq.queue_decision(
+            question=f"Open feedback request {pending_feedback.id}",
+            context=(
+                f"Open contract feedback {pending_feedback.id}, "
+                f"registered by an agent during the {phase_value} phase."
+            ),
+            options=[],
+            decision_type="feedback",
+            questions=questions_payload,
+            phase=phase,
+        )
+
+    # Pass 2: wait for each to resolve and persist back to the contract.
+    for contract_id, queued in queued_decisions:
         resolved = dq.wait_for_decision(queued.id)
         if resolved.status != DecisionStatus.RESOLVED:
             continue
         resolution_str = (resolved.resolution or "").strip()
 
-        def _apply(
-            latest: Any, _cd_id: str = contract_decision.id, _res: str = resolution_str
-        ) -> bool:
+        def _apply(latest: Any, _cd_id: str = contract_id, _res: str = resolution_str) -> bool:
             for d in latest.decisions:
                 if d.id == _cd_id:
                     d.resolved = True
@@ -9398,22 +9425,8 @@ def _queue_and_await_contract_decisions(
 
         _save_contract_update(_apply)
 
-    if pending_feedback is not None:
-        questions_payload = [
-            {"id": q.id, "question": q.question, "answer": ""} for q in pending_feedback.questions
-        ]
-        queued = dq.queue_decision(
-            question=f"Open feedback request {pending_feedback.id}",
-            context=(
-                f"Open contract feedback {pending_feedback.id}, "
-                f"registered by an agent during the {phase_value} phase."
-            ),
-            options=[],
-            decision_type="feedback",
-            questions=questions_payload,
-            phase=phase,
-        )
-        resolved = dq.wait_for_decision(queued.id)
+    if queued_feedback is not None and pending_feedback is not None:
+        resolved = dq.wait_for_decision(queued_feedback.id)
         if resolved.status == DecisionStatus.RESOLVED:
             answers: dict[str, str] = {}
             try:
