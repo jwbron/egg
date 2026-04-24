@@ -1065,6 +1065,13 @@ def handle_consensus_ack_signal(
     if reason_error:
         return make_error_response(reason_error, 400)
 
+    # Validate pre-merge condition content if present (#2005)
+    pre_merge = payload.get("pre_merge_condition", "")
+    if pre_merge.strip():
+        condition_error = _validate_brc_content(pre_merge, "pre-merge condition")
+        if condition_error:
+            return make_error_response(condition_error, 400)
+
     try:
         from peer_consensus import get_peer_consensus_tracker
     except ImportError:

@@ -33,6 +33,7 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
 
 from routes.signals import (
     _BRC_BOILERPLATE,
+    _BRC_CONDITION_MIN_LEN,
     _BRC_MIN_CONTENT_LEN,
     _validate_brc_content,
 )
@@ -215,6 +216,61 @@ class TestValidateBrcContentKindLabel:
         err = _validate_brc_content("", kind)
         assert err is not None
         assert kind in err
+
+
+# ============================================================================
+# Unit tests for pre-merge condition kind (#2005)
+# ============================================================================
+
+
+class TestValidateBrcConditionMinLength:
+    """Pre-merge condition kind uses a lower minimum length threshold."""
+
+    def test_condition_kind_uses_lower_minimum(self):
+        """10-char condition passes; same text at default kind fails."""
+        text = "a" * _BRC_CONDITION_MIN_LEN
+        assert _validate_brc_content(text, "pre-merge condition") is None
+        # Same text is below default minimum
+        assert _BRC_CONDITION_MIN_LEN < _BRC_MIN_CONTENT_LEN
+        err = _validate_brc_content(text, "ACK reason")
+        assert err is not None
+        assert "chars" in err
+
+    def test_condition_boundary_exactly_minimum_accepted(self):
+        text = "a" * _BRC_CONDITION_MIN_LEN
+        assert _validate_brc_content(text, "pre-merge condition") is None
+
+    def test_condition_boundary_one_below_minimum_rejected(self):
+        text = "a" * (_BRC_CONDITION_MIN_LEN - 1)
+        err = _validate_brc_content(text, "pre-merge condition")
+        assert err is not None
+        assert f"{_BRC_CONDITION_MIN_LEN - 1} chars" in err
+        assert f"minimum {_BRC_CONDITION_MIN_LEN}" in err
+
+    def test_condition_boundary_one_above_minimum_accepted(self):
+        text = "a" * (_BRC_CONDITION_MIN_LEN + 1)
+        assert _validate_brc_content(text, "pre-merge condition") is None
+
+    def test_condition_kind_case_insensitive(self):
+        """Kind matching is case-insensitive."""
+        text = "a" * _BRC_CONDITION_MIN_LEN
+        assert _validate_brc_content(text, "Pre-Merge Condition") is None
+        assert _validate_brc_content(text, "PRE-MERGE CONDITION") is None
+
+    def test_boilerplate_still_rejected_for_conditions(self):
+        """Boilerplate check applies regardless of kind."""
+        for text in sorted(_BRC_BOILERPLATE):
+            err = _validate_brc_content(text, "pre-merge condition")
+            assert err is not None, f"Boilerplate '{text}' was not rejected"
+            assert "boilerplate" in err.lower()
+
+    def test_default_minimum_unchanged_for_other_kinds(self):
+        """Non-condition kinds still use the default 50-char minimum."""
+        text = "a" * (_BRC_MIN_CONTENT_LEN - 1)
+        for kind in ["Proposal summary", "ACK reason", "NACK reason", "Withdrawal reason"]:
+            err = _validate_brc_content(text, kind)
+            assert err is not None, f"Kind '{kind}' should reject {len(text)}-char text"
+            assert f"minimum {_BRC_MIN_CONTENT_LEN}" in err
 
 
 # ============================================================================
@@ -675,6 +731,201 @@ class TestAckContentValidation:
                     "agent_role": "reviewer_code",
                     "producer_role": "coder",
                     "payload": {"reason": "ok"},
+                },
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 400
+        mock_get_tracker.assert_not_called()
+        mock_msg_store.assert_not_called()
+
+
+# ============================================================================
+# Handler integration tests — ACK pre_merge_condition (#2005)
+# ============================================================================
+
+
+class TestAckPreMergeConditionValidation:
+    """ACK handler validates pre_merge_condition field when present."""
+
+    def test_boilerplate_condition_returns_400(self, app):
+        with app.app_context():
+            from routes.signals import handle_consensus_ack_signal
+
+            response, status_code = handle_consensus_ack_signal(
+                "issue-42",
+                {
+                    "agent_role": "reviewer_code",
+                    "producer_role": "coder",
+                    "payload": {
+                        "reason": _SUBSTANTIVE_REASON,
+                        "pre_merge_condition": "ok",
+                    },
+                },
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 400
+        data = json.loads(response.data)
+        assert "boilerplate" in data["message"]
+
+    def test_short_condition_returns_400(self, app):
+        """Condition below the 10-char minimum is rejected."""
+        with app.app_context():
+            from routes.signals import handle_consensus_ack_signal
+
+            response, status_code = handle_consensus_ack_signal(
+                "issue-42",
+                {
+                    "agent_role": "reviewer_code",
+                    "producer_role": "coder",
+                    "payload": {
+                        "reason": _SUBSTANTIVE_REASON,
+                        "pre_merge_condition": "a" * (_BRC_CONDITION_MIN_LEN - 1),
+                    },
+                },
+                Path("/tmp/repo"),
+            )
+
+        assert status_code == 400
+        data = json.loads(response.data)
+        assert "chars" in data["message"]
+        assert f"minimum {_BRC_CONDITION_MIN_LEN}" in data["message"]
+
+    def test_valid_condition_passes(self, app):
+        """A substantive condition with valid reason passes through."""
+        with app.app_context():
+            from routes.signals import handle_consensus_ack_signal
+
+            mock_tracker = MagicMock()
+            mock_tracker.handle_ack.return_value = {
+                "status": "acked",
+                "version": 1,
+                "fully_acked": False,
+                "pre_merge_condition": "git mv legacy/x new/x",
+            }
+
+            with (
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("message_store.get_message_store") as mock_msg_store,
+                patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+            ):
+                mock_store_inst = MagicMock()
+                mock_msg_store.return_value = mock_store_inst
+
+                response, status_code = handle_consensus_ack_signal(
+                    "issue-42",
+                    {
+                        "agent_role": "reviewer_code",
+                        "producer_role": "coder",
+                        "payload": {
+                            "reason": _SUBSTANTIVE_REASON,
+                            "pre_merge_condition": "git mv legacy/x new/x",
+                        },
+                    },
+                    Path("/tmp/repo"),
+                )
+
+        assert status_code == 200
+        mock_tracker.handle_ack.assert_called_once()
+
+    def test_empty_condition_skips_validation(self, app):
+        """Empty pre_merge_condition is not validated (it's optional)."""
+        with app.app_context():
+            from routes.signals import handle_consensus_ack_signal
+
+            mock_tracker = MagicMock()
+            mock_tracker.handle_ack.return_value = {
+                "status": "acked",
+                "version": 1,
+                "fully_acked": False,
+            }
+
+            with (
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("message_store.get_message_store") as mock_msg_store,
+                patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+            ):
+                mock_store_inst = MagicMock()
+                mock_msg_store.return_value = mock_store_inst
+
+                response, status_code = handle_consensus_ack_signal(
+                    "issue-42",
+                    {
+                        "agent_role": "reviewer_code",
+                        "producer_role": "coder",
+                        "payload": {
+                            "reason": _SUBSTANTIVE_REASON,
+                            "pre_merge_condition": "",
+                        },
+                    },
+                    Path("/tmp/repo"),
+                )
+
+        assert status_code == 200
+
+    def test_whitespace_only_condition_skips_validation(self, app):
+        """Whitespace-only pre_merge_condition is treated as absent."""
+        with app.app_context():
+            from routes.signals import handle_consensus_ack_signal
+
+            mock_tracker = MagicMock()
+            mock_tracker.handle_ack.return_value = {
+                "status": "acked",
+                "version": 1,
+                "fully_acked": False,
+            }
+
+            with (
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("message_store.get_message_store") as mock_msg_store,
+                patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+            ):
+                mock_store_inst = MagicMock()
+                mock_msg_store.return_value = mock_store_inst
+
+                response, status_code = handle_consensus_ack_signal(
+                    "issue-42",
+                    {
+                        "agent_role": "reviewer_code",
+                        "producer_role": "coder",
+                        "payload": {
+                            "reason": _SUBSTANTIVE_REASON,
+                            "pre_merge_condition": "   ",
+                        },
+                    },
+                    Path("/tmp/repo"),
+                )
+
+        assert status_code == 200
+
+    def test_no_tracker_mutation_on_condition_400(self, app):
+        """When condition validation fails, tracker is never called."""
+        with (
+            app.app_context(),
+            patch("peer_consensus.get_peer_consensus_tracker") as mock_get_tracker,
+            patch("message_store.get_message_store") as mock_msg_store,
+        ):
+            from routes.signals import handle_consensus_ack_signal
+
+            response, status_code = handle_consensus_ack_signal(
+                "issue-42",
+                {
+                    "agent_role": "reviewer_code",
+                    "producer_role": "coder",
+                    "payload": {
+                        "reason": _SUBSTANTIVE_REASON,
+                        "pre_merge_condition": "lgtm",
+                    },
                 },
                 Path("/tmp/repo"),
             )
