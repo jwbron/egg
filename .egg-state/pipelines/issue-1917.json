@@ -613,16 +613,16 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-24T03:56:36.894397Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-24T03:57:18.377245Z",
+      "resolution": "{\"action\": \"approve\"}",
       "phase": "plan",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:10:06.375518Z",
-  "updated_at": "2026-04-24T03:56:36.936968Z",
+  "updated_at": "2026-04-24T03:57:18.391307Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -636,5 +636,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 51
+  "version": 52
 }
