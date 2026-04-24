@@ -87,6 +87,12 @@ class TestTaskComplete:
         with pytest.raises(HandlerError):
             task.task_complete({"task": "task-1-1", "commit": "nothex!!"})
 
+    def test_non_string_commit_rejected(self):
+        """Non-string truthy commit value must raise HandlerError, not
+        TypeError from the regex match."""
+        with pytest.raises(HandlerError, match="'commit' must be a string"):
+            task.task_complete({"task": "task-1-1", "commit": 123})
+
     def test_missing_identifier(self):
         with patch("egg_agent_tools.handlers.task.get_contract_identifier", return_value=None):
             with pytest.raises(HandlerError):

@@ -470,6 +470,21 @@ class TestPipelineIdValidation:
             )
 
 
+class TestProgressQueryStatusPipelineIdValidation:
+    """The inline format check at progress.py:240-241 bypasses
+    _require_pipeline_id — verify it directly."""
+
+    def test_traversal_pipeline_id_rejected(self):
+        with patch("egg_agent_tools.handlers.progress.get_pipeline_id", return_value=None):
+            with pytest.raises(HandlerError, match="Invalid pipeline_id"):
+                progress.progress_query_status({"pipeline_id": "../x"})
+
+    def test_pipeline_id_with_slashes_rejected(self):
+        with patch("egg_agent_tools.handlers.progress.get_pipeline_id", return_value=None):
+            with pytest.raises(HandlerError, match="Invalid pipeline_id"):
+                progress.progress_query_status({"pipeline_id": "a/b/c"})
+
+
 class TestProgressEmitNullData:
     """progress_emit must handle null data from orchestrator gracefully."""
 

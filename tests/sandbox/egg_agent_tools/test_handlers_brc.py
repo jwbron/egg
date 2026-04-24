@@ -592,3 +592,49 @@ class TestBrcReadPeerArtifact:
         doc = brc.brc_read_peer_artifact.__doc__ or ""
         lower = doc.lower()
         assert "no cli" in lower or "no-cli" in lower
+
+
+class TestBrcPipelineIdValidation:
+    """Pipeline IDs are interpolated into URL paths — format validation
+    prevents path traversal.  Mirrors TestPipelineIdValidation in
+    test_handlers_progress.py."""
+
+    def test_traversal_pipeline_id_rejected(self):
+        with pytest.raises(HandlerError, match="Invalid pipeline_id"):
+            brc.brc_propose(
+                {
+                    "pipeline_id": "../other",
+                    "role": "coder",
+                    "summary": "x" * 60,
+                }
+            )
+
+    def test_pipeline_id_with_slashes_rejected(self):
+        with pytest.raises(HandlerError, match="Invalid pipeline_id"):
+            brc.brc_ack(
+                {
+                    "pipeline_id": "a/b/c",
+                    "role": "reviewer_code",
+                    "producer_role": "coder",
+                    "reason": "x" * 60,
+                }
+            )
+
+    def test_valid_pipeline_id_passes_validation(self):
+        """Sanity check: a well-formed ID must not be rejected by the
+        format regex."""
+        with (
+            patch(
+                "egg_agent_tools.handlers.brc.orchestrator_request",
+                return_value=_ok_response(),
+            ),
+            patch("egg_agent_tools.handlers.brc._resolve_head_sha", return_value="a" * 40),
+        ):
+            resp = brc.brc_propose(
+                {
+                    "pipeline_id": "issue-1917",
+                    "role": "coder",
+                    "summary": "x" * 60,
+                }
+            )
+        assert resp["ok"] is True
