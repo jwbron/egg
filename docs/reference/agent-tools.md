@@ -84,7 +84,7 @@ counterpart) — the drift gate will refuse the PR otherwise.
 |------|---------|---------|-----------------|
 | `mcp__sdlc__register_open_question` | Create a HITL decision (multiple-choice) on the contract. | `handlers.sdlc.register_open_question` | `egg-contract add-decision` |
 | `mcp__sdlc__request_feedback` | Create an open-ended feedback request on the contract. | `handlers.sdlc.request_feedback` | `egg-contract add-feedback` |
-| `mcp__sdlc__check_hitl_answers` | Return resolved decisions and submitted feedback for the current contract. Optional `phase` filter. | `handlers.sdlc.check_hitl_answers` | — *(new capability)* |
+| `mcp__sdlc__check_hitl_answers` | Return resolved decisions and feedback (submitted or pending) for the current contract. Without a `phase` arg, returns HITL across all phases; pass `phase` to narrow to a single phase. | `handlers.sdlc.check_hitl_answers` | — *(new capability)* |
 
 ### `mcp__brc__*` — Broadcast-Review-Converge consensus
 
