@@ -208,10 +208,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-4",
+      "question": "How should sub-reviewer scopes be partitioned for a large change set?",
+      "context": "Open contract question decision-3, registered by an agent during the refine phase.",
+      "options": [
+        "By top-level directory (gateway/, orchestrator/, sandbox/, ...)",
+        "By file — one subagent per changed file",
+        "By logical subsystem / feature (inferred from the plan phase)",
+        "By size bucket — group files until each subagent has <~1k LOC",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T19:59:30.402353Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T19:45:30.059639Z",
-  "updated_at": "2026-04-24T19:59:30.358933Z",
+  "updated_at": "2026-04-24T19:59:30.424736Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -225,6 +245,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 14,
+  "version": 15,
   "jira_ticket": null
 }
