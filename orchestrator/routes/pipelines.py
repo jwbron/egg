@@ -5734,7 +5734,7 @@ _YAML_TASKS_SAFETY_GUIDANCE = [
     "break when the text contains `` `code: type` ``, colons in URLs, or "
     "other `: ` sequences, because PyYAML reads them as nested mappings "
     "and the parser drops back to markdown fallback (silently losing the "
-    "`pr:` block). Follow the example below literally — do not inline these "
+    "`pr:` block). Follow the example above literally — do not inline these "
     "values on the same line as the key.",
 ]
 
