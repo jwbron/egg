@@ -95,7 +95,7 @@ async def request_feedback(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "check_hitl_answers",
-    "Fetch resolved HITL decisions and submitted feedback for the current "
+    "Fetch resolved HITL decisions and feedback (submitted or pending) for the current "
     "contract. With no args, returns everything the operator has already "
     "resolved across all phases; pass 'phase' to narrow to a single phase. "
     "No CLI counterpart — reads straight from the contract gateway.",
