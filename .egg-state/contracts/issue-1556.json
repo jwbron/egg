@@ -309,6 +309,18 @@
       "resolved_by": "human",
       "resolved_at": "2026-04-23T23:32:57.068530Z",
       "debounce_until": null
+    },
+    {
+      "id": "decision-11",
+      "question": "Open feedback request feedback-1",
+      "type": "hitl",
+      "phase": null,
+      "options": [],
+      "resolved": true,
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Configurable \u2014 project allowlist lives in the new `jira:` section of `config/context-filters.yaml`; ops populate it at setup time. Gateway ships with an empty allowlist (fails closed on any project).\", \"Q2\": \"Low (<10/min each) for v1. Rate-limit defaults should be conservative and tunable via gateway config.\", \"Q3\": \"Greenfield \u2014 pick at setup; no existing convention to align with.\", \"Q4\": \"N/A \u2014 no redaction. Jira is private-mode only, and in that mode the session is already a constrained, trusted context (matches earlier decision on redaction).\", \"Q5\": \"Gateway swallows + retries once, honouring `Retry-After`. If the retry also fails, pass the 429 through so the failure still surfaces to the agent.\", \"Q6\": \"Same sink as existing gateway audit logs. Jira ops are tagged in structured log entries so they can be filtered at query time.\", \"Q7\": \"No \u2014 only `GET /rest/api/3/issue/...`, `GET /rest/api/3/search/...`, and `GET /rest/api/3/project/...`. Anything outside those three families requires a narrow route (future work).\", \"Q8\": \"Synthesize `{\\\"status\\\":\\\"not_found\\\"}` envelope \u2014 consistent with how other gateway endpoints shape errors.\", \"Q9\": \"Out of scope for v1 (which is read-only). When writes land, start by relying on Atlassian's own semantics + operator discipline rather than gateway-enforced idempotency; revisit only if duplicate-write issues surface.\", \"Q10\": \"Private mode only. No internal-dev mode exists today, and inventing one just to widen Jira reachability is out of scope for #1556. If such a mode is added later, reachability for Jira can be reconsidered then.\"}}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-23T23:35:53.599907Z",
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
