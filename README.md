@@ -252,14 +252,15 @@ See:
 ```bash
 make setup             # Install dev dependencies
 make lint              # Run all linters
-make test              # Run all tests
+make test              # Run tests reachable from your diff (changeset-aware narrow default)
+make test-all          # Run the full unit-test suite (what CI runs)
 make test-integration  # Run integration tests (k3s required)
 make lint-fix          # Auto-fix lint issues
 make security          # Run security scans
 make build             # Build Docker images
 ```
 
-Requires Python >= 3.11. See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines.
+Requires Python >= 3.11. See [CONTRIBUTING.md](CONTRIBUTING.md) for development guidelines and [docs/guides/testing.md](docs/guides/testing.md) for the changeset-aware test selection model.
 
 ## License
 
