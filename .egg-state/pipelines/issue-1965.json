@@ -368,10 +368,85 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-12",
+      "question": "Open feedback request feedback-3",
+      "context": "Open contract feedback feedback-3, registered by an agent during the refine phase.",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [
+        {
+          "id": "Q1",
+          "question": "What is the acceptable cost multiplier for implement-phase review? Option A (subagent delegation) can 2-5x the inference spend on large PRs — is that acceptable, and is there a per-pipeline cost ceiling we should honor?",
+          "answer": ""
+        },
+        {
+          "id": "Q2",
+          "question": "What is the acceptable latency budget for the implement-phase BRC review? Sequential subagents could push review wall-clock from ~1-2 min to ~5-10 min on a 42-file PR. Is that acceptable?",
+          "answer": ""
+        },
+        {
+          "id": "Q3",
+          "question": "Should babysit_pr (docs/guides/babysit-pr.md) also adopt subagent delegation for its implement-phase BRC? Or keep it out of scope for v1?",
+          "answer": ""
+        },
+        {
+          "id": "Q4",
+          "question": "Is there an internal 'small diff' carve-out we should preserve (e.g., PRs under 200 LOC skip the delegation machinery entirely)? If yes, what threshold?",
+          "answer": ""
+        },
+        {
+          "id": "Q5",
+          "question": "Are there known code-review tools (static analyzers, concurrency linters, cross-file pattern detectors) you want integrated as a parallel track to the LLM reviewer? Option E was evaluated but not recommended; does the human reviewer want to reconsider?",
+          "answer": ""
+        },
+        {
+          "id": "Q6",
+          "question": "The '^project$' path was classified as 'plan-approved behaviour, non-blocking' by the BRC reviewer but 'blocking information leak' by the GHA reviewer. Which classification should be policy? (Relevant to decision-7 but worth explicit discussion.)",
+          "answer": ""
+        },
+        {
+          "id": "Q7",
+          "question": "Should the plan phase scope also cover the GHA reviewer improvements (build-review-prompt.sh, reusable-review.yml) so SDLC and GHA stay aligned — or is this issue strictly about BRC-internal reviewers?",
+          "answer": ""
+        },
+        {
+          "id": "Q8",
+          "question": "Are there recent pipelines beyond PR #1964 where BRC reviewers missed blocking issues? Naming them would let the plan phase target specific regression tests.",
+          "answer": ""
+        },
+        {
+          "id": "Q9",
+          "question": "REVIEWER-SYNC.md asymmetry: Option B adds SDLC-only reviewer roles (reviewer_security, reviewer_concurrency) with no GHA counterpart. Should the plan phase extend shared/prompts/REVIEWER-SYNC.md to document this asymmetry explicitly, or is it acceptable to leave the sync doc as-is (it is currently written as if 'reviewers' means 'code reviewers')?",
+          "answer": ""
+        },
+        {
+          "id": "Q10",
+          "question": "Dedicated prompt files vs. reusing code-review-criteria.md: the two new reviewers need a lens-focused prompt. Should the plan phase (a) create new shared/prompts/security-review-criteria.md and concurrency-review-criteria.md files (parallels the existing structure; requires REVIEWER-SYNC.md bookkeeping), or (b) keep a single shared criteria file and inject lens-specific scope preambles via _get_reviewer_scope_preamble() in orchestrator/routes/pipelines.py (less churn; tighter coupling)?",
+          "answer": ""
+        },
+        {
+          "id": "Q11",
+          "question": "Subagent parallelism mode: if Option A lands, should subagent fan-out run (a) sequentially (simpler, lower peak token/$/sec, highest wall-clock), (b) in parallel (lowest wall-clock, spike in peak cost, possible rate-limit risk), or (c) configurable per-pipeline with a sensible default?",
+          "answer": ""
+        },
+        {
+          "id": "Q12",
+          "question": "Regression-test coverage: beyond PR #1964, are there specific prior pipeline-produced PRs where BRC reviewers missed blocking issues that the plan phase should use as regression cases? Do you want automated replay tests that re-run the new reviewer against a cached diff and assert the previously-missed issue is flagged?",
+          "answer": ""
+        }
+      ],
+      "status": "pending",
+      "created_at": "2026-04-24T19:59:30.938177Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T19:45:30.059639Z",
-  "updated_at": "2026-04-24T19:59:30.897047Z",
+  "updated_at": "2026-04-24T19:59:30.958779Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -385,6 +460,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 22,
+  "version": 23,
   "jira_ticket": null
 }
