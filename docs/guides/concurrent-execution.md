@@ -570,6 +570,15 @@ egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.
 ### Non-blocking
 - **src/feature.py:72** — Consider extracting token_from_header() for readability."
 
+# Reviewer: conditional ACK — work approved but requires a human action before merge
+# Use --pre-merge-condition when the work is correct but requires a merge-time action
+# that agents cannot perform (e.g. git mv, secret rotation, config flip in another repo).
+# The obligation is rendered as a "Pre-merge Obligations" section on the PR — do NOT use
+# this to smuggle blocking issues past the producer; NACK if the producer can fix it.
+egg-orch consensus ack coder --files-reviewed src/feature.py tests/test_feature.py \
+  --reason "Reviewed src/feature.py lines 10-85 and tests/test_feature.py. Code is correct. One rename cannot be automated." \
+  --pre-merge-condition "A human must \`git mv legacy/auth.py src/auth.py\` before merging — agents cannot push renames through the gateway"
+
 # Reviewer: NACK with structured blocking/non-blocking sections
 egg-orch consensus nack coder --files-reviewed src/feature.py --reason "
 ### Blocking

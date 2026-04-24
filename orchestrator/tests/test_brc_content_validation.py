@@ -685,6 +685,121 @@ class TestAckContentValidation:
 
 
 # ============================================================================
+# Handler integration tests — ACK pre_merge_condition (#2005)
+# ============================================================================
+
+
+_SUBSTANTIVE_CONDITION = (
+    "A human must run `git mv legacy/x new/x` before merging — "
+    "the gateway blocks rename pushes from agent containers."
+)
+
+
+class TestAckPreMergeConditionValidation:
+    """Conditional ACK rejects boilerplate/short ``pre_merge_condition`` values.
+
+    Plain ACKs (no condition, empty condition, whitespace-only condition)
+    must continue to pass through unaffected so the validator is
+    regression-safe for non-conditional ACKs.
+    """
+
+    def _ack_with_payload(self, app, payload):
+        with app.app_context():
+            from routes.signals import handle_consensus_ack_signal
+
+            mock_tracker = MagicMock()
+            mock_tracker.handle_ack.return_value = {
+                "status": "acked",
+                "version": 1,
+                "fully_acked": False,
+            }
+
+            with (
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=mock_tracker,
+                ),
+                patch("message_store.get_message_store") as mock_msg_store,
+                patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+            ):
+                mock_msg_store.return_value = MagicMock()
+
+                response, status_code = handle_consensus_ack_signal(
+                    "issue-42",
+                    {
+                        "agent_role": "reviewer_code",
+                        "producer_role": "coder",
+                        "payload": payload,
+                    },
+                    Path("/tmp/repo"),
+                )
+            return response, status_code, mock_tracker
+
+    def test_plain_ack_with_no_condition_key_passes(self, app):
+        """Omitting ``pre_merge_condition`` entirely is a plain ACK."""
+        _, status_code, tracker = self._ack_with_payload(app, {"reason": _SUBSTANTIVE_REASON})
+        assert status_code == 200
+        tracker.handle_ack.assert_called_once()
+
+    def test_plain_ack_with_empty_condition_passes(self, app):
+        """Empty-string ``pre_merge_condition`` is a plain ACK."""
+        _, status_code, tracker = self._ack_with_payload(
+            app, {"reason": _SUBSTANTIVE_REASON, "pre_merge_condition": ""}
+        )
+        assert status_code == 200
+        tracker.handle_ack.assert_called_once()
+
+    def test_plain_ack_with_whitespace_condition_passes(self, app):
+        """Whitespace-only ``pre_merge_condition`` is a plain ACK."""
+        _, status_code, tracker = self._ack_with_payload(
+            app,
+            {"reason": _SUBSTANTIVE_REASON, "pre_merge_condition": "   \t\n "},
+        )
+        assert status_code == 200
+        tracker.handle_ack.assert_called_once()
+
+    def test_short_condition_returns_400(self, app):
+        response, status_code, tracker = self._ack_with_payload(
+            app,
+            {
+                "reason": _SUBSTANTIVE_REASON,
+                "pre_merge_condition": "see above",
+            },
+        )
+        assert status_code == 400
+        data = json.loads(response.data)
+        assert "Pre-merge condition" in data["message"]
+        assert "chars" in data["message"]
+        tracker.handle_ack.assert_not_called()
+
+    def test_boilerplate_condition_returns_400(self, app):
+        """The shared boilerplate set applies to conditions too."""
+        response, status_code, tracker = self._ack_with_payload(
+            app,
+            {
+                "reason": _SUBSTANTIVE_REASON,
+                "pre_merge_condition": "LGTM",
+            },
+        )
+        assert status_code == 400
+        data = json.loads(response.data)
+        assert "Pre-merge condition" in data["message"]
+        assert "boilerplate" in data["message"]
+        tracker.handle_ack.assert_not_called()
+
+    def test_substantive_condition_passes(self, app):
+        _, status_code, tracker = self._ack_with_payload(
+            app,
+            {
+                "reason": _SUBSTANTIVE_REASON,
+                "pre_merge_condition": _SUBSTANTIVE_CONDITION,
+            },
+        )
+        assert status_code == 200
+        tracker.handle_ack.assert_called_once()
+
+
+# ============================================================================
 # Handler integration tests — NACK
 # ============================================================================
 

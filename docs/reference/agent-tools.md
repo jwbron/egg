@@ -101,7 +101,7 @@ that requires the handler docstring to explain why no CLI exists.
 | Tool | Purpose | Handler | CLI counterpart |
 |------|---------|---------|-----------------|
 | `mcp__brc__propose` | Push committed changes to origin then broadcast a `CONSENSUS_PROPOSE` signal. See [push behavior](#brc_propose-push-behavior) below. | `handlers.brc.brc_propose` | `egg-orch consensus propose --push` |
-| `mcp__brc__ack` | Acknowledge (ACK) a peer's proposal. | `handlers.brc.brc_ack` | `egg-orch consensus ack` |
+| `mcp__brc__ack` | Acknowledge (ACK) a peer's proposal. Optional `pre_merge_condition` (str) turns this into a **conditional ACK** — the work is approved but a human must perform the named action before merging (e.g. `git mv old/path new/path`). The obligation is rendered as a "Pre-merge Obligations" section on the auto-created PR. Leave empty for an unconditional ACK. | `handlers.brc.brc_ack` | `egg-orch consensus ack` |
 | `mcp__brc__nack` | Reject (NACK) a peer's proposal with blocker list. | `handlers.brc.brc_nack` | `egg-orch consensus nack` |
 | `mcp__brc__confirm` | Signal CONFIRMED — producer acknowledges all reviewer ACKs. | `handlers.brc.brc_confirm` | `egg-orch consensus confirmed` |
 | `mcp__brc__get_state` | Full structured consensus state (JSON; accepts `verbose: bool`). | `handlers.brc.brc_get_state` | — *(no CLI; CLI `egg-orch consensus status` prints text — this tool returns the dict)* |
