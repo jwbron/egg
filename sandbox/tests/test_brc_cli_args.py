@@ -99,6 +99,46 @@ class TestAckReasonInPayload:
         assert payload["artifact_references"] == ["src/auth.py", "src/models.py"]
 
 
+class TestAckConditionalFlag:
+    """--pre-merge-condition marks the ACK as conditional (issue #1998)."""
+
+    def test_condition_defaults_to_empty(self):
+        """Omitting the flag yields an empty condition (unconditional ACK)."""
+        parser = create_parser()
+        args = parser.parse_args(
+            [
+                "consensus",
+                "ack",
+                "coder",
+                "issue-42",
+                "--files-reviewed",
+                "src/a.py",
+                "--reason",
+                "All looks good, reviewed a.py and confirmed auth flow is correct",
+            ]
+        )
+        assert getattr(args, "pre_merge_condition", "") == ""
+
+    def test_condition_parses(self):
+        """--pre-merge-condition captures the obligation string."""
+        parser = create_parser()
+        args = parser.parse_args(
+            [
+                "consensus",
+                "ack",
+                "coder",
+                "issue-42",
+                "--files-reviewed",
+                "src/a.py",
+                "--reason",
+                "Approved, but a file move must happen before merging",
+                "--pre-merge-condition",
+                "A human must `git mv legacy/x new/x` before merge",
+            ]
+        )
+        assert args.pre_merge_condition == "A human must `git mv legacy/x new/x` before merge"
+
+
 # ---------------------------------------------------------------------------
 # PROPOSE: new structured args
 # ---------------------------------------------------------------------------

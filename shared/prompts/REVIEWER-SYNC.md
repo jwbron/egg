@@ -54,6 +54,17 @@ review standards differ:
    ACK/NACK lifecycle instructions in the BRC preamble (from `_build_brc_preamble()`),
    including substantive `--reason` requirements (≥50 chars) and `--files-reviewed`
    flags. PR reviewer and sequential SDLC reviewer structure their output organically.
+7. **Conditional ACK (BRC only)**: Concurrent SDLC reviewers can attach a
+   `--pre-merge-condition "…"` flag to an ACK when the work is correct but
+   requires a merge-time human action the agents cannot perform (e.g. a
+   `git mv`, a secret rotation, a cross-repo config flip). The obligation is
+   persisted on the approval matrix edge and rendered as a "Pre-merge
+   Obligations" section on the auto-created PR body so the merger cannot
+   skim past it (#1998). PR reviewer and sequential SDLC reviewer have no
+   analogue — the GHA reviewer runs after the human merger has already seen
+   the PR body, and the sequential reviewer's verdict file does not feed the
+   PR. A conditional ACK is **not** a soft NACK: if the producer could
+   address the obligation, NACK instead.
 
 ## What Must Stay Aligned
 
@@ -83,4 +94,5 @@ When changing review criteria or conventions:
 - [ ] Verify the procedural review steps match between both surfaces
 - [ ] If changing verdict format: check `_build_review_prompt()` (sequential verdict JSON) and `_build_agent_prompt()` + `_build_brc_preamble()` (concurrent ACK/NACK)
 - [ ] If changing ACK/NACK format guidance: update the structured format in `_build_brc_preamble()`
+- [ ] If changing conditional-ACK (`--pre-merge-condition`) behavior: update the BRC preamble example in `_build_brc_preamble()`, the CLI help text in `sandbox/egg_lib/orch_cli.py`, the `_ACK_SCHEMA` description in `sandbox/egg_agent_tools/tools/brc.py`, the `ReviewPayload.pre_merge_condition` docstring in `orchestrator/attestation_schemas.py`, the PR-body renderer `_build_pre_merge_obligations_section()` in `orchestrator/routes/pipelines.py`, the "Conditional ACK vs NACK vs Plain ACK" subsection in `shared/prompts/code-review-criteria.md`, and the content validator call site for `pre_merge_condition` in `handle_consensus_ack_signal` (`orchestrator/routes/signals.py`)
 - [ ] If changing the re-review diff command: update the three PR-reviewer builders (`action/build-review-prompt.sh`, `action/build-agent-mode-design-review-prompt.sh`, `action/build-contract-verification-prompt.sh`), the SDLC reviewer's `_build_review_prompt()` `is_delta_review` branch plus its Delta Review directive, and the `BASE_REF` plumbing in `.github/workflows/reusable-review.yml`. The first-review three-dot `git diff origin/<base>...HEAD` is independent of the delta path.

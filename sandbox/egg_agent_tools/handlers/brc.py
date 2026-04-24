@@ -150,6 +150,12 @@ def brc_ack(req: dict[str, Any]) -> dict[str, Any]:
         producer_role (str): required.
         reason (str): required.
         files_reviewed (list[str]): optional list of artifact references.
+        pre_merge_condition (str): optional. Turns this into a **conditional
+            ACK** — the work is approved but a human must perform the named
+            action before merging (e.g. "git mv old/path new/path"). Surfaces
+            as a dedicated "Pre-merge Obligations" section on the auto-created
+            PR so the merger sees it instead of skimming past a prose note in
+            the ACK reason (#1998).
         pipeline_id, role: overrides.
     """
     pid = _require_pipeline_id(req)
@@ -161,14 +167,19 @@ def brc_ack(req: dict[str, Any]) -> dict[str, Any]:
     if not reason:
         raise HandlerError("'reason' is required")
 
+    payload: dict[str, Any] = {
+        "artifact_references": list(req.get("files_reviewed") or []),
+        "reason": reason,
+    }
+    pre_merge_condition = req.get("pre_merge_condition") or ""
+    if pre_merge_condition:
+        payload["pre_merge_condition"] = pre_merge_condition
+
     data = {
         "signal_type": "consensus_ack",
         "agent_role": role,
         "producer_role": producer_role,
-        "payload": {
-            "artifact_references": list(req.get("files_reviewed") or []),
-            "reason": reason,
-        },
+        "payload": payload,
     }
     result = orchestrator_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
     if not result.get("success"):

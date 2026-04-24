@@ -1743,13 +1743,16 @@ def _cleanup_remote_branches(
     pipeline: "Pipeline",
     repo_path: Path,
 ) -> None:
-    """Best-effort cleanup of remote worktree branches for a pipeline.
+    """Best-effort cleanup of remote branches for a pipeline.
 
-    Iterates all containers across all phase executions and deletes their
-    remote worktree branches (``egg/{container_id}/work``).  Failures are
-    logged as warnings and do not block pipeline deletion.
+    Deletes the pipeline's shared branch (``pipeline.branch``, typically
+    ``egg/{pipeline_id}``) and every per-container worktree branch
+    (``egg/{container_id}/work``).  Failures are logged as warnings and do
+    not block pipeline deletion.
     """
     branches: set[str] = set()
+    if pipeline.branch:
+        branches.add(pipeline.branch)
     for phase_exec in pipeline.phases.values():
         for container in phase_exec.containers:
             branches.add(f"egg/{container.container_id}/work")
@@ -1768,7 +1771,7 @@ def _cleanup_remote_branches(
 
     if deleted:
         logger.info(
-            "Cleaned up remote worktree branches",
+            "Cleaned up remote branches",
             pipeline_id=pipeline_id,
             branches_deleted=deleted,
             branches_total=len(branches),
@@ -1819,12 +1822,12 @@ def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
                 exc_info=True,
             )
 
-        # Clean up remote worktree branches (best-effort)
+        # Clean up remote branches (best-effort)
         try:
             _cleanup_remote_branches(pipeline_id, _pipeline, repo_path)
         except Exception as e:
             logger.warning(
-                "Failed to clean up remote worktree branches",
+                "Failed to clean up remote branches",
                 pipeline_id=pipeline_id,
                 error=str(e),
             )
@@ -5893,6 +5896,66 @@ def _persist_phase_brc_history(
         )
 
 
+def _build_pre_merge_obligations_section(pipeline_id: str) -> str:
+    """Render the "Pre-merge Obligations" section from active conditional ACKs.
+
+    Queries the live consensus tracker for conditions attached to current-
+    version ACKs (see ``ApprovalMatrix.get_pre_merge_conditions``). Returns
+    an empty string if the tracker is unavailable or has no conditions, so
+    callers can unconditionally append the result to the PR body.
+
+    The section exists to close the loophole where reviewers embedded
+    merge-time obligations ("human must git mv X Y before merging") in ACK
+    prose that the merger could skim past (#1998). Rendered as a visible
+    markdown section up-front on the PR so the obligation is in the
+    merger's line of sight.
+    """
+    try:
+        from peer_consensus import get_peer_consensus_tracker
+    except ImportError:
+        from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[import-not-found]
+    tracker = get_peer_consensus_tracker(pipeline_id)
+    if tracker is None:
+        return ""
+    try:
+        conditions = tracker.get_pre_merge_conditions()
+    except Exception as e:  # defensive — never block PR creation on this
+        logger.warning(
+            "Failed to read pre-merge conditions from tracker",
+            pipeline_id=pipeline_id,
+            error=str(e),
+        )
+        return ""
+    if not conditions:
+        return ""
+
+    lines = [
+        "## ⚠️ Pre-merge Obligations",
+        "",
+        "The reviewers below issued a **conditional ACK** — the work is "
+        "approved, but a human must perform the listed action before "
+        "merging. Do **not** merge this PR until every obligation is "
+        "complete.",
+        "",
+    ]
+    for c in conditions:
+        reviewer = c.get("reviewer", "unknown")
+        condition = str(c.get("condition", "")).strip()
+        if not condition:
+            continue
+        # Indent multi-line conditions under the bullet so they stay
+        # visually grouped in rendered markdown.
+        first, *rest = condition.splitlines()
+        lines.append(f"- **{reviewer}** — {first}")
+        for extra in rest:
+            lines.append(f"  {extra}")
+    # If every condition was whitespace-only, no bullets were added — return
+    # empty to avoid rendering a header with zero items (#1998 review).
+    if len(lines) == 4:
+        return ""
+    return "\n".join(lines)
+
+
 def _build_brc_history_link_line(
     worktree_repo_path: Path,
     identifier: int | str | None,
@@ -6104,6 +6167,16 @@ def _build_pr_body(
         body_parts.append(pr_description)
     elif pipeline.issue_number:
         body_parts.append(f"Closes #{pipeline.issue_number}")
+
+    # Pre-merge obligations from conditional ACKs (issue #1998). Rendered
+    # high in the body so the merger sees them before skimming past the
+    # test plan. Conditions come from the consensus tracker — if the
+    # tracker is gone (orchestrator restart without reconstruction), the
+    # section is silently skipped and reviewers fall back to the planner's
+    # manual_steps below.
+    deferred_section = _build_pre_merge_obligations_section(pipeline.id)
+    if deferred_section:
+        body_parts.append(deferred_section)
 
     # Test plan section (always present — placeholder if missing)
     if pr_test_plan:
@@ -6949,6 +7022,24 @@ def _build_brc_preamble(
                 "   ### Non-blocking\n"
                 "   - **file.py:123** — Optional suggestions for improvement.\n"
                 '   "\n'
+                "   ```\n"
+                "\n"
+                "   **Conditional ACK** (issue #1998 — use when the work is "
+                "correct but requires a human action at merge time that agents "
+                "cannot perform themselves, e.g. a `git mv`, a secret "
+                "rotation, a config flip in another repo): add "
+                '`--pre-merge-condition "…"` to the ACK command. The '
+                "obligation is recorded on the approval matrix and rendered "
+                'as a "Pre-merge Obligations" section high up in the '
+                "auto-created PR body so the merger cannot skim past it. Do "
+                "NOT use this to smuggle blocking issues past the producer — "
+                "if the producer could fix it, NACK instead.\n"
+                "   Example:\n"
+                "   ```\n"
+                '   egg-orch consensus ack <role> --files-reviewed "f1" '
+                '--reason "Code is correct but …" '
+                '--pre-merge-condition "A human must `git mv legacy/x '
+                'new/x` before merging — agents cannot push renames through"\n'
                 "   ```\n"
                 "\n"
                 "   `--reason` must be ≥50 chars of substantive content. "

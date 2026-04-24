@@ -302,6 +302,7 @@ class PeerConsensusTracker:
                 ack_version,
                 artifact_refs=review.artifact_references,
                 commit_sha=proposal_commit_sha,
+                pre_merge_condition=review.pre_merge_condition,
             )
 
             # Transition reviewer to REVIEWING
@@ -310,24 +311,37 @@ class PeerConsensusTracker:
             # Check if producer is now fully ACKed
             fully_acked = self.matrix.is_fully_acked(producer_role)
 
+            event_data: dict[str, Any] = {
+                "reviewer": reviewer_role,
+                "producer": producer_role,
+                "version": ack_version,
+                "fully_acked": fully_acked,
+            }
+            # Surface conditional-ACK obligations on the event stream so
+            # downstream consumers (PR builder, HITL gate, audit log) can
+            # react without having to inspect the matrix directly (#1998).
+            # Use the normalized value (record_ack strips whitespace) so the
+            # event stream is consistent with persisted matrix state.
+            normalized_condition = (review.pre_merge_condition or "").strip()
+            if normalized_condition:
+                event_data["pre_merge_condition"] = normalized_condition
+
             emit_event(
                 EventType.CONSENSUS_ACK_RECEIVED,
                 self.pipeline_id,
-                data={
-                    "reviewer": reviewer_role,
-                    "producer": producer_role,
-                    "version": ack_version,
-                    "fully_acked": fully_acked,
-                },
+                data=event_data,
             )
 
             self._run_invariant_checks("ack")
 
-            return {
+            result: dict[str, Any] = {
                 "status": "acked",
                 "fully_acked": fully_acked,
                 "version": ack_version,
             }
+            if normalized_condition:
+                result["pre_merge_condition"] = normalized_condition
+            return result
 
     def handle_nack(
         self,
@@ -1140,6 +1154,19 @@ class PeerConsensusTracker:
     def get_proposal_commit_sha(self, role: str) -> str:
         """Return the commit SHA from a producer's last proposal (#1473)."""
         return self._proposal_commit_shas.get(role, "")
+
+    def get_pre_merge_conditions(self) -> list[dict[str, Any]]:
+        """Return active conditional-ACK obligations across all producers.
+
+        Delegates to the matrix, which scopes results to current-version ACKs
+        so stale conditions from superseded proposals are dropped (#1998).
+
+        Returns a list of dicts: ``{reviewer, producer, condition, version}``.
+        Callers (PR body builder, HITL gate) surface these to humans so
+        merge-time obligations aren't silently dropped.
+        """
+        with self._lock:
+            return self.matrix.get_pre_merge_conditions()
 
     def get_latest_proposal_timestamp(self) -> datetime | None:
         """Return the timestamp of the most recent CONSENSUS_PROPOSE, or None."""
