@@ -37,6 +37,11 @@ dev = [
     "types-waitress>=3.0",
     "fakeredis>=2.21.0",
     "starlette>=0.36.0,<1.0.0",
+    # Reverse-import-graph builder for changeset-aware test selection
+    # (scripts/select_tests.py). v3.14 introduced a Rust-backed graph
+    # builder that is meaningfully faster on this monorepo (~770 source
+    # files); do NOT loosen the floor below 3.14 without benchmarking.
+    "grimp>=3.14,<4.0",
 ]
 
 [project.scripts]
