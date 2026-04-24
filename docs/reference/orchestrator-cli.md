@@ -228,8 +228,8 @@ Four MCP tools expose phase management operations for pipeline recovery and manu
 | MCP Tool | REST Endpoint | Description |
 |----------|---------------|-------------|
 | `advance_phase` | `POST /pipelines/{id}/phase` | Advance pipeline to a target phase. With `force=true`, stops running containers first to prevent SIGTERM cascading. When leaving the plan phase, automatically populates the contract from the plan draft |
-| `start_phase` | `POST /pipelines/{id}/phase/start` | Start the current phase (spawns agents). Use when a phase is in state but no containers are running |
-| `complete_phase` | `POST /pipelines/{id}/phase/complete` | Mark a phase as complete. Use when automatic transition is stuck. Returns 409 if the phase has unresolved HITL decisions; pass `force=true` to abandon them |
+| `start_phase` | `POST /pipelines/{id}/phase/start` | Mark the current phase RUNNING. Does **not** spawn agents — agent spawning is driven by the `_run_pipeline` loop. Use for operator recovery when a phase needs to be re-marked RUNNING |
+| `complete_phase` | `POST /pipelines/{id}/phase/complete` | Mark a phase COMPLETE. Does **not** advance the pipeline — call `advance_phase` next. Response includes `current_phase` (unchanged) and `next_phase` (suggested transition). Returns 409 if unresolved HITL decisions exist; pass `force=true` to abandon them |
 | `populate_contract` | `POST /pipelines/{id}/phase/populate-contract` | Populate contract from plan artifacts. Parses yaml-tasks from the plan draft into contract phases/tasks |
 
 **Parameters:**
@@ -284,7 +284,7 @@ curl -X POST http://egg-orchestrator:9849/api/v1/pipelines/<id>/phase \
 # Via REST:
 curl -X POST http://egg-orchestrator:9849/api/v1/pipelines/<id>/phase/populate-contract
 
-# 4. Start the phase (spawn agents)
+# 4. Mark the phase running (does not spawn agents — the _run_pipeline loop handles that)
 # Via MCP tool: start_phase(task_id="<id>")
 # Via REST:
 curl -X POST http://egg-orchestrator:9849/api/v1/pipelines/<id>/phase/start
