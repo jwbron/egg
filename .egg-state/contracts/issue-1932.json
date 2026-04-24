@@ -273,6 +273,18 @@
       "resolved_by": "human",
       "resolved_at": "2026-04-24T03:09:19.533026Z",
       "debounce_until": null
+    },
+    {
+      "id": "decision-9",
+      "question": "Open feedback request feedback-1",
+      "type": "hitl",
+      "phase": null,
+      "options": [],
+      "resolved": true,
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"SDLC skill only \u2014 keep Option A scoped. Other callers (babysit-pr, agent-diagnose, external tools) keep get_status. This does NOT push us toward Option B; Option A remains preferred precisely because non-SDLC consumers should not be affected.\", \"Q2\": \"Raise default or document cap in plan. Call out the budget risk explicitly \u2014 at current scale (O(10) pipelines \u00d7 1 host session + per-agent waits) we remain under 16, but the budget is shared with every sandbox long-poll and SSE stream. The plan should either raise EGG_ORCH_WAITRESS_THREADS default or document the cap with guidance on when to bump it.\", \"Q3\": \"Not sure / skip \u2014 defer to plan phase. The plan should decide after checking whether the SDLC skill actually reaches #1920's SDK MCP surface. Default assumption: streamable-HTTP only, add SDK parity later if needed.\", \"Q4\": \"Not sure / skip \u2014 defer to plan phase. Default assumption: aspirational (25s hard cap \u00d7 loop composition is already well inside 60s), but the plan phase should validate this against the actual overseer-wedge scenario.\", \"Q5\": \"Yes \u2014 add egg_inflight_host_waits metric parallel to egg_inflight_long_polls so operators can distinguish host-side waits from sandbox-side waits when investigating a saturated Waitress thread pool.\", \"Q6\": \"Keep design flexible in case it lifts \u2014 parameterize the cap (e.g. GET_STATUS_MAX_WAIT constant + wait_for_status_change's own MAX_WAIT constant) so raising it later is a one-line change. No known imminent upstream change, but the cap is documented as transport-dependent so the design should accommodate a future lift.\"}}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:14:28.031896Z",
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
