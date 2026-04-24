@@ -253,6 +253,7 @@ class TestBranchReadFallback:
             "show",
             "origin/egg/issue-1977:.egg-state/contracts/issue-1977.json",
         ]
+        assert run_mock.call_args_list[0].kwargs["cwd"] == store.repo_path
 
     def test_get_prefers_worktree_when_both_are_available(self, client, tmp_path, monkeypatch):
         """When the worktree exists, the branch fallback must not fire."""
@@ -346,6 +347,67 @@ class TestBranchReadFallback:
         body = json.loads(response.data)
         assert body["data"] == {"exists": True}
         assert body["source"] == "branch"
+
+    def test_get_uses_derived_branch_when_pipeline_branch_is_none(
+        self, client, tmp_path, monkeypatch
+    ):
+        """When pipeline.branch is None, fallback derives egg/<pipeline_id>."""
+        monkeypatch.setattr(contract_store, "_WORKTREE_BASE_DIR", tmp_path / "nowhere")
+
+        store, pipeline = self._fake_pipeline(tmp_path, branch=None)
+        mock_subproc = MagicMock()
+        mock_subproc.stdout = self._contract_json()
+
+        with (
+            patch(
+                "routes.get_state_store_for_pipeline",
+                return_value=(store, pipeline),
+            ),
+            patch("subprocess.run", return_value=mock_subproc) as run_mock,
+        ):
+            response = client.get(
+                f"/api/v1/contracts/{self.PIPELINE_ID}",
+                query_string={"pipeline_id": self.PIPELINE_ID},
+            )
+
+        assert response.status_code == 200, response.data
+        body = json.loads(response.data)
+        assert body["source"] == "branch"
+        # With branch=None the code should derive "egg/<pipeline_id>"
+        # and try origin/egg/<pipeline_id> as the preferred ref.
+        assert run_mock.call_args_list[0].args[0] == [
+            "git",
+            "show",
+            f"origin/egg/{self.PIPELINE_ID}:.egg-state/contracts/{self.PIPELINE_ID}.json",
+        ]
+
+    def test_exists_returns_404_when_worktree_and_branch_both_miss(
+        self, client, tmp_path, monkeypatch
+    ):
+        import subprocess
+
+        monkeypatch.setattr(contract_store, "_WORKTREE_BASE_DIR", tmp_path / "nowhere")
+        store, pipeline = self._fake_pipeline(tmp_path)
+
+        with (
+            patch(
+                "routes.get_state_store_for_pipeline",
+                return_value=(store, pipeline),
+            ),
+            patch(
+                "subprocess.run",
+                side_effect=subprocess.CalledProcessError(128, "git show"),
+            ),
+        ):
+            response = client.get(
+                f"/api/v1/contracts/{self.PIPELINE_ID}/exists",
+                query_string={"pipeline_id": self.PIPELINE_ID},
+            )
+
+        assert response.status_code == 404
+        body = json.loads(response.data)
+        assert body["success"] is False
+        assert "worktree not found" in body["message"].lower()
 
     def test_mutate_still_404_when_worktree_missing(self, client, tmp_path, monkeypatch):
         """Mutations must not use the branch fallback — writes require a live worktree."""

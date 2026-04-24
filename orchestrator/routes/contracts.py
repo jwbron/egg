@@ -26,7 +26,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from flask import Blueprint, Response, jsonify, request
 
@@ -34,6 +34,9 @@ from flask import Blueprint, Response, jsonify, request
 _shared_path = Path(__file__).parent.parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
+
+if TYPE_CHECKING:
+    from egg_contracts import Contract
 
 # The orchestrator package lives one level up.
 _parent_path = Path(__file__).parent.parent
@@ -168,7 +171,7 @@ def _worktree_for_request() -> tuple[Path | None, tuple[Response, int] | None]:
 def _branch_read_contract(
     identifier: int | str,
     pipeline_id: str,
-) -> Any | None:
+) -> Contract | None:
     """Fall back to reading the committed contract from the pipeline's branch.
 
     Used by the GET paths when the shared worktree has been pruned — the
