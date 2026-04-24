@@ -12,9 +12,11 @@ that agents cannot push through the gateway. These tests cover:
 
 from __future__ import annotations
 
+import json
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -24,7 +26,12 @@ if str(_orchestrator_path) not in sys.path:
 
 from approval_matrix import ApprovalMatrix, ApprovalState
 from attestation_schemas import ReviewPayload
-from peer_consensus import PeerConsensusTracker
+from peer_consensus import (
+    PeerConsensusTracker,
+    _trackers,
+    _trackers_lock,
+    reconstruct_tracker_from_messages,
+)
 from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
 
 # --- Schema -----------------------------------------------------------------
@@ -269,6 +276,57 @@ class TestTrackerCondition:
         assert tracker.get_pre_merge_conditions() == []
 
 
+# --- evaluate() surfaces conditions ----------------------------------------
+
+
+class TestEvaluateSurfacesConditions:
+    """``tracker.evaluate()`` must include ``pre_merge_conditions`` so the
+    status endpoint (and CLI renderer) can show them while the pipeline is
+    still live (#2006)."""
+
+    def test_evaluate_includes_conditions_when_present(self, matrix_graph):
+        tracker = PeerConsensusTracker("pid-eval-1", matrix_graph, cooldown_seconds=0)
+        tracker.register_agent("coder")
+        tracker.register_agent("reviewer_code")
+        tracker.register_agent("reviewer_contract")
+        tracker.handle_propose(
+            "coder",
+            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc"},
+        )
+        tracker.handle_ack(
+            "reviewer_code",
+            "coder",
+            {
+                "artifact_references": ["src/a.py"],
+                "pre_merge_condition": "git mv legacy/x new/x",
+            },
+        )
+        state = tracker.evaluate()
+        assert "pre_merge_conditions" in state
+        conds = state["pre_merge_conditions"]
+        assert len(conds) == 1
+        assert conds[0]["reviewer"] == "reviewer_code"
+        assert conds[0]["producer"] == "coder"
+        assert conds[0]["condition"] == "git mv legacy/x new/x"
+
+    def test_evaluate_empty_list_when_no_conditions(self, matrix_graph):
+        tracker = PeerConsensusTracker("pid-eval-2", matrix_graph, cooldown_seconds=0)
+        tracker.register_agent("coder")
+        tracker.register_agent("reviewer_code")
+        tracker.register_agent("reviewer_contract")
+        tracker.handle_propose(
+            "coder",
+            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc"},
+        )
+        tracker.handle_ack(
+            "reviewer_code",
+            "coder",
+            {"artifact_references": ["src/a.py"]},
+        )
+        state = tracker.evaluate()
+        assert state["pre_merge_conditions"] == []
+
+
 # --- PR body rendering -----------------------------------------------------
 
 
@@ -336,3 +394,308 @@ class TestPrBodyRendering:
             from routes import pipelines as p
 
             assert p._build_pre_merge_obligations_section("pipeline-Y") == ""
+
+
+# --- Shared helpers for integration tests ---------------------------------
+
+
+def _make_two_reviewer_graph():
+    """Graph with two CRITICAL reviewers → one coder, shared by integration tests."""
+    return ReviewGraph(
+        [
+            ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+            ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
+        ]
+    )
+
+
+# --- Signal-path integration ----------------------------------------------
+
+
+_SIGNAL_PIPELINE_ID = "pipeline-signal-integration"
+
+
+class TestSignalPathIntegration:
+    """End-to-end: signal → tracker → matrix → PR body.
+
+    Pins the chain that `ReviewPayload`, `PeerConsensusTracker`,
+    `ApprovalMatrix`, and the PR-body renderer are individually covered by
+    unit tests, but that nothing previously asserted runs end-to-end
+    through `handle_consensus_ack_signal`. A silent breakage anywhere in
+    between (e.g. the signal handler dropping `pre_merge_condition` from
+    the payload) would not be caught by the existing unit tests.
+    """
+
+    def setup_method(self):
+        with _trackers_lock:
+            _trackers.pop(_SIGNAL_PIPELINE_ID, None)
+
+    def teardown_method(self):
+        with _trackers_lock:
+            _trackers.pop(_SIGNAL_PIPELINE_ID, None)
+
+    def _register_tracker_with_proposal(self):
+        from peer_consensus import create_peer_consensus_tracker
+
+        tracker = create_peer_consensus_tracker(
+            _SIGNAL_PIPELINE_ID, _make_two_reviewer_graph(), cooldown_seconds=0
+        )
+        tracker.register_agent("coder")
+        tracker.register_agent("reviewer_code")
+        tracker.register_agent("reviewer_contract")
+        tracker.handle_propose(
+            "coder",
+            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc123"},
+        )
+        return tracker
+
+    # `make_error_response` / `make_success_response` in the signal handler
+    # call Flask's `jsonify`, which needs an app context. A minimal Flask
+    # app is enough — no blueprint registration required.
+    _SUBSTANTIVE_REASON = (
+        "Read src/a.py lines 10-42 and confirmed the token validation flow "
+        "is correct; merge-time rename is the only remaining gap."
+    )
+
+    def _flask_app_context(self):
+        from flask import Flask
+
+        return Flask(__name__).app_context()
+
+    def test_signal_ack_propagates_condition_to_pr_body(self):
+        from message_store import MessageStore
+        from routes import pipelines as p
+        from routes.signals import handle_consensus_ack_signal
+
+        self._register_tracker_with_proposal()
+        live_store = MessageStore()
+
+        with (
+            self._flask_app_context(),
+            patch("message_store.get_message_store", return_value=live_store),
+            patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+        ):
+            response, status_code = handle_consensus_ack_signal(
+                _SIGNAL_PIPELINE_ID,
+                {
+                    "agent_role": "reviewer_code",
+                    "producer_role": "coder",
+                    "payload": {
+                        "artifact_references": ["src/a.py"],
+                        "reason": self._SUBSTANTIVE_REASON,
+                        "pre_merge_condition": "git mv legacy/x new/x before merge",
+                    },
+                },
+                Path("/tmp/repo"),
+            )
+
+            assert status_code == 200
+            body = json.loads(response.data)
+            assert body["success"] is True
+            assert body["data"]["pre_merge_condition"] == "git mv legacy/x new/x before merge"
+
+        section = p._build_pre_merge_obligations_section(_SIGNAL_PIPELINE_ID)
+        assert "Pre-merge Obligations" in section
+        assert "reviewer_code" in section
+        assert "git mv legacy/x new/x before merge" in section
+
+        stored = live_store.get_messages(_SIGNAL_PIPELINE_ID, limit=10)
+        ack_msgs = [m for m in stored if m.message_type == "CONSENSUS_ACK"]
+        assert len(ack_msgs) == 1
+        assert (
+            ack_msgs[0].metadata["payload"]["pre_merge_condition"]
+            == "git mv legacy/x new/x before merge"
+        )
+
+    def test_signal_ack_without_condition_renders_no_section(self):
+        from message_store import MessageStore
+        from routes import pipelines as p
+        from routes.signals import handle_consensus_ack_signal
+
+        self._register_tracker_with_proposal()
+
+        with (
+            self._flask_app_context(),
+            patch("message_store.get_message_store", return_value=MessageStore()),
+            patch("routes.signals._resolve_pipeline_phase", return_value="implement"),
+        ):
+            response, status_code = handle_consensus_ack_signal(
+                _SIGNAL_PIPELINE_ID,
+                {
+                    "agent_role": "reviewer_code",
+                    "producer_role": "coder",
+                    "payload": {
+                        "artifact_references": ["src/a.py"],
+                        "reason": self._SUBSTANTIVE_REASON,
+                    },
+                },
+                Path("/tmp/repo"),
+            )
+
+            assert status_code == 200
+            assert "pre_merge_condition" not in json.loads(response.data)["data"]
+
+        assert p._build_pre_merge_obligations_section(_SIGNAL_PIPELINE_ID) == ""
+
+
+# --- Reconstruction from message store ------------------------------------
+
+
+_RECONSTRUCT_PIPELINE_ID = "pipeline-reconstruct-condition"
+
+
+class _FakeMessage:
+    """Minimal message shape expected by reconstruct_tracker_from_messages."""
+
+    def __init__(
+        self, message_type, from_role, to_role="all", metadata=None, timestamp=None, msg_id=None
+    ):
+        self.id = msg_id or f"msg-{message_type.lower()}"
+        self.message_type = message_type
+        self.from_role = from_role
+        self.to_role = to_role
+        self.body = ""
+        self.metadata = metadata or {}
+        self.timestamp = timestamp or datetime.now(UTC)
+
+
+class _FakeMessageStore:
+    def __init__(self, messages):
+        self._messages = list(messages)
+
+    def get_messages(self, pipeline_id, *, limit=100):
+        return list(self._messages)
+
+
+class TestReconstructionSurvivesCondition:
+    """After an orchestrator restart, the tracker is rebuilt by replaying
+    messages from Redis. `reconstruct_tracker_from_messages` reads
+    `metadata["payload"]` verbatim into `tracker.handle_ack`, so
+    `pre_merge_condition` should round-trip — but nothing pinned it.
+    """
+
+    def setup_method(self):
+        with _trackers_lock:
+            _trackers.pop(_RECONSTRUCT_PIPELINE_ID, None)
+
+    def teardown_method(self):
+        with _trackers_lock:
+            _trackers.pop(_RECONSTRUCT_PIPELINE_ID, None)
+
+    def test_condition_survives_message_store_replay(self):
+        base = datetime.now(UTC)
+        messages = [
+            _FakeMessage(
+                "CONSENSUS_PROPOSE",
+                "coder",
+                "all",
+                metadata={
+                    "payload": {
+                        "summary": "impl",
+                        "artifacts": ["src/a.py"],
+                        "commit_sha": "abc123",
+                    }
+                },
+                timestamp=base,
+                msg_id="msg-propose",
+            ),
+            _FakeMessage(
+                "CONSENSUS_ACK",
+                "reviewer_code",
+                "coder",
+                metadata={
+                    "payload": {
+                        "reason": "code is correct; merge-time rename required",
+                        "artifact_references": ["src/a.py"],
+                        "pre_merge_condition": "git mv legacy/x new/x",
+                    }
+                },
+                timestamp=base + timedelta(seconds=1),
+                msg_id="msg-ack",
+            ),
+        ]
+
+        tracker = reconstruct_tracker_from_messages(
+            _RECONSTRUCT_PIPELINE_ID,
+            _make_two_reviewer_graph(),
+            message_store=_FakeMessageStore(messages),
+        )
+
+        assert tracker is not None
+        conditions = tracker.get_pre_merge_conditions()
+        assert len(conditions) == 1
+        assert conditions[0]["reviewer"] == "reviewer_code"
+        assert conditions[0]["producer"] == "coder"
+        assert conditions[0]["condition"] == "git mv legacy/x new/x"
+
+
+# --- BRC history transcript -----------------------------------------------
+
+
+class TestBrcHistoryExposesCondition:
+    """The committed `.egg-state/brc-history/{id}-{phase}.{md,json}` files
+    are the long-term audit trail for BRC. A conditional ACK must leave a
+    trace there — otherwise a reviewer could attach an obligation that
+    disappears once the live tracker is cleaned up.
+
+    `_write_brc_history` already serializes `msg.metadata` verbatim into
+    the YAML meta-block of the .md file and into the .json companion via
+    `msg.to_dict()`, so the condition rides along today without a
+    dedicated field. This test pins that behavior.
+    """
+
+    def _conditional_ack_message(self):
+        # Import lazily because message_store imports are heavy and some
+        # tests above mock the module.
+        from message_store import Message, MessageType
+
+        return Message(
+            pipeline_id="issue-42",
+            from_role="reviewer_code",
+            to_role="coder",
+            message_type=MessageType.CONSENSUS_ACK,
+            subject="ACK from reviewer_code for coder",
+            body="code is correct; merge-time rename required",
+            phase="implement",
+            timestamp=datetime(2026, 4, 8, 12, 0, 0, tzinfo=UTC),
+            metadata={
+                "payload": {
+                    "verdict": "ACK",
+                    "artifact_references": ["src/a.py"],
+                    "reason": "code is correct; merge-time rename required",
+                    "pre_merge_condition": "git mv legacy/x new/x before merge",
+                },
+                "version": 1,
+            },
+        )
+
+    def test_condition_appears_in_markdown_transcript(self, tmp_path):
+        from routes.pipelines import _write_brc_history
+
+        mock_store = MagicMock()
+        mock_store.get_messages.return_value = [self._conditional_ack_message()]
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+
+        md_path = tmp_path / ".egg-state" / "brc-history" / "42-implement.md"
+        assert md_path.exists()
+        content = md_path.read_text()
+        assert "pre_merge_condition" in content
+        assert "git mv legacy/x new/x before merge" in content
+
+    def test_condition_appears_in_json_companion(self, tmp_path):
+        from routes.pipelines import _write_brc_history
+
+        mock_store = MagicMock()
+        mock_store.get_messages.return_value = [self._conditional_ack_message()]
+
+        with patch("message_store.get_message_store", return_value=mock_store):
+            _write_brc_history(tmp_path, "issue-42", "implement", 42)
+
+        json_path = tmp_path / ".egg-state" / "brc-history" / "42-implement.json"
+        assert json_path.exists()
+        data = json.loads(json_path.read_text())
+        assert len(data) == 1
+        payload = data[0]["metadata"]["payload"]
+        assert payload["pre_merge_condition"] == "git mv legacy/x new/x before merge"

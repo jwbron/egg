@@ -106,6 +106,7 @@ Sonnet calls use `model="sonnet"` (or the configured `overseer_decision_maker_mo
 Not all silence means stalling. Distinguish between:
 
 - **Legitimate long-running work**: Compilation, large test suites, complex refactoring. Look for tool call activity, file changes, and process output even when progress events are sparse.
+- **Reviewer waiting on a producer (BRC)**: In BRC phases (refine, plan, implement), reviewer-only roles are expected to be silent while the producer is in `WORKING`. They have literally nothing to review until the producer emits `PROPOSED`. The Tier-1 monitor already suppresses heartbeat/progress alerts for reviewers in this state (`_is_brc_idle` in `orchestrator/health_monitor.py:177-218`). **Never synthesize a stall alert against a reviewer-only role whose upstream producer is still `WORKING`** — this is expected behavior, not a stall. Refine-phase producer WORKING commonly runs 6–10 minutes before `PROPOSED`, especially when the contract has many unresolved decisions.
 - **Genuinely stuck**: No tool calls, no file changes, no progress events. The agent may be looping, waiting on a resource, or confused by an error.
 - **Needs help**: The agent is active but producing errors or making no meaningful progress. It may need a redirect or additional context.
 
@@ -139,18 +140,44 @@ egg-orch overseer alert \
 
 Anything that mutates pipeline lifecycle state (phases, decisions, consensus, containers) is **not** in this list -- escalate via `OVERSEER_ALERT` instead.
 
+### Phase-relative baselines
+
+Before classifying an anomaly, calibrate against what is **expected** for the current phase. A state that looks broken in `implement` can be the normal starting condition for `refine`.
+
+**Contract state at phase start:**
+
+| Phase | Expected `show_contract` at phase start | Agent relationship to contract |
+|-------|------------------------------------------|--------------------------------|
+| `refine` | **Empty or near-empty** (`phases=[]`, `acceptance_criteria=[]`, no `agent_executions`). The refiner *produces* the analysis that populates the contract. | Producer of contract content |
+| `plan` | Populated with refine artifacts (analysis doc, initial acceptance criteria). | Producer of plan; consumer of refine output |
+| `implement` | Populated with refine + plan artifacts (tasks, acceptance criteria, phase configs). | Producer of code; consumer of contract |
+
+An empty contract during `refine` is **not** evidence of a deadlock — it is the expected starting state. Do not emit `stuck-phase-transition` or invent a "refiner has no input" failure mode based on an empty `show_contract` result during refine.
+
+**Minimum producer-working window before first-proposal alerts:**
+
+A producer may legitimately spend time reading, grepping, and exploring before emitting its first `CONSENSUS_PROPOSE`. Do not alert on "no CONSENSUS_PROPOSE yet" inside these windows so long as the container is showing tool-call activity:
+
+| Phase | Minimum working window before first-proposal alerts |
+|-------|------------------------------------------------------|
+| `refine` | 5 minutes |
+| `plan` | 3 minutes |
+| `implement` | 10 minutes |
+
+Active tool calls (file reads, grep, web searches, `Agent` spawns, `TodoWrite`) observed via `get_container_logs` during this window are **evidence of legitimate work**, not a stall. Only emit `agent-heartbeat-stall` when both (a) the working-window floor has elapsed AND (b) the orchestrator has raised a corresponding health alert. **Exception**: if the container has exited or become unreachable, escalate immediately regardless of the working-window floor.
+
 ### Escalation triggers
 
 Emit an `OVERSEER_ALERT` when you observe any of these:
 
-- **Stuck phase transition**: BRC consensus is `complete` (`consensus.state == "confirmed"`) but the phase has not transitioned within ~60 seconds. Anomaly type: `stuck-phase-transition`, priority: `high`. Include the consensus state and the time since confirmation in `--detail`.
+- **Stuck phase transition**: BRC consensus is `complete` (`consensus.state == "confirmed"`) but the phase has not transitioned within ~60 seconds. Anomaly type: `stuck-phase-transition`, priority: `high`. Include the consensus state and the time since confirmation in `--detail`. **Do NOT emit `stuck-phase-transition` when `consensus.state != "confirmed"`** — that is a different failure mode (producer still working, reviewers still ACKing, etc.) and requires a different anomaly type. An empty contract during the refine phase is never grounds for this alert; see [Phase-relative baselines](#phase-relative-baselines).
 - **Orchestrator silent on consensus**: No `CONSENSUS_*` messages from the orchestrator for several minutes while agents are still active. Anomaly type: `orchestrator-consensus-silent`, priority: `high`.
 - **Repeated 401 from any orchestrator endpoint**: You tried a command and got a 401 (or any auth-rejection). **Stop retrying that command immediately.** Anomaly type: `unauthorized-overseer-action`, priority: `medium`. Include which command you tried and why you thought it was needed.
-- **Heartbeat stall on an active agent**: An agent has missed `max_missed_heartbeats` consecutive heartbeats and the health alert from the orchestrator confirms it. Anomaly type: `agent-heartbeat-stall`, priority depends on the agent's criticality.
+- **Heartbeat stall on an active agent**: Fire **only** when the orchestrator's Tier-1 heartbeat monitor has already tripped — i.e. `alerts_detail` contains an entry with `alert_type` of `heartbeat_timeout` (or similar heartbeat-related type) for the agent in question — **and** the phase-specific minimum working window (see [Phase-relative baselines](#phase-relative-baselines)) has elapsed. If no such alert is present, the system-level threshold has **not** been crossed and you **must not** synthesize an `agent-heartbeat-stall` alert from your own observation of quiet roles. An alert whose own body says "system threshold not yet crossed" or "no action required" is a false positive by definition — do not emit it. Note: active tool-call activity (as described in [Phase-relative baselines](#phase-relative-baselines)) is relevant counter-evidence even when a heartbeat alert is present — if the agent is producing tool calls, weigh that against the heartbeat signal before alerting. Anomaly type: `agent-heartbeat-stall`, priority depends on the agent's criticality.
 - **Persistent agent loop**: Haiku classifier returns `loop` with confidence > 0.8 across two consecutive cycles. Anomaly type: `agent-loop`, priority: `medium`.
 - **Same anomaly seen across N cycles without resolution**: If you've already alerted on the same anomaly and the situation hasn't changed for `overseer_max_cycles_before_re_alert` (default: 3) cycles, re-alert with priority bumped one level.
 
-When in doubt: alert. A spurious alert is cheaper than a silent stuck pipeline.
+When in doubt on a qualitative signal (error content, agent misalignment, mediation need): alert. A spurious alert is cheaper than a silent stuck pipeline. **But every alert must cite specific observed evidence** (log line, message ID, progress-event reference, `consensus.state` value, elapsed-time figure) that contradicts the "working normally" null hypothesis. "The contract is empty" or "no CONSENSUS_PROPOSE yet" are not evidence on their own; pair them with phase-relative context (see [Phase-relative baselines](#phase-relative-baselines)) before escalating. **Exception**: do not apply this bias to anomalies that have deterministic JSON triggers listed above — `agent-heartbeat-stall`, `stuck-phase-transition`, `orchestrator-consensus-silent`, `agent-loop`. Those require the trigger condition (specific `alerts_detail`/consensus/classifier values) to actually hold. Do not fire them on a hunch.
 
 ## OVERSEER_ALERT body format
 

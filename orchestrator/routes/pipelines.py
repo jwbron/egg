@@ -1743,13 +1743,16 @@ def _cleanup_remote_branches(
     pipeline: "Pipeline",
     repo_path: Path,
 ) -> None:
-    """Best-effort cleanup of remote worktree branches for a pipeline.
+    """Best-effort cleanup of remote branches for a pipeline.
 
-    Iterates all containers across all phase executions and deletes their
-    remote worktree branches (``egg/{container_id}/work``).  Failures are
-    logged as warnings and do not block pipeline deletion.
+    Deletes the pipeline's shared branch (``pipeline.branch``, typically
+    ``egg/{pipeline_id}``) and every per-container worktree branch
+    (``egg/{container_id}/work``).  Failures are logged as warnings and do
+    not block pipeline deletion.
     """
     branches: set[str] = set()
+    if pipeline.branch:
+        branches.add(pipeline.branch)
     for phase_exec in pipeline.phases.values():
         for container in phase_exec.containers:
             branches.add(f"egg/{container.container_id}/work")
@@ -1768,7 +1771,7 @@ def _cleanup_remote_branches(
 
     if deleted:
         logger.info(
-            "Cleaned up remote worktree branches",
+            "Cleaned up remote branches",
             pipeline_id=pipeline_id,
             branches_deleted=deleted,
             branches_total=len(branches),
@@ -1819,12 +1822,12 @@ def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
                 exc_info=True,
             )
 
-        # Clean up remote worktree branches (best-effort)
+        # Clean up remote branches (best-effort)
         try:
             _cleanup_remote_branches(pipeline_id, _pipeline, repo_path)
         except Exception as e:
             logger.warning(
-                "Failed to clean up remote worktree branches",
+                "Failed to clean up remote branches",
                 pipeline_id=pipeline_id,
                 error=str(e),
             )
@@ -5893,20 +5896,52 @@ def _persist_phase_brc_history(
         )
 
 
-def _build_pre_merge_obligations_section(pipeline_id: str) -> str:
+def _build_pre_merge_obligations_section(
+    pipeline_id: str,
+    contract_deferred_actions: list[str] | None = None,
+) -> str:
     """Render the "Pre-merge Obligations" section from active conditional ACKs.
 
-    Queries the live consensus tracker for conditions attached to current-
-    version ACKs (see ``ApprovalMatrix.get_pre_merge_conditions``). Returns
-    an empty string if the tracker is unavailable or has no conditions, so
-    callers can unconditionally append the result to the PR body.
+    Two sources, in order of preference:
 
-    The section exists to close the loophole where reviewers embedded
-    merge-time obligations ("human must git mv X Y before merging") in ACK
-    prose that the merger could skim past (#1998). Rendered as a visible
-    markdown section up-front on the PR so the obligation is in the
-    merger's line of sight.
+    1. ``contract_deferred_actions`` — strings previously persisted to
+       ``contract.pr.deferred_actions`` when a human approved the
+       conditional-ACK HITL gate (#2004). This is the durable path:
+       the tracker may have been torn down by the time PR creation
+       runs, and the contract survives.
+    2. The live consensus tracker (#1998). Used when the contract has
+       no deferred_actions — either because the gate landed before
+       tracker teardown, or the gate was never required.
+
+    Returns an empty string if neither source yields conditions, so
+    callers can unconditionally append the result to the PR body.
     """
+    # Tier 1 — contract.pr.deferred_actions (persisted across teardown).
+    if contract_deferred_actions:
+        bullets = []
+        for entry in contract_deferred_actions:
+            text = entry.strip()
+            if not text:
+                continue
+            first, *rest = text.splitlines()
+            bullets.append(f"- {first}")
+            bullets.extend(f"  {line}" for line in rest)
+        if bullets:
+            return "\n".join(
+                [
+                    "## ⚠️ Pre-merge Obligations",
+                    "",
+                    "The reviewers below issued a **conditional ACK** — the "
+                    "work is approved, but a human must perform the listed "
+                    "action before merging. Do **not** merge this PR until "
+                    "every obligation is complete.",
+                    "",
+                    *bullets,
+                ]
+            )
+
+    # Tier 2 — live tracker (pre-#2004 path; kept so conditions still
+    # render if the HITL gate hasn't resolved yet, e.g. under force=true).
     try:
         from peer_consensus import get_peer_consensus_tracker
     except ImportError:
@@ -6080,6 +6115,7 @@ def _build_pr_body(
     pr_description: str | None = None
     pr_test_plan: str = ""
     pr_manual_steps: str = ""
+    pr_deferred_actions: list[str] = []
     issue_title: str | None = None
     plan_draft_warnings: list[str] = []
     plan_draft_path: str | None = None
@@ -6096,6 +6132,7 @@ def _build_pr_body(
             pr_description = contract.pr.description
             pr_test_plan = contract.pr.test_plan
             pr_manual_steps = contract.pr.manual_steps
+            pr_deferred_actions = list(contract.pr.deferred_actions)
         if contract.issue:
             issue_title = contract.issue.title
     except Exception as e:
@@ -6165,13 +6202,16 @@ def _build_pr_body(
     elif pipeline.issue_number:
         body_parts.append(f"Closes #{pipeline.issue_number}")
 
-    # Pre-merge obligations from conditional ACKs (issue #1998). Rendered
-    # high in the body so the merger sees them before skimming past the
-    # test plan. Conditions come from the consensus tracker — if the
-    # tracker is gone (orchestrator restart without reconstruction), the
-    # section is silently skipped and reviewers fall back to the planner's
-    # manual_steps below.
-    deferred_section = _build_pre_merge_obligations_section(pipeline.id)
+    # Pre-merge obligations from conditional ACKs (issue #1998, #2004).
+    # Rendered high in the body so the merger sees them before skimming
+    # past the test plan. Prefer the contract-persisted list (written when
+    # the #2004 HITL gate resolves as approve+accept) so obligations
+    # survive tracker teardown; fall back to the live tracker for the
+    # transitional case where the gate hasn't resolved yet.
+    deferred_section = _build_pre_merge_obligations_section(
+        pipeline.id,
+        contract_deferred_actions=pr_deferred_actions,
+    )
     if deferred_section:
         body_parts.append(deferred_section)
 

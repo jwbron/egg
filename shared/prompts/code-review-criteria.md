@@ -74,6 +74,16 @@
 
 **Beware of false analogies**: When comparing new code to existing patterns, verify the analogy holds at the execution-model level. Two features may look structurally similar in config but have completely different execution paths. If the existing pattern works via mechanism A but the new code relies on mechanism B that doesn't exist, the comparison is invalid — classify based on actual functionality, not superficial similarity.
 
+### Conditional ACK vs NACK vs Plain ACK (BRC reviewers only)
+
+Concurrent BRC reviewers can attach `--pre-merge-condition "…"` to an ACK to record a merge-time obligation on the approval matrix. The obligation is rendered as a "Pre-merge Obligations" section high in the auto-created PR body so the merger cannot skim past it. Use this sparingly — if every ACK carries a condition, the section becomes noise and the merger learns to skim past it.
+
+- **Conditional ACK** — the work is correct but merging requires a human action that agents cannot perform themselves. Examples: a rename that cannot be pushed through the gateway (`git mv legacy/x new/x`), a secret rotation, a config flip in another repo, a manual database migration.
+- **NACK** — blocking issues the producer can address. Examples: a logic bug, a missing test for a regression, a security flaw, a broken end-to-end path. Do **not** downgrade a NACK into a conditional ACK to unblock the pipeline — a conditional ACK is not a soft NACK. If the producer could fix it, NACK instead.
+- **Plain ACK with non-blocking note** — the work is correct and merge-safe as-is. Optional suggestions (style nits, naming ideas, defense-in-depth additions) belong under a "Non-blocking" subsection of the `--reason`, not as a pre-merge condition.
+
+This section is BRC-only. PR reviewers and sequential SDLC reviewers have no conditional-ACK analogue (see `REVIEWER-SYNC.md`).
+
 ### Skip
 
 - Style issues handled by linters (formatting, import order)
