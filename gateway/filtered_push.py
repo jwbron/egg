@@ -134,8 +134,12 @@ def _tree_of(exec_path: str, sha: str) -> str | None:
     return (result.stdout or "").strip() or None
 
 
-def _resolve_main_head(exec_path: str, remote: str) -> str | None:
-    """Fetch the default branch of ``remote`` and return its head SHA.
+def _resolve_main_head(exec_path: str) -> str | None:
+    """Fetch the default branch from ``origin`` and return its head SHA.
+
+    Always fetches from the hardcoded ``origin`` remote — never from an
+    agent-supplied remote name — so that a compromised remote configuration
+    cannot influence the ancestry check.
 
     Tries ``main`` then ``master``.  Returns ``None`` if neither can be
     resolved (detached remote, air-gapped test, etc.) — the caller then
@@ -143,13 +147,14 @@ def _resolve_main_head(exec_path: str, remote: str) -> str | None:
     pre-existing fail-closed behavior.
 
     The fetch is performed by the gateway process (not the agent) so
-    an agent cannot spoof ``refs/remotes/<remote>/main`` locally to
+    an agent cannot spoof ``refs/remotes/origin/main`` locally to
     launder a commit through the pulled-cross-role path.  We capture
     the SHA returned by ``rev-parse`` immediately after the fetch and
     pass that SHA (not the ref name) to ``merge-base --is-ancestor``,
     so even a mid-operation ref write by the agent cannot alter the
     reachability decision.
     """
+    remote = "origin"
     for default_branch in ("main", "master"):
         fetch = _git(exec_path, "fetch", "--no-tags", remote, default_branch, timeout=30)
         if fetch.returncode != 0:
@@ -412,14 +417,9 @@ def execute_filtered_push(
     # main typically have no authorship registry entry; without this
     # check, the filter would strip their blocked paths and produce a
     # commit with the same subject but a different tree.
-    # Always use "origin" for the ancestry check regardless of the
-    # agent-supplied ``remote`` — a compromised remote value could
-    # point to an attacker-controlled repo, causing unregistered
-    # commits to be reclassified as "pulled" and bypass the own-file
-    # filter.  The gateway's ``resolve_remote_url`` validates the
-    # remote for URL extraction, but the fetch in
-    # ``_resolve_main_head`` must hit the known-good remote.
-    main_head = _resolve_main_head(exec_path, "origin")
+    # ``_resolve_main_head`` hardcodes "origin" internally so
+    # an agent-supplied remote value cannot influence the ancestry check.
+    main_head = _resolve_main_head(exec_path)
     main_reachable_unregistered: list[str] = []
     filtered_unregistered: list[str] = []
 

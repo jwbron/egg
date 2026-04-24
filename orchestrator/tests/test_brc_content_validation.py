@@ -829,13 +829,12 @@ class TestAckPreMergeConditionValidation:
         tracker.handle_ack.assert_not_called()
 
     def test_short_imperative_condition_passes(self, app):
-        """A 10-49 char condition passes with the lowered min_len=10.
+        """A 14-char condition passes under the ``_BRC_CONDITION_KINDS`` dispatch.
 
-        Before the fix, ``min_len`` defaulted to 50 for all
-        ``_validate_brc_content`` calls — this boundary value (14 chars)
-        would have been rejected.  The #2026 PR lowered the threshold
-        for pre-merge conditions to 10 so short imperative commands
-        like ``rotate API key`` are accepted.
+        ``_validate_brc_content`` uses ``_BRC_CONDITION_MIN_LEN`` (10) for
+        content kinds in ``_BRC_CONDITION_KINDS`` (e.g. "pre-merge condition")
+        instead of the default 50-char minimum.  This boundary value (14 chars)
+        would have been rejected without the kind-based dispatch (#2005).
         """
         _, status_code, tracker = self._ack_with_payload(
             app,
