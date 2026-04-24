@@ -253,6 +253,7 @@ class TestCheckHitlAnswers:
             {"id": "d1", "phase": "refine", "resolved": True, "resolution": {"id": "opt-1"}},
             {"id": "d2", "phase": "refine", "resolved": True, "resolution": {"id": "opt-2"}},
             {"id": "d3", "phase": "plan", "resolved": False, "resolution": None},
+            {"id": "d4", "phase": "plan", "resolved": True, "resolution": {"id": "opt-4"}},
         ]
         feedback = {"id": "feedback-1", "phase": "refine", "submitted": True}
         data = {"decisions": decisions, "feedback": feedback}
@@ -266,7 +267,7 @@ class TestCheckHitlAnswers:
             patch.dict("os.environ", {"EGG_PHASE": "plan"}, clear=False),
         ):
             resp = sdlc.check_hitl_answers({})
-        assert {d["id"] for d in resp["decisions"]} == {"d1", "d2"}
+        assert {d["id"] for d in resp["decisions"]} == {"d1", "d2", "d4"}
         assert resp["feedback"] == feedback
 
     def test_phase_filter_applied_to_feedback(self):

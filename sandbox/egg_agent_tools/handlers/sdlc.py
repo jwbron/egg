@@ -216,7 +216,7 @@ def request_feedback(req: dict[str, Any]) -> dict[str, Any]:
 
 
 def check_hitl_answers(req: dict[str, Any]) -> dict[str, Any]:
-    """Fetch resolved decisions and submitted feedback from the contract.
+    """Fetch resolved decisions and feedback (submitted or pending) from the contract.
 
     Request:
         phase (str): optional filter — only return decisions/feedback
