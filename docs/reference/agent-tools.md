@@ -100,7 +100,7 @@ that requires the handler docstring to explain why no CLI exists.
 
 | Tool | Purpose | Handler | CLI counterpart |
 |------|---------|---------|-----------------|
-| `mcp__brc__propose` | Push committed changes to origin then broadcast a `CONSENSUS_PROPOSE` signal. See [push behavior](#brc-propose-push-behavior) below. | `handlers.brc.brc_propose` | `egg-orch consensus propose --push` |
+| `mcp__brc__propose` | Push committed changes to origin then broadcast a `CONSENSUS_PROPOSE` signal. See [push behavior](#brc_propose-push-behavior) below. | `handlers.brc.brc_propose` | `egg-orch consensus propose --push` |
 | `mcp__brc__ack` | Acknowledge (ACK) a peer's proposal. | `handlers.brc.brc_ack` | `egg-orch consensus ack` |
 | `mcp__brc__nack` | Reject (NACK) a peer's proposal with blocker list. | `handlers.brc.brc_nack` | `egg-orch consensus nack` |
 | `mcp__brc__confirm` | Signal CONFIRMED — producer acknowledges all reviewer ACKs. | `handlers.brc.brc_confirm` | `egg-orch consensus confirmed` |
@@ -111,7 +111,7 @@ that requires the handler docstring to explain why no CLI exists.
 | `mcp__brc__send_heartbeat` | Emit a structured `HEARTBEAT` (schema-validated, per-role deduped, rate-limited) to the dedicated `/heartbeat` endpoint. Use `state=WAITING_ON_ROLE` + `waiting_on=<peer>` while blocking on BRC. | `handlers.message.message_heartbeat` | `egg-orch message heartbeat` |
 | `mcp__brc__read_peer_artifact` | Read entries from `.egg-state/brc-history/<pipeline_id>-<phase>.json` filtered by `peer_role`, with `limit`/`cursor` pagination (default `limit=50`). `pipeline_id` is resolved server-side from `EGG_PIPELINE_ID` / `EGG_ISSUE_NUMBER` (agents cannot pass an arbitrary id; path-traversal hardening). Returns `{items: [...], next_cursor: <str|None>, skipped_malformed: <int>}`. | `handlers.brc.read_peer_artifact` | — *(no CLI; reviewer-forensics helper that reads local files; operators inspect the files directly)* |
 
-#### `brc_propose` push behavior {#brc-propose-push-behavior}
+#### `brc_propose` push behavior
 
 `mcp__brc__propose` pushes committed changes to origin via the gateway
 before broadcasting the proposal. The `push` parameter defaults to
