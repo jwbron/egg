@@ -666,7 +666,7 @@ class Pipeline(BaseModel):
         default=None,
         description="Optional Atlassian Jira ticket key (e.g. 'ENG-1234') the "
         "pipeline is working against. Advisory only — exported to the sandbox "
-        "as EGG_JIRA_TICKET so agents can call `jira ticket get \"$EGG_JIRA_TICKET\"` "
+        'as EGG_JIRA_TICKET so agents can call `jira ticket get "$EGG_JIRA_TICKET"` '
         "without hard-coding a key. The gateway does NOT use this for policy "
         "gating; only the project allowlist in config/context-filters.yaml "
         "can authorise a Jira call (issue #1556 refine decision #9).",
@@ -684,9 +684,7 @@ class Pipeline(BaseModel):
         if trimmed == "":
             return None
         if not re.fullmatch(r"[A-Z][A-Z0-9_]*-\d+", trimmed):
-            raise ValueError(
-                "jira_ticket must match '<PROJECT>-<number>' (e.g. 'ENG-1234')"
-            )
+            raise ValueError("jira_ticket must match '<PROJECT>-<number>' (e.g. 'ENG-1234')")
         return trimmed
 
     def get_phase_execution(self, phase: PipelinePhase) -> PhaseExecution:

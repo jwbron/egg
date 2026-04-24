@@ -84,7 +84,12 @@ def require_private_mode(f: F) -> F:  # noqa: UP047
                     audit_log = None  # type: ignore[assignment]
 
             operation = f.__name__
-            if audit_log is not None:
+            # ``audit_log`` dereferences ``request.remote_addr`` so we gate it
+            # on ``has_request_context()`` for defensiveness even though this
+            # decorator always runs inside a Flask request today.
+            from flask import has_request_context
+
+            if audit_log is not None and has_request_context():
                 try:
                     audit_log(
                         "private_mode_required",
@@ -98,10 +103,10 @@ def require_private_mode(f: F) -> F:  # noqa: UP047
                 except Exception:  # pragma: no cover – defensive
                     # Audit must never break the deny path.
                     logger.exception("audit_log failed in require_private_mode")
-            else:  # pragma: no cover — gateway module unavailable
+            else:  # pragma: no cover — gateway module unavailable / no request
                 logger.warning(
                     "private_mode_required",
-                    endpoint=request.path,
+                    endpoint=getattr(request, "path", None),
                     session_mode=session_mode,
                 )
 

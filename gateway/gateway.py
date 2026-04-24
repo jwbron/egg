@@ -49,7 +49,7 @@ from typing import Any, TypeVar
 F = TypeVar("F", bound=Callable[..., Any])  # noqa: UP047 – Python 3.11 compat
 
 import httpx
-from flask import Flask, Response, g, jsonify, request, stream_with_context
+from flask import Flask, Response, g, has_request_context, jsonify, request, stream_with_context
 from waitress import serve
 
 # Add shared directory to path for egg_logging
@@ -114,8 +114,10 @@ try:
         JiraCredentialsUnavailable,
         JiraUpstreamError,
         get_jira_client,
-        validate_fields as validate_jira_fields,
         validate_jira_api_path,
+    )
+    from .jira_client import (
+        validate_fields as validate_jira_fields,
     )
     from .jira_credentials import reload_jira_credentials
     from .jira_policy import (
@@ -203,6 +205,7 @@ except ImportError:
         resolve_gh_api_template_variables,
         validate_gh_api_path,
     )
+
     # The Jira modules are new in issue #1556 and the flat-module test
     # conftest does not yet preload them.  Make the gateway directory
     # discoverable before the fallback import so standalone / test loading
@@ -217,8 +220,10 @@ except ImportError:
         JiraCredentialsUnavailable,
         JiraUpstreamError,
         get_jira_client,
-        validate_fields as validate_jira_fields,
         validate_jira_api_path,
+    )
+    from jira_client import (
+        validate_fields as validate_jira_fields,
     )
     from jira_credentials import (  # type: ignore[no-redef, import-untyped]
         reload_jira_credentials,
@@ -712,12 +717,26 @@ def _reload_all_config() -> None:
         reload_jira_policy()
     except Exception:  # pragma: no cover — defensive
         logger.exception("Jira project allowlist reload failed")
-    audit_log(
-        "jira_config_reloaded",
-        "config_reload",
-        success=True,
-        details={"components": ["jira_credentials", "jira_policy"]},
-    )
+    # ``_reload_all_config`` is reachable from two call sites: (a) the
+    # ``POST /api/v1/config/reload`` endpoint, which runs inside a Flask
+    # request; and (b) the SIGHUP handler, which does NOT.  ``audit_log``
+    # dereferences ``request.remote_addr`` so calling it outside a request
+    # raises ``RuntimeError: Working outside of request context``.  Gate
+    # the audit on ``has_request_context`` so HTTP reloads still audit and
+    # SIGHUP falls back to a bare logger line.
+    if has_request_context():
+        audit_log(
+            "jira_config_reloaded",
+            "config_reload",
+            success=True,
+            details={"components": ["jira_credentials", "jira_policy"]},
+        )
+    else:
+        logger.info(
+            "Jira configuration reloaded",
+            components=["jira_credentials", "jira_policy"],
+            trigger="sighup",
+        )
 
 
 @app.route("/api/v1/config/reload", methods=["POST"])
@@ -3616,8 +3635,7 @@ def jira_ticket_get() -> tuple[Response, int] | Response:
             "jira_ticket_get_rejected",
             "jira_ticket_get",
             success=False,
-            details={"reason": "invalid ticket shape", "ticket": ticket,
-                     **_session_jira_context()},
+            details={"reason": "invalid ticket shape", "ticket": ticket, **_session_jira_context()},
         )
         return make_error(
             "Invalid ticket key (expected e.g. 'FOO-123')",
@@ -3641,8 +3659,7 @@ def jira_ticket_get() -> tuple[Response, int] | Response:
             "jira_ticket_get_rejected",
             "jira_ticket_get",
             success=False,
-            details={"reason": str(exc), "ticket": ticket,
-                     **_session_jira_context()},
+            details={"reason": str(exc), "ticket": ticket, **_session_jira_context()},
         )
         return make_error(f"Invalid fields: {exc}", status_code=400)
 
@@ -3815,8 +3832,7 @@ def jira_ticket_comments() -> tuple[Response, int] | Response:
             "jira_ticket_comments_rejected",
             "jira_ticket_comments",
             success=False,
-            details={"reason": "invalid ticket shape", "ticket": ticket,
-                     **_session_jira_context()},
+            details={"reason": "invalid ticket shape", "ticket": ticket, **_session_jira_context()},
         )
         return make_error(
             "Invalid ticket key (expected e.g. 'FOO-123')",
@@ -3902,8 +3918,7 @@ def jira_execute() -> tuple[Response, int] | Response:
             "jira_execute_rejected",
             "jira_execute",
             success=False,
-            details={"reason": "method must be a string",
-                     **_session_jira_context()},
+            details={"reason": "method must be a string", **_session_jira_context()},
         )
         return make_error("method must be a string", status_code=400)
 

@@ -330,6 +330,16 @@ class JiraClient:
 
             retry_after = _parse_retry_after(response.headers.get("Retry-After"))
             # Import lazily — audit_log lives in gateway.py which imports us.
+            # ``audit_log`` dereferences ``flask.request``, so we can only call
+            # it inside a request context; a future batch/worker use of this
+            # client (outside Flask) must not crash here.
+            try:
+                from flask import has_request_context
+            except ImportError:  # pragma: no cover — flask is a hard dep
+
+                def has_request_context() -> bool:
+                    return False
+
             try:
                 from .gateway import audit_log  # type: ignore[attr-defined]
             except ImportError:
@@ -337,7 +347,7 @@ class JiraClient:
                     from gateway import audit_log  # type: ignore[no-redef, import-untyped]
                 except ImportError:
                     audit_log = None  # type: ignore[assignment]
-            if audit_log is not None:
+            if audit_log is not None and has_request_context():
                 try:
                     audit_log(
                         "jira_upstream_rate_limited",
@@ -351,7 +361,7 @@ class JiraClient:
                     )
                 except Exception:  # pragma: no cover – defensive
                     logger.exception("audit_log failed in jira _request")
-            else:  # pragma: no cover — gateway module unavailable
+            else:
                 logger.warning(
                     "Jira upstream 429",
                     path=path,

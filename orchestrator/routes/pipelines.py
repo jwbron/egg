@@ -10362,7 +10362,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # JIRA_API_TOKEN) to the sandbox.  An empty string is exported
             # when no ticket is configured so agent wrappers can rely on
             # variable presence.
-            jira_ticket_value = (getattr(pipeline, "jira_ticket", None) or "")
+            jira_ticket_value = getattr(pipeline, "jira_ticket", None) or ""
             sandbox_env["EGG_JIRA_TICKET"] = jira_ticket_value
             if jira_ticket_value and "-" in jira_ticket_value:
                 sandbox_env["EGG_JIRA_PROJECT"] = jira_ticket_value.split("-", 1)[0]
