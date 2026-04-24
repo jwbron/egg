@@ -229,10 +229,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-5",
+      "question": "`.egg/last-known-good` file format",
+      "context": "Open contract question decision-4, registered by an agent during the refine phase.",
+      "options": [
+        "Bare 40-char sha (one-line file; simplest; no parsing cost) — recommended",
+        "Structured JSON with {sha, env_digest, updated_at} (richer invalidation; slightly larger surface)",
+        "Bare sha + a separate `.egg/last-known-good.invalidated` marker file when fallback triggers fire (two files; explicit)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T20:10:43.165614Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T19:39:48.417158Z",
-  "updated_at": "2026-04-24T20:10:43.117452Z",
+  "updated_at": "2026-04-24T20:10:43.190887Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -246,6 +265,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 15,
+  "version": 16,
   "jira_ticket": null
 }
