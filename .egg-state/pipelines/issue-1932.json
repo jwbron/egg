@@ -207,10 +207,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Issue-as-written: above + phase transitions (PHASE_STARTED/COMPLETED) + consensus state change (CONSENSUS_CONFIRMED/NACK/RE_REVIEW)\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Should the timeout payload (nothing-happened-in-25s) be a minimal no-change envelope or the full status envelope?",
+      "context": "Open contract question decision-3, registered by an agent during the refine phase.",
+      "options": [
+        "Minimal envelope: {changed: false, current_phase, status, phase_elapsed_seconds} — cheap re-render, SKILL.md must branch on `changed`",
+        "Full envelope: same shape as get_status — zero SKILL.md branching, higher cost per timeout",
+        "Hybrid: full on first timeout of a session, minimal thereafter",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T03:10:47.687401Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:08:18.054872Z",
-  "updated_at": "2026-04-24T03:10:46.118740Z",
+  "updated_at": "2026-04-24T03:10:47.701106Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -224,5 +243,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 16
+  "version": 17
 }
