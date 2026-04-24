@@ -5,7 +5,7 @@
   "branch": "egg/issue-1965",
   "base_branch": null,
   "prompt": null,
-  "status": "awaiting_human",
+  "status": "cancelled",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -171,7 +171,7 @@
     }
   ],
   "created_at": "2026-04-24T18:02:12.317273Z",
-  "updated_at": "2026-04-24T18:24:07.801960Z",
+  "updated_at": "2026-04-24T18:51:54.089307Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -185,6 +185,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 11,
+  "version": 12,
   "jira_ticket": null
 }
