@@ -168,10 +168,30 @@
       "resolution": "{\"action\": \"approve\", \"context\": \"Human approved refine analysis. Recommendations pre-agreed for downstream decisions: d3=grimp, d12=module-level, d9=non-tracked sidecar, d1=auto-after-test-all+manual-record-good, d4=bare-sha, d8=untracked-file (moot), d6=leave-as-is (sidecar), d5=full-suite-on-non-py, d10=scan-during-graph-construction, d2=make-test-all, d11=N/A, d7=make-test-narrowed-default + make-test-all-full. Q1 no-hard-target (measure+log), Q2 defer-to-plan, Q3 accept+add uv.lock+.python-version, Q4 yes-canary-every-10th, Q5 intersect, Q6 yes-why-flag, Q7 explicit-trigger, Q8 follow-up-issue, Q9 last-writer-wins, Q10 stay-full-suite-only, Q11 docs/guides/testing.md + make help + CONTRIBUTING pointer, Q12 never-update-on-partial-pass, Q13 always-fall-back-to-base, Q14 fall-back-to-base, Q15 stderr+JSON, Q16 branch-only.\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "LKG update mechanism: when a full test run passes, how should `.egg/last-known-good` be updated on the working branch?",
+      "context": "Open contract question decision-1, registered by an agent during the refine phase.",
+      "options": [
+        "Ride-along on the next commit the agent/developer makes (no dedicated commit; .egg/last-known-good is staged by `make test-all` and gets swept up naturally) — recommended",
+        "Auto-commit immediately on every green `make test-all` (one dedicated commit per full-run pass; clean signal but history noise and gateway-policy friction)",
+        "Amend onto the HEAD commit that triggered the run (no extra commit but rewrites history — dangerous default)",
+        "Manual-only: `make test-record-good` is the ONLY way the file advances (zero automation; agents / devs must remember to run it)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T20:10:42.973994Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T19:39:48.417158Z",
-  "updated_at": "2026-04-24T20:10:41.095434Z",
+  "updated_at": "2026-04-24T20:10:42.991854Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -185,6 +205,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 12,
+  "version": 13,
   "jira_ticket": null
 }
