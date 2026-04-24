@@ -1771,7 +1771,7 @@ def _cleanup_remote_branches(
 
     if deleted:
         logger.info(
-            "Cleaned up remote worktree branches",
+            "Cleaned up remote branches",
             pipeline_id=pipeline_id,
             branches_deleted=deleted,
             branches_total=len(branches),
@@ -1822,12 +1822,12 @@ def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
                 exc_info=True,
             )
 
-        # Clean up remote worktree branches (best-effort)
+        # Clean up remote branches (best-effort)
         try:
             _cleanup_remote_branches(pipeline_id, _pipeline, repo_path)
         except Exception as e:
             logger.warning(
-                "Failed to clean up remote worktree branches",
+                "Failed to clean up remote branches",
                 pipeline_id=pipeline_id,
                 error=str(e),
             )
