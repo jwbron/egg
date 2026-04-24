@@ -483,7 +483,7 @@ class TestSignalPathIntegration:
                     "payload": {
                         "artifact_references": ["src/a.py"],
                         "reason": self._SUBSTANTIVE_REASON,
-                        "pre_merge_condition": "git mv legacy/x new/x before merge",
+                        "pre_merge_condition": "git mv legacy/x new/x before merge — rename required for module restructure",
                     },
                 },
                 Path("/tmp/repo"),
@@ -492,7 +492,7 @@ class TestSignalPathIntegration:
             assert status_code == 200
             body = json.loads(response.data)
             assert body["success"] is True
-            assert body["data"]["pre_merge_condition"] == "git mv legacy/x new/x before merge"
+            assert body["data"]["pre_merge_condition"] == "git mv legacy/x new/x before merge — rename required for module restructure"
 
         section = p._build_pre_merge_obligations_section(_SIGNAL_PIPELINE_ID)
         assert "Pre-merge Obligations" in section
@@ -504,7 +504,7 @@ class TestSignalPathIntegration:
         assert len(ack_msgs) == 1
         assert (
             ack_msgs[0].metadata["payload"]["pre_merge_condition"]
-            == "git mv legacy/x new/x before merge"
+            == "git mv legacy/x new/x before merge — rename required for module restructure"
         )
 
     def test_signal_ack_without_condition_renders_no_section(self):
