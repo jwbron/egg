@@ -324,15 +324,32 @@ Poll the pipeline status in a loop. On each poll:
    **Two response envelopes.** Branch structurally on the `no_change` key, **not** on the `changed` boolean alone:
 
    ```json
-   // Path A — changed: true (event fired before timeout)
+   // Path A — changed: true, trigger: "event" (EventBus event fired)
    {
      "changed": true,
-     "trigger": "event",                    // or "message"
-     "event_type": "OVERSEER_ALERT",        // or messages: [...] when trigger == "message"
+     "trigger": "event",
+     "event_type": "phase.started",          // wire value — e.g. "phase.started", "decision.created", "pipeline.completed"
      "cursor": "msg:1738012734-0|evt:142",
      "current_phase": "plan",
      "status": "running",
      "phase_elapsed_seconds": 127,         // present when the current phase has a started_at; absent at phase boundaries
+     "pipeline": { ... },
+     "running_agents": [ ... ],
+     "completed_agents": [ ... ],
+     "pending_decisions": [ ... ],
+     "recent_messages": [ ... ],
+     "concurrent": { "consensus": { ... } }
+   }
+
+   // Path A — changed: true, trigger: "message" (message-bus wake)
+   {
+     "changed": true,
+     "trigger": "message",
+     "messages": [ { "type": "OVERSEER_ALERT", ... } ],  // array of new messages
+     "cursor": "msg:1738012740-0|evt:142",
+     "current_phase": "plan",
+     "status": "running",
+     "phase_elapsed_seconds": 130,
      "pipeline": { ... },
      "running_agents": [ ... ],
      "completed_agents": [ ... ],
@@ -1260,15 +1277,29 @@ Poll the pipeline status in a loop. On each poll:
    **Two response envelopes.** Branch structurally on the `no_change` key (do not branch on the `changed` boolean alone — `no_change` is a distinct top-level key for exactly this purpose):
 
    ```json
-   // Path A — changed: true (event fired before timeout)
+   // Path A — changed: true, trigger: "event" (EventBus event fired)
    {
      "changed": true,
-     "trigger": "event",                      // or "message"
-     "event_type": "PHASE_STARTED",           // or messages: [...] when trigger == "message"
+     "trigger": "event",
+     "event_type": "phase.started",             // wire value — e.g. "phase.started", "decision.created", "pipeline.completed"
      "cursor": "msg:1738012734-0|evt:142",
      "current_phase": "implement",
      "status": "running",
      "phase_elapsed_seconds": 127,            // present when the current phase has a started_at; absent at phase boundaries
+     "concurrent": { "consensus": { ... }, "agents": [ ... ] },
+     "recent_messages": [ ... ],
+     "pending_decisions": [ ... ]
+   }
+
+   // Path A — changed: true, trigger: "message" (message-bus wake)
+   {
+     "changed": true,
+     "trigger": "message",
+     "messages": [ { "type": "OVERSEER_ALERT", ... } ],  // array of new messages
+     "cursor": "msg:1738012740-0|evt:142",
+     "current_phase": "implement",
+     "status": "running",
+     "phase_elapsed_seconds": 130,
      "concurrent": { "consensus": { ... }, "agents": [ ... ] },
      "recent_messages": [ ... ],
      "pending_decisions": [ ... ]

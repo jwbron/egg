@@ -296,17 +296,9 @@ def _message_store_tip_id(pipeline_id: str) -> str | None:
     except Exception:  # pragma: no cover — store may not be importable
         return None
     try:
-        msgs = store.get_messages(pipeline_id, limit=1)
-        if not msgs:
-            # Try one more call without a limit cap since some in-memory
-            # stores return oldest-first and limit=1 yields the first
-            # message; iterate to the tail by asking for the whole list.
-            msgs = store.get_messages(pipeline_id, limit=10_000)
-        if msgs:
-            return msgs[-1].id
+        return store.get_latest_id(pipeline_id)
     except Exception:
         return None
-    return None
 
 
 def _build_minimal_status_envelope(
@@ -2680,7 +2672,7 @@ def wait_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
         if source == "event":
             event = payload
             tip_msg_id = _message_store_tip_id(pipeline_id) or msg_since_id
-            cursor = _build_status_wait_cursor(tip_msg_id, int(event.sequence))
+            cursor = _build_status_wait_cursor(tip_msg_id, event.sequence)
             envelope = _build_minimal_status_envelope(fresh_pipeline, cursor)
             envelope.update(
                 {
@@ -2694,14 +2686,16 @@ def wait_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
         if source == "message":
             messages = payload
             last_id = messages[-1].id if messages else msg_since_id
-            # Apply reviewer-redaction contract (R13 mitigation).
+            # Delphi filter pass — currently a no-op for the host caller
+            # (role=None returns messages unchanged) but plumbed here so a
+            # future role parameter can enable reviewer-redaction (R13).
             if _delphi is not None:
                 try:
                     messages = _delphi(pipeline_id, None, messages)
                 except Exception:  # pragma: no cover
                     pass
             tip_evt_seq = event_bus.current_sequence()
-            cursor = _build_status_wait_cursor(last_id, int(tip_evt_seq))
+            cursor = _build_status_wait_cursor(last_id, tip_evt_seq)
             envelope = _build_minimal_status_envelope(fresh_pipeline, cursor)
             envelope.update(
                 {
@@ -2715,7 +2709,7 @@ def wait_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
         # Timeout path — minimal envelope only.
         tip_msg_id = _message_store_tip_id(pipeline_id) or msg_since_id
         tip_evt_seq = event_bus.current_sequence()
-        cursor = _build_status_wait_cursor(tip_msg_id, int(tip_evt_seq))
+        cursor = _build_status_wait_cursor(tip_msg_id, tip_evt_seq)
         envelope = _build_minimal_status_envelope(fresh_pipeline, cursor)
         envelope.update({"changed": False, "no_change": True})
         return make_success_response("No change within wait window", data=envelope)

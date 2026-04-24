@@ -328,6 +328,24 @@ class RedisMessageStore:
                 )
                 return []
 
+    def get_latest_id(self, pipeline_id: str) -> str | None:
+        """Return the ID of the most recent message for *pipeline_id*, or ``None``.
+
+        Uses ``XREVRANGE … COUNT 1`` for an O(1) tail read.
+        """
+        key = _stream_key(pipeline_id)
+        try:
+            entries = self._redis.xrevrange(key, count=1)
+            if entries:
+                stream_id, fields = entries[0]
+                if isinstance(stream_id, bytes):
+                    stream_id = stream_id.decode("utf-8")
+                msg = _message_from_redis(stream_id, fields)
+                return msg.id
+        except Exception:
+            return None
+        return None
+
     def get_status(self, pipeline_id: str) -> dict[str, Any]:
         """Get message statistics for a pipeline.
 

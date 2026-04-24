@@ -457,16 +457,32 @@ envelopes. The skill's render path branches on the `no_change` key,
 top-level key for exactly this purpose.
 
 ```json
-// Path A — changed: true (event fired before timeout)
+// Path A — changed: true, trigger: "event" (EventBus event fired)
 {
   "changed": true,
-  "trigger": "event",                      // or "message"
-  "event_type": "OVERSEER_ALERT",          // present when trigger == "event"
-  // "messages": [ ... ],                  // present when trigger == "message"
+  "trigger": "event",
+  "event_type": "phase.started",             // wire value — e.g. "phase.started", "decision.created", "pipeline.completed"
   "cursor": "msg:1738012734-0|evt:142",
   "current_phase": "plan",
   "status": "running",
   "phase_elapsed_seconds": 127,
+  "pipeline":          { "id": "...", "repo": "...", "issue_number": 1932, ... },
+  "running_agents":    [ ... ],
+  "completed_agents":  [ ... ],
+  "pending_decisions": [ ... ],
+  "recent_messages":   [ ... ],
+  "concurrent": { "consensus": { ... } }
+}
+
+// Path A — changed: true, trigger: "message" (message-bus wake)
+{
+  "changed": true,
+  "trigger": "message",
+  "messages": [ { "type": "OVERSEER_ALERT", ... } ],   // array of new messages
+  "cursor": "msg:1738012740-0|evt:142",
+  "current_phase": "plan",
+  "status": "running",
+  "phase_elapsed_seconds": 130,
   "pipeline":          { "id": "...", "repo": "...", "issue_number": 1932, ... },
   "running_agents":    [ ... ],
   "completed_agents":  [ ... ],
@@ -492,13 +508,12 @@ top-level key for exactly this purpose.
 | `changed` | `true` | `false` | Always present. |
 | `no_change` | absent | `true` | **Distinct top-level key** — branch on this, not on `!changed`. |
 | `trigger` | `"event"` or `"message"` | absent | Names which source unblocked the wait. |
-| `event_type` | string when `trigger == "event"` | absent | E.g. `OVERSEER_ALERT`, `PHASE_STARTED`. |
-| `messages` | array when `trigger == "message"` | absent | Already filtered by `_apply_delphi_filter` (the same reviewer-redaction pipeline as the message bus). |
+| `event_type` | string when `trigger == "event"` | absent | Wire-format value from `EventType`, e.g. `phase.started`, `decision.created`, `pipeline.completed`. |
+| `messages` | array when `trigger == "message"` | absent | Passed through `_apply_delphi_filter` for consistency with the message bus route; currently a no-op for the host caller (`role=None`). |
 | `cursor` | always | always | Opaque `msg:<id>|evt:<seq>`. Thread into next call's `since`. |
 | `current_phase`, `status` | always | always | Refreshed on every call. |
 | `phase_elapsed_seconds` | when current phase has a `started_at` | when current phase has a `started_at` | Absent at phase boundaries (the new phase hasn't recorded `started_at` yet) and on pending phases. Fall back to `phase_started_at` (full envelope only) or wall-clock when absent. |
 | `concurrent.consensus` | when consensus data is available | when consensus data is available | Absent on non-BRC pipelines. The Path B minimal envelope ships it whenever it would have been on Path A — so consensus drift never goes invisible during quiet phases on BRC pipelines, and is correctly absent for non-BRC pipelines. |
-| `cursor` | always | always | Opaque `msg:<id>|evt:<seq>`. Thread into next call's `since`. |
 | `pipeline`, `running_agents`, `completed_agents`, `pending_decisions`, `recent_messages` | always | absent | On Path B, reuse the cached values from the prior Path A response. |
 | `concurrent.agents` | when concurrent data is available | absent | On Path B, reuse the cached value from the prior Path A response. |
 
@@ -675,10 +690,16 @@ construction above for liveness.
 # poll cycle in pseudocode (the skill itself uses MCP tool calls,
 # but the shape is the same)
 
-# first poll — one-shot snapshot
+# first poll — one-shot snapshot (no cursor)
 last_status = get_status(task_id)
-last_cursor = last_status.cursor
 render_full_dashboard(last_status)
+
+# bootstrap cursor — first wait_for_status_change, no since
+resp = wait_for_status_change(task_id, wait=25)
+last_cursor = resp.cursor
+if not resp.no_change:
+    last_status = resp
+    render_full_dashboard(last_status)
 
 # subsequent polls — event-triggered wait
 while not last_status.status in {"complete", "failed", "cancelled"}:
