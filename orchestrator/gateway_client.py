@@ -964,7 +964,7 @@ class GatewayClient:
         # fall through to the plain ``git rebase origin/{branch}`` form.
         if base_branch:
             try:
-                subprocess.run(
+                base_fetch = subprocess.run(
                     [*git_base, "fetch", "origin", base_branch],
                     capture_output=True,
                     text=True,
@@ -978,6 +978,16 @@ class GatewayClient:
                     branch=branch,
                     base_branch=base_branch,
                 )
+            else:
+                if base_fetch.returncode != 0:
+                    logger.warning(
+                        "Push reconcile: base-branch fetch failed — proceeding with stale origin/{base}",
+                        pipeline_id=pipeline_id,
+                        branch=branch,
+                        base_branch=base_branch,
+                        returncode=base_fetch.returncode,
+                        stderr=base_fetch.stderr.strip(),
+                    )
 
         rebase_result = _rebase_with_agent_output_autoresolve(
             git_base=git_base,
@@ -1621,14 +1631,17 @@ def _build_rebase_cmd(
     """
     if base_branch:
         base_ref = f"origin/{base_branch}"
-        verify = subprocess.run(
-            [*git_base, "rev-parse", "--verify", base_ref],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=10,
-        )
-        if verify.returncode == 0:
+        try:
+            verify = subprocess.run(
+                [*git_base, "rev-parse", "--verify", base_ref],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
+            )
+        except subprocess.TimeoutExpired:
+            verify = None
+        if verify and verify.returncode == 0:
             return [*git_base, "rebase", "--onto", f"origin/{branch}", base_ref]
     return [*git_base, "rebase", f"origin/{branch}"]
 

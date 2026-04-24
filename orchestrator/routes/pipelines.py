@@ -10901,7 +10901,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             # draft files that only exist on the remote.
             if pipeline.branch and worktree_repo_path != repo_path:
                 _sync_worktree_with_remote(
-                    spawner, pipeline_id, worktree_repo_path, gateway_mode=gateway_mode
+                    spawner,
+                    pipeline_id,
+                    worktree_repo_path,
+                    gateway_mode=gateway_mode,
+                    base_branch=pipeline.base_branch,
                 )
 
             # After plan phase: populate contract with task structure.
