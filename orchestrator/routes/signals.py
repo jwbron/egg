@@ -105,12 +105,18 @@ _BRC_MIN_CONTENT_LEN = 50
 _BRC_BOILERPLATE = frozenset({"lgtm", "looks good", "no issues", "approved", "ok"})
 
 
-def _validate_brc_content(body: str, kind: str) -> str | None:
+def _validate_brc_content(
+    body: str, kind: str, *, min_len: int = _BRC_MIN_CONTENT_LEN
+) -> str | None:
     """Validate that BRC message content is substantive.
 
     Returns an error message string if validation fails, or None if content
     is acceptable.  ``kind`` is a human-readable label for the message type
     (e.g. "proposal summary", "ACK reason") used in error messages.
+
+    ``min_len`` overrides the minimum character count — callers validating
+    short imperative content (e.g. pre-merge conditions) can pass a lower
+    threshold than the default used for rationale text.
     """
     stripped = (body or "").strip()
     if not stripped:
@@ -120,9 +126,9 @@ def _validate_brc_content(body: str, kind: str) -> str | None:
             f"{kind} is boilerplate ('{stripped}'). Provide substantive rationale: "
             f"what was read/built, what was checked/tested, why the verdict follows"
         )
-    if len(stripped) < _BRC_MIN_CONTENT_LEN:
+    if len(stripped) < min_len:
         return (
-            f"{kind} is too short ({len(stripped)} chars, minimum {_BRC_MIN_CONTENT_LEN}). "
+            f"{kind} is too short ({len(stripped)} chars, minimum {min_len}). "
             f"Provide substantive rationale: what was read/built, what was checked/tested, "
             f"why the verdict follows"
         )
@@ -1057,7 +1063,9 @@ def handle_consensus_ack_signal(
     # and must pass through unaffected.
     pre_merge_condition = (payload.get("pre_merge_condition") or "").strip()
     if pre_merge_condition:
-        condition_error = _validate_brc_content(pre_merge_condition, "Pre-merge condition")
+        condition_error = _validate_brc_content(
+            pre_merge_condition, "Pre-merge condition", min_len=10
+        )
         if condition_error:
             return make_error_response(condition_error, 400)
 
