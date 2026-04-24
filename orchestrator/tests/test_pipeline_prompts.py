@@ -414,6 +414,9 @@ class TestBuildPhasePromptRevisionMode:
         )
         assert "Variable naming is inconsistent" in result
         assert "Prior Review Feedback" in result
+        # consensus_override is gated to review_cycle == 0 only (HITL path);
+        # regular revision cycles should NOT include it.
+        assert "consensus is superseded" not in result.lower()
 
     def test_cycle_0_includes_task_description(self):
         """Cycle 0 still includes the full task description."""
@@ -498,6 +501,8 @@ class TestBuildPhasePromptRevisionMode:
         assert "in-place" not in result
         # Preamble should say "implementation" not "draft" for implement phase
         assert "previous implementation" in result
+        # Must explicitly override prior-consensus inference on HITL cycle 0.
+        assert "consensus is superseded" in result.lower()
         # Cycle 0 still embeds the full task + instructions (no delta cycle).
         assert "## Task Description" in result
 
