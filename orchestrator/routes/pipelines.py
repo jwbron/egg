@@ -5731,23 +5731,30 @@ def _build_phase_prompt(
         else:
             lines.append("## Prior Review Feedback\n")
         has_tester_findings = TESTER_FINDINGS_HEADER in review_feedback
+        if phase == "implement":
+            revision_action = (
+                "Address the feedback below and revise your implementation."
+            )
+        else:
+            revision_action = (
+                "Address the feedback below and revise your draft **in-place** "
+                "(overwrite the same file)."
+            )
+        consensus_override = (
+            " Even if an existing draft appears "
+            "to have reached consensus previously, that consensus is "
+            "superseded — you must revise to address this feedback before "
+            "proposing a new consensus."
+        )
         if has_tester_findings:
             lines.append(
                 "The reviewer and tester found issues with your previous work. "
-                "Address the feedback below and revise your draft **in-place** "
-                "(overwrite the same file). Even if an existing draft appears "
-                "to have reached consensus previously, that consensus is "
-                "superseded — you must revise to address this feedback before "
-                "proposing a new consensus.\n"
+                f"{revision_action}{consensus_override}\n"
             )
         else:
             lines.append(
                 "The reviewer found issues with your previous draft. "
-                "Address the feedback below and revise your draft **in-place** "
-                "(overwrite the same file). Even if an existing draft appears "
-                "to have reached consensus previously, that consensus is "
-                "superseded — you must revise to address this feedback before "
-                "proposing a new consensus.\n"
+                f"{revision_action}{consensus_override}\n"
             )
         lines.append(review_feedback)
         lines.append("")

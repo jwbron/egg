@@ -474,7 +474,7 @@ class TestBuildPhasePromptRevisionMode:
         assert "Cycle 0" not in result
         # Must explicitly override prior-consensus inference so the refiner
         # doesn't see an existing draft and short-circuit to re-confirming it.
-        assert "consensus" in result.lower()
+        assert "consensus is superseded" in result.lower()
 
     def test_cycle_0_implement_with_feedback_includes_review_feedback(self):
         """Implement phase cycle 0 with HITL feedback must surface feedback."""
@@ -488,6 +488,10 @@ class TestBuildPhasePromptRevisionMode:
         )
         assert "Prior Review Feedback" in result
         assert "Split the PR into two steps" in result
+        # Implement phase should use implementation-specific language, not
+        # "draft in-place" which only applies to the refine phase.
+        assert "revise your implementation" in result
+        assert "in-place" not in result
         # Cycle 0 still embeds the full task + instructions (no delta cycle).
         assert "## Task Description" in result
 
