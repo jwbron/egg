@@ -227,10 +227,30 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Core 3: list, show, search — the verbs agents most likely need on the hot path\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-5",
+      "question": "task_mark_gap shape: how should tester→coder coverage-gap handoff be surfaced? (no CLI, no endpoint, no contract field exists today)",
+      "context": "Open contract question decision-4, registered by an agent during the refine phase.",
+      "options": [
+        "New orchestrator endpoint + new `task_gaps` field on the contract; add egg-contract mark-gap CLI; wrap as mcp__task__mark_gap with drift gate",
+        "Re-use existing `decisions` with a `type: task_gap` discriminator — no new endpoint, minimum schema churn",
+        "Add a dedicated `task_gaps` section on the contract (parallel to `tasks` and `decisions`) via a new endpoint; mcp__task__mark_gap wraps it; no CLI counterpart",
+        "No-CLI new capability (like brc_read_peer_artifact) — ship it MCP-only with cli_command=None; operators don't need it",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T03:10:22.592347Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:10:06.375518Z",
-  "updated_at": "2026-04-24T03:10:22.523909Z",
+  "updated_at": "2026-04-24T03:10:22.608996Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -244,5 +264,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 18
+  "version": 19
 }
