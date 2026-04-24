@@ -725,16 +725,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-24T04:00:49.147592Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-24T04:01:29.961600Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"shared/egg_contracts/checkpoint_handlers.py + sandbox re-export — avoids layering violation (Recommended)\"}",
       "phase": "plan",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:10:06.375518Z",
-  "updated_at": "2026-04-24T04:00:49.165589Z",
+  "updated_at": "2026-04-24T04:01:29.974904Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -748,5 +748,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 63
+  "version": 64
 }
