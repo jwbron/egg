@@ -285,6 +285,29 @@
       "resolved_by": "human",
       "resolved_at": "2026-04-24T03:14:28.031896Z",
       "debounce_until": null
+    },
+    {
+      "id": "decision-10",
+      "question": "[Phase gate: plan] The plan phase has completed. Please review the plan and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Plan addresses all 13 resolved decisions from refine HITL and enumerates 17 risks with mitigations. Key alignment points confirmed:\n- Option A (sibling wait_for_status_change tool), get_status unchanged\n- Trigger set: OVERSEER_ALERT + DECISION_CREATED + PHASE_STARTED/COMPLETED + PIPELINE_COMPLETED/FAILED/CANCELLED + CONSENSUS_CONFIRMED/NACK/RE_REVIEW; DECISION_RESOLVED explicitly excluded (prevents self-wake)\n- Minimal envelope with distinct no_change: true key (structural branching, not conditional) shipping concurrent.consensus + cursor on both paths\n- Opaque compound cursor msg:<id>|evt:<seq> with independent parsing\n- Both wiring: EventBus for phase/decision/terminal, message_store.get_messages for OVERSEER_ALERT/CONSENSUS_*\n- Cached snapshot on timeout path (host reuses prior recent_messages/agents/decisions, refreshes only the four minimal-envelope fields)\n- EGG_ORCH_WAITRESS_THREADS default 16\u219224 to absorb host-wait load\n- egg_inflight_host_waits metric parallel to egg_inflight_long_polls\n- Declined SDK parity for v1 (SDLC is sole consumer); logged as Future work\n- Aspirational 60s liveness floor (25s cap \u00d7 loop re-entry \u2264 55s)\n- R16 double-sleep prevention pinned with explicit regression test (TASK-4-4)\n- Daemon-thread lame-duck (R14) accepted, bounded, documented, with cancellation-signal follow-up noted\n- Tests parameterized across in_memory + redis backends\n- All changes bundled into a single PR\n\nApproved to proceed to implement phase.",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:48:42.565953Z",
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
