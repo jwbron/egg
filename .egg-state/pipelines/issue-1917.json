@@ -631,16 +631,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-24T03:57:22.387219Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-24T03:58:10.811042Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"brc — extend existing namespace; groups all messaging verbs together\"}",
       "phase": "plan",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:10:06.375518Z",
-  "updated_at": "2026-04-24T03:57:22.407276Z",
+  "updated_at": "2026-04-24T03:58:10.825220Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -654,5 +654,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 53
+  "version": 54
 }
