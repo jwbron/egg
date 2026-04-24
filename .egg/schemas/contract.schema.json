@@ -344,6 +344,50 @@
           "type": "boolean",
           "description": "Whether this task has been escalated",
           "default": false
+        },
+        "gaps": {
+          "type": "array",
+          "description": "Tester→coder coverage-gap records",
+          "items": {
+            "$ref": "#/$defs/taskGap"
+          },
+          "default": []
+        }
+      },
+      "additionalProperties": false
+    },
+    "taskGap": {
+      "type": "object",
+      "required": ["id", "from_role", "description"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique gap identifier",
+          "minLength": 1
+        },
+        "from_role": {
+          "type": "string",
+          "description": "Agent role that recorded the gap"
+        },
+        "to_role": {
+          "type": "string",
+          "description": "Target role (usually coder)",
+          "default": "coder"
+        },
+        "description": {
+          "type": "string",
+          "description": "Gap description",
+          "minLength": 1
+        },
+        "created_at": {
+          "type": "string",
+          "description": "ISO-8601 timestamp when the gap was recorded",
+          "default": ""
+        },
+        "resolved": {
+          "type": "boolean",
+          "description": "Set True when the gap is addressed",
+          "default": false
         }
       },
       "additionalProperties": false

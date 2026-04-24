@@ -850,7 +850,13 @@ def _cmd_list_http(args: argparse.Namespace, gateway_url: str) -> int:
 
 
 def cmd_list(args: argparse.Namespace) -> int:
-    """List checkpoints with metadata."""
+    """List checkpoints with metadata.
+
+    Delegates to :func:`egg_agent_tools.handlers.checkpoint.checkpoint_list`
+    so the CLI and the ``mcp__checkpoint__list`` MCP tool share a
+    handler. When a gateway is configured we still use the HTTP path
+    for parity with legacy behaviour (live pipelines).
+    """
     gateway_url = _get_gateway_url()
     if gateway_url:
         try:
@@ -860,10 +866,40 @@ def cmd_list(args: argparse.Namespace) -> int:
             print(f"Warning: gateway checkpoint query failed: {e}", file=sys.stderr)
 
     repo_path = args.repo_path or get_repo_path()
-    checkpoint_repo, _ = _get_checkpoint_repo_from_args(args)
+    try:
+        checkpoint_repo, _ = _get_checkpoint_repo_from_args(args)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
 
-    ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
-    if not ref:
+    from egg_agent_tools.handlers import checkpoint as _handlers
+    from egg_agent_tools.handlers.errors import HandlerError
+
+    req: dict[str, Any] = {
+        "repo_path": repo_path,
+        "checkpoint_repo": checkpoint_repo,
+        "branch": args.branch,
+        "issue": args.issue,
+        "pr": getattr(args, "pr", None),
+        "session": getattr(args, "session", None),
+        "trigger": getattr(args, "trigger", None),
+        "status": getattr(args, "status", None),
+        "agent_type": getattr(args, "agent_type", None),
+        "phase": getattr(args, "phase", None),
+        "pipeline": getattr(args, "pipeline", None),
+        "repo": getattr(args, "repo", None),
+        "upstream_limit": args.limit,
+        "limit": 500,  # avoid MCP-level page cap in CLI usage
+    }
+
+    try:
+        resp = _handlers.checkpoint_list(req)
+    except HandlerError as err:
+        print(f"Error: {err.message}", file=sys.stderr)
+        return err.exit_code
+
+    items = resp.get("items", []) or []
+    if resp.get("ref") is None:
         _print_empty_result(
             checkpoint_repo,
             CHECKPOINT_BRANCH,
@@ -871,56 +907,17 @@ def cmd_list(args: argparse.Namespace) -> int:
             message="No checkpoints found (checkpoint branch does not exist)",
         )
         return 0
-
-    index = load_index_from_ref(ref, repo_path)
-    if not index:
-        _print_empty_result(
-            checkpoint_repo,
-            CHECKPOINT_BRANCH,
-            args.json,
-            message="No checkpoints found",
-        )
-        return 0
-
-    # Resolve composite reviewer roles to base AgentType for index lookup
-    agent_type_filter, composite_role = _decompose_composite_role(getattr(args, "agent_type", None))
-
-    summaries = filter_checkpoints_v2(
-        index,
-        issue_number=args.issue,
-        pr_number=getattr(args, "pr", None),
-        branch=args.branch,
-        session_id=getattr(args, "session", None),
-        trigger_type=getattr(args, "trigger", None),
-        session_status=getattr(args, "status", None),
-        agent_type=agent_type_filter,
-        pipeline_phase=getattr(args, "phase", None),
-        pipeline_id=getattr(args, "pipeline", None),
-        repo=getattr(args, "repo", None),
-        limit=args.limit,
-    )
-
-    # Post-filter by composite reviewer role if requested
-    if composite_role and summaries:
-        filtered = []
-        for s in summaries:
-            cp = load_checkpoint_from_ref(s.id, ref, repo_path)
-            if cp and cp.session and cp.session.agent_role == composite_role:
-                filtered.append(s)
-        summaries = filtered
-
-    if not summaries:
+    if not items and resp.get("total_available", 0) == 0:
         _print_empty_result(checkpoint_repo, CHECKPOINT_BRANCH, args.json)
         return 0
 
     if args.json:
-        output = [s.model_dump(mode="json") for s in summaries]
-        print(json.dumps(output, indent=2))
+        print(json.dumps(items, indent=2))
     else:
-        print(f"Checkpoints ({len(summaries)} found):")
+        print(f"Checkpoints ({len(items)} found):")
         print()
-        for s in summaries:
-            print_checkpoint_summary(s)
+        for summary_dict in items:
+            print_checkpoint_summary(summary_dict)
 
     return 0
 
@@ -944,7 +941,13 @@ def _cmd_show_http(args: argparse.Namespace, gateway_url: str) -> int:
 
 
 def cmd_show(args: argparse.Namespace) -> int:
-    """Display full checkpoint details by checkpoint ID or commit SHA."""
+    """Display full checkpoint details by checkpoint ID or commit SHA.
+
+    Delegates to :func:`egg_agent_tools.handlers.checkpoint.checkpoint_show`
+    so the CLI and the ``mcp__checkpoint__show`` MCP tool share a
+    handler. The gateway HTTP path is still preferred when available
+    for legacy parity.
+    """
     gateway_url = _get_gateway_url()
     if gateway_url:
         try:
@@ -955,35 +958,41 @@ def cmd_show(args: argparse.Namespace) -> int:
 
     repo_path = args.repo_path or get_repo_path()
     identifier = args.identifier
-    checkpoint_repo, _ = _get_checkpoint_repo_from_args(args)
+    try:
+        checkpoint_repo, _ = _get_checkpoint_repo_from_args(args)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
 
+    from egg_agent_tools.handlers import checkpoint as _handlers
+    from egg_agent_tools.handlers.errors import HandlerError
+
+    # Short-circuit the "no checkpoint branch" case for legacy stderr
+    # parity — the handler raises HandlerError("No checkpoint found …")
+    # uniformly otherwise.
     ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
     if not ref:
         print("No checkpoints found (checkpoint branch does not exist)", file=sys.stderr)
         _print_repo_hint(checkpoint_repo)
         return 1
 
-    checkpoint: CheckpointV2 | None = None
+    req: dict[str, Any] = {
+        "identifier": identifier,
+        "repo_path": repo_path,
+        "checkpoint_repo": checkpoint_repo,
+    }
 
-    if identifier.startswith("ckpt-"):
-        checkpoint = load_checkpoint_from_ref(identifier, ref, repo_path)
-    else:
-        # Look up commit SHA in the index
-        index = load_index_from_ref(ref, repo_path)
-        if index:
-            checkpoint_id = index.get_by_commit(identifier)
-            if checkpoint_id:
-                checkpoint = load_checkpoint_from_ref(checkpoint_id, ref, repo_path)
+    try:
+        resp = _handlers.checkpoint_show(req)
+    except HandlerError as err:
+        print(err.message, file=sys.stderr)
+        return err.exit_code
 
-    if not checkpoint:
-        print(f"No checkpoint found for '{identifier}'", file=sys.stderr)
-        return 1
-
+    checkpoint_dict = resp.get("checkpoint", {}) or {}
     if args.json:
-        print(json.dumps(checkpoint.model_dump(mode="json"), indent=2))
+        print(json.dumps(checkpoint_dict, indent=2))
     else:
-        print_checkpoint_details(checkpoint)
-
+        print_checkpoint_details(checkpoint_dict)
     return 0
 
 
@@ -1799,7 +1808,13 @@ def _cmd_search_http(args: argparse.Namespace, gateway_url: str) -> int:
 
 
 def cmd_search(args: argparse.Namespace) -> int:
-    """Search checkpoint transcripts for matching text."""
+    """Search checkpoint transcripts for matching text.
+
+    Delegates to :func:`egg_agent_tools.handlers.checkpoint.checkpoint_search`
+    so the CLI and the ``mcp__checkpoint__search`` MCP tool share a
+    handler. The gateway HTTP path is still preferred when available
+    for legacy parity.
+    """
     gateway_url = _get_gateway_url()
     if gateway_url:
         try:
@@ -1815,6 +1830,10 @@ def cmd_search(args: argparse.Namespace) -> int:
         print(f"Error: {e}", file=sys.stderr)
         return 1
 
+    from egg_agent_tools.handlers import checkpoint as _handlers
+    from egg_agent_tools.handlers.errors import HandlerError
+
+    # Short-circuit for parity: distinguish "no branch" vs "no matches".
     ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
     if not ref:
         _print_empty_result(
@@ -1825,55 +1844,33 @@ def cmd_search(args: argparse.Namespace) -> int:
         )
         return 0
 
-    index = load_index_from_ref(ref, repo_path)
-    if not index:
-        _print_empty_result(
-            checkpoint_repo,
-            CHECKPOINT_BRANCH,
-            args.json,
-            message="No checkpoints found",
-        )
-        return 0
+    req: dict[str, Any] = {
+        "text": args.text,
+        "repo_path": repo_path,
+        "checkpoint_repo": checkpoint_repo,
+        "branch": getattr(args, "branch", None),
+        "issue": getattr(args, "issue", None),
+        "pr": getattr(args, "pr", None),
+        "session": getattr(args, "session", None),
+        "trigger": getattr(args, "trigger", None),
+        "status": getattr(args, "status", None),
+        "agent_type": getattr(args, "agent_type", None),
+        "phase": getattr(args, "phase", None),
+        "pipeline": getattr(args, "pipeline", None),
+        "repo": getattr(args, "repo", None),
+        "upstream_limit": args.limit,
+        "limit": 500,
+    }
 
-    # Resolve composite reviewer roles to base AgentType for index lookup
-    agent_type_filter, composite_role = _decompose_composite_role(getattr(args, "agent_type", None))
+    try:
+        resp = _handlers.checkpoint_search(req)
+    except HandlerError as err:
+        print(f"Error: {err.message}", file=sys.stderr)
+        return err.exit_code
 
-    # Filter by metadata first to narrow the search space
-    summaries = filter_checkpoints_v2(
-        index,
-        issue_number=getattr(args, "issue", None),
-        pr_number=getattr(args, "pr", None),
-        branch=getattr(args, "branch", None),
-        session_id=getattr(args, "session", None),
-        trigger_type=getattr(args, "trigger", None),
-        session_status=getattr(args, "status", None),
-        agent_type=agent_type_filter,
-        pipeline_phase=getattr(args, "phase", None),
-        pipeline_id=getattr(args, "pipeline", None),
-        repo=getattr(args, "repo", None),
-        limit=args.limit,
-    )
-
-    if not summaries:
-        _print_empty_result(checkpoint_repo, CHECKPOINT_BRANCH, args.json)
-        return 0
-
-    # Load each full checkpoint and search its transcript
+    matches_raw = resp.get("items", []) or []
     text = args.text
-    matches: list[tuple[CheckpointSummaryV2 | dict[str, Any], list[str]]] = []
-    for s in summaries:
-        checkpoint = load_checkpoint_from_ref(s.id, ref, repo_path)
-        if not checkpoint:
-            continue
-        # Post-filter by composite reviewer role if requested
-        if composite_role:
-            if not (checkpoint.session and checkpoint.session.agent_role == composite_role):
-                continue
-        snippets = _search_checkpoint_transcript(checkpoint, text)
-        if snippets:
-            matches.append((s, snippets))
-
-    if not matches:
+    if not matches_raw:
         _print_empty_result(
             checkpoint_repo,
             CHECKPOINT_BRANCH,
@@ -1882,6 +1879,10 @@ def cmd_search(args: argparse.Namespace) -> int:
         )
         return 0
 
+    # Reconstruct the list[(summary, snippets)] shape the printer expects.
+    matches: list[tuple[CheckpointSummaryV2 | dict[str, Any], list[str]]] = [
+        (m["summary"], m["snippets"]) for m in matches_raw
+    ]
     _print_search_results(matches, text, args)
     return 0
 

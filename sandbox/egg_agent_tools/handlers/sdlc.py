@@ -1,4 +1,4 @@
-"""SDLC/HITL handlers (decisions, feedback, HITL-answer checks)."""
+"""SDLC/HITL handlers (decisions, feedback, HITL-answer checks, contract read, criterion verification)."""
 
 from __future__ import annotations
 
@@ -229,6 +229,11 @@ def check_hitl_answers(req: dict[str, Any]) -> dict[str, Any]:
 
     Response:
         { ok: True, decisions: [...], feedback: {...}|None }
+
+    No CLI counterpart — this is a pure read-through over the contract
+    gateway surfaced as a first-class MCP capability so agents never
+    have to shell out to `egg-contract show --json | python3 -c ...`
+    to extract resolved HITL answers. See decision-13.
     """
     phase = req.get("phase")
     if phase is not None and phase not in _VALID_PHASES:
@@ -256,3 +261,122 @@ def check_hitl_answers(req: dict[str, Any]) -> dict[str, Any]:
         "decisions": filtered,
         "feedback": feedback,
     }
+
+
+def show_contract(req: dict[str, Any]) -> dict[str, Any]:
+    """Return the contract state, optionally projected to a subset of fields.
+
+    Request:
+        fields (list[str]): optional — if supplied, only return the
+            named top-level fields. Unknown fields raise HandlerError
+            (so agents learn the contract shape rather than silently
+            losing data to a typo).
+        audit (bool): if True, include the audit log in the response
+            (mirrors ``egg-contract show --audit``).
+        repo_path, pipeline_id, issue: optional overrides.
+
+    Response:
+        { ok: True, contract: {...} }
+
+    Reads contract; no mutations. State-machine effect: none — this is
+    a pure read over the contract gateway.
+    """
+    repo_path = req.get("repo_path") or get_repo_path()
+    include_audit = bool(req.get("audit", False))
+    identifier = _resolve_identifier(req)
+
+    # Build params, including optional audit-log flag so the payload
+    # matches `egg-contract show --audit`.
+    params: dict[str, str] = {}
+    if repo_path:
+        params["repo_path"] = repo_path
+    if include_audit:
+        params["include_audit_log"] = "true"
+    from egg_agent_tools.handlers._gateway import get_container_id
+
+    cid = get_container_id()
+    if cid:
+        params["container_id"] = cid
+
+    result = gateway_request(f"/api/v1/contract/{identifier}", params=params or None)
+    if not result.get("success"):
+        raise GatewayError(result.get("message", "contract fetch failed"))
+    contract = result.get("data", {}) or {}
+
+    fields = req.get("fields")
+    if fields is not None:
+        if not isinstance(fields, list):
+            raise HandlerError("'fields' must be a list of strings if provided")
+        projected: dict[str, Any] = {}
+        for name in fields:
+            if not isinstance(name, str):
+                raise HandlerError(
+                    f"'fields' entries must be strings; got {type(name).__name__}"
+                )
+            if name not in contract:
+                raise HandlerError(f"Unknown field: {name}")
+            projected[name] = contract[name]
+        contract = projected
+
+    return {"ok": True, "contract": contract}
+
+
+def verify_criterion(req: dict[str, Any]) -> dict[str, Any]:
+    """Mark an acceptance criterion as verified.
+
+    REVIEWER role required: the gateway rejects non-REVIEWER writers
+    (see shared/egg_contracts/roles.py — 'acceptance_criteria.*.verified'
+    is owned by Role.REVIEWER). This handler does NOT re-check the role
+    in-process per decision-7; the gateway is the single enforcer.
+
+    Request:
+        criterion (str): required — e.g. ``ac-1``.
+        repo_path, pipeline_id, issue: optional overrides.
+
+    Response:
+        { ok: True, criterion: "ac-1" }
+
+    State-machine effect: flips ``acceptance_criteria.<N>.verified`` to
+    True. No-op if already verified.
+    """
+    criterion_id = req.get("criterion")
+    if not criterion_id or not isinstance(criterion_id, str):
+        raise HandlerError("'criterion' is required")
+
+    lower = criterion_id.lower()
+    stripped = lower.removeprefix("ac-")
+    if stripped == lower:
+        raise HandlerError(
+            f"Invalid criterion ID '{criterion_id}': expected format 'ac-N'"
+        )
+    try:
+        criterion_num = int(stripped)
+    except ValueError as exc:
+        raise HandlerError(
+            f"Invalid criterion ID '{criterion_id}': expected format 'ac-N'"
+        ) from exc
+    if criterion_num < 1:
+        raise HandlerError(f"Criterion number must be >= 1: {criterion_id}")
+    criterion_idx = criterion_num - 1
+
+    repo_path = req.get("repo_path") or get_repo_path()
+    identifier = _resolve_identifier(req)
+
+    field_path = f"acceptance_criteria.{criterion_idx}.verified"
+    result = gateway_request(
+        "/api/v1/contract/mutate",
+        method="POST",
+        data={
+            "identifier": identifier,
+            "repo_path": repo_path,
+            "field_path": field_path,
+            "new_value": True,
+            "actor": "egg",
+            "reason": f"Verified criterion {criterion_id}",
+            **container_id_field(),
+        },
+    )
+    if not result.get("success"):
+        raise GatewayError(result.get("message", "criterion verify failed"))
+
+    return {"ok": True, "criterion": criterion_id}

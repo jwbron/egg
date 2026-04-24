@@ -112,6 +112,31 @@ def _normalize_commit(v: Any) -> str | None:
     return str(v)
 
 
+class TaskGap(BaseModel):
+    """Tester→coder coverage-gap handoff record.
+
+    Added in iteration 2 of the agent-facing MCP tools (#1917) so the
+    tester role can structure gap handoffs as first-class contract
+    records instead of freeform NACK reasons.  Written by
+    :func:`egg_agent_tools.handlers.task.task_mark_gap` onto
+    ``Task.gaps``; the gateway's existing contract/mutate path enforces
+    role authorization.
+    """
+
+    id: str = Field(
+        ..., min_length=1, description="Unique gap identifier (e.g. 'gap-<hex>')"
+    )
+    from_role: str = Field(..., description="Agent role that recorded the gap")
+    to_role: str = Field(
+        default="coder", description="Target role (usually coder)"
+    )
+    description: str = Field(..., min_length=1, description="Gap description")
+    created_at: str = Field(
+        default="", description="ISO-8601 timestamp when the gap was recorded"
+    )
+    resolved: bool = Field(default=False, description="Set True when the gap is addressed")
+
+
 class Task(BaseModel):
     """A task within a phase."""
 
@@ -145,6 +170,14 @@ class Task(BaseModel):
     review_cycles: int = Field(default=0, ge=0, description="Number of review cycles")
     max_cycles: int = Field(default=3, ge=1, description="Max cycles before escalation")
     escalated: bool = Field(default=False, description="Whether escalated")
+    gaps: list[TaskGap] = Field(
+        default_factory=list,
+        description=(
+            "Coverage-gap records recorded by the tester role for the coder; "
+            "defaults to an empty list so contracts written before iteration 2 "
+            "load with a stable shape."
+        ),
+    )
 
     @field_validator("commit", mode="before")
     @classmethod
