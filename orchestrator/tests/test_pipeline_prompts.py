@@ -413,6 +413,9 @@ class TestBuildPhasePromptRevisionMode:
         )
         assert "Variable naming is inconsistent" in result
         assert "Prior Review Feedback" in result
+        # consensus_override is gated to review_cycle == 0 only (HITL path);
+        # regular revision cycles should NOT include it.
+        assert "consensus is superseded" not in result.lower()
 
     def test_cycle_0_includes_task_description(self):
         """Cycle 0 still includes the full task description."""
@@ -449,6 +452,58 @@ class TestBuildPhasePromptRevisionMode:
         assert "Prior Review Feedback" not in result
         # Should use the no-feedback alternative instructions
         assert "no specific feedback was provided" in result
+
+    def test_cycle_0_with_feedback_includes_review_feedback(self):
+        """Cycle 0 with HITL-reset feedback must surface it to the coder/refiner.
+
+        Regression for #1915: when a human rejects a phase_gate with
+        change_approach/request_changes, the inline handler resets
+        review_cycles to 0 and stores feedback in hitl_feedback, which
+        flows back as review_feedback. The producer prompt must include
+        that feedback — otherwise the refiner re-proposes the same draft.
+        """
+        result = _build_phase_prompt(
+            phase="refine",
+            pipeline_id="test-pid",
+            pipeline_mode="issue",
+            prompt="Analyze the issue",
+            review_cycle=0,
+            review_feedback="Reframe as a three-phase migration plan, not a single cutover.",
+        )
+        assert "Prior Review Feedback" in result
+        assert "Reframe as a three-phase migration plan" in result
+        # Heading should omit the cycle number on HITL cycle 0
+        assert "Cycle 0" not in result
+        # Refine phase uses "in-place" draft language
+        assert "in-place" in result
+        # Preamble should say "draft" for refine phase
+        assert "previous draft" in result
+        # Must explicitly override prior-consensus inference so the refiner
+        # doesn't see an existing draft and short-circuit to re-confirming it.
+        assert "consensus is superseded" in result.lower()
+
+    def test_cycle_0_implement_with_feedback_includes_review_feedback(self):
+        """Implement phase cycle 0 with HITL feedback must surface feedback."""
+        result = _build_phase_prompt(
+            phase="implement",
+            pipeline_id="test-pid",
+            pipeline_mode="issue",
+            prompt="Build a widget",
+            review_cycle=0,
+            review_feedback="Split the PR into two steps — schema change first.",
+        )
+        assert "Prior Review Feedback" in result
+        assert "Split the PR into two steps" in result
+        # Implement phase should use implementation-specific language, not
+        # "draft in-place" which only applies to the refine phase.
+        assert "revise your implementation" in result
+        assert "in-place" not in result
+        # Preamble should say "implementation" not "draft" for implement phase
+        assert "previous implementation" in result
+        # Must explicitly override prior-consensus inference on HITL cycle 0.
+        assert "consensus is superseded" in result.lower()
+        # Cycle 0 still embeds the full task + instructions (no delta cycle).
+        assert "## Task Description" in result
 
 
 class TestRenderContractTasks:

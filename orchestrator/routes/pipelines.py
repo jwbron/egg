@@ -5754,21 +5754,43 @@ def _build_phase_prompt(
         lines.append(f"Issue: #{issue_number}")
     lines.append("")
 
-    # --- Prior review feedback (revision cycles) ---
-    if review_cycle > 0 and review_feedback:
-        lines.append(f"## Prior Review Feedback (Cycle {review_cycle})\n")
+    # --- Prior review feedback (agentic revision cycles OR HITL phase reset) ---
+    # Feedback can arrive on cycle 0 when a human rejects a phase_gate with
+    # change_approach/request_changes — the HITL handler resets review_cycles
+    # to 0 and stores the feedback in phase_execution.hitl_feedback, which
+    # flows back here via the review_feedback parameter (#1915).
+    if review_feedback:
+        if review_cycle > 0:
+            lines.append(f"## Prior Review Feedback (Cycle {review_cycle})\n")
+        else:
+            lines.append("## Prior Review Feedback\n")
         has_tester_findings = TESTER_FINDINGS_HEADER in review_feedback
+        if phase == "implement":
+            revision_action = "Address the feedback below and revise your implementation."
+        else:
+            revision_action = (
+                "Address the feedback below and revise your draft **in-place** "
+                "(overwrite the same file)."
+            )
+        if review_cycle == 0:
+            consensus_override = (
+                " Even if an existing draft appears "
+                "to have reached consensus previously, that consensus is "
+                "superseded — you must revise to address this feedback before "
+                "proposing a new consensus."
+            )
+        else:
+            consensus_override = ""
         if has_tester_findings:
             lines.append(
                 "The reviewer and tester found issues with your previous work. "
-                "Address the feedback below and revise your draft **in-place** "
-                "(overwrite the same file).\n"
+                f"{revision_action}{consensus_override}\n"
             )
         else:
+            preamble_noun = "implementation" if phase == "implement" else "draft"
             lines.append(
-                "The reviewer found issues with your previous draft. "
-                "Address the feedback below and revise your draft **in-place** "
-                "(overwrite the same file).\n"
+                f"The reviewer found issues with your previous {preamble_noun}. "
+                f"{revision_action}{consensus_override}\n"
             )
         lines.append(review_feedback)
         lines.append("")
