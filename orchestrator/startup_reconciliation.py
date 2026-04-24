@@ -131,6 +131,41 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
         if phase_execution is None:
             continue
 
+        # Crash-between-submit-and-spawn: pipeline RUNNING but the current
+        # phase never reached `executor.spawn_all`.  `_run_pipeline` is
+        # fire-and-forget from the submit handler, so a crash before the
+        # spawn loop leaves the row PENDING with `started_at=null` and
+        # nothing to resume it (#2009).  Mark FAILED so operators see
+        # something actionable instead of an indefinitely frozen pipeline.
+        if (
+            phase_execution.status == PipelineStatus.PENDING
+            and phase_execution.started_at is None
+            and not phase_execution.containers
+            and not phase_execution.agents
+        ):
+            pipeline.status = PipelineStatus.FAILED
+            pipeline.error = (
+                "Pipeline marked FAILED at orchestrator startup: current phase "
+                f"{current_phase_key!r} never spawned (likely a crash between "
+                "submit and phase start). Restart via POST /pipelines/{id}/start."
+            )
+            try:
+                store.save_pipeline(pipeline)  # type: ignore[attr-defined]
+                recovered += 1
+                logger.warning(
+                    "Startup reconciliation: RUNNING pipeline with un-spawned "
+                    "PENDING phase marked FAILED",
+                    pipeline_id=pipeline_id,
+                    phase=current_phase_key,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Startup reconciliation: could not save pipeline",
+                    pipeline_id=pipeline_id,
+                    error=str(e),
+                )
+            continue
+
         for container_info in phase_execution.containers:
             if container_info.status == ContainerStatus.RUNNING:
                 if container_info.container_id not in live_ids:

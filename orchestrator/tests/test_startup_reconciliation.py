@@ -456,6 +456,110 @@ class TestReconcileStaleContainers:
 
 
 # ---------------------------------------------------------------------------
+# Orphaned PENDING phase reconciliation (#2009)
+# ---------------------------------------------------------------------------
+
+
+def _make_pipeline_with_unspawned_phase(
+    phase: PipelinePhase = PipelinePhase.REFINE,
+) -> Pipeline:
+    """Return a RUNNING pipeline whose current phase never reached spawn.
+
+    Reproduces the state seen in #2009: the orchestrator created the pipeline
+    + initial phase row, then crashed before `_run_pipeline` reached
+    `executor.spawn_all`.  The phase row is left PENDING with no timestamps
+    and no containers/agents.
+    """
+    pipeline = Pipeline(
+        id="issue-2009",
+        issue_number=2009,
+        repo="owner/repo",
+        branch="egg/issue-2009",
+        mode="issue",
+        status=PipelineStatus.RUNNING,
+        current_phase=phase,
+    )
+    phase_exec = pipeline.get_phase_execution(phase)
+    # Defaults already match: status=PENDING, started_at=None, no containers/agents.
+    assert phase_exec.status == PipelineStatus.PENDING
+    assert phase_exec.started_at is None
+    assert phase_exec.containers == []
+    assert phase_exec.agents == []
+    return pipeline
+
+
+class TestReconcileOrphanedPendingPhase:
+    """Tests for the #2009 startup recovery branch."""
+
+    def test_orphaned_pending_phase_marked_failed(self):
+        """RUNNING pipeline whose current phase never spawned is marked FAILED."""
+        pipeline = _make_pipeline_with_unspawned_phase()
+        store = _make_store(pipeline)
+        docker_client = _make_docker_client([])
+
+        result = reconcile_stale_containers(store, docker_client)
+
+        assert result == 1
+        assert pipeline.status == PipelineStatus.FAILED
+        assert pipeline.error is not None
+        assert "never spawned" in pipeline.error
+        assert "refine" in pipeline.error
+        store.save_pipeline.assert_called_once_with(pipeline)
+
+    def test_running_phase_with_started_at_left_alone(self):
+        """A phase with `started_at` set is mid-spawn, not orphaned — leave alone."""
+        pipeline = _make_pipeline_with_unspawned_phase()
+        phase_exec = pipeline.get_phase_execution(pipeline.current_phase)
+        phase_exec.status = PipelineStatus.RUNNING
+        phase_exec.started_at = datetime.now(UTC)
+
+        store = _make_store(pipeline)
+        docker_client = _make_docker_client([])
+
+        result = reconcile_stale_containers(store, docker_client)
+
+        assert result == 0
+        assert pipeline.status == PipelineStatus.RUNNING
+        store.save_pipeline.assert_not_called()
+
+    def test_pending_phase_with_containers_left_to_container_loop(self):
+        """If containers exist, the existing container-stale check handles it."""
+        pipeline = _make_pipeline_with_unspawned_phase()
+        phase_exec = pipeline.get_phase_execution(pipeline.current_phase)
+        phase_exec.containers.append(
+            ContainerInfo(
+                container_id="live_abc",
+                container_name="egg-coder",
+                status=ContainerStatus.RUNNING,
+                started_at=datetime.now(UTC),
+            )
+        )
+
+        store = _make_store(pipeline)
+        docker_client = _make_docker_client(["live_abc"])
+
+        result = reconcile_stale_containers(store, docker_client)
+
+        # Not the orphaned-pending branch (containers exist), and the live
+        # container check finds nothing stale → pipeline left alone.
+        assert result == 0
+        assert pipeline.status == PipelineStatus.RUNNING
+        store.save_pipeline.assert_not_called()
+
+    def test_orphaned_pending_phase_works_for_any_phase(self):
+        """The recovery branch fires regardless of which phase is current."""
+        pipeline = _make_pipeline_with_unspawned_phase(phase=PipelinePhase.IMPLEMENT)
+        store = _make_store(pipeline)
+        docker_client = _make_docker_client([])
+
+        result = reconcile_stale_containers(store, docker_client)
+
+        assert result == 1
+        assert pipeline.status == PipelineStatus.FAILED
+        assert "implement" in pipeline.error
+
+
+# ---------------------------------------------------------------------------
 # AWAITING_HUMAN reconciliation tests
 # ---------------------------------------------------------------------------
 
