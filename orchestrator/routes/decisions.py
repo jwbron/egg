@@ -150,6 +150,267 @@ def _handle_restart_agent(pipeline_id: str, question: str) -> None:
         )
 
 
+def _handle_conditional_ack_gate(
+    pipeline_id: str,
+    context: str,
+    resolution: str,
+    repo_path: Path,
+) -> None:
+    """Dispatch the 3-way conditional-ACK HITL gate resolution (#2004).
+
+    ``context`` is the decision's raw context field, prefixed with
+    ``CONDITIONAL_ACK_GATE_MARKER`` and followed by a JSON payload whose
+    ``conditions`` entry is a list of ``{reviewer, producer, condition,
+    version}`` dicts. ``resolution`` is the human's choice — one of the
+    three option strings defined in ``routes.phases``.
+
+    Dispatch:
+
+    - **approve+accept**: write one line per condition to
+      ``contract.pr.deferred_actions`` so obligations survive tracker
+      teardown between phase close and PR creation (#2003 shipped the
+      tracker-backed PR render; this is the durable path).
+    - **reject**: call ``tracker.handle_nack`` on each (reviewer, producer)
+      edge carrying a condition. Producer returns to WORKING; the caller
+      must restart the phase to re-run consensus.
+    - **address-in-pipeline**: call ``matrix.invalidate_ack`` on each
+      conditioning edge. The ACK drops back to PENDING; the producer
+      must re-propose before the phase can complete.
+
+    Silently returns on malformed context or unknown resolution — the
+    resolve_decision endpoint still records the resolution so the human's
+    intent is preserved; dispatch failure falls through to the existing
+    unresolved-decisions guard on the next complete_phase call.
+    """
+    from routes.phases import (  # local import — avoid circular
+        CONDITIONAL_ACK_ADDRESS,
+        CONDITIONAL_ACK_APPROVE,
+        CONDITIONAL_ACK_GATE_MARKER,
+        CONDITIONAL_ACK_REJECT,
+    )
+
+    if not context.startswith(CONDITIONAL_ACK_GATE_MARKER):
+        return
+    payload_str = context[len(CONDITIONAL_ACK_GATE_MARKER) :]
+    try:
+        payload = json.loads(payload_str)
+    except json.JSONDecodeError:
+        logger.warning(
+            "Conditional-ACK gate context is not valid JSON",
+            pipeline_id=pipeline_id,
+        )
+        return
+
+    conditions = payload.get("conditions") or []
+    if not isinstance(conditions, list):
+        return
+
+    if resolution == CONDITIONAL_ACK_APPROVE:
+        _persist_deferred_actions(pipeline_id, conditions, repo_path)
+    elif resolution == CONDITIONAL_ACK_REJECT:
+        _force_nack_conditional_edges(pipeline_id, conditions)
+    elif resolution == CONDITIONAL_ACK_ADDRESS:
+        _invalidate_conditional_acks(pipeline_id, conditions)
+    else:
+        logger.info(
+            "Conditional-ACK gate resolved with unrecognized option",
+            pipeline_id=pipeline_id,
+            resolution=resolution[:80],
+        )
+
+
+def _persist_deferred_actions(
+    pipeline_id: str,
+    conditions: list[dict[str, Any]],
+    repo_path: Path,
+) -> None:
+    """Write conditions to ``contract.pr.deferred_actions`` (#2004).
+
+    Loads the contract from the pipeline's worktree, appends one formatted
+    line per condition, and saves. Writes are deduplicated against any
+    existing entries so resolving the same gate twice (or re-queuing after
+    tracker-state changes) doesn't duplicate bullets on the PR.
+    """
+    try:
+        from egg_contracts.loader import (
+            ContractNotFoundError,
+            ContractValidationError,
+            load_contract,
+            save_contract,
+        )
+        from egg_contracts.models import PRMetadata
+    except ImportError:
+        logger.warning(
+            "egg_contracts unavailable; cannot persist deferred_actions",
+            pipeline_id=pipeline_id,
+        )
+        return
+
+    try:
+        from routes import resolve_worktree_path
+        from routes.pipelines import _pipeline_identifier
+        from state_store import get_state_store
+
+        store = get_state_store(repo_path)
+        pipeline = store.load_pipeline(pipeline_id)
+        worktree_path = resolve_worktree_path(pipeline_id, repo_path)
+        contract_id = _pipeline_identifier(pipeline.issue_number, pipeline.id)
+        contract = load_contract(contract_id, worktree_path)
+    except (ContractNotFoundError, OSError, ValueError, ContractValidationError):
+        logger.warning(
+            "Cannot load contract to persist deferred_actions",
+            pipeline_id=pipeline_id,
+            exc_info=True,
+        )
+        return
+
+    new_lines: list[str] = []
+    for c in conditions:
+        reviewer = str(c.get("reviewer", "")).strip() or "unknown"
+        condition = str(c.get("condition", "")).strip()
+        if not condition:
+            continue
+        new_lines.append(f"{reviewer}: {condition}")
+    if not new_lines:
+        return
+
+    # PR metadata may be absent (e.g. on babysit pipelines with
+    # has_contract=False — unlikely here since the gate requires a tracker,
+    # but defensive). Create a minimal stub using the issue title if so.
+    if contract.pr is None:
+        contract.pr = PRMetadata(
+            title=(contract.issue.title if contract.issue else "Pipeline deferred actions"),
+        )
+
+    existing = set(contract.pr.deferred_actions)
+    merged = list(contract.pr.deferred_actions)
+    for line in new_lines:
+        if line not in existing:
+            merged.append(line)
+            existing.add(line)
+    contract.pr.deferred_actions = merged
+
+    try:
+        save_contract(contract, worktree_path)
+    except (OSError, ValueError):
+        logger.warning(
+            "Failed to save contract with deferred_actions",
+            pipeline_id=pipeline_id,
+            exc_info=True,
+        )
+        return
+
+    logger.info(
+        "Persisted pre-merge obligations to contract",
+        pipeline_id=pipeline_id,
+        deferred_action_count=len(merged),
+    )
+
+
+def _force_nack_conditional_edges(
+    pipeline_id: str,
+    conditions: list[dict[str, Any]],
+) -> None:
+    """Force-NACK each (reviewer, producer) edge carrying a condition (#2004).
+
+    The human has rejected the obligation. This is not a reviewer-
+    authored NACK — there's no proposal artifact to cite, and the
+    ReviewPayload schema rightly rejects empty artifact_references.
+    Instead, drive the approval matrix + producer-phase state directly
+    so the end state matches a normal NACK: edge NACKED at current
+    version, condition cleared, producer back in WORKING.
+    """
+    from peer_consensus import ConsensusPhase
+
+    tracker = get_peer_consensus_tracker(pipeline_id)
+    if tracker is None:
+        logger.warning(
+            "No active tracker to force-NACK conditional ACK",
+            pipeline_id=pipeline_id,
+        )
+        return
+
+    synthetic_reason = "human rejected conditional ACK"
+    nacked: list[tuple[str, str]] = []
+    with tracker._lock:
+        for c in conditions:
+            reviewer = str(c.get("reviewer", "")).strip()
+            producer = str(c.get("producer", "")).strip()
+            if not reviewer or not producer:
+                continue
+            try:
+                version = tracker.matrix.get_proposal_version(producer)
+                tracker.matrix.record_nack(
+                    reviewer,
+                    producer,
+                    version,
+                    reason=synthetic_reason,
+                    artifact_refs=[],
+                )
+                tracker._producer_phases[producer] = ConsensusPhase.WORKING
+                nacked.append((reviewer, producer))
+            except Exception:
+                logger.warning(
+                    "Failed to force-NACK conditional edge",
+                    pipeline_id=pipeline_id,
+                    reviewer=reviewer,
+                    producer=producer,
+                    exc_info=True,
+                )
+    if nacked:
+        logger.info(
+            "Force-NACKed conditional ACK edges",
+            pipeline_id=pipeline_id,
+            edges=nacked,
+        )
+
+
+def _invalidate_conditional_acks(
+    pipeline_id: str,
+    conditions: list[dict[str, Any]],
+) -> None:
+    """Invalidate each conditioning ACK edge so the producer re-proposes (#2004).
+
+    Unlike NACK, invalidation doesn't bump the revision count — the ACK
+    just drops back to PENDING. The producer phase state is reset to
+    WORKING so it can re-propose with the condition folded into its
+    next proposal's scope.
+    """
+    tracker = get_peer_consensus_tracker(pipeline_id)
+    if tracker is None:
+        logger.warning(
+            "No active tracker to invalidate conditional ACK",
+            pipeline_id=pipeline_id,
+        )
+        return
+
+    invalidated: list[tuple[str, str]] = []
+    for c in conditions:
+        reviewer = str(c.get("reviewer", "")).strip()
+        producer = str(c.get("producer", "")).strip()
+        if not reviewer or not producer:
+            continue
+        try:
+            did_invalidate = tracker.matrix.invalidate_ack(reviewer, producer)
+        except Exception:
+            logger.warning(
+                "Failed to invalidate conditional ACK",
+                pipeline_id=pipeline_id,
+                reviewer=reviewer,
+                producer=producer,
+                exc_info=True,
+            )
+            continue
+        if did_invalidate:
+            invalidated.append((reviewer, producer))
+    if invalidated:
+        logger.info(
+            "Invalidated conditional ACK edges for in-pipeline address",
+            pipeline_id=pipeline_id,
+            edges=invalidated,
+        )
+
+
 @decisions_bp.route("/<pipeline_id>/decisions", methods=["GET"])
 def list_decisions(pipeline_id: str) -> tuple[Response, int]:
     """
@@ -469,6 +730,17 @@ def resolve_decision(pipeline_id: str, decision_id: str) -> tuple[Response, int]
         # container and respawn a replacement.
         if decision.resolution == "Restart agent":
             _handle_restart_agent(pipeline_id, decision.question)
+
+        # Handle the conditional-ACK 3-way HITL gate (#2004). Context
+        # prefix is the discriminator — the question text is arbitrary
+        # prose and mustn't be relied on for dispatch.
+        if decision.context and decision.resolution:
+            _handle_conditional_ack_gate(
+                pipeline_id,
+                decision.context,
+                decision.resolution,
+                store.repo_path,
+            )
 
         # Handle "Continue without" resolution for failed reviewer decisions.
         # The concurrent executor stores "failed_role:<role>" in the decision
