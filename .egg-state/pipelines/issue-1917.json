@@ -656,10 +656,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Ship — minimal read-only view over GET /api/v1/pipelines/<pid>/status (Recommended)\"}",
       "phase": "plan",
       "content_changed": null
+    },
+    {
+      "id": "decision-20",
+      "question": "task_mark_gap storage shape: append to task notes (recommended), first-class gaps[] field on the task, or directed peer message only?",
+      "context": "Open contract question decision-17, registered by an agent during the plan phase.",
+      "options": [
+        "Append-to-notes via /api/v1/contract/mutate, prefixed [GAP from <role> @ <ts>] — no schema change (Recommended)",
+        "First-class gaps[] field on task — cleaner query surface but requires gateway + contract-schema migration",
+        "Directed peer message only — no contract state; tester→coder DM with convention-tagged subject",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T03:58:48.129034Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "plan",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:10:06.375518Z",
-  "updated_at": "2026-04-24T03:58:47.576602Z",
+  "updated_at": "2026-04-24T03:58:48.145855Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -673,5 +692,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 56
+  "version": 57
 }
