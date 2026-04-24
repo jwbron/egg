@@ -101,6 +101,12 @@ class TestBuildMap:
 
         assert build_host_repo_map.build_map(config_path) == {}
 
+    def test_corrupted_yaml_returns_empty(self, tmp_path):
+        config_path = tmp_path / "repositories.yaml"
+        config_path.write_text("local_repos:\n  paths:\n  - valid\n  bad: [unterminated\n")
+
+        assert build_host_repo_map.build_map(config_path) == {}
+
     def test_handles_missing_local_repos_section(self, tmp_path):
         config_path = tmp_path / "repositories.yaml"
         config_path.write_text("github_username: someone\n")

@@ -72,8 +72,12 @@ def build_map(config_path: Path) -> dict[str, str]:
     if not config_path.exists():
         return {}
 
-    with config_path.open() as fh:
-        config = yaml.safe_load(fh) or {}
+    try:
+        with config_path.open() as fh:
+            config = yaml.safe_load(fh) or {}
+    except yaml.YAMLError as exc:
+        print(f"WARN: failed to parse {config_path}: {exc}", file=sys.stderr)
+        return {}
 
     local_repos = config.get("local_repos") or {}
     paths = local_repos.get("paths") or [] if isinstance(local_repos, dict) else []
@@ -97,6 +101,9 @@ def build_map(config_path: Path) -> dict[str, str]:
                 file=sys.stderr,
             )
             continue
+        # Last-wins if two paths resolve to the same owner/repo (e.g. two
+        # checkouts of the same repo).  The later entry in paths silently
+        # shadows the earlier one.
         mapping[owner_repo] = str(path)
 
     return mapping

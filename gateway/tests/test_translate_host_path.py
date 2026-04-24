@@ -24,14 +24,14 @@ import gateway as gateway_module  # noqa: E402
 @pytest.fixture
 def override_bind_mounts():
     """Replace the module-level mount table with a test fixture."""
-    original = gateway_module._BIND_MOUNT_MAPPING
+    original = gateway_module._MOUNT_MAPPING
 
     def _set(entries: list[tuple[str, str]]) -> None:
-        # Sort longest-first to match _load_bind_mount_mapping's contract.
-        gateway_module._BIND_MOUNT_MAPPING = sorted(entries, key=lambda p: len(p[0]), reverse=True)
+        # Sort longest-first to match _load_mount_mapping's contract.
+        gateway_module._MOUNT_MAPPING = sorted(entries, key=lambda p: len(p[0]), reverse=True)
 
     yield _set
-    gateway_module._BIND_MOUNT_MAPPING = original
+    gateway_module._MOUNT_MAPPING = original
 
 
 @pytest.fixture
@@ -129,14 +129,14 @@ class TestHostHomeFallback:
         assert gateway_module.translate_to_host_path("/other/path") == "/other/path"
 
 
-class TestLoadBindMountMapping:
-    """``_load_bind_mount_mapping`` parses /proc/self/mountinfo."""
+class TestLoadMountMapping:
+    """``_load_mount_mapping`` parses /proc/self/mountinfo."""
 
     def test_parses_mount_point_and_root(self, tmp_path):
         mountinfo = tmp_path / "mountinfo"
         mountinfo.write_text("1 0 0:1 /host/root /pod/mount rw,relatime - tmpfs tmpfs rw\n")
-        with patch("builtins.open", lambda *a, **kw: mountinfo.open()):
-            result = gateway_module._load_bind_mount_mapping()
+        with patch("gateway.open", lambda *a, **kw: mountinfo.open()):
+            result = gateway_module._load_mount_mapping()
         assert ("/pod/mount", "/host/root") in result
 
     def test_sorts_longest_first(self, tmp_path):
@@ -145,21 +145,21 @@ class TestLoadBindMountMapping:
             "1 0 0:1 /r1 /a rw,relatime - tmpfs tmpfs rw\n"
             "2 0 0:2 /r2 /a/b rw,relatime - tmpfs tmpfs rw\n"
         )
-        with patch("builtins.open", lambda *a, **kw: mountinfo.open()):
-            result = gateway_module._load_bind_mount_mapping()
+        with patch("gateway.open", lambda *a, **kw: mountinfo.open()):
+            result = gateway_module._load_mount_mapping()
         assert result[0] == ("/a/b", "/r2")
         assert result[1] == ("/a", "/r1")
 
     def test_skips_malformed_lines(self, tmp_path):
         mountinfo = tmp_path / "mountinfo"
         mountinfo.write_text("garbage\n1 0 0:1 /r /m rw,relatime - tmpfs tmpfs rw\n")
-        with patch("builtins.open", lambda *a, **kw: mountinfo.open()):
-            result = gateway_module._load_bind_mount_mapping()
+        with patch("gateway.open", lambda *a, **kw: mountinfo.open()):
+            result = gateway_module._load_mount_mapping()
         assert result == [("/m", "/r")]
 
     def test_returns_empty_when_mountinfo_missing(self):
         def _raise(*_a, **_kw):
             raise OSError(2, "No such file or directory")
 
-        with patch("builtins.open", _raise):
-            assert gateway_module._load_bind_mount_mapping() == []
+        with patch("gateway.open", _raise):
+            assert gateway_module._load_mount_mapping() == []

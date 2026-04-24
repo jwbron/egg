@@ -433,14 +433,26 @@ HOST_HOME = os.environ.get("HOST_HOME", "")
 CONTAINER_HOME = "/home/egg"
 
 
-def _load_bind_mount_mapping() -> list[tuple[str, str]]:
+def _load_mount_mapping() -> list[tuple[str, str]]:
     """Read /proc/self/mountinfo and return a list of (mount_point, host_root) tuples.
 
-    For every bind mount visible to this process, ``mount_point`` is the
-    path in this process's mount namespace and ``host_root`` is the path
-    the kernel recorded as the bind source — for kubelet-managed
-    ``hostPath`` volumes that's the actual host path. The list is sorted
-    longest-first so prefix lookup picks the most specific mount.
+    For every mount visible to this process, ``mount_point`` is the path
+    in this process's mount namespace and ``host_root`` is the path the
+    kernel recorded as the mount root — for kubelet-managed ``hostPath``
+    volumes that's the actual host path.  The list includes *all* mount
+    types (not just bind mounts); longest-prefix matching in
+    ``translate_to_host_path`` ensures the most specific entry wins.
+
+    Note: ``host_root`` (``fields[3]``, the mountinfo *root* field) is
+    the path relative to the filesystem's root.  On single-partition
+    systems this equals the absolute host path; on multi-partition setups
+    it may be relative to the partition root.  The ``HOST_HOME`` env var
+    is the escape hatch for those configurations.
+
+    Note: mountinfo uses octal escapes for special characters in paths
+    (``\\040`` for space, ``\\011`` for tab, ``\\134`` for backslash).
+    We don't decode them — unlikely to matter for ``/home/...`` paths
+    but worth knowing if paths ever contain whitespace.
     """
     entries: list[tuple[str, str]] = []
     try:
@@ -457,7 +469,7 @@ def _load_bind_mount_mapping() -> list[tuple[str, str]]:
     return entries
 
 
-_BIND_MOUNT_MAPPING: list[tuple[str, str]] = _load_bind_mount_mapping()
+_MOUNT_MAPPING: list[tuple[str, str]] = _load_mount_mapping()
 
 
 def translate_to_host_path(container_path: str) -> str:
@@ -478,7 +490,7 @@ def translate_to_host_path(container_path: str) -> str:
         The corresponding host path, or the original path if no
         translation is possible.
     """
-    for mount_point, host_root in _BIND_MOUNT_MAPPING:
+    for mount_point, host_root in _MOUNT_MAPPING:
         if container_path == mount_point or container_path.startswith(mount_point + "/"):
             return host_root + container_path[len(mount_point) :]
 
