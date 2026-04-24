@@ -1321,13 +1321,10 @@ def handle_consensus_confirmed_signal(
 
             # Determine phase and repo from pipeline state if available
             try:
-                from pipeline_state import get_pipeline_state_store
-
-                _store = get_pipeline_state_store()
-                _pip = _store.load_pipeline(pipeline_id)
+                _pip = get_state_store(repo_path).load_pipeline(pipeline_id)
                 _phase = _pip.current_phase.value
-                _repo = getattr(_pip.config, "repo", None)
-            except Exception:
+                _repo = _pip.repo
+            except (PipelineNotFoundError, InvalidPipelineIdError):
                 pass
 
             graph = get_review_graph_for_phase(_phase, repo=_repo)
