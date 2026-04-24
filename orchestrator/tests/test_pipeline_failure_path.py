@@ -231,6 +231,7 @@ class TestFailurePathPushesWorktreeBranch:
             repo_path=str(worktree_dir),
             branch="egg/issue-42",
             mode="public",
+            base_branch=None,
         )
 
     @patch(_COMMON_PATCHES[7])
@@ -287,6 +288,7 @@ class TestFailurePathPushesWorktreeBranch:
             repo_path=str(worktree_dir),
             branch="egg/issue-42/work",
             mode="public",
+            base_branch=None,
         )
 
         # Verify the generated branch was persisted via save_pipeline
@@ -499,6 +501,7 @@ class TestSuccessPathPushesStatefiles:
                 "repo_path": str(worktree_dir),
                 "branch": "egg/issue-42",
                 "mode": "public",
+                "base_branch": None,
             }
 
     @patch("routes.pipelines._auto_create_pr", return_value="https://github.com/owner/repo/pull/1")
@@ -588,6 +591,7 @@ class TestSuccessPathPushesStatefiles:
                 "repo_path": str(worktree_dir),
                 "branch": "egg/issue-42",
                 "mode": "public",
+                "base_branch": None,
             }
 
     @patch("routes.pipelines._auto_create_pr", return_value="https://github.com/owner/repo/pull/1")
@@ -672,6 +676,7 @@ class TestSuccessPathPushesStatefiles:
                 "repo_path": str(worktree_dir),
                 "branch": "egg/issue-42/work",
                 "mode": "public",
+                "base_branch": None,
             },
         )
         assert push_calls[0] == expected_call
