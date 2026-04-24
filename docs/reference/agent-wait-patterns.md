@@ -247,6 +247,47 @@ With `--since`, the wait starts at the named ID (exclusive) and
 includes any event — your own send, a peer's, or one that arrived
 in the window — that arrived after the anchor.
 
+### Cursor threading across waits (issue #1995)
+
+Every `egg-orch message wait` / `wait-loop` response and every
+`mcp__brc__wait_for_event` / `mcp__brc__wait_loop` return dict now
+carries a `cursor` field that callers should thread into the `since`
+parameter of the next call. Without threading, events that arrive
+between a returning wait and the subsequent wait call are missed —
+the same wait→wait race window §7 closes on the host side.
+
+The `cursor` is opaque from the caller's perspective:
+
+| Wait outcome | `cursor` value |
+|--------------|----------------|
+| Match (one or more messages returned) | ID of the **last** delivered message |
+| Timeout (no messages) | Current stream tip at server response time |
+| Stream empty on timeout | `null` / unset — caller may keep its prior cursor or omit `since` |
+
+`wait-loop` already threads the cursor internally between its own
+iterations, so a cursor-less call that rides through several timeouts
+before matching does not reopen the race. The surfaced cursor on the
+outer return closes the same race across successive `wait-loop`
+invocations by the agent.
+
+**Recommended pattern (BRC producer loop):**
+
+```python
+cursor = None
+while not consensus_done:
+    resp = mcp__brc__wait_loop(
+        for_types=["CONSENSUS_ACK", "CONSENSUS_NACK", "CONSENSUS_RE_REVIEW", "OVERSEER_ALERT"],
+        since=cursor,
+    )
+    cursor = resp.get("cursor", cursor)
+    for msg in resp["messages"]:
+        ...  # process ACK / NACK / re-review / alert
+```
+
+Legacy callers that ignore `cursor` and don't pass `since` keep their
+pre-#1995 behaviour — still correct for the common "wait once, exit"
+shape, still vulnerable to the wait→wait race for multi-ACK loops.
+
 ## 4. `HEARTBEAT` Message Type
 
 `HEARTBEAT` is a typed message agents emit on state transitions so the

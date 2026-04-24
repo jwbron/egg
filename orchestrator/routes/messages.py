@@ -426,12 +426,23 @@ def wait_messages(pipeline_id: str) -> tuple[Response, int]:
 
     messages = _apply_delphi_filter(pipeline_id, role, messages)
 
+    # Cursor returned on every response so callers can thread it into the
+    # next ``since_id=`` and avoid missing events that arrive between
+    # successive wait calls (issue #1995). On match: the last delivered
+    # message ID. On timeout: the current stream tip so the next call
+    # resumes strictly after what this call would have seen.
+    if messages:
+        cursor: str | None = messages[-1].id
+    else:
+        cursor = message_store.get_latest_id(pipeline_id)
+
     return _make_success(
         "Wait completed",
         data={
             "messages": [m.to_dict() for m in messages],
             "count": len(messages),
             "matched": bool(messages),
+            "cursor": cursor,
         },
     )
 
