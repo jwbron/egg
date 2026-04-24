@@ -22,7 +22,7 @@ import gateway as gateway_module  # noqa: E402
 
 
 @pytest.fixture
-def override_bind_mounts():
+def override_mounts():
     """Replace the module-level mount table with a test fixture."""
     original = gateway_module._MOUNT_MAPPING
 
@@ -49,9 +49,9 @@ def override_host_home():
 class TestMountinfoTranslation:
     """Auto-discovered translation via /proc/self/mountinfo."""
 
-    def test_longest_prefix_wins(self, override_bind_mounts, override_host_home):
+    def test_longest_prefix_wins(self, override_mounts, override_host_home):
         # A nested hostPath mount must beat its parent emptyDir mount.
-        override_bind_mounts(
+        override_mounts(
             [
                 ("/home/egg", "/var/lib/kubelet/pods/abc/emptydir/home"),
                 ("/home/egg/.egg-worktrees", "/home/user/.egg-worktrees"),
@@ -63,8 +63,8 @@ class TestMountinfoTranslation:
 
         assert result == "/home/user/.egg-worktrees/pipeline-1/repo"
 
-    def test_exact_mount_point_match(self, override_bind_mounts, override_host_home):
-        override_bind_mounts([("/home/egg/.egg-worktrees", "/home/user/.egg-worktrees")])
+    def test_exact_mount_point_match(self, override_mounts, override_host_home):
+        override_mounts([("/home/egg/.egg-worktrees", "/home/user/.egg-worktrees")])
         override_host_home("")
 
         assert (
@@ -72,15 +72,15 @@ class TestMountinfoTranslation:
             == "/home/user/.egg-worktrees"
         )
 
-    def test_sibling_paths_not_conflated(self, override_bind_mounts, override_host_home):
+    def test_sibling_paths_not_conflated(self, override_mounts, override_host_home):
         # /home/egg-other must not match the /home/egg mount_point.
-        override_bind_mounts([("/home/egg", "/host/egg")])
+        override_mounts([("/home/egg", "/host/egg")])
         override_host_home("")
 
         assert gateway_module.translate_to_host_path("/home/egg-other/x") == "/home/egg-other/x"
 
-    def test_no_mountinfo_match_falls_through(self, override_bind_mounts, override_host_home):
-        override_bind_mounts([("/home/egg", "/host/egg")])
+    def test_no_mountinfo_match_falls_through(self, override_mounts, override_host_home):
+        override_mounts([("/home/egg", "/host/egg")])
         override_host_home("")
 
         assert gateway_module.translate_to_host_path("/other/path") == "/other/path"
@@ -89,8 +89,8 @@ class TestMountinfoTranslation:
 class TestHostHomeFallback:
     """Explicit HOST_HOME env var, used when mountinfo lookup misses."""
 
-    def test_host_home_used_when_mountinfo_empty(self, override_bind_mounts, override_host_home):
-        override_bind_mounts([])
+    def test_host_home_used_when_mountinfo_empty(self, override_mounts, override_host_home):
+        override_mounts([])
         override_host_home("/home/user")
 
         assert (
@@ -99,11 +99,11 @@ class TestHostHomeFallback:
         )
 
     def test_mountinfo_takes_precedence_over_host_home(
-        self, override_bind_mounts, override_host_home
+        self, override_mounts, override_host_home
     ):
         # mountinfo disagrees with HOST_HOME — trust mountinfo because it
         # reflects what the kernel actually set up.
-        override_bind_mounts([("/home/egg/.egg-worktrees", "/real/host/path")])
+        override_mounts([("/home/egg/.egg-worktrees", "/real/host/path")])
         override_host_home("/stale/home")
 
         assert (
@@ -111,8 +111,8 @@ class TestHostHomeFallback:
             == "/real/host/path/x"
         )
 
-    def test_no_translation_when_both_unavailable(self, override_bind_mounts, override_host_home):
-        override_bind_mounts([])
+    def test_no_translation_when_both_unavailable(self, override_mounts, override_host_home):
+        override_mounts([])
         override_host_home("")
 
         assert (
@@ -121,9 +121,9 @@ class TestHostHomeFallback:
         )
 
     def test_host_home_ignored_for_non_container_path(
-        self, override_bind_mounts, override_host_home
+        self, override_mounts, override_host_home
     ):
-        override_bind_mounts([])
+        override_mounts([])
         override_host_home("/home/user")
 
         assert gateway_module.translate_to_host_path("/other/path") == "/other/path"
