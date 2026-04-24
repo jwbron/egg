@@ -53,6 +53,9 @@ gateway/
 ├── private_repo_policy.py  # Private/public repo access
 ├── phase_filter.py         # Phase-based operation filtering, file restrictions
 ├── agent_restrictions.py   # Agent role-based file access enforcement
+├── filtered_push.py        # Per-commit auto-filter: rewrites own commits to remove blocked paths; passes cross-role pulled commits bitwise-unchanged
+├── commit_observer.py      # Gateway-inline commit observer: registers new SHAs with the authorship registry after each git-execute call
+├── commit_registry_client.py # HTTP client for the orchestrator's commit-authorship registry (register + lookup_bulk)
 ├── phase_transition.py     # Phase transition validation
 ├── phase_api.py            # Phase API endpoints
 ├── contract_api.py         # Contract API endpoints
@@ -116,6 +119,7 @@ orchestrator/
 ├── sandbox_template.py     # Sandbox container template
 ├── sse.py                  # Server-Sent Events streaming for pipeline visualization
 ├── startup_reconciliation.py # Startup reconciliation for orphaned containers
+├── commit_authorship_store.py # Durable {sha → role} registry sharded by pipeline on the pipeline-state branch; backing store for the commit-authorship registry
 ├── state_store.py          # Git-backed pipeline state
 ├── status_reporter.py      # Real-time status reporter for collaborators
 ├── unified_sse.py          # Unified SSE stream for all pipelines
@@ -141,6 +145,7 @@ orchestrator/
 │       └── agent_inspector.py   # Claude-powered agent progress analysis
 ├── routes/                 # API route handlers
 │   ├── anchors.py          # Agent anchor CRUD and team anchor generation endpoints
+│   ├── commit_authorship.py # Commit-authorship registry endpoints (register + lookup); called by gateway commit observer and push handler
 │   ├── containers.py       # Container management endpoints
 │   ├── decisions.py        # HITL decision endpoints
 │   ├── deployment.py       # Deployment introspection and action endpoints (k8s diagnostics, prune, rebuild)
