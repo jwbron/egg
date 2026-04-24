@@ -12,7 +12,7 @@ All four routes are `POST /api/v1/jira/...`, require a session token via `@requi
 |----------|---------|----------|
 | `POST /api/v1/jira/ticket/get` | Read a single ticket, default `expand=renderedBody,renderedFields` so `fields.description` is ADF-rendered | `GET /rest/api/3/issue/{key}` |
 | `POST /api/v1/jira/search` | JQL search with conservative static project-scope extraction | `POST /rest/api/3/search/jql` |
-| `POST /api/v1/jira/ticket/comments` | Read comments for a ticket, `expand=renderedBody` | `GET /rest/api/3/issue/{key}/comment` |
+| `POST /api/v1/jira/ticket/comments` | Read comments for a ticket, default `expand=renderedBody,renderedFields` | `GET /rest/api/3/issue/{key}/comment` |
 | `POST /api/v1/jira/execute` | GET-only regex-allowlisted passthrough | `GET /rest/api/3/...` |
 
 ### `POST /api/v1/jira/ticket/get`
@@ -56,10 +56,10 @@ Rejected (403 `jira_search_rejected` with the matched reason):
 - No `project` clause at all.
 - `project` under any `OR` — including `project = ENG OR project = SEC` and `project = ENG OR key = SEC-1`.
 - Case-variant keywords (`PROJECT = ENG`).
-- Quoted project keys that don't decode to an allowlisted key.
+- Quoted project keys (e.g. `project = "ENG"`) are rejected unconditionally — the static extractor requires bare keys, even when the quoted key decodes to an allowlisted project. Rationale: deny-on-ambiguity; a quoted form signals that the query was constructed dynamically and the extractor cannot prove its intent.
 - JQL functions (`projectsLeadByUser()`, `issuekey()`, etc.).
 - `key =` clauses mixed in with `project =`.
-- Semicolons, JQL comments (`/* */`, `--`), or other injection patterns.
+- Semicolons, JQL comments (`#`, `//`, `/* */`), SQL-like comment tokens (`--`, rejected as a defensive precaution), or other injection patterns.
 - Unicode homoglyph / mixed-script project keys.
 - `IN` lists containing any non-allowlisted key.
 

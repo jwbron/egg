@@ -62,6 +62,11 @@ jira search 'project = ENG AND status = "Open"'
 
 # Read comments
 jira ticket comments "$EGG_JIRA_TICKET"
+
+# This WILL be rejected with 403 jira_search_rejected — the JQL scope extractor
+# denies on ambiguity, so any `OR` clause containing `project` is refused even
+# when every candidate is allowlisted.
+jira search 'project = ENG OR project = SEC'
 ```
 
 **Hard limits (always denied):** `transitions`, `worklog`, `attachments`, `watchers`, HTTP `DELETE` / `PUT` / `PATCH`, path traversal (`..`), duplicate slashes, non-ASCII keys. Non-GET `execute` calls return 403 regardless of the path. See [Jira Wrapper Reference](../../../docs/reference/jira-wrapper.md) for the full endpoint surface, JQL scope extractor rules, and the `not_found` response envelope.
