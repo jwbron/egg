@@ -54,7 +54,7 @@ A conditional NACK is rejected at the schema layer — the combination is nonsen
 - **`egg-orch consensus status`** — prints a `Pending pre-merge obligations:` subsection listing each `reviewer → producer: condition` line while the pipeline is still live. No subsection is printed when the list is empty.
 - **`complete_phase` HITL gate** — when any conditions are live, `complete_phase` queues a `choice` HITL decision before allowing the phase to close (see [HITL gate at phase completion](#hitl-gate-at-phase-completion)).
 - **Auto-created PR body** — a ⚠️-headed `## Pre-merge Obligations` section appears directly after the description, listing each active obligation so the merger sees it before scrolling to the diff.
-- **`CONSENSUS_ACK_RECEIVED` event** — the condition is included on the event payload and the `handle_ack` return value, so downstream consumers can act on it.
+- **`CONSENSUS_ACK_RECEIVED` event** — the condition is included on the event payload and the `handle_ack` return value, so downstream consumers (e.g. HITL gates) can act on it.
 
 ## HITL gate at phase completion
 
