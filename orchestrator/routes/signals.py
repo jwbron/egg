@@ -102,21 +102,25 @@ def make_success_response(
 
 # --- BRC content validation (#1716) ---
 _BRC_MIN_CONTENT_LEN = 50
+# Pre-merge conditions are imperative instructions (e.g. "git mv X Y"),
+# not full rationale, so they have a lower minimum length (#2005).
+_BRC_CONDITION_MIN_LEN = 10
 _BRC_BOILERPLATE = frozenset({"lgtm", "looks good", "no issues", "approved", "ok"})
 
+# Kinds whose content is an imperative instruction rather than rationale.
+_BRC_CONDITION_KINDS = frozenset({"pre-merge condition"})
 
-def _validate_brc_content(
-    body: str, kind: str, *, min_len: int = _BRC_MIN_CONTENT_LEN
-) -> str | None:
+
+def _validate_brc_content(body: str, kind: str) -> str | None:
     """Validate that BRC message content is substantive.
 
     Returns an error message string if validation fails, or None if content
     is acceptable.  ``kind`` is a human-readable label for the message type
     (e.g. "proposal summary", "ACK reason") used in error messages.
 
-    ``min_len`` overrides the minimum character count — callers validating
-    short imperative content (e.g. pre-merge conditions) can pass a lower
-    threshold than the default used for rationale text.
+    Content kinds whose lowercase form appears in ``_BRC_CONDITION_KINDS``
+    use a shorter minimum length because they are imperative instructions
+    (e.g. "git mv X Y") rather than full rationale.
     """
     stripped = (body or "").strip()
     if not stripped:
@@ -126,9 +130,12 @@ def _validate_brc_content(
             f"{kind} is boilerplate ('{stripped}'). Provide substantive rationale: "
             f"what was read/built, what was checked/tested, why the verdict follows"
         )
-    if len(stripped) < min_len:
+    min_length = (
+        _BRC_CONDITION_MIN_LEN if kind.lower() in _BRC_CONDITION_KINDS else _BRC_MIN_CONTENT_LEN
+    )
+    if len(stripped) < min_length:
         return (
-            f"{kind} is too short ({len(stripped)} chars, minimum {min_len}). "
+            f"{kind} is too short ({len(stripped)} chars, minimum {min_length}). "
             f"Provide substantive rationale: what was read/built, what was checked/tested, "
             f"why the verdict follows"
         )
@@ -1063,9 +1070,7 @@ def handle_consensus_ack_signal(
     # and must pass through unaffected.
     pre_merge_condition = (payload.get("pre_merge_condition") or "").strip()
     if pre_merge_condition:
-        condition_error = _validate_brc_content(
-            pre_merge_condition, "Pre-merge condition", min_len=10
-        )
+        condition_error = _validate_brc_content(pre_merge_condition, "Pre-merge condition")
         if condition_error:
             return make_error_response(condition_error, 400)
 

@@ -1761,6 +1761,15 @@ def cmd_consensus_status(args: argparse.Namespace) -> int:
     if blocking:
         print(f"\nBlocking agents: {', '.join(blocking)}")
 
+    conditions = consensus.get("pre_merge_conditions") or []
+    if conditions:
+        print("\nPending pre-merge obligations:")
+        for cond in conditions:
+            reviewer = cond.get("reviewer", "?")
+            producer = cond.get("producer", "?")
+            text = cond.get("condition", "")
+            print(f"  {reviewer} → {producer}: {text}")
+
     return 0
 
 

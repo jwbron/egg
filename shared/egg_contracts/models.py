@@ -256,6 +256,17 @@ class PRMetadata(BaseModel):
         default="",
         description="Manual pre/post-merge steps (migrations, config changes, etc.)",
     )
+    deferred_actions: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Durable record of pre-merge obligations from conditional ACKs "
+            "(#1998/#2004). Each entry is a human-readable line (e.g. "
+            "'reviewer_code: git mv legacy/x new/x'). Written when the 3-way "
+            "HITL gate at complete_phase resolves as approve+accept, so "
+            "obligations survive tracker teardown between phase close and "
+            "PR creation."
+        ),
+    )
 
 
 class CheckDefinition(BaseModel):
