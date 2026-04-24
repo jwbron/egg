@@ -57,10 +57,10 @@
         {
           "container_id": "240b8a78-1a56-496e-8b92-35d1d307c60a",
           "container_name": "egg-sandbox-egg-agent-issue-1965-refiner",
-          "status": "removed",
+          "status": "failed",
           "started_at": "2026-04-24T23:29:39.419287Z",
-          "exited_at": "2026-04-24T23:30:50.000904Z",
-          "exit_code": null,
+          "exited_at": "2026-04-24T23:31:25.531168Z",
+          "exit_code": -1,
           "agent_role": "refiner",
           "session_token": null,
           "pod_name": null,
@@ -101,10 +101,10 @@
           "container_id": "240b8a78-1a56-496e-8b92-35d1d307c60a",
           "container_info": null,
           "started_at": "2026-04-24T23:29:39.419297Z",
-          "completed_at": "2026-04-24T23:30:50.000904Z",
+          "completed_at": "2026-04-24T23:31:25.576973Z",
           "commit": null,
           "outputs": {},
-          "error": "Pipeline cancelled",
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -153,7 +153,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-24T23:29:01.757354Z",
-  "updated_at": "2026-04-24T23:30:50.001017Z",
+  "updated_at": "2026-04-24T23:31:25.577087Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -167,6 +167,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 9,
+  "version": 10,
   "jira_ticket": null
 }
