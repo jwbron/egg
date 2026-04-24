@@ -24,7 +24,11 @@ prefer rebase over merge and to auto-resolve conflicts under
 import subprocess
 from unittest.mock import MagicMock, patch
 
-from gateway_client import GatewayClient, PushResult
+from gateway_client import (
+    GatewayClient,
+    PushResult,
+    _rebase_with_agent_output_autoresolve,
+)
 
 
 def _run_result(returncode=0, stdout="", stderr=""):
@@ -34,6 +38,48 @@ def _run_result(returncode=0, stdout="", stderr=""):
     result.stdout = stdout
     result.stderr = stderr
     return result
+
+
+def _git(cwd, *args):
+    """Run ``git <args>`` in ``cwd``; raise on failure, return CompletedProcess."""
+    return subprocess.run(
+        ["git", *args],
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
+def _git_init(path, origin_url):
+    """Initialise a non-bare repo at ``path`` wired to ``origin_url`` with an identity."""
+    _git(path, "init", "-b", "main")
+    _git(path, "config", "user.email", "test@example.com")
+    _git(path, "config", "user.name", "Test")
+    _git(path, "remote", "add", "origin", origin_url)
+
+
+def _patch_id_of(repo, sha):
+    """Return the patch-id of ``sha`` (``git patch-id`` tolerates empty diffs)."""
+    diff = subprocess.run(
+        ["git", "-C", str(repo), "show", "--no-color", "--format=", sha],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    pid = subprocess.run(
+        ["git", "-C", str(repo), "patch-id", "--stable"],
+        input=diff.stdout,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    # patch-id output: "<patch-id> <commit-sha>\n" — take the first field,
+    # or fall back to the commit SHA for empty patches (no diff at all).
+    out = pid.stdout.strip()
+    if out:
+        return out.split()[0]
+    return sha
 
 
 def _make_client(push_results):
@@ -283,3 +329,194 @@ class TestPushWorktreeBranchReconcile:
         assert ok.ok is False
         assert client._do_push.call_count == 1
         mock_run.assert_not_called()
+
+    def test_rebase_without_base_branch_uses_plain_form(self, tmp_path):
+        """Without ``base_branch``, the rebase falls back to ``git rebase origin/{branch}``.
+
+        Preserves pre-#1976 behavior for callers that don't know the
+        pipeline's base branch (e.g. old integration points).
+        """
+        client = _make_client([False, True])
+        with patch(
+            "gateway_client.subprocess.run",
+            side_effect=[_run_result(), _run_result()],
+        ) as mock_run:
+            ok = client.push_worktree_branch(
+                pipeline_id="issue-42",
+                repo_path=str(tmp_path),
+                branch="egg/feature",
+            )
+
+        assert ok.ok is True
+        # Order: fetch, rebase (no --onto, no base-branch fetch/verify).
+        assert mock_run.call_count == 2
+        rebase_cmd = mock_run.call_args_list[1].args[0]
+        assert "rebase" in rebase_cmd
+        assert "--onto" not in rebase_cmd
+        assert "origin/egg/feature" in rebase_cmd
+
+    def test_rebase_with_base_branch_uses_onto_form(self, tmp_path):
+        """With ``base_branch`` and ``origin/{base_branch}`` resolvable,
+        the rebase uses ``--onto origin/{branch} origin/{base_branch}`` so
+        only ``origin/{base_branch}..HEAD`` is replayed — commits already
+        on main are not duplicated onto the pipeline branch (#1976).
+        """
+        client = _make_client([False, True])
+        with patch(
+            "gateway_client.subprocess.run",
+            side_effect=[
+                _run_result(),  # fetch origin {branch}
+                _run_result(),  # fetch origin {base_branch}
+                _run_result(),  # rev-parse --verify origin/{base_branch}
+                _run_result(),  # rebase --onto ...
+            ],
+        ) as mock_run:
+            ok = client.push_worktree_branch(
+                pipeline_id="issue-42",
+                repo_path=str(tmp_path),
+                branch="egg/issue-42",
+                base_branch="main",
+            )
+
+        assert ok.ok is True
+        assert mock_run.call_count == 4
+        base_fetch_cmd = mock_run.call_args_list[1].args[0]
+        assert "fetch" in base_fetch_cmd and "main" in base_fetch_cmd
+        rebase_cmd = mock_run.call_args_list[3].args[0]
+        assert rebase_cmd[-4:] == [
+            "rebase",
+            "--onto",
+            "origin/egg/issue-42",
+            "origin/main",
+        ]
+
+    def test_rebase_does_not_replay_main_commits_when_base_branch_set(self, tmp_path):
+        """End-to-end regression for #1976.
+
+        Reproduces the PR #1971 pathology with a real git repo:
+        - ``origin/egg/issue-N`` is stuck at an old main snapshot +
+          ``contract-init-v1``.
+        - main has moved forward by N upstream commits since that snapshot.
+        - A fresh local worktree is branched from the new main and adds
+          ``contract-init-v2``.
+
+        Without the fix, ``git rebase origin/egg/issue-N`` replays those N
+        upstream commits on top of ``contract-init-v1`` (duplicate-by-content
+        with different SHAs).  With ``base_branch="main"`` passed through,
+        the rebase uses ``--onto origin/egg/issue-N origin/main`` so only
+        ``contract-init-v2`` is replayed.
+
+        Asserts the acceptance criterion from #1976: ``<base>..HEAD`` on
+        the pipeline branch never contains commits whose patch-id matches
+        an already-merged commit on main.
+        """
+        # Build a bare "origin" repo that acts as the remote.
+        origin = tmp_path / "origin.git"
+        subprocess.run(["git", "init", "--bare", "-b", "main", str(origin)], check=True)
+
+        # Seed main with an initial commit (old base).
+        seed = tmp_path / "seed"
+        seed.mkdir()
+        _git_init(seed, str(origin))
+        (seed / "README.md").write_text("initial\n")
+        _git(seed, "add", "README.md")
+        _git(seed, "commit", "-m", "initial main commit")
+        _git(seed, "push", "origin", "main")
+
+        # Stale branch: contract-init-v1 on top of old main.
+        _git(seed, "checkout", "-b", "egg/issue-42")
+        (seed / "contract_v1.md").write_text("v1\n")
+        _git(seed, "add", "contract_v1.md")
+        _git(seed, "commit", "-m", "Initialize SDLC contract for issue #42 (v1)")
+        _git(seed, "push", "origin", "egg/issue-42")
+
+        # Main advances by 3 commits (simulates upstream landings).
+        _git(seed, "checkout", "main")
+        upstream_shas = []
+        for i in range(3):
+            (seed / f"upstream_{i}.md").write_text(f"upstream work {i}\n")
+            _git(seed, "add", f"upstream_{i}.md")
+            _git(seed, "commit", "-m", f"Fix #{100 + i}: upstream landing {i}")
+            sha = _git(seed, "rev-parse", "HEAD").stdout.strip()
+            upstream_shas.append(sha)
+        _git(seed, "push", "origin", "main")
+
+        # Fresh worktree cut from current origin/main + contract-init-v2.
+        work = tmp_path / "work"
+        work.mkdir()
+        _git_init(work, str(origin))
+        _git(work, "fetch", "origin")
+        _git(work, "checkout", "-b", "egg/issue-42-work", "origin/main")
+        (work / "contract_v2.md").write_text("v2\n")
+        _git(work, "add", "contract_v2.md")
+        _git(work, "commit", "-m", "Initialize SDLC contract for issue #42 (v2)")
+
+        # Run the rebase helper in the worktree — emulating the push-reconcile
+        # path after a non-ff rejection.  base_branch="main" should activate
+        # the --onto form and prevent upstream-commit duplication.
+        git_base = [
+            "git",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            f"safe.directory={work}",
+            "-C",
+            str(work),
+        ]
+        result = _rebase_with_agent_output_autoresolve(
+            git_base=git_base,
+            pipeline_id="issue-42",
+            branch="egg/issue-42",
+            base_branch="main",
+        )
+        assert result.ok, f"rebase failed: {result.category} {result.detail}"
+
+        # Collect the patch-ids of every upstream commit that landed on main.
+        upstream_patch_ids = {_patch_id_of(seed, sha) for sha in upstream_shas}
+
+        # Collect patch-ids of commits on the rebased branch that are NOT
+        # on origin/main.  None of them should match an upstream commit.
+        log = _git(work, "log", "--format=%H", "origin/main..HEAD").stdout.strip()
+        branch_only_shas = [s for s in log.splitlines() if s]
+        branch_only_patch_ids = {_patch_id_of(work, sha) for sha in branch_only_shas}
+
+        duplicates = branch_only_patch_ids & upstream_patch_ids
+        assert not duplicates, (
+            f"pipeline branch contains duplicate-by-content commits of main: {duplicates}"
+        )
+
+        # Sanity: we expect exactly the two contract-init commits on the
+        # branch (v1 from origin + v2 from local work) — 0 main-commit replays.
+        assert len(branch_only_shas) == 2, (
+            f"expected 2 branch-only commits, got {len(branch_only_shas)}: {branch_only_shas}"
+        )
+
+    def test_rebase_with_base_branch_falls_back_when_base_missing(self, tmp_path):
+        """When ``origin/{base_branch}`` is not resolvable locally (e.g. the
+        base-branch fetch failed and the tracking ref was never created),
+        the rebase falls back to the plain ``git rebase origin/{branch}``
+        form rather than erroring out.
+        """
+        client = _make_client([False, True])
+        with patch(
+            "gateway_client.subprocess.run",
+            side_effect=[
+                _run_result(),  # fetch origin {branch}
+                _run_result(
+                    returncode=1, stderr="couldn't find remote ref"
+                ),  # fetch origin {base_branch} fails
+                _run_result(returncode=128, stderr="unknown revision"),  # rev-parse verify fails
+                _run_result(),  # rebase (plain form)
+            ],
+        ) as mock_run:
+            ok = client.push_worktree_branch(
+                pipeline_id="issue-42",
+                repo_path=str(tmp_path),
+                branch="egg/issue-42",
+                base_branch="main",
+            )
+
+        assert ok.ok is True
+        rebase_cmd = mock_run.call_args_list[3].args[0]
+        assert "rebase" in rebase_cmd and "--onto" not in rebase_cmd
+        assert "origin/egg/issue-42" in rebase_cmd

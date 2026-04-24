@@ -4023,6 +4023,7 @@ def _sync_worktree_with_remote(
     worktree_repo_path: Path,
     prior_phase_succeeded: bool = True,
     gateway_mode: Literal["public", "private"] = "public",
+    base_branch: str | None = None,
 ) -> None:
     """Sync a worktree with its remote branch (best-effort).
 
@@ -4045,6 +4046,7 @@ def _sync_worktree_with_remote(
     Safe to call on every pipeline start because it is idempotent when the
     local branch is already up to date.
     """
+    base_branch_for_reconcile = base_branch
     git_base = [
         "git",
         "-c",
@@ -4129,6 +4131,7 @@ def _sync_worktree_with_remote(
                 repo_path=str(worktree_repo_path),
                 branch=branch,
                 mode=gateway_mode,
+                base_branch=base_branch_for_reconcile,
             )
             if push_ok:
                 # Push succeeded — local and remote are now in sync.
@@ -9839,6 +9842,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 worktree_repo_path,
                 prior_phase_succeeded=prior_phase_succeeded,
                 gateway_mode=gateway_mode,
+                base_branch=pipeline.base_branch,
             )
 
             # Remove legacy unprefixed draft files (analysis.md, plan.md)
@@ -9852,6 +9856,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         repo_path=str(worktree_repo_path),
                         branch=pipeline.branch,
                         mode=gateway_mode,
+                        base_branch=pipeline.base_branch,
                     )
                 except Exception:
                     logger.warning(
@@ -10074,6 +10079,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             repo_path=str(worktree_repo_path),
                             branch=push_branch,
                             mode=gateway_mode,
+                            base_branch=pipeline.base_branch,
                         )
                         push_succeeded = bool(push_result)
                         if not push_succeeded:
@@ -10588,6 +10594,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         repo_path=str(worktree_repo_path),
                         branch=pipeline.branch,
                         mode=gateway_mode,
+                        base_branch=pipeline.base_branch,
                     )
                     if push_ok:
                         logger.info(
@@ -10856,6 +10863,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             repo_path=str(worktree_repo_path),
                             branch=pipeline.branch,
                             mode=gateway_mode,
+                            base_branch=pipeline.base_branch,
                         )
                     except Exception as push_err:
                         logger.warning(
@@ -10978,6 +10986,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                         repo_path=str(worktree_repo_path),
                         branch=pipeline.branch,
                         mode=gateway_mode,
+                        base_branch=pipeline.base_branch,
                     )
                 except Exception as push_err:
                     logger.warning(
@@ -11341,6 +11350,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                             repo_path=str(worktree_repo_path),
                             branch=pipeline.branch,
                             mode=gateway_mode,
+                            base_branch=pipeline.base_branch,
                         )
                     except Exception as push_err:
                         logger.warning(
@@ -11730,6 +11740,7 @@ def start_pipeline(pipeline_id: str) -> tuple[Response, int]:
                                     repo_path=str(repo_path),
                                     branch=pipeline.branch,
                                     mode=_gw_mode,
+                                    base_branch=pipeline.base_branch,
                                 )
                             except Exception as push_err:
                                 logger.warning(
