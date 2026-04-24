@@ -3646,6 +3646,129 @@ def _read_source_branch_artifacts(
     return updated
 
 
+def _pull_contract_from_source_branch(
+    repo_path: Path,
+    source_branch: str,
+    issue_number: int | None,
+    pipeline_id: str,
+    spawner: Any | None = None,
+    gateway_mode: str = "public",
+) -> bool:
+    """Load a persisted contract from ``origin/<source_branch>`` into the worktree.
+
+    When ``submit_task`` is called with ``source_branch``, the source branch
+    carries ``.egg-state/contracts/<pipeline>.json`` (with any resolved HITL
+    decisions).  Without this helper, ``_run_pipeline`` calls
+    ``create_contract()`` unconditionally and overwrites those decisions with
+    a zero-state contract (#2035).  This helper fetches the source branch,
+    reads the contract via ``git show``, rebinds its pipeline_id to the new
+    pipeline, and writes it into the worktree so the caller can skip
+    ``create_contract()`` and proceed to commit+push the pulled contract.
+
+    Returns True when a contract was successfully pulled, False otherwise.
+    Best-effort: missing, invalid, or unreachable source contracts all yield
+    False so the caller falls back to ``create_contract()``.
+    """
+    from egg_contracts.loader import (
+        ContractNotFoundError,
+        ContractValidationError,
+        load_contract_from_branch,
+        save_contract,
+    )
+
+    # Fetch the source branch so origin/<source_branch> is current.  Mirrors
+    # the pattern in _read_source_branch_artifacts — use the gateway when
+    # available, fall back to raw git for tests / non-sandboxed callers.
+    if spawner is not None:
+        try:
+            spawner.gateway.fetch_branch(
+                pipeline_id=pipeline_id,
+                repo_path=str(repo_path),
+                args=[source_branch],
+                mode=gateway_mode,
+            )
+        except Exception:
+            logger.warning(
+                "Gateway fetch of source branch failed (will try git show anyway)",
+                source_branch=source_branch,
+                pipeline_id=pipeline_id,
+                exc_info=True,
+            )
+    else:
+        try:
+            subprocess.run(
+                [
+                    "git",
+                    "-c",
+                    "core.hooksPath=/dev/null",
+                    "-c",
+                    f"safe.directory={repo_path}",
+                    "-C",
+                    str(repo_path),
+                    "fetch",
+                    "origin",
+                    source_branch,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except Exception:
+            logger.debug(
+                "Failed to fetch source branch for contract pull",
+                source_branch=source_branch,
+                exc_info=True,
+            )
+
+    identifier: int | str = issue_number if issue_number is not None else pipeline_id
+
+    try:
+        contract = load_contract_from_branch(
+            identifier,
+            repo_path,
+            branch=f"origin/{source_branch}",
+        )
+    except ContractNotFoundError:
+        logger.debug(
+            "No contract on source branch",
+            pipeline_id=pipeline_id,
+            source_branch=source_branch,
+        )
+        return False
+    except ContractValidationError as e:
+        logger.warning(
+            "Contract on source branch failed validation, falling back to fresh contract",
+            pipeline_id=pipeline_id,
+            source_branch=source_branch,
+            error=str(e),
+        )
+        return False
+    except Exception:
+        logger.warning(
+            "Failed to load contract from source branch",
+            pipeline_id=pipeline_id,
+            source_branch=source_branch,
+            exc_info=True,
+        )
+        return False
+
+    # Rebind to the new pipeline_id so save_contract writes under the new
+    # canonical key when the pipeline was forked with a qualifier
+    # (e.g. source=issue-1965, new=issue-1965-v2).
+    contract.pipeline_id = pipeline_id
+    save_contract(contract, repo_path)
+
+    logger.info(
+        "Loaded contract from source branch",
+        pipeline_id=pipeline_id,
+        source_branch=source_branch,
+        decision_count=len(contract.decisions),
+        phase_count=len(contract.phases),
+    )
+    return True
+
+
 def _read_phase_draft(
     repo_path: Path,
     phase: str,
@@ -10606,6 +10729,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         else:
             certs_volume = certs_volume_raw
 
+        # Capture source_branch before _read_source_branch_artifacts clears
+        # it on success — the contract-pull path below (#2035) runs inside
+        # the contract_synced block and otherwise wouldn't see the value.
+        source_branch_for_contract_pull = pipeline.source_branch
+
         # Read artifacts from source branch if specified and inline values
         # were not provided.  This populates pipeline.plan and
         # pipeline.analysis so the contract creation block below can use them.
@@ -10680,21 +10808,47 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             try:
                 from egg_contracts.loader import create_contract
 
-                if pipeline.issue_number is not None:
-                    issue_url = f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
-                    create_contract(
-                        issue_number=pipeline.issue_number,
-                        title=f"Issue #{pipeline.issue_number}",
-                        url=issue_url,
-                        pipeline_id=pipeline.id,
-                        repo_root=worktree_repo_path,
-                    )
-                else:
-                    create_contract(
-                        pipeline_id=pipeline.id,
-                        title=(pipeline.prompt or "")[:100],
-                        repo_root=worktree_repo_path,
-                    )
+                # When source_branch is set, try to carry over the contract
+                # (with any resolved HITL decisions) from there instead of
+                # overwriting with a fresh zero-state contract (#2035).
+                pulled_contract = False
+                if source_branch_for_contract_pull:
+                    try:
+                        pulled_contract = _pull_contract_from_source_branch(
+                            repo_path=worktree_repo_path,
+                            source_branch=source_branch_for_contract_pull,
+                            issue_number=pipeline.issue_number,
+                            pipeline_id=pipeline.id,
+                            spawner=spawner,
+                            gateway_mode=gateway_mode,
+                        )
+                    except Exception:
+                        logger.warning(
+                            "Unexpected error pulling contract from source branch — falling back to fresh contract",
+                            pipeline_id=pipeline_id,
+                            source_branch=source_branch_for_contract_pull,
+                            exc_info=True,
+                        )
+                        pulled_contract = False
+
+                if not pulled_contract:
+                    if pipeline.issue_number is not None:
+                        issue_url = (
+                            f"https://github.com/{pipeline.repo}/issues/{pipeline.issue_number}"
+                        )
+                        create_contract(
+                            issue_number=pipeline.issue_number,
+                            title=f"Issue #{pipeline.issue_number}",
+                            url=issue_url,
+                            pipeline_id=pipeline.id,
+                            repo_root=worktree_repo_path,
+                        )
+                    else:
+                        create_contract(
+                            pipeline_id=pipeline.id,
+                            title=(pipeline.prompt or "")[:100],
+                            repo_root=worktree_repo_path,
+                        )
 
                 # Write pre-generated drafts for short-flow pipelines so the
                 # existing plan parser can populate the contract with tasks.
