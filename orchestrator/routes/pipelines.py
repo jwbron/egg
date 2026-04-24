@@ -5750,8 +5750,9 @@ def _build_phase_prompt(
                 f"{revision_action}{consensus_override}\n"
             )
         else:
+            preamble_noun = "implementation" if phase == "implement" else "draft"
             lines.append(
-                "The reviewer found issues with your previous draft. "
+                f"The reviewer found issues with your previous {preamble_noun}. "
                 f"{revision_action}{consensus_override}\n"
             )
         lines.append(review_feedback)

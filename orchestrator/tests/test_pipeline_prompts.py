@@ -472,6 +472,10 @@ class TestBuildPhasePromptRevisionMode:
         assert "Reframe as a three-phase migration plan" in result
         # Heading should omit the cycle number on HITL cycle 0
         assert "Cycle 0" not in result
+        # Refine phase uses "in-place" draft language
+        assert "in-place" in result
+        # Preamble should say "draft" for refine phase
+        assert "previous draft" in result
         # Must explicitly override prior-consensus inference so the refiner
         # doesn't see an existing draft and short-circuit to re-confirming it.
         assert "consensus is superseded" in result.lower()
@@ -492,6 +496,8 @@ class TestBuildPhasePromptRevisionMode:
         # "draft in-place" which only applies to the refine phase.
         assert "revise your implementation" in result
         assert "in-place" not in result
+        # Preamble should say "implementation" not "draft" for implement phase
+        assert "previous implementation" in result
         # Cycle 0 still embeds the full task + instructions (no delta cycle).
         assert "## Task Description" in result
 
