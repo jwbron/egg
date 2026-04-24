@@ -162,10 +162,18 @@ def _check_and_respawn_overseer(
     gateway_mode: str,
     pipeline_repos: list | None,
     certs_volume: str | None,
+    expected_run_epoch: datetime | None = None,
 ) -> tuple[str | None, int]:
     """Check overseer container liveness and respawn if it exited mid-pipeline.
 
     Returns (updated_container_id, updated_respawn_count).
+
+    ``expected_run_epoch`` is the ``pipeline.run_epoch`` captured by the
+    caller's ``_run_pipeline`` thread.  When ``advance_phase(force=true)``
+    or ``restart_phase`` bumps ``run_epoch``, the old run's poll thread
+    can outlive the transition and see its externally-stopped overseer
+    as EXITED.  Without this guard the old and new runs would each
+    respawn independently, producing parallel respawn chains (#1916).
     """
     if not overseer_container_id or overseer_respawn_count >= max_overseer_respawns:
         return overseer_container_id, overseer_respawn_count
@@ -206,6 +214,32 @@ def _check_and_respawn_overseer(
 
         try:
             pipeline_check = store.load_pipeline(pipeline_id)
+
+            # Skip respawn when this poll thread belongs to a stale
+            # _run_pipeline that has been superseded.  Without this guard,
+            # the old run and the new run each respawn the overseer on
+            # their own counter, producing two parallel respawn chains
+            # (#1916).
+            if expected_run_epoch is not None:
+                current_epoch = pipeline_check.run_epoch or pipeline_check.created_at
+                if current_epoch != expected_run_epoch:
+                    logger.info(
+                        "Skipping overseer respawn — pipeline run_epoch "
+                        "changed (force-advance or restart superseded "
+                        "this run)",
+                        pipeline_id=pipeline_id,
+                        container_id=overseer_container_id[:12],
+                        expected_epoch=expected_run_epoch.isoformat(),
+                        current_epoch=current_epoch.isoformat(),
+                    )
+                    return overseer_container_id, overseer_respawn_count
+            else:
+                logger.debug(
+                    "Epoch guard skipped — expected_run_epoch not provided",
+                    pipeline_id=pipeline_id,
+                    container_id=overseer_container_id[:12],
+                )
+
             if pipeline_check.status in (PipelineStatus.RUNNING, PipelineStatus.AWAITING_HUMAN):
                 logger.warning(
                     "Overseer exited mid-pipeline, respawning",
@@ -5738,12 +5772,15 @@ def _build_phase_prompt(
                 "Address the feedback below and revise your draft **in-place** "
                 "(overwrite the same file)."
             )
-        consensus_override = (
-            " Even if an existing draft appears "
-            "to have reached consensus previously, that consensus is "
-            "superseded — you must revise to address this feedback before "
-            "proposing a new consensus."
-        )
+        if review_cycle == 0:
+            consensus_override = (
+                " Even if an existing draft appears "
+                "to have reached consensus previously, that consensus is "
+                "superseded — you must revise to address this feedback before "
+                "proposing a new consensus."
+            )
+        else:
+            consensus_override = ""
         if has_tester_findings:
             lines.append(
                 "The reviewer and tester found issues with your previous work. "
@@ -10214,6 +10251,7 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                                     gateway_mode=gateway_mode,
                                     pipeline_repos=pipeline_repos,
                                     certs_volume=certs_volume,
+                                    expected_run_epoch=run_epoch,
                                 )
                             )
 
