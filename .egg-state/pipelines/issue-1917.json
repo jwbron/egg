@@ -188,10 +188,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Option B — full audit (~15 verbs across contract/checkpoint/peer/anchor/overseer/task-gap); one PR (Recommended)\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Anchor approach: how should the MCP anchor verbs (init/update/get) be backed, given that orchestrator/routes/anchors.py REST endpoints exist but no `egg-orch anchor` CLI subcommand exists (despite rule docs referencing it)?",
+      "context": "Open contract question decision-2, registered by an agent during the refine phase.",
+      "options": [
+        "Wrap the REST endpoints directly with cli_command=None (same new-capability pattern iter 1 used for check_hitl_answers/get_context); acknowledge the drift test can't cover these",
+        "Add the missing `egg-orch anchor init/update/show` CLI subcommands to sandbox/egg_lib/orch_cli.py first, then wrap those with the drift gate covered",
+        "Defer anchor verbs to a third iteration — too much scope for iter 2; keep the REST-only story as-is",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T03:09:12.094509Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:10:06.375518Z",
-  "updated_at": "2026-04-24T03:09:07.226900Z",
+  "updated_at": "2026-04-24T03:09:12.108024Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -205,5 +224,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 14
+  "version": 15
 }
