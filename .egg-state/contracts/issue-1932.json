@@ -9,15 +9,660 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "phases": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Which implementation option should we take for event-driven wake of the SDLC skill's monitor loop?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Option A: new `wait_for_status_change` MCP tool (recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Option B: retrofit `get_status` with event-driven wait in place",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Option C: host-side SSE consumption via a new `stream_pipeline` tool",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Option D: pure client-side change \u2014 shorter polls + rendering guard",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Which event set should trigger early return from the host-side wait?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Minimal: OVERSEER_ALERT + DECISION_CREATED + terminal state (pipeline.completed/failed)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Issue-as-written: above + phase transitions (PHASE_STARTED/COMPLETED) + consensus state change (CONSENSUS_CONFIRMED/NACK/RE_REVIEW)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Maximal: above + CONSENSUS_PROPOSE + AGENT_FAILED + AGENT_TIMEOUT + overseer heartbeat gaps",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Should the timeout payload (nothing-happened-in-25s) be a minimal no-change envelope or the full status envelope?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Minimal envelope: {changed: false, current_phase, status, phase_elapsed_seconds} \u2014 cheap re-render, SKILL.md must branch on `changed`",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Full envelope: same shape as get_status \u2014 zero SKILL.md branching, higher cost per timeout",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Hybrid: full on first timeout of a session, minimal thereafter",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Should we expose a `since` / `since_event_id` cursor parameter to avoid re-firing on already-seen events?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes: add `since` string parameter; host passes the most recent event ID from the prior call (prevents stuck-on-same-event races)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "No: rely on default `from_tip=True` semantics from #1925 and accept the transition-race window",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Auto-session: server stores per-session cursors keyed on (pipeline_id, caller-token) \u2014 avoids client-side bookkeeping but adds state to a stateless transport",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Should the event-driven wait subscribe to the EventBus only, the message-type long-poll only, or both?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Both (recommended): EventBus for phase/decision/terminal events, message_store.get_messages for OVERSEER_ALERT/CONSENSUS_* \u2014 matches where each event actually lives",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "EventBus only: also emit OVERSEER_ALERT and CONSENSUS_* onto the EventBus so the wait endpoint subscribes to one source",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Message-type long-poll only: also emit phase/decision/terminal events onto the message bus so there is one wait primitive",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Should the SDLC skill keep the 10-message `recent_messages` fetch on every poll, or only on the `changed: true` path?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Keep on every poll (status quo) \u2014 no change to dashboard rendering contract",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Only on `changed: true` \u2014 timeout path uses cached recent_messages from the prior wake",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Remove entirely from wait path; fetch on-demand when OVERSEER_ALERT fires",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Defer to plan phase \u2014 depends on the envelope-shape decision above",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-7",
+      "question": "How should `provide_input` interaction with the wait loop be handled (the host's own actions generate events)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Filter out DECISION_RESOLVED events from the trigger set \u2014 wait only on decisions that still need input",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Carry a `since_event_id` cursor so host-originated events don't wake the host",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Take no special action \u2014 self-waking is harmless because the next render will correctly show no pending decisions",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-04-24T00:16:59.979569Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-1",
+        "question": "Which implementation option should we take for event-driven wake of the SDLC skill's monitor loop?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Option A: new `wait_for_status_change` MCP tool (recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Option B: retrofit `get_status` with event-driven wait in place",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Option C: host-side SSE consumption via a new `stream_pipeline` tool",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Option D: pure client-side change \u2014 shorter polls + rendering guard",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Which implementation option should we take for eve...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:17:08.003998Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-2",
+        "question": "Which event set should trigger early return from the host-side wait?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Minimal: OVERSEER_ALERT + DECISION_CREATED + terminal state (pipeline.completed/failed)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Issue-as-written: above + phase transitions (PHASE_STARTED/COMPLETED) + consensus state change (CONSENSUS_CONFIRMED/NACK/RE_REVIEW)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Maximal: above + CONSENSUS_PROPOSE + AGENT_FAILED + AGENT_TIMEOUT + overseer heartbeat gaps",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Which event set should trigger early return from t...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:17:13.811329Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-3",
+        "question": "Should the timeout payload (nothing-happened-in-25s) be a minimal no-change envelope or the full status envelope?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Minimal envelope: {changed: false, current_phase, status, phase_elapsed_seconds} \u2014 cheap re-render, SKILL.md must branch on `changed`",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Full envelope: same shape as get_status \u2014 zero SKILL.md branching, higher cost per timeout",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Hybrid: full on first timeout of a session, minimal thereafter",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the timeout payload (nothing-happened-in-25...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:17:20.594716Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-4",
+        "question": "Should we expose a `since` / `since_event_id` cursor parameter to avoid re-firing on already-seen events?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Yes: add `since` string parameter; host passes the most recent event ID from the prior call (prevents stuck-on-same-event races)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "No: rely on default `from_tip=True` semantics from #1925 and accept the transition-race window",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Auto-session: server stores per-session cursors keyed on (pipeline_id, caller-token) \u2014 avoids client-side bookkeeping but adds state to a stateless transport",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should we expose a `since` / `since_event_id` curs...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:17:28.924702Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-5",
+        "question": "Should the event-driven wait subscribe to the EventBus only, the message-type long-poll only, or both?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Both (recommended): EventBus for phase/decision/terminal events, message_store.get_messages for OVERSEER_ALERT/CONSENSUS_* \u2014 matches where each event actually lives",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "EventBus only: also emit OVERSEER_ALERT and CONSENSUS_* onto the EventBus so the wait endpoint subscribes to one source",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Message-type long-poll only: also emit phase/decision/terminal events onto the message bus so there is one wait primitive",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the event-driven wait subscribe to the Even...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:17:35.009559Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-6",
+        "question": "Should the SDLC skill keep the 10-message `recent_messages` fetch on every poll, or only on the `changed: true` path?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Keep on every poll (status quo) \u2014 no change to dashboard rendering contract",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Only on `changed: true` \u2014 timeout path uses cached recent_messages from the prior wake",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Remove entirely from wait path; fetch on-demand when OVERSEER_ALERT fires",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Defer to plan phase \u2014 depends on the envelope-shape decision above",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the SDLC skill keep the 10-message `recent_...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:17:40.645855Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-7",
+        "question": "How should `provide_input` interaction with the wait loop be handled (the host's own actions generate events)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Filter out DECISION_RESOLVED events from the trigger set \u2014 wait only on decisions that still need input",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Carry a `since_event_id` cursor so host-originated events don't wake the host",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Take no special action \u2014 self-waking is harmless because the next render will correctly show no pending decisions",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should `provide_input` interaction with the wa...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:17:54.961523Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Are there host-side consumers of `get_status` besides the SDLC skill's Phase 3 / Phase S5 monitor loop that should also benefit from event-driven wake (e.g. babysit-pr, agent-diagnose, external tools)? If so, does that push us toward Option B (retrofit) instead of Option A (sibling tool)?",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "What is the expected concurrency load? Specifically: how many host sessions per orchestrator in production, and does the current EGG_ORCH_WAITRESS_THREADS=16 budget accommodate one long-poll per host session on top of per-agent waits?",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "Should `wait_for_status_change` also be available as an in-process SDK MCP tool (see PR #1920) as well as the streamable-HTTP MCP server, or only the latter?",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "Is the 60-second liveness-floor constraint from the issue body literal (must guarantee a return at most every 60s of wall-clock time regardless of events) or aspirational (cap any single call at 25s and rely on loop composition to bound aggregate quiet time)?",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "Should the new wait path emit its own metric (parallel to `egg_inflight_long_polls`) so operators can distinguish host-side waits from sandbox-side waits when investigating a saturated Waitress thread pool?",
+            "answer": null
+          },
+          {
+            "id": "Q6",
+            "question": "Are there known upstream plans or timelines to raise the streamable-HTTP MCP client timeout (anthropics/claude-code#20335)? If it lifts within the next quarter, the 25s cap becomes moot and the design may want to accommodate that.",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 6 question(s)",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
   "pr": null,
-  "feedback": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Are there host-side consumers of `get_status` besides the SDLC skill's Phase 3 / Phase S5 monitor loop that should also benefit from event-driven wake (e.g. babysit-pr, agent-diagnose, external tools)? If so, does that push us toward Option B (retrofit) instead of Option A (sibling tool)?",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "What is the expected concurrency load? Specifically: how many host sessions per orchestrator in production, and does the current EGG_ORCH_WAITRESS_THREADS=16 budget accommodate one long-poll per host session on top of per-agent waits?",
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "question": "Should `wait_for_status_change` also be available as an in-process SDK MCP tool (see PR #1920) as well as the streamable-HTTP MCP server, or only the latter?",
+        "answer": null
+      },
+      {
+        "id": "Q4",
+        "question": "Is the 60-second liveness-floor constraint from the issue body literal (must guarantee a return at most every 60s of wall-clock time regardless of events) or aspirational (cap any single call at 25s and rely on loop composition to bound aggregate quiet time)?",
+        "answer": null
+      },
+      {
+        "id": "Q5",
+        "question": "Should the new wait path emit its own metric (parallel to `egg_inflight_long_polls`) so operators can distinguish host-side waits from sandbox-side waits when investigating a saturated Waitress thread pool?",
+        "answer": null
+      },
+      {
+        "id": "Q6",
+        "question": "Are there known upstream plans or timelines to raise the streamable-HTTP MCP client timeout (anthropics/claude-code#20335)? If it lifts within the next quarter, the 25s cap becomes moot and the design may want to accommodate that.",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
   "phase_configs": null,
   "agent_executions": []
 }
