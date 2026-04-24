@@ -268,10 +268,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-7",
+      "question": "Should subagent delegation by reviewers be opt-in, always-on, or threshold-gated?",
+      "context": "Open contract question decision-6, registered by an agent during the refine phase.",
+      "options": [
+        "Always-on for reviewer_code (pay the latency/cost always)",
+        "Threshold-gated by PR size (e.g., >10 changed files OR >1000 LOC triggers fan-out)",
+        "Opt-in via a plan-phase flag set by the architect for complex PRs",
+        "Heuristic: the parent reviewer decides during its high-level pass",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T19:59:30.590079Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T19:45:30.059639Z",
-  "updated_at": "2026-04-24T19:59:30.550704Z",
+  "updated_at": "2026-04-24T19:59:30.611462Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -285,6 +305,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 17,
+  "version": 18,
   "jira_ticket": null
 }
