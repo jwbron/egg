@@ -39,10 +39,9 @@ on:
         type: string
         default: "jwbron/egg/action@main"
       authorized_users:
-        description: 'Comma-separated list of GitHub usernames authorized to trigger the bot (via review or @mention)'
-        required: false
+        description: 'Comma-separated list of GitHub usernames authorized to trigger the bot (via review or @mention). Required — there is no default.'
+        required: true
         type: string
-        default: "jwbron"
       reviewer_username:
         description: 'GitHub username of the reviewer bot (for review trigger detection)'
         required: false
@@ -88,9 +87,18 @@ jobs:
     steps:
       - name: Validate required repository variables
         run: |
+          missing=()
           if [[ -z "${{ vars.EGG_BOT_USERNAME }}" ]]; then
-            echo "::error::Required repository variable 'EGG_BOT_USERNAME' is not set"
-            echo "::error::Set it in Settings > Secrets and variables > Actions > Variables"
+            missing+=("EGG_BOT_USERNAME")
+          fi
+          if [[ -z "${{ vars.EGG_AUTHORIZED_USERS }}" ]]; then
+            missing+=("EGG_AUTHORIZED_USERS")
+          fi
+          if (( ${#missing[@]} > 0 )); then
+            for var in "${missing[@]}"; do
+              echo "::error::Required repository variable '$var' is not set"
+            done
+            echo "::error::Set them in Settings > Secrets and variables > Actions > Variables"
             exit 1
           fi
           echo "All required repository variables are configured"
@@ -120,12 +128,12 @@ jobs:
               echo "bot_username=${{ inputs.bot_username }}"
               echo "branch_prefix=${{ inputs.branch_prefix }}"
               echo "reviewer_username=${{ inputs.reviewer_username || '' }}"
-              echo "authorized_users=${{ inputs.authorized_users || 'jwbron' }}"
+              echo "authorized_users=${{ inputs.authorized_users }}"
             else
               echo "bot_username=${{ vars.EGG_BOT_USERNAME }}"
               echo "branch_prefix=${{ vars.EGG_BRANCH_PREFIX }}"
               echo "reviewer_username=${{ vars.EGG_REVIEWER_USERNAME || '' }}"
-              echo "authorized_users=${{ vars.EGG_AUTHORIZED_USERS || 'jwbron' }}"
+              echo "authorized_users=${{ vars.EGG_AUTHORIZED_USERS }}"
             fi
             echo "max_feedback_rounds=${{ inputs.max_feedback_rounds || '5' }}"
 

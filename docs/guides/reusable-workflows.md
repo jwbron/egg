@@ -120,7 +120,7 @@ jobs:
 | `bot_username` | GitHub username of your bot | Yes |
 | `branch_prefix` | Prefix for bot-owned branches | Yes |
 | `action_ref` | Reference to egg action (documentation only; see note) | No |
-| `authorized_users` | Comma-separated list of authorized users | No (default: `jwbron`) |
+| `authorized_users` | Comma-separated list of authorized users (review-feedback workflow only) | Yes (no default) |
 | `timeout` | Timeout in minutes | No (varies by workflow) |
 
 ## Repository Variables
@@ -131,20 +131,14 @@ jobs:
 |----------|---------|---------|
 | `EGG_BOT_USERNAME` | Bot's GitHub username | `james-in-a-box[bot]` |
 | `EGG_BRANCH_PREFIX` | Branch prefix for bot-owned branches | `egg` |
-
-**OPTIONAL**: Additional variables for customization:
-
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `EGG_AUTHORIZED_USERS` | Comma-separated list of users authorized to trigger review feedback | `jwbron` |
+| `EGG_AUTHORIZED_USERS` | Comma-separated list of users authorized to trigger review feedback via reviews or @mentions | `alice,bob` |
 
 ### Setting Up Repository Variables
 
 1. Go to your repository's **Settings** → **Secrets and variables** → **Actions**
 2. Click the **Variables** tab
 3. Click **New repository variable**
-4. Add required variables (`EGG_BOT_USERNAME` and `EGG_BRANCH_PREFIX`)
-5. Optionally add `EGG_AUTHORIZED_USERS` to control who can trigger feedback via reviews or @mentions
+4. Add the required variables (`EGG_BOT_USERNAME`, `EGG_BRANCH_PREFIX`, `EGG_AUTHORIZED_USERS`)
 
 **Note**: Workflows will fail with a validation error if required variables are not set.
 
