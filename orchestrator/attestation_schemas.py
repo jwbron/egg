@@ -160,6 +160,7 @@ class ReviewPayload(BaseModel):
     risk_considered: str = Field(default="", description="One risk considered")
     pre_merge_condition: str = Field(
         default="",
+        max_length=1000,
         description=(
             "Structured obligation that must be performed by a human before "
             "merging the PR (issue #1998). Only valid alongside an ACK verdict "

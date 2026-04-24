@@ -5910,14 +5910,14 @@ def _build_pre_merge_obligations_section(pipeline_id: str) -> str:
     try:
         from peer_consensus import get_peer_consensus_tracker
     except ImportError:
-        return ""
+        from ..peer_consensus import get_peer_consensus_tracker  # type: ignore[import-not-found]
     tracker = get_peer_consensus_tracker(pipeline_id)
     if tracker is None:
         return ""
     try:
         conditions = tracker.get_pre_merge_conditions()
     except Exception as e:  # defensive — never block PR creation on this
-        logger.debug(
+        logger.warning(
             "Failed to read pre-merge conditions from tracker",
             pipeline_id=pipeline_id,
             error=str(e),
@@ -5946,6 +5946,10 @@ def _build_pre_merge_obligations_section(pipeline_id: str) -> str:
         lines.append(f"- **{reviewer}** — {first}")
         for extra in rest:
             lines.append(f"  {extra}")
+    # If every condition was whitespace-only, no bullets were added — return
+    # empty to avoid rendering a header with zero items (#1998 review).
+    if len(lines) == 4:
+        return ""
     return "\n".join(lines)
 
 
@@ -7032,7 +7036,7 @@ def _build_brc_preamble(
                 '   egg-orch consensus ack <role> --files-reviewed "f1" '
                 '--reason "Code is correct but …" '
                 '--pre-merge-condition "A human must `git mv legacy/x '
-                'new/x` before merging — agents cannot push renames through "\n'
+                'new/x` before merging — agents cannot push renames through"\n'
                 "   ```\n"
                 "\n"
                 "   `--reason` must be ≥50 chars of substantive content. "
