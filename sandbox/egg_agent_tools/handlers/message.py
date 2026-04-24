@@ -194,7 +194,7 @@ def message_wait_loop(req: dict[str, Any]) -> dict[str, Any]:
         # (empty stream) leaves ``inner["since"]`` unchanged so we keep
         # whatever cursor the caller originally passed in, if any.
         next_cursor = resp.get("cursor")
-        if next_cursor:
+        if next_cursor is not None:
             inner["since"] = next_cursor
         if resp.get("matched"):
             resp_out = dict(resp)
