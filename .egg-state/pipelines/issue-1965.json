@@ -342,10 +342,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-24T19:59:30.804727Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-24T20:17:51.972256Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Other: Use the Claude Agent SDK's built-in subagent Task tool — already available to reviewer_code today. shared/egg_agent/client.py:167 only blocks WebFetch/WebSearch (private mode); the SDK's subagent Task tool is not on disallowed_tools and does not require any sandbox registry entry. This is primarily a PROMPT CHANGE: teach reviewer_code to spawn SDK subagents partitioned by the plan's subsystem decomposition when the gating threshold (decision-7) triggers. NO new MCP verb, NO new orchestrator-side routing, NO sandbox tool-registry additions, NO allow-list additions. Correspondingly, complexity is LOW, not HIGH as the refine analysis asserts — the analysis's framing that spawning subagents requires new infrastructure is incorrect.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -446,7 +446,7 @@
     }
   ],
   "created_at": "2026-04-24T19:45:30.059639Z",
-  "updated_at": "2026-04-24T20:17:51.198239Z",
+  "updated_at": "2026-04-24T20:17:52.007652Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -460,6 +460,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 30,
+  "version": 31,
   "jira_ticket": null
 }
