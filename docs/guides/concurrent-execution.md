@@ -345,6 +345,14 @@ Each agent tracks two state machines (producer and reviewer) independently:
 >
 > **Note — Reviewer `pending_acks`:** Reviewers can also receive exit code 2 from `confirmed` when they have stale ACKs (e.g., an ACK recorded before the producer proposed) **or unresolved NACKs** (a NACK issued against a producer that has not yet re-proposed). In the stale-ACK case, the reviewer must re-ACK the listed producers at their current proposal version before confirming. In the unresolved-NACK case, the reviewer must wait for the NACKed producer to re-propose, then re-review and ACK/NACK the new version before confirming.
 
+### Reviewer verdict variants
+
+A reviewer has three outcomes on a proposal:
+
+- **ACK** — proposal is correct as-is; ready to merge.
+- **NACK** — proposal is wrong; producer must iterate before merge.
+- **Conditional ACK** — proposal is correct but requires a specific human-only action *at merge time* (e.g. a `git mv`, a cross-repo config flip). Pass `--pre-merge-condition "..."` on `egg-orch consensus ack`; the condition is persisted on the approval-matrix edge, scoped to the current proposal version, surfaced in `egg-orch consensus status`, and rendered in a **Pre-merge Obligations** section on the auto-created PR body so the merger cannot skim past it. Not a soft NACK — if the agents can address the issue themselves, NACK instead. See the [Conditional ACK reference](../reference/conditional-ack.md).
+
 ### Pre-Proposal ACK Protection
 
 When agents work at different speeds, a faster reviewer may ACK a producer before the producer has submitted its proposal. The BRC protocol handles this automatically:

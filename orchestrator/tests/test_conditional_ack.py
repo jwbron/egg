@@ -269,6 +269,57 @@ class TestTrackerCondition:
         assert tracker.get_pre_merge_conditions() == []
 
 
+# --- evaluate() surfaces conditions ----------------------------------------
+
+
+class TestEvaluateSurfacesConditions:
+    """``tracker.evaluate()`` must include ``pre_merge_conditions`` so the
+    status endpoint (and CLI renderer) can show them while the pipeline is
+    still live (#2006)."""
+
+    def test_evaluate_includes_conditions_when_present(self, matrix_graph):
+        tracker = PeerConsensusTracker("pid-eval-1", matrix_graph, cooldown_seconds=0)
+        tracker.register_agent("coder")
+        tracker.register_agent("reviewer_code")
+        tracker.register_agent("reviewer_contract")
+        tracker.handle_propose(
+            "coder",
+            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc"},
+        )
+        tracker.handle_ack(
+            "reviewer_code",
+            "coder",
+            {
+                "artifact_references": ["src/a.py"],
+                "pre_merge_condition": "git mv legacy/x new/x",
+            },
+        )
+        state = tracker.evaluate()
+        assert "pre_merge_conditions" in state
+        conds = state["pre_merge_conditions"]
+        assert len(conds) == 1
+        assert conds[0]["reviewer"] == "reviewer_code"
+        assert conds[0]["producer"] == "coder"
+        assert conds[0]["condition"] == "git mv legacy/x new/x"
+
+    def test_evaluate_empty_list_when_no_conditions(self, matrix_graph):
+        tracker = PeerConsensusTracker("pid-eval-2", matrix_graph, cooldown_seconds=0)
+        tracker.register_agent("coder")
+        tracker.register_agent("reviewer_code")
+        tracker.register_agent("reviewer_contract")
+        tracker.handle_propose(
+            "coder",
+            {"summary": "impl", "artifacts": ["src/a.py"], "commit_sha": "abc"},
+        )
+        tracker.handle_ack(
+            "reviewer_code",
+            "coder",
+            {"artifact_references": ["src/a.py"]},
+        )
+        state = tracker.evaluate()
+        assert state["pre_merge_conditions"] == []
+
+
 # --- PR body rendering -----------------------------------------------------
 
 
