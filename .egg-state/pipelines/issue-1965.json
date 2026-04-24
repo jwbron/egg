@@ -228,10 +228,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Should the pipeline forbid conditional ACKs that defer fixes to human merge-time action (the 'git mv at merge' pattern seen in #1556)?",
+      "context": "Open contract question decision-4, registered by an agent during the refine phase.",
+      "options": [
+        "Yes — all fixes must land in-pipeline; no deferred merge-time actions",
+        "Yes, but allow a machine-readable pre_merge_actions contract section for genuine infrastructure blockers",
+        "No — keep conditional ACKs but require them to be recorded on the PR body",
+        "No change — conditional ACKs are working as intended",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T19:59:30.464175Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T19:45:30.059639Z",
-  "updated_at": "2026-04-24T19:59:30.424736Z",
+  "updated_at": "2026-04-24T19:59:30.484991Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -245,6 +265,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 15,
+  "version": 16,
   "jira_ticket": null
 }
