@@ -355,6 +355,10 @@ class TestRunAgentAsync:
             assert len(init_calls) == 1
             assert init_calls[0].kwargs["cwd"] == os.getcwd()
 
+            # Verify cwd on the options object actually passed to query()
+            options = mock_query.call_args.kwargs["options"]
+            assert options.cwd is None  # SDK defaults to os.getcwd()
+
     @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
     def test_init_log_cwd_explicit(self, mock_query):
         """Test that cwd uses the provided value when passed explicitly."""
@@ -368,6 +372,10 @@ class TestRunAgentAsync:
             ]
             assert len(init_calls) == 1
             assert init_calls[0].kwargs["cwd"] == "/tmp/test-dir"
+
+            # Verify cwd on the options object actually passed to query()
+            options = mock_query.call_args.kwargs["options"]
+            assert options.cwd == "/tmp/test-dir"
 
     @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
     def test_init_log_cwd_falls_back_to_egg_repo_path(self, mock_query):
@@ -386,6 +394,10 @@ class TestRunAgentAsync:
             assert len(init_calls) == 1
             assert init_calls[0].kwargs["cwd"] == "/home/egg/repos/myrepo"
 
+            # Verify cwd on the options object actually passed to query()
+            options = mock_query.call_args.kwargs["options"]
+            assert options.cwd == "/home/egg/repos/myrepo"
+
     @patch("claude_agent_sdk.query", side_effect=_mock_query_success)
     def test_explicit_cwd_wins_over_egg_repo_path(self, mock_query):
         """Explicit cwd argument must take precedence over EGG_REPO_PATH."""
@@ -402,6 +414,10 @@ class TestRunAgentAsync:
             ]
             assert len(init_calls) == 1
             assert init_calls[0].kwargs["cwd"] == "/tmp/explicit"
+
+            # Verify cwd on the options object actually passed to query()
+            options = mock_query.call_args.kwargs["options"]
+            assert options.cwd == "/tmp/explicit"
 
     @patch("claude_agent_sdk.query", side_effect=_mock_query_error)
     def test_structured_logging_on_error(self, mock_query):

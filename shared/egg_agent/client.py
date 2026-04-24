@@ -99,7 +99,7 @@ async def run_agent_async(
     # Sandbox agents start at HOME (/home/egg) while the repo lives at
     # /home/egg/repos/<repo> (EGG_REPO_PATH).  Defaulting to EGG_REPO_PATH
     # lands the agent in the repo on its first tool call.  See #1993.
-    resolved_cwd: str | None = str(cwd) if cwd else os.environ.get("EGG_REPO_PATH")
+    resolved_cwd: str | None = str(cwd) if cwd else (os.environ.get("EGG_REPO_PATH") or None)
 
     # --- Harness selection (opt-in via EGG_HARNESS env var) ---
     harness = os.environ.get("EGG_HARNESS", "claude-sdk")
