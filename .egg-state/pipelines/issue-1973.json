@@ -188,10 +188,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "CI integration: how should CI `.github/workflows/test.yml` interact with the new changeset-aware behavior, given CI already enforces `--cov-fail-under=80` via `PYTEST_ARGS`?",
+      "context": "Open contract question decision-2, registered by an agent during the refine phase.",
+      "options": [
+        "Switch CI to `make test-all` — preserves the 80% coverage gate as-is; `make test` stays the agent/dev fast path. (Recommended)",
+        "Keep CI on `make test`, and have `make test` auto-degrade to a full run whenever `--cov` appears in `PYTEST_ARGS` (coverage-aware fallback)",
+        "Keep CI on `make test` with narrowed selection; drop `--cov-fail-under=80` on PR runs and enforce it only on `main` nightly / merge-queue",
+        "Keep CI on `make test` with narrowed selection; keep coverage gate but scope it to changed files only (`--cov` on selected dirs)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T20:10:43.027827Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T19:39:48.417158Z",
-  "updated_at": "2026-04-24T20:10:42.991854Z",
+  "updated_at": "2026-04-24T20:10:43.048433Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -205,6 +225,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 13,
+  "version": 14,
   "jira_ticket": null
 }
