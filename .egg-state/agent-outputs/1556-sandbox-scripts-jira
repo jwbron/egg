@@ -1,0 +1,472 @@
+#!/bin/bash
+#
+# Jira wrapper for egg container.
+# Routes Jira REST calls through the gateway sidecar — credentials live on
+# the gateway, never in the sandbox.
+#
+# Usage:
+#   jira ticket get <KEY> [--fields f1,f2,...]
+#   jira ticket comments <KEY>
+#   jira search '<JQL>' [--fields f1,...] [--max-results N] [--next-page-token TOKEN]
+#   jira execute <METHOD> <PATH> [--query k=v,...] [--body-file PATH]
+#
+# Examples:
+#   jira ticket get "$EGG_JIRA_TICKET"
+#   jira search 'project = ENG AND status = Open' --max-results 25
+#   jira ticket comments FOO-123
+#   jira execute GET project/FOO
+#
+# The gateway enforces:
+#   - private network mode (fails closed in public mode)
+#   - Jira project allowlist (config/context-filters.yaml: jira.projects)
+#   - method/path allowlist — GET only in v1, write verbs permanently denied
+#
+# Security: fails closed if the gateway is unreachable.
+#
+
+set -u
+
+if [ -z "${GATEWAY_URL:-}" ]; then
+    echo "ERROR: GATEWAY_URL environment variable is not set." >&2
+    echo "This variable must be set by the container launcher." >&2
+    echo "If running manually, set GATEWAY_URL=http://egg-gateway:<port>" >&2
+    exit 1
+fi
+
+# Session token for per-container authentication (required).
+EGG_SESSION_TOKEN="${EGG_SESSION_TOKEN:-}"
+
+show_no_gateway_message() {
+    cat >&2 << 'EOF'
+
+================================================================================
+  GATEWAY SIDECAR NOT AVAILABLE
+================================================================================
+
+Cannot run jira command: the gateway sidecar is required but not reachable.
+
+The gateway holds Atlassian credentials and enforces the project allowlist.
+Without it, Jira operations are not allowed.
+
+Please ensure:
+  1. Gateway sidecar is running on the host.
+  2. The container can reach the gateway:
+       curl "$GATEWAY_URL/api/v1/health"
+
+================================================================================
+EOF
+    return 1
+}
+
+get_gateway_auth() {
+    if [ -n "$EGG_SESSION_TOKEN" ]; then
+        echo "$EGG_SESSION_TOKEN"
+        return 0
+    fi
+    echo ""
+}
+
+check_gateway_available() {
+    if command -v curl >/dev/null 2>&1; then
+        curl -s --connect-timeout 2 "${GATEWAY_URL}/api/v1/health" >/dev/null 2>&1
+        return $?
+    fi
+    return 1
+}
+
+usage() {
+    cat >&2 << 'EOF'
+Usage:
+  jira ticket get <KEY> [--fields f1,f2,...]
+  jira ticket comments <KEY>
+  jira search '<JQL>' [--fields f1,...] [--max-results N] [--next-page-token TOK]
+  jira execute <METHOD> <PATH> [--query k=v,...] [--body-file PATH]
+EOF
+}
+
+# -----------------------------------------------------------------------------
+# call_gateway <endpoint> <json-payload>
+#
+# Posts to the gateway with the session bearer, prints the ``data`` subtree on
+# 2xx and an error envelope on non-2xx.  Exit code matches HTTP success / fail.
+# -----------------------------------------------------------------------------
+call_gateway() {
+    local endpoint="$1"
+    local payload="$2"
+
+    local secret
+    secret=$(get_gateway_auth)
+    if [ -z "$secret" ]; then
+        echo "ERROR: EGG_SESSION_TOKEN not set. Session required for gateway access" >&2
+        return 1
+    fi
+
+    local tmpfile curl_errfile
+    tmpfile=$(mktemp)
+    curl_errfile=$(mktemp)
+    trap 'rm -f "$tmpfile" "$curl_errfile"' EXIT
+
+    local http_code
+    http_code=$(curl -s -w "%{http_code}" \
+        -X POST \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $secret" \
+        -d "$payload" \
+        -o "$tmpfile" \
+        "${GATEWAY_URL}${endpoint}" 2>"$curl_errfile")
+    local curl_exit=$?
+    if [ $curl_exit -ne 0 ]; then
+        echo "ERROR: Failed to connect to gateway (curl exit $curl_exit)" >&2
+        cat "$curl_errfile" >&2
+        rm -f "$tmpfile" "$curl_errfile"
+        trap - EXIT
+        return 1
+    fi
+    rm -f "$curl_errfile"
+
+    python3 -c "
+import json, sys
+
+try:
+    with open(sys.argv[1]) as f:
+        data = json.load(f)
+except (json.JSONDecodeError, OSError) as e:
+    print(f'ERROR: Failed to parse gateway response: {e}', file=sys.stderr)
+    sys.exit(1)
+
+http = sys.argv[2]
+body = data.get('data') if isinstance(data, dict) else None
+if isinstance(data, dict) and data.get('success'):
+    # Print the data subtree verbatim so scripted callers can jq across it.
+    json.dump(body if body is not None else {}, sys.stdout, indent=2)
+    sys.stdout.write('\n')
+    sys.exit(0)
+
+message = data.get('message', 'Unknown error') if isinstance(data, dict) else 'Unknown error'
+print(f'ERROR: {message}', file=sys.stderr)
+details = data.get('details') if isinstance(data, dict) else None
+if details:
+    print(json.dumps(details, indent=2), file=sys.stderr)
+if http == '401':
+    print('Authentication failed — check EGG_SESSION_TOKEN', file=sys.stderr)
+elif http == '403':
+    print('Request rejected by gateway policy (see details above)', file=sys.stderr)
+elif http == '429':
+    print('Rate limit exceeded — please wait before trying again', file=sys.stderr)
+elif http == '503':
+    print('Jira credentials not configured on the gateway', file=sys.stderr)
+sys.exit(1)
+" "$tmpfile" "$http_code"
+
+    local py_exit=$?
+    rm -f "$tmpfile"
+    trap - EXIT
+    return $py_exit
+}
+
+# -----------------------------------------------------------------------------
+# Verb handlers
+# -----------------------------------------------------------------------------
+
+handle_ticket_get() {
+    local key=""
+    local fields=""
+    local i=0
+    local args=("$@")
+    while [ $i -lt ${#args[@]} ]; do
+        case "${args[$i]}" in
+            --fields|-f)
+                ((i++))
+                fields="${args[$i]}"
+                ;;
+            --fields=*)
+                fields="${args[$i]#--fields=}"
+                ;;
+            -*)
+                echo "ERROR: Unknown flag '${args[$i]}' for 'jira ticket get'" >&2
+                return 1
+                ;;
+            *)
+                if [ -z "$key" ]; then
+                    key="${args[$i]}"
+                fi
+                ;;
+        esac
+        ((i++))
+    done
+
+    if [ -z "$key" ]; then
+        echo "ERROR: ticket key required (e.g. 'jira ticket get FOO-123')" >&2
+        return 1
+    fi
+
+    local payload
+    payload=$(python3 -c "
+import json, sys
+key = sys.argv[1]
+fields_raw = sys.argv[2]
+body = {'ticket': key}
+if fields_raw:
+    body['fields'] = [f.strip() for f in fields_raw.split(',') if f.strip()]
+print(json.dumps(body))
+" "$key" "$fields")
+
+    call_gateway "/api/v1/jira/ticket/get" "$payload"
+}
+
+handle_ticket_comments() {
+    local key=""
+    local args=("$@")
+    local i=0
+    while [ $i -lt ${#args[@]} ]; do
+        case "${args[$i]}" in
+            -*)
+                echo "ERROR: Unknown flag '${args[$i]}' for 'jira ticket comments'" >&2
+                return 1
+                ;;
+            *)
+                if [ -z "$key" ]; then
+                    key="${args[$i]}"
+                fi
+                ;;
+        esac
+        ((i++))
+    done
+
+    if [ -z "$key" ]; then
+        echo "ERROR: ticket key required (e.g. 'jira ticket comments FOO-123')" >&2
+        return 1
+    fi
+
+    local payload
+    payload=$(python3 -c "
+import json, sys
+print(json.dumps({'ticket': sys.argv[1]}))
+" "$key")
+
+    call_gateway "/api/v1/jira/ticket/comments" "$payload"
+}
+
+handle_search() {
+    local jql=""
+    local fields=""
+    local max_results=""
+    local next_page_token=""
+    local args=("$@")
+    local i=0
+    while [ $i -lt ${#args[@]} ]; do
+        case "${args[$i]}" in
+            --fields|-f)
+                ((i++))
+                fields="${args[$i]}"
+                ;;
+            --fields=*)
+                fields="${args[$i]#--fields=}"
+                ;;
+            --max-results|-n)
+                ((i++))
+                max_results="${args[$i]}"
+                ;;
+            --max-results=*)
+                max_results="${args[$i]#--max-results=}"
+                ;;
+            --next-page-token)
+                ((i++))
+                next_page_token="${args[$i]}"
+                ;;
+            --next-page-token=*)
+                next_page_token="${args[$i]#--next-page-token=}"
+                ;;
+            -*)
+                echo "ERROR: Unknown flag '${args[$i]}' for 'jira search'" >&2
+                return 1
+                ;;
+            *)
+                if [ -z "$jql" ]; then
+                    jql="${args[$i]}"
+                fi
+                ;;
+        esac
+        ((i++))
+    done
+
+    if [ -z "$jql" ]; then
+        echo "ERROR: JQL required (e.g. 'jira search \"project = ENG\"')" >&2
+        return 1
+    fi
+
+    local payload
+    payload=$(python3 -c "
+import json, sys
+jql = sys.argv[1]
+fields_raw = sys.argv[2]
+max_results_raw = sys.argv[3]
+next_page_token = sys.argv[4]
+body = {'jql': jql}
+if fields_raw:
+    body['fields'] = [f.strip() for f in fields_raw.split(',') if f.strip()]
+if max_results_raw:
+    try:
+        body['maxResults'] = int(max_results_raw)
+    except ValueError:
+        print(f'ERROR: --max-results must be an integer (got {max_results_raw!r})', file=sys.stderr)
+        sys.exit(2)
+if next_page_token:
+    body['nextPageToken'] = next_page_token
+print(json.dumps(body))
+" "$jql" "$fields" "$max_results" "$next_page_token")
+
+    local py_exit=$?
+    if [ $py_exit -ne 0 ]; then
+        return $py_exit
+    fi
+
+    call_gateway "/api/v1/jira/search" "$payload"
+}
+
+handle_execute() {
+    local method=""
+    local path=""
+    local query=""
+    local body_file=""
+    local args=("$@")
+    local i=0
+    while [ $i -lt ${#args[@]} ]; do
+        case "${args[$i]}" in
+            --query)
+                ((i++))
+                query="${args[$i]}"
+                ;;
+            --query=*)
+                query="${args[$i]#--query=}"
+                ;;
+            --body-file)
+                ((i++))
+                body_file="${args[$i]}"
+                ;;
+            --body-file=*)
+                body_file="${args[$i]#--body-file=}"
+                ;;
+            -*)
+                echo "ERROR: Unknown flag '${args[$i]}' for 'jira execute'" >&2
+                return 1
+                ;;
+            *)
+                if [ -z "$method" ]; then
+                    method="${args[$i]}"
+                elif [ -z "$path" ]; then
+                    path="${args[$i]}"
+                fi
+                ;;
+        esac
+        ((i++))
+    done
+
+    if [ -z "$method" ] || [ -z "$path" ]; then
+        echo "ERROR: method and path required (e.g. 'jira execute GET project/FOO')" >&2
+        return 1
+    fi
+
+    local body_content=""
+    if [ -n "$body_file" ]; then
+        if [ ! -f "$body_file" ]; then
+            echo "ERROR: Body file not found: $body_file" >&2
+            return 1
+        fi
+        body_content=$(cat "$body_file") || {
+            echo "ERROR: Failed to read $body_file" >&2
+            return 1
+        }
+    fi
+
+    local payload
+    payload=$(python3 -c "
+import json, sys
+method, path, query, body_raw = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+payload = {'method': method.upper(), 'path': path}
+if query:
+    qdict = {}
+    for part in query.split(','):
+        part = part.strip()
+        if not part:
+            continue
+        if '=' not in part:
+            print(f'ERROR: --query entry {part!r} missing =', file=sys.stderr)
+            sys.exit(2)
+        k, _, v = part.partition('=')
+        qdict[k.strip()] = v.strip()
+    if qdict:
+        payload['query'] = qdict
+if body_raw:
+    try:
+        payload['body'] = json.loads(body_raw)
+    except json.JSONDecodeError as e:
+        print(f'ERROR: --body-file must be JSON: {e}', file=sys.stderr)
+        sys.exit(2)
+print(json.dumps(payload))
+" "$method" "$path" "$query" "$body_content")
+
+    local py_exit=$?
+    if [ $py_exit -ne 0 ]; then
+        return $py_exit
+    fi
+
+    call_gateway "/api/v1/jira/execute" "$payload"
+}
+
+# -----------------------------------------------------------------------------
+# Entry point
+# -----------------------------------------------------------------------------
+
+if [ $# -lt 1 ]; then
+    usage
+    exit 1
+fi
+
+# Gateway is REQUIRED — fail closed if not reachable.
+if ! check_gateway_available; then
+    show_no_gateway_message
+    exit 1
+fi
+
+verb="$1"
+shift
+
+case "$verb" in
+    ticket)
+        sub="${1:-}"
+        if [ -z "$sub" ]; then
+            usage
+            exit 1
+        fi
+        shift
+        case "$sub" in
+            get)
+                handle_ticket_get "$@"
+                ;;
+            comments)
+                handle_ticket_comments "$@"
+                ;;
+            *)
+                echo "ERROR: Unknown 'jira ticket' sub-command: $sub" >&2
+                usage
+                exit 1
+                ;;
+        esac
+        ;;
+    search)
+        handle_search "$@"
+        ;;
+    execute)
+        handle_execute "$@"
+        ;;
+    -h|--help|help)
+        usage
+        exit 0
+        ;;
+    *)
+        echo "ERROR: Unknown 'jira' sub-command: $verb" >&2
+        usage
+        exit 1
+        ;;
+esac

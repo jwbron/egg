@@ -1,0 +1,24 @@
+# Context filters for external integrations.
+#
+# This file is read by the gateway sidecar to enforce allowlists on external
+# services (Jira, Confluence, etc.).  It lives in the same repo as the
+# gateway — edit it and either hot-reload with `POST /api/v1/config/reload`
+# or roll the gateway pod.
+#
+# SAFETY: every section fails closed.  Leaving a list empty (or this file
+# missing entirely) blocks every call until an operator adds entries.
+
+jira:
+  # Atlassian Jira project keys agents are allowed to read through the
+  # /api/v1/jira/* endpoints.  Project keys must match the Atlassian shape:
+  # uppercase letter followed by letters / digits / underscore (e.g. ENG,
+  # DEVOPS, MOBILE_V2).  Case-sensitive.
+  #
+  # Example:
+  #   projects: ["ENG", "DEVOPS"]
+  #
+  # Any ticket whose project is not on this list returns HTTP 403 with
+  # `jira_*_denied` in the gateway audit log.  JQL searches must be
+  # statically provable as scoped to the listed projects — see
+  # gateway/jira_search.py for the exact acceptance rules.
+  projects: []

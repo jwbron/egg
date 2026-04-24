@@ -336,6 +336,7 @@ class KubernetesSpawner:
         certs_volume: str | None = None,  # noqa: ARG002 — Docker-era compat
         spawn_max_retries: int = DEFAULT_SPAWN_MAX_RETRIES,
         spawn_retry_initial_backoff_seconds: float = (DEFAULT_SPAWN_RETRY_INITIAL_BACKOFF_SECONDS),
+        jira_ticket: str | None = None,
     ) -> SpawnedContainer:
         """Spawn a Kubernetes Job for an agent.
 
@@ -586,6 +587,7 @@ class KubernetesSpawner:
                     issue_number=issue_number,
                     claude_code_version=os.environ.get("CLAUDE_CODE_VERSION"),
                     branch=branch,
+                    jira_ticket=jira_ticket,
                     # Reuse the per-agent worktrees created above under
                     # agent_worktree_id.  Without this, the gateway would
                     # race to create a second worktree under job_name and

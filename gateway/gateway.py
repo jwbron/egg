@@ -4611,6 +4611,7 @@ def session_create() -> tuple[Response, int] | Response:
     agent_anchor_id = data.get("agent_anchor_id")  # Optional agent anchor ID
     claude_code_version = data.get("claude_code_version")  # Optional Claude Code version
     branch = data.get("branch")  # Optional git branch for non-pushing sessions
+    jira_ticket = data.get("jira_ticket")  # Optional Atlassian ticket key — advisory only
 
     # Validate required fields
     if not container_id:
@@ -4889,6 +4890,7 @@ def session_create() -> tuple[Response, int] | Response:
         agent_anchor_id=agent_anchor_id,
         claude_code_version=claude_code_version,
         branch=branch,
+        jira_ticket=jira_ticket if isinstance(jira_ticket, str) and jira_ticket else None,
     )
 
     # Pre-populate checkpoint context so non-pushing sessions (reviewers,

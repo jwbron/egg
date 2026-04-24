@@ -353,6 +353,7 @@ class GatewayClient:
         claude_code_version: str | None = None,
         branch: str | None = None,
         worktree_container_id: str | None = None,
+        jira_ticket: str | None = None,
     ) -> SessionInfo:
         """Register a session for a container.
 
@@ -415,6 +416,12 @@ class GatewayClient:
             request_data["branch"] = branch
         if worktree_container_id is not None:
             request_data["worktree_container_id"] = worktree_container_id
+        if jira_ticket:
+            # Advisory: gateway records it in the Session and echoes it in
+            # every /api/v1/jira/* audit line (issue #1556).  It does NOT gate
+            # any Jira call on its value — the project allowlist is the only
+            # hard boundary.
+            request_data["jira_ticket"] = jira_ticket
         result = self._make_request(
             "/api/v1/sessions/create",
             method="POST",

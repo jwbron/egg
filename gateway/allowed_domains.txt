@@ -28,6 +28,16 @@
 # - Force push blocking (bot cannot force push)
 # - Audit logging for all operations
 
+# IMPORTANT: *.atlassian.net / *.atlassian.com / api.atlassian.com are
+# intentionally NOT in this allowlist either (issue #1556).
+# Jira access MUST go through the gateway sidecar's /api/v1/jira/* endpoints
+# (see gateway/jira_client.py).  The gateway holds JIRA_API_TOKEN, enforces
+# the project allowlist (config/context-filters.yaml), and is the only
+# policy-aware surface that talks to Atlassian.  Adding an atlassian.*
+# entry here would let containers bypass the project allowlist via direct
+# REST calls — a test in gateway/tests/test_allowed_domains.py asserts that
+# no such entry is present.
+
 # Note: PyPI, npm, and other package managers are intentionally NOT included
 # All dependencies must be pre-installed in the Docker image
 # This prevents supply chain attacks and ensures reproducible builds

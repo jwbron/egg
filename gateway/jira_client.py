@@ -206,10 +206,12 @@ def validate_jira_api_path(path: str, method: str) -> tuple[bool, str]:
     # Reject path traversal and duplicate slashes.
     if ".." in path_no_query.split("/"):
         return False, "path contains '..' segment"
-    # Normalise leading/trailing slashes but catch duplicate internal slashes.
-    stripped = path_no_query.strip("/")
-    if "//" in stripped:
+    # Catch duplicate slashes BEFORE stripping leading/trailing ones so
+    # ``//issue/FOO-1`` — which would normalise to a valid path — is still
+    # rejected.
+    if "//" in path_no_query:
         return False, "path contains duplicate slashes"
+    stripped = path_no_query.strip("/")
     if not stripped:
         return False, "path is empty after normalisation"
 

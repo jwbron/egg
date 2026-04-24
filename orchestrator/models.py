@@ -662,6 +662,32 @@ class Pipeline(BaseModel):
         ge=1,
         description="Optimistic locking version (incremented on each save)",
     )
+    jira_ticket: str | None = Field(
+        default=None,
+        description="Optional Atlassian Jira ticket key (e.g. 'ENG-1234') the "
+        "pipeline is working against. Advisory only — exported to the sandbox "
+        "as EGG_JIRA_TICKET so agents can call `jira ticket get \"$EGG_JIRA_TICKET\"` "
+        "without hard-coding a key. The gateway does NOT use this for policy "
+        "gating; only the project allowlist in config/context-filters.yaml "
+        "can authorise a Jira call (issue #1556 refine decision #9).",
+    )
+
+    @field_validator("jira_ticket")
+    @classmethod
+    def _validate_jira_ticket(cls, v: str | None) -> str | None:
+        """Permit either None or a standard Atlassian ticket key."""
+        if v is None:
+            return None
+        if not isinstance(v, str):
+            raise ValueError("jira_ticket must be a string")
+        trimmed = v.strip()
+        if trimmed == "":
+            return None
+        if not re.fullmatch(r"[A-Z][A-Z0-9_]*-\d+", trimmed):
+            raise ValueError(
+                "jira_ticket must match '<PROJECT>-<number>' (e.g. 'ENG-1234')"
+            )
+        return trimmed
 
     def get_phase_execution(self, phase: PipelinePhase) -> PhaseExecution:
         """Get or create phase execution state."""
