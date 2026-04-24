@@ -651,7 +651,7 @@ A phase that registers agent-level `choice` / `feedback` decisions (via `registe
 
 2. **Wave 2 — deferred decisions.** On `approve`, the pipeline **stays in `awaiting_human`** and the orchestrator moves the deferred choice/feedback decisions into `pending_decisions`. They wake the next `wait_for_status_change` via `DECISION_CREATED`. The next phase does not start until all of them are resolved. On `request_changes` / `change_approach`, the deferred decisions are discarded with the phase reset — no Wave 2.
 
-**Operator messaging implications** — when narrating a `phase_gate` approval to the user, do not say "approves and moves to the next phase". The accurate framing is: "approves the draft; any deferred `<phase>`-phase decisions will surface next for you to resolve, then `<next phase>` starts." When the draft lists open questions that are not in the current `pending_decisions` snapshot, frame them as "these will surface as `<phase>`-phase decisions once the gate is approved", not "these will come up in the `<next phase>` phase".
+**Operator messaging implications** — when narrating a `phase_gate` approval to the user, do not say "approves and moves to the next phase". The accurate framing is: "approves the draft; if the phase registered deferred decisions, they will surface next for you to resolve before `<next phase>` starts." When the draft lists open questions that are not in the current `pending_decisions` snapshot, frame them as "these will surface as `<phase>`-phase decisions once the gate is approved", not "these will come up in the `<next phase>` phase".
 
 **Handling rules by `decision_type`**:
 
