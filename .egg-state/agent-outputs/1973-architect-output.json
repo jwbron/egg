@@ -1,0 +1,272 @@
+{
+  "issue": 1973,
+  "role": "architect",
+  "phase": "plan",
+  "summary": "Architecture for changeset-aware `make test` using a static reverse import graph (grimp) keyed off a per-branch gitignored last-known-good (LKG) sidecar. Computes the diff from the best available baseline (LKG if present and reachable, else `$(BASE_BRANCH)`), resolves changed .py files to grimp modules, takes the reverse transitive closure, intersects it with the test-file set, and invokes pytest with only those paths. A conservative fallback list forces the full suite when the changeset includes environment-impacting files, dynamic-import seed modules, non-Python files, an unresolvable baseline, or the canary cadence trips. `make test-all` runs the full suite and, on pass, writes the new LKG sha to `.egg-state/last-known-good/<branch>.sha`. CI switches to `make test-all` so coverage gating is unaffected.",
+  "scope_and_goals": {
+    "in_scope": [
+      "Unit-test targets only: the four dirs in `[tool.pytest.ini_options].testpaths` — `tests/`, `gateway/tests/`, `orchestrator/tests/`, `shared/tests/`",
+      "`make test` becomes changeset-aware (narrow)",
+      "`make test-all` = full suite (unconditional) + LKG advance on green",
+      "`make test-record-good` = manual LKG escape hatch",
+      "New scripts under `scripts/egg_test_selector/` (or similar) implementing the selection logic",
+      "CI workflow `.github/workflows/test.yml` switches `make test` → `make test-all` so the `--cov-fail-under=80` gate still evaluates against the full suite",
+      "`docs/guides/testing.md` documenting the new behavior + pointer from `CONTRIBUTING.md` + one-line summary in `make help`",
+      "Selection-decision logging: stderr line every invocation + machine-readable record at `.egg-state/selection/<sha>.json`",
+      "`--why <test>` introspection surfacing import chain from changed module → selected test",
+      "Canary mode: every 10th invocation on a branch falls back to full suite",
+      "Unit tests for the selection logic itself (synthetic repo fixture → expected selected set)"
+    ],
+    "out_of_scope": [
+      "`make test-integration`, `make test-e2e`, `make test-security` — stay full-suite only (Q10)",
+      "Pre-commit / lint behavior (issue says 'Pre-commit / lint changes' are out of scope)",
+      "pytest-testmon intra-file function narrowing — tracked as a follow-up (Q8)",
+      "Performance targets — no hard target for v1; instrument and log metrics, tune in a follow-up issue (Q1)",
+      "Merge-commit LKG rewriting — per decision-6 we accept that branches cut from main may inherit a stale-but-valid LKG (sidecar is gitignored so nothing actually leaks to `main`)",
+      "Graph cache — keep graph fresh-per-invocation for v1 (can add tree-hash cache later)"
+    ],
+    "success_criteria_mapping": {
+      "narrow_leaf_change": "AC covered by selector `changed .py → reverse closure → intersect with test-file set`; validated by synthetic-repo unit test asserting exactly-expected selected set.",
+      "shared_to_cross_package": "Covered naturally by the reverse closure over the full module graph.",
+      "fallback_triggers": "Single `FallbackTrigger` enum with a per-enum unit test; integration-level `test_selector_end_to_end.py` asserts full-suite fallback for each trigger.",
+      "test_all_updates_lkg": "`scripts/egg_test_selector/lkg.py:write_lkg(sha, branch)` is called from the `test-all` Make recipe only on exit code 0.",
+      "test_after_test_all_narrows_vs_lkg": "Baseline resolver returns LKG when present and ancestor of HEAD; integration test exercises test-all → edit → test cycle.",
+      "parallel_branches_isolated": "Sidecar is keyed by `<branch>` and gitignored → branches never see each other's LKG. Last-writer-wins on same-branch races (Q9) — acceptable.",
+      "merge_lkg_rewrite": "N/A under the sidecar model — the file is never checked in, so nothing leaks to main. Explicitly flipped from the issue proposal (decision-6 + decision-9).",
+      "lkg_invalidation_on_trigger_change": "Covered by the fallback trigger check running over `git diff $LKG..HEAD` (not just `$LKG...HEAD`) before accepting LKG as the baseline.",
+      "selection_logic_tested": "Selector ships with its own `tests/tools/test_selector.py` suite using a synthetic-repo fixture (see `integration_test_selector` section).",
+      "documented": "`docs/guides/testing.md` + make help + CONTRIBUTING pointer (Q11)."
+    }
+  },
+  "decisions_carried_forward_from_refine": {
+    "d1_lkg_update_mechanism": "Automatic write to sidecar after every green `make test-all`. `make test-record-good` = manual override.",
+    "d2_ci_integration": "Switch CI (`.github/workflows/test.yml`) to `make test-all`. `make test` stays the agent/dev fast path.",
+    "d3_selection_tool": "grimp (static reverse import graph, Rust-backed, `find_downstream_modules(..., as_package=False)`). Adds one dev dep.",
+    "d4_lkg_file_format": "Bare 40-char sha (one-line file).",
+    "d5_non_py_policy_v1": "Any non-.py change in the diff → full suite (simple, conservative).",
+    "d6_merge_behavior": "Don't rewrite LKG on merge — moot under sidecar (file is gitignored).",
+    "d7_full_suite_target_name": "`make test-all` (matches issue language; `make test` becomes changeset-aware).",
+    "d8_gateway_role_policy": "Gitignored sidecar sidesteps gateway push policy — no role boundary changes needed.",
+    "d9_lkg_storage_medium": "Non-tracked sidecar at `.egg-state/last-known-good/<branch>.sha`. Per-branch, gitignored.",
+    "d10_dynamic_import_handling": "Scan during graph construction — build a `dynamic_import_seeds` set (modules whose source contains `importlib.import_module`, `__import__`, `SourceFileLoader`, or known entry-point registration). Widen to full suite only when a changed module is in that seed set OR (conservatively) when any of those seeds is reachable from a changed module. Default v1: widen when changed ∩ seeds ≠ ∅.",
+    "d12_graph_granularity": "Module-level (grimp default).",
+    "q3_added_triggers": "Add `.python-version` to the fallback-trigger allowlist (alongside Makefile, pyproject.toml, uv.lock, workflow file, all conftest.py).",
+    "q4_canary_cadence": "Every 10th invocation on a branch forces the full suite. Counter kept at `.egg-state/selection/<branch>.counter`.",
+    "q5_pytest_args_interaction": "Default: intersect (narrow first, then apply `-k`/path args inside the narrowed set). Explicit path args (anything in `PYTEST_ARGS` that matches `^[a-zA-Z_0-9/.]+\\.py(::.*)?$` or starts with a pytest directory) → bypass narrowing entirely (dev override).",
+    "q6_why_flag": "Implement `scripts/egg_test_selector/__main__.py --why <test>` printing the import chain `changed_module → ... → test`.",
+    "q7_fallback_explain": "When falling back, print the specific trigger (`Falling back to full suite: Makefile changed`), not just `Falling back`.",
+    "q9_parallel": "Last-writer-wins on same-branch LKG races — no coordination.",
+    "q11_docs": "Create `docs/guides/testing.md`; link from `CONTRIBUTING.md`; add one-line summary to `make help`.",
+    "q12_partial_pass": "LKG is never updated on a partial-pass run — only `make test-all` (or a `make test` that degraded to full via fallback) writes LKG.",
+    "q13_readonly_roles": "Read-only agent phases (refiner, reviewer_*) always baseline on `$(BASE_BRANCH)`; they skip the LKG read too (keeps sidecar semantics simple and avoids cross-sandbox staleness).",
+    "q14_bootstrap": "Absent sidecar ⇒ no LKG, baseline on base branch. No bootstrap ceremony.",
+    "q15_logging": "stderr line always + JSON record at `.egg-state/selection/<sha>.json`.",
+    "q16_worktree_keying": "`<branch>` key is sufficient for v1."
+  },
+  "current_state_analysis": {
+    "test_target_today": "`test: export PYTHONPATH := shared:gateway:orchestrator; $(PYTEST) tests/ gateway/tests/ orchestrator/tests/ shared/tests/ -v -m 'not functional' $(PYTEST_ARGS)` — runs all four test roots unconditionally (Makefile:251-254).",
+    "ci_today": "`.github/workflows/test.yml` runs `make test PYTEST_ARGS='--cov=gateway --cov=shared --cov=sandbox --cov-report=term-missing --cov-fail-under=80'` with `actions/checkout@v4` (fetch-depth: 1).",
+    "pytest_config": "`pyproject.toml` [tool.pytest.ini_options].testpaths = [\"tests\", \"gateway/tests\", \"orchestrator/tests\", \"shared/tests\"]. test_* file convention; Test* classes; addopts = '-v --tb=short'; timeout=60.",
+    "sys_path_setup": "Two mechanisms in play: (a) Makefile `PYTHONPATH := shared:gateway:orchestrator` lets modules be imported unqualified (`import egg_harness`, `import gateway`, `import orchestrator`); (b) tests/conftest.py inserts PROJECT_ROOT/shared, /sandbox, /sandbox/tools, /config at the front of sys.path. Both mean grimp must be invoked with both package-root models resolvable.",
+    "test_file_count": "~415 test_*.py files; ~771 total .py files (per find counts).",
+    "conftest_layout": "Four top-level conftests (tests/, gateway/tests/, orchestrator/tests/, shared/tests/) + nested ones under tests/egg_config/, tests/functional/, tests/security/. Any conftest.py change forces full suite.",
+    "dynamic_import_inventory": "24 files contain `importlib`/`__import__`/`SourceFileLoader`/`entry_points`/`import_module`. Notable non-test source containers: gateway/gateway.py, gateway/git_client.py, gateway/commit_observer.py, gateway/filtered_push.py, sandbox/egg_lib/__init__.py, .github/scripts/checks/run_check.py. These form the v1 `dynamic_import_seeds` set.",
+    "existing_make_test_mutations": "scripts/check-*.py run under `make lint-custom`, not under test; they're irrelevant to this issue.",
+    "gitignore_today": ".egg-state/ is not in .gitignore today — it's tracked for drafts/contracts/reviews. The plan adds `.egg-state/last-known-good/`, `.egg-state/selection/` (and the per-branch counter) to .gitignore."
+  },
+  "proposed_architecture": {
+    "overview": "One new Python package `scripts/egg_test_selector/` implements baseline resolution, diff collection, grimp graph build, reverse-closure → test-set intersection, fallback triggers, canary counter, logging, and LKG sidecar read/write. The Makefile invokes it as a module (`$(PYTHON) -m egg_test_selector ...`) and feeds its stdout list of test paths to `pytest`.",
+    "directory_layout": {
+      "scripts/egg_test_selector/__init__.py": "Package init (empty or version).",
+      "scripts/egg_test_selector/__main__.py": "CLI entry. Subcommands: `select` (default, prints newline-separated test paths), `record-good <sha>` (manual LKG write), `why <test>` (introspection), `selftest` (run `tests/tools/test_selector.py` set). Non-zero exit only on bugs; graceful full-suite fallback is exit 0 plus stderr message.",
+      "scripts/egg_test_selector/baseline.py": "`resolve_baseline(repo: Path, head: str, readonly: bool=False) -> BaselineResult` — returns `(sha, source)` where source ∈ {LKG, BASE_BRANCH}. Order: if readonly → BASE_BRANCH. Else LKG sidecar → validate as 40-char sha + ancestor of HEAD + sha exists in object DB → use it; else BASE_BRANCH (default `origin/main`, overridable via `$BASE_BRANCH`).",
+      "scripts/egg_test_selector/diff.py": "`collect_changed_files(repo, baseline_sha, include_uncommitted=True) -> ChangedFiles` — runs `git diff --name-only <baseline>...HEAD` + `git diff --name-only HEAD` + `git ls-files --others --exclude-standard` (untracked).",
+      "scripts/egg_test_selector/graph.py": "`build_graph(repo_root) -> ImportGraph` — wraps `grimp.build_graph(*PACKAGES, include_external_packages=False, exclude_type_checking_imports=True, cache_dir=None)` where PACKAGES is the computed top-level module list (see `packages_for_grimp` section). Also scans every resolvable module for dynamic-import markers and returns `dynamic_import_seeds: set[str]`.",
+      "scripts/egg_test_selector/selector.py": "`select_tests(changed: ChangedFiles, graph: ImportGraph, seeds: set[str]) -> SelectionResult` — resolves each changed .py path to a dotted module name; if any can't be resolved → fallback. Computes `affected = changed ∪ reverse_closure(changed)` where reverse closure is `grimp.find_downstream_modules(m, as_package=False)` unioned over changed modules. If `affected ∩ seeds ≠ ∅` → widen to full (dynamic-import fallback). Intersects `affected` with the set of modules whose file is under the configured test dirs — those are the selected test files.",
+      "scripts/egg_test_selector/fallback.py": "`FallbackTrigger` enum + `check_fallbacks(changed, repo) -> FallbackTrigger | None`. Triggers (in order): EmptyDiff, UnresolvableBaseline, NonPythonChange, ConftestChanged, MakefileChanged, PyprojectChanged, UvLockChanged, PythonVersionChanged, TestWorkflowChanged, DynamicImportSeedChanged, PathUnmappable, LkgNotReachable, CanaryDue.",
+      "scripts/egg_test_selector/lkg.py": "`read_lkg(branch) -> sha | None`, `write_lkg(branch, sha) -> None`, `sidecar_path(branch) -> Path = .egg-state/last-known-good/<branch>.sha`. Branch sanitized for filesystem (slash → `__`). `write_lkg` is the only thing that touches the sidecar; Make recipe calls it via `scripts/egg_test_selector/__main__.py record-good --auto <sha>` from `test-all` on exit 0.",
+      "scripts/egg_test_selector/canary.py": "`bump_and_check(branch) -> bool` — increments `.egg-state/selection/<branch>.counter` atomically (write-then-rename); returns True if the new count % 10 == 0.",
+      "scripts/egg_test_selector/logging_.py": "`log_decision(result: SelectionResult, out_stderr: TextIO, json_path: Path) -> None` — writes human-readable stderr line + JSON file at `.egg-state/selection/<head_sha>.json`.",
+      "scripts/egg_test_selector/introspect.py": "`why(test_module, changed, graph) -> ImportChain` — for the `--why` CLI; uses `grimp.find_shortest_chain(importer=test_module, imported=changed_module)`.",
+      "tests/tools/test_selector_*.py": "Per-module unit tests + a `test_selector_end_to_end.py` that builds a synthetic git repo fixture (via `tmp_path` + `subprocess.run(['git', 'init'])`) with a minimal package tree, exercises each code path, and asserts the selected set is exactly what's expected."
+    },
+    "packages_for_grimp": "grimp needs top-level, import-resolvable package names. Given the repo layout + `PYTHONPATH=shared:gateway:orchestrator` and `sys.path.insert` in `tests/conftest.py` pulling in `sandbox/`, the module roster passed to `grimp.build_graph` is computed dynamically: walk the configured source roots (`gateway`, `orchestrator`, `sandbox`, `shared/egg_agent`, `shared/egg_anchor`, `shared/egg_config`, `shared/egg_container`, `shared/egg_contracts`, `shared/egg_git`, `shared/egg_harness`, `shared/egg_harness_integration`, `shared/egg_health`, `shared/egg_logging`, `shared/egg_orchestrator`, `shared/egg_restrictions`, `shared/prompts` if it has .py, `scripts/egg_test_selector`) and each of the four test roots (`tests`, `gateway.tests`, `orchestrator.tests`, `shared.tests`). Edge case: `tests/` is pyproject's root test dir and contains `tests.sandbox.*`, `tests.shared.*`, etc. — those are import-resolvable under the root `tests` package because `tests/__init__.py` exists. The selector has a `PACKAGES` registry in `graph.py` to keep this enumerated in one place, with a smoke test that verifies every `test_*.py` file is reachable in the resulting graph.",
+    "path_to_module_resolution": "`scripts/egg_test_selector/graph.py::resolve_path_to_module(path)` maps `shared/egg_harness/prompt.py` → `egg_harness.prompt`, `gateway/tests/test_gateway.py` → `gateway.tests.test_gateway`, `tests/sandbox/test_orch_client.py` → `tests.sandbox.test_orch_client`. If a changed .py path doesn't resolve under any configured root → `FallbackTrigger.PathUnmappable`.",
+    "algorithm": [
+      "1. Parse CLI args, load config (PYTEST_ARGS, BASE_BRANCH, role via EGG_AGENT_ROLE).",
+      "2. `canary.bump_and_check(branch)` — if due, record CanaryDue trigger for step 9.",
+      "3. If explicit path args detected in PYTEST_ARGS → emit 'bypass narrowing (explicit dev override)' and exit 0 with no stdout (Make falls through to full-suite `$PYTEST ... $PYTEST_ARGS`). Note: this path keeps all-test-paths in the Make command so pytest still sees the full testpaths set for -k filtering.",
+      "4. Resolve baseline (LKG if present & reachable & role is not read-only; else base branch).",
+      "5. Collect changed files (diff + uncommitted + untracked .py).",
+      "6. Run fallback checks. If triggered → print 'Falling back to full suite: <reason>' on stderr, write JSON record, emit ALL_TEST_PATHS on stdout, exit 0.",
+      "7. Build grimp graph + compute dynamic_import_seeds.",
+      "8. Resolve changed .py → modules. Any unresolvable → PathUnmappable fallback.",
+      "9. Compute reverse closure ∪ self, widen if seeds intersect, intersect with test-files-set.",
+      "10. Emit stderr summary + JSON record. Emit selected test paths on stdout (newline separated).",
+      "11. Caller (`make test` recipe) pipes stdout into pytest: `TESTS=$$($(PYTHON) -m egg_test_selector select); if [ -z \"$$TESTS\" ]; then echo 'no tests affected'; exit 0; fi; $(PYTEST) $$TESTS ...`."
+    ],
+    "make_recipe_shape": {
+      "test": "Resolve selector output; invoke pytest on that subset; do NOT write LKG. Narrowed behavior:\n\n```\ntest: export PYTHONPATH := shared:gateway:orchestrator\ntest: venv\n\t@echo \"==> Selecting tests from changeset...\"\n\t@TESTS=$$($(PYTHON) -m egg_test_selector select) || exit $$?; \\\n\t if [ -z \"$$TESTS\" ]; then \\\n\t   echo \"No tests affected by changeset.\"; exit 0; \\\n\t fi; \\\n\t $(PYTEST) $$TESTS -v -m \"not functional\" $(PYTEST_ARGS)\n```",
+      "test-all": "Run the full suite unconditionally; on pass (exit 0) advance LKG via the selector CLI:\n\n```\ntest-all: export PYTHONPATH := shared:gateway:orchestrator\ntest-all: venv\n\t@echo \"==> Running full unit-test suite...\"\n\t$(PYTEST) tests/ gateway/tests/ orchestrator/tests/ shared/tests/ -v -m \"not functional\" $(PYTEST_ARGS) && \\\n\t $(PYTHON) -m egg_test_selector record-good --auto $$(git rev-parse HEAD)\n```",
+      "test-record-good": "Explicit one-liner:\n\n```\ntest-record-good:\n\t$(PYTHON) -m egg_test_selector record-good $$(git rev-parse HEAD)\n```"
+    },
+    "ci_changes": ".github/workflows/test.yml: change `make test PYTEST_ARGS=\"...\"` → `make test-all PYTEST_ARGS=\"--cov=gateway --cov=shared --cov=sandbox --cov-report=term-missing --cov-fail-under=80\"`. No checkout depth changes required (decision-11).",
+    "gitignore_changes": "Append `.egg-state/last-known-good/`, `.egg-state/selection/` to .gitignore so the sidecar + selection logs + canary counter never enter git history. Explicit per the refine-phase sidecar decision (decision-9 + decision-8).",
+    "dependency_addition": "Add `grimp>=3.14,<4.0` to `[project.optional-dependencies].dev` in pyproject.toml. grimp 3.x is the current stable (Dec 2025 release), Rust-backed, and `find_downstream_modules(..., as_package=False)` is a stable public API.",
+    "role_awareness": "The selector consults `EGG_AGENT_ROLE` env var (set by the sandbox). For read-only roles (refiner, reviewer_*) it always uses base-branch baseline and skips both LKG reads and LKG writes. For other roles LKG is the preferred baseline.",
+    "logging_format": {
+      "stderr_example": "egg-test-selector: baseline=LKG(6cc0bf4) diff=4 files selected=12 tests full_suite=no fallback=none time=140ms",
+      "stderr_fallback_example": "egg-test-selector: baseline=BASE_BRANCH(origin/main) diff=57 files FALLBACK → full suite (reason=ConftestChanged path=gateway/tests/conftest.py)",
+      "json_schema": "{\"schema_version\": 1, \"head\": \"<40-char>\", \"baseline\": {\"sha\": \"<40-char>\", \"source\": \"LKG|BASE_BRANCH\"}, \"changed_files\": [...], \"changed_modules\": [...], \"selected_tests\": [...], \"full_suite\": bool, \"fallback_reason\": \"<enum-or-null>\", \"dynamic_import_seeds_hit\": [...], \"canary_fired\": bool, \"selection_ms\": int, \"branch\": \"<name>\"}",
+      "retention": "Selection JSON lives at `.egg-state/selection/<sha>.json` — last-writer-wins per HEAD sha; no pruning (gitignored). Stale ones accumulate only on the dev's working tree; rm -rf is the recovery."
+    }
+  },
+  "alternatives_considered": [
+    {
+      "name": "Approach A (chosen): grimp reverse import graph + sidecar LKG",
+      "description": "Static grimp graph, reverse closure, gitignored per-branch sidecar. No prior test run needed; deterministic and explainable.",
+      "pros": [
+        "Zero runtime state to seed — graph is fresh per invocation (Rust-backed grimp is fast enough; ~1s on repos this size)",
+        "Clean merge/rebase semantics: sidecar is gitignored, so main history is untouched",
+        "Explainable via `--why` (grimp exposes find_shortest_chain out of the box)",
+        "Handles shared/ → gateway/+orchestrator/+sandbox/ cross-package fan-out naturally",
+        "Adds just one dev dependency"
+      ],
+      "cons": [
+        "Blind to dynamic imports (mitigated by seed-set widen + conservative fallback)",
+        "No intra-file narrowing — selects whole test files not individual test functions (follow-up: pytest-testmon)",
+        "grimp requires all imported modules to be resolvable; mixed-package layout forces us to maintain the PACKAGES enumeration"
+      ]
+    },
+    {
+      "name": "Approach B: pytest-testmon coverage-based selection",
+      "description": "Instrument one full run with pytest-testmon; it records per-test coverage into `.testmondata`. Subsequent runs select tests whose coverage overlaps the diff.",
+      "pros": [
+        "Catches dynamic imports along executed paths",
+        "Intra-file narrowing for free",
+        "No import-graph maintenance"
+      ],
+      "cons": [
+        "Requires a prior full run to seed `.testmondata`; bootstrap pain",
+        "Known rough edges with pytest-cov (our CI runs with --cov); has historically produced stale selections",
+        "The `.testmondata` file is a large binary artifact — awkward for sidecar/sandbox semantics",
+        "Harder to explain when a test is selected (no shortest-chain equivalent)"
+      ],
+      "rationale_for_rejection": "Decision-3 already picked grimp. testmon stays a follow-up option (Q8)."
+    },
+    {
+      "name": "Approach C: Hand-curated dir → dir mapping (Airflow-style)",
+      "description": "Maintain a YAML map: `changes under gateway/policy.py → run gateway/tests/`. Zero graph dep; zero dynamic import risk.",
+      "pros": ["No new deps", "Fastest to run"],
+      "cons": [
+        "Coarse: would select whole gateway/tests/ for a one-liner in policy.py — fails the leaf-module acceptance criterion explicitly",
+        "Requires ongoing manual maintenance",
+        "Breaks silently when someone adds a new import"
+      ],
+      "rationale_for_rejection": "Does not meet the 'leaf module → just the tests that import it' acceptance criterion (decision-3)."
+    },
+    {
+      "name": "Approach D: hand-rolled ast-based reverse graph",
+      "description": "Write the ~300-line reverse-closure algorithm ourselves using stdlib `ast`.",
+      "pros": ["No new deps"],
+      "cons": [
+        "Reimplements grimp — including namespace-package handling, relative imports, TYPE_CHECKING guard skipping",
+        "More code to maintain; fewer eyes on edge cases"
+      ],
+      "rationale_for_rejection": "Decision-3 picked grimp. 'Don't write what you can `uv add`'."
+    }
+  ],
+  "key_files_and_components": {
+    "new_files": [
+      "scripts/egg_test_selector/__init__.py",
+      "scripts/egg_test_selector/__main__.py",
+      "scripts/egg_test_selector/baseline.py",
+      "scripts/egg_test_selector/diff.py",
+      "scripts/egg_test_selector/graph.py",
+      "scripts/egg_test_selector/selector.py",
+      "scripts/egg_test_selector/fallback.py",
+      "scripts/egg_test_selector/lkg.py",
+      "scripts/egg_test_selector/canary.py",
+      "scripts/egg_test_selector/logging_.py",
+      "scripts/egg_test_selector/introspect.py",
+      "tests/tools/test_selector_baseline.py",
+      "tests/tools/test_selector_diff.py",
+      "tests/tools/test_selector_graph.py",
+      "tests/tools/test_selector_selection.py",
+      "tests/tools/test_selector_fallback.py",
+      "tests/tools/test_selector_lkg.py",
+      "tests/tools/test_selector_canary.py",
+      "tests/tools/test_selector_logging.py",
+      "tests/tools/test_selector_end_to_end.py",
+      "docs/guides/testing.md"
+    ],
+    "modified_files": [
+      "Makefile (rewrite `test` target; add `test-all`, `test-record-good`; update `help`)",
+      "pyproject.toml (add grimp to [project.optional-dependencies].dev)",
+      "uv.lock (regen from pyproject)",
+      ".gitignore (append `.egg-state/last-known-good/`, `.egg-state/selection/`)",
+      ".github/workflows/test.yml (make test → make test-all)",
+      "CONTRIBUTING.md (link to docs/guides/testing.md; update `make test` description)"
+    ],
+    "untouched": [
+      "gateway/**, orchestrator/**, sandbox/**, shared/** (source code untouched)",
+      "integration_tests/** (out of scope — stays full-suite-only)",
+      "All other .github/workflows/* (only test.yml changes)"
+    ]
+  },
+  "constraints_and_dependencies": {
+    "external_deps": ["grimp>=3.14,<4.0 (new dev dep)"],
+    "python_version": "3.13+ (matches existing pyproject `requires-python = >=3.13`)",
+    "git_assumptions": [
+      "`origin/main` reachable locally when using base-branch baseline. In CI this is moot because CI uses `make test-all`; for local/sandbox the sandbox has origin/main fetched (it's the default BASE_BRANCH).",
+      "`git rev-parse HEAD`, `git merge-base`, `git cat-file -e <sha>` all work in the agent sandbox."
+    ],
+    "filesystem_assumptions": [
+      "`.egg-state/` is writable by the role (it already is — agents write drafts/reviews here).",
+      "`.egg-state/last-known-good/`, `.egg-state/selection/` directories auto-created by the selector (os.makedirs(..., exist_ok=True))."
+    ],
+    "gateway_policy": "None. Sidecar is gitignored so never pushed; no role-boundary changes required. Selector scripts live under `scripts/egg_test_selector/` which is writable by coder (and any other role that modifies scripts).",
+    "sandbox_compat": "Selector must run under the sandbox's Python. It uses stdlib + grimp only; no dependency on orchestrator/gateway runtime.",
+    "interaction_with_cov": "`make test` invocations that pass `PYTEST_ARGS='--cov=...'` will now compute coverage against a subset of the suite — that subset's coverage will legitimately be < 80%. The fix is already built into the plan: CI uses `make test-all` (decision-2). Local devs who want coverage should run `make test-all` explicitly; we document this in docs/guides/testing.md.",
+    "read_only_roles": "refiner + reviewer_* have `.egg-readonly` markers; selector detects EGG_AGENT_ROLE and falls back to base-branch baseline unconditionally for those roles (never reads LKG — keeps the sidecar a write-from-test-all-only artifact)."
+  },
+  "risks_to_hand_to_risk_analyst": [
+    "grimp fails to resolve some internal module (e.g., `shared/prompts` is not a proper Python package) → selection aborts. Mitigation: smoke-test in the selector's own unit tests that every test_*.py file is present in the graph.",
+    "Dynamic-import blind spot: plugin-registry modules that use `importlib.import_module` at runtime could be silently missed if their changed source isn't in the seed set AND the seed sweep doesn't catch the registration pattern. Mitigation: canary fallback every 10th run + conservative widen on seed-set-reachable diffs. Residual risk: a rare silent miss. Instrumented by JSON logs so we can post-mortem.",
+    "Slow selector startup: grimp rebuilds the graph per invocation. On the current repo (~770 .py files) this should be sub-second, but worth measuring. If it becomes a problem, add a tree-hash-keyed cache in a follow-up.",
+    "LKG sidecar race (two agents on same branch): last-writer-wins. Risk is benign (both are green shas) but could cause counter-intuitive baselining. Q9 accepted this explicitly.",
+    "Branch name with slashes (`egg/issue-1973-architect/work`) must map to a filesystem-safe sidecar name — escape `/` → `__`. Tested in test_selector_lkg.py.",
+    "PATH resolution for `$(PYTHON) -m egg_test_selector` requires `scripts/` to be on PYTHONPATH during `make test`. Because the Makefile already sets `PYTHONPATH := shared:gateway:orchestrator` on the test target, we extend it to include `scripts` too, OR install the selector as a script entry point via `pyproject.toml [project.scripts]`. Plan: add `scripts` to the existing PYTHONPATH line in the Makefile — simplest and consistent with how other scripts are invoked.",
+    "CI aggregate action: the `Test` workflow has three jobs (unit, security, aggregate). Changing `unit` to `make test-all` is orthogonal to `aggregate` — aggregate just reads `needs.unit.result`, so no impact.",
+    "Developer confusion if `make test` reports 'No tests affected' after a refactor that only touches whitespace — the stderr summary + `--why` affordance are the explicit mitigations. Worth calling out in docs/guides/testing.md.",
+    "Breakage in the test target itself while this feature is in flight: if `egg_test_selector` raises an unhandled exception, `make test` fails closed. Plan: wrap the CLI with a blanket try/except that logs the exception to stderr AND exits 0 with full-suite fallback. This means bugs in the selector never block development; the stderr message makes them visible.",
+    "`make test-all` wraps pytest with `&& record-good`. If pytest exits non-zero the LKG is not written (correct). If pytest exits 0 but record-good fails (e.g. .egg-state not writable), the test suite exit code is the OR of both — `make` will report failure even though tests passed. Acceptable: surfaces real problems; fix by fixing the environment."
+  ],
+  "open_questions_for_humans": [],
+  "notes_for_downstream_agents": {
+    "for_task_planner": "Suggested task breakdown (each task should have acceptance criteria and a test): (T1) scaffold scripts/egg_test_selector/ package with stubs + tests/tools/test_selector_*.py skeletons; (T2) implement baseline.py + test_selector_baseline.py; (T3) implement diff.py + test_selector_diff.py; (T4) implement graph.py + test_selector_graph.py including dynamic-import seed scan; (T5) implement selector.py + test_selector_selection.py; (T6) implement fallback.py with all triggers + test_selector_fallback.py; (T7) implement lkg.py + test_selector_lkg.py + canary.py + test_selector_canary.py; (T8) implement logging_.py + introspect.py + their unit tests; (T9) wire __main__.py CLI; (T10) add grimp to pyproject, update uv.lock, add gitignore lines; (T11) update Makefile (test, test-all, test-record-good, help); (T12) switch .github/workflows/test.yml to make test-all; (T13) author docs/guides/testing.md + CONTRIBUTING.md pointer; (T14) tests/tools/test_selector_end_to_end.py synthetic-repo integration test; (T15) CONTRIBUTING.md copy tweak; (T16) regression pass: `make test-all` green + manual exercise of `make test` on trivial + non-trivial diffs + `--why`. Target ordering: T1 → {T2, T3, T7} in parallel → T4 → {T5, T6} → T8 → T9 → T10 → T11 → T12 → T13 → T14 → T15 → T16.",
+    "for_risk_analyst": "Primary risks above; additional dimensions to consider: (a) grimp version pin tightness — 3.14 is new-ish; might we want to float on 3.x or pin to 3.14 exactly? (b) behavior under a shallow local clone — selector must fail gracefully; (c) behavior when BASE_BRANCH doesn't exist locally — same path as unresolvable baseline; (d) interaction with the `egg/` branch namespace and gateway branch-filtering; (e) what happens when `.egg-state/` is read-only (egg-readonly marker) — selector must still work (falls back to base branch + skips LKG write).",
+    "for_reviewer_plan": "Ensure the plan task list covers: sidecar path escaping for branch names with slashes; selector exception-swallowing semantics (full-suite fallback on crash); the exact PYTHONPATH extension in Makefile; CI workflow edit to use test-all; gitignore additions; the synthetic-repo end-to-end test is non-optional (acceptance criterion)."
+  },
+  "acceptance_criteria_proposal": [
+    "`make test` invoked on a branch that changed only `gateway/policy.py` selects only tests whose transitive reverse closure includes `gateway.policy` (per the synthetic-repo fixture, this is provably a strict subset of `gateway/tests/`).",
+    "`make test` invoked on a branch that changed a module in `shared/egg_harness/` selects tests from `gateway/tests/`, `orchestrator/tests/`, `shared/tests/` — wherever `egg_harness` is transitively imported.",
+    "Editing any of: Makefile, pyproject.toml, uv.lock, .python-version, .github/workflows/test.yml, any conftest.py, any dynamic-import seed module → stderr prints `Falling back to full suite: <specific trigger>` and runs the full suite.",
+    "`make test-all` always runs the full suite and — on exit 0 — writes `.egg-state/last-known-good/<branch>.sha` containing a 40-char sha matching `git rev-parse HEAD`.",
+    "`make test` after a successful `make test-all` + one-file edit uses LKG as the baseline (verified via stderr log line containing `baseline=LKG(<sha>)`) and selects only affected tests.",
+    "Two branches iterating in parallel on the same clone each have their own sidecar file and never interfere (verified in end-to-end test by creating two branches, running test-all on each, checking both sidecars exist independently).",
+    "LKG that points to a sha not reachable from HEAD (simulated by rebasing past it) → `Falling back to full suite: LkgNotReachable` on next `make test`.",
+    "LKG is invalidated (fallback to full suite + LKG not used as baseline this run) when a fallback-trigger file changed between LKG sha and HEAD.",
+    "`tests/tools/test_selector_*.py` exists and exercises each module + a synthetic-repo end-to-end scenario for all acceptance criteria.",
+    "`docs/guides/testing.md` exists; `CONTRIBUTING.md` links to it; `make help` mentions `make test-all` + `make test-record-good`.",
+    "Integration/E2E/security test targets are untouched.",
+    "CI workflow runs `make test-all` with the `--cov-fail-under=80` gate intact.",
+    "Every `make test` invocation writes `.egg-state/selection/<head-sha>.json` with the schema defined in `logging_format.json_schema`.",
+    "`make test PYTEST_ARGS='tests/test_python_syntax.py'` (explicit path in PYTEST_ARGS) bypasses narrowing — pytest sees the full testpaths set + user's -k/-path args, as it does today.",
+    "`.venv/bin/python -m egg_test_selector why tests/sandbox/test_output.py` prints a human-readable import chain when that test is currently in the selection set; prints a clear 'not selected' message otherwise.",
+    "Every 10th `make test` invocation on a given branch falls back to the full suite (stderr: `Falling back to full suite: CanaryDue`).",
+    "Selection JSON schema is stable across v1 (documented in `docs/guides/testing.md`) — downstream tooling can rely on it.",
+    "Read-only agent roles (refiner, reviewer_*) ignore LKG and always baseline on `$(BASE_BRANCH)`.",
+    "Selector exception-handles: a bug in the selector prints the traceback to stderr and falls back to full suite (exit code 0 from the selector; `make test` continues)."
+  ]
+}
