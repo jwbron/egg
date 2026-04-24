@@ -6,7 +6,7 @@
   "base_branch": null,
   "prompt": null,
   "status": "running",
-  "current_phase": "implement",
+  "current_phase": "pr",
   "config": {
     "auto_create_pr": true,
     "parallel_agents": true,
@@ -721,7 +721,7 @@
     }
   ],
   "created_at": "2026-04-23T22:57:38.750100Z",
-  "updated_at": "2026-04-24T01:03:10.407538Z",
+  "updated_at": "2026-04-24T01:03:50.127106Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -735,5 +735,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 51
+  "version": 52
 }
