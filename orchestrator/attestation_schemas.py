@@ -158,6 +158,18 @@ class ReviewPayload(BaseModel):
     )
     reason: str = Field(default="", description="Reason for verdict (required for NACK)")
     risk_considered: str = Field(default="", description="One risk considered")
+    pre_merge_condition: str = Field(
+        default="",
+        max_length=1000,
+        description=(
+            "Structured obligation that must be performed by a human before "
+            "merging the PR (issue #1998). Only valid alongside an ACK verdict "
+            "— reviewers issue a conditional ACK when the work is otherwise "
+            "correct but requires a merge-time human action the agents cannot "
+            "perform (e.g. a git mv, a config rotation). Empty string means "
+            "an unconditional ACK."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_artifact_references(self) -> "ReviewPayload":
@@ -173,6 +185,20 @@ class ReviewPayload(BaseModel):
         """Require reason for NACK verdicts."""
         if self.verdict == "NACK" and not self.reason:
             raise ValueError("NACK verdict must include a reason")
+        return self
+
+    @model_validator(mode="after")
+    def validate_condition_only_on_ack(self) -> "ReviewPayload":
+        """Reject a pre_merge_condition attached to a NACK.
+
+        A conditional NACK is nonsensical — NACK already blocks the producer,
+        so there's nothing for a human to approve or defer (#1998).
+        """
+        if self.pre_merge_condition and self.verdict != "ACK":
+            raise ValueError(
+                "pre_merge_condition is only valid on ACK verdicts (conditional ACK); "
+                "NACK already blocks the producer"
+            )
         return self
 
 

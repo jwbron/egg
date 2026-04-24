@@ -36,6 +36,9 @@ class ApprovalEntry:
     reason: str = ""  # Reason for NACK
     timestamp: datetime | None = None
     ack_commit_sha: str = ""  # Commit SHA at time of ACK (INV-6)
+    # Optional human-facing obligation attached to a conditional ACK (#1998).
+    # Empty string for unconditional ACKs. Cleared on NACK and on re-propose.
+    pre_merge_condition: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -48,6 +51,7 @@ class ApprovalEntry:
             "reason": self.reason,
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,
             "ack_commit_sha": self.ack_commit_sha,
+            "pre_merge_condition": self.pre_merge_condition,
         }
 
 
@@ -93,8 +97,16 @@ class ApprovalMatrix:
         version: int,
         artifact_refs: list[str] | None = None,
         commit_sha: str = "",
+        pre_merge_condition: str = "",
     ) -> ApprovalEntry:
-        """Record an ACK from a reviewer for a producer's proposal."""
+        """Record an ACK from a reviewer for a producer's proposal.
+
+        ``pre_merge_condition`` (optional, issue #1998) carries a human-facing
+        obligation attached to a conditional ACK — e.g. "a human must ``git mv
+        old/path new/path`` before merging". Empty string means an
+        unconditional ACK. The condition is scoped to this (reviewer, producer,
+        version) edge and is cleared on NACK and re-propose.
+        """
         key = (reviewer, producer)
         entry = self._entries.get(key)
         if entry is None:
@@ -109,6 +121,7 @@ class ApprovalMatrix:
         entry.reason = ""
         entry.timestamp = datetime.now(UTC)
         entry.ack_commit_sha = commit_sha
+        entry.pre_merge_condition = (pre_merge_condition or "").strip()
         return entry
 
     def record_nack(
@@ -131,6 +144,9 @@ class ApprovalMatrix:
         entry.nack_artifact_refs = artifact_refs or []
         entry.reason = reason
         entry.timestamp = datetime.now(UTC)
+        # A NACK supersedes any prior conditional ACK on this edge — the
+        # producer must re-propose, so any deferred obligation is moot (#1998).
+        entry.pre_merge_condition = ""
 
         # Increment revision count for this edge
         self._revision_counts[key] = self._revision_counts.get(key, 0) + 1
@@ -218,6 +234,10 @@ class ApprovalMatrix:
             entry.state = ApprovalState.PENDING
             entry.artifact_refs = []
             entry.reason = ""
+            # Invalidation drops the ACK entirely; any condition that rode on
+            # that ACK goes with it (#1998). The reviewer must re-ACK to
+            # re-attach a condition if they still want one.
+            entry.pre_merge_condition = ""
             return True
         return False
 
@@ -290,6 +310,40 @@ class ApprovalMatrix:
                 return True
         return False
 
+    def get_pre_merge_conditions(self) -> list[dict[str, Any]]:
+        """Return conditional-ACK obligations scoped to the latest proposal.
+
+        A condition only counts if the reviewer ACKed *the current* proposal
+        version. Stale conditions (attached to a superseded version) are
+        dropped — the producer has re-proposed and the reviewer hasn't
+        re-asserted the obligation on the new version.
+
+        Returns a list of dicts: ``{reviewer, producer, condition, version}``,
+        one per active conditional ACK. Callers (e.g. the PR-body builder,
+        HITL gate) surface these to humans so merge-time obligations aren't
+        silently dropped (#1998).
+        """
+        conditions: list[dict[str, Any]] = []
+        for (reviewer, producer), entry in self._entries.items():
+            if entry.state != ApprovalState.ACKED:
+                continue
+            if not entry.pre_merge_condition:
+                continue
+            latest_version = self._proposal_versions.get(producer, 0)
+            if entry.version != latest_version:
+                # Condition rode on a superseded proposal — the reviewer
+                # hasn't re-attached it to the current version.
+                continue
+            conditions.append(
+                {
+                    "reviewer": reviewer,
+                    "producer": producer,
+                    "condition": entry.pre_merge_condition,
+                    "version": entry.version,
+                }
+            )
+        return conditions
+
     def get_latest_review_versions(self, reviewer: str) -> dict[str, int]:
         """Get the version of each review the reviewer has submitted.
 
@@ -338,6 +392,7 @@ class ApprovalMatrix:
                         else None
                     ),
                     ack_commit_sha=entry_data.get("ack_commit_sha", ""),
+                    pre_merge_condition=entry_data.get("pre_merge_condition", ""),
                 )
 
         for key_str, count in data.get("revision_counts", {}).items():
