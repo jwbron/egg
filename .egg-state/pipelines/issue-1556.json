@@ -283,13 +283,20 @@
       "phase": "implement",
       "status": "running",
       "started_at": "2026-04-24T00:08:08.812116Z",
-      "work_started_at": null,
+      "work_started_at": "2026-04-24T00:08:08.917744Z",
       "completed_at": null,
       "containers": [],
       "agents": [],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
-      "cycle_timings": [],
+      "cycle_timings": [
+        {
+          "cycle": 0,
+          "started_at": "2026-04-24T00:08:08.917744Z",
+          "completed_at": null,
+          "commit_sha": "707671050ae00d874358d63187a2d9e82c8a10b8"
+        }
+      ],
       "artifacts": {},
       "error": null,
       "hitl_feedback": null,
@@ -582,7 +589,7 @@
     }
   ],
   "created_at": "2026-04-23T22:57:38.750100Z",
-  "updated_at": "2026-04-24T00:08:08.812320Z",
+  "updated_at": "2026-04-24T00:08:08.920348Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -596,5 +603,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 47
+  "version": 48
 }
