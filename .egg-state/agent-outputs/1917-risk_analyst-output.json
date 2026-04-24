@@ -4,15 +4,15 @@
   "pipeline_id": "issue-1917",
   "phase": "plan",
   "role": "risk_analyst",
-  "summary": "Risk assessment for iter-2 MCP tool surface (11 verbs; anchor trio + directed messages deferred). Decision-1 chose Option B (~16 audit verbs); decision-2 defers 3 anchor verbs; decision-14 defers 2 directed message verbs; 16 − 3 − 2 = 11. The design reuses iter-1's in-process SDK MCP mechanism (f24110b71; default-on since #1946) and adds verbs across contract/checkpoint/peer/overseer/task-gap. task_mark_gap persists via the EXISTING /api/v1/contract/mutate path (no new endpoint) using new optional tasks[].gaps[] field (plan TASK-4-2). Overall risk: MEDIUM. The residual risk concentrates in three areas: (1) authz-by-gateway for verify_criterion (decision-7 pattern — if gateway policy is permissive on acceptance_criteria.*.verified, any agent can mutate the field via one MCP call); (2) the two no-CLI verbs (brc_read_peer_artifact, task_mark_gap) which the CLI-drift gate cannot cover; (3) new two-way rule-doc drift gate (decision-11) which, if mis-implemented, can block unrelated PRs. No third-party dep additions (private-mode isolation — AC constraint); all changes are internal to the egg repo. No security-grade external research was required.",
+  "summary": "Risk assessment for iter-2 MCP tool surface (12 verbs; anchor trio + directed messages deferred). Decision-1 chose Option B (~16 audit verbs); decision-2 defers 3 anchor verbs; decision-14 defers 2 directed message verbs; 16 − 3 − 2 = 11 base + 1 overseer_query_status (covered by architect rev-2 / plan v3 as mcp__progress__query_status per plan TASK-2-3) = 12. The design reuses iter-1's in-process SDK MCP mechanism (f24110b71; default-on since #1946) and adds verbs across contract/checkpoint/peer/overseer/task-gap/query_status. task_mark_gap persists via the EXISTING /api/v1/contract/mutate path (no new endpoint) using new optional tasks[].gaps[] field (plan TASK-4-2); query_status wraps the existing GET /api/v1/pipelines/<id>/status endpoint (plan TASK-2-3). Overall risk: MEDIUM. The residual risk concentrates in three areas: (1) authz-by-gateway for verify_criterion (decision-7 pattern — if gateway policy is permissive on acceptance_criteria.*.verified, any agent can mutate the field via one MCP call); (2) the two no-CLI verbs (brc_read_peer_artifact, task_mark_gap) which the CLI-drift gate cannot cover; (3) new two-way rule-doc drift gate (decision-11) which, if mis-implemented, can block unrelated PRs. No third-party dep additions (private-mode isolation — AC constraint); all changes are internal to the egg repo. No security-grade external research was required.",
   "scope_recap": {
     "resolved_decisions": 14,
-    "shipped_verbs_estimate": 11,
-    "shipped_verbs_math": "16 audit verbs (Option B per decision-1) − 3 anchor (decision-2 opt-3 defer) − 2 directed message (decision-14 opt-3 defer send_message/poll_messages) = 11.",
+    "shipped_verbs_estimate": 12,
+    "shipped_verbs_math": "16 audit verbs (Option B per decision-1) − 3 anchor (decision-2 opt-3 defer) − 2 directed message (decision-14 opt-3 defer send_message/poll_messages) = 11; + 1 overseer_query_status (added by architect rev-2 / plan v3 per TASK-2-3) = 12.",
     "new_namespaces": ["checkpoint"],
-    "folded_into_existing": ["mcp__brc__read_peer_artifact (agreed with architect/task_planner)", "mcp__brc__overseer_alert (agreed with architect/task_planner)"],
-    "deferred": ["anchor trio (decision-2 opt-3)", "brc send_message / poll_messages (decision-14 opt-3)", "phase_get_context field promotion (decision-6 opt-2, separate PR)", "EGG_HARNESS=egg parallel wiring (decision-10 opt-1)", "overseer_query_status (iter-2 scope miss — neither plan nor architect nor risk_analyst placed it; see human_review_flags)"],
-    "new_orchestrator_work": ["task_mark_gap does NOT need a new endpoint — persistence goes through the existing /api/v1/contract/mutate path with a new optional tasks[].gaps[] field (plan TASK-4-2). The new work is: (a) add 'gaps' to the contract validator's optional-fields list; (b) verify the gateway mutate allow-list admits field_path='phases.<p>.tasks.<t>.gaps[<n>]'."]
+    "folded_into_existing": ["mcp__brc__read_peer_artifact (brc — plan v3)", "mcp__progress__overseer_alert (progress — plan v3 TASK-2-3)", "mcp__progress__query_status (progress — plan v3 TASK-2-3; CLI egg-orch pipeline status; drift gate covers parity)"],
+    "deferred": ["anchor trio (decision-2 opt-3)", "brc send_message / poll_messages (decision-14 opt-3)", "phase_get_context field promotion (decision-6 opt-2, separate PR)", "EGG_HARNESS=egg parallel wiring (decision-10 opt-1)"],
+    "implementation_notes": "task_mark_gap does NOT need a new orchestrator endpoint — persistence goes through the existing /api/v1/contract/mutate with a new optional tasks[].gaps[] field (plan TASK-4-2). The new work is: (a) add 'gaps' to the contract validator's optional-fields list; (b) verify the gateway mutate allow-list admits field_path='phases.<p>.tasks.<t>.gaps[<n>]'. query_status wraps an existing REST endpoint (GET /api/v1/pipelines/<id>/status) used today by sandbox/overseer_monitor.py."
   },
   "risks": [
     {
@@ -21,8 +21,8 @@
       "category": "security",
       "likelihood": "low",
       "impact": "high",
-      "severity": "high_pending_confirmation",
-      "severity_note": "Upgraded from 'medium' to 'high until gateway-authz check is confirmed' (reviewer_plan NACK non-blocking note). Downgrades to 'low' if gateway enforcement is confirmed in reviewer_plan ACK; otherwise verify_criterion is BLOCKED from shipping via MCP until the gateway test lands (see acceptance_criteria_for_plan_phase).",
+      "severity": "medium",
+      "severity_note": "Held at 'medium' with needs_human_review=true. Architect rev-2 added a gateway_authz_required verification task (plan TASK-1-3) that, when executed, downgrades R1 to 'low'. Until that verification passes, R1 stays medium and the BLOCKING acceptance-criteria gate remains active: verify_criterion does not ship as MCP without the positive gateway test.",
       "description": "Decision-7 resolved to 'gateway already enforces — handler just forwards'. sandbox/egg_lib/contract_cli.py::cmd_verify_criterion (line 717) issues POST /api/v1/contract/mutate with field_path='acceptance_criteria.{idx}.verified'. The CLI has no client-side role check — it only prints a docstring note. If any orchestrator contract-mutate path does not enforce REVIEWER role for that field_path, an IMPLEMENTER or PRODUCER-role agent could mark criteria verified and trick the phase-gate logic into advancing prematurely. This attack surface already exists via the CLI today, but exposing it as MCP makes it one @tool call instead of a shell-out — lowering the friction for accidental misuse and making future regressions in gateway authz immediately agent-exploitable.",
       "affected_components": [
         "sandbox/egg_agent_tools/handlers/sdlc.py (new verify_criterion handler)",
@@ -70,8 +70,7 @@
       "affected_components": [
         "sandbox/egg_agent_tools/handlers/task.py (new mark_gap handler)",
         "sandbox/egg_agent_tools/tools/task.py (new @tool wrapper, cli_command=None)",
-        "shared/egg_contracts/ (contract validator — tasks[].gaps[] added to optional-field whitelist)",
-        "orchestrator/routes/contracts.py (/api/v1/contract/mutate — allow-list must permit field_path pattern phases.<p>.tasks.<t>.gaps[<n>])",
+        "shared/egg_contracts/ (contract validator + schema — tasks[].gaps[] added as optional field)",
         "Downstream readers of egg-contract show --json (including mcp__sdlc__show_contract once it ships)"
       ],
       "mitigations": [
@@ -135,17 +134,17 @@
       "likelihood": "high",
       "impact": "low",
       "severity": "low",
-      "description": "Decision-2 resolved to 'defer anchor verbs to a third iteration'. Plan TASK-5-1 (rule-doc sweep) explicitly leaves the phantom anchor CLI references as-is: 'does NOT retract the phantom anchor CLI — that's deferred per decision-2'. This was an intentional plan-phase choice, not a gap. Risk: sandbox/agent-config/rules/orchestrator.md:20-24 still references egg-orch anchor init/update/show/validate/cleanup — agents reading that rule doc today (and continuing into iter-2) will shell out to non-existent subcommands and get 'invalid choice' errors. The symmetric rule-doc drift gate (decision-11, R5) is pegged to the 'Prefer this over `egg-…`' phrasing and will NOT flag arbitrary egg-orch anchor references as orphans (plan TASK-5-2 pins the regex narrowly), so the gate does not force a retraction.",
+      "description": "Decision-2 resolved to 'defer anchor verbs to a third iteration'. Plan TASK-5-1 (rule-doc sweep) explicitly leaves the phantom anchor CLI references as-is: 'does NOT retract the phantom anchor CLI — that's deferred per decision-2'. This was an intentional plan-phase choice, not a gap. Risk: sandbox/agent-config/rules/orchestrator.md:20-24 still references egg-orch anchor init/update/show/validate/cleanup — agents reading that rule doc today (and continuing into iter-2) will shell out to non-existent subcommands and get 'invalid choice' errors. The symmetric rule-doc drift gate (decision-11, R5) is regex-pinned to 'Prefer this over `egg-…`' lines and does NOT flag arbitrary egg-orch anchor mentions — plan TASK-5-2 pins the regex narrowly, so the gate does not force retraction.",
       "affected_components": [
         "sandbox/agent-config/rules/orchestrator.md (lines 20-24) — phantom anchor CLI references"
       ],
       "mitigations": [
-        "Policy choice between (a) accept the plan's deferral and track retraction in the iter-3 anchor issue, or (b) opportunistically retract now as a pure docs-only cleanup (still legal under risk_analyst's allowed file boundaries if done by the documenter in a follow-up PR). Current plan defers — this risk accepts that choice but documents the cost (agents see stale references until iter-3).",
-        "If the user prefers option (b), file a standalone docs-only follow-up issue; do NOT expand iter-2 scope."
+        "Accept the plan's deferral. The phantom references should be addressed in iter-3 alongside mcp__anchor__* shipping — which is the natural moment to both retract the old CLI references and add the new MCP-verb 'Prefer this over' lines. Not MANDATORY for iter-2 — the drift gate does not force this retraction.",
+        "If the user prefers an opportunistic docs-only retraction now, file a standalone docs-only follow-up issue; do NOT expand iter-2 scope."
       ],
       "rollback": "n/a — deferral is the default; retraction is additive and trivial to revert if desired.",
-      "needs_human_review": true,
-      "human_review_reason": "Policy choice: accept the plan's deferral of phantom anchor CLI retraction (stale references in rule doc until iter-3) versus opportunistic docs-only retraction now. Not a defect, a scope call."
+      "needs_human_review": false,
+      "human_review_reason_dropped": "Downgraded from needs_human_review=true after reviewer_plan NACK #2: drift gate regex does not force retraction, so this is a cost not a defect; iter-3 anchor issue will handle naturally."
     },
     {
       "id": "R7",
@@ -280,6 +279,29 @@
         "File the follow-up PR tracking issue at iter-2 merge time, not later."
       ],
       "rollback": "n/a — docs-only."
+    },
+    {
+      "id": "R14",
+      "title": "overseer_query_status data exposure and payload size",
+      "category": "security",
+      "likelihood": "low",
+      "impact": "low",
+      "severity": "low",
+      "description": "mcp__progress__query_status (plan v3 TASK-2-3) wraps the existing GET /api/v1/pipelines/<id>/status endpoint used today by sandbox/overseer_monitor.py (lines 74-78). The endpoint is hot-path and already exposed via egg-orch pipeline status CLI; the MCP wrapper adds no new surface area beyond what operators already have. Residual concerns: (a) data exposure — the status payload returns agent matrix, blocking roles, BRC phase, and potentially per-role heartbeat metadata; if returned to non-overseer agents, they learn about peer liveness they wouldn't normally see through BRC (minor intel leak, not a secret leak — BRC state is already observable via mcp__brc__get_state/list_blocking); (b) payload size — for long-lived pipelines with many agent heartbeats the status JSON can grow into 10s-of-KB territory, consuming prompt tokens on every call; (c) role discipline — plan TASK-2-3 wires egg-orch pipeline status as the CLI counterpart so cli_command is set and drift gate covers parity, BUT the rule docs must not advertise query_status as overseer-only if the REST endpoint is accessible to all agent roles.",
+      "affected_components": [
+        "sandbox/egg_agent_tools/handlers/progress.py (new query_status handler)",
+        "sandbox/egg_agent_tools/tools/progress.py (new @tool wrapper; cli_command=(egg-orch, pipeline, status))",
+        "orchestrator/routes/ (GET /api/v1/pipelines/<id>/status — existing endpoint, unchanged)",
+        "sandbox/agent-config/rules/orchestrator.md (rule-doc entry for new MCP verb)"
+      ],
+      "mitigations": [
+        "Follow decision-7 gateway-only pattern: handler forwards, gateway enforces (consistent with R1/R10). If the REST endpoint has no role gating today, document in the tool description that any agent can call query_status — don't add in-handler role checks that would diverge from decision-7.",
+        "Payload cap: handler should not modify the response shape (consistency with egg-orch pipeline status --json output); if size is a concern, add an optional 'summary=True' param in a follow-up that trims to phase + blocking_agents + is_complete. Do NOT paginate — that breaks CLI↔MCP drift-gate parity.",
+        "Add a unit test asserting the MCP response is byte-identical to egg-orch pipeline status --json (drift test coverage via test_mcp_cli_drift.py).",
+        "Rule-doc entry for mcp__progress__query_status must match the CLI's role-availability wording; don't advertise overseer-only unless the gateway enforces that today."
+      ],
+      "rollback": "Same EGG_MCP_TOOLS flag as other risks.",
+      "needs_human_review": false
     }
   ],
   "third_party_dependencies": {
@@ -309,36 +331,31 @@
       "suggested_action": "Architect confirms in their re-proposal, or escalate as a HITL decision to the human."
     },
     {
-      "topic": "Phantom anchor CLI retraction (R6)",
-      "question": "Accept plan TASK-5-1's explicit deferral (phantom anchor CLI references stay in orchestrator.md:20-24 until iter-3 ships actual anchor support), or opportunistically retract them now in a pure docs-only follow-up PR?",
-      "risk_id": "R6",
+      "topic": "overseer_query_status scope (RESOLVED by architect rev-2 / plan v3)",
+      "question": "Originally flagged as a scope miss; now resolved. Architect rev-2 and plan v3 added mcp__progress__query_status (plan TASK-2-3) with cli_command=(egg-orch, pipeline, status). Risk-assessed as R14 below.",
+      "risk_id": "R14",
       "blocking": false,
-      "suggested_action": "Plan-phase default is deferral; reviewer_plan can confirm acceptance or flag for a docs-only follow-up."
-    },
-    {
-      "topic": "overseer_query_status in iter-2 scope",
-      "question": "Issue #1917 body explicitly lists 'Overseer status queries: overseer_query_status' as iter-2 scope, but none of analysis/plan/architect/risk_analyst placed it — it's a scope miss across all three plan-phase producers. Ship in iter-2 (11 → 12 verbs) or explicitly defer to iter-3 with rationale?",
-      "risk_id": null,
-      "blocking": false,
-      "suggested_action": "Plan-phase reviewer_plan should escalate as a HITL decision; task_planner re-proposal should add either (a) the verb + its tests, or (b) an explicit deferral note in scope_recap.deferred alongside anchor and send_message."
+      "resolved": true,
+      "resolution": "ship in iter-2 as mcp__progress__query_status per plan v3 TASK-2-3",
+      "suggested_action": "n/a — resolved."
     }
   ],
   "acceptance_criteria_for_plan_phase": [
     "Every risk above has a named mitigation task in the task_planner's decomposition OR is explicitly deferred with a linked follow-up issue.",
-    "R1 human_review_flag is resolved (BLOCKING) before implement phase: either reviewer_plan confirms gateway enforcement for acceptance_criteria.*.verified, or verify_criterion is dropped from iter-2 scope (11 → 10 verbs) and tracked in a pre-implement sub-issue.",
+    "R1 human_review_flag is resolved (BLOCKING) before implement phase: architect rev-2's gateway_authz_required task (plan TASK-1-3) must produce a passing gateway-authz test, OR verify_criterion is dropped from iter-2 (12 → 11 verbs) and tracked in a pre-implement sub-issue.",
     "R2 path-traversal hardening is an explicit named task (not folded into 'implement handler').",
     "R3 mitigation tasks align with plan TASK-4-2: (a) contract-validator back-compat test (pre-iter-2 contract loads without error and returns gaps=[]); (b) gateway-mutate allow-list test for field_path='phases.<p>.tasks.<t>.gaps[<n>]'.",
     "R5 new test file is tests/tools/test_rule_doc_drift.py (not an edit to the existing test_mcp_cli_drift.py); rule-doc sweep is the LAST implement-phase task and enables the drift gate on commit, not before.",
     "R9 tool descriptions are reviewed line-by-line in reviewer_plan's ACK — not just 'descriptions added'.",
     "R10 follows decision-7 gateway-only pattern (no in-handler role check), consistent with verify_criterion.",
     "R12 unit tests exist for every no-CLI handler — no drift-test fallback. Iter-2 no-CLI count grows from 3 to 5.",
-    "overseer_query_status scope decision is explicit (ship in iter-2 or defer to iter-3 with rationale) before plan phase closes."
+    "R14 query_status MCP response is drift-tested against egg-orch pipeline status --json for byte-identical parity (drift gate covers this via cli_command)."
   ],
   "dependencies_on_other_plan_agents": {
-    "architect": "Architect's component breakdown should: (a) confirm mcp__brc__read_peer_artifact and mcp__brc__overseer_alert placement (architect and task_planner already agreed on brc namespace — risk_analyst reconciles); (b) rule on R10 authz discipline — gateway-only per decision-7, no in-handler role check; (c) name the specific test files each risk mitigation lands in (R2 path-traversal: tests/sandbox/egg_agent_tools/handlers/test_brc.py; R3 back-compat: tests/sandbox/test_contract_validator.py or similar); (d) confirm gateway authz for verify_criterion (R1) — this is the single BLOCKING human-review flag; (e) take a position on overseer_query_status (ship or defer).",
-    "task_planner": "Every R-id above with a mitigation list must map to a concrete task-N-T line in the task plan. R5/R6 rule-doc work is a single terminal task. R3 is NOT endpoint-sized — it's one validator-update task plus one gateway-allow-list verification task plus the handler itself. R12 coverage is one test task per no-CLI handler (read_peer_artifact, mark_gap).",
-    "reviewer_plan": "Reviewer must: (a) confirm R1's gateway-authz question and gate the plan-phase ACK on either a confirmed answer or an escalated HITL decision (BLOCKING); (b) confirm R10 gateway-only discipline matches decision-7; (c) verify task_planner has named tasks for R2/R3/R5/R9/R12; (d) surface the overseer_query_status scope miss to the human as a HITL decision if architect's re-proposal doesn't resolve it."
+    "architect": "Architect rev-2 already: (a) confirmed namespace placements (read_peer_artifact in brc; overseer_alert + query_status in progress); (b) aligned R10 to decision-7 gateway-only pattern; (c) added gateway_authz_required verification task (plan TASK-1-3) for R1. Residual ask: name the specific test files each risk mitigation lands in (R2 path-traversal: tests/sandbox/egg_agent_tools/handlers/test_brc.py; R3 back-compat: tests/sandbox/test_contract_validator.py or similar; R14 drift parity: tests/tools/test_mcp_cli_drift.py entry for query_status).",
+    "task_planner": "Every R-id above with a mitigation list must map to a concrete task-N-T line in the task plan v3. R5/R6 rule-doc work is a single terminal task. R3 is NOT endpoint-sized — it's one validator-update task plus one gateway-allow-list verification task plus the handler itself. R12 coverage is one test task per no-CLI handler (read_peer_artifact, mark_gap). R14 is covered by plan TASK-2-3 (handler) + the drift-test entry in test_mcp_cli_drift.py.",
+    "reviewer_plan": "Reviewer must: (a) confirm R1's gateway-authz question and gate the plan-phase ACK on either a confirmed answer or an escalated HITL decision (BLOCKING); (b) verify task_planner v3 has named tasks for R2/R3/R5/R9/R12/R14; (c) verify R10 and R14 both follow decision-7 gateway-only pattern in task_planner v3 and architect rev-2."
   },
   "overall_risk_rating": "MEDIUM",
-  "recommended_approach": "Proceed with Option B (11 verbs: 16 audit − 3 anchor per decision-2 − 2 directed messages per decision-14). Hold R1 as a BLOCKING reviewer_plan gating item — if the gateway authz check for acceptance_criteria.*.verified is not present today, drop verify_criterion from iter-2 (ship 10 verbs) and track the gateway test as a pre-implement sub-issue. R10 resolves by architect confirming gateway-only role-check discipline (decision-7 symmetry). overseer_query_status scope gap needs an explicit ship-or-defer call before plan phase closes. All other risks are manageable in-plan via the mitigation tasks enumerated above."
+  "recommended_approach": "Proceed with Option B (12 verbs: 16 audit − 3 anchor per decision-2 − 2 directed messages per decision-14 + 1 overseer_query_status added by architect rev-2 / plan v3). Hold R1 as a BLOCKING reviewer_plan gating item — architect rev-2 added gateway_authz_required verification (plan TASK-1-3); if that task's positive test does not pass, drop verify_criterion from iter-2 (ship 11 verbs) and track the gateway test as a pre-implement sub-issue. R10 resolved: R10 mitigations align with decision-7's gateway-only role-check discipline (no in-handler EGG_AGENT_ROLE check, consistent with verify_criterion). R14 risk-assesses the newly placed query_status verb (low severity). All other risks are manageable in-plan via the mitigation tasks enumerated above."
 }
