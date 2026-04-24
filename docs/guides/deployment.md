@@ -118,9 +118,25 @@ make build
 | Command | Description |
 |---------|-------------|
 | `make k3s-setup` | Install k3s + Calico CNI (idempotent) |
-| `make deploy` | Deploy all k8s resources; runs `envsubst` to expand `EGG_HOST_HOME` (default: `$HOME`) and `EGG_HOST_REPO_MAP` (auto-derived from `~/.config/egg/repositories.yaml` via `scripts/build-host-repo-map.py`) into the Kustomize output before applying. Requires `envsubst` from GNU gettext (`dnf install gettext` / `brew install gettext`). Override at deploy time: `make deploy EGG_HOST_HOME=/data/egg` or `EGG_HOST_REPO_MAP='{"owner/repo":"/path"}' make deploy`. |
+| `make deploy` | Deploy all k8s resources via Kustomize + `envsubst` (see [details below](#make-deploy-details)) |
 | `make build` | Build images and import into k3s |
 | `make k3s-teardown` | Remove k3s installation |
+
+#### `make deploy` details
+
+`make deploy` runs `envsubst` to expand two variables into the Kustomize output before applying:
+
+- **`EGG_HOST_HOME`** — defaults to `$HOME`.
+- **`EGG_HOST_REPO_MAP`** — auto-derived from `~/.config/egg/repositories.yaml` via `scripts/build-host-repo-map.py`.
+
+**Prerequisite:** `envsubst` from GNU gettext (`dnf install gettext` / `brew install gettext`).
+
+**Override at deploy time:**
+
+```bash
+make deploy EGG_HOST_HOME=/data/egg
+EGG_HOST_REPO_MAP='{"owner/repo":"/path"}' make deploy
+```
 
 ### Network Topology
 
