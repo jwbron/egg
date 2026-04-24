@@ -40,8 +40,9 @@ This differs from agent worktrees (managed by the gateway for agent isolation). 
 
 On orchestrator restart, orphaned container state is automatically recovered:
 
-1. **RUNNING pipelines**: For each pipeline showing `status=RUNNING`, the reconciliation process recovers orphaned container state:
-   - Scans only the **current phase** for stale containers. Containers from prior phases are intentionally terminated and their absence is expected — checking all phases caused false `FAILED` transitions when the orchestrator restarted mid-pipeline.
+1. **RUNNING pipelines**: For each pipeline showing `status=RUNNING`, the reconciliation process recovers orphaned state:
+   - **Un-spawned PENDING phase** (crash-between-submit-and-spawn): If the current phase is `PENDING` with `started_at=None` and no containers or agents, the orchestrator crashed before `_run_pipeline` reached `executor.spawn_all`. The pipeline is immediately marked `FAILED` with an actionable message; no container scanning is performed for this pipeline. Operators restart via `POST /pipelines/{id}/start`.
+   - Scans only the **current phase** for stale containers (phases with containers or agents). Containers from prior phases are intentionally terminated and their absence is expected — checking all phases caused false `FAILED` transitions when the orchestrator restarted mid-pipeline.
    - Any agent in the current phase whose pod is absent from the live Kubernetes pod set is marked `FAILED`.
    - If at least one stale entry is found, the pipeline itself is marked `FAILED` with an error message instructing operators to restart via `POST /pipelines/{id}/start`.
 
