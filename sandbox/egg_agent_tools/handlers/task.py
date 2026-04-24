@@ -127,25 +127,12 @@ def task_complete(req: dict[str, Any]) -> dict[str, Any]:
     repo_path = req.get("repo_path") or get_repo_path()
     identifier = _resolve_identifier(req)
 
-    status_path = f"phases.{phase_idx}.tasks.{task_idx}.status"
-    # On failure here, gateway_request raises GatewayError; the CLI
-    # shim prepends "Error setting status: " for legacy parity.
-    result = gateway_request(
-        "/api/v1/contract/mutate",
-        method="POST",
-        data={
-            "identifier": identifier,
-            "repo_path": repo_path,
-            "field_path": status_path,
-            "new_value": "complete",
-            "actor": "egg",
-            "reason": f"Marked {task_id} as complete",
-            **container_id_field(),
-        },
-    )
-    if not result.get("success"):
-        raise GatewayError(result.get("message", "status mutate failed"))
-
+    # Atomicity: the commit-link and the status transition are two
+    # separate gateway mutations (the gateway's ``contract/mutate``
+    # endpoint takes a single field-path per call).  We link the commit
+    # FIRST so a mid-way failure leaves the task not-yet-complete with
+    # the commit populated — callers can retry the same request to
+    # progress.  Matches the ordering in ``phase_complete_phase``.
     if commit:
         commit_path = f"phases.{phase_idx}.tasks.{task_idx}.commit"
         commit_result = gateway_request(
@@ -162,10 +149,24 @@ def task_complete(req: dict[str, Any]) -> dict[str, Any]:
             },
         )
         if not commit_result.get("success"):
-            raise GatewayError(
-                "Task marked complete but failed to link commit: "
-                + commit_result.get("message", "unknown error"),
-            )
+            raise GatewayError(commit_result.get("message", "commit link failed"))
+
+    status_path = f"phases.{phase_idx}.tasks.{task_idx}.status"
+    result = gateway_request(
+        "/api/v1/contract/mutate",
+        method="POST",
+        data={
+            "identifier": identifier,
+            "repo_path": repo_path,
+            "field_path": status_path,
+            "new_value": "complete",
+            "actor": "egg",
+            "reason": f"Marked {task_id} as complete",
+            **container_id_field(),
+        },
+    )
+    if not result.get("success"):
+        raise GatewayError(result.get("message", "status mutate failed"))
 
     return {"ok": True, "task": task_id, "commit": commit}
 
@@ -393,5 +394,6 @@ def task_mark_gap(req: dict[str, Any]) -> dict[str, Any]:
         if not retryable or attempt == _GAP_RETRY_ATTEMPTS:
             break
 
-    assert last_error is not None
+    if last_error is None:
+        raise HandlerError("mark_gap failed: no attempts were made (internal error)")
     raise last_error

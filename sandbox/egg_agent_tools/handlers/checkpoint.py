@@ -68,8 +68,29 @@ def _coerce_limit(raw: Any, *, default: int) -> int:
 
 
 def _resolve_repo_path(req: dict[str, Any]) -> str:
-    path = req.get("repo_path") or os.environ.get("EGG_REPO_PATH") or os.getcwd()
-    return str(path)
+    """Resolve the repo path from env vars, with caller-override containment.
+
+    Security: if the caller supplies ``repo_path``, validate it is
+    under ``~/repos/`` or matches ``EGG_REPO_PATH`` exactly.  This
+    prevents an agent from passing an arbitrary path (e.g., ``/etc``,
+    ``../../``) that would be used for git operations.  Matches the
+    containment approach used in ``brc.read_peer_artifact``.
+    """
+    env_path = os.environ.get("EGG_REPO_PATH")
+    caller_path = req.get("repo_path")
+    if caller_path:
+        caller_resolved = os.path.realpath(caller_path)
+        repos_root = os.path.realpath(os.path.expanduser("~/repos"))
+        if env_path and caller_resolved == os.path.realpath(env_path):
+            pass  # exact match with env — allowed
+        elif caller_resolved.startswith(repos_root + os.sep) or caller_resolved == repos_root:
+            pass  # under ~/repos/ — allowed
+        else:
+            raise HandlerError(
+                f"repo_path must be under ~/repos/ or match EGG_REPO_PATH; got {caller_path!r}"
+            )
+        return str(caller_resolved)
+    return str(env_path or os.getcwd())
 
 
 def _build_filters(req: dict[str, Any]) -> dict[str, Any]:

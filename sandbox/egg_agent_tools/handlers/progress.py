@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from egg_agent_tools.handlers._gateway import (
@@ -11,11 +12,15 @@ from egg_agent_tools.handlers._gateway import (
 )
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
+_PIPELINE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+
 
 def _require_pipeline_id(req: dict[str, Any]) -> str:
     pid = req.get("pipeline_id") or get_pipeline_id()
     if not pid:
         raise HandlerError("pipeline_id required. Set EGG_PIPELINE_ID or pass 'pipeline_id'.")
+    if not _PIPELINE_ID_PATTERN.match(pid):
+        raise HandlerError(f"Invalid pipeline_id {pid!r}: must match [a-zA-Z0-9_-]+")
     return pid
 
 
@@ -66,7 +71,7 @@ def progress_emit(req: dict[str, Any]) -> dict[str, Any]:
     result = orchestrator_request(f"/api/v1/pipelines/{pid}/progress", method="POST", data=data)
     if not result.get("success"):
         raise GatewayError(result.get("message", "progress emit failed"))
-    event = result.get("data", {}).get("event", {})
+    event = (result.get("data") or {}).get("event", {})
     return {
         "ok": True,
         "role": role,
@@ -192,7 +197,7 @@ def progress_overseer_alert(req: dict[str, Any]) -> dict[str, Any]:
     result = orchestrator_request(f"/api/v1/pipelines/{pid}/messages", method="POST", data=data)
     if not result.get("success"):
         raise GatewayError(result.get("message", "overseer alert failed"))
-    alert_msg = result.get("data", {}).get("message", {})
+    alert_msg = (result.get("data") or {}).get("message", {})
     return {"ok": True, "role": role, "alert": alert_msg, "signal": result}
 
 
@@ -234,12 +239,13 @@ def progress_query_status(req: dict[str, Any]) -> dict[str, Any]:
         raise HandlerError("pipeline_id required. Set EGG_PIPELINE_ID or pass 'pipeline_id'.")
     include_raw = bool(req.get("include_raw", False))
     result = orchestrator_request(f"/api/v1/pipelines/{pid}/status")
-    if not result.get("success", True):
+    if not result.get("success"):
         # The orchestrator returns {success: False, ...} for missing
         # pipelines.  Surface as GatewayError so the MCP client gets a
-        # structured is_error payload.
+        # structured is_error payload.  Consistent with every other
+        # handler — defaults to None/falsy when the key is absent.
         raise GatewayError(result.get("message", "pipeline status fetch failed"))
-    data = result.get("data", result) or {}
+    data = result.get("data") or {}
 
     response: dict[str, Any] = {
         "ok": True,

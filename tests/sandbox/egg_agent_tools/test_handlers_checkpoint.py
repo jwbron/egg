@@ -89,6 +89,47 @@ class TestLimitCoercion:
 
 
 # --------------------------------------------------------------------
+# repo_path containment validation
+# --------------------------------------------------------------------
+
+
+class TestResolveRepoPath:
+    """_resolve_repo_path must reject caller-supplied paths outside
+    ~/repos/ and EGG_REPO_PATH to prevent directory traversal."""
+
+    def test_env_path_used_when_no_caller_override(self):
+        with patch.dict("os.environ", {"EGG_REPO_PATH": "/home/egg/repos/myrepo"}, clear=False):
+            path = checkpoint._resolve_repo_path({})
+        assert path == "/home/egg/repos/myrepo"
+
+    def test_caller_path_under_repos_accepted(self):
+        with patch.dict("os.environ", {"EGG_REPO_PATH": "/home/egg/repos/egg"}, clear=False):
+            path = checkpoint._resolve_repo_path({"repo_path": "/home/egg/repos/other"})
+        assert path.startswith("/home/egg/repos")
+
+    def test_caller_path_matching_env_accepted(self):
+        with patch.dict("os.environ", {"EGG_REPO_PATH": "/home/egg/repos/egg"}, clear=False):
+            path = checkpoint._resolve_repo_path({"repo_path": "/home/egg/repos/egg"})
+        assert "repos/egg" in path
+
+    def test_arbitrary_path_rejected(self):
+        with (
+            patch.dict("os.environ", {"EGG_REPO_PATH": "/home/egg/repos/egg"}, clear=False),
+            pytest.raises(HandlerError) as exc,
+        ):
+            checkpoint._resolve_repo_path({"repo_path": "/etc/passwd"})
+        assert "repo_path must be under" in str(exc.value)
+
+    def test_traversal_path_rejected(self):
+        with (
+            patch.dict("os.environ", {"EGG_REPO_PATH": "/home/egg/repos/egg"}, clear=False),
+            pytest.raises(HandlerError) as exc,
+        ):
+            checkpoint._resolve_repo_path({"repo_path": "/home/egg/repos/../../etc"})
+        assert "repo_path must be under" in str(exc.value)
+
+
+# --------------------------------------------------------------------
 # Handler entry points
 # --------------------------------------------------------------------
 

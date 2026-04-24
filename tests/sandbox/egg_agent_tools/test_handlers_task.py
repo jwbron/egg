@@ -48,11 +48,16 @@ class TestTaskComplete:
             resp = task.task_complete({"task": "task-2-3", "commit": "abcdef1234"})
         assert resp["ok"] is True
         assert resp["commit"] == "abcdef1234"
-        # Two calls: status + commit link.
+        # Two calls: commit link FIRST, then status (safe ordering —
+        # mid-way failure leaves task not-yet-complete with commit
+        # populated, so the caller can retry).
         assert req.call_count == 2
-        commit_call = req.call_args_list[1].kwargs["data"]
+        commit_call = req.call_args_list[0].kwargs["data"]
         assert commit_call["field_path"] == "phases.1.tasks.2.commit"
         assert commit_call["new_value"] == "abcdef1234"
+        status_call = req.call_args_list[1].kwargs["data"]
+        assert status_call["field_path"] == "phases.1.tasks.2.status"
+        assert status_call["new_value"] == "complete"
 
     def test_parses_single_segment_task_id(self):
         """'task-5' interpreted as phases.0.tasks.4 per parity with CLI."""
@@ -99,21 +104,20 @@ class TestTaskComplete:
                 task.task_complete({"task": "task-1-1"})
 
     def test_commit_link_failure_raises_gateway_error(self):
-        """First call succeeds, second (commit-link) returns failure."""
-        responses = [
-            {"success": True, "data": {}},
-            {"success": False, "message": "oops"},
-        ]
+        """Commit-link is the FIRST call; failure means status was never
+        set — the task stays in its prior state, safe to retry."""
         with (
             patch(
                 "egg_agent_tools.handlers.task.gateway_request",
-                side_effect=lambda *a, **kw: responses.pop(0),
-            ),
+                return_value={"success": False, "message": "commit link failed"},
+            ) as req,
             patch("egg_agent_tools.handlers.task.get_contract_identifier", return_value=1),
         ):
             with pytest.raises(GatewayError) as exc:
                 task.task_complete({"task": "task-1-1", "commit": "a" * 40})
-        assert "failed to link commit" in str(exc.value).lower()
+        assert "commit link failed" in str(exc.value).lower()
+        # Only one call — status was never attempted.
+        assert req.call_count == 1
 
     def test_unsuccessful_status_raises(self):
         with (

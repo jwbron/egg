@@ -411,3 +411,75 @@ class TestProgressQueryStatus:
         ):
             resp = progress.progress_query_status({})
         assert resp["pending_decisions"] == 0
+
+    def test_null_data_returns_empty_status(self):
+        """When gateway returns {success: true, data: null}, the handler
+        must not raise AttributeError."""
+        with (
+            patch(
+                "egg_agent_tools.handlers.progress.orchestrator_request",
+                return_value={"success": True, "data": None},
+            ),
+            self._env_pid("issue-7"),
+        ):
+            resp = progress.progress_query_status({})
+        assert resp["ok"] is True
+        assert resp["status"] is None
+
+    def test_absent_success_key_raises_gateway_error(self):
+        """A malformed response without the 'success' key must raise
+        GatewayError (consistent with other handlers)."""
+        with (
+            patch(
+                "egg_agent_tools.handlers.progress.orchestrator_request",
+                return_value={"data": {"status": "idle"}},
+            ),
+            self._env_pid("issue-7"),
+        ):
+            with pytest.raises(GatewayError):
+                progress.progress_query_status({})
+
+
+class TestPipelineIdValidation:
+    """Pipeline IDs are interpolated into URL paths — format validation
+    prevents path traversal."""
+
+    def test_valid_pipeline_id_accepted(self):
+        with (
+            patch(
+                "egg_agent_tools.handlers.progress.orchestrator_request",
+                return_value={"success": True, "data": {"event": {"id": "e"}}},
+            ),
+        ):
+            resp = progress.progress_emit(
+                {"pipeline_id": "issue-7", "role": "coder", "step": "x", "state": "working"}
+            )
+        assert resp["ok"] is True
+
+    def test_pipeline_id_with_traversal_rejected(self):
+        with pytest.raises(HandlerError) as exc:
+            progress.progress_emit(
+                {"pipeline_id": "../other", "role": "coder", "step": "x", "state": "working"}
+            )
+        assert "Invalid pipeline_id" in str(exc.value)
+
+    def test_pipeline_id_with_slashes_rejected(self):
+        with pytest.raises(HandlerError):
+            progress.progress_emit(
+                {"pipeline_id": "a/b/c", "role": "coder", "step": "x", "state": "working"}
+            )
+
+
+class TestProgressEmitNullData:
+    """progress_emit must handle null data from orchestrator gracefully."""
+
+    def test_null_data_no_attribute_error(self):
+        with patch(
+            "egg_agent_tools.handlers.progress.orchestrator_request",
+            return_value={"success": True, "data": None},
+        ):
+            resp = progress.progress_emit(
+                {"pipeline_id": "p", "role": "coder", "step": "x", "state": "working"}
+            )
+        assert resp["ok"] is True
+        assert resp["event_id"] is None

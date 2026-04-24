@@ -68,7 +68,7 @@ def _fetch_contract(identifier: int | str, repo_path: str | None) -> dict[str, A
     result = gateway_request(f"/api/v1/contract/{identifier}", params=params or None)
     if not result.get("success"):
         raise GatewayError(result.get("message", "contract fetch failed"))
-    return result.get("data", {})  # type: ignore[no-any-return]
+    return result.get("data") or {}
 
 
 def _tasks_for_role(contract: dict[str, Any], role: str | None) -> list[dict[str, Any]]:
