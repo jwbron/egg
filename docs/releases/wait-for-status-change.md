@@ -63,10 +63,13 @@ are unaffected — it remains the canonical one-shot snapshot tool.
   for 10 minutes used to round-trip 24 full status snapshots
   (≈40 tool calls when you count Claude Code's request/response
   framing). With `wait_for_status_change`, idle minutes return the
-  minimal `no_change: true` envelope (~6 fields vs the full
+  minimal `no_change: true` envelope (~7 fields vs the full
   ~12-field snapshot), and the skill reuses the cached snapshot
-  for the unchanged fields. Empirically observed: ~70% reduction
-  in tokens-per-quiet-minute on real pipelines.
+  for the unchanged fields. The expected reduction is the
+  ratio of "minimal envelope size + cached re-render" to "full
+  snapshot per cycle" — substantial during long quiet phases
+  but not yet measured against production pipelines (a tester
+  follow-up will quantify the gain).
 - **Sub-second reaction latency** to the events that actually need
   human attention. A new `OVERSEER_ALERT` posted at second 5 of a
   poll cycle previously waited 20 s before the host saw it; it now

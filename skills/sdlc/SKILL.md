@@ -315,10 +315,11 @@ Store the returned `task_id`. Confirm submission to the user:
 Poll the pipeline status in a loop. On each poll:
 
 1. Call the appropriate MCP tool with the `task_id`:
-   - **First poll** after submission: `get_status(task_id)` — omit `wait` (or use `wait: 0`) for immediate feedback. The response includes a `cursor` field (opaque string of shape `msg:<id>|evt:<seq>`) that seeds the next call.
-   - **Subsequent polls**: `wait_for_status_change(task_id, wait=25, since=<last_cursor>)` — event-triggered host wait. The tool blocks server-side for up to 25 seconds and returns **immediately** when any of these events arrive: a new `OVERSEER_ALERT`; a phase transition (`PHASE_STARTED` / `PHASE_COMPLETED`); a terminal pipeline state (`PIPELINE_COMPLETED` / `PIPELINE_FAILED` / `PIPELINE_CANCELLED`); a new HITL `DECISION_CREATED`; a consensus message (`CONSENSUS_CONFIRMED` / `CONSENSUS_NACK` / `CONSENSUS_RE_REVIEW`). The 25 s cap is enforced server-side to stay under the Claude Code streamable-HTTP MCP client timeout. Call again immediately on return for the next poll cycle.
+   - **First poll** after submission: `get_status(task_id)` — omit `wait` (or use `wait: 0`) for immediate feedback. `get_status` returns the full status snapshot but **does NOT** include a `cursor` field — `cursor` is exclusive to `wait_for_status_change` responses.
+   - **First `wait_for_status_change` call** (immediately after the `get_status` first-poll snapshot): `wait_for_status_change(task_id, wait=25)` — omit `since` (or pass `""`); the route snaps to the tip of both event sources, so only events that arrive after the call begins will wake it.
+   - **Every subsequent `wait_for_status_change` call**: `wait_for_status_change(task_id, wait=25, since=<last_cursor>)` — pass the `cursor` returned by the prior `wait_for_status_change` response. The tool blocks server-side for up to 25 seconds and returns **immediately** when any of these events arrive: a new `OVERSEER_ALERT`; a phase transition (`PHASE_STARTED` / `PHASE_COMPLETED`); a terminal pipeline state (`PIPELINE_COMPLETED` / `PIPELINE_FAILED` / `PIPELINE_CANCELLED`); a new HITL `DECISION_CREATED`; a consensus message (`CONSENSUS_CONFIRMED` / `CONSENSUS_NACK` / `CONSENSUS_RE_REVIEW`). The 25 s cap is enforced server-side to stay under the Claude Code streamable-HTTP MCP client timeout. Call again immediately on return for the next poll cycle.
 
-   **Cursor handling.** Thread `response.cursor` from one response into `since` on the next call. Hold the cursor in conversation context as `last_cursor`. The first `get_status` call returns a starter cursor; every subsequent `wait_for_status_change` call both consumes one (`since=<last_cursor>`) and returns a fresh one (`response.cursor` for the next call). Passing `since` correctly is what closes the snapshot→wait race window — events that fired after the prior snapshot but before the next call still wake the wait.
+   **Cursor handling.** Hold the cursor in conversation context as `last_cursor`. The cursor is **only ever produced by `wait_for_status_change`** — `get_status` does not return one. Bootstrap by calling `wait_for_status_change(task_id, wait=25)` (no `since`) once after the first `get_status` snapshot; capture `response.cursor` into `last_cursor`. Every subsequent call passes `since=<last_cursor>` and refreshes `last_cursor` from the new `response.cursor`. The cursor is opaque (shape `msg:<id>|evt:<seq>`); treat it as a string. Threading the cursor correctly is what closes the wait→wait race window — events that fired after a prior `wait_for_status_change` returned but before the next call still wake the wait.
 
    **Two response envelopes.** Branch structurally on the `no_change` key, **not** on the `changed` boolean alone:
 
@@ -331,7 +332,7 @@ Poll the pipeline status in a loop. On each poll:
      "cursor": "msg:1738012734-0|evt:142",
      "current_phase": "plan",
      "status": "running",
-     "phase_elapsed_seconds": 127,
+     "phase_elapsed_seconds": 127,         // present when the current phase has a started_at; absent at phase boundaries
      "pipeline": { ... },
      "running_agents": [ ... ],
      "completed_agents": [ ... ],
@@ -346,15 +347,15 @@ Poll the pipeline status in a loop. On each poll:
      "no_change": true,
      "current_phase": "plan",
      "status": "running",
-     "phase_elapsed_seconds": 152,
-     "concurrent": { "consensus": { ... } },
+     "phase_elapsed_seconds": 152,         // present when the current phase has a started_at; absent at phase boundaries
+     "concurrent": { "consensus": { ... } },  // present when consensus data is available; absent on non-BRC pipelines
      "cursor": "msg:1738012750-0|evt:148"
    }
    ```
 
    On Path A, the response is a **superset of `get_status`** plus `changed/trigger/event_type|messages/cursor`. Cache it in conversation context as `last_status` and render the full dashboard.
 
-   On Path B, the response is a **minimal envelope**. Reuse the cached `running_agents`, `completed_agents`, `pending_decisions`, and `recent_messages` from the prior `last_status`, and refresh only the four fields that ship in the minimal envelope: `current_phase`, `status`, `phase_elapsed_seconds`, and `concurrent.consensus`. Then proceed to the next poll. This is what makes the dashboard re-render cheap during quiet phases.
+   On Path B, the response is a **minimal envelope**. Reuse the cached `pipeline`, `running_agents`, `completed_agents`, `pending_decisions`, `recent_messages`, and `concurrent.agents` (where present) from the prior `last_status`, and refresh only the fields that ship in the minimal envelope: `current_phase`, `status`, `phase_elapsed_seconds` (when present), and `concurrent.consensus` (when present). Then proceed to the next poll. This is what makes the dashboard re-render cheap during quiet phases.
 
 2. Display a compact status dashboard:
 
@@ -937,7 +938,7 @@ When the pipeline is stuck, failing, or behaving unexpectedly, use MCP tools to 
 ## Critical Rules
 
 - **Always use MCP tools** — never call orchestrator/gateway APIs or CLIs directly
-- **First poll uses `get_status(task_id)`; every subsequent poll uses `wait_for_status_change(task_id, wait=25, since=<last_cursor>)`** — thread the response `cursor` from one call into the next call's `since`. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--wait_for_status_change) for the trigger allowlist and envelope contract.
+- **First poll uses `get_status(task_id)`; every subsequent poll uses `wait_for_status_change(task_id, wait=25, since=<last_cursor>)`** — thread the `cursor` from each `wait_for_status_change` response into the next call's `since`. The first `wait_for_status_change` call after the `get_status` snapshot omits `since` (route snaps to tip); `get_status` itself does NOT return a cursor. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--wait_for_status_change) for the trigger allowlist and envelope contract.
 - **Branch structurally on the `no_change` key**, not on `changed` alone, when handling the two `wait_for_status_change` envelope shapes. On Path B (`no_change: true`) reuse the cached `last_status` for `running_agents`/`completed_agents`/`recent_messages`/`pending_decisions` and refresh only the four fields the minimal envelope ships.
 - **Always serialize JSON payloads as strings** for `provide_input` — the `response` parameter is a string, not an object. Pass `'{"action": "approve"}'` not `{"action": "approve"}`
 - **Never skip HITL** — always present decisions to the user and wait for their response
@@ -1225,10 +1226,11 @@ Store the returned `task_id`. Confirm submission to the user:
 Poll the pipeline status in a loop. On each poll:
 
 1. Call the appropriate MCP tool with the `task_id`:
-   - **First poll** after submission: `get_status(task_id)` — omit `wait` (or use `wait: 0`) for immediate feedback. Capture the `cursor` field from the response.
-   - **Subsequent polls**: `wait_for_status_change(task_id, wait=25, since=<last_cursor>)` — event-triggered host wait. The tool blocks server-side for up to 25 seconds and returns **immediately** on the same trigger set used by the full flow: new `OVERSEER_ALERT`; phase transition (`PHASE_STARTED` / `PHASE_COMPLETED`); terminal pipeline state (`PIPELINE_COMPLETED` / `PIPELINE_FAILED` / `PIPELINE_CANCELLED`); HITL `DECISION_CREATED` (handled inline below); consensus message (`CONSENSUS_CONFIRMED` / `CONSENSUS_NACK` / `CONSENSUS_RE_REVIEW`). The 25 s cap stays under the Claude Code streamable-HTTP MCP client timeout. Call again immediately on return.
+   - **First poll** after submission: `get_status(task_id)` — omit `wait` (or use `wait: 0`) for immediate feedback. `get_status` returns the full status snapshot but **does NOT** include a `cursor` field — `cursor` is exclusive to `wait_for_status_change` responses.
+   - **First `wait_for_status_change` call** (immediately after the `get_status` first-poll snapshot): `wait_for_status_change(task_id, wait=25)` — omit `since` (or pass `""`); the route snaps to the tip of both event sources.
+   - **Every subsequent `wait_for_status_change` call**: `wait_for_status_change(task_id, wait=25, since=<last_cursor>)` — pass the `cursor` returned by the prior `wait_for_status_change` response. The tool blocks server-side for up to 25 seconds and returns **immediately** on the same trigger set used by the full flow: new `OVERSEER_ALERT`; phase transition (`PHASE_STARTED` / `PHASE_COMPLETED`); terminal pipeline state (`PIPELINE_COMPLETED` / `PIPELINE_FAILED` / `PIPELINE_CANCELLED`); HITL `DECISION_CREATED` (handled inline below); consensus message (`CONSENSUS_CONFIRMED` / `CONSENSUS_NACK` / `CONSENSUS_RE_REVIEW`). The 25 s cap stays under the Claude Code streamable-HTTP MCP client timeout. Call again immediately on return.
 
-   **Cursor handling.** Hold the cursor in conversation context as `last_cursor`. The first `get_status` call returns a starter cursor; every subsequent `wait_for_status_change` call both consumes one (`since=<last_cursor>`) and returns a fresh one (`response.cursor` for the next call).
+   **Cursor handling.** Hold the cursor in conversation context as `last_cursor`. The cursor is **only ever produced by `wait_for_status_change`** — `get_status` does not return one. Bootstrap by calling `wait_for_status_change(task_id, wait=25)` (no `since`) once after the first `get_status` snapshot; capture `response.cursor` into `last_cursor`. Every subsequent call passes `since=<last_cursor>` and refreshes `last_cursor` from the new `response.cursor`.
 
    **Two response envelopes.** Branch structurally on the `no_change` key (do not branch on the `changed` boolean alone — `no_change` is a distinct top-level key for exactly this purpose):
 
@@ -1241,7 +1243,7 @@ Poll the pipeline status in a loop. On each poll:
      "cursor": "msg:1738012734-0|evt:142",
      "current_phase": "implement",
      "status": "running",
-     "phase_elapsed_seconds": 127,
+     "phase_elapsed_seconds": 127,            // present when the current phase has a started_at; absent at phase boundaries
      "concurrent": { "consensus": { ... }, "agents": [ ... ] },
      "recent_messages": [ ... ],
      "pending_decisions": [ ... ]
@@ -1253,13 +1255,13 @@ Poll the pipeline status in a loop. On each poll:
      "no_change": true,
      "current_phase": "implement",
      "status": "running",
-     "phase_elapsed_seconds": 152,
-     "concurrent": { "consensus": { ... } },
+     "phase_elapsed_seconds": 152,            // present when the current phase has a started_at; absent at phase boundaries
+     "concurrent": { "consensus": { ... } },  // present when consensus data is available; absent on non-BRC pipelines
      "cursor": "msg:1738012750-0|evt:148"
    }
    ```
 
-   On Path A, render the full dashboard and cache the response as `last_status`. On Path B, fall back to the cached `last_status` for `concurrent.agents`, `recent_messages`, and `pending_decisions`, refreshing only the four fields the minimal envelope ships (`current_phase`, `status`, `phase_elapsed_seconds`, `concurrent.consensus`) — then proceed to the next poll. The dashboard fallback wording below ("when not available, fall back to basic status") still applies whenever `concurrent` data is absent on either path.
+   On Path A, render the full dashboard and cache the response as `last_status`. On Path B, fall back to the cached `last_status` for `running_agents`, `completed_agents`, `concurrent.agents` (where present), `recent_messages`, and `pending_decisions` — refreshing only the fields the minimal envelope ships (`current_phase`, `status`, `phase_elapsed_seconds` when present, and `concurrent.consensus` when present). Then proceed to the next poll. The dashboard fallback wording below ("when not available, fall back to basic status") still applies whenever `concurrent` data is absent on either path.
 
 2. Display a compact status dashboard:
 

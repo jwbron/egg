@@ -495,9 +495,12 @@ top-level key for exactly this purpose.
 | `event_type` | string when `trigger == "event"` | absent | E.g. `OVERSEER_ALERT`, `PHASE_STARTED`. |
 | `messages` | array when `trigger == "message"` | absent | Already filtered by `_apply_delphi_filter` (the same reviewer-redaction pipeline as the message bus). |
 | `cursor` | always | always | Opaque `msg:<id>|evt:<seq>`. Thread into next call's `since`. |
-| `current_phase`, `status`, `phase_elapsed_seconds` | always | always | Refreshed on every call. |
-| `concurrent.consensus` | always | **always** | Ships on the minimal envelope so consensus drift never goes invisible. |
+| `current_phase`, `status` | always | always | Refreshed on every call. |
+| `phase_elapsed_seconds` | when current phase has a `started_at` | when current phase has a `started_at` | Absent at phase boundaries (the new phase hasn't recorded `started_at` yet) and on pending phases. Fall back to `phase_started_at` (full envelope only) or wall-clock when absent. |
+| `concurrent.consensus` | when consensus data is available | when consensus data is available | Absent on non-BRC pipelines. The Path B minimal envelope ships it whenever it would have been on Path A — so consensus drift never goes invisible during quiet phases on BRC pipelines, and is correctly absent for non-BRC pipelines. |
+| `cursor` | always | always | Opaque `msg:<id>|evt:<seq>`. Thread into next call's `since`. |
 | `pipeline`, `running_agents`, `completed_agents`, `pending_decisions`, `recent_messages` | always | absent | On Path B, reuse the cached values from the prior Path A response. |
+| `concurrent.agents` | when concurrent data is available | absent | On Path B, reuse the cached value from the prior Path A response. |
 
 Path A is a **superset of `get_status`** plus `changed/trigger/
 (event_type|messages)/cursor`. Drop-in compatible with any code that
@@ -567,7 +570,8 @@ wait duration. The implementation pattern:
 HTTP request ────► main worker ────►│  q = Queue(maxsize=16)    │
                                     └───────────────────────────┘
                                           ▲                    ▲
-                                          │ put_nowait         │ put
+                                          │ put_nowait         │ put_nowait
+                                          │ (try/except Full)  │ (try/except Full)
                                           │                    │
                           ┌───────────────────────┐   ┌──────────────────────────────┐
                           │ wildcard EventBus     │   │ daemon thread                │
@@ -625,11 +629,24 @@ not block forward progress.
 
 ### 7.5 Error responses
 
+The route uses the orchestrator's standard `make_error_response`
+helper, so every error body has the shape
+`{"success": false, "message": "..."}` (with an optional `details`
+key when the route adds context). There is no `error` key, no
+`detail` key, no per-error custom fields — clients should read the
+human-readable explanation from `message`.
+
 | Status | When | Body shape |
 |--------|------|------------|
-| **400** | Malformed `since` cursor — does not match the `msg:[^|]*\|evt:-?\d*` regex. | `{"error": "invalid_cursor", "detail": "..."}` |
-| **404** | Unknown `pipeline_id`. | `{"error": "unknown_pipeline", "pipeline_id": "..."}` |
+| **400** | Malformed `since` cursor — does not match the `msg:[^|]*\|evt:-?\d*` regex. | `{"success": false, "message": "Invalid 'since' cursor — expected 'msg:<id>|evt:<seq>' (either half may be empty)."}` |
+| **400** | Non-integer `wait` query parameter. | `{"success": false, "message": "Invalid 'wait' query parameter: must be an integer"}` |
+| **400** | Malformed `pipeline_id` (path parameter fails the orchestrator's pipeline-id format check). | `{"success": false, "message": "Invalid pipeline ID format: <pipeline_id>"}` |
+| **404** | Unknown `pipeline_id`. | `{"success": false, "message": "Pipeline <pipeline_id> not found"}` |
 | **200** | Event match (Path A), message match (Path A), or timeout (Path B). | See §7.1. |
+
+`wait` values outside the `[1, GET_STATUS_MAX_WAIT]` range are
+**not** an error — they are clamped silently to the bound. Only
+non-integer `wait` strings produce a 400.
 
 The route does **not** retry on transient errors — the MCP client
 (skill) handles its own retry. Permanent errors (400/404) propagate
