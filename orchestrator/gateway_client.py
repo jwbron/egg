@@ -708,6 +708,7 @@ class GatewayClient:
         branch: str,
         mode: Literal["public", "private"] = "public",
         ref: str | None = None,
+        base_branch: str | None = None,
     ) -> PushResult:
         """Push a branch to remote using a temporary session.
 
@@ -734,6 +735,11 @@ class GatewayClient:
             branch: Remote branch name to push to
             mode: Gateway session mode (public/private)
             ref: Local ref to push (omit to push worktree HEAD)
+            base_branch: Pipeline's base branch (e.g. ``"main"``).  When
+                set, the reconcile rebase uses ``--onto origin/{branch}
+                origin/{base_branch}`` so commits already on the base
+                branch are not replayed onto the pipeline branch (#1976).
+                Ignored when ``ref`` is set (reconcile is skipped there).
 
         Returns:
             ``PushResult`` whose ``ok`` flag is ``True`` on success and
@@ -776,6 +782,7 @@ class GatewayClient:
             mode=mode,
             refspec=refspec,
             initial_failure=first,
+            base_branch=base_branch,
         )
 
     def _do_push(
@@ -874,6 +881,7 @@ class GatewayClient:
         mode: Literal["public", "private"],
         refspec: str,
         initial_failure: PushResult,
+        base_branch: str | None = None,
     ) -> PushResult:
         """Fetch, rebase the worktree onto ``origin/{branch}``, and retry push.
 
@@ -882,6 +890,11 @@ class GatewayClient:
         through the gateway. Conflicts confined to
         ``.egg-state/agent-outputs/`` are resolved in favour of the remote;
         conflicts elsewhere abort the rebase and return a failure result.
+
+        When ``base_branch`` is provided, ``origin/{base_branch}`` is also
+        fetched before the rebase and used as the ``--onto`` upstream so
+        commits already on main are not replayed onto the pipeline branch
+        (#1976).
 
         Returns ``PushResult(ok=True)`` when the retry push succeeds. On
         failure, the returned ``PushResult`` carries a category that
@@ -943,10 +956,44 @@ class GatewayClient:
                 detail=f"git fetch origin {branch} timed out after 60s",
             )
 
+        # Refresh origin/{base_branch} so the --onto upstream in the rebase
+        # reflects the current main tip (#1976).  A stale origin/{base_branch}
+        # would cause commits that landed on main since the worktree was
+        # created to be replayed as duplicate-by-content commits.  Best-effort:
+        # if fetching the base fails (network, permissions, branch absent),
+        # fall through to the plain ``git rebase origin/{branch}`` form.
+        if base_branch:
+            try:
+                base_fetch = subprocess.run(
+                    [*git_base, "fetch", "origin", base_branch],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=60,
+                )
+            except subprocess.TimeoutExpired:
+                logger.warning(
+                    "Push reconcile: base-branch fetch timed out — proceeding with stale origin/{base}",
+                    pipeline_id=pipeline_id,
+                    branch=branch,
+                    base_branch=base_branch,
+                )
+            else:
+                if base_fetch.returncode != 0:
+                    logger.warning(
+                        "Push reconcile: base-branch fetch failed — proceeding with stale origin/{base}",
+                        pipeline_id=pipeline_id,
+                        branch=branch,
+                        base_branch=base_branch,
+                        returncode=base_fetch.returncode,
+                        stderr=base_fetch.stderr.strip(),
+                    )
+
         rebase_result = _rebase_with_agent_output_autoresolve(
             git_base=git_base,
             pipeline_id=pipeline_id,
             branch=branch,
+            base_branch=base_branch,
         )
         if not rebase_result.ok:
             return rebase_result
@@ -1359,9 +1406,21 @@ def _rebase_with_agent_output_autoresolve(
     git_base: list[str],
     pipeline_id: str,
     branch: str,
+    base_branch: str | None = None,
     max_autoresolve_iterations: int = 3,
 ) -> PushResult:
     """Rebase the worktree onto ``origin/{branch}`` with agent-outputs auto-resolve.
+
+    When ``base_branch`` is provided and ``origin/{base_branch}`` exists
+    locally, the rebase uses the ``--onto origin/{branch}
+    origin/{base_branch}`` form so only commits that are unique to the
+    local worktree (i.e. ``origin/{base_branch}..HEAD``) are replayed.
+    Without the ``--onto`` form, a plain ``git rebase origin/{branch}``
+    replays the full ``merge-base(HEAD, origin/{branch})..HEAD`` range;
+    when ``origin/{branch}`` is based on an older snapshot of main and
+    HEAD is based on a newer snapshot, that range includes the upstream
+    main commits that landed in between, producing duplicate-by-content
+    commits with different SHAs on the pipeline branch (#1976).
 
     Conflicts confined to ``.egg-state/agent-outputs/`` are resolved in
     favour of the remote (``git checkout --theirs``) and the rebase is
@@ -1378,9 +1437,10 @@ def _rebase_with_agent_output_autoresolve(
     which part of the rebase went wrong (``reconcile_rebase_timeout``,
     ``reconcile_rebase_conflict``, ``reconcile_rebase_failed``).
     """
+    rebase_cmd = _build_rebase_cmd(git_base, branch, base_branch)
     try:
         rebase_result = subprocess.run(
-            [*git_base, "rebase", f"origin/{branch}"],
+            rebase_cmd,
             capture_output=True,
             text=True,
             check=False,
@@ -1396,7 +1456,7 @@ def _rebase_with_agent_output_autoresolve(
         return PushResult(
             ok=False,
             category="reconcile_rebase_timeout",
-            detail=f"git rebase origin/{branch} timed out after 120s",
+            detail=f"git rebase {' '.join(rebase_cmd[len(git_base) + 1 :])} timed out after 120s",
         )
 
     if rebase_result.returncode == 0:
@@ -1553,6 +1613,37 @@ def _list_unmerged_paths(git_base: list[str]) -> list[str]:
         )
         return []
     return [line for line in result.stdout.splitlines() if line.strip()]
+
+
+def _build_rebase_cmd(
+    git_base: list[str],
+    branch: str,
+    base_branch: str | None,
+) -> list[str]:
+    """Construct the ``git rebase`` argv for the push-reconcile path.
+
+    When ``base_branch`` is set and ``origin/{base_branch}`` resolves in
+    the worktree, return the ``--onto origin/{branch} origin/{base_branch}``
+    form so only ``origin/{base_branch}..HEAD`` commits are replayed.
+    Otherwise return the plain ``git rebase origin/{branch}`` form
+    (pre-#1976 behavior) — used as a safe fallback when the base branch
+    is unknown or unavailable locally.
+    """
+    if base_branch:
+        base_ref = f"origin/{base_branch}"
+        try:
+            verify = subprocess.run(
+                [*git_base, "rev-parse", "--verify", base_ref],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
+            )
+        except subprocess.TimeoutExpired:
+            verify = None
+        if verify and verify.returncode == 0:
+            return [*git_base, "rebase", "--onto", f"origin/{branch}", base_ref]
+    return [*git_base, "rebase", f"origin/{branch}"]
 
 
 def _abort_rebase_best_effort(
