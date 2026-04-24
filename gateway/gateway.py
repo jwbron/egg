@@ -222,13 +222,13 @@ except ImportError:
         get_jira_client,
         validate_jira_api_path,
     )
-    from jira_client import (  # type: ignore[no-redef, import-untyped]
+    from jira_client import (  # type: ignore[no-redef]
         validate_fields as validate_jira_fields,
     )
     from jira_credentials import (  # type: ignore[no-redef, import-untyped]
         reload_jira_credentials,
     )
-    from jira_policy import (  # type: ignore[no-redef]
+    from jira_policy import (  # type: ignore[no-redef, import-untyped]
         extract_project_key,
         is_project_allowed,
         reload_jira_policy,
