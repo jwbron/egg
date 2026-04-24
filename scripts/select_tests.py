@@ -737,7 +737,7 @@ def build_graph(repo_root: Path | None = None, packages: tuple[str, ...] = PACKA
 
 
 def reverse_closure(
-    bundle: GraphBundle, changed_modules: Iterable[str], changed_paths: Iterable[str]
+    bundle: GraphBundle, module_path_pairs: Iterable[tuple[str, str]]
 ) -> set[str]:
     """Return the transitive set of modules that import any changed module.
 
@@ -745,23 +745,20 @@ def reverse_closure(
       - If the changed path is an `__init__.py`, treat the module as a
         package and call `find_downstream_modules(pkg, as_package=True)`.
       - Otherwise (regular leaf), call with `as_package=False`.
+
+    Callers MUST pass aligned `(module, path)` tuples — building the
+    pairing inside the function (rather than zipping two lists at the
+    call site) prevents any chance of `__init__.py` detection misfiring
+    when the unresolvable-paths filter shortens one list relative to
+    the other (reviewer_contract feedback on the v1 proposal).
     """
     init_modules: set[str] = set()
     leaf_modules: set[str] = set()
-    paths = list(changed_paths)
-    modules_list = list(changed_modules)
-    # Pair each module with whether its source path was an __init__.py.
-    # When changed_modules is shorter than changed_paths (some paths
-    # didn't resolve), the unresolvable ones already triggered the
-    # fallback path — we only get here after that check.
-    for module, path in zip(modules_list, paths, strict=False):
+    for module, path in module_path_pairs:
         if path.endswith("__init__.py"):
             init_modules.add(module)
         else:
             leaf_modules.add(module)
-    # Modules without paired paths default to leaf semantics.
-    for module in modules_list[len(paths) :]:
-        leaf_modules.add(module)
 
     closure: set[str] = set()
     for module in init_modules:
@@ -1010,6 +1007,18 @@ def evaluate_fallback_triggers(
     # `gateway/<file>.py` that is NOT under `gateway/tests/`.  Checked
     # BEFORE the generic non-.py rule so a mixed diff names the
     # specific blind spot.
+    #
+    # Layout assumption (locked by current repo as of this PR): gateway/
+    # production source is FLAT — every .py production file is directly
+    # under `gateway/<file>.py`, no subdirectories (verified with
+    # `ls gateway/*.py`).  The TASK-2-3 spec phrases the rule as "any
+    # changed path matching `gateway/*.py`", which is what the
+    # `"/" not in raw_path[len("gateway/") :]` guard implements.  If
+    # gateway production code is ever reorganised into subdirectories
+    # (e.g., `gateway/api/foo.py`), this check would NOT widen on those
+    # subdirectory edits — extend the guard to drop the `"/" not in`
+    # clause at that point.  TASK-5-2's parametrized cases cover the
+    # current flat layout and would catch a change in semantics.
     for raw_path in paths:
         if (
             raw_path.startswith("gateway/")
@@ -1093,17 +1102,18 @@ def explain_why(test_path: str, repo_root: Path | None = None) -> int:
         return 0
 
     diff = changed_files(baseline_sha, repo_root=root)
-    changed_modules_list: list[str] = []
+    module_path_pairs: list[tuple[str, str]] = []
     for path in diff:
         module = path_to_module(path)
         if module is not None and module in bundle.all_modules:
-            changed_modules_list.append(module)
+            module_path_pairs.append((module, path))
 
-    if not changed_modules_list:
+    if not module_path_pairs:
         _log("select-tests: --why: no changed modules resolved")
         return 0
 
-    closure = reverse_closure(bundle, changed_modules_list, diff)
+    changed_modules_list = [m for m, _ in module_path_pairs]
+    closure = reverse_closure(bundle, module_path_pairs)
     is_selected = test_module in closure
 
     # Try grimp's shortest-chain primitive.
@@ -1236,13 +1246,14 @@ def _run_narrow_or_fallback(repo_root: Path) -> int:
     # ---- Narrow path ----
     assert bundle is not None  # narrowed above
 
-    changed_modules_list: list[str] = []
+    module_path_pairs: list[tuple[str, str]] = []
     for path in diff:
         module = path_to_module(path)
         if module is not None and module in bundle.all_modules:
-            changed_modules_list.append(module)
+            module_path_pairs.append((module, path))
 
-    closure = reverse_closure(bundle, changed_modules_list, diff)
+    changed_modules_list = [m for m, _ in module_path_pairs]
+    closure = reverse_closure(bundle, module_path_pairs)
     test_files = map_modules_to_test_files(bundle, closure, repo_root)
     selected_count = len(test_files)
 
