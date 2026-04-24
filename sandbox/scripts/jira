@@ -151,6 +151,10 @@ else:
     if details:
         for k, v in details.items():
             print(f'  {k}: {v}', file=sys.stderr)
+    if http_code == '401':
+        print('Authentication failed - check session token', file=sys.stderr)
+    elif http_code == '429':
+        print('Rate limit exceeded - please wait before trying again', file=sys.stderr)
     sys.exit(1)
 " "$tmpfile" "$http_code"
 
