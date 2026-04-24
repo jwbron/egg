@@ -9,15 +9,1422 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "phases": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "LKG update mechanism: when a full test run passes, how should `.egg/last-known-good` be updated on the working branch?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Ride-along on the next commit the agent/developer makes (no dedicated commit; .egg/last-known-good is staged by `make test-all` and gets swept up naturally) \u2014 recommended",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Auto-commit immediately on every green `make test-all` (one dedicated commit per full-run pass; clean signal but history noise and gateway-policy friction)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Amend onto the HEAD commit that triggered the run (no extra commit but rewrites history \u2014 dangerous default)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Manual-only: `make test-record-good` is the ONLY way the file advances (zero automation; agents / devs must remember to run it)",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "CI integration: how should CI `.github/workflows/test.yml` interact with the new changeset-aware behavior, given CI already enforces `--cov-fail-under=80` via `PYTEST_ARGS`?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Switch CI to `make test-all` \u2014 preserves the 80% coverage gate as-is; `make test` stays the agent/dev fast path. (Recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Keep CI on `make test`, and have `make test` auto-degrade to a full run whenever `--cov` appears in `PYTEST_ARGS` (coverage-aware fallback)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Keep CI on `make test` with narrowed selection; drop `--cov-fail-under=80` on PR runs and enforce it only on `main` nightly / merge-queue",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Keep CI on `make test` with narrowed selection; keep coverage gate but scope it to changed files only (`--cov` on selected dirs)",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Test-selection tooling: which approach should the plan phase design around?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Static reverse import-graph via `grimp` (maintained, Rust-backed, has `find_downstream_modules`; adds one dev dep) \u2014 recommended",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Coverage-based selection via `pytest-testmon` (finer granularity, catches dynamic imports on executed paths; requires prior full run; fragile with `pytest-cov`)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Hybrid: `grimp` for file-level selection + `pytest-testmon` for intra-file narrowing (two dependencies, more moving parts)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Path-mapping (Airflow-style hand-curated dir\u2192dir map in YAML; zero graph dependency; coarser; doesn't meet leaf-module acceptance criterion)",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Hand-rolled static graph using Python stdlib `ast` (no new dependency; reinvents grimp; more code to maintain)",
+          "description": null
+        },
+        {
+          "id": "opt-6",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "`.egg/last-known-good` file format",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Bare 40-char sha (one-line file; simplest; no parsing cost) \u2014 recommended",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Structured JSON with {sha, env_digest, updated_at} (richer invalidation; slightly larger surface)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Bare sha + a separate `.egg/last-known-good.invalidated` marker file when fallback triggers fire (two files; explicit)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Non-Python resource fallback trigger policy (v1): when a non-`.py` file changes in the diff, how should test selection behave?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Any non-`.py` change \u2192 full suite (simple, conservative, no allowlist maintenance) \u2014 recommended for v1",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Explicit allowlist of test-relevant non-`.py` paths (shared/prompts/, shared/egg_anchor/schemas/, tests/action/, tests/workflows/, tests/config/) \u2192 full suite; all other non-`.py` changes skip the trigger",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Map each non-`.py` resource directory to the tests that exercise it, and include those tests without triggering a full suite (fine-grained; requires hand-maintained map)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Merge behavior implementation: how should `.egg/last-known-good` be rewritten to `main`'s pre-merge HEAD on merge?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Merge-queue step / GitHub Action that rewrites the file as part of the merge commit (requires merge-queue infra) \u2014 recommended if available",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Gateway-enforced server-side pre-push hook on pushes to `main` that rewrites the file",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Squash-merge only for the egg repo \u2014 rely on squash to drop branch LKG history and have a post-merge workflow reset the file on `main`",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Don't rewrite; leave LKG as-is and accept that branches cut from main may inherit stale-but-valid values",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-7",
+      "question": "Naming: what should the full-suite escape-hatch target be called?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "`make test-all` (matches the issue's proposal; the default `make test` becomes changeset-aware) \u2014 recommended",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Rename current target: `make test` = changeset-aware (new), `make test-full` = full suite",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Keep `make test` = full suite (status quo) and add `make test-fast` as the new changeset-aware target (less risky; no behavior change on default target)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-8",
+      "question": "Gateway / role policy for `.egg/last-known-good` pushes",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Add `.egg/last-known-good` to the push allowlist for every role that runs `make test` (refiner, planner, coder, tester, reviewers, \u2026) \u2014 broad but simple. Recommended.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Route LKG updates through a gateway-side observer: the sandbox never writes the file directly; the gateway observes a passing full-run signal (e.g. via a structured pytest report) and commits LKG itself on the agent's branch.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Restrict LKG writes to a dedicated 'test-runner' role only \u2014 means other roles can't update LKG, so the file only advances when that role runs tests.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Make the file untracked (.gitignore) and accept the loss of cross-sandbox continuity \u2014 sidesteps gateway policy entirely.",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-9",
+      "question": "LKG storage medium: where should the last-known-good sha live?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Non-tracked sidecar in `.egg-state/last-known-good/<branch>.sha` (gitignored; per-branch; no merge/history noise; analysis-recommended) \u2014 flips the issue's default",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Tracked file `.egg/last-known-good` (the issue's proposal; cross-sandbox portable; auto-commits interact with gateway role-boundary rules)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Git notes on `refs/notes/egg-lkg` (invisible to diff/history; requires fetch/push of notes; gateway has no existing policy for notes)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Abandon LKG entirely \u2014 always baseline on `$(BASE_BRANCH)` (simplest; loses the narrow-diff-after-many-local-commits benefit)",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-10",
+      "question": "Dynamic-import handling: how should the selector widen for `importlib` / `__import__` / `SourceFileLoader` / entry-point plugins?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Grep-and-widen: if any changed file contains a dynamic-import pattern, fall back to full suite (blunt but simple) \u2014 recommended for v1",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Scan during graph construction: record which modules contain dynamic-import patterns; widen only if a changed module is in (or reachable from) that set \u2014 more targeted",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Runtime import-hook on a seed full-run: instrument the initial `make test-all` to record runtime import edges and persist them alongside the graph",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Shadow-imports file (Qik `qikimports.py` style): hand-maintained list of known dynamic edges, consulted at graph-build time",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-11",
+      "question": "CI checkout depth: `actions/checkout@v4` uses `fetch-depth: 1` today, so `origin/main` isn't locally available for `git diff`. How should the implementation handle this?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Deepen checkout to `fetch-depth: 0` in `.github/workflows/test.yml` (always have full history; simplest) \u2014 recommended",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Fetch the baseline ref on demand inside `make test` (wrap in a helper; keeps CI checkout shallow)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Require callers to have the baseline already fetched; fall back to full suite when absent (no CI change; no extra git ops)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Not an issue if CI uses `make test-all` (decision-2) \u2014 only `make test` needs the baseline",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-12",
+      "question": "Graph granularity: at what level should the reverse-closure be computed?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Module-level (grimp default; one node per import-resolvable module; sufficient for file-level test selection) \u2014 recommended",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "File-level (one node per `.py` file; redundant when modules and files are 1:1, potentially useful for `__init__.py` changes)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Function-level (requires `pyan` or `pytest-testmon`; enables intra-file narrowing at the cost of adding a dynamic tool)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-04-24T19:48:52.484041Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-1",
+        "question": "LKG update mechanism: when a full test run passes, how should `.egg/last-known-good` be updated on the working branch?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Ride-along on the next commit the agent/developer makes (no dedicated commit; .egg/last-known-good is staged by `make test-all` and gets swept up naturally) \u2014 recommended",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Auto-commit immediately on every green `make test-all` (one dedicated commit per full-run pass; clean signal but history noise and gateway-policy friction)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Amend onto the HEAD commit that triggered the run (no extra commit but rewrites history \u2014 dangerous default)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Manual-only: `make test-record-good` is the ONLY way the file advances (zero automation; agents / devs must remember to run it)",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: LKG update mechanism: when a full test run passes,...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T19:49:04.391262Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-2",
+        "question": "CI integration: how should CI `.github/workflows/test.yml` interact with the new changeset-aware behavior, given CI already enforces `--cov-fail-under=80` via `PYTEST_ARGS`?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Switch CI to `make test-all` \u2014 preserves the 80% coverage gate as-is; `make test` stays the agent/dev fast path. (Recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Keep CI on `make test`, and have `make test` auto-degrade to a full run whenever `--cov` appears in `PYTEST_ARGS` (coverage-aware fallback)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Keep CI on `make test` with narrowed selection; drop `--cov-fail-under=80` on PR runs and enforce it only on `main` nightly / merge-queue",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Keep CI on `make test` with narrowed selection; keep coverage gate but scope it to changed files only (`--cov` on selected dirs)",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: CI integration: how should CI `.github/workflows/t...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T19:49:15.000417Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-3",
+        "question": "Test-selection tooling: which approach should the plan phase design around?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Static reverse import-graph via `grimp` (maintained, Rust-backed, has `find_downstream_modules`; adds one dev dep) \u2014 recommended",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Coverage-based selection via `pytest-testmon` (finer granularity, catches dynamic imports on executed paths; requires prior full run; fragile with `pytest-cov`)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Hybrid: `grimp` for file-level selection + `pytest-testmon` for intra-file narrowing (two dependencies, more moving parts)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Path-mapping (Airflow-style hand-curated dir\u2192dir map in YAML; zero graph dependency; coarser; doesn't meet leaf-module acceptance criterion)",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Hand-rolled static graph using Python stdlib `ast` (no new dependency; reinvents grimp; more code to maintain)",
+            "description": null
+          },
+          {
+            "id": "opt-6",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Test-selection tooling: which approach should the ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T19:49:20.040718Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-4",
+        "question": "`.egg/last-known-good` file format",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Bare 40-char sha (one-line file; simplest; no parsing cost) \u2014 recommended",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Structured JSON with {sha, env_digest, updated_at} (richer invalidation; slightly larger surface)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Bare sha + a separate `.egg/last-known-good.invalidated` marker file when fallback triggers fire (two files; explicit)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: `.egg/last-known-good` file format",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T19:49:27.394324Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-5",
+        "question": "Non-Python resource fallback trigger policy (v1): when a non-`.py` file changes in the diff, how should test selection behave?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Any non-`.py` change \u2192 full suite (simple, conservative, no allowlist maintenance) \u2014 recommended for v1",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Explicit allowlist of test-relevant non-`.py` paths (shared/prompts/, shared/egg_anchor/schemas/, tests/action/, tests/workflows/, tests/config/) \u2192 full suite; all other non-`.py` changes skip the trigger",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Map each non-`.py` resource directory to the tests that exercise it, and include those tests without triggering a full suite (fine-grained; requires hand-maintained map)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Non-Python resource fallback trigger policy (v1): ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T19:49:35.256690Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-6",
+        "question": "Merge behavior implementation: how should `.egg/last-known-good` be rewritten to `main`'s pre-merge HEAD on merge?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Merge-queue step / GitHub Action that rewrites the file as part of the merge commit (requires merge-queue infra) \u2014 recommended if available",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Gateway-enforced server-side pre-push hook on pushes to `main` that rewrites the file",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Squash-merge only for the egg repo \u2014 rely on squash to drop branch LKG history and have a post-merge workflow reset the file on `main`",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Don't rewrite; leave LKG as-is and accept that branches cut from main may inherit stale-but-valid values",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Merge behavior implementation: how should `.egg/la...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T19:49:40.608287Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-7",
+        "question": "Naming: what should the full-suite escape-hatch target be called?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "`make test-all` (matches the issue's proposal; the default `make test` becomes changeset-aware) \u2014 recommended",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Rename current target: `make test` = changeset-aware (new), `make test-full` = full suite",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Keep `make test` = full suite (status quo) and add `make test-fast` as the new changeset-aware target (less risky; no behavior change on default target)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Naming: what should the full-suite escape-hatch ta...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T19:49:47.882466Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.7",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-8",
+        "question": "Gateway / role policy for `.egg/last-known-good` pushes",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Add `.egg/last-known-good` to the push allowlist for every role that runs `make test` (refiner, planner, coder, tester, reviewers, \u2026) \u2014 broad but simple. Recommended.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Route LKG updates through a gateway-side observer: the sandbox never writes the file directly; the gateway observes a passing full-run signal (e.g. via a structured pytest report) and commits LKG itself on the agent's branch.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Restrict LKG writes to a dedicated 'test-runner' role only \u2014 means other roles can't update LKG, so the file only advances when that role runs tests.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Make the file untracked (.gitignore) and accept the loss of cross-sandbox continuity \u2014 sidesteps gateway policy entirely.",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Gateway / role policy for `.egg/last-known-good` p...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T19:50:04.891146Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Parallel agents on the same branch: two sandboxes running `make test-all` on the same branch will race on `.egg/last-known-good`. Last-writer-wins is safe (both shas represent green states) but can churn the file. Is last-writer-wins acceptable, or do you want explicit coordination (per-agent sidecar, lock file, merge logic)?",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Integration / e2e / security test targets are out of scope per the issue. Confirm they stay full-suite-only for this PR, or do you want them considered for a follow-up issue?",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "Documentation placement: the issue says 'Documented where the test commands are described'. The repo has no `docs/guides/testing.md` today. Preferred location(s) \u2014 update `CONTRIBUTING.md`, create a new `docs/guides/testing.md`, update `make help`, or some combination?",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "Should a partial (changeset-aware) pass update LKG at all? The issue says 'Never updated on a partial pass' \u2014 confirm that's still the intent under the ride-along update strategy, even though writing the file during a partial pass would be cheap (just a no-op placeholder)?",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "Behavior on agent phases with read-only filesystem restrictions: some agent roles in the egg pipeline have `.egg-readonly` markers. Should those roles be able to READ LKG (to compute the baseline) but never WRITE it, or do we accept that they always fall back to base-branch baseline?",
+            "answer": null
+          },
+          {
+            "id": "Q6",
+            "question": "Bootstrap / first-use: how do we initialize `.egg/last-known-good` on branches that predate this change (including the main branch's first commit under this scheme)? Checked-in default pointing to some known-green historical sha, or empty file treated as 'no LKG, use base branch'?",
+            "answer": null
+          },
+          {
+            "id": "Q7",
+            "question": "Selection-decision logging verbosity: the issue asks for logging which baseline was used, counts, and fallback reason. Should this go to stderr always, to a JSON file at `.egg-state/selection/<sha>.json`, or both?",
+            "answer": null
+          },
+          {
+            "id": "Q8",
+            "question": "Performance expectations: is there a target wall-clock for the changeset-aware decision step (graph build + diff + selection) that the plan phase should design to? (e.g. under 2s on a dev machine, under 5s in CI sandbox.)",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 8 question(s)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T19:53:26.050860Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.8",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-9",
+        "question": "LKG storage medium: where should the last-known-good sha live?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Non-tracked sidecar in `.egg-state/last-known-good/<branch>.sha` (gitignored; per-branch; no merge/history noise; analysis-recommended) \u2014 flips the issue's default",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Tracked file `.egg/last-known-good` (the issue's proposal; cross-sandbox portable; auto-commits interact with gateway role-boundary rules)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Git notes on `refs/notes/egg-lkg` (invisible to diff/history; requires fetch/push of notes; gateway has no existing policy for notes)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Abandon LKG entirely \u2014 always baseline on `$(BASE_BRANCH)` (simplest; loses the narrow-diff-after-many-local-commits benefit)",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: LKG storage medium: where should the last-known-go...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T19:53:33.909598Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.9",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-10",
+        "question": "Dynamic-import handling: how should the selector widen for `importlib` / `__import__` / `SourceFileLoader` / entry-point plugins?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Grep-and-widen: if any changed file contains a dynamic-import pattern, fall back to full suite (blunt but simple) \u2014 recommended for v1",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Scan during graph construction: record which modules contain dynamic-import patterns; widen only if a changed module is in (or reachable from) that set \u2014 more targeted",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Runtime import-hook on a seed full-run: instrument the initial `make test-all` to record runtime import edges and persist them alongside the graph",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Shadow-imports file (Qik `qikimports.py` style): hand-maintained list of known dynamic edges, consulted at graph-build time",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Dynamic-import handling: how should the selector w...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T19:53:41.558406Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.10",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-11",
+        "question": "CI checkout depth: `actions/checkout@v4` uses `fetch-depth: 1` today, so `origin/main` isn't locally available for `git diff`. How should the implementation handle this?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Deepen checkout to `fetch-depth: 0` in `.github/workflows/test.yml` (always have full history; simplest) \u2014 recommended",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Fetch the baseline ref on demand inside `make test` (wrap in a helper; keeps CI checkout shallow)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Require callers to have the baseline already fetched; fall back to full suite when absent (no CI change; no extra git ops)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Not an issue if CI uses `make test-all` (decision-2) \u2014 only `make test` needs the baseline",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: CI checkout depth: `actions/checkout@v4` uses `fet...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T19:53:46.935311Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.11",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-12",
+        "question": "Graph granularity: at what level should the reverse-closure be computed?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Module-level (grimp default; one node per import-resolvable module; sufficient for file-level test selection) \u2014 recommended",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "File-level (one node per `.py` file; redundant when modules and files are 1:1, potentially useful for `__init__.py` changes)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Function-level (requires `pyan` or `pytest-testmon`; enables intra-file narrowing at the cost of adding a dynamic tool)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Graph granularity: at what level should the revers...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T19:54:10.518521Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Parallel agents on the same branch: two sandboxes running `make test-all` on the same branch will race on `.egg/last-known-good`. Last-writer-wins is safe (both shas represent green states) but can churn the file. Is last-writer-wins acceptable, or do you want explicit coordination (per-agent sidecar, lock file, merge logic)?",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Integration / e2e / security test targets are out of scope per the issue. Confirm they stay full-suite-only for this PR, or do you want them considered for a follow-up issue?",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "Documentation placement: the issue says 'Documented where the test commands are described'. The repo has no `docs/guides/testing.md` today. Preferred location(s) \u2014 update `CONTRIBUTING.md`, create a new `docs/guides/testing.md`, update `make help`, or some combination?",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "Should a partial (changeset-aware) pass update LKG at all? The issue says 'Never updated on a partial pass' \u2014 confirm that's still the intent under the ride-along update strategy, even though writing the file during a partial pass would be cheap (just a no-op placeholder)?",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "Behavior on agent phases with read-only filesystem restrictions: some agent roles in the egg pipeline have `.egg-readonly` markers. Should those roles be able to READ LKG (to compute the baseline) but never WRITE it, or do we accept that they always fall back to base-branch baseline?",
+            "answer": null
+          },
+          {
+            "id": "Q6",
+            "question": "Bootstrap / first-use: how do we initialize `.egg/last-known-good` on branches that predate this change (including the main branch's first commit under this scheme)? Checked-in default pointing to some known-green historical sha, or empty file treated as 'no LKG, use base branch'?",
+            "answer": null
+          },
+          {
+            "id": "Q7",
+            "question": "Selection-decision logging verbosity: the issue asks for logging which baseline was used, counts, and fallback reason. Should this go to stderr always, to a JSON file at `.egg-state/selection/<sha>.json`, or both?",
+            "answer": null
+          },
+          {
+            "id": "Q8",
+            "question": "Performance expectations: is there a target wall-clock for the changeset-aware decision step (graph build + diff + selection) that the plan phase should design to? (e.g. under 2s on a dev machine, under 5s in CI sandbox.)",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "new_value": {
+        "id": "feedback-2",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "For the `shared/tests/` fixtures that are 'used repo-wide', which exact files should trigger a full-suite fallback? (e.g., `shared/tests/conftest.py`, specific fixture modules.) Currently ambiguous \u2014 recommend enumerating before implementation.",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Fallback-trigger list completeness: review the recommended fallback-trigger set (any `conftest.py` change; `Makefile`, `pyproject.toml`, `uv.lock`; `.github/workflows/test.yml`; dynamic-import-touched files; unresolvable baseline; non-.py changes per decision-5). Anything missing or overreaching?",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "Canary mode: should there be a 'canary' mode \u2014 every Nth `make test` run on a branch (or once per day) forces a full suite to catch cases where static selection silently misses a test \u2014 and if so, what cadence?",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "Explicit pytest args: how should `make test` behave when invoked with explicit paths/args (e.g., `make test PYTEST_ARGS='gateway/tests/test_specific.py'`) \u2014 bypass narrowing (treat as developer override), intersect with the narrowed set, or union?",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "Introspection: should the implementation surface *why* a test was selected (e.g., a `--why` flag that prints the import chain from changed module \u2192 test)? Useful for agents diagnosing 'I expected this test to run and it didn't.'",
+            "answer": null
+          },
+          {
+            "id": "Q6",
+            "question": "Fallback-cause printing: when `make test` falls back to the full suite due to a trigger file change, should it explicitly print which trigger caused the fallback, or is a generic 'falling back to full suite' log sufficient?",
+            "answer": null
+          },
+          {
+            "id": "Q7",
+            "question": "Testmon follow-up appetite: is there appetite for adding `pytest-testmon` in a follow-up issue (Option C/D hybrid) for intra-file narrowing, or should we treat this issue as closing the door on dynamic selection entirely?",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 7 question(s)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T19:54:47.766146Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": {
+        "id": "feedback-2",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "For the `shared/tests/` fixtures that are 'used repo-wide', which exact files should trigger a full-suite fallback? (e.g., `shared/tests/conftest.py`, specific fixture modules.) Currently ambiguous \u2014 recommend enumerating before implementation.",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Fallback-trigger list completeness: review the recommended fallback-trigger set (any `conftest.py` change; `Makefile`, `pyproject.toml`, `uv.lock`; `.github/workflows/test.yml`; dynamic-import-touched files; unresolvable baseline; non-.py changes per decision-5). Anything missing or overreaching?",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "Canary mode: should there be a 'canary' mode \u2014 every Nth `make test` run on a branch (or once per day) forces a full suite to catch cases where static selection silently misses a test \u2014 and if so, what cadence?",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "Explicit pytest args: how should `make test` behave when invoked with explicit paths/args (e.g., `make test PYTEST_ARGS='gateway/tests/test_specific.py'`) \u2014 bypass narrowing (treat as developer override), intersect with the narrowed set, or union?",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "Introspection: should the implementation surface *why* a test was selected (e.g., a `--why` flag that prints the import chain from changed module \u2192 test)? Useful for agents diagnosing 'I expected this test to run and it didn't.'",
+            "answer": null
+          },
+          {
+            "id": "Q6",
+            "question": "Fallback-cause printing: when `make test` falls back to the full suite due to a trigger file change, should it explicitly print which trigger caused the fallback, or is a generic 'falling back to full suite' log sufficient?",
+            "answer": null
+          },
+          {
+            "id": "Q7",
+            "question": "Testmon follow-up appetite: is there appetite for adding `pytest-testmon` in a follow-up issue (Option C/D hybrid) for intra-file narrowing, or should we treat this issue as closing the door on dynamic selection entirely?",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "new_value": {
+        "id": "feedback-3",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Performance/size target: what makes this issue successful? (e.g., 'a one-file change in a gateway/ leaf module should select \u2264 N tests and complete in \u2264 T seconds on the reference runner.') Without a target, we cannot validate the implementation.",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Shared-fixture fallback enumeration: for the `shared/tests/` fixtures 'used repo-wide', which exact files should trigger a full-suite fallback? (e.g., `shared/tests/conftest.py`, specific fixture modules.)",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "Fallback-trigger list completeness: review the recommended set (any `conftest.py` change; `Makefile`, `pyproject.toml`, `uv.lock`; `.github/workflows/test.yml`; dynamic-import-touched files; unresolvable baseline; non-`.py` changes per decision-5). Anything missing or overreaching?",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "Canary mode: every Nth `make test` run on a branch (or once per day) forces a full suite to catch cases where static selection silently misses a test. Do we want this, and at what cadence?",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "Explicit pytest args: how should `make test` behave when invoked with explicit paths/args (e.g., `make test PYTEST_ARGS='gateway/tests/test_specific.py'`) \u2014 bypass narrowing (dev override), intersect, or union?",
+            "answer": null
+          },
+          {
+            "id": "Q6",
+            "question": "Introspection `--why`: should the implementation surface why a test was selected (print import chain from changed module \u2192 test)? Useful for agents diagnosing 'I expected this test to run and it didn't.'",
+            "answer": null
+          },
+          {
+            "id": "Q7",
+            "question": "Fallback-cause printing: when `make test` falls back to full suite due to a trigger file change, should it print which trigger caused it, or is a generic message sufficient?",
+            "answer": null
+          },
+          {
+            "id": "Q8",
+            "question": "Testmon follow-up appetite: appetite for adding `pytest-testmon` in a follow-up issue (intra-file narrowing), or close the door on dynamic selection entirely?",
+            "answer": null
+          },
+          {
+            "id": "Q9",
+            "question": "Parallel agents: two sandboxes running `make test-all` on the same branch race on LKG updates. Last-writer-wins is safe (both shas represent green states) but can churn the file. Acceptable, or need explicit coordination (per-agent sidecar, lock, merge logic)?",
+            "answer": null
+          },
+          {
+            "id": "Q10",
+            "question": "Integration / e2e / security test targets are out of scope per the issue. Confirm they stay full-suite-only for this PR, or should they be considered for a follow-up issue?",
+            "answer": null
+          },
+          {
+            "id": "Q11",
+            "question": "Documentation placement: the repo has no `docs/guides/testing.md` today. Preferred location \u2014 update `CONTRIBUTING.md`, create new `docs/guides/testing.md`, update `make help`, or some combination?",
+            "answer": null
+          },
+          {
+            "id": "Q12",
+            "question": "Partial-pass LKG behavior: issue says 'never updated on a partial pass.' Confirm that's still the intent (no, even cheap no-op-style writes) under the chosen LKG storage/update mechanism.",
+            "answer": null
+          },
+          {
+            "id": "Q13",
+            "question": "Read-only agent phases: some agent roles have `.egg-readonly` markers. Should those roles READ LKG (to compute the baseline) but never WRITE it, or accept that they always fall back to base-branch baseline?",
+            "answer": null
+          },
+          {
+            "id": "Q14",
+            "question": "Bootstrap / first-use: how do we initialize LKG on branches that predate this change (including main's first commit under the new scheme)? Checked-in default, empty, or absent treated as 'no LKG, use base branch'?",
+            "answer": null
+          },
+          {
+            "id": "Q15",
+            "question": "Selection-decision logging: stderr always, JSON file at `.egg-state/selection/<sha>.json`, or both?",
+            "answer": null
+          },
+          {
+            "id": "Q16",
+            "question": "Worktree keying: in worktree scenarios (agents on multiple branches in parallel), is a sidecar file keyed by `<branch>` sufficient, or do we need keying by worktree path too?",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 16 question(s)",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
   "pr": null,
-  "feedback": null,
+  "feedback": {
+    "id": "feedback-3",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Performance/size target: what makes this issue successful? (e.g., 'a one-file change in a gateway/ leaf module should select \u2264 N tests and complete in \u2264 T seconds on the reference runner.') Without a target, we cannot validate the implementation.",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "Shared-fixture fallback enumeration: for the `shared/tests/` fixtures 'used repo-wide', which exact files should trigger a full-suite fallback? (e.g., `shared/tests/conftest.py`, specific fixture modules.)",
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "question": "Fallback-trigger list completeness: review the recommended set (any `conftest.py` change; `Makefile`, `pyproject.toml`, `uv.lock`; `.github/workflows/test.yml`; dynamic-import-touched files; unresolvable baseline; non-`.py` changes per decision-5). Anything missing or overreaching?",
+        "answer": null
+      },
+      {
+        "id": "Q4",
+        "question": "Canary mode: every Nth `make test` run on a branch (or once per day) forces a full suite to catch cases where static selection silently misses a test. Do we want this, and at what cadence?",
+        "answer": null
+      },
+      {
+        "id": "Q5",
+        "question": "Explicit pytest args: how should `make test` behave when invoked with explicit paths/args (e.g., `make test PYTEST_ARGS='gateway/tests/test_specific.py'`) \u2014 bypass narrowing (dev override), intersect, or union?",
+        "answer": null
+      },
+      {
+        "id": "Q6",
+        "question": "Introspection `--why`: should the implementation surface why a test was selected (print import chain from changed module \u2192 test)? Useful for agents diagnosing 'I expected this test to run and it didn't.'",
+        "answer": null
+      },
+      {
+        "id": "Q7",
+        "question": "Fallback-cause printing: when `make test` falls back to full suite due to a trigger file change, should it print which trigger caused it, or is a generic message sufficient?",
+        "answer": null
+      },
+      {
+        "id": "Q8",
+        "question": "Testmon follow-up appetite: appetite for adding `pytest-testmon` in a follow-up issue (intra-file narrowing), or close the door on dynamic selection entirely?",
+        "answer": null
+      },
+      {
+        "id": "Q9",
+        "question": "Parallel agents: two sandboxes running `make test-all` on the same branch race on LKG updates. Last-writer-wins is safe (both shas represent green states) but can churn the file. Acceptable, or need explicit coordination (per-agent sidecar, lock, merge logic)?",
+        "answer": null
+      },
+      {
+        "id": "Q10",
+        "question": "Integration / e2e / security test targets are out of scope per the issue. Confirm they stay full-suite-only for this PR, or should they be considered for a follow-up issue?",
+        "answer": null
+      },
+      {
+        "id": "Q11",
+        "question": "Documentation placement: the repo has no `docs/guides/testing.md` today. Preferred location \u2014 update `CONTRIBUTING.md`, create new `docs/guides/testing.md`, update `make help`, or some combination?",
+        "answer": null
+      },
+      {
+        "id": "Q12",
+        "question": "Partial-pass LKG behavior: issue says 'never updated on a partial pass.' Confirm that's still the intent (no, even cheap no-op-style writes) under the chosen LKG storage/update mechanism.",
+        "answer": null
+      },
+      {
+        "id": "Q13",
+        "question": "Read-only agent phases: some agent roles have `.egg-readonly` markers. Should those roles READ LKG (to compute the baseline) but never WRITE it, or accept that they always fall back to base-branch baseline?",
+        "answer": null
+      },
+      {
+        "id": "Q14",
+        "question": "Bootstrap / first-use: how do we initialize LKG on branches that predate this change (including main's first commit under the new scheme)? Checked-in default, empty, or absent treated as 'no LKG, use base branch'?",
+        "answer": null
+      },
+      {
+        "id": "Q15",
+        "question": "Selection-decision logging: stderr always, JSON file at `.egg-state/selection/<sha>.json`, or both?",
+        "answer": null
+      },
+      {
+        "id": "Q16",
+        "question": "Worktree keying: in worktree scenarios (agents on multiple branches in parallel), is a sidecar file keyed by `<branch>` sufficient, or do we need keying by worktree path too?",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
   "phase_configs": null,
   "agent_executions": []
 }
