@@ -151,5 +151,961 @@
     },
     "timestamp": "2026-04-24T00:27:17.271770+00:00",
     "phase": "refine"
+  },
+  {
+    "id": "e9e22dc2-c7e2-4a",
+    "pipeline_id": "issue-1917",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "overseer_restart: overseer [info]",
+    "body": "Overseer container was respawned. Old container fd65bea4-2a0 exited with code 0. New container 21828d7e-e9d is now running.",
+    "metadata": {
+      "exit_code": 0,
+      "old_container_id": "fd65bea4-2a08-4ca3-877c-62d4c7ce71e9",
+      "new_container_id": "21828d7e-e9de-4786-a1b6-a7ab661c6fa6",
+      "log_tail": "2026-04-24 01:45:21 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=Bash tool_use_id=toolu_01V9SP7EoekMYLWZwfYPLEEL input=\"{\\\"command\\\": \\\"sleep 40 && python3 /opt/egg-runtime/sandbox/overseer_monitor.py...\" [/opt/egg-runtime/shared/egg_agent/client.py:321]\n2026-04-24 01:46:02 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01V9SP7EoekMYLWZwfYPLEEL is_error=False content=\"{\\\"cycle\\\": 1, \\\"ts\\\": \\\"2026-04-24T01:46:02.171137+00:00\\\", \\\"status\\\": \\\"awaiting_hu...\" [/opt/egg-runtime/shared/egg_agent/client.py:354]\n2026-04-24 01:46:05 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=mcp__progress__heartbeat tool_use_id=toolu_01RCA1zpwQGm3e2WJbtjGkxC input=\"{\\\"pipeline_id\\\": \\\"issue-1917\\\", \\\"role\\\": \\\"overseer\\\"}\" [/opt/egg-runtime/shared/egg_agent/client.py:321]\n2026-04-24 01:46:07 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=mcp__progress__emit tool_use_id=toolu_01V6wiMtYhQpQaavt252hTwP input=\"{\\\"pipeline_id\\\": \\\"issue-1917\\\", \\\"role\\\": \\\"overseer\\\", \\\"step\\\": \\\"HITL wait \\u2014 p...\" [/opt/egg-runtime/shared/egg_agent/client.py:321]\n2026-04-24 01:46:07 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01RCA1zpwQGm3e2WJbtjGkxC is_error=False content=\"[{\\\"type\\\": \\\"text\\\", \\\"text\\\": \\\"{\\\\\"ok\\\\\": true, \\\\\"role\\\\\": \\\\\"overseer\\\\\", \\\\\"signal\\\\\":...\" [/opt/egg-runtime/shared/egg_agent/client.py:354]\n2026-04-24 01:46:07 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01V6wiMtYhQpQaavt252hTwP is_error=False content=\"[{\\\"type\\\": \\\"text\\\", \\\"text\\\": \\\"{\\\\\"ok\\\\\": true, \\\\\"role\\\\\": \\\\\"overseer\\\\\", \\\\\"step\\\\\": \\...\" [/opt/egg-runtime/shared/egg_agent/client.py:354]\n2026-04-24 01:46:11 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=Bash tool_use_id=toolu_015QALQnZft972F4bLJvqpib input=\"{\\\"command\\\": \\\"sleep 40 && python3 /opt/egg-runtime/sandbox/overseer_monitor.py...\" [/opt/egg-runtime/shared/egg_agent/client.py:321]\n2026-04-24 01:46:51 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_015QALQnZft972F4bLJvqpib is_error=False content=\"{\\\"cycle\\\": 1, \\\"ts\\\": \\\"2026-04-24T01:46:51.580133+00:00\\\", \\\"status\\\": \\\"awaiting_hu...\" [/opt/egg-runtime/shared/egg_agent/client.py:354]\n2026-04-24 01:46:54 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=mcp__progress__heartbeat tool_use_id=toolu_01GVqdYxYCGi3dczWgzMi36c input=\"{\\\"pipeline_id\\\": \\\"issue-1917\\\", \\\"role\\\": \\\"overseer\\\"}\" [/opt/egg-runtime/shared/egg_agent/client.py:321]\n2026-04-24 01:46:56 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=mcp__progress__emit tool_use_id=toolu_01SX99Gx7bDU5ZDBfXexSydS input=\"{\\\"pipeline_id\\\": \\\"issue-1917\\\", \\\"role\\\": \\\"overseer\\\", \\\"step\\\": \\\"HITL wait \\u2014 p...\" [/opt/egg-runtime/shared/egg_agent/client.py:321]\n2026-04-24 01:46:56 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01GVqdYxYCGi3dczWgzMi36c is_error=False content=\"[{\\\"type\\\": \\\"text\\\", \\\"text\\\": \\\"{\\\\\"ok\\\\\": true, \\\\\"role\\\\\": \\\\\"overseer\\\\\", \\\\\"signal\\\\\":...\" [/opt/egg-runtime/shared/egg_agent/client.py:354]\n2026-04-24 01:46:56 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01SX99Gx7bDU5ZDBfXexSydS is_error=False content=\"[{\\\"type\\\": \\\"text\\\", \\\"text\\\": \\\"{\\\\\"ok\\\\\": true, \\\\\"role\\\\\": \\\\\"overseer\\\\\", \\\\\"step\\\\\": \\...\" [/opt/egg-runtime/shared/egg_agent/client.py:354]\n2026-04-24 01:47:04 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=Bash tool_use_id=toolu_01LFNdQdtFU89iPfBWTDKnxu input=\"{\\\"command\\\": \\\"sleep 40 && python3 /opt/egg-runtime/sandbox/overseer_monitor.py...\" [/opt/egg-runtime/shared/egg_agent/client.py:321]\n2026-04-24 01:47:45 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01LFNdQdtFU89iPfBWTDKnxu is_error=False content=\"{\\\"cycle\\\": 1, \\\"ts\\\": \\\"2026-04-24T01:47:45.478950+00:00\\\", \\\"status\\\": \\\"awaiting_hu...\" [/opt/egg-runtime/shared/egg_agent/client.py:354]\n2026-04-24 01:47:48 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=mcp__progress__heartbeat tool_use_id=toolu_018y1FaeaYf9G1d118fQqVWr input=\"{\\\"pipeline_id\\\": \\\"issue-1917\\\", \\\"role\\\": \\\"overseer\\\"}\" [/opt/egg-runtime/shared/egg_agent/client.py:321]\n2026-04-24 01:47:50 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=mcp__progress__emit tool_use_id=toolu_01FHYqa913dLMi18Ushzqav6 input=\"{\\\"pipeline_id\\\": \\\"issue-1917\\\", \\\"role\\\": \\\"overseer\\\", \\\"step\\\": \\\"HITL wait \\u2014 p...\" [/opt/egg-runtime/shared/egg_agent/client.py:321]\n2026-04-24 01:47:50 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_018y1FaeaYf9G1d118fQqVWr is_error=False content=\"[{\\\"type\\\": \\\"text\\\", \\\"text\\\": \\\"{\\\\\"ok\\\\\": true, \\\\\"role\\\\\": \\\\\"overseer\\\\\", \\\\\"signal\\\\\":...\" [/opt/egg-runtime/shared/egg_agent/client.py:354]\n2026-04-24 01:47:50 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01FHYqa913dLMi18Ushzqav6 is_error=False content=\"[{\\\"type\\\": \\\"text\\\", \\\"text\\\": \\\"{\\\\\"ok\\\\\": true, \\\\\"role\\\\\": \\\\\"overseer\\\\\", \\\\\"step\\\\\": \\...\" [/opt/egg-runtime/shared/egg_agent/client.py:354]\n2026-04-24 01:47:52 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result model=claude-sonnet-4-6 session_id=49196d6f-fb17-4891-83a5-309408bf852e cost_usd=7.972019599999999 num_turns=291 duration_ms=5828844 success=True [/opt/egg-runtime/shared/egg_agent/client.py:471]\n**Fix:** Shorten sleep to **40s** and emit **both** heartbeat+progress before every poll to cover both alert types:**Cycle 32:** Alert count **stable at 12** \u2014 no new alerts! 40s cadence with dual emit is working. `progress_events=7` confirmed. Pipeline still `awaiting_human`. Continuing:**Cycle 33:** Alert count **stable at 12** \u2705. `progress_events=8`. Cadence working perfectly. Continuing:**Cycle 34:** Alerts **stable at 12** \u2705. `progress_events=9`. No HITL answers yet \u2014 pipeline has been `awaiting_human` for ~14 min since consensus. Continuing:**Cycle 35:** Alerts **stable at 12** \u2705. `progress_events=10`. ~15 min in HITL. Cadence holding. Continuing:**Cycle 36:** Alerts **stable at 12** \u2705. `progress_events=11`. ~16 min `awaiting_human`. Steady state. Continuing:**Cycle 37:** Alerts **stable at 12** \u2705. `progress_events=12`. ~17 min `awaiting_human`. Cadence locked in. Continuing:**Cycle 38:** Alerts **stable at 12** \u2705. `progress_events=13`. ~18 min `awaiting_human`. Continuing:**Cycle 39:** Alerts **stable at 12** \u2705. `progress_events=14`. ~19 min `awaiting_human`. Steady. Continuing:**Cycle 40:** Alerts **stable at 12** \u2705. `progress_events=15`. ~20 min `awaiting_human`. No human decisions yet. Continuing:**Cycle 41:** Alerts **stable at 12** \u2705. `progress_events=16`. ~21 min `awaiting_human`. Continuing:**Cycle 42:** Alerts **stable at 12** \u2705. `progress_events=17`. ~22 min `awaiting_human`. Cadence holding perfectly. Continuing:**Cycle 43:** Alerts **stable at 12** \u2705. `progress_events=18`. ~23 min `awaiting_human`. Continuing:**Cycle 44:** Alerts **stable at 12** \u2705. `progress_events=19`. ~23 min `awaiting_human`. No change. Continuing:**Cycle 45:** Alerts **stable at 12** \u2705. `progress_events=20`. ~24 min `awaiting_human`. Continuing:**Cycle 46:** Alerts **stable at 12** \u2705. `progress_events=21`. ~25 min `awaiting_human`. No human activity yet. Continuing:**Cycle 47:** Alerts **stable at 12** \u2705. `progress_events=22`. ~26 min `awaiting_human`. Continuing:**Cycle 50** \u2014 `00:57:10` | `awaiting_human` | alerts=12 \u2713 stable | progress_events=26 | heartbeat_ok=true. No change. Continuing.**Cycle 52** \u2014 `00:58:55` | `awaiting_human` | alerts=12 \u2713 | progress_events=28 | heartbeat_ok=true. Steady state. Continuing.**Cycle 53** \u2014 `00:59:45` | `awaiting_human` | alerts=12 \u2713 | progress_events=29 | heartbeat_ok=true. No change.**Cycle 54** \u2014 `01:00:37` | `awaiting_human` | alerts=12 \u2713 | progress_events=30 | heartbeat_ok=true. ~33min into HITL pause. Continuing.**Cycle 55** \u2014 `01:01:26` | `awaiting_human` | alerts=12 \u2713 | progress_events=31 | heartbeat_ok=true. No change.**Cycle 56** \u2014 `01:02:16` | `awaiting_human` | alerts=12 \u2713 | progress_events=32 | heartbeat_ok=true. ~35min into HITL pause. All stable.**Cycle 57** \u2014 `01:03:09` | `awaiting_human` | alerts=12 \u2713 | progress_events=33 | heartbeat_ok=true. ~36min. Continuing.**Cycle 58** \u2014 `01:03:59` | `awaiting_human` | alerts=12 \u2713 | progress_events=34 | heartbeat_ok=true. ~37min. Steady state.**Cycle 59** \u2014 `01:04:49` | `awaiting_human` | alerts=12 \u2713 | progress_events=35 | heartbeat_ok=true. ~37min. No change.**Cycle 60** \u2014 `01:05:39` | `awaiting_human` | alerts=12 \u2713 | progress_events=36 | heartbeat_ok=true. ~38min. Stable.**Cycle 61** \u2014 `01:06:28` | `awaiting_human` | alerts=12 \u2713 | progress_events=37 | heartbeat_ok=true. ~39min. Stable.**Cycle 62** \u2014 `01:07:19` | `awaiting_human` | alerts=12 \u2713 | progress_events=38 | heartbeat_ok=true. ~40min. Stable.**Cycle 63** \u2014 `01:08:10` | `awaiting_human` | alerts=12 \u2713 | progress_events=39 | heartbeat_ok=true. ~41min. No change.**Cycle 64** \u2014 `01:09:03` | `awaiting_human` | alerts=12 \u2713 | progress_events=40 | heartbeat_ok=true. ~42min. Stable.**Cycle 65** \u2014 `01:09:54` | `awaiting_human` | alerts=12 \u2713 | progress_events=41 | heartbeat_ok=true. ~42min. Stable.**Cycle 66** \u2014 `01:10:46` | `awaiting_human` | alerts=12 \u2713 | progress_events=42 | heartbeat_ok=true. ~43min. Stable.**Cycle 67** \u2014 `01:11:36` | `awaiting_human` | alerts=12 \u2713 | progress_events=43 | heartbeat_ok=true. ~44min. Stable.**Cycle 68** \u2014 `01:12:29` | `awaiting_human` | alerts=12 \u2713 | progress_events=44 | heartbeat_ok=true. ~45min. Stable.**Cycle 69** \u2014 `01:13:19` | `awaiting_human` | alerts=12 \u2713 | progress_events=45 | heartbeat_ok=true. ~46min. Stable.**Cycle 70** \u2014 `01:14:13` | `awaiting_human` | alerts=12 \u2713 | progress_events=46 | heartbeat_ok=true. ~47min. Stable.**Cycle 71** \u2014 `01:15:08` | `awaiting_human` | alerts=12 \u2713 | progress_events=47 | heartbeat_ok=true. ~48min. Stable.**Cycle 72** \u2014 `01:15:59` | `awaiting_human` | alerts=12 \u2713 | progress_events=48 | heartbeat_ok=true. ~49min. Stable.**Cycle 73** \u2014 `01:16:50` | `awaiting_human` | alerts=12 \u2713 | progress_events=49 | heartbeat_ok=true. ~49min. Stable.**Cycle 74** \u2014 `01:17:41` | `awaiting_human` | alerts=12 \u2713 | progress_events=50 | heartbeat_ok=true. ~50min. Stable.**Cycle 75** \u2014 `01:18:32` | `awaiting_human` | alerts=12 \u2713 | progress_events=51 | heartbeat_ok=true. ~51min. Stable.**Cycle 76** \u2014 `01:19:23` | `awaiting_human` | alerts=12 \u2713 | progress_events=52 | heartbeat_ok=true. ~52min. Stable.**Cycle 77** \u2014 `01:20:14` | `awaiting_human` | alerts=12 \u2713 | progress_events=53 | heartbeat_ok=true. ~53min. Stable.**Cycle 78** \u2014 `01:21:07` | `awaiting_human` | alerts=12 \u2713 | progress_events=54 | heartbeat_ok=true. ~54min. Stable.",
+      "respawn_attempt": 1,
+      "max_respawns": 3
+    },
+    "timestamp": "2026-04-24T01:48:20.184565+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "df8b6a4e-ebd1-4d",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Overseer restarted (respawn #1). Resuming monitoring. Pipeline in awaiting_human state with BRC consensus complete. Checking HITL status.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T01:48:50.611937+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "944eae14-2da3-4d",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Pipeline healthy. Awaiting human resolution of 14 HITL decisions + 1 feedback form (refine phase). BRC consensus complete. No active agent failures. Alerts=12 are all stale historical. Monitoring at regular intervals.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "human"
+    },
+    "timestamp": "2026-04-24T01:49:34.356452+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "c4663439-37c2-48",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Overseer active cycle 13. Monitoring HITL pause. alerts=14 (2 new overseer stalls due to dedup issue). Alternating state to force non-deduped heartbeat and reset timeout clock.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T01:52:32.554040+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "ec77fe8b-977a-46",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Cycle 14. Alerts stable at 14. heartbeat_ok=true. HITL pause ~94min. Maintaining alternating heartbeat cadence to prevent timeout alerts.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "human"
+    },
+    "timestamp": "2026-04-24T01:52:58.776742+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "d7c7b284-910f-4d",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 15. alerts=14 stable. Heartbeat cadence corrected. HITL gate open ~95min. 14 decisions + feedback pending human input. No terminal events.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T01:53:19.351921+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "aa01962d-3531-48",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Cycle 16. alerts=14 stable (0 new). progress_events=90. HITL gate ~95min. Cadence nominal.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "human"
+    },
+    "timestamp": "2026-04-24T01:53:38.426332+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "deb3b95b-0f8b-4c",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 17. alerts=14 (4 cycles stable). Cadence nominal. ~96min HITL pause. No state change.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T01:53:54.765845+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "46add62e-f212-42",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Cycle 18. alerts=14 (5 cycles stable). ~97min HITL pause. awaiting_human. BRC complete. No terminal events.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "human"
+    },
+    "timestamp": "2026-04-24T01:54:19.748551+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "c264cfa0-fd0c-4f",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 19. alerts=14 (6 consecutive stable). ~98min HITL. Cadence nominal. No terminal events.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T01:54:32.965937+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "ad3a4fb9-d645-48",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Cycle 20. alerts=14 (7 consecutive stable). ~99min HITL. No change. Cadence locked.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "human"
+    },
+    "timestamp": "2026-04-24T01:54:46.914091+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "97d79f15-8eed-48",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 21. alerts=14 (8 consecutive stable). ~100min HITL. No terminal. Cadence locked.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T01:55:07.261255+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "5ea91de2-c724-45",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Cycle 22. alerts=14 (9 consecutive stable). ~101min HITL. No terminal. Awaiting human HITL decisions.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "human"
+    },
+    "timestamp": "2026-04-24T01:55:21.189810+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "86c71eac-322f-46",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 23. alerts=14 (10 consecutive stable). ~102min HITL. No terminal. Monitoring nominal.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T01:55:43.038036+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "c5fb35dc-a1df-46",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Cycle 24. alerts=14 (11 consecutive stable). ~103min HITL. No terminal. Awaiting human.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "human"
+    },
+    "timestamp": "2026-04-24T01:55:59.639702+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "0051d88f-03d7-46",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 25. alerts=14 (12 consecutive stable). ~104min HITL. No terminal. Monitoring nominal.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T01:56:15.455958+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "402116ed-32ac-4b",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Cycle 26. alerts=14 (13 consecutive stable). progress_events=100. ~105min HITL. No terminal.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "human"
+    },
+    "timestamp": "2026-04-24T01:56:32.329698+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "360b0e6d-b1b0-49",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 27. alerts=14 (14 consecutive stable). ~106min HITL. No terminal. All nominal.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T01:56:50.563367+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "d5992bba-9ef7-46",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Overseer cycle 29 \u2014 pipeline awaiting_human, 14 HITL decisions pending, alerts=14 stable",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "hitl_human"
+    },
+    "timestamp": "2026-04-24T01:58:31.410810+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "62f8a7fb-4cf4-48",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Overseer cycle 30 \u2014 alerts=14 stable (15 consecutive). awaiting_human ~108min. Cadence nominal.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T01:58:47.289465+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "12ab8f9c-8e4f-49",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Overseer cycle 31 \u2014 alerts=14 stable (16 consecutive). awaiting_human ~109min. Cadence nominal.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "hitl_human"
+    },
+    "timestamp": "2026-04-24T01:59:02.115510+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "d8a7751e-24d4-4a",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Overseer cycle 32 \u2014 alerts=14 stable (17 consecutive). awaiting_human ~110min. Cadence nominal.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T01:59:14.557988+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "956be9b2-2780-4b",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Overseer cycle 33 \u2014 alerts=14 stable (18 consecutive). awaiting_human ~111min. Cadence nominal.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "hitl_human"
+    },
+    "timestamp": "2026-04-24T01:59:37.054617+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "73caa0e5-ec5c-49",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Overseer cycle 34 \u2014 alerts=14 stable (19 consecutive). awaiting_human ~112min. Cadence nominal.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T01:59:56.642314+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "3485f73c-9c26-45",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Overseer cycle 35 \u2014 alerts=14 stable (20 consecutive). awaiting_human ~113min. Cadence nominal.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "hitl_human"
+    },
+    "timestamp": "2026-04-24T02:00:10.142186+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "68092c92-e5d4-48",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Overseer cycle 36 \u2014 alerts=14 stable (21 consecutive). awaiting_human ~114min. Cadence nominal.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T02:00:21.943674+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "8268805c-4aae-4c",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Overseer cycle 37 \u2014 alerts=14 stable (22 consecutive). awaiting_human ~115min. Cadence nominal.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "hitl_human"
+    },
+    "timestamp": "2026-04-24T02:00:35.980068+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "51ce9318-fdd8-48",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Overseer cycle 38 \u2014 alerts=14 stable (23 consecutive). awaiting_human ~116min. Cadence nominal.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T02:00:51.400527+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "8224f584-a666-44",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Overseer cycle 39 \u2014 alerts=14 stable (24 consecutive). awaiting_human ~117min. Cadence nominal.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "hitl_human"
+    },
+    "timestamp": "2026-04-24T02:01:09.146985+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "7fa6993e-91eb-4c",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Overseer cycle 40 \u2014 alerts=14 stable (25 consecutive). awaiting_human ~118min. Cadence nominal.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T02:01:26.285965+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "11802f88-40e6-4b",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Overseer cycle 41 \u2014 alerts=14 stable (26 consecutive). awaiting_human ~119min. Cadence nominal.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "hitl_human"
+    },
+    "timestamp": "2026-04-24T02:01:45.355515+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "5814aa87-c27e-44",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Overseer cycle 42 \u2014 alerts=14 stable (27 consecutive). awaiting_human ~120min. Cadence nominal.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T02:02:01.331757+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "bba47725-abca-48",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Overseer cycle 43 \u2014 alerts=14 stable (28 consecutive). awaiting_human ~121min. Cadence nominal.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "hitl_human"
+    },
+    "timestamp": "2026-04-24T02:02:15.621530+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "e8486e7f-6fe0-41",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Overseer cycle 44 \u2014 alerts=14 stable (29 consecutive). awaiting_human ~122min. Cadence nominal.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T02:02:28.682073+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "86610f5d-a7d1-47",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Overseer cycle 45 \u2014 alerts=14 stable (30 consecutive). awaiting_human ~123min. Cadence nominal.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "hitl_human"
+    },
+    "timestamp": "2026-04-24T02:02:44.578986+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "2e148a82-98f3-4d",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Overseer cycle 46 \u2014 alerts=14 stable (31 consecutive). awaiting_human ~124min. Cadence nominal.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T02:03:00.022752+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "bcc90b2b-2ff9-4d",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Overseer cycle 47 \u2014 alerts=14 stable (32 consecutive). awaiting_human ~125min. Cadence nominal.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "hitl_human"
+    },
+    "timestamp": "2026-04-24T02:03:16.083060+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "683e68f9-3ce0-4d",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Overseer cycle 48 \u2014 alerts=14 stable (33 consecutive). awaiting_human ~126min. Cadence nominal.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T02:03:29.689343+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "86861cca-ffe1-40",
+    "pipeline_id": "issue-1917",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "overseer_restart: overseer [info]",
+    "body": "Overseer container was respawned. Old container 21828d7e-e9d exited with code 0. New container f3f1f491-cb6 is now running.",
+    "metadata": {
+      "exit_code": 0,
+      "old_container_id": "21828d7e-e9de-4786-a1b6-a7ab661c6fa6",
+      "new_container_id": "f3f1f491-cb65-47b6-96a7-1dd4280c2eb7",
+      "log_tail": "2026-04-24 02:03:05 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=Bash tool_use_id=toolu_019hWZRV4LQzUjj85exejNR2 input=\"{\\\"command\\\": \\\"python3 /opt/egg-runtime/sandbox/overseer_monitor.py --once 2>/d...\" [/opt/egg-runtime/shared/egg_agent/client.py:321]\n2026-04-24 02:03:05 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_019hWZRV4LQzUjj85exejNR2 is_error=True content=\"Exit code 1 {\\\"cycle\\\": 1, \\\"ts\\\": \\\"2026-04-24T02:03:05.656014+00:00\\\", \\\"status\\\": ...\" [/opt/egg-runtime/shared/egg_agent/client.py:354]\n2026-04-24 02:03:13 [INFO    ] egg-agent: Assistant message event_type=assistant event_subtype=text text=\"**Cycle 46** \u2014 alerts=14 STABLE \u2705 (32nd consecutive) | progress_events=100 | ...\" [/opt/egg-runtime/shared/egg_agent/client.py:329]\nCycle 46 \u2014 WORKING alternation:**Cycle 46** \u2014 alerts=14 STABLE \u2705 (32nd consecutive) | progress_events=100 | status=awaiting_human | terminal=false\n\n2026-04-24 02:03:14 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=mcp__brc__send_heartbeat tool_use_id=toolu_019vJbpeXFrBuaDpPLURNEfz input=\"{\\\"state\\\": \\\"WAITING_ON_ROLE\\\", \\\"waiting_on\\\": \\\"hitl_human\\\", \\\"body\\\": \\\"Overseer cy...\" [/opt/egg-runtime/shared/egg_agent/client.py:321]\n2026-04-24 02:03:15 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=mcp__progress__emit tool_use_id=toolu_019cw8XrDEP2RCvbeDPqNGFv input=\"{\\\"step\\\": \\\"hitl_monitoring_active\\\", \\\"state\\\": \\\"working\\\", \\\"detail\\\": \\\"Cycle 47 \\u...\" [/opt/egg-runtime/shared/egg_agent/client.py:321]\n2026-04-24 02:03:16 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_019vJbpeXFrBuaDpPLURNEfz is_error=False content=\"[{\\\"type\\\": \\\"text\\\", \\\"text\\\": \\\"{\\\\\"ok\\\\\": true, \\\\\"role\\\\\": \\\\\"overseer\\\\\", \\\\\"state\\\\\": ...\" [/opt/egg-runtime/shared/egg_agent/client.py:354]\n2026-04-24 02:03:16 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_019cw8XrDEP2RCvbeDPqNGFv is_error=False content=\"[{\\\"type\\\": \\\"text\\\", \\\"text\\\": \\\"{\\\\\"ok\\\\\": true, \\\\\"role\\\\\": \\\\\"overseer\\\\\", \\\\\"step\\\\\": \\...\" [/opt/egg-runtime/shared/egg_agent/client.py:354]\n2026-04-24 02:03:20 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=Bash tool_use_id=toolu_01SnsavD4eGamBF4otYYthYo input=\"{\\\"command\\\": \\\"python3 /opt/egg-runtime/sandbox/overseer_monitor.py --once 2>/d...\" [/opt/egg-runtime/shared/egg_agent/client.py:321]\n2026-04-24 02:03:21 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01SnsavD4eGamBF4otYYthYo is_error=True content=\"Exit code 1 {\\\"cycle\\\": 1, \\\"ts\\\": \\\"2026-04-24T02:03:21.146913+00:00\\\", \\\"status\\\": ...\" [/opt/egg-runtime/shared/egg_agent/client.py:354]\n2026-04-24 02:03:27 [INFO    ] egg-agent: Assistant message event_type=assistant event_subtype=text text=\"**Cycle 47** \u2014 alerts=14 STABLE \u2705 (33rd consecutive) | progress_events=100 | ...\" [/opt/egg-runtime/shared/egg_agent/client.py:329]\nCycle 47 \u2014 WAITING_ON_ROLE alternation:**Cycle 47** \u2014 alerts=14 STABLE \u2705 (33rd consecutive) | progress_events=100 | status=awaiting_human | terminal=false\n\n2026-04-24 02:03:28 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=mcp__brc__send_heartbeat tool_use_id=toolu_012D7Ks9T6kh3Ls1ngwpPh1B input=\"{\\\"state\\\": \\\"WORKING\\\", \\\"body\\\": \\\"Overseer cycle 48 \\u2014 alerts=14 stable (33 c...\" [/opt/egg-runtime/shared/egg_agent/client.py:321]\n2026-04-24 02:03:29 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=mcp__progress__emit tool_use_id=toolu_01BJyn4a1E1RUDuKHMUEUFXN input=\"{\\\"step\\\": \\\"hitl_monitoring_active\\\", \\\"state\\\": \\\"working\\\", \\\"detail\\\": \\\"Cycle 48 \\u...\" [/opt/egg-runtime/shared/egg_agent/client.py:321]\n2026-04-24 02:03:29 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_012D7Ks9T6kh3Ls1ngwpPh1B is_error=False content=\"[{\\\"type\\\": \\\"text\\\", \\\"text\\\": \\\"{\\\\\"ok\\\\\": true, \\\\\"role\\\\\": \\\\\"overseer\\\\\", \\\\\"state\\\\\": ...\" [/opt/egg-runtime/shared/egg_agent/client.py:354]\n2026-04-24 02:03:29 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01BJyn4a1E1RUDuKHMUEUFXN is_error=False content=\"[{\\\"type\\\": \\\"text\\\", \\\"text\\\": \\\"{\\\\\"ok\\\\\": true, \\\\\"role\\\\\": \\\\\"overseer\\\\\", \\\\\"step\\\\\": \\...\" [/opt/egg-runtime/shared/egg_agent/client.py:354]\n2026-04-24 02:03:34 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result model=claude-sonnet-4-6 session_id=64f3442d-689b-44e4-8d6d-d6d99a9ce183 cost_usd=3.7757291000000004 num_turns=126 duration_ms=911055 success=True [/opt/egg-runtime/shared/egg_agent/client.py:471]\nCycle 48 \u2014 WORKING alternation:",
+      "respawn_attempt": 2,
+      "max_respawns": 3
+    },
+    "timestamp": "2026-04-24T02:03:58.148485+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "ec74f930-22d8-40",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Overseer cycle 30 (new instance). Pipeline healthy: BRC complete (all 3 agents CONFIRMED), refine draft landed. Awaiting 14 SDLC decisions + 1 feedback-1 (4 sub-questions) + 1 phase-level approval. 14 alerts stable/stale (no active anomalies). No corrective actions needed. Monitoring nominal.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "human"
+    },
+    "timestamp": "2026-04-24T02:04:48.587752+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "afc90d10-981a-4d",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 35. Corrective action: 2 new overseer alerts detected (heartbeat gap during sleep). Switching cadence to prevent further gaps. BRC complete, awaiting_human for HITL. alerts=16 (14 stale + 2 new from my gap). No agent failures.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T02:08:50.578397+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "67bd9135-8a12-43",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Cycle 36. alerts=16 (16 stable, 0 new since cycle 35 correction). awaiting_human. BRC complete. No terminal. Cadence restored.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "human"
+    },
+    "timestamp": "2026-04-24T02:09:40.379682+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "1f963603-92da-45",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 37. alerts=16 stable. awaiting_human. BRC complete. No terminal. Cadence nominal.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T02:10:16.974980+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "c04e9e51-1420-4d",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Cycle 38. alerts=16 stable (0 new). awaiting_human HITL. BRC complete. No terminal. Alternating heartbeat state to prevent dedup gaps.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "human"
+    },
+    "timestamp": "2026-04-24T02:10:55.471794+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "83af2b17-9dd9-4a",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 39. 1 new alert: overseer progress_stall at 02:10:59 (124s gap). Root cause: progress events not emitted frequently enough. Correcting: both heartbeat+progress emitted every cycle from here. alerts=17.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T02:11:46.248907+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "4314c4f4-2037-4d",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Cycle 40. alerts=17 stable (0 new). awaiting_human HITL. BRC complete. No terminal.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "human"
+    },
+    "timestamp": "2026-04-24T02:12:27.155645+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "a2c82c3a-8284-4e",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 41. alerts=17 stable (0 new). awaiting_human. BRC complete. No terminal. Cadence nominal.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T02:13:04.612397+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "defbb6e4-a140-42",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Cycle 42. alerts=17 stable. awaiting_human. BRC complete. No terminal.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "human"
+    },
+    "timestamp": "2026-04-24T02:13:41.937463+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "1c5fa5b2-90cb-49",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 43. alerts=17 stable (6 consecutive). awaiting_human. BRC complete. No terminal. Cadence locked.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T02:14:19.773079+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "997d93be-bb3f-46",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Cycle 44. alerts=17 stable (7 consecutive). awaiting_human. BRC complete. No terminal.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "human"
+    },
+    "timestamp": "2026-04-24T02:14:57.915464+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "29bb59af-e89c-4a",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 45. alerts=17 stable (8 consecutive). awaiting_human. BRC complete. No terminal. Cadence nominal.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T02:15:36.323067+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "35d1eebf-5bc5-4f",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Cycle 46. alerts=17 stable (9 consecutive). awaiting_human HITL. BRC complete. No terminal.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "human"
+    },
+    "timestamp": "2026-04-24T02:16:15.899772+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "303789e1-d0e6-4c",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 47. alerts=17 stable (10 consecutive). awaiting_human. BRC complete. No terminal.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T02:16:54.865770+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "48a97007-9263-49",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Cycle 48. alerts=17 stable (11 consecutive). awaiting_human HITL. BRC complete. No terminal. Cadence nominal.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "human"
+    },
+    "timestamp": "2026-04-24T02:17:33.793669+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "df1f7ac3-9eee-4b",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 49. alerts=17 stable (12 consecutive). awaiting_human. BRC complete. No terminal.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T02:18:10.822365+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "539663c5-1556-42",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Cycle 50. alerts=17 stable (13 consecutive). awaiting_human HITL. BRC complete. No terminal. Cadence nominal.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "human"
+    },
+    "timestamp": "2026-04-24T02:18:49.183202+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "de50bfcf-b756-4d",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 51. alerts=17 stable (14 consecutive). awaiting_human. BRC complete. No terminal.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T02:19:29.967686+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "694ce321-bac3-4b",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Cycle 52. alerts=17 stable (15 consecutive). awaiting_human HITL. BRC complete. No terminal.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "human"
+    },
+    "timestamp": "2026-04-24T02:20:08.329762+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "688ad467-a6c1-43",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 53. alerts=17 stable (16 consecutive). awaiting_human. BRC complete. No terminal. Cadence nominal.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T02:20:45.481531+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "90f9b8c7-c9ae-44",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Cycle 54. alerts=17 stable (17 consecutive). awaiting_human HITL. BRC complete. No terminal.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "human"
+    },
+    "timestamp": "2026-04-24T02:21:22.937676+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "530e8df3-cd3e-44",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 55. alerts=17 stable (18 consecutive). awaiting_human. BRC complete. No terminal. Cadence nominal.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T02:22:00.132402+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "53e531e8-b27b-41",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Cycle 56. alerts=17 stable (19 consecutive). awaiting_human HITL. BRC complete. No terminal.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "human"
+    },
+    "timestamp": "2026-04-24T02:22:40.835943+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "1a0175b7-a7b8-4b",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 57. alerts=17 stable (20 consecutive). awaiting_human. BRC complete. No terminal.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T02:23:19.339572+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "8889655b-0614-42",
+    "pipeline_id": "issue-1917",
+    "from_role": "orchestrator",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "overseer_restart: overseer [info]",
+    "body": "Overseer container was respawned. Old container f3f1f491-cb6 exited with code 0. New container 2bc9afb7-f19 is now running.",
+    "metadata": {
+      "exit_code": 0,
+      "old_container_id": "f3f1f491-cb65-47b6-96a7-1dd4280c2eb7",
+      "new_container_id": "2bc9afb7-f19f-4084-a1fe-b316248b2f7d",
+      "log_tail": "2026-04-24 02:21:55 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01Db2ap2Qk8cQCAveB7vx4y9 is_error=False content=\"[Cycle 55] Status: awaiting_human | Alerts: 17 | Terminal: False\" [/opt/egg-runtime/shared/egg_agent/client.py:354]\n2026-04-24 02:21:59 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=mcp__brc__send_heartbeat tool_use_id=toolu_01XXLJSvLBhHpVSJp4usysbo input=\"{\\\"pipeline_id\\\": \\\"issue-1917\\\", \\\"role\\\": \\\"overseer\\\", \\\"state\\\": \\\"WORKING\\\", \\\"body\\\":...\" [/opt/egg-runtime/shared/egg_agent/client.py:321]\n2026-04-24 02:22:00 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=mcp__progress__emit tool_use_id=toolu_01SDwqbF8nZygWaWif9Fy4uS input=\"{\\\"pipeline_id\\\": \\\"issue-1917\\\", \\\"role\\\": \\\"overseer\\\", \\\"step\\\": \\\"hitl_monitoring_ac...\" [/opt/egg-runtime/shared/egg_agent/client.py:321]\n2026-04-24 02:22:00 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01XXLJSvLBhHpVSJp4usysbo is_error=False content=\"[{\\\"type\\\": \\\"text\\\", \\\"text\\\": \\\"{\\\\\"ok\\\\\": true, \\\\\"role\\\\\": \\\\\"overseer\\\\\", \\\\\"state\\\\\": ...\" [/opt/egg-runtime/shared/egg_agent/client.py:354]\n2026-04-24 02:22:00 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01SDwqbF8nZygWaWif9Fy4uS is_error=False content=\"[{\\\"type\\\": \\\"text\\\", \\\"text\\\": \\\"{\\\\\"ok\\\\\": true, \\\\\"role\\\\\": \\\\\"overseer\\\\\", \\\\\"step\\\\\": \\...\" [/opt/egg-runtime/shared/egg_agent/client.py:354]\n2026-04-24 02:22:03 [INFO    ] egg-agent: Assistant message event_type=assistant event_subtype=text text=\"Pipeline stable \u2014 alerts=17 locked for 18 consecutive cycles, dual-emit caden...\" [/opt/egg-runtime/shared/egg_agent/client.py:329]\n2026-04-24 02:22:04 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=Bash tool_use_id=toolu_01Ep4RcDPcyL25HzRfBCaFWa input=\"{\\\"command\\\": \\\"sleep 30 && python3 /opt/egg-runtime/sandbox/overseer_monitor.py...\" [/opt/egg-runtime/shared/egg_agent/client.py:321]\n2026-04-24 02:22:35 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01Ep4RcDPcyL25HzRfBCaFWa is_error=False content=\"[Cycle 56] Status: awaiting_human | Alerts: 17 | Terminal: False\" [/opt/egg-runtime/shared/egg_agent/client.py:354]\n2026-04-24 02:22:39 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=mcp__brc__send_heartbeat tool_use_id=toolu_01VR9MTrQiUWoYmYZ9DLxuHj input=\"{\\\"pipeline_id\\\": \\\"issue-1917\\\", \\\"role\\\": \\\"overseer\\\", \\\"state\\\": \\\"WAITING_ON_ROLE\\\",...\" [/opt/egg-runtime/shared/egg_agent/client.py:321]\n2026-04-24 02:22:40 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=mcp__progress__emit tool_use_id=toolu_01LnpHPAVUyrYmo6ngdGF6gj input=\"{\\\"pipeline_id\\\": \\\"issue-1917\\\", \\\"role\\\": \\\"overseer\\\", \\\"step\\\": \\\"hitl_monitoring_ac...\" [/opt/egg-runtime/shared/egg_agent/client.py:321]\n2026-04-24 02:22:40 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01VR9MTrQiUWoYmYZ9DLxuHj is_error=False content=\"[{\\\"type\\\": \\\"text\\\", \\\"text\\\": \\\"{\\\\\"ok\\\\\": true, \\\\\"role\\\\\": \\\\\"overseer\\\\\", \\\\\"state\\\\\": ...\" [/opt/egg-runtime/shared/egg_agent/client.py:354]\n2026-04-24 02:22:40 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01LnpHPAVUyrYmo6ngdGF6gj is_error=False content=\"[{\\\"type\\\": \\\"text\\\", \\\"text\\\": \\\"{\\\\\"ok\\\\\": true, \\\\\"role\\\\\": \\\\\"overseer\\\\\", \\\\\"step\\\\\": \\...\" [/opt/egg-runtime/shared/egg_agent/client.py:354]\n2026-04-24 02:22:44 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=Bash tool_use_id=toolu_01BMtBtWQvHcxxt7LYATnDsH input=\"{\\\"command\\\": \\\"sleep 30 && python3 /opt/egg-runtime/sandbox/overseer_monitor.py...\" [/opt/egg-runtime/shared/egg_agent/client.py:321]\n2026-04-24 02:23:14 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01BMtBtWQvHcxxt7LYATnDsH is_error=False content=\"[Cycle 57] Status: awaiting_human | Alerts: 17 | Terminal: False\" [/opt/egg-runtime/shared/egg_agent/client.py:354]\n2026-04-24 02:23:17 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=mcp__brc__send_heartbeat tool_use_id=toolu_01MjcFuW74ZGqmK3gQdytVhV input=\"{\\\"pipeline_id\\\": \\\"issue-1917\\\", \\\"role\\\": \\\"overseer\\\", \\\"state\\\": \\\"WORKING\\\", \\\"body\\\":...\" [/opt/egg-runtime/shared/egg_agent/client.py:321]\n2026-04-24 02:23:19 [INFO    ] egg-agent: Tool call event_type=tool_use tool_name=mcp__progress__emit tool_use_id=toolu_01S3ianyqSFT2d8KjHcg3tmT input=\"{\\\"pipeline_id\\\": \\\"issue-1917\\\", \\\"role\\\": \\\"overseer\\\", \\\"step\\\": \\\"hitl_monitoring_ac...\" [/opt/egg-runtime/shared/egg_agent/client.py:321]\n2026-04-24 02:23:19 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01MjcFuW74ZGqmK3gQdytVhV is_error=False content=\"[{\\\"type\\\": \\\"text\\\", \\\"text\\\": \\\"{\\\\\"ok\\\\\": true, \\\\\"role\\\\\": \\\\\"overseer\\\\\", \\\\\"state\\\\\": ...\" [/opt/egg-runtime/shared/egg_agent/client.py:354]\n2026-04-24 02:23:19 [INFO    ] egg-agent: Tool result event_type=tool_result tool_use_id=toolu_01S3ianyqSFT2d8KjHcg3tmT is_error=False content=\"[{\\\"type\\\": \\\"text\\\", \\\"text\\\": \\\"{\\\\\"ok\\\\\": true, \\\\\"role\\\\\": \\\\\"overseer\\\\\", \\\\\"step\\\\\": \\...\" [/opt/egg-runtime/shared/egg_agent/client.py:354]\n2026-04-24 02:23:20 [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result model=claude-sonnet-4-6 session_id=b7a88fe9-af4b-4b35-9f9f-51603dbac23c cost_usd=1.5874471999999997 num_turns=85 duration_ms=1160766 success=True [/opt/egg-runtime/shared/egg_agent/client.py:471]\n**Corrective actions:** Emit overseer heartbeat to keep pipeline alive, then continue monitoring.Heartbeat emitted. Now running the next monitoring cycle.Pipeline is stable. Continuing monitoring cycles with regular heartbeats.The `reviewer_agent_design` alerts are historical (timestamped 00:27 UTC, ~1.5h ago) \u2014 the agent completed and CONFIRMED in BRC. No action required.Alert count increased from 14 \u2192 16. Investigating new alerts immediately.**New alerts detected** \u2014 2 new overseer heartbeat_timeout/progress_stall at 02:08:28 UTC. My own deduped heartbeats aren't preventing timeouts. Switching to WORKING state to break dedup cycle and restore heartbeat cadence.Now running shorter cycles (30s sleep) with alternating heartbeat states to prevent dedup-induced gaps.Alert count jumped to 17. Checking new alert.New `progress_stall` alert \u2014 I need to emit progress events every cycle (not just heartbeats). Fixing cadence now.Pipeline remains stable at `awaiting_human`. Continuing monitoring loop with dual-emit cadence (alternating WORKING/WAITING_ON_ROLE heartbeats + progress every cycle to prevent dedup-induced gaps).Pipeline stable \u2014 alerts=17 locked for 18 consecutive cycles, dual-emit cadence holding. Continuing.",
+      "respawn_attempt": 3,
+      "max_respawns": 3
+    },
+    "timestamp": "2026-04-24T02:23:34.930639+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "8e9467ab-1e05-4b",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Cycle 1 (new overseer session). BRC consensus complete \u2014 refiner + reviewer_agent_design + reviewer_refine all CONFIRMED. 14 decisions + feedback-1 (4 sub-questions) pending human input. 17 stale warnings (all heartbeat_timeout/progress_stall from prior overseer sessions \u2014 not actionable). Pipeline correctly awaiting_human. No critical alerts. No corrective actions required.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "human"
+    },
+    "timestamp": "2026-04-24T02:24:14.502634+00:00",
+    "phase": "refine"
   }
 ]

@@ -1025,5 +1025,48 @@
     },
     "timestamp": "2026-04-24T03:55:54.786732+00:00",
     "phase": "plan"
+  },
+  {
+    "id": "c9067cb4-65cc-4e",
+    "pipeline_id": "issue-1917",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: IDLE",
+    "body": "Consensus reached on all 3 producers. reviewer_plan IDLE; staying alive on wait_loop until orchestrator stops the role.",
+    "metadata": {
+      "state": "IDLE"
+    },
+    "timestamp": "2026-04-24T03:56:09.606326+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4fb8ff02-a203-4d",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 37. reviewer_plan confirmation taking longer than expected (~5 min since risk_analyst confirmed). Checking BRC state and recent messages.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-24T04:01:02.892350+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e3efc2a0-d13d-48",
+    "pipeline_id": "issue-1917",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Cycle 37. PLAN BRC COMPLETE \u2014 all 4 agents CONFIRMED (task_planner, architect, risk_analyst, reviewer_plan). Pipeline now awaiting_human. 12 verbs / 6 phases / 20 tasks plan ready for human review.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "human"
+    },
+    "timestamp": "2026-04-24T04:01:14.015989+00:00",
+    "phase": "plan"
   }
 ]
