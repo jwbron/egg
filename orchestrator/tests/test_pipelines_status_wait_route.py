@@ -31,6 +31,7 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import fakeredis
 import pytest
 from flask import Flask
 
@@ -46,6 +47,7 @@ from models import (  # noqa: E402
     PipelinePhase,
     PipelineStatus,
 )
+from redis_message_store import RedisMessageStore  # noqa: E402
 from routes.pipelines import (  # noqa: E402
     _build_status_wait_cursor,
     _parse_status_wait_cursor,
@@ -66,10 +68,23 @@ def client(app):
     return app.test_client()
 
 
-@pytest.fixture(autouse=True)
-def _reset_store():
+@pytest.fixture(params=["in_memory", "redis"], autouse=True)
+def message_backend(request):
+    """Run every test against both in-memory and Redis message store backends.
+
+    AC for TASK-4-1 requires dual-backend parametrization so the wait
+    route's message-bus path is exercised on both storage engines.
+    """
     reset_message_store()
-    yield
+    if request.param == "redis":
+        _redis = fakeredis.FakeRedis()
+        store = RedisMessageStore(_redis)
+    else:
+        store = MessageStore()
+
+    with patch("routes.pipelines._get_message_store", return_value=lambda: store):
+        yield store
+
     reset_message_store()
 
 
@@ -263,15 +278,14 @@ class TestWaitRouteMessageWake:
         mock_repo: MagicMock,
         client,
         isolated_event_bus: EventBus,
+        message_backend,
     ) -> None:
         pipeline = _make_pipeline()
         mock_resolve.return_value = (MagicMock(), pipeline)
 
-        store = MessageStore()
-
         def _fire() -> None:
             time.sleep(0.1)
-            store.add_message(
+            message_backend.add_message(
                 Message(
                     pipeline_id="issue-1932-test",
                     from_role="overseer",
@@ -283,8 +297,7 @@ class TestWaitRouteMessageWake:
 
         threading.Thread(target=_fire, daemon=True).start()
 
-        with patch("routes.pipelines._get_message_store", return_value=lambda: store):
-            resp = client.get("/api/v1/pipelines/issue-1932-test/status/wait?wait=5")
+        resp = client.get("/api/v1/pipelines/issue-1932-test/status/wait?wait=5")
 
         envelope = json.loads(resp.data)["data"]
         assert resp.status_code == 200

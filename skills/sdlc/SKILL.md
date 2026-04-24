@@ -935,6 +935,31 @@ When the pipeline is stuck, failing, or behaving unexpectedly, use MCP tools to 
 - `has_unresolved_nacks`: Whether any reviewer has NACKed without the producer re-proposing
 - `unresolved_nacks`: List with `reviewer`, `producer`, `reason`, and `version` — surface these to the user when consensus is stuck
 
+## MCP Tools Reference
+
+All orchestrator and gateway interactions use the MCP tool surface. Never call REST APIs or CLIs directly.
+
+| Tool | Purpose |
+|------|---------|
+| `submit_task` | Submit a new pipeline task |
+| `get_status` | One-shot status snapshot (no cursor) — use for first poll and after `provide_input` |
+| `wait_for_status_change` | Long-poll for status changes; returns Path A (changed) or Path B (no_change) envelope with cursor for threading |
+| `provide_input` | Respond to HITL decisions (serialize JSON payload as string) |
+| `list_tasks` | List tasks for a repository |
+| `cancel_task` | Cancel a running task |
+| `check_health` | Verify orchestrator + gateway health |
+| `list_containers` | List containers in a pipeline |
+| `get_container_logs` | View agent logs (auto-selects container by role) |
+| `send_message` | Send a message to an agent on the message bus |
+| `get_consensus_status` | BRC consensus state: agent phases, blocking agents, unresolved NACKs |
+| `get_phase` | Current phase, execution timing, review cycles |
+| `get_pipeline_snapshot` | Comprehensive view: pipeline state, containers, messages, decisions |
+| `get_contract` | SDLC contract state: task progress, pending decisions (gateway-backed) |
+| `list_checkpoints` | Browse prior agent session transcripts (gateway-backed) |
+| `search_checkpoints` | Search checkpoint metadata for keywords (gateway-backed) |
+
+**Polling protocol:** First poll uses `get_status(task_id)`. Every subsequent poll uses `wait_for_status_change(task_id, wait=25, since=<last_cursor>)`. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--wait_for_status_change) for the full envelope contract and trigger allowlist.
+
 ## Critical Rules
 
 - **Always use MCP tools** — never call orchestrator/gateway APIs or CLIs directly

@@ -199,7 +199,7 @@ rolled back independently of the skill update.
   skill is the only consumer today; in-sandbox agents use
   `egg-orch message wait-loop` which already has event-driven wake.
   When #1920's Python SDK MCP surface lands, register the new tool
-  in parallel.
+  in parallel. Risk-analyst R11.
 - **`message_store.get_messages` cancellation signal** — the
   daemon-thread lame-duck (up to 25 s after the route returns) is
   acceptable in practice but could be eliminated by accepting a
