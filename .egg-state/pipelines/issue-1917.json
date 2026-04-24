@@ -399,10 +399,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Paginate output by default — add `limit` / `cursor` params that keep any single call under 60s; agents page explicitly when needed\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-14",
+      "question": "CLI-counterpart policy for new no-CLI capabilities: iter 1 allowed `cli_command=None` for new verbs (check_hitl_answers, get_context, list_blocking). What should iter 2's policy be?",
+      "context": "Open contract question decision-13, registered by an agent during the refine phase.",
+      "options": [
+        "Allow cli_command=None but require a docstring rationale explaining why no CLI exists; document the pattern in agent-tools.md",
+        "Require a shell CLI for every new verb even when human-useless — forces the drift gate to cover everything uniformly",
+        "Allow either; track the no-CLI tools in a separate list in agent-tools.md so reviewers can audit the exception set",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T03:15:41.188832Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:10:06.375518Z",
-  "updated_at": "2026-04-24T03:15:38.222893Z",
+  "updated_at": "2026-04-24T03:15:41.206293Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -416,5 +435,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 36
+  "version": 37
 }
