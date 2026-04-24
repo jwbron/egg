@@ -386,10 +386,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-13",
+      "question": "Graph granularity: at what level should the reverse-closure be computed?",
+      "context": "Open contract question decision-12, registered by an agent during the refine phase.",
+      "options": [
+        "Module-level (grimp default; one node per import-resolvable module; sufficient for file-level test selection) — recommended",
+        "File-level (one node per `.py` file; redundant when modules and files are 1:1, potentially useful for `__init__.py` changes)",
+        "Function-level (requires `pyan` or `pytest-testmon`; enables intra-file narrowing at the cost of adding a dynamic tool)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T20:10:43.749220Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T19:39:48.417158Z",
-  "updated_at": "2026-04-24T20:10:43.700332Z",
+  "updated_at": "2026-04-24T20:10:43.770639Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -403,6 +422,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 23,
+  "version": 24,
   "jira_ticket": null
 }
