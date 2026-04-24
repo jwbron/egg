@@ -221,16 +221,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-24T03:09:47.348834Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-24T03:10:22.503518Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Core 3: list, show, search — the verbs agents most likely need on the hot path\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:10:06.375518Z",
-  "updated_at": "2026-04-24T03:09:47.362398Z",
+  "updated_at": "2026-04-24T03:10:22.523909Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -244,5 +244,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 17
+  "version": 18
 }
