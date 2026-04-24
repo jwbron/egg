@@ -76,10 +76,7 @@ def test_concurrent_publishes_are_monotonic_and_unique() -> None:
             bus.publish(e)
             per_thread_events[idx].append(e.sequence)
 
-    threads = [
-        threading.Thread(target=_worker, args=(i, 100 // 8), daemon=True)
-        for i in range(8)
-    ]
+    threads = [threading.Thread(target=_worker, args=(i, 100 // 8), daemon=True) for i in range(8)]
     threads[-1]._args = (7, 100 - (100 // 8) * 7)  # type: ignore[attr-defined]
     for t in threads:
         t.start()

@@ -173,12 +173,8 @@ class TestWaitForStatusChange:
         assert result["pipeline"]["id"] == "issue-42"
 
     def test_since_cursor_in_query_string(self, handler):
-        route_response = {
-            "data": {"changed": False, "no_change": True, "cursor": "msg:x|evt:1"}
-        }
-        with patch.object(
-            handler, "_make_request", return_value=route_response
-        ) as mock_req:
+        route_response = {"data": {"changed": False, "no_change": True, "cursor": "msg:x|evt:1"}}
+        with patch.object(handler, "_make_request", return_value=route_response) as mock_req:
             handler.handle_tool_call(
                 "wait_for_status_change",
                 {
@@ -193,12 +189,8 @@ class TestWaitForStatusChange:
             assert "%7C" in called_with
 
     def test_empty_since_omits_param(self, handler):
-        route_response = {
-            "data": {"changed": False, "no_change": True, "cursor": "msg:|evt:0"}
-        }
-        with patch.object(
-            handler, "_make_request", return_value=route_response
-        ) as mock_req:
+        route_response = {"data": {"changed": False, "no_change": True, "cursor": "msg:|evt:0"}}
+        with patch.object(handler, "_make_request", return_value=route_response) as mock_req:
             handler.handle_tool_call(
                 "wait_for_status_change",
                 {"task_id": "issue-42", "wait": 25, "since": ""},
@@ -247,9 +239,7 @@ class TestBuildStatusSnapshotRefactor:
             "_make_request",
             side_effect=[self._pipeline_response(), {"data": {"messages": []}}],
         ):
-            status_via_handler = handler.handle_tool_call(
-                "get_status", {"task_id": "issue-42"}
-            )
+            status_via_handler = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
         assert snapshot_direct == status_via_handler
 
 

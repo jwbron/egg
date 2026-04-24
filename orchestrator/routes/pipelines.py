@@ -2567,29 +2567,25 @@ def wait_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
     # Parse the opaque compound cursor.  ``ok=False`` is the only
     # 400 path here — unknown cursors on either source are tolerated
     # and degrade to "snap to tip".
-    ok, msg_since_id, event_since_seq = _parse_status_wait_cursor(
-        request.args.get("since")
-    )
+    ok, msg_since_id, event_since_seq = _parse_status_wait_cursor(request.args.get("since"))
     if not ok:
         return make_error_response(
-            "Invalid 'since' cursor — expected 'msg:<id>|evt:<seq>' "
-            "(either half may be empty).",
+            "Invalid 'since' cursor — expected 'msg:<id>|evt:<seq>' (either half may be empty).",
             status_code=400,
         )
 
     # Lazy imports keep the route cheap to load at module import and
-    # match the pattern used elsewhere in this file.
+    # match the pattern used elsewhere in this file.  We compare events
+    # against ``_STATUS_WAIT_EVENT_TYPES`` by the string value of
+    # ``event.event_type`` — the ``EventType`` class itself is not
+    # needed here.
     try:
-        from events import EventType as _EventType
         from events import get_event_bus
     except ImportError:  # pragma: no cover
         try:
-            from ..events import EventType as _EventType  # type: ignore[no-redef]
             from ..events import get_event_bus  # type: ignore[no-redef]
         except ImportError:
-            return make_error_response(
-                "Event bus not available", status_code=500
-            )
+            return make_error_response("Event bus not available", status_code=500)
 
     try:
         from routes.messages import _apply_delphi_filter as _delphi
@@ -2610,7 +2606,7 @@ def wait_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
     if event_since_seq is None:
         event_since_seq = event_bus.current_sequence()
 
-    wake_q: "_queue.Queue[tuple[str, Any]]" = _queue.Queue(maxsize=16)
+    wake_q: _queue.Queue[tuple[str, Any]] = _queue.Queue(maxsize=16)
 
     def _on_event(event) -> None:  # pragma: no cover - exercised via tests
         if event.pipeline_id != pipeline_id:

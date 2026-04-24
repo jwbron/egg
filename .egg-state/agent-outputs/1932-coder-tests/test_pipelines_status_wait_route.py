@@ -247,9 +247,7 @@ class TestWaitRouteEventWake:
         prior_seq = isolated_event_bus.current_sequence()
         cursor = _build_status_wait_cursor(None, prior_seq)
 
-        resp = client.get(
-            f"/api/v1/pipelines/issue-1932-test/status/wait?wait=1&since={cursor}"
-        )
+        resp = client.get(f"/api/v1/pipelines/issue-1932-test/status/wait?wait=1&since={cursor}")
         envelope = json.loads(resp.data)["data"]
         assert envelope["changed"] is False
 
@@ -310,9 +308,7 @@ class TestWaitRouteErrors:
         pipeline = _make_pipeline()
         mock_resolve.return_value = (MagicMock(), pipeline)
 
-        resp = client.get(
-            "/api/v1/pipelines/issue-1932-test/status/wait?since=garbage"
-        )
+        resp = client.get("/api/v1/pipelines/issue-1932-test/status/wait?since=garbage")
         assert resp.status_code == 400
         body = json.loads(resp.data)
         assert body["success"] is False
@@ -344,9 +340,7 @@ class TestWaitRouteErrors:
         pipeline = _make_pipeline()
         mock_resolve.return_value = (MagicMock(), pipeline)
 
-        resp = client.get(
-            "/api/v1/pipelines/issue-1932-test/status/wait?wait=abc"
-        )
+        resp = client.get("/api/v1/pipelines/issue-1932-test/status/wait?wait=abc")
         assert resp.status_code == 400
 
     @patch("routes.pipelines.get_repo_path", return_value="/tmp/test")
@@ -372,9 +366,7 @@ class TestWaitRouteErrors:
 
         threading.Thread(target=_fire, daemon=True).start()
 
-        resp = client.get(
-            "/api/v1/pipelines/issue-1932-test/status/wait?wait=999"
-        )
+        resp = client.get("/api/v1/pipelines/issue-1932-test/status/wait?wait=999")
         assert resp.status_code == 200
 
 
@@ -396,9 +388,7 @@ class TestInflightMetric:
         mock_gauge = MagicMock()
 
         with patch("routes.pipelines._inflight_host_waits", mock_gauge):
-            resp = client.get(
-                "/api/v1/pipelines/issue-1932-test/status/wait?wait=1"
-            )
+            resp = client.get("/api/v1/pipelines/issue-1932-test/status/wait?wait=1")
 
         assert resp.status_code == 200
         assert mock_gauge.inc.call_count == 1
