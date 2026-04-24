@@ -5,7 +5,7 @@
   "branch": "egg/issue-1965",
   "base_branch": null,
   "prompt": null,
-  "status": "cancelled",
+  "status": "failed",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -49,10 +49,10 @@
   "phases": {
     "refine": {
       "phase": "refine",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-04-24T23:29:35.498835Z",
       "work_started_at": "2026-04-24T23:29:36.226724Z",
-      "completed_at": null,
+      "completed_at": "2026-04-24T23:31:25.781277Z",
       "containers": [
         {
           "container_id": "240b8a78-1a56-496e-8b92-35d1d307c60a",
@@ -141,19 +141,19 @@
         {
           "cycle": 0,
           "started_at": "2026-04-24T23:29:36.226724Z",
-          "completed_at": null,
+          "completed_at": "2026-04-24T23:31:25.781259Z",
           "commit_sha": "a98acb4756550e44a006f9f0d26310f93829286e"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- refiner (exit=-1) ---\n\n--- reviewer_refine (exit=-1) ---\n\n--- reviewer_agent_design (exit=-1) ---",
       "hitl_feedback": null,
       "phase_start_sha": "a98acb4756550e44a006f9f0d26310f93829286e"
     }
   },
   "decisions": [],
   "created_at": "2026-04-24T23:29:01.757354Z",
-  "updated_at": "2026-04-24T23:31:25.762663Z",
+  "updated_at": "2026-04-24T23:31:25.781365Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -161,12 +161,12 @@
   "pr_head_sha": null,
   "active_roles": null,
   "has_contract": true,
-  "error": null,
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n--- refiner (exit=-1) ---\n\n--- reviewer_refine (exit=-1) ---\n\n--- reviewer_agent_design (exit=-1) ---",
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 12,
+  "version": 13,
   "jira_ticket": null
 }
