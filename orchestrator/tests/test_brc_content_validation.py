@@ -33,6 +33,7 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
 
 from routes.signals import (
     _BRC_BOILERPLATE,
+    _BRC_CONDITION_MIN_LEN,
     _BRC_MIN_CONTENT_LEN,
     _validate_brc_content,
 )
@@ -215,6 +216,61 @@ class TestValidateBrcContentKindLabel:
         err = _validate_brc_content("", kind)
         assert err is not None
         assert kind in err
+
+
+# ============================================================================
+# Unit tests for pre-merge condition kind (#2005)
+# ============================================================================
+
+
+class TestValidateBrcConditionMinLength:
+    """Pre-merge condition kind uses a lower minimum length threshold."""
+
+    def test_condition_kind_uses_lower_minimum(self):
+        """10-char condition passes; same text at default kind fails."""
+        text = "a" * _BRC_CONDITION_MIN_LEN
+        assert _validate_brc_content(text, "pre-merge condition") is None
+        # Same text is below default minimum
+        assert _BRC_CONDITION_MIN_LEN < _BRC_MIN_CONTENT_LEN
+        err = _validate_brc_content(text, "ACK reason")
+        assert err is not None
+        assert "chars" in err
+
+    def test_condition_boundary_exactly_minimum_accepted(self):
+        text = "a" * _BRC_CONDITION_MIN_LEN
+        assert _validate_brc_content(text, "pre-merge condition") is None
+
+    def test_condition_boundary_one_below_minimum_rejected(self):
+        text = "a" * (_BRC_CONDITION_MIN_LEN - 1)
+        err = _validate_brc_content(text, "pre-merge condition")
+        assert err is not None
+        assert f"{_BRC_CONDITION_MIN_LEN - 1} chars" in err
+        assert f"minimum {_BRC_CONDITION_MIN_LEN}" in err
+
+    def test_condition_boundary_one_above_minimum_accepted(self):
+        text = "a" * (_BRC_CONDITION_MIN_LEN + 1)
+        assert _validate_brc_content(text, "pre-merge condition") is None
+
+    def test_condition_kind_case_insensitive(self):
+        """Kind matching is case-insensitive."""
+        text = "a" * _BRC_CONDITION_MIN_LEN
+        assert _validate_brc_content(text, "Pre-Merge Condition") is None
+        assert _validate_brc_content(text, "PRE-MERGE CONDITION") is None
+
+    def test_boilerplate_still_rejected_for_conditions(self):
+        """Boilerplate check applies regardless of kind."""
+        for text in sorted(_BRC_BOILERPLATE):
+            err = _validate_brc_content(text, "pre-merge condition")
+            assert err is not None, f"Boilerplate '{text}' was not rejected"
+            assert "boilerplate" in err.lower()
+
+    def test_default_minimum_unchanged_for_other_kinds(self):
+        """Non-condition kinds still use the default 50-char minimum."""
+        text = "a" * (_BRC_MIN_CONTENT_LEN - 1)
+        for kind in ["Proposal summary", "ACK reason", "NACK reason", "Withdrawal reason"]:
+            err = _validate_brc_content(text, kind)
+            assert err is not None, f"Kind '{kind}' should reject {len(text)}-char text"
+            assert f"minimum {_BRC_MIN_CONTENT_LEN}" in err
 
 
 # ============================================================================
@@ -771,6 +827,24 @@ class TestAckPreMergeConditionValidation:
         assert "Pre-merge condition" in data["message"]
         assert "chars" in data["message"]
         tracker.handle_ack.assert_not_called()
+
+    def test_short_imperative_condition_passes(self, app):
+        """A 14-char condition passes under the ``_BRC_CONDITION_KINDS`` dispatch.
+
+        ``_validate_brc_content`` uses ``_BRC_CONDITION_MIN_LEN`` (10) for
+        content kinds in ``_BRC_CONDITION_KINDS`` (e.g. "pre-merge condition")
+        instead of the default 50-char minimum.  This boundary value (14 chars)
+        would have been rejected without the kind-based dispatch (#2005).
+        """
+        _, status_code, tracker = self._ack_with_payload(
+            app,
+            {
+                "reason": _SUBSTANTIVE_REASON,
+                "pre_merge_condition": "rotate API key",
+            },
+        )
+        assert status_code == 200
+        tracker.handle_ack.assert_called_once()
 
     def test_boilerplate_condition_returns_400(self, app):
         """The shared boilerplate set applies to conditions too."""

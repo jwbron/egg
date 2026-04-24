@@ -102,7 +102,13 @@ def make_success_response(
 
 # --- BRC content validation (#1716) ---
 _BRC_MIN_CONTENT_LEN = 50
+# Pre-merge conditions are imperative instructions (e.g. "git mv X Y"),
+# not full rationale, so they have a lower minimum length (#2005).
+_BRC_CONDITION_MIN_LEN = 10
 _BRC_BOILERPLATE = frozenset({"lgtm", "looks good", "no issues", "approved", "ok"})
+
+# Kinds whose content is an imperative instruction rather than rationale.
+_BRC_CONDITION_KINDS = frozenset({"pre-merge condition"})
 
 
 def _validate_brc_content(body: str, kind: str) -> str | None:
@@ -111,6 +117,10 @@ def _validate_brc_content(body: str, kind: str) -> str | None:
     Returns an error message string if validation fails, or None if content
     is acceptable.  ``kind`` is a human-readable label for the message type
     (e.g. "proposal summary", "ACK reason") used in error messages.
+
+    Content kinds whose lowercase form appears in ``_BRC_CONDITION_KINDS``
+    use a shorter minimum length because they are imperative instructions
+    (e.g. "git mv X Y") rather than full rationale.
     """
     stripped = (body or "").strip()
     if not stripped:
@@ -120,9 +130,12 @@ def _validate_brc_content(body: str, kind: str) -> str | None:
             f"{kind} is boilerplate ('{stripped}'). Provide substantive rationale: "
             f"what was read/built, what was checked/tested, why the verdict follows"
         )
-    if len(stripped) < _BRC_MIN_CONTENT_LEN:
+    min_length = (
+        _BRC_CONDITION_MIN_LEN if kind.lower() in _BRC_CONDITION_KINDS else _BRC_MIN_CONTENT_LEN
+    )
+    if len(stripped) < min_length:
         return (
-            f"{kind} is too short ({len(stripped)} chars, minimum {_BRC_MIN_CONTENT_LEN}). "
+            f"{kind} is too short ({len(stripped)} chars, minimum {min_length}). "
             f"Provide substantive rationale: what was read/built, what was checked/tested, "
             f"why the verdict follows"
         )
