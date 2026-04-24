@@ -13,6 +13,7 @@ from egg_contracts.plan_parser import (
     parse_phases_from_yaml,
     parse_plan,
     parse_tasks_from_markdown,
+    parse_tasks_from_yaml,
     parse_yaml_code_fence,
 )
 
@@ -1341,6 +1342,36 @@ class TestAlphaSuffixAndDuplicates:
         }
         _, warnings = parse_phases_from_yaml(yaml_data)
         assert any("Duplicate task id" in w.message for w in warnings), warnings
+
+    def test_legacy_parse_tasks_from_yaml_skips_alpha_suffix_with_warning(self):
+        """Legacy parse_tasks_from_yaml should skip alpha-suffixed IDs and warn."""
+        yaml_data = {
+            "tasks": [
+                {"id": "TASK-1-1", "description": "Normal", "acceptance": "Done"},
+                {"id": "TASK-1-3A", "description": "Alpha-A", "acceptance": "Done"},
+                {"id": "TASK-1-3B", "description": "Alpha-B", "acceptance": "Done"},
+            ]
+        }
+        tasks, warnings = parse_tasks_from_yaml(yaml_data)
+        # Only the plain numeric ID should parse
+        assert len(tasks) == 1
+        assert tasks[0].id == "TASK-1-1"
+        # Both alpha-suffixed IDs should produce warnings
+        messages = [w.message for w in warnings]
+        assert any("TASK-1-3A" in m for m in messages), messages
+        assert any("TASK-1-3B" in m for m in messages), messages
+
+    def test_legacy_parse_tasks_from_yaml_plain_ids_no_warnings(self):
+        """Legacy parse_tasks_from_yaml should parse plain numeric IDs without warnings."""
+        yaml_data = {
+            "tasks": [
+                {"id": "TASK-1-1", "description": "One", "acceptance": "Done"},
+                {"id": "TASK-1-2", "description": "Two", "acceptance": "Done"},
+            ]
+        }
+        tasks, warnings = parse_tasks_from_yaml(yaml_data)
+        assert len(tasks) == 2
+        assert warnings == []
 
 
 class TestParsePlanWithYamlCodeFence:

@@ -299,7 +299,9 @@ def parse_yaml_frontmatter(content: str) -> tuple[dict[str, Any] | None, str]:
         return None, content
 
 
-def parse_tasks_from_yaml(yaml_data: dict[str, Any]) -> list[ParsedTask]:
+def parse_tasks_from_yaml(
+    yaml_data: dict[str, Any],
+) -> tuple[list[ParsedTask], list[ParseWarning]]:
     """
     Parse tasks from YAML front matter (legacy flat task list format).
 
@@ -307,9 +309,10 @@ def parse_tasks_from_yaml(yaml_data: dict[str, Any]) -> list[ParsedTask]:
         yaml_data: Parsed YAML data
 
     Returns:
-        List of ParsedTask objects
+        Tuple of (list of ParsedTask objects, list of ParseWarning objects)
     """
     tasks = []
+    warnings: list[ParseWarning] = []
     task_list = yaml_data.get("tasks", [])
 
     for task_data in task_list:
@@ -338,8 +341,16 @@ def parse_tasks_from_yaml(yaml_data: dict[str, Any]) -> list[ParsedTask]:
                     files_affected=files,
                 )
             )
+        else:
+            warnings.append(
+                ParseWarning(
+                    line_number=None,
+                    message=f"Task ID '{task_id}' doesn't match pattern TASK-N-N, skipping",
+                    context=f"Description: {task_data.get('description', 'none')}",
+                )
+            )
 
-    return tasks
+    return tasks, warnings
 
 
 def parse_phases_from_yaml(
@@ -869,7 +880,8 @@ def parse_plan(content: str) -> ParseResult:
         frontmatter_yaml, markdown_content = parse_yaml_frontmatter(content)
         if frontmatter_yaml and "tasks" in frontmatter_yaml:
             yaml_data = frontmatter_yaml
-            tasks = parse_tasks_from_yaml(frontmatter_yaml)
+            tasks, yaml_warnings = parse_tasks_from_yaml(frontmatter_yaml)
+            warnings.extend(yaml_warnings)
 
             # Parse phases from markdown
             phases = parse_phases_from_markdown(markdown_content)
