@@ -163,7 +163,11 @@ DYNAMIC_IMPORT_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bimportlib\.util\.module_from_spec\b"),
     re.compile(r"\bimportlib\.machinery\."),
     re.compile(r"\bSourceFileLoader\b"),
-    re.compile(r"^\s*__import__\s*\("),
+    # `__import__(` as a token anywhere in the file.  The leading `\b`
+    # avoids matching `_my__import__variable` substrings; the un-anchored
+    # form picks up real callers like `mod = __import__(...)` and
+    # `_X = __import__("re").compile(...)` (reviewer_code blocking #3).
+    re.compile(r"\b__import__\s*\("),
     # Entry-point plugin loading (importlib.metadata).
     re.compile(r"\bimportlib\.metadata\.entry_points\b"),
     re.compile(r"\bpkg_resources\.iter_entry_points\b"),
@@ -331,15 +335,22 @@ def _atomic_write_text(path: Path, content: str) -> None:
 # ----------------------------------------------------------------------
 
 
-def _sidecar_path(branch: str) -> Path:
-    return SIDECAR_DIR / f"{branch}.sha"
+def _resolve_root(repo_root: Path | None) -> Path:
+    """Default repo_root to the resolved git toplevel when callers
+    don't pass one explicitly.  Centralised so every sidecar I/O
+    call site goes through the same fallback (tester blocking #2)."""
+    return repo_root if repo_root is not None else _git_repo_root()
 
 
-def _canary_path(branch: str) -> Path:
-    return SIDECAR_DIR / f"{branch}.canary"
+def _sidecar_path(branch: str, repo_root: Path | None = None) -> Path:
+    return _resolve_root(repo_root) / SIDECAR_DIR / f"{branch}.sha"
 
 
-def read_sidecar_lkg(branch: str | None) -> str | None:
+def _canary_path(branch: str, repo_root: Path | None = None) -> Path:
+    return _resolve_root(repo_root) / SIDECAR_DIR / f"{branch}.canary"
+
+
+def read_sidecar_lkg(branch: str | None, repo_root: Path | None = None) -> str | None:
     """Read the LKG sidecar for `branch`; return the sha or None.
 
     Returns None if:
@@ -347,10 +358,14 @@ def read_sidecar_lkg(branch: str | None) -> str | None:
       - sidecar file is missing
       - sidecar contents fail the 40-hex regex (treated as absent;
         matches "no LKG" semantics).
+
+    `repo_root` defaults to the git toplevel — passing None when the
+    caller is running from a non-repo-root CWD would previously
+    write/read under the wrong directory (tester blocking #2).
     """
     if branch is None:
         return None
-    path = _sidecar_path(branch)
+    path = _sidecar_path(branch, repo_root)
     if not path.exists():
         return None
     try:
@@ -362,15 +377,15 @@ def read_sidecar_lkg(branch: str | None) -> str | None:
     return content
 
 
-def write_sidecar_lkg(branch: str, sha: str) -> None:
+def write_sidecar_lkg(branch: str, sha: str, repo_root: Path | None = None) -> None:
     """Atomically write `sha` to the LKG sidecar for `branch`."""
-    _atomic_write_text(_sidecar_path(branch), sha + "\n")
+    _atomic_write_text(_sidecar_path(branch, repo_root), sha + "\n")
 
 
-def read_canary_count(branch: str | None) -> int:
+def read_canary_count(branch: str | None, repo_root: Path | None = None) -> int:
     if branch is None:
         return 0
-    path = _canary_path(branch)
+    path = _canary_path(branch, repo_root)
     if not path.exists():
         return 0
     try:
@@ -379,8 +394,8 @@ def read_canary_count(branch: str | None) -> int:
         return 0
 
 
-def write_canary_count(branch: str, count: int) -> None:
-    _atomic_write_text(_canary_path(branch), str(count) + "\n")
+def write_canary_count(branch: str, count: int, repo_root: Path | None = None) -> None:
+    _atomic_write_text(_canary_path(branch, repo_root), str(count) + "\n")
 
 
 # ----------------------------------------------------------------------
@@ -430,7 +445,15 @@ def record_good(sha_arg: str | None, repo_root: Path | None = None) -> int:
     if not _git_is_ancestor(sha, "HEAD", cwd=repo_root):
         raise RecordGoodValidationError(f"sha {sha} is not an ancestor of HEAD")
 
-    write_sidecar_lkg(branch, sha)
+    write_sidecar_lkg(branch, sha, repo_root=repo_root)
+    # `make test-all` runs --record-good on green; resetting the canary
+    # here means the developer doesn't get punished by a canary-fired
+    # full-suite re-run on their VERY NEXT `make test` after they
+    # already exercised the full suite (reviewer non-blocking #5).
+    try:
+        write_canary_count(branch, 0, repo_root=repo_root)
+    except OSError:
+        pass
     return 0
 
 
@@ -468,7 +491,7 @@ def resolve_baseline(
 
     # (1) LKG sidecar — skipped on read-only role.
     if not readonly and branch is not None:
-        sidecar_sha = read_sidecar_lkg(branch)
+        sidecar_sha = read_sidecar_lkg(branch, repo_root=repo_root)
         if sidecar_sha is not None and _git_is_ancestor(sidecar_sha, "HEAD", cwd=repo_root):
             return sidecar_sha, "LKG", branch
         # Sidecar exists but fails ancestry — caller will surface this
@@ -495,7 +518,7 @@ def lkg_is_stale(repo_root: Path | None = None) -> bool:
     branch = _git_current_branch(cwd=repo_root)
     if branch is None:
         return False
-    sidecar_sha = read_sidecar_lkg(branch)
+    sidecar_sha = read_sidecar_lkg(branch, repo_root=repo_root)
     if sidecar_sha is None:
         return False
     return not _git_is_ancestor(sidecar_sha, "HEAD", cwd=repo_root)
@@ -671,13 +694,43 @@ def build_graph(repo_root: Path | None = None, packages: tuple[str, ...] = PACKA
     cwd = os.getcwd()
     try:
         os.chdir(str(root))
-        # Add source roots to sys.path so grimp can import packages
-        # whose top-level dirs are project subdirectories
-        # (gateway, orchestrator, sandbox).  Mirrors the Makefile
-        # `export PYTHONPATH := shared:gateway:orchestrator` plus the
-        # repo root for `tests.*`, `gateway.tests.*`, etc.
+        # Mirror the per-conftest sys.path injections so grimp can resolve
+        # bare-name imports the same way Python does at test time.
+        # Without this, imports like `from models import ...` (orchestrator)
+        # or `from egg_lib.config import ...` (sandbox) are filtered as
+        # external-by-`include_external_packages=False`, leaving the graph
+        # without test→production edges and silently selecting zero tests
+        # for changes under those source roots (reviewer_code blocking
+        # finding #1).
+        #
+        # Source of truth for each entry:
+        #   - root                       — top-level packages (`tests.*`,
+        #                                  `gateway.tests.*`, `orchestrator.*`,
+        #                                  `sandbox.*`).
+        #   - root / "shared"            — `egg_config`, `egg_logging`, etc.
+        #                                  (matches Makefile's PYTHONPATH and
+        #                                  `tests/conftest.py:13`).
+        #   - root / "orchestrator"      — bare-name imports inside
+        #                                  orchestrator/*.py and
+        #                                  orchestrator/tests/test_*.py
+        #                                  (matches
+        #                                  `orchestrator/tests/conftest.py:25-29`).
+        #   - root / "sandbox"           — `from egg_lib.* import ...` used
+        #                                  throughout sandbox/ and tests/
+        #                                  (matches `tests/conftest.py:14`).
+        #   - root / "sandbox" / "tools" — `from egg_agent_tools.* import ...`
+        #                                  (matches `tests/conftest.py:15`).
+        #   - root / "config"            — `import host_config` etc.
+        #                                  (matches `tests/conftest.py:16`).
         added_paths: list[str] = []
-        for entry in (str(root), str(root / "shared")):
+        for entry in (
+            str(root),
+            str(root / "shared"),
+            str(root / "orchestrator"),
+            str(root / "sandbox"),
+            str(root / "sandbox" / "tools"),
+            str(root / "config"),
+        ):
             if entry not in sys.path:
                 sys.path.insert(0, entry)
                 added_paths.append(entry)
@@ -736,32 +789,27 @@ def build_graph(repo_root: Path | None = None, packages: tuple[str, ...] = PACKA
 # ----------------------------------------------------------------------
 
 
-def reverse_closure(
-    bundle: GraphBundle, changed_modules: Iterable[str], changed_paths: Iterable[str]
-) -> set[str]:
+def reverse_closure(bundle: GraphBundle, module_path_pairs: Iterable[tuple[str, str]]) -> set[str]:
     """Return the transitive set of modules that import any changed module.
 
     Mixed `as_package` strategy (algorithm §6):
       - If the changed path is an `__init__.py`, treat the module as a
         package and call `find_downstream_modules(pkg, as_package=True)`.
       - Otherwise (regular leaf), call with `as_package=False`.
+
+    Callers MUST pass aligned `(module, path)` tuples — building the
+    pairing inside the function (rather than zipping two lists at the
+    call site) prevents any chance of `__init__.py` detection misfiring
+    when the unresolvable-paths filter shortens one list relative to
+    the other (reviewer_contract feedback on the v1 proposal).
     """
     init_modules: set[str] = set()
     leaf_modules: set[str] = set()
-    paths = list(changed_paths)
-    modules_list = list(changed_modules)
-    # Pair each module with whether its source path was an __init__.py.
-    # When changed_modules is shorter than changed_paths (some paths
-    # didn't resolve), the unresolvable ones already triggered the
-    # fallback path — we only get here after that check.
-    for module, path in zip(modules_list, paths, strict=False):
+    for module, path in module_path_pairs:
         if path.endswith("__init__.py"):
             init_modules.add(module)
         else:
             leaf_modules.add(module)
-    # Modules without paired paths default to leaf semantics.
-    for module in modules_list[len(paths) :]:
-        leaf_modules.add(module)
 
     closure: set[str] = set()
     for module in init_modules:
@@ -829,8 +877,8 @@ def map_modules_to_test_files(
 # ----------------------------------------------------------------------
 
 
-_TEST_ROOT_PREFIXES = tuple(t + "/" for t in TEST_ROOT_DIRS) + tuple(
-    t + os.sep for t in TEST_ROOT_DIRS
+_TEST_ROOT_PREFIXES = tuple(
+    {t + "/" for t in TEST_ROOT_DIRS} | {t + os.sep for t in TEST_ROOT_DIRS}
 )
 
 
@@ -990,9 +1038,10 @@ def evaluate_fallback_triggers(
     #    rather than a generic "non-.py change" catch-all when a
     #    Makefile / pyproject.toml is in the same diff.
 
-    # 4a. conftest at any level.
+    # 4a. conftest at any level.  Match the literal filename or `/conftest.py`
+    # at a path boundary so files like `myconftest.py` don't false-fire.
     for raw_path in paths:
-        if raw_path.endswith("conftest.py") or "/conftest.py" in raw_path:
+        if raw_path == "conftest.py" or raw_path.endswith("/conftest.py"):
             return "conftest changed"
 
     # 4b. shared/tests/** (Q2 — fixture edits widen).
@@ -1010,6 +1059,18 @@ def evaluate_fallback_triggers(
     # `gateway/<file>.py` that is NOT under `gateway/tests/`.  Checked
     # BEFORE the generic non-.py rule so a mixed diff names the
     # specific blind spot.
+    #
+    # Layout assumption (locked by current repo as of this PR): gateway/
+    # production source is FLAT — every .py production file is directly
+    # under `gateway/<file>.py`, no subdirectories (verified with
+    # `ls gateway/*.py`).  The TASK-2-3 spec phrases the rule as "any
+    # changed path matching `gateway/*.py`", which is what the
+    # `"/" not in raw_path[len("gateway/") :]` guard implements.  If
+    # gateway production code is ever reorganised into subdirectories
+    # (e.g., `gateway/api/foo.py`), this check would NOT widen on those
+    # subdirectory edits — extend the guard to drop the `"/" not in`
+    # clause at that point.  TASK-5-2's parametrized cases cover the
+    # current flat layout and would catch a change in semantics.
     for raw_path in paths:
         if (
             raw_path.startswith("gateway/")
@@ -1093,17 +1154,18 @@ def explain_why(test_path: str, repo_root: Path | None = None) -> int:
         return 0
 
     diff = changed_files(baseline_sha, repo_root=root)
-    changed_modules_list: list[str] = []
+    module_path_pairs: list[tuple[str, str]] = []
     for path in diff:
         module = path_to_module(path)
         if module is not None and module in bundle.all_modules:
-            changed_modules_list.append(module)
+            module_path_pairs.append((module, path))
 
-    if not changed_modules_list:
+    if not module_path_pairs:
         _log("select-tests: --why: no changed modules resolved")
         return 0
 
-    closure = reverse_closure(bundle, changed_modules_list, diff)
+    changed_modules_list = [m for m, _ in module_path_pairs]
+    closure = reverse_closure(bundle, module_path_pairs)
     is_selected = test_module in closure
 
     # Try grimp's shortest-chain primitive.
@@ -1149,6 +1211,29 @@ def emit_full_suite(reason: str | None = None) -> int:
     return 0
 
 
+def _split_pytest_args_env() -> list[str]:
+    """Split PYTEST_ARGS_RAW env var into shell tokens.
+
+    The Makefile `test` recipe sets `PYTEST_ARGS_RAW="$(PYTEST_ARGS)"`
+    so the selector can run the path-vs-flag classifier (R5 / Q5).
+    Returns [] when the env var is unset or empty.  Falls open on
+    shlex parse errors (treat as "no path arg" rather than a hard
+    failure).
+    """
+    import shlex
+
+    raw = os.environ.get("PYTEST_ARGS_RAW", "").strip()
+    if not raw:
+        return []
+    try:
+        return shlex.split(raw, posix=True)
+    except ValueError:
+        # Unbalanced quotes etc. — treat as "no path", caller will
+        # narrow normally and pytest's own arg parser will surface
+        # the real syntax error to the user.
+        return []
+
+
 def _run_narrow_or_fallback(repo_root: Path) -> int:
     """The full default-mode path, factored out so main() can call it
     from inside the blanket try/except wrapper without the wrapper
@@ -1157,20 +1242,45 @@ def _run_narrow_or_fallback(repo_root: Path) -> int:
 
     baseline_sha, baseline_source, branch = resolve_baseline(repo_root=repo_root)
     lkg_was_stale = lkg_is_stale(repo_root=repo_root)
+    role_readonly = is_role_readonly(repo_root)
 
     # Resolve HEAD for the selection-record path.  HEAD is always
     # resolvable (sandboxes always have a HEAD) — if it isn't, fall
     # open to full suite.
     rc, head_stdout, _ = _run_git(["rev-parse", "HEAD"], cwd=repo_root)
     if rc != 0 or not _is_valid_sha(head_stdout.strip()):
-        return emit_full_suite("select-tests: full suite (trigger=cannot resolve HEAD)")
+        # Best-effort selection record so the telemetry trail still
+        # captures the failure.  Fall-open exit 0.
+        emit_full_suite("select-tests: full suite (trigger=cannot resolve HEAD)")
+        try:
+            write_selection_record(
+                head="0" * 40,
+                baseline_sha=baseline_sha,
+                baseline_source=baseline_source,
+                branch=branch,
+                mode="full_suite",
+                trigger="cannot resolve HEAD",
+                selected_count=len(TEST_ROOT_DIRS),
+                total_count=len(TEST_ROOT_DIRS),
+                compute_ms=int((time.monotonic() - t0) * 1000),
+                canary_fired=False,
+                changed_files_list=[],
+                changed_modules_list=[],
+                dynamic_import_seeds_hit=[],
+                repo_root=repo_root,
+            )
+        except OSError:
+            pass
+        return 0
     head_sha = head_stdout.strip()
 
-    # Canary counter.
-    count = read_canary_count(branch) + 1
-    canary_fired = count % 10 == 0
-    if branch is not None:
-        write_canary_count(branch, 0 if canary_fired else count)
+    # Canary counter — read-only roles do NOT bump or write the
+    # counter (sidecar dir is per-branch and not theirs to mutate).
+    canary_fired = False
+    if not role_readonly and branch is not None:
+        count = read_canary_count(branch, repo_root=repo_root) + 1
+        canary_fired = count % 10 == 0
+        write_canary_count(branch, 0 if canary_fired else count, repo_root=repo_root)
 
     # Compute the diff against the baseline (or empty list when
     # baseline_source == "UNRESOLVABLE").
@@ -1191,6 +1301,62 @@ def _run_narrow_or_fallback(repo_root: Path) -> int:
         # path-pattern triggers — but if none fire, we must widen to
         # full suite anyway because we cannot compute the closure.
 
+    # PYTEST_ARGS bypass classifier (R5 / Q5) — runs BEFORE the
+    # fallback evaluator so an explicit-path PYTEST_ARGS short-
+    # circuits everything (the developer is steering pytest manually
+    # and doesn't want narrowing).  Flag values like
+    # `--hypothesis-seed=gateway/tests/x.py` correctly classify as
+    # intersect (narrow) — see pytest_args_have_explicit_path
+    # comments and TASK-5-4 for the regression cases.
+    pytest_args_tokens = _split_pytest_args_env()
+    bypass_narrowing = pytest_args_have_explicit_path(pytest_args_tokens, repo_root)
+
+    if bypass_narrowing:
+        # Bypass mode — emit nothing on stdout, let the Makefile fall
+        # through to the user's explicit PYTEST_ARGS path.  Record
+        # the decision so telemetry catches the override.
+        compute_ms = int((time.monotonic() - t0) * 1000)
+        total_count = len(bundle.all_test_modules) if bundle is not None else len(TEST_ROOT_DIRS)
+        _log(
+            "select-tests: bypass mode — PYTEST_ARGS contains an explicit "
+            "test path; narrowing skipped, pytest runs only the user-"
+            "supplied path(s)"
+        )
+        try:
+            write_selection_record(
+                head=head_sha,
+                baseline_sha=baseline_sha,
+                baseline_source=baseline_source,
+                branch=branch,
+                mode="bypass",
+                trigger="PYTEST_ARGS explicit path",
+                selected_count=0,
+                total_count=total_count,
+                compute_ms=compute_ms,
+                canary_fired=canary_fired,
+                changed_files_list=diff,
+                changed_modules_list=[],
+                dynamic_import_seeds_hit=[],
+                repo_root=repo_root,
+            )
+        except OSError:
+            pass
+        return 0
+
+    # Pre-compute changed-modules-list + seeds-hit ONCE so both the
+    # narrow and full-suite branches can write a uniformly-detailed
+    # JSON record (reviewer non-blocking #2).
+    module_path_pairs: list[tuple[str, str]] = []
+    if bundle is not None:
+        for path in diff:
+            module = path_to_module(path)
+            if module is not None and module in bundle.all_modules:
+                module_path_pairs.append((module, path))
+    changed_modules_list = [m for m, _ in module_path_pairs]
+    seeds_hit: list[str] = []
+    if bundle is not None:
+        seeds_hit = sorted(m for m in changed_modules_list if m in bundle.dynamic_import_modules)
+
     # Fallback triggers — first match wins.
     trigger = evaluate_fallback_triggers(
         paths=diff,
@@ -1206,13 +1372,38 @@ def _run_narrow_or_fallback(repo_root: Path) -> int:
     if bundle is None and trigger is None:
         trigger = "graph unavailable"
 
+    # Last-line-of-defense check: when narrowing IS possible (bundle
+    # exists, no trigger fired), but the import resolver returned
+    # zero downstream tests for any non-test changed module — widen
+    # to full suite.  Bare-name imports under orchestrator/ /
+    # sandbox/ / tests/ that grimp's resolver can't see would
+    # otherwise silently select zero tests for every change there.
+    # We skip the check when the changed module IS itself a test
+    # module (test-only edits already narrow correctly via
+    # downstream-of-leaf).  Reviewer #1 fallback (option (c)).
+    if bundle is not None and trigger is None and module_path_pairs:
+        zero_downstream_offenders: list[str] = []
+        for module, _path in module_path_pairs:
+            if module in bundle.all_test_modules:
+                continue  # editing a test pulls only itself; that's fine
+            try:
+                downstream = bundle.graph.find_downstream_modules(module, as_package=False)
+            except Exception:  # noqa: BLE001
+                downstream = set()
+            if not (set(downstream) & bundle.all_test_modules):
+                zero_downstream_offenders.append(module)
+        if zero_downstream_offenders:
+            trigger = f"no downstream tests for changed module: {zero_downstream_offenders[0]}"
+
     compute_ms = int((time.monotonic() - t0) * 1000)
 
     # Total test count (used for both narrow and full-suite log lines).
     total_count = len(bundle.all_test_modules) if bundle is not None else len(TEST_ROOT_DIRS)
 
     if trigger is not None:
-        # Full-suite fallback path.
+        # Full-suite fallback path.  Write the SAME detailed record
+        # (changed_modules + seeds_hit) the narrow path writes — the
+        # operator wants the "why" detail when a fallback fires.
         emit_full_suite()
         _log(f"select-tests: full suite {total_count} tests (trigger={trigger})")
         write_selection_record(
@@ -1227,8 +1418,8 @@ def _run_narrow_or_fallback(repo_root: Path) -> int:
             compute_ms=compute_ms,
             canary_fired=canary_fired,
             changed_files_list=diff,
-            changed_modules_list=[],
-            dynamic_import_seeds_hit=[],
+            changed_modules_list=changed_modules_list,
+            dynamic_import_seeds_hit=seeds_hit,
             repo_root=repo_root,
         )
         return 0
@@ -1236,13 +1427,7 @@ def _run_narrow_or_fallback(repo_root: Path) -> int:
     # ---- Narrow path ----
     assert bundle is not None  # narrowed above
 
-    changed_modules_list: list[str] = []
-    for path in diff:
-        module = path_to_module(path)
-        if module is not None and module in bundle.all_modules:
-            changed_modules_list.append(module)
-
-    closure = reverse_closure(bundle, changed_modules_list, diff)
+    closure = reverse_closure(bundle, module_path_pairs)
     test_files = map_modules_to_test_files(bundle, closure, repo_root)
     selected_count = len(test_files)
 
@@ -1256,7 +1441,6 @@ def _run_narrow_or_fallback(repo_root: Path) -> int:
         f"in {elapsed_s:.2f}s (baseline={short_baseline}, trigger=diff)"
     )
 
-    seeds_hit = sorted(m for m in changed_modules_list if m in bundle.dynamic_import_modules)
     write_selection_record(
         head=head_sha,
         baseline_sha=baseline_sha,
@@ -1354,7 +1538,7 @@ def _main_inner(argv: list[str] | None = None) -> int:
         branch = _git_current_branch(cwd=repo_root)
         if branch is not None:
             try:
-                write_canary_count(branch, 0)
+                write_canary_count(branch, 0, repo_root=repo_root)
             except OSError:
                 pass
         return emit_full_suite()

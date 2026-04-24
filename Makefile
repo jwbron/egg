@@ -275,20 +275,33 @@ test: export PYTHONPATH := shared:gateway:orchestrator
 test: venv
 	@echo "==> Running narrowed unit tests (changeset-aware; see docs/guides/testing.md)..."
 	@selected_file=$$(mktemp); \
-	$(PYTHON) scripts/select_tests.py >"$$selected_file"; \
+	PYTEST_ARGS_RAW="$(PYTEST_ARGS)" \
+		$(PYTHON) scripts/select_tests.py >"$$selected_file"; \
 	selector_rc=$$?; \
 	if [ "$$selector_rc" -ne 0 ]; then \
 		echo "select-tests: selector exited $$selector_rc; running full suite as fallback"; \
 		printf '%s\n' tests gateway/tests orchestrator/tests shared/tests >"$$selected_file"; \
 	fi; \
+	bypass=0; \
 	if [ ! -s "$$selected_file" ]; then \
-		echo "select-tests: no tests selected"; \
-		rm -f "$$selected_file"; \
-		exit 0; \
+		head_sha_check=$$(git rev-parse HEAD 2>/dev/null || echo unknown); \
+		json_path=".egg-state/selection/$$head_sha_check.json"; \
+		if [ -f "$$json_path" ] && grep -q '"mode": "bypass"' "$$json_path" 2>/dev/null; then \
+			bypass=1; \
+		fi; \
+		if [ "$$bypass" = "0" ]; then \
+			echo "select-tests: no tests selected"; \
+			rm -f "$$selected_file"; \
+			exit 0; \
+		fi; \
 	fi; \
 	head_sha=$$(git rev-parse HEAD 2>/dev/null || echo unknown); \
 	t0=$$(date +%s%N); \
-	$(PYTEST) $$(cat "$$selected_file") -v -m "not functional" $(PYTEST_ARGS); \
+	if [ "$$bypass" = "1" ]; then \
+		$(PYTEST) -v -m "not functional" $(PYTEST_ARGS); \
+	else \
+		$(PYTEST) $$(cat "$$selected_file") -v -m "not functional" $(PYTEST_ARGS); \
+	fi; \
 	pytest_rc=$$?; \
 	t1=$$(date +%s%N); \
 	rm -f "$$selected_file"; \
