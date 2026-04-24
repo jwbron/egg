@@ -355,6 +355,7 @@ def _force_nack_conditional_edges(
                     reason=synthetic_reason,
                     artifact_refs=[],
                 )
+                # Idempotent if multiple reviewers condition on the same producer
                 tracker._producer_phases[producer] = ConsensusPhase.WORKING
                 nacked.append((reviewer, producer))
             except Exception:
@@ -413,6 +414,7 @@ def _invalidate_conditional_acks(
                 )
                 continue
             if did_invalidate:
+                # Idempotent if multiple reviewers condition on the same producer
                 tracker._producer_phases[producer] = ConsensusPhase.WORKING
                 invalidated.append((reviewer, producer))
     if invalidated:
