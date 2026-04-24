@@ -72,8 +72,14 @@ def message_wait(req: dict[str, Any]) -> dict[str, Any]:
         pipeline_id: override.
 
     Response:
-        { ok: True, matched: bool, messages: list, role: str | None,
-          for_types: list[str], raw: <server response> }
+        { ok: True, matched: bool, messages: list, cursor: str | None,
+          role: str | None, for_types: list[str], raw: <server response> }
+
+    ``cursor`` threads through the wait-endpoint's stream cursor so
+    callers can chain successive waits without losing events that arrive
+    between calls (issue #1995). On match it is the ID of the last
+    delivered message; on timeout it is the stream tip at server
+    response time; ``None`` only when the stream is empty.
 
     Raises:
         HandlerError: invalid arguments.
@@ -115,10 +121,12 @@ def message_wait(req: dict[str, Any]) -> dict[str, Any]:
     data = result.get("data", {}) if isinstance(result, dict) else {}
     messages = list(data.get("messages", []) or [])
     matched = bool(data.get("matched")) or bool(messages)
+    cursor = data.get("cursor")
     return {
         "ok": True,
         "matched": matched,
         "messages": messages,
+        "cursor": cursor,
         "role": role,
         "for_types": for_types,
         "raw": result,
@@ -133,6 +141,14 @@ def message_wait_loop(req: dict[str, Any]) -> dict[str, Any]:
     Permanent errors (HandlerError or GatewayError with 4xx non-408)
     propagate to the caller.
 
+    Threads the server-side ``cursor`` through successive iterations via
+    ``since_id`` so a message that arrives after one inner wait times
+    out (and before the next begins) is still delivered on the next
+    iteration. The final ``cursor`` is also surfaced in the response so
+    callers can chain successive ``wait_loop`` invocations across tool
+    boundaries without reopening the same race at the outer layer
+    (issue #1995).
+
     Request:
         Same as :func:`message_wait` plus:
         max_iterations (int): safety cap on outer iterations.  ``None``
@@ -140,9 +156,9 @@ def message_wait_loop(req: dict[str, Any]) -> dict[str, Any]:
             matching the CLI's "loops forever by default" contract.
 
     Response:
-        { ok: True, matched: True, messages, iterations, ... }
+        { ok: True, matched: True, messages, cursor, iterations, ... }
         Or — if the safety cap trips without a match —
-        { ok: True, matched: False, iterations: <cap>, ... }.
+        { ok: True, matched: False, cursor, iterations: <cap>, ... }.
 
     Raises:
         HandlerError / GatewayError on permanent failure (4xx non-408).
@@ -172,6 +188,14 @@ def message_wait_loop(req: dict[str, Any]) -> dict[str, Any]:
             backoff = min(backoff * 2, 5.0)
             continue
         last_resp = resp
+        # Thread the server cursor into the next wait's ``since`` so
+        # events that arrive between this response and the next call
+        # can't slip through the gap (issue #1995). A cursor of ``None``
+        # (empty stream) leaves ``inner["since"]`` unchanged so we keep
+        # whatever cursor the caller originally passed in, if any.
+        next_cursor = resp.get("cursor")
+        if next_cursor:
+            inner["since"] = next_cursor
         if resp.get("matched"):
             resp_out = dict(resp)
             resp_out["iterations"] = i
