@@ -82,7 +82,13 @@ _HEARTBEAT_SCHEMA: dict[str, Any] = {
     "properties": {
         "state": {
             "type": "string",
-            "enum": ["WORKING", "WAITING_ON_ROLE", "PROPOSED", "IDLE"],
+            "enum": [
+                "WORKING",
+                "WAITING_ON_ROLE",
+                "WAITING_FOR_EVENT",
+                "PROPOSED",
+                "IDLE",
+            ],
             "description": "Agent state for this heartbeat",
         },
         "waiting_on": {

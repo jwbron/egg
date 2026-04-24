@@ -2229,7 +2229,7 @@ def create_parser() -> argparse.ArgumentParser:
         help="Emit a structured HEARTBEAT state message",
         description=(
             "Emit a HEARTBEAT with a required --state "
-            "(WORKING|WAITING_ON_ROLE|PROPOSED|IDLE). "
+            "(WORKING|WAITING_ON_ROLE|WAITING_FOR_EVENT|PROPOSED|IDLE). "
             "--state WAITING_ON_ROLE requires --waiting-on."
         ),
     )
@@ -2238,7 +2238,13 @@ def create_parser() -> argparse.ArgumentParser:
     msg_hb.add_argument(
         "--state",
         required=True,
-        choices=["WORKING", "WAITING_ON_ROLE", "PROPOSED", "IDLE"],
+        choices=[
+            "WORKING",
+            "WAITING_ON_ROLE",
+            "WAITING_FOR_EVENT",
+            "PROPOSED",
+            "IDLE",
+        ],
         help="Agent state",
     )
     msg_hb.add_argument(

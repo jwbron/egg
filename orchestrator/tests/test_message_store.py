@@ -65,9 +65,10 @@ class TestHeartbeatTypeExposure:
     def test_heartbeat_states_constant(self) -> None:
         assert "WORKING" in HEARTBEAT_STATES
         assert "WAITING_ON_ROLE" in HEARTBEAT_STATES
+        assert "WAITING_FOR_EVENT" in HEARTBEAT_STATES
         assert "PROPOSED" in HEARTBEAT_STATES
         assert "IDLE" in HEARTBEAT_STATES
-        assert len(HEARTBEAT_STATES) == 4
+        assert len(HEARTBEAT_STATES) == 5
 
     def test_heartbeat_states_frozen(self) -> None:
         # Should be a frozenset so callers can't mutate.

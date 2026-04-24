@@ -504,7 +504,15 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
 
     # Dedup first — duplicates are no-ops and should not consume rate
     # budget (review NB1, issue #1897).
-    if coordinator.is_duplicate(pipeline_id, from_role, state, waiting_on):
+    #
+    # ``WAITING_FOR_EVENT`` (issue #2036) is a liveness keep-alive emitted
+    # by ``mcp__brc__wait_loop`` while it's blocked. Periodic identical
+    # beats are exactly what the overseer's stall detector consumes to
+    # decide an agent is alive — so this state skips dedup. The rate limit
+    # still caps the bus traffic at 20/min per role.
+    if state != "WAITING_FOR_EVENT" and coordinator.is_duplicate(
+        pipeline_id, from_role, state, waiting_on
+    ):
         return _make_success(
             "HEARTBEAT deduped (unchanged state)",
             data={"deduped": True},

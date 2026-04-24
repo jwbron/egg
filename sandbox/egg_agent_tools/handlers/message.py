@@ -15,7 +15,9 @@ structured dict directly and classify ``matched``/``ok`` themselves.
 
 from __future__ import annotations
 
+import threading
 import time as _time
+from collections.abc import Callable
 from typing import Any
 
 from egg_agent_tools.handlers._gateway import (
@@ -25,7 +27,20 @@ from egg_agent_tools.handlers._gateway import (
 )
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
-_HEARTBEAT_STATES = {"WORKING", "WAITING_ON_ROLE", "PROPOSED", "IDLE"}
+_HEARTBEAT_STATES = {
+    "WORKING",
+    "WAITING_ON_ROLE",
+    "WAITING_FOR_EVENT",
+    "PROPOSED",
+    "IDLE",
+}
+
+# Interval between ``WAITING_FOR_EVENT`` keep-alive heartbeats emitted by
+# ``message_wait_loop`` while blocked. Needs to be well under the
+# overseer's ``heartbeat_threshold`` (120 s default, 600 s during
+# implement phase) so a single missed beat doesn't flip the stall
+# detector. See issue #2036.
+_WAIT_LOOP_HEARTBEAT_INTERVAL_SECS = 60.0
 
 
 def _require_pipeline_id(req: dict[str, Any]) -> str:
@@ -133,6 +148,76 @@ def message_wait(req: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _default_emit_wait_loop_heartbeat(
+    pipeline_id: str | None,
+    role: str | None,
+    state: str,
+    body: str,
+) -> None:
+    """Emit a single liveness heartbeat from ``message_wait_loop``.
+
+    Best-effort: failures are swallowed. ``wait_loop`` heartbeats are a
+    liveness signal for the overseer (issue #2036) and must never kill
+    the wait itself — in particular, 429 rate-limit responses mean the
+    overseer already has plenty of beats for this role and the next tick
+    will succeed.
+
+    Short-circuits when ``pipeline_id`` or ``role`` is unset: without
+    them the server cannot associate the beat with an agent, and the
+    heartbeat endpoint would reject the request anyway.
+    """
+    if not pipeline_id or not role:
+        return
+    payload: dict[str, Any] = {
+        "from_role": role,
+        "state": state,
+        "body": body,
+    }
+    try:
+        orchestrator_request(
+            f"/api/v1/pipelines/{pipeline_id}/heartbeat",
+            method="POST",
+            data=payload,
+        )
+    except GatewayError:
+        pass
+    except Exception:
+        pass
+
+
+def _start_wait_loop_heartbeat(
+    tick: Callable[[], None],
+    interval: float,
+) -> Callable[[], None]:
+    """Emit ``tick()`` immediately, then every ``interval`` seconds.
+
+    Returns a stop callable. Uses a daemon thread so the emitter dies
+    with the interpreter if anything pathological happens; the stop
+    callable is called from the outer ``finally`` to halt the thread
+    promptly after the wait resolves.
+
+    ``interval <= 0`` disables the periodic tick (entry call only) —
+    tests use this to avoid real time.sleep.
+    """
+    tick()
+    if interval <= 0:
+        return lambda: None
+    stop = threading.Event()
+
+    def _run() -> None:
+        while not stop.wait(interval):
+            try:
+                tick()
+            except Exception:
+                # Never let a heartbeat failure tear down the thread —
+                # the next iteration will try again.
+                pass
+
+    t = threading.Thread(target=_run, daemon=True, name="wait_loop_heartbeat")
+    t.start()
+    return stop.set
+
+
 def message_wait_loop(req: dict[str, Any]) -> dict[str, Any]:
     """Loop ``message_wait`` until a match arrives.
 
@@ -172,42 +257,88 @@ def message_wait_loop(req: dict[str, Any]) -> dict[str, Any]:
     # Sleep hook is overridable so tests can skip real sleeps.
     sleep = req.get("_sleep", _time.sleep)
 
-    backoff = 1.0
-    inner = {k: v for k, v in req.items() if k not in {"max_iterations", "_sleep"}}
-    last_resp: dict[str, Any] = {}
-    for i in range(1, max_iter + 1):
-        try:
-            resp = message_wait(inner)
-        except GatewayError as err:
-            status = err.status_code
-            # 4xx (non-408) is permanent: callers must not retry.
-            if status is not None and 400 <= status < 500 and status != 408:
-                raise
-            # Transient: sleep and retry.
-            sleep(min(backoff, 5.0))
-            backoff = min(backoff * 2, 5.0)
-            continue
-        last_resp = resp
-        # Thread the server cursor into the next wait's ``since`` so
-        # events that arrive between this response and the next call
-        # can't slip through the gap (issue #1995). A cursor of ``None``
-        # (empty stream) leaves ``inner["since"]`` unchanged so we keep
-        # whatever cursor the caller originally passed in, if any.
-        next_cursor = resp.get("cursor")
-        if next_cursor is not None:
-            inner["since"] = next_cursor
-        if resp.get("matched"):
-            resp_out = dict(resp)
-            resp_out["iterations"] = i
-            return resp_out
-        # Timeout with no match — reset backoff and loop.
-        backoff = 1.0
+    # Heartbeat emission (issue #2036). The overseer's stall detector
+    # treats "no heartbeat for N seconds" as a liveness signal, but
+    # agents blocked in ``wait_loop`` were sending none — so reviewers
+    # and downstream producers routinely tripped false-positive stall
+    # alerts. Emit ``WAITING_FOR_EVENT`` on entry, every
+    # ``_WAIT_LOOP_HEARTBEAT_INTERVAL_SECS`` thereafter, and a final
+    # ``WORKING`` on exit so liveness tracks protocol reality.
+    pipeline_id_hb = req.get("pipeline_id") or get_pipeline_id()
+    role_hb = _role_or_env(req)
+    for_types_hb = _coerce_for_types(req)
+    from_role_hb = req.get("from_role") or req.get("from")
+    emit_hb: Callable[[str | None, str | None, str, str], None] = req.get(
+        "_emit_heartbeat", _default_emit_wait_loop_heartbeat
+    )
+    hb_interval = float(req.get("_heartbeat_interval", _WAIT_LOOP_HEARTBEAT_INTERVAL_SECS))
+    start_hb: Callable[[Callable[[], None], float], Callable[[], None]] = req.get(
+        "_start_heartbeat", _start_wait_loop_heartbeat
+    )
 
-    capped = dict(last_resp)
-    capped.setdefault("ok", True)
-    capped["matched"] = False
-    capped["iterations"] = max_iter
-    return capped
+    waiting_body = "wait_loop blocked on " + ",".join(for_types_hb)
+    if from_role_hb:
+        waiting_body += f" from={from_role_hb}"
+
+    def _tick() -> None:
+        emit_hb(pipeline_id_hb, role_hb, "WAITING_FOR_EVENT", waiting_body)
+
+    stop_hb = start_hb(_tick, hb_interval)
+
+    backoff = 1.0
+    inner = {
+        k: v
+        for k, v in req.items()
+        if k
+        not in {
+            "max_iterations",
+            "_sleep",
+            "_emit_heartbeat",
+            "_heartbeat_interval",
+            "_start_heartbeat",
+        }
+    }
+    last_resp: dict[str, Any] = {}
+    try:
+        for i in range(1, max_iter + 1):
+            try:
+                resp = message_wait(inner)
+            except GatewayError as err:
+                status = err.status_code
+                # 4xx (non-408) is permanent: callers must not retry.
+                if status is not None and 400 <= status < 500 and status != 408:
+                    raise
+                # Transient: sleep and retry.
+                sleep(min(backoff, 5.0))
+                backoff = min(backoff * 2, 5.0)
+                continue
+            last_resp = resp
+            # Thread the server cursor into the next wait's ``since`` so
+            # events that arrive between this response and the next call
+            # can't slip through the gap (issue #1995). A cursor of ``None``
+            # (empty stream) leaves ``inner["since"]`` unchanged so we keep
+            # whatever cursor the caller originally passed in, if any.
+            next_cursor = resp.get("cursor")
+            if next_cursor is not None:
+                inner["since"] = next_cursor
+            if resp.get("matched"):
+                resp_out = dict(resp)
+                resp_out["iterations"] = i
+                return resp_out
+            # Timeout with no match — reset backoff and loop.
+            backoff = 1.0
+
+        capped = dict(last_resp)
+        capped.setdefault("ok", True)
+        capped["matched"] = False
+        capped["iterations"] = max_iter
+        return capped
+    finally:
+        stop_hb()
+        # Final transition back to WORKING so the overseer sees the
+        # agent leave the wait cleanly. Best-effort; dedup will still
+        # collapse a follow-on manual WORKING beat from the caller.
+        emit_hb(pipeline_id_hb, role_hb, "WORKING", "wait_loop exited")
 
 
 def message_heartbeat(req: dict[str, Any]) -> dict[str, Any]:
@@ -220,7 +351,7 @@ def message_heartbeat(req: dict[str, Any]) -> dict[str, Any]:
 
     Request:
         state (str): required — one of
-            ``WORKING|WAITING_ON_ROLE|PROPOSED|IDLE``.
+            ``WORKING|WAITING_ON_ROLE|WAITING_FOR_EVENT|PROPOSED|IDLE``.
         waiting_on (str): peer role — required when ``state`` is
             ``WAITING_ON_ROLE``.
         since (str): optional ISO-8601 / epoch timestamp of state entry.

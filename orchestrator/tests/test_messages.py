@@ -1691,6 +1691,36 @@ class TestHeartbeatRoute:
                 assert resp2.status_code == 200
                 assert json.loads(resp2.data)["data"]["deduped"] is True
 
+    def test_heartbeat_route_does_not_dedupe_waiting_for_event(self, client, app):
+        """Issue #2036: ``WAITING_FOR_EVENT`` is a liveness keep-alive
+        emitted by ``mcp__brc__wait_loop`` while it's blocked. Periodic
+        identical beats are exactly the signal the overseer's stall
+        detector needs — so this state MUST skip the ``(state,
+        waiting_on)`` dedup filter even when consecutive posts are
+        byte-for-byte identical.
+
+        If a future refactor re-enables dedup for this state, every
+        agent blocked in a wait_loop would once again stop emitting
+        heartbeats after the first beat, and the overseer would resume
+        firing the false-positive stall alerts described in #2036.
+        """
+        with app.test_request_context():
+            with patch(
+                "routes.messages.get_state_store_for_pipeline"
+            ) as mock_get_store_for_pipeline:
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                role = "wait-loop-liveness-role"
+                for _ in range(3):
+                    resp = client.post(
+                        "/api/v1/pipelines/test-pipeline/heartbeat",
+                        json={"from_role": role, "state": "WAITING_FOR_EVENT"},
+                    )
+                    assert resp.status_code == 200
+                    assert json.loads(resp.data)["data"]["deduped"] is False
+
     def test_heartbeat_route_requires_from_role(self, client, app):
         """Missing from_role -> 400."""
         with app.test_request_context():
