@@ -706,16 +706,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-24T04:00:03.717422Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-24T04:00:48.784071Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Neither — anchor is deferred to iter 3 per decision-2, so this iter-2 plan should NOT ship mcp__anchor__* tools and should NOT update the anchor rule docs. The phantom `egg-orch anchor *` CLI references in sandbox/agent-config/rules/orchestrator.md:20-24 stay as-is until iter 3, when the anchor trio lands and the retraction happens together. A post-merge follow-up issue will track the iter-3 anchor work including the rule-doc retraction. No action in iter 2.\"}",
       "phase": "plan",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:10:06.375518Z",
-  "updated_at": "2026-04-24T04:00:03.730953Z",
+  "updated_at": "2026-04-24T04:00:48.797631Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -729,5 +729,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 61
+  "version": 62
 }
