@@ -35,7 +35,7 @@ This document focuses on the specific challenge of **multi-agent git isolation**
 | Agent accesses another agent's workspace | Filesystem isolation---other workspaces don't exist in container's view |
 | Agent pushes to unauthorized branches | Gateway enforces branch ownership policy |
 | Agent pushes malicious code directly to main | Gateway blocks direct pushes to protected branches; PRs require human review |
-| Agent bypasses BRC consensus in concurrent mode | Gateway blocks direct `git push` in concurrent mode; requires `consensus_push` marker from `egg-orch consensus propose --push` |
+| Agent bypasses BRC consensus in concurrent mode | Gateway blocks direct `git push` in concurrent mode; requires `consensus_push` marker from `mcp__brc__propose` (or fallback `egg-orch consensus propose --push`) |
 | Agent discovers or exfiltrates credentials | Credentials only exist in gateway; container never sees them |
 | Agent modifies git config to bypass security | Container has no access to git metadata; config is gateway-controlled |
 | Agent escapes via git hooks or filters | Hooks universally disabled via `core.hooksPath=/dev/null` in gateway and orchestrator; filters mitigated in containers by metadata isolation (no `.gitattributes` processing); gateway protected by branch ownership policy (agents cannot push to main) and required human review of all commits |
@@ -258,7 +258,7 @@ Each agent works on its own isolated worktree with its own staging area. This ap
 
 **Pipeline agents:** In concurrent pipeline execution, all agents push to the same shared branch (e.g., `egg/issue-{N}`) but each agent has its own worktree. Since each role has mutually exclusive file write permissions (coder → source code, tester → tests, documenter → docs), push rebases cannot conflict. Reviewer agents sync their worktrees before reviewing by fetching and merging the pipeline branch, ensuring they evaluate up-to-date code from producers. See [Concurrent Execution Guide](../guides/concurrent-execution.md#per-agent-worktree-isolation) for details.
 
-**Concurrent-mode push enforcement:** In BRC mode, the gateway blocks direct `git push` from pipeline agents — all pushes must go through `egg-orch consensus propose --push`, which bundles the push with a BRC proposal. This structurally enforces the "all changes must be reviewed" invariant rather than relying on agent compliance. See [Gateway README — Concurrent-Mode Push Enforcement](../../gateway/README.md#concurrent-mode-push-enforcement-brc-sessions) for details.
+**Concurrent-mode push enforcement:** In BRC mode, the gateway blocks direct `git push` from pipeline agents — all pushes must go through `mcp__brc__propose` (which pushes to origin and sends CONSENSUS_PROPOSE in one step; push is on by default). The fallback CLI is `egg-orch consensus propose --push`. This structurally enforces the "all changes must be reviewed" invariant rather than relying on agent compliance. See [Gateway README — Concurrent-Mode Push Enforcement](../../gateway/README.md#concurrent-mode-push-enforcement-brc-sessions) for details.
 
 **Worktree-aware APIs:** All gateway APIs that access the filesystem use `map_container_path_to_worktree()` to resolve container repo paths to worktree paths. This includes git operations, contract operations (`egg-contract show`, `add-commit`, `add-decision`, etc.), and checkpoint operations. The mapping is transparent to agents --- they use their normal repo path and the gateway resolves it to the correct worktree.
 

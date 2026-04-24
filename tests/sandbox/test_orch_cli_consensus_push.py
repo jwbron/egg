@@ -123,7 +123,7 @@ class TestConsensusPushDirectGatewayAPI:
             return ""
 
         with (
-            patch("egg_lib.orch_cli.subprocess.check_output", side_effect=mock_check_output),
+            patch("egg_agent_tools.push.subprocess.check_output", side_effect=mock_check_output),
             patch("urllib.request.urlopen", side_effect=mock_urlopen),
         ):
             result = _consensus_push()
@@ -154,7 +154,7 @@ class TestConsensusPushDirectGatewayAPI:
 
         with (
             patch.dict(os.environ, {"EGG_BRANCH": ""}),
-            patch("egg_lib.orch_cli.subprocess.check_output", side_effect=mock_check_output),
+            patch("egg_agent_tools.push.subprocess.check_output", side_effect=mock_check_output),
             patch("urllib.request.urlopen", side_effect=mock_urlopen),
         ):
             result = _consensus_push()
@@ -182,7 +182,7 @@ class TestConsensusPushDirectGatewayAPI:
 
         with (
             patch.dict(os.environ, {"EGG_BRANCH": ""}),
-            patch("egg_lib.orch_cli.subprocess.check_output", side_effect=mock_check_output),
+            patch("egg_agent_tools.push.subprocess.check_output", side_effect=mock_check_output),
             patch("urllib.request.urlopen", side_effect=mock_urlopen),
         ):
             result = _consensus_push()
@@ -209,7 +209,7 @@ class TestConsensusPushDirectGatewayAPI:
 
         with (
             patch.dict(os.environ, {"EGG_BRANCH": "egg/issue-1669"}),
-            patch("egg_lib.orch_cli.subprocess.check_output", side_effect=mock_check_output),
+            patch("egg_agent_tools.push.subprocess.check_output", side_effect=mock_check_output),
             patch("urllib.request.urlopen", side_effect=mock_urlopen),
         ):
             result = _consensus_push()
@@ -237,7 +237,7 @@ class TestConsensusPushDirectGatewayAPI:
 
         with (
             patch.dict(os.environ, {"EGG_BRANCH": "egg/issue-1669"}),
-            patch("egg_lib.orch_cli.subprocess.check_output", side_effect=mock_check_output),
+            patch("egg_agent_tools.push.subprocess.check_output", side_effect=mock_check_output),
             patch("urllib.request.urlopen", side_effect=mock_urlopen),
         ):
             result = _consensus_push()
@@ -264,7 +264,7 @@ class TestConsensusPushDirectGatewayAPI:
             return ""
 
         with (
-            patch("egg_lib.orch_cli.subprocess.check_output", side_effect=mock_check_output),
+            patch("egg_agent_tools.push.subprocess.check_output", side_effect=mock_check_output),
             patch("urllib.request.urlopen", side_effect=mock_urlopen),
         ):
             result = _consensus_push()
@@ -293,7 +293,7 @@ class TestConsensusPushDirectGatewayAPI:
         )
 
         with (
-            patch("egg_lib.orch_cli.subprocess.check_output", side_effect=mock_check_output),
+            patch("egg_agent_tools.push.subprocess.check_output", side_effect=mock_check_output),
             patch("urllib.request.urlopen", side_effect=http_error),
         ):
             result = _consensus_push()
@@ -310,7 +310,7 @@ class TestConsensusPushDirectGatewayAPI:
             return ""
 
         with (
-            patch("egg_lib.orch_cli.subprocess.check_output", side_effect=mock_check_output),
+            patch("egg_agent_tools.push.subprocess.check_output", side_effect=mock_check_output),
             patch(
                 "urllib.request.urlopen",
                 side_effect=urllib.error.URLError("Connection refused"),
@@ -327,7 +327,7 @@ class TestConsensusPushDirectGatewayAPI:
                 raise subprocess.CalledProcessError(1, cmd)
             return ""
 
-        with patch("egg_lib.orch_cli.subprocess.check_output", side_effect=mock_check_output):
+        with patch("egg_agent_tools.push.subprocess.check_output", side_effect=mock_check_output):
             result = _consensus_push()
             assert result == 1
 
@@ -350,7 +350,7 @@ class TestConsensusPushFallbackGitPush:
                 return "Everything up-to-date"
             return ""
 
-        with patch("egg_lib.orch_cli.subprocess.check_output", side_effect=mock_check_output):
+        with patch("egg_agent_tools.push.subprocess.check_output", side_effect=mock_check_output):
             result = _consensus_push()
             assert result == 0
             # Fallback should not pass a custom env (no EGG_CONSENSUS_PUSH)
@@ -359,7 +359,7 @@ class TestConsensusPushFallbackGitPush:
     def test_fallback_push_failure_returns_1(self, no_gateway_env):
         """Fallback git push CalledProcessError should return 1."""
         with patch(
-            "egg_lib.orch_cli.subprocess.check_output",
+            "egg_agent_tools.push.subprocess.check_output",
             side_effect=subprocess.CalledProcessError(1, "git push", output="remote rejected"),
         ):
             result = _consensus_push()
@@ -368,7 +368,7 @@ class TestConsensusPushFallbackGitPush:
     def test_fallback_git_not_found_returns_1(self, no_gateway_env):
         """Fallback when git binary not found should return 1."""
         with patch(
-            "egg_lib.orch_cli.subprocess.check_output",
+            "egg_agent_tools.push.subprocess.check_output",
             side_effect=FileNotFoundError,
         ):
             result = _consensus_push()

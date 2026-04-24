@@ -717,7 +717,7 @@ class TestOrchCliConsensusProposePush:
         assert rc == 1
 
     @patch("egg_agent_tools.handlers.brc.orchestrator_request")
-    @patch("egg_lib.orch_cli.subprocess.check_output")
+    @patch("egg_agent_tools.push.subprocess.check_output")
     def test_no_push_flag_skips_git_push(self, mock_subprocess, mock_request):
         """Without --push, git push is not called (only rev-parse for commit).
 
