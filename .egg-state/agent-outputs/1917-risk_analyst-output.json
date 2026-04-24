@@ -1,0 +1,313 @@
+{
+  "schemaVersion": "1.0",
+  "issue": 1917,
+  "pipeline_id": "issue-1917",
+  "phase": "plan",
+  "role": "risk_analyst",
+  "summary": "Risk assessment for iter-2 MCP tool surface (~13 verbs; anchor trio deferred per decision-2). The design reuses iter-1's in-process SDK MCP mechanism and adds verbs across contract/checkpoint/peer/overseer/task-gap, plus a new orchestrator endpoint for task_gaps. Overall risk: MEDIUM. The mechanism is well-burned-in (iter 1 merged in #1920 / f24110b71, default-on since #1946). The residual risk concentrates in three areas: (1) authz-by-gateway for verify_criterion and task_mark_gap (handler forwards, gateway enforces — if any gateway path is too permissive, agents can mutate fields they shouldn't); (2) the two no-CLI verbs (brc_read_peer_artifact, task_mark_gap) which the drift gate cannot cover; (3) new rule-doc drift gate (decision-11 two-way) which, if mis-implemented, can block unrelated PRs. There are no third-party dep additions (private-mode isolation — AC constraint); all changes are internal to the egg repo. No security-grade external research was required.",
+  "scope_recap": {
+    "resolved_decisions": 14,
+    "shipped_verbs_estimate": 13,
+    "new_namespaces": ["checkpoint"],
+    "folded_into_existing": ["mcp__brc__read_peer_artifact", "mcp__overseer__alert (TBD by architect/task_planner — decision-5 hybrid means 1-verb groups fold)"],
+    "deferred": ["anchor trio (decision-2 opt-3)", "brc send_message / poll_messages (decision-14 opt-3)", "phase_get_context field promotion (decision-6 opt-2, separate PR)", "EGG_HARNESS=egg parallel wiring (decision-10 opt-1)"],
+    "new_orchestrator_work": ["task_mark_gap needs new endpoint + contract schema section per decision-4 opt-4 (no-CLI) — task_planner must verify endpoint lands alongside handler"]
+  },
+  "risks": [
+    {
+      "id": "R1",
+      "title": "verify_criterion role-gating relies entirely on gateway enforcement",
+      "category": "security",
+      "likelihood": "low",
+      "impact": "high",
+      "severity": "medium",
+      "description": "Decision-7 resolved to 'gateway already enforces — handler just forwards'. sandbox/egg_lib/contract_cli.py::cmd_verify_criterion (line 717) issues POST /api/v1/contract/mutate with field_path='acceptance_criteria.{idx}.verified'. The CLI has no client-side role check — it only prints a docstring note. If any orchestrator contract-mutate path does not enforce REVIEWER role for that field_path, an IMPLEMENTER or PRODUCER-role agent could mark criteria verified and trick the phase-gate logic into advancing prematurely. This attack surface already exists via the CLI today, but exposing it as MCP makes it one @tool call instead of a shell-out — lowering the friction for accidental misuse and making future regressions in gateway authz immediately agent-exploitable.",
+      "affected_components": [
+        "sandbox/egg_agent_tools/handlers/sdlc.py (new verify_criterion handler)",
+        "sandbox/egg_agent_tools/tools/sdlc.py (new @tool wrapper)",
+        "gateway/ (mutation authz — must reject non-REVIEWER field-path writes to acceptance_criteria.*.verified)",
+        "orchestrator/routes/contracts.py (/api/v1/contract/mutate)"
+      ],
+      "mitigations": [
+        "Add a plan-phase task for task_planner: include a test in tests/tools/ that asserts verify_criterion returns a gateway-role error when EGG_AGENT_ROLE is not a reviewer alias (reviewer_refine/reviewer_plan/reviewer_implement/reviewer_pr).",
+        "Architect's tool description must explicitly name 'REVIEWER-role only; gateway rejects other roles with 403 → GatewayError' per decision-7 resolution language.",
+        "Add a gateway-side positive test (if one does not exist) pinning 403 on acceptance_criteria.*.verified writes from non-reviewer roles. Not strictly in-scope for this issue, but mandatory to cite if architect is uncertain the gateway policy exists today."
+      ],
+      "rollback": "Wrapper is opt-in via EGG_MCP_TOOLS=0 (decision-9 keep-flag); disabling the flag reverts to iter-1 surface with no verify_criterion MCP exposure.",
+      "needs_human_review": true,
+      "human_review_reason": "Security: need confirmation that gateway policy actually rejects non-reviewer writes to acceptance_criteria.*.verified today. If not, verify_criterion should NOT ship until the gateway test lands."
+    },
+    {
+      "id": "R2",
+      "title": "brc_read_peer_artifact path-traversal risk (no-CLI; drift gate blind)",
+      "category": "security",
+      "likelihood": "medium",
+      "impact": "medium",
+      "severity": "medium",
+      "description": "Decision-8 resolved to 'local .egg-state/brc-history/*.json files — simplest; no new endpoint'. Files live under .egg-state/brc-history/ (grep confirms naming like 1748-refine.json, 1707-implement.md). If the handler accepts a peer-artifact filename or key directly from the agent without canonicalising to the current pipeline_id, a crafted request could read other pipelines' artifacts or files outside .egg-state/brc-history/ entirely (e.g. ../contracts/issue-1917.json). Because task_mark_gap and brc_read_peer_artifact are both new capabilities with cli_command=None, the existing CLI-drift test cannot catch regressions in either — per decision-13 resolution we allow cli_command=None but require a docstring rationale. Neither docstring review nor the nudge drift test cover input validation.",
+      "affected_components": [
+        "sandbox/egg_agent_tools/handlers/brc.py (new read_peer_artifact handler)",
+        "sandbox/egg_agent_tools/schemas.py (new input schema)"
+      ],
+      "mitigations": [
+        "Handler must: (a) resolve pipeline_id from EGG_PIPELINE_ID/EGG_ISSUE_NUMBER (not from the agent-provided arg unless explicitly overriding), (b) only accept a peer-role name and phase, never a raw path, (c) construct the filename server-side as f'{pipeline_id}-{phase}.{ext}', (d) reject any peer_role or phase with characters outside [a-z0-9_-], (e) canonicalise the final Path via .resolve() and assert it is inside .egg-state/brc-history/ (startswith check after resolution). Same hardening pattern orchestrator/routes/anchors.py uses for _VALID_AGENT_ID_RE.",
+        "Add a unit test in tests/tools/ that asserts path-traversal attempts (peer_role='../contracts/issue-1917', phase='../../etc/passwd') return HandlerError and never read outside the directory.",
+        "Architect must pin this in the component breakdown so task_planner creates a named 'input validation' task."
+      ],
+      "rollback": "Same EGG_MCP_TOOLS flag rollback as R1.",
+      "needs_human_review": false
+    },
+    {
+      "id": "R3",
+      "title": "task_mark_gap requires new orchestrator endpoint + new contract section",
+      "category": "compatibility",
+      "likelihood": "medium",
+      "impact": "medium",
+      "severity": "medium",
+      "description": "Decision-4 resolved to opt-4: 'no-CLI new capability, ship it MCP-only with cli_command=None; operators don't need it'. This still leaves a new orchestrator endpoint and a new contract section (per architect's decomposition) to land alongside the handler. Risks: (a) contract schema change can break any consumer that assumes fixed shape — downstream consumers include orchestrator/routes/contracts.py mutate path, shared/egg_contracts checkpoint persistence, and any migration/validation code; (b) schemaVersion='1.0' across existing contracts will not force re-validation so new sections coexist fine, but a stale gateway could reject the new field_path in /api/v1/contract/mutate if the allow-list is explicit; (c) test scaffolding for a no-CLI endpoint is the first of its kind in this codebase and needs a pattern decision.",
+      "affected_components": [
+        "orchestrator/routes/contracts.py (or new file) — new POST endpoint for task-gap",
+        "shared/egg_contracts/ — schema addition (new top-level 'task_gaps' field or nested under tasks[].gaps)",
+        "sandbox/egg_agent_tools/handlers/task.py — new mark_gap handler",
+        "tests/sandbox/test_contract_cli.py-style coverage for the new endpoint",
+        "Rule docs that mention 'tester → coder coverage' handoff"
+      ],
+      "mitigations": [
+        "Treat task_mark_gap as Option-C split trigger per the plan-phase carry-over notes in .egg-state/drafts/1917-analysis.md (line 'Option C split-trigger'). If task_planner's task decomposition surfaces >1 sub-task for endpoint + schema + MCP wrapper, recommend PR-2b split (Option C).",
+        "Contract schema change should be additive only — new optional top-level section, default to empty list, no migration of existing contracts needed. Explicitly document the absence-of-field semantics.",
+        "Include a 'no-CLI new-capability' test harness pattern cribbed from iter-1's check_hitl_answers (which ships with cli_command=None) — the architect should call out the reference file for task_planner."
+      ],
+      "rollback": "If contract schema change causes mutate-endpoint rejections on live pipelines, revert the orchestrator endpoint PR and disable mcp__task__mark_gap via EGG_MCP_TOOLS=0. The schema addition is additive so no data migration is needed to revert.",
+      "needs_human_review": false
+    },
+    {
+      "id": "R4",
+      "title": "60s MCP tool timeout on checkpoint_search and read_peer_artifact",
+      "category": "performance",
+      "likelihood": "medium",
+      "impact": "low",
+      "severity": "low",
+      "description": "Decision-12 resolved to 'paginate output by default — add limit/cursor params'. Risk: (a) if pagination is implemented but cursor opaqueness is wrong, agents can get stuck in infinite loops or miss tail entries; (b) a single checkpoint record (CheckpointV2) can be many MB of transcript — 'search' that returns whole records will blow the timeout even at limit=10; (c) brc-history files are small (<100KB observed) so read_peer_artifact is unlikely to time out, but large NACK threads could. Existing checkpoint_cli.py already has sensible defaults (list limit=50, search limit=100, cost limit=500) — the MCP wrappers should inherit those and expose them in the @tool schema.",
+      "affected_components": [
+        "sandbox/egg_agent_tools/handlers/checkpoint.py (new)",
+        "sandbox/egg_agent_tools/schemas.py (new pagination params)",
+        "shared/egg_contracts/checkpoint_cli.py (re-use limit/cursor semantics)"
+      ],
+      "mitigations": [
+        "checkpoint_search handler must return {items: [...], next_cursor: str | None}; limit default ≤ 20 for search (smaller than CLI's 100 since MCP returns structured JSON not human-readable output). limit hard-cap ≤ 100.",
+        "checkpoint_show: return a content-truncation flag when the transcript exceeds a configurable ceiling (e.g. 50KB). Let agents explicitly opt into full transcripts with a 'full=True' param.",
+        "read_peer_artifact: cap file size at read time (e.g. 200KB). If a peer artifact is larger, return first/last N KB with a truncation marker — don't refuse outright.",
+        "Add tests that exercise limit/cursor round-tripping on synthetic checkpoints."
+      ],
+      "rollback": "If pagination behaviour surprises agents in production, tighten defaults further via env var (EGG_MCP_CHECKPOINT_LIMIT) without code changes.",
+      "needs_human_review": false
+    },
+    {
+      "id": "R5",
+      "title": "Rule-doc two-way drift gate (decision-11) can block unrelated PRs",
+      "category": "compatibility",
+      "likelihood": "medium",
+      "impact": "low",
+      "severity": "low",
+      "description": "Decision-11 resolved to 'add a CI test symmetric with SYSTEM_PROMPT_NUDGE drift: every Prefer this over ... entry must point at a registered tool AND every tool with a CLI counterpart must have a rule-doc entry (two-way)'. The symmetric check is stronger than the existing SYSTEM_PROMPT_NUDGE drift test. Risk: (a) the rule docs sandbox/agent-config/rules/*.md and sandbox/egg_lib/data/hitl_editing_rules.md are edited by many issues; a two-way check means any new mcp__*__* tool added in a later PR without a corresponding rule-doc line will fail CI on an unrelated PR, surprising contributors; (b) false positives are likely during iter-2 development itself — the drift gate will fail on every intermediate commit until all tools and rule docs ship together.",
+      "affected_components": [
+        "tests/tools/test_mcp_cli_drift.py (new two-way symmetric test)",
+        "sandbox/agent-config/rules/contract.md, orchestrator.md",
+        "sandbox/egg_lib/data/hitl_editing_rules.md",
+        "docs/reference/agent-tools.md"
+      ],
+      "mitigations": [
+        "Plan phase should add a single 'rule-doc sweep' task as the LAST implement-phase task, after all tool registrations land. The symmetric drift test is only enabled when the sweep task commits.",
+        "Architect/task_planner: enumerate the exact lines per rule doc that need updates, so the sweep is mechanical and reviewable — lean on the analysis.md 'Plan-phase carry-over notes' section which already lists docs/reference/agent-tools.md lines 25/39/41/126/293.",
+        "The new CI test should emit per-line error messages (missing tool X for rule-doc entry Y, missing rule-doc entry for tool X) so contributors can self-correct fast."
+      ],
+      "rollback": "If the CI gate proves too strict in production, loosen to one-way (decision-11 opt-2 fallback) in a follow-up — the one-way direction catches stale removals which is the higher-value half.",
+      "needs_human_review": false
+    },
+    {
+      "id": "R6",
+      "title": "Phantom egg-orch anchor CLI rule-doc references will remain stale",
+      "category": "compatibility",
+      "likelihood": "high",
+      "impact": "low",
+      "severity": "low",
+      "description": "Decision-2 resolved to 'defer anchor verbs to a third iteration'. But sandbox/agent-config/rules/orchestrator.md:20-24 still references egg-orch anchor init/update/show/validate/cleanup CLI subcommands that don't exist in sandbox/egg_lib/orch_cli.py. Iter-2 is the natural moment to either (a) retract those references (safe; just remove them) or (b) leave them for iter-3 which would ship actual anchor support. If iter-2 touches rule docs (per R5's sweep) and leaves these references, the symmetric drift gate could flag them as orphans too. Worse, agents reading the rule doc today shell out to a non-existent command and get cryptic 'invalid choice' errors.",
+      "affected_components": [
+        "sandbox/agent-config/rules/orchestrator.md (lines 20-24)"
+      ],
+      "mitigations": [
+        "Add a plan-phase task to retract the phantom references as part of the rule-doc sweep. The plan-phase carry-over notes in analysis.md already call this out ('Rule-doc phantom-anchor-CLI retraction').",
+        "Document in the retracted section that anchor MCP/CLI support is deferred to a third iteration, with a link to #1917 and the deferral decision-2 in the contract.",
+        "If the new symmetric drift gate treats rule-doc entries without tool registrations as errors, this retraction is MANDATORY, not optional."
+      ],
+      "rollback": "Trivial — retraction is a docs-only change; if readers depended on the phantom references, they were already broken.",
+      "needs_human_review": false
+    },
+    {
+      "id": "R7",
+      "title": "EGG_HARNESS=egg users continue shelling out (deferred)",
+      "category": "compatibility",
+      "likelihood": "high",
+      "impact": "low",
+      "severity": "low",
+      "description": "Decision-10 resolved to 'still defer — EGG_HARNESS=egg remains experimental; agents on that path keep shelling out'. Risk: (a) AC2 says 'agents never need to shell out to egg-* CLIs for normal agent-role work (humans still use them)' — strictly, this is violated for EGG_HARNESS=egg users; (b) future harness migration will surface the gap as a breaking change. Mitigation is just to document the scope limit in release notes and in the follow-up issue body.",
+      "affected_components": [
+        "shared/egg_harness_integration/egg_tools.py (unchanged in iter 2)",
+        "docs/ release notes for #1917"
+      ],
+      "mitigations": [
+        "File a follow-up issue explicitly tracking harness parity; link to #1917 so the gap does not fall off the audit.",
+        "Update AC2 wording in issue #1917 body (if contract-editable) to say 'on the claude_agent_sdk harness' — honesty over aspiration."
+      ],
+      "rollback": "n/a — this is a documented scope limit, not a defect to roll back."
+    },
+    {
+      "id": "R8",
+      "title": "show_contract payload size can be large without field projection",
+      "category": "performance",
+      "likelihood": "medium",
+      "impact": "low",
+      "severity": "low",
+      "description": "The plan-phase carry-over notes flagged this: 'live contracts can accumulate to many KB; plan phase should consider optional field-projection (fields=[decisions,current_phase])'. issue-1917.json is already ~75KB with 14 decisions + audit log. Reviewer-phase agents often only need decisions[] or current_phase. Unprojected payloads consume prompt tokens and slow every tool call. No strict breakage, but a measurable regression vs the shell-out pattern where agents pipe through python3 -c '...' to extract one field.",
+      "affected_components": [
+        "sandbox/egg_agent_tools/handlers/sdlc.py (new show_contract handler)",
+        "sandbox/egg_agent_tools/schemas.py (new 'fields' param)"
+      ],
+      "mitigations": [
+        "Handler should accept optional 'fields' list; default=None returns full contract. When fields is provided, return only those top-level keys. Rejects unknown field names with HandlerError.",
+        "Tool docstring should call out default-full-payload and encourage field projection for reviewer/overseer hot-paths.",
+        "Add a test asserting that fields=['decisions', 'current_phase'] returns only those keys."
+      ],
+      "rollback": "Field projection is additive; if agents misuse it, just don't set fields and revert to full payload."
+    },
+    {
+      "id": "R9",
+      "title": "Close-proximity completion verbs risk wrong verb selection",
+      "category": "correctness",
+      "likelihood": "medium",
+      "impact": "medium",
+      "severity": "medium",
+      "description": "Iter-2 adds mcp__phase__complete_phase alongside existing mcp__task__complete. The plan-phase carry-over notes explicitly flagged: 'mcp__task__complete, mcp__phase__complete_phase, and mcp__task__add_commit need tool description fields that explicitly name their state-machine effect (same spirit as #1944) so an agent picks correctly without re-deriving the taxonomy'. Risk: if description text is ambiguous, an agent that just finished the last task of a phase might call complete_phase prematurely (before all reviewers consensus), skipping the orchestrator's state-machine transition path.",
+      "affected_components": [
+        "sandbox/egg_agent_tools/tools/task.py (complete, add_commit, update_notes descriptions)",
+        "sandbox/egg_agent_tools/tools/phase.py (complete_phase description)"
+      ],
+      "mitigations": [
+        "Task_planner must include a task for precise tool description wording. Required language per tool: (a) complete — 'Marks a contract task complete. Does NOT advance the phase; the orchestrator observes this plus consensus to advance.'; (b) complete_phase — 'Marks a contract phase complete on the contract record. Use only when all tasks in the phase are complete AND all reviewers have ACKed via BRC consensus. Invoking early stalls the pipeline.'; (c) add_commit — 'Links a git SHA to a task without marking it complete. Call during long-running tasks; call complete separately when done.'",
+        "Pin #1944's pattern of naming the state-machine effect explicitly in the description — the task_planner should reference #1944 and #1950 (advance_phase auto-populate on plan exit) in the sub-task."
+      ],
+      "rollback": "Description copy edits only — revert the specific wrapper file."
+    },
+    {
+      "id": "R10",
+      "title": "Overseer role verb (alert) misuse by non-overseer agents",
+      "category": "security",
+      "likelihood": "low",
+      "impact": "medium",
+      "severity": "low",
+      "description": "mcp__overseer__alert wraps egg-orch overseer alert (sandbox/egg_lib/orch_cli.py:2598). Only the overseer role should be able to raise anomaly alerts; if any agent can call it, it becomes a denial-of-service vector (pipeline floods, false-positive alert fatigue). Orchestrator already has role-gating for overseer operations, but MCP exposure makes the call one @tool away — same attack-surface concern as R1.",
+      "affected_components": [
+        "sandbox/egg_agent_tools/handlers/overseer.py OR handlers/brc.py (per decision-5 hybrid: 1-verb groups fold)",
+        "sandbox/egg_agent_tools/tools/*.py (wrapper placement is an architect decision)"
+      ],
+      "mitigations": [
+        "Handler should raise HandlerError immediately if EGG_AGENT_ROLE != 'overseer'. Belt-and-suspenders — gateway also enforces, but local rejection gives a faster error and a clearer message than a gateway 403.",
+        "Tool description must explicitly name 'overseer role only; other agents get HandlerError'.",
+        "Add a test: calling alert from a non-overseer EGG_AGENT_ROLE returns the expected error."
+      ],
+      "rollback": "Same EGG_MCP_TOOLS flag as other risks."
+    },
+    {
+      "id": "R11",
+      "title": "Registry startup cost as tool count grows",
+      "category": "performance",
+      "likelihood": "low",
+      "impact": "low",
+      "severity": "low",
+      "description": "tools/__init__.py::_register_all() imports all namespace modules and iterates REGISTRATIONS. Each @tool decorator runs a schema validation on import. Adding ~13 more tools roughly doubles the startup cost. In practice iter-1 tools import in <100ms and the SDK's create_sdk_mcp_server already handles 18 tools fine; doubling to ~31 is well within headroom. Surface only if a future iter adds many more tools.",
+      "affected_components": [
+        "sandbox/egg_agent_tools/tools/__init__.py",
+        "shared/egg_agent/client.py::run_agent_async"
+      ],
+      "mitigations": [
+        "No action required for iter-2.",
+        "If a future iter crosses ~50 tools, consider lazy registration per namespace rather than eager module imports."
+      ],
+      "rollback": "n/a"
+    },
+    {
+      "id": "R12",
+      "title": "Drift-gate coverage asymmetry between CLI-backed and no-CLI verbs",
+      "category": "correctness",
+      "likelihood": "medium",
+      "impact": "low",
+      "severity": "low",
+      "description": "Iter-2 introduces ≥ 2 no-CLI verbs (brc_read_peer_artifact, task_mark_gap) — plus the anchor trio if decision-2 ever flips (it's deferred now). Decision-13 resolved to 'allow cli_command=None but require a docstring rationale'. Risk: for CLI-backed verbs, test_mcp_cli_drift asserts the MCP wrapper and CLI shim dispatch to the same handler — a regression in one surface breaks the test. For no-CLI verbs, the handler has no second consumer; a handler bug can ship unnoticed if the wrapper's happy-path test is the only coverage. Iter-1 established the pattern (check_hitl_answers, get_context, list_blocking are all cli_command=None) so this is not new, but iter-2 doubles the no-CLI set.",
+      "affected_components": [
+        "tests/tools/test_mcp_cli_drift.py",
+        "sandbox/egg_agent_tools/handlers/brc.py",
+        "sandbox/egg_agent_tools/handlers/task.py",
+        "Any new handlers"
+      ],
+      "mitigations": [
+        "Every no-CLI handler must ship with a dedicated unit test covering happy path + input validation + error translation (GatewayError → error content block, HandlerError → same). No 'the drift test covers it' loophole.",
+        "Add a meta-test: tools with cli_command=None are counted and compared against an explicit allow-list — new no-CLI tools must be added to the allow-list knowingly (audit trail).",
+        "Task_planner must include per-tool unit-test tasks; do not bundle into a single 'add tests' task."
+      ],
+      "rollback": "Tests are additive; flag-based rollback same as other risks."
+    },
+    {
+      "id": "R13",
+      "title": "Cross-PR rule-doc interlock with the phase_get_context separate-PR decision",
+      "category": "compatibility",
+      "likelihood": "low",
+      "impact": "low",
+      "severity": "low",
+      "description": "Decision-6 resolved to 'separate follow-up PR after iter 2' for promoting phase_get_context best-effort fields to first-class required. Risk: iter-2 rule-doc sweep will touch docs that mention phase_get_context's returned fields. If the sweep writes 'active_peers is best-effort' and the subsequent PR changes that to 'required', we'll have a churn-on-top-of-churn in two consecutive PRs. Low stakes, but a coordination surface.",
+      "affected_components": [
+        "docs/reference/agent-tools.md (the 'phase tools' section)",
+        "sandbox/agent-config/rules/*.md"
+      ],
+      "mitigations": [
+        "During iter-2 rule-doc sweep, leave the phase_get_context field descriptions verbatim from iter-1 and add a TODO-style reference to the follow-up PR. Do not pre-emptively edit them.",
+        "File the follow-up PR tracking issue at iter-2 merge time, not later."
+      ],
+      "rollback": "n/a — docs-only."
+    }
+  ],
+  "third_party_dependencies": {
+    "summary": "No third-party dependencies are added in iter-2 (private-mode isolation AC explicitly forbids new PyPI deps). The change reuses claude-agent-sdk>=0.1.65,<0.2 pinned in sandbox/pyproject.toml. No external research was required — this is an internal refactor/expansion.",
+    "reviewed": false,
+    "reason_skipped": "Constraint: 'No new PyPI deps at runtime — anything new must reuse existing sandbox deps' (from .egg-state/drafts/1917-analysis.md). All changes are internal Python code, shell-scripts, and markdown docs in the egg repo."
+  },
+  "operational_considerations": {
+    "rollout": "EGG_MCP_TOOLS flag remains per decision-9 opt-2 (keep for iter-2 burn-in, remove in iter-3). Setting EGG_MCP_TOOLS=0 in any pipeline reverts to iter-1 surface — rollback for all risks R1/R2/R4/R8/R10 collapses to this single flag.",
+    "observability": "All handlers raise GatewayError/HandlerError translated to MCP error content blocks (iter-1 convention). Existing gateway logs capture /api/v1/contract/mutate writes so verify_criterion and task_mark_gap attempts are auditable. No new telemetry needed.",
+    "testing_strategy": "Architect/task_planner should target: (a) unit tests for every new handler covering happy path, input validation, and error translation (especially R2 path traversal, R9 description wording asserted via schema introspection); (b) CLI-drift test updates for every new tool with cli_command != None; (c) one integration test per new orchestrator endpoint (task_gaps endpoint if added); (d) symmetric rule-doc drift test (R5) enabled only after the rule-doc sweep lands last in the implement phase.",
+    "documentation": "docs/reference/agent-tools.md hard-codes '15 tools' (analysis.md flags lines 25/39/41/126/293). Iter-2 doc sweep must refresh these and add sections for each new namespace (checkpoint, and whatever overseer/peer__* folds into). Rule docs need 'Prefer this over ...' entries for every new tool with a CLI counterpart."
+  },
+  "human_review_flags": [
+    {
+      "topic": "Gateway authz for verify_criterion (R1)",
+      "question": "Does the orchestrator's /api/v1/contract/mutate path currently reject non-reviewer-role writes to field_path='acceptance_criteria.*.verified'? If not, verify_criterion should not ship as MCP until the gateway test lands.",
+      "risk_id": "R1",
+      "blocking": false,
+      "suggested_action": "Either confirm in the plan-phase reviewer_plan ACK, or file a pre-implement sub-issue to add the gateway test first."
+    }
+  ],
+  "acceptance_criteria_for_plan_phase": [
+    "Every risk above has a named mitigation task in the task_planner's decomposition OR is explicitly deferred with a linked follow-up issue.",
+    "R1 human_review_flag is either answered in reviewer_plan's ACK or escalated as a HITL decision.",
+    "R2 path-traversal hardening is an explicit named task (not folded into 'implement handler').",
+    "R5 rule-doc sweep is the LAST implement-phase task and enables the symmetric drift gate on commit, not before.",
+    "R9 tool descriptions are reviewed line-by-line in reviewer_plan's ACK — not just 'descriptions added'.",
+    "R12 unit tests exist for every no-CLI handler — no drift-test fallback."
+  ],
+  "dependencies_on_other_plan_agents": {
+    "architect": "Architect's component breakdown should: (a) place overseer alert and peer_read_artifact in the decision-5 hybrid-compliant namespaces (1-verb groups fold into brc or progress — architect picks); (b) explicitly flag the task_mark_gap endpoint+schema work as a separable module so task_planner can propose Option-C split if R3 escalates; (c) name the test files that each risk's mitigation lands in; (d) confirm gateway authz for verify_criterion (R1).",
+    "task_planner": "Every R-id above with a mitigation list must map to a concrete task-N-T line in the task plan. 'rule-doc sweep' (R5, R6) is a single terminal task. R3 task_gaps endpoint may need 2-3 tasks (schema, route, handler, handler test). R12 coverage is one test task per no-CLI handler.",
+    "reviewer_plan": "Reviewer must confirm R1's gateway-authz question and gate the plan-phase ACK on either a confirmed answer or an escalated HITL decision. Reviewer must also verify that task_planner has named tasks for R2/R5/R9/R12."
+  },
+  "overall_risk_rating": "MEDIUM",
+  "recommended_approach": "Proceed with Option B (full audit in one PR, less anchor trio per decision-2) as the refine-phase analysis recommends. Hold R1 as a reviewer_plan gating item — if the gateway authz check is not present today, downgrade verify_criterion to a follow-up sub-issue and ship the remaining ~12 verbs. All other risks are manageable in-plan."
+}
