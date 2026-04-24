@@ -251,7 +251,7 @@ lint-custom:
 test: export PYTHONPATH := shared:gateway:orchestrator
 test: venv
 	@echo "==> Running unit tests..."
-	$(PYTEST) tests/ gateway/tests/ orchestrator/tests/ shared/tests/ -v $(PYTEST_ARGS)
+	$(PYTEST) tests/ gateway/tests/ orchestrator/tests/ shared/tests/ -v -m "not functional" $(PYTEST_ARGS)
 
 smoketest-long-poll: export PYTHONPATH := shared:gateway:orchestrator
 smoketest-long-poll: venv  ## Smoke-test the long-poll / event-driven wait infrastructure

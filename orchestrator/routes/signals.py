@@ -39,7 +39,12 @@ from egg_contracts.loader import ContractNotFoundError
 from egg_contracts.orchestrator import create_orchestrator
 from handoffs import AgentOutput, save_agent_output
 from models import AgentExecutionStatus, AgentRole, Pipeline, PipelineStatus
-from state_store import InvalidPipelineIdError, PipelineNotFoundError, get_state_store
+from state_store import (
+    InvalidPipelineIdError,
+    PipelineNotFoundError,
+    StateStoreError,
+    get_state_store,
+)
 
 logger = get_logger("orchestrator.signals")
 
@@ -804,13 +809,15 @@ def handle_readiness_signal(
         )
 
 
-def _validate_tester_check_coverage(pipeline_id: str, payload: dict[str, Any]) -> None:
+def _validate_tester_check_coverage(
+    pipeline_id: str, payload: dict[str, Any], repo_path: Path
+) -> None:
     """Validate that tester proposals report all configured repo checks as passed.
 
     Compares the ``checks_passed`` list in the tester's attestation against the
     checks configured in ``repositories.yaml``.  Raises ``ValueError`` if any
     configured check is missing (i.e. did not pass), which prevents the proposal
-    from being recorded (issues #1459, #1467).
+    from being recorded (issues #1459, #1467, #1966).
     """
     attestation = payload.get("attestation", {})
 
@@ -825,18 +832,12 @@ def _validate_tester_check_coverage(pipeline_id: str, payload: dict[str, Any]) -
         # but guard here for completeness.
         return
 
-    # Load configured checks for the pipeline's repo.
     try:
-        from pipeline_state import get_pipeline_state_store
-
-        store = get_pipeline_state_store()
-        pip = store.load_pipeline(pipeline_id)
-        repo = getattr(pip.config, "repo", None)
-    except Exception:
-        # If we can't determine the repo, skip coverage validation
-        # (strict attestation validation still enforces checks_passed non-empty).
+        pipeline = get_state_store(repo_path).load_pipeline(pipeline_id)
+    except StateStoreError:
         return
 
+    repo = pipeline.repo
     if not repo:
         return
 
@@ -851,8 +852,12 @@ def _validate_tester_check_coverage(pipeline_id: str, payload: dict[str, Any]) -
     try:
         configured_checks = get_repo_checks(repo)
     except Exception:
+        logger.warning(
+            "Failed to load repo checks config, skipping coverage validation",
+            pipeline_id=pipeline_id,
+            repo=repo,
+        )
         return
-
     if not configured_checks:
         return
 
@@ -952,7 +957,7 @@ def handle_consensus_propose_signal(
         # Must run BEFORE handle_propose to avoid mutating tracker state on
         # rejected proposals.
         if agent_role == "tester":
-            _validate_tester_check_coverage(pipeline_id, payload)
+            _validate_tester_check_coverage(pipeline_id, payload, repo_path)
 
         # Check if this is a re-proposal
         changed_artifacts = data.get("changed_artifacts")
@@ -1329,13 +1334,10 @@ def handle_consensus_confirmed_signal(
 
             # Determine phase and repo from pipeline state if available
             try:
-                from pipeline_state import get_pipeline_state_store
-
-                _store = get_pipeline_state_store()
-                _pip = _store.load_pipeline(pipeline_id)
+                _pip = get_state_store(repo_path).load_pipeline(pipeline_id)
                 _phase = _pip.current_phase.value
-                _repo = getattr(_pip.config, "repo", None)
-            except Exception:
+                _repo = _pip.repo
+            except StateStoreError:
                 pass
 
             graph = get_review_graph_for_phase(_phase, repo=_repo)
