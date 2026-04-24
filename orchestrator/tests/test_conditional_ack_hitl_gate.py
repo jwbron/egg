@@ -403,6 +403,7 @@ class TestForceNackDispatchIntegration:
     """_force_nack_conditional_edges drives the real tracker."""
 
     def test_force_nack_transitions_edge_and_producer(self, graph):
+        from peer_consensus import ConsensusPhase
         from routes.decisions import _force_nack_conditional_edges
 
         tracker = _make_tracker(graph)
@@ -420,12 +421,15 @@ class TestForceNackDispatchIntegration:
         assert entry.reason == "human rejected conditional ACK"
         # Conditions dropped with the NACK (approval_matrix clears them).
         assert tracker.get_pre_merge_conditions() == []
+        # Producer must be back in WORKING so it can re-propose.
+        assert tracker._producer_phases["coder"] == ConsensusPhase.WORKING
 
 
 class TestInvalidateDispatchIntegration:
     """_invalidate_conditional_acks drives the real tracker."""
 
     def test_invalidate_drops_ack_back_to_pending(self, graph):
+        from peer_consensus import ConsensusPhase
         from routes.decisions import _invalidate_conditional_acks
 
         tracker = _make_tracker(graph)
@@ -441,6 +445,8 @@ class TestInvalidateDispatchIntegration:
         assert entry is not None
         assert entry.state == ApprovalState.PENDING
         assert entry.pre_merge_condition == ""
+        # Producer must be back in WORKING so it can re-propose.
+        assert tracker._producer_phases["coder"] == ConsensusPhase.WORKING
 
 
 class TestPrRenderPrefersContract:

@@ -179,8 +179,11 @@ def _handle_conditional_ack_gate(
 
     Silently returns on malformed context or unknown resolution — the
     resolve_decision endpoint still records the resolution so the human's
-    intent is preserved; dispatch failure falls through to the existing
-    unresolved-decisions guard on the next complete_phase call.
+    intent is preserved. Recovery relies on ``_ensure_conditional_ack_gate``
+    re-queuing a new gate on the next ``complete_phase`` call when the
+    tracker still has live conditions (the unresolved-decisions guard only
+    checks ``PENDING`` decisions, so a resolved-but-failed gate would not
+    be caught by that guard alone).
     """
     from routes.phases import (  # local import — avoid circular
         CONDITIONAL_ACK_ADDRESS,
@@ -293,6 +296,11 @@ def _persist_deferred_actions(
     try:
         save_contract(contract, worktree_path)
     except (OSError, ValueError):
+        # The gate decision is already resolved, so the human's intent is
+        # recorded. Recovery depends on the tracker surviving until the
+        # next complete_phase call, where _ensure_conditional_ack_gate
+        # re-queues a new gate. If the tracker is torn down before that
+        # (e.g. orchestrator restart), the obligations are silently lost.
         logger.warning(
             "Failed to save contract with deferred_actions",
             pipeline_id=pipeline_id,
@@ -376,6 +384,8 @@ def _invalidate_conditional_acks(
     WORKING so it can re-propose with the condition folded into its
     next proposal's scope.
     """
+    from peer_consensus import ConsensusPhase
+
     tracker = get_peer_consensus_tracker(pipeline_id)
     if tracker is None:
         logger.warning(
@@ -385,24 +395,26 @@ def _invalidate_conditional_acks(
         return
 
     invalidated: list[tuple[str, str]] = []
-    for c in conditions:
-        reviewer = str(c.get("reviewer", "")).strip()
-        producer = str(c.get("producer", "")).strip()
-        if not reviewer or not producer:
-            continue
-        try:
-            did_invalidate = tracker.matrix.invalidate_ack(reviewer, producer)
-        except Exception:
-            logger.warning(
-                "Failed to invalidate conditional ACK",
-                pipeline_id=pipeline_id,
-                reviewer=reviewer,
-                producer=producer,
-                exc_info=True,
-            )
-            continue
-        if did_invalidate:
-            invalidated.append((reviewer, producer))
+    with tracker._lock:
+        for c in conditions:
+            reviewer = str(c.get("reviewer", "")).strip()
+            producer = str(c.get("producer", "")).strip()
+            if not reviewer or not producer:
+                continue
+            try:
+                did_invalidate = tracker.matrix.invalidate_ack(reviewer, producer)
+            except Exception:
+                logger.warning(
+                    "Failed to invalidate conditional ACK",
+                    pipeline_id=pipeline_id,
+                    reviewer=reviewer,
+                    producer=producer,
+                    exc_info=True,
+                )
+                continue
+            if did_invalidate:
+                tracker._producer_phases[producer] = ConsensusPhase.WORKING
+                invalidated.append((reviewer, producer))
     if invalidated:
         logger.info(
             "Invalidated conditional ACK edges for in-pipeline address",
