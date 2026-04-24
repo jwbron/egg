@@ -14,8 +14,8 @@ Both `--repo-path` and `--checkpoint-repo` can be placed **before or after** the
 
 ```bash
 # These are equivalent:
-egg-checkpoint --checkpoint-repo jwbron/egg-checkpoints list --issue 42
-egg-checkpoint list --checkpoint-repo jwbron/egg-checkpoints --issue 42
+egg-checkpoint --checkpoint-repo owner/repo-checkpoints list --issue 42
+egg-checkpoint list --checkpoint-repo owner/repo-checkpoints --issue 42
 ```
 
 If the flag is supplied in both positions, the last value wins.
@@ -151,7 +151,7 @@ All list/context filters use AND logic (all must match). Filters available:
 | Issue | `--issue N` | `--issue 530` |
 | PR | `--pr N` | `--pr 42` |
 | Pipeline | `--pipeline ID` | `--pipeline issue-530` |
-| Repo | `--repo OWNER/REPO` | `--repo jwbron/egg` |
+| Repo | `--repo OWNER/REPO` | `--repo owner/repo` |
 | Session | `--session ID` | `--session container-abc` |
 | Branch | `--branch NAME` | `--branch egg/feature` |
 | Trigger | `--trigger TYPE` | `--trigger commit` or `--trigger session_end` |
@@ -184,7 +184,7 @@ Supported composite role names: `reviewer_code`, `reviewer_contract`, `reviewer_
 When a query matches no checkpoints, the CLI now prints the repository and branch it searched to stderr:
 
 ```
-Searched jwbron/egg branch egg/checkpoints/v2
+Searched owner/repo branch egg/checkpoints/v2
 No checkpoints found matching filters
 ```
 
@@ -269,7 +269,7 @@ egg-checkpoint cost --issue $EGG_ISSUE_NUMBER
 
 ### "No checkpoints found"
 
-The CLI now shows which repository and branch it searched when no results are found (e.g., `Searched jwbron/egg branch egg/checkpoints/v2`). Check the displayed repo/branch — if it's unexpected:
+The CLI now shows which repository and branch it searched when no results are found (e.g., `Searched owner/repo branch egg/checkpoints/v2`). Check the displayed repo/branch — if it's unexpected:
 
 1. **Checkpoints in a separate repo**: Some projects store checkpoints in a dedicated repo (e.g., `owner/project-checkpoints`). Set the `EGG_CHECKPOINT_REPO` env var or use `--checkpoint-repo`.
 2. **Missing `repositories.yaml`**: Auto-detection relies on a config file that may not exist in the sandbox. Set the env var instead.
@@ -314,7 +314,7 @@ List checkpoints with optional filters.
 ```
 list_checkpoints(issue=1489, phase="implement")
 list_checkpoints(pipeline="issue-1489", agent_type="coder")
-list_checkpoints(issue=1489, repo="jwbron/egg-checkpoints")
+list_checkpoints(issue=1489, repo="owner/repo-checkpoints")
 ```
 
 **Parameters:** `issue` (int), `pipeline` (string), `agent_type` (string), `phase` (string), `status` (string), `repo` (string, `owner/repo` format), `limit` (int, default 20)
@@ -325,18 +325,18 @@ Search checkpoint metadata for matching text (searches agent_type, pipeline_phas
 
 ```
 search_checkpoints(text="coder", pipeline="issue-1489")
-search_checkpoints(text="reviewer", repo="jwbron/egg-checkpoints")
+search_checkpoints(text="reviewer", repo="owner/repo-checkpoints")
 ```
 
 **Parameters:** `text` (string, required), `issue` (int), `pipeline` (string), `agent_type` (string), `repo` (string, `owner/repo` format), `limit` (int, default 10)
 
 ### Specifying the checkpoint repository
 
-When checkpoints are stored in a separate repository (e.g., `jwbron/egg-checkpoints`), use the `repo` parameter to target it:
+When checkpoints are stored in a separate repository (e.g., `owner/repo-checkpoints`), use the `repo` parameter to target it:
 
 ```
-list_checkpoints(issue=1489, repo="jwbron/egg-checkpoints")
-search_checkpoints(text="error", repo="jwbron/egg-checkpoints")
+list_checkpoints(issue=1489, repo="owner/repo-checkpoints")
+search_checkpoints(text="error", repo="owner/repo-checkpoints")
 ```
 
 The `repo` value is forwarded as `source_repo` to the gateway checkpoint endpoint.

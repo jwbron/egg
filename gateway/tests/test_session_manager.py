@@ -1470,10 +1470,10 @@ class TestSessionCheckpointFields:
             created_at=now,
             last_seen=now,
             expires_at=now + timedelta(hours=24),
-            checkpoint_repo="jwbron/egg-checkpoints",
+            checkpoint_repo="owner/repo-checkpoints",
             last_repo_path="/home/egg/repos/egg",
         )
-        assert session.checkpoint_repo == "jwbron/egg-checkpoints"
+        assert session.checkpoint_repo == "owner/repo-checkpoints"
         assert session.last_repo_path == "/home/egg/repos/egg"
 
     def test_to_dict_includes_checkpoint_fields(self):
@@ -1488,11 +1488,11 @@ class TestSessionCheckpointFields:
             created_at=now,
             last_seen=now,
             expires_at=now + timedelta(hours=24),
-            checkpoint_repo="jwbron/egg-checkpoints",
+            checkpoint_repo="owner/repo-checkpoints",
             last_repo_path="/home/egg/repos/egg",
         )
         d = session.to_dict_for_persistence()
-        assert d["checkpoint_repo"] == "jwbron/egg-checkpoints"
+        assert d["checkpoint_repo"] == "owner/repo-checkpoints"
         assert d["last_repo_path"] == "/home/egg/repos/egg"
 
     def test_to_dict_excludes_none_checkpoint_fields(self):
@@ -1524,12 +1524,12 @@ class TestSessionCheckpointFields:
             created_at=now,
             last_seen=now,
             expires_at=now + timedelta(hours=24),
-            checkpoint_repo="jwbron/egg-checkpoints",
+            checkpoint_repo="owner/repo-checkpoints",
             last_repo_path="/home/egg/repos/egg",
         )
         d = session.to_dict_for_persistence()
         restored = Session.from_persistence(d)
-        assert restored.checkpoint_repo == "jwbron/egg-checkpoints"
+        assert restored.checkpoint_repo == "owner/repo-checkpoints"
         assert restored.last_repo_path == "/home/egg/repos/egg"
 
     def test_backward_compatibility_without_checkpoint_fields(self):

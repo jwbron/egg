@@ -148,10 +148,10 @@ class TestGetAllCheckpointRepos:
         """EGG_CHECKPOINT_REPO env var is included in the result set."""
         monkeypatch.setenv("EGG_REPO_CONFIG", str(temp_dir / "nonexistent.yaml"))
         monkeypatch.setenv("HOME", str(temp_dir))
-        monkeypatch.setenv("EGG_CHECKPOINT_REPO", "jwbron/checkpoints")
+        monkeypatch.setenv("EGG_CHECKPOINT_REPO", "owner/checkpoints")
 
         result = get_all_checkpoint_repos()
-        assert result == {"jwbron/checkpoints"}
+        assert result == {"owner/checkpoints"}
 
     def test_env_var_merged_with_config(self, temp_dir, monkeypatch):
         """EGG_CHECKPOINT_REPO is merged with config-based checkpoint repos."""
@@ -163,19 +163,19 @@ class TestGetAllCheckpointRepos:
             "    checkpoint_repo: testuser/my-checkpoints\n"
         )
         monkeypatch.setenv("EGG_REPO_CONFIG", str(config_file))
-        monkeypatch.setenv("EGG_CHECKPOINT_REPO", "jwbron/checkpoints")
+        monkeypatch.setenv("EGG_CHECKPOINT_REPO", "owner/checkpoints")
 
         result = get_all_checkpoint_repos()
-        assert result == {"testuser/my-checkpoints", "jwbron/checkpoints"}
+        assert result == {"testuser/my-checkpoints", "owner/checkpoints"}
 
     def test_env_var_case_insensitive(self, temp_dir, monkeypatch):
         """EGG_CHECKPOINT_REPO is lowercased for comparison."""
         monkeypatch.setenv("EGG_REPO_CONFIG", str(temp_dir / "nonexistent.yaml"))
         monkeypatch.setenv("HOME", str(temp_dir))
-        monkeypatch.setenv("EGG_CHECKPOINT_REPO", "Jwbron/Checkpoints")
+        monkeypatch.setenv("EGG_CHECKPOINT_REPO", "Owner/Checkpoints")
 
         result = get_all_checkpoint_repos()
-        assert "jwbron/checkpoints" in result
+        assert "owner/checkpoints" in result
 
     def test_env_var_empty_ignored(self, temp_dir, monkeypatch):
         """Empty EGG_CHECKPOINT_REPO is ignored."""

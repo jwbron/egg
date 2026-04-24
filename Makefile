@@ -391,8 +391,18 @@ k3s-secrets:  ## Create gateway secrets from ~/.config/egg/
 
 deploy: k3s-secrets  ## Deploy egg to k3s
 	@echo "Deploying to k3s with tag $(EGG_IMAGE_TAG)..."
+	@command -v envsubst >/dev/null 2>&1 || { \
+		echo "ERROR: envsubst not found. Install GNU gettext: 'dnf install gettext' or 'brew install gettext'." >&2; \
+		exit 1; \
+	}
 	export KUBECONFIG=$${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml} && \
+	export EGG_HOST_HOME="$${EGG_HOST_HOME:-$$HOME}" && \
+	export EGG_HOST_REPO_MAP="$${EGG_HOST_REPO_MAP:-$$(scripts/build-host-repo-map.py)}" && \
+	echo "  EGG_HOST_HOME=$$EGG_HOST_HOME" && \
+	echo "  EGG_HOST_REPO_MAP=$$EGG_HOST_REPO_MAP" && \
 	kubectl kustomize k8s/overlays/local/ | \
+		envsubst '$$EGG_HOST_HOME $$EGG_HOST_REPO_MAP' | \
+		sed -E "/name: EGG_HOST_REPO_MAP$$/{N;s|^(\s*- name: EGG_HOST_REPO_MAP\s*\n\s*value: )(\{.*\})$$|\1'\2'|}" | \
 		sed -e "s|egg-orchestrator:latest|egg-orchestrator:$(EGG_IMAGE_TAG)|g" \
 		    -e "s|egg-gateway:latest|egg-gateway:$(EGG_IMAGE_TAG)|g" \
 		    -e "s|egg-sandbox:latest|egg-sandbox:$(EGG_IMAGE_TAG)|g" | \

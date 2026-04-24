@@ -2441,19 +2441,19 @@ class TestDispatchParserRepoFlag:
 
     def test_short_repo_flag_before_command(self):
         """-R owner/repo before the command should be skipped."""
-        main, sub = self._parse(["-R", "jwbron/egg", "issue", "create", "--title", "test"])
+        main, sub = self._parse(["-R", "owner/repo", "issue", "create", "--title", "test"])
         assert main == "issue"
         assert sub == "create"
 
     def test_long_repo_flag_before_command(self):
         """--repo owner/repo before the command should be skipped."""
-        main, sub = self._parse(["--repo", "jwbron/egg", "pr", "comment", "42", "--body", "hi"])
+        main, sub = self._parse(["--repo", "owner/repo", "pr", "comment", "42", "--body", "hi"])
         assert main == "pr"
         assert sub == "comment"
 
     def test_repo_flag_equals_syntax(self):
         """--repo=owner/repo (equals syntax) should be skipped."""
-        main, sub = self._parse(["--repo=jwbron/egg", "issue", "create"])
+        main, sub = self._parse(["--repo=owner/repo", "issue", "create"])
         assert main == "issue"
         assert sub == "create"
 
@@ -2471,13 +2471,13 @@ class TestDispatchParserRepoFlag:
 
     def test_repo_and_hostname_together(self):
         """Both -R and -H before the command should be skipped."""
-        main, sub = self._parse(["-R", "jwbron/egg", "-H", "github.com", "pr", "close", "10"])
+        main, sub = self._parse(["-R", "owner/repo", "-H", "github.com", "pr", "close", "10"])
         assert main == "pr"
         assert sub == "close"
 
     def test_repo_flag_after_command(self):
         """-R after the command should not affect dispatch (positionals already found)."""
-        main, sub = self._parse(["issue", "create", "-R", "jwbron/egg", "--title", "test"])
+        main, sub = self._parse(["issue", "create", "-R", "owner/repo", "--title", "test"])
         assert main == "issue"
         assert sub == "create"
 

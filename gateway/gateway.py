@@ -340,7 +340,7 @@ def _is_checkpoint_repo_for_request(owner: str, repo: str) -> bool:
     but the orchestrator passed ``EGG_CHECKPOINT_REPO``).
 
     Args:
-        owner: Repository owner (e.g. "jwbron")
+        owner: Repository owner (e.g. "my-org")
         repo: Repository name (e.g. "checkpoints")
 
     Returns:
@@ -416,32 +416,104 @@ DEFAULT_PORT = 9848
 DEFAULT_THREADS = int(os.environ.get("GATEWAY_THREADS", "32"))
 HEALTH_CHECK_PORT = int(os.environ.get("GATEWAY_HEALTH_PORT", "9851"))
 
-# Host home directory for path translation
+# Host home directory for path translation (explicit override).
 # The gateway container uses /home/egg internally, but needs to return
-# host paths to the egg launcher for Docker mount sources
+# host paths to the orchestrator because those paths become the
+# ``hostPath.path`` source of agent-pod mounts — if the gateway returns
+# its in-pod path and the host layout doesn't match, kubelet
+# ``DirectoryOrCreate``s an empty root-owned dir and the agent lands in
+# an unwritable worktree (#1986).
+#
+# Normally we discover the host path directly from /proc/self/mountinfo
+# (see ``translate_to_host_path``) so no env-var configuration is
+# required.  ``HOST_HOME`` is the escape hatch for environments where
+# mountinfo doesn't reflect the real host layout (e.g. multi-partition
+# setups, or an operator who wants to override the discovered value).
+# Set ``EGG_DISABLE_MOUNTINFO=1`` to skip mountinfo entirely and force
+# the ``HOST_HOME`` path — needed because real Linux containers always
+# expose a rootfs ``/ → /`` entry that matches every path under longest-
+# prefix lookup, so without the disable flag the env-var fallback is
+# unreachable.
 HOST_HOME = os.environ.get("HOST_HOME", "")
 CONTAINER_HOME = "/home/egg"
+
+
+def _mountinfo_disabled() -> bool:
+    return os.environ.get("EGG_DISABLE_MOUNTINFO", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _load_mount_mapping() -> list[tuple[str, str]]:
+    """Read /proc/self/mountinfo and return a list of (mount_point, host_root) tuples.
+
+    For every mount visible to this process, ``mount_point`` is the path
+    in this process's mount namespace and ``host_root`` is the path the
+    kernel recorded as the mount root — for kubelet-managed ``hostPath``
+    volumes that's the actual host path.  The list includes *all* mount
+    types (not just bind mounts); longest-prefix matching in
+    ``translate_to_host_path`` ensures the most specific entry wins.
+
+    Note: ``host_root`` (``fields[3]``, the mountinfo *root* field) is
+    the path relative to the filesystem's root.  On single-partition
+    systems this equals the absolute host path; on multi-partition setups
+    it may be relative to the partition root.  The ``HOST_HOME`` env var
+    is the escape hatch for those configurations.
+
+    Note: mountinfo uses octal escapes for special characters in paths
+    (``\\040`` for space, ``\\011`` for tab, ``\\134`` for backslash).
+    We don't decode them — unlikely to matter for ``/home/...`` paths
+    but worth knowing if paths ever contain whitespace.
+    """
+    entries: list[tuple[str, str]] = []
+    if _mountinfo_disabled():
+        return entries
+    try:
+        with open("/proc/self/mountinfo") as fh:
+            for line in fh:
+                # Format: mount_id parent_id major:minor root mount_point ...
+                fields = line.split()
+                if len(fields) < 5:
+                    continue
+                entries.append((fields[4], fields[3]))
+    except OSError:
+        return []
+    entries.sort(key=lambda p: len(p[0]), reverse=True)
+    return entries
+
+
+_MOUNT_MAPPING: list[tuple[str, str]] = _load_mount_mapping()
 
 
 def translate_to_host_path(container_path: str) -> str:
     """
     Translate a container path to the corresponding host path.
 
-    The gateway runs with paths like /home/egg/.egg-worktrees/...
-    but the egg launcher needs host paths like /home/user/.egg-worktrees/...
-    for Docker mount sources.
+    Tries in order:
+    1. /proc/self/mountinfo — find the longest mount_point that is a
+       prefix of ``container_path`` and substitute with its host root.
+       This works for any hostPath volume without configuration. Real
+       Linux containers always include a rootfs ``/ → /`` entry, so
+       this strategy is reachable unless explicitly disabled.
+    2. ``HOST_HOME`` env var — explicit override. To reach this branch
+       on Linux, set ``EGG_DISABLE_MOUNTINFO=1`` to skip the mountinfo
+       lookup (otherwise the ``/`` entry always matches first).
 
     Args:
         container_path: Path inside the gateway container
 
     Returns:
-        The corresponding host path, or original path if translation not possible
+        The corresponding host path, or the original path if no
+        translation is possible.
     """
-    if not HOST_HOME:
-        # No host home configured - return as-is (may cause mount issues)
-        return container_path
+    for mount_point, host_root in _MOUNT_MAPPING:
+        if container_path == mount_point or container_path.startswith(mount_point + "/"):
+            return host_root + container_path[len(mount_point) :]
 
-    if container_path.startswith(CONTAINER_HOME):
+    if HOST_HOME and container_path.startswith(CONTAINER_HOME):
         return container_path.replace(CONTAINER_HOME, HOST_HOME, 1)
 
     return container_path

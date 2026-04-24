@@ -73,7 +73,7 @@ a local `kubectl port-forward`):
 run_agent_task(
   phase = "refine",
   roles = ["refiner"],
-  repo = "jwbron/egg",
+  repo = "owner/repo",
   description = "Investigate how concurrent_executor filters the review graph"
 )
 ```
@@ -83,7 +83,7 @@ Minimal form — default roster, no branch, no PR, no upstream contract:
 ```
 run_agent_task(
   phase = "implement",
-  repo = "jwbron/egg",
+  repo = "owner/repo",
   description = "Fix typo in README.md under ## Quickstart"
 )
 ```
@@ -250,7 +250,7 @@ would be."
 run_agent_task(
   phase = "refine",
   roles = ["refiner"],
-  repo = "jwbron/egg",
+  repo = "owner/repo",
   description = "Evaluate cost of migrating integration tests off compose"
 )
 ```
@@ -271,7 +271,7 @@ overkill (no tester needed, no documenter needed):
 run_agent_task(
   phase = "implement",
   roles = ["coder"],
-  repo = "jwbron/egg",
+  repo = "owner/repo",
   description = "Fix log-level typo in orchestrator/routes/pipelines.py line 42"
 )
 ```
@@ -289,7 +289,7 @@ documenter churn:
 run_agent_task(
   phase = "implement",
   roles = ["coder", "reviewer_code"],
-  repo = "jwbron/egg",
+  repo = "owner/repo",
   description = "Refactor _handle_submit_task to share a common validator helper with _handle_babysit_pr"
 )
 ```
@@ -305,12 +305,12 @@ branches. This is the **subsumption path** (decision-2): the underlying
 run_agent_task(
   phase = "implement",
   pr_number = 1234,
-  repo = "jwbron/egg",
+  repo = "owner/repo",
   description = "Improve test coverage on the PR's new validator helper"
 )
 ```
 
-This is equivalent to `babysit_pr(pr_number=1234, repo="jwbron/egg")`
+This is equivalent to `babysit_pr(pr_number=1234, repo="owner/repo")`
 end-to-end — use `babysit_pr` for the canonical PR-improvement flow,
 and `run_agent_task` when you want a non-default roster on a PR.
 
@@ -323,7 +323,7 @@ do):
 ```
 run_agent_task(
   phase = "plan",
-  repo = "jwbron/egg",
+  repo = "owner/repo",
   description = "Plan the refactor of _run_concurrent_phase",
   analysis = "<markdown body of the analysis>"
 )

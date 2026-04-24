@@ -151,7 +151,7 @@ Without it, the system falls back to posting reviews as comments (self-review mo
 1. **Trigger authorization** — For event-triggered runs, verifies the triggering user is authorized:
    - Bot reviews always trigger (the bot can review its own PRs)
    - Human reviews and @mentions require the user to be in the `authorized_users` list
-   - Configured via `EGG_AUTHORIZED_USERS` repository variable (defaults to `jwbron`)
+   - Configured via the `EGG_AUTHORIZED_USERS` repository variable (required — the workflow fails fast if the variable is unset, so there is no implicit default)
    - Manual/workflow_call triggers bypass authorization
 
 2. **Filter checks** — Only runs when:
@@ -593,16 +593,11 @@ Event-triggered workflows require these repository variables (Settings → Secre
 |----------|---------|---------|
 | `EGG_BOT_USERNAME` | Bot's GitHub username for self-trigger prevention | `james-in-a-box[bot]` |
 | `EGG_BRANCH_PREFIX` | Branch prefix for bot-owned branches | `egg` |
+| `EGG_AUTHORIZED_USERS` | Comma-separated list of GitHub users authorized to trigger review feedback via reviews or @mentions | `alice,bob` |
+
+`EGG_AUTHORIZED_USERS` controls who can trigger the Address Review Feedback workflow through human reviews or @mentions — the bot itself is always authorized to trigger via automated reviews. The workflow fails fast at the validation step if any required variable is unset, so there is no implicit default.
 
 Reusable workflows called via `workflow_call` receive these values as inputs from the caller instead.
-
-### Optional Repository Variables
-
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `EGG_AUTHORIZED_USERS` | Comma-separated list of GitHub users authorized to trigger review feedback via reviews or @mentions | `jwbron` |
-
-This variable controls who can trigger the Address Review Feedback workflow through human reviews or @mentions. The bot itself is always authorized to trigger via automated reviews.
 
 ### Per-Repository Customization
 

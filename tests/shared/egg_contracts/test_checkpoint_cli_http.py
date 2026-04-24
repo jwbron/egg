@@ -338,16 +338,16 @@ class TestGetSourceRepo:
     @patch("egg_contracts.checkpoint_cli.run_git")
     def test_extracts_from_https_remote(self, mock_git):
         mock_git.return_value = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout="https://github.com/jwbron/egg.git\n", stderr=""
+            args=[], returncode=0, stdout="https://github.com/owner/repo.git\n", stderr=""
         )
-        assert _get_source_repo("/repo") == "jwbron/egg"
+        assert _get_source_repo("/repo") == "owner/repo"
 
     @patch("egg_contracts.checkpoint_cli.run_git")
     def test_extracts_from_ssh_remote(self, mock_git):
         mock_git.return_value = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout="git@github.com:jwbron/egg.git\n", stderr=""
+            args=[], returncode=0, stdout="git@github.com:owner/repo.git\n", stderr=""
         )
-        assert _get_source_repo("/repo") == "jwbron/egg"
+        assert _get_source_repo("/repo") == "owner/repo"
 
     @patch("egg_contracts.checkpoint_cli.run_git")
     def test_returns_none_when_git_fails(self, mock_git):
@@ -366,9 +366,9 @@ class TestGetSourceRepo:
     @patch("egg_contracts.checkpoint_cli.run_git")
     def test_handles_trailing_slash(self, mock_git):
         mock_git.return_value = subprocess.CompletedProcess(
-            args=[], returncode=0, stdout="https://github.com/jwbron/egg/\n", stderr=""
+            args=[], returncode=0, stdout="https://github.com/owner/repo/\n", stderr=""
         )
-        assert _get_source_repo("/repo") == "jwbron/egg"
+        assert _get_source_repo("/repo") == "owner/repo"
 
     @patch("egg_contracts.checkpoint_cli.run_git", side_effect=Exception("timeout"))
     def test_returns_none_on_exception(self, mock_git):
@@ -389,12 +389,12 @@ class TestAddCheckpointResolutionParams:
 
     @patch("egg_contracts.checkpoint_cli._get_checkpoint_repo_from_args")
     def test_passes_source_repo_when_checkpoint_repo_unavailable(self, mock_get_ckpt):
-        mock_get_ckpt.return_value = (None, "jwbron/egg")
+        mock_get_ckpt.return_value = (None, "owner/repo")
         args = argparse.Namespace(repo_path="/repo", checkpoint_repo=None)
         params: dict = {"repo_path": "/repo"}
         _add_checkpoint_resolution_params(params, args)
         assert "checkpoint_repo" not in params
-        assert params["source_repo"] == "jwbron/egg"
+        assert params["source_repo"] == "owner/repo"
 
     @patch("egg_contracts.checkpoint_cli._get_checkpoint_repo_from_args")
     def test_passes_neither_when_both_unavailable(self, mock_get_ckpt):
@@ -411,7 +411,7 @@ class TestBuildListParamsSourceRepo:
 
     @patch("egg_contracts.checkpoint_cli._get_checkpoint_repo_from_args")
     def test_includes_source_repo_when_checkpoint_repo_unavailable(self, mock_get_ckpt):
-        mock_get_ckpt.return_value = (None, "jwbron/egg")
+        mock_get_ckpt.return_value = (None, "owner/repo")
         args = argparse.Namespace(
             limit=50,
             issue=None,
@@ -429,4 +429,4 @@ class TestBuildListParamsSourceRepo:
         )
         params = _build_list_params(args)
         assert "checkpoint_repo" not in params
-        assert params["source_repo"] == "jwbron/egg"
+        assert params["source_repo"] == "owner/repo"

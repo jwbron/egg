@@ -255,7 +255,7 @@ configured repo — there is no per-repo scope parameter.
 ```json
 {
   "git_worktree_prune": {
-    "jwbron/egg": ["/home/egg/.egg-worktrees/stale-1", "/home/egg/.egg-worktrees/stale-2"]
+    "owner/repo": ["/home/egg/.egg-worktrees/stale-1", "/home/egg/.egg-worktrees/stale-2"]
   },
   "orphan_dirs": ["/home/egg/.egg-worktrees/orphan-dir-3"],
   "dry_run": true

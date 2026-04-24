@@ -204,7 +204,7 @@ class TestSingleOwnCommitMixed:
             push_fn=_PushStub(),
             registry_register=_RegistryStub(),
             pipeline_id="issue-1882",
-            repo="jwbron/egg",
+            repo="owner/repo",
         )
         assert result.success is True
         assert "docs/README.md" in result.excluded_files
@@ -616,14 +616,14 @@ class TestRegistryRegisterOnRewrite:
             push_fn=_PushStub(),
             registry_register=registry,
             pipeline_id="issue-1882",
-            repo="jwbron/egg",
+            repo="owner/repo",
         )
         assert result.success
         assert len(registry.calls) == 1
         call = registry.calls[0]
         assert call["role"] == "coder"
         assert call["pipeline_id"] == "issue-1882"
-        assert call["repo"] == "jwbron/egg"
+        assert call["repo"] == "owner/repo"
         assert call["sha"] == result.rewritten_commits[0]["new_sha"]
 
     def test_registry_exception_swallowed(self, repo: Path):

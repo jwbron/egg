@@ -56,9 +56,9 @@ If the user provided arguments after `/sdlc`, parse them:
 | `/sdlc #1059` | Issue number (with hash) |
 | `/sdlc KORE-1234` | JIRA ticket (matches `<LETTER><ALPHANUMERIC>-<DIGITS>` pattern) |
 | `/sdlc Add retry logic for API calls` | Free-text task description |
-| `/sdlc --repo jwbron/egg 1059` | Repo override + issue number |
+| `/sdlc --repo owner/repo 1059` | Repo override + issue number |
 | `/sdlc --issue 1059` | Issue number (legacy flag, same as bare integer) |
-| `/sdlc --repo jwbron/egg KORE-1234` | Repo override + JIRA ticket |
+| `/sdlc --repo owner/repo KORE-1234` | Repo override + JIRA ticket |
 | `/sdlc KORE-1234 --qualifier backend` | JIRA ticket + qualifier (pipeline: `KORE-1234-backend`, branch: `egg/KORE-1234-backend`) |
 | `/sdlc 1059 --qualifier frontend` | Issue number + qualifier (pipeline: `issue-1059-frontend`, branch: `egg/issue-1059-frontend`) |
 
@@ -1015,9 +1015,9 @@ After stripping the `--short` flag, parse remaining arguments:
 | Input | Interpretation |
 |-------|---------------|
 | `/sdlc --short Add retry logic to the API client` | Free-text task description |
-| `/sdlc --short --repo jwbron/egg Fix flaky test` | Repo override + task description |
+| `/sdlc --short --repo owner/repo Fix flaky test` | Repo override + task description |
 | `/sdlc --short KORE-1234` | JIRA ticket (matches `<LETTER><ALPHANUMERIC>-<DIGITS>` pattern) |
-| `/sdlc --short --repo jwbron/egg ENG-42` | Repo override + JIRA ticket |
+| `/sdlc --short --repo owner/repo ENG-42` | Repo override + JIRA ticket |
 | `/sdlc --short KORE-1234 --qualifier backend` | JIRA ticket + qualifier |
 
 When a JIRA ticket ID is detected, run the [JIRA & Confluence Context Gathering](#jira--confluence-context-gathering) procedure and use the enriched description as the task description. If `--qualifier` is provided, store it as `pipeline_qualifier`. Proceed directly to Phase S2.

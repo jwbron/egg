@@ -98,7 +98,7 @@ The contract is a JSON document tracking the complete state of an issue through 
       "review_cycles": 1
     }]
   }],
-  "workflow_owner": "jwbron",
+  "workflow_owner": "my-org",
   "audit_log": [...]
 }
 ```

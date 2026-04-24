@@ -298,9 +298,9 @@ class TestContract:
                 title="Test issue",
                 url="https://github.com/owner/repo/issues/133",
             ),
-            workflow_owner="jwbron",
+            workflow_owner="my-org",
         )
-        assert contract.workflow_owner == "jwbron"
+        assert contract.workflow_owner == "my-org"
 
     def test_contract_workflow_owner_null(self):
         """Test that workflow_owner can be explicitly set to None."""

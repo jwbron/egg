@@ -7,7 +7,7 @@
 #   - launcher-secret     (auth token for launcher API calls)
 #
 # Required environment variables:
-#   GITHUB_REPOSITORY   — owner/repo (e.g., "jwbron/egg")
+#   GITHUB_REPOSITORY   — owner/repo (e.g., "owner/repo")
 #   GITHUB_ACTOR        — GitHub username triggering the workflow
 #   GITHUB_ACTOR_ID     — Numeric ID for noreply email
 #   INPUT_ANTHROPIC_OAUTH_TOKEN — Anthropic OAuth token

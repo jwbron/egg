@@ -411,7 +411,7 @@ def is_checkpoint_repo(owner: str, repo: str) -> bool:
     """Check if a repository is configured as a checkpoint destination.
 
     Args:
-        owner: Repository owner (e.g. "jwbron")
+        owner: Repository owner (e.g. "my-org")
         repo: Repository name (e.g. "egg-checkpoints")
 
     Returns:
