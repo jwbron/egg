@@ -494,3 +494,57 @@ class TestFromTipSemantics:
         )
         assert len(msgs) == 1
         assert msgs[0].message_type == MessageType.CONSENSUS_CONFIRMED
+
+
+class TestGetLatestId:
+    """Tests for ``MessageStore.get_latest_id``."""
+
+    def test_empty_pipeline_returns_none(self, store: MessageStore) -> None:
+        assert store.get_latest_id("nonexistent-pipeline") is None
+
+    def test_single_message(self, store: MessageStore) -> None:
+        msg = _make_message(pipeline_id="p1")
+        store.add_message(msg)
+        assert store.get_latest_id("p1") == msg.id
+
+    def test_returns_most_recent(self, store: MessageStore) -> None:
+        m1 = _make_message(pipeline_id="p1")
+        m2 = _make_message(pipeline_id="p1")
+        store.add_message(m1)
+        store.add_message(m2)
+        assert store.get_latest_id("p1") == m2.id
+
+    def test_pipeline_isolation(self, store: MessageStore) -> None:
+        m1 = _make_message(pipeline_id="p1")
+        m2 = _make_message(pipeline_id="p2")
+        store.add_message(m1)
+        store.add_message(m2)
+        assert store.get_latest_id("p1") == m1.id
+        assert store.get_latest_id("p2") == m2.id
+
+    def test_concurrent_add_during_read(self, store: MessageStore) -> None:
+        """get_latest_id returns a consistent result even when messages
+        are appended concurrently from another thread."""
+        msg = _make_message(pipeline_id="p1")
+        store.add_message(msg)
+
+        ids: list[str | None] = []
+
+        def reader() -> None:
+            for _ in range(50):
+                ids.append(store.get_latest_id("p1"))
+
+        def writer() -> None:
+            for _ in range(50):
+                store.add_message(_make_message(pipeline_id="p1"))
+
+        t_read = threading.Thread(target=reader)
+        t_write = threading.Thread(target=writer)
+        t_read.start()
+        t_write.start()
+        t_read.join()
+        t_write.join()
+
+        # Every read must have returned a valid id (never None after the
+        # initial message was added).
+        assert all(i is not None for i in ids)

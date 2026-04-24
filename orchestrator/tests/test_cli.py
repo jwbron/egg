@@ -408,10 +408,13 @@ class TestWaitressSizing:
     the socket idle-timeout before the request's own timeout.
     """
 
-    def test_default_threads_is_16(self, monkeypatch):
-        """Plan-mandated default of 16 threads (TASK-4-1 / reviewer_plan
-        blocker 1). Raising this requires an explicit EGG_ORCH_WAITRESS_THREADS
-        value — keeps baseline memory footprint predictable.
+    def test_default_threads_is_24(self, monkeypatch):
+        """Default raised 16 → 24 in issue #1932 TASK-1-4 to absorb
+        host-side ``wait_for_status_change`` load on top of existing
+        sandbox-side long polls. Each host wait costs two threads for
+        up to the wait duration. Raising this further requires an
+        explicit EGG_ORCH_WAITRESS_THREADS value. See
+        docs/reference/agent-wait-patterns.md §7.
         """
         monkeypatch.delenv("EGG_ORCH_WAITRESS_THREADS", raising=False)
         monkeypatch.delenv("EGG_MESSAGE_POLL_MAX_WAIT", raising=False)
@@ -421,7 +424,7 @@ class TestWaitressSizing:
                     with patch("cli.logger"):
                         main(["serve"])
                         kwargs = mock_serve.call_args.kwargs
-                        assert kwargs["threads"] == 16
+                        assert kwargs["threads"] == 24
 
     def test_thread_count_honors_env_var(self, monkeypatch):
         """Operator can raise above the default for high long-poll loads."""
@@ -499,7 +502,8 @@ class TestWaitressSizing:
                     with patch("cli.logger"):
                         main(["serve"])
                         kwargs = mock_serve.call_args.kwargs
-                        assert kwargs["threads"] == 16
+                        # Default raised 16 → 24 in issue #1932 TASK-1-4.
+                        assert kwargs["threads"] == 24
 
     def test_channel_timeout_derived_from_poll_max_wait(self, monkeypatch):
         """channel_timeout must be >= 2 × poll_cap + 30 so waitress does

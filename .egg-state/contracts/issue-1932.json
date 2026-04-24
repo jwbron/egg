@@ -1,0 +1,1077 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1932,
+    "title": "Issue #1932",
+    "url": "https://github.com/jwbron/egg/issues/1932"
+  },
+  "pipeline_id": "issue-1932",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Server-side primitives (EventBus sequence, new route, metric, thread budget)",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add `sequence: int = 0` field to `Event` dataclass in `orchestrator/events.py`. Populate from a new `EventBus._sequence: int` counter inside `publish()` under the existing `_lock`. Include `sequence` in `to_dict()` additively. Preserve backwards compatibility \u2014 existing callers do not pass `sequence` explicitly. Counter is per-`EventBus` instance (effectively per-process), matching the single-process orchestrator deployment.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Event dataclass has new `sequence` field; EventBus.publish() increments the counter atomically (concurrent-publish test in TASK-4-3 passes 100 publishes / 8 threads without gaps or duplicates); to_dict() includes sequence; no existing test regresses.",
+          "files_affected": [
+            "orchestrator/events.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-2",
+          "description": "Implement `GET /api/v1/pipelines/<pipeline_id>/status/wait` in `orchestrator/routes/pipelines.py` alongside `/stream`. Query params `wait` (number, default 25, clamped at GET_STATUS_MAX_WAIT) and `since` (opaque string, default \"\"). Parse `since` as `\"msg:<id>|evt:<seq>\"` (either half may be empty). Return 400 on a cursor that does not match the `\"msg:[^|]*\\\\|evt:-?\\\\d*\"` regex with a descriptive error body. Return 404 on unknown pipeline_id. Route body creates per-call `queue.Queue(maxsize=16)`; subscribes a wildcard EventBus handler filtered by (event.pipeline_id == pid, event.event_type \u2208 trigger_set [PHASE_STARTED, PHASE_COMPLETED, PIPELINE_COMPLETED, PIPELINE_FAILED, PIPELINE_CANCELLED, DECISION_CREATED \u2014 explicit allowlist; DECISION_RESOLVED explicitly excluded], event.sequence > event_since_seq) that calls `q.put_nowait(('event', event))` inside try/except queue.Full (log WARNING with pipeline_id, drop); spawns `threading.Thread(daemon=True, target=message_store_wait)` running `message_store.get_messages(pipeline_id, wait=timeout, wait_for_types=['OVERSEER_ALERT', 'CONSENSUS_CONFIRMED', 'CONSENSUS_NACK', 'CONSENSUS_RE_REVIEW'], since_id=msg_since_id, from_tip=msg_since_id is None)` and `q.put(('msg', msgs))` on return inside try/except queue.Full; main thread does `q.get(timeout=timeout)`. On queue.Empty \u2014 unsubscribe handler in `finally`, compute minimal envelope (single `/pipelines/{id}` snapshot fetch \u2192 current_phase, status, phase_elapsed_seconds, concurrent.consensus, tip cursor), return. On `('event', event)` \u2014 unsubscribe, return `{changed: true, trigger: \"event\", event_type: event.event_type, cursor: \"msg:<tip_msg_id>|evt:<event.sequence>\", ...full snapshot via _build_status_snapshot}`. On `('msg', messages)` \u2014 unsubscribe, apply `_apply_delphi_filter` to messages (R13), return `{changed: true, trigger: \"message\", messages: [filtered], cursor: \"msg:<last_msg_id>|evt:<tip_event_seq>\", ...full snapshot}`. Always unsubscribe the EventBus handler in `finally` regardless of exit path.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Route registered; returns 200 + full envelope on event/message wake, 200 + minimal envelope on timeout, 400 on malformed cursor, 404 on unknown pipeline_id; Delphi filter applied on message path; EventBus handler always unsubscribed (unit test asserts handler count drops to zero after return on every exit path).",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-3",
+          "description": "Define `egg_inflight_host_waits` prometheus gauge (labels `{\"endpoint\": \"pipelines.status_wait\"}`) and `_track_host_wait_start/_end` helpers in `orchestrator/routes/pipelines.py` near the new route. Increment on route entry, decrement in `finally` around `q.get`. Best-effort registration (`try/except Exception: pass`) matching `orchestrator/routes/messages.py:80-85`. The lame-duck daemon thread is NOT counted against this metric.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Gauge registers when metrics registry is present; increments / decrements bracket the wait block; gauge is a SEPARATE entry from `egg_inflight_long_polls` (different metric name); appears in `/metrics` scrape after one call; no crash when metrics registry is unavailable.",
+          "files_affected": [
+            "orchestrator/routes/pipelines.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-1-4",
+          "description": "Raise `DEFAULT_WAITRESS_THREADS` in `orchestrator/env_config.py` from 16 to 24. Update the module docstring / comment to explain the new default (\"absorbs host-side wait_for_status_change load on top of sandbox-side `message wait-loop` waits \u2014 see docs/reference/agent-wait-patterns.md \u00a77\"). Keep the refuse-to-boot floor at 4. `EGG_ORCH_WAITRESS_THREADS` env var override unchanged.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Constant updated to 24; docstring updated; floor at 4 preserved; env var override still wins; existing test that asserts refuse-to-boot on threads<4 still passes.",
+          "files_affected": [
+            "orchestrator/env_config.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "MCP tool surface (handler + snapshot extraction)",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add `wait_for_status_change` schema entry to `PIPELINE_TOOLS` in `orchestrator/mcp_tools.py` immediately after the `get_status` entry (~line 305). inputSchema properties task_id (string, required), wait (number, default 25, description explains the upstream client-timeout bound and the server-side cap via GET_STATUS_MAX_WAIT), since (string, optional, description says \"opaque cursor from a prior response's `cursor` field; omit on the first call to default from_tip semantics\"). Tool description names both envelope shapes (`changed: true` full and `no_change: true` minimal) and cross-references `docs/reference/agent-wait-patterns.md`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tool appears in PIPELINE_TOOLS; valid JSON Schema; description mentions both envelope shapes; cap is 25 with upstream bound named; since is optional.",
+          "files_affected": [
+            "orchestrator/mcp_tools.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-2",
+          "description": "Refactor `_handle_get_status` in `orchestrator/mcp_tools.py` to extract a private `_build_status_snapshot(task_id) -> dict` helper returning the full enriched status dict (pipeline, phase timing, running/completed agents, pending_decisions, recent_messages, concurrent). `_handle_get_status` becomes a thin wrapper that calls the helper. Behaviour preserved \u2014 existing tests pass unchanged. A snapshot-diff test in TASK-4-2 confirms pre-/post-refactor output is byte-identical.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "_build_status_snapshot exists and is called from _handle_get_status; existing _handle_get_status tests pass unchanged; snapshot-diff test confirms behaviour preservation.",
+          "files_affected": [
+            "orchestrator/mcp_tools.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-2-3",
+          "description": "Add `_handle_wait_for_status_change(self, args)` method to `orchestrator/mcp_tools.py`. Build URL `/api/v1/pipelines/{quote(task_id)}/status/wait?wait={wait}&since={quote(since)}` and call `self._make_request(url, method=\"GET\")`. On `response.get(\"changed\") is True`, call `self._build_status_snapshot(task_id)` and merge with the route's response \u2014 the full envelope shape is `{changed, trigger, event_type|messages, cursor, **snapshot}`. On `response.get(\"changed\") is False`, return the route's minimal envelope verbatim (already includes `no_change: true` from the route per TASK-1-2 spec). Register in the dispatcher dict around line 1053 with key `\"wait_for_status_change\"`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Handler dispatchable by tool name; full-envelope shape matches the documented example on `changed=True`; minimal-envelope shape matches the documented example on `changed=False`; no_change is a distinct top-level key; error responses from the route (400/404) surface as MCP tool errors.",
+          "files_affected": [
+            "orchestrator/mcp_tools.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "SDLC skill prompt updates",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Update `skills/sdlc/SKILL.md` \u00a7Phase 3 step 1 (lines 313-347). Replace the \"Subsequent polls\" bullet with `wait_for_status_change(task_id, wait=25, since=<last_cursor>)`. Add a new \"Cursor handling\" sub-step (step 1a) documenting how to thread `response.cursor` from one call into `since` on the next. Add a worked-example block showing BOTH envelope shapes side-by-side (full vs minimal with no_change) with arrows to the correct render path \u2014 structural branching on the `no_change` key. Document the cached-snapshot protocol \u2014 \"skill holds `last_status` in conversation context; on `{no_change: true}` reuse prior `running_agents` / `completed_agents` / `recent_messages` / `pending_decisions` and refresh only `current_phase` / `status` / `phase_elapsed_seconds` / `concurrent.consensus` from the minimal envelope, then proceed to the next poll.\" Update the \"Important\" note at line 347 to name the new tool and the immediate-re-entry rule (\"no conditional sleeps between calls \u2014 the skill's liveness guarantee depends on immediate loop re-entry\").",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Phase 3 step 1 uses the new tool; first poll still uses get_status(task_id); cursor-handling sub-step present; worked example shows both envelopes with arrows; cached-snapshot protocol documented; Important note names the liveness rule.",
+          "files_affected": [
+            "skills/sdlc/SKILL.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-2",
+          "description": "Update `skills/sdlc/SKILL.md` \u00a7Phase S5 step 1 (lines 1174-1206) with the same substitution, cursor-handling sub-step, worked example, and Important note as TASK-3-1. Preserve the short-flow loop shape and the S5-specific dashboard fallback wording.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Phase S5 step 1 uses the new tool, cursor handling, worked example, and Important note; S5 still works for the short flow.",
+          "files_affected": [
+            "skills/sdlc/SKILL.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-3",
+          "description": "Update the remaining `get_status` references in `skills/sdlc/SKILL.md` \u2014 \u00a7Consensus Monitoring (~line 401), \u00a7HITL Decision Handling (~line 585), \u00a7Pipeline Details (~line 547), \u00a7Long-Running Phase Detection (~line 517), \u00a7Branch Name lookup (~line 547), and the \u00a7Troubleshooting message-bus stats row (~line 875) \u2014 so each reference describes the `{changed: true}` envelope as a superset of `get_status`. Preserve the first-poll `get_status(task_id)` idiom. No stale \"poll get_status every 25 s\" wording.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "All remaining get_status references either (a) kept for the first-poll / on-demand case or (b) updated to describe `{changed: true}` as a superset; no stale polling wording.",
+          "files_affected": [
+            "skills/sdlc/SKILL.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-3-4",
+          "description": "Update the \u00a7MCP Tools Reference at line 1289 of `skills/sdlc/SKILL.md` to list `wait_for_status_change` alongside `get_status` with the usage note \"First poll \u2014 `get_status(task_id)`. Every subsequent poll \u2014 `wait_for_status_change(task_id, wait=25, since=<prior cursor>)`.\" Cross-link to `docs/reference/agent-wait-patterns.md` \u00a77 \"Host-Side Waits\". Also update the MCP tool inventory in `docs/architecture/orchestrator.md` line 467 to include `wait_for_status_change`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "SKILL.md reference section lists both tools with the usage note and cross-link; orchestrator.md tool inventory includes the new tool.",
+          "files_affected": [
+            "skills/sdlc/SKILL.md",
+            "docs/architecture/orchestrator.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Tests, docs, and release note",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Add `orchestrator/tests/test_pipelines_status_wait_route.py` for the new HTTP route. Cases - (a) EventBus wake returns changed=True/trigger=\"event\"/event_type=\"PHASE_STARTED\"; (b) message-bus wake returns changed=True/trigger=\"message\" with messages filtered by _apply_delphi_filter; (c) simultaneous fire \u2014 first source wins, other source not present in response; (d) timeout returns changed=False/no_change=True with concurrent.consensus + tip cursor; (e) since=\"msg:<id>|evt:<seq>\" with referenced events already delivered does NOT re-wake; (f) DECISION_RESOLVED emission does NOT wake the route; (g) malformed cursor returns 400 with descriptive error; (h) unknown pipeline_id returns 404; (i) daemon-thread lame-duck \u2014 trigger event wake while daemon is blocked, assert route returns within 100 ms of event + metric decrements on route return + daemon exits by wait+epsilon; (j) queue.Full path \u2014 saturate queue with many rapid events, assert route returns with first delivered event + subsequent events are dropped with WARNING log. Parametrise (a)-(f), (i) over backend=in_memory and backend=redis.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test module exists; all ten cases pass on both backends; no asyncio/thread task-leak warnings; coverage of the new route exceeds 90%.",
+          "files_affected": [
+            "orchestrator/tests/test_pipelines_status_wait_route.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-2",
+          "description": "Extend `orchestrator/tests/test_mcp_tools.py` with cases for `_handle_wait_for_status_change` \u2014 dispatcher routes the tool name; `{changed: true}` envelope contains all _build_status_snapshot fields merged with route-sourced `changed/trigger/event_type|messages/cursor`; `{changed: false, no_change: true}` envelope contains exactly `{changed, no_change, current_phase, status, phase_elapsed_seconds, concurrent.consensus, cursor}` and no other top-level keys; existing `_handle_get_status` cases pass unchanged (post-refactor); snapshot-diff test comparing pre-/post-refactor `_handle_get_status` output confirms behaviour preservation.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tests exist and pass; existing _handle_get_status cases remain green; minimal-envelope shape asserted exactly; snapshot-diff confirms behaviour preservation.",
+          "files_affected": [
+            "orchestrator/tests/test_mcp_tools.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-3",
+          "description": "Add `orchestrator/tests/test_events_event_sequence.py` covering the new `sequence` field on `Event`. Cases - counter increments monotonically across 100 concurrent publishes / 8 threads (thread-safety, no gaps, no duplicates); `to_dict()` includes `sequence`; existing tests that inspect Event fields still pass (additive field, no breakage).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test module exists; thread-safety case passes without counter gaps/duplicates; to_dict case passes; existing Event-inspecting tests pass unchanged.",
+          "files_affected": [
+            "orchestrator/tests/test_events_event_sequence.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-4",
+          "description": "Add a double-sleep regression test to `orchestrator/tests/test_mcp_server.py`. Dispatch `wait_for_status_change` through `_make_tool_fn` with kwargs `{task_id: \"...\", wait: 25}`. Patch `mcp_server._async_sleep` with a MagicMock that raises AssertionError if called. Test passes iff the patched mock is never invoked during the tool call. This pins the existing `tool_name == 'get_status'` short-circuit in `_apply_get_status_wait` (orchestrator/mcp_server.py:61) and fails loudly if a future refactor generalizes the wait wrapper to all tools.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Test exists and passes; the assertion fires correctly when a hypothetical generalization is applied (verify by temporarily removing the tool_name guard \u2014 the test must fail).",
+          "files_affected": [
+            "orchestrator/tests/test_mcp_server.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-5",
+          "description": "Add `integration_tests/test_host_wait_end_to_end.py` exercising the full MCP \u2192 route \u2192 event-bus / message-bus flow against a real orchestrator. Sub-cases - simulated OVERSEER_ALERT (assert host wakes, trigger=\"message\"); simulated DECISION_CREATED (trigger=\"event\"); simulated PHASE_STARTED (trigger=\"event\"); timeout + cursor round-trip over two calls (call-1 returns cursor, fire an event between call-1 return and call-2 entry, call-2 passes since=<call-1-cursor>, confirm call-2 sees the inter-call event \u2014 R2 race window closed).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Integration test exists; all four sub-cases pass against a real orchestrator; cursor round-trip confirms the R2 race closure.",
+          "files_affected": [
+            "integration_tests/test_host_wait_end_to_end.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-6",
+          "description": "Add a \"Host-Side Waits\" section (\u00a77) to `docs/reference/agent-wait-patterns.md` alongside the existing sandbox/agent wait patterns. Document (a) the new `wait_for_status_change` MCP tool with both envelope shapes side-by-side; (b) the event-trigger allowlist (explicit EventBus types and message types, explicit `DECISION_RESOLVED` exclusion note); (c) the opaque cursor protocol (`msg:<id>|evt:<seq>`); (d) the route's queue/daemon-thread concurrency model and the 2-threads-per-wait budget implication; (e) the `EGG_ORCH_WAITRESS_THREADS = 24` default and why; (f) the aspirational 60 s liveness-floor reasoning. Cross-link from `skills/sdlc/SKILL.md` \u00a7MCP Tools Reference.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "New \u00a77 exists with all six subsections (a-f) named; envelope examples match the handler output; trigger-set tables are exhaustive; thread-budget explanation names the 2-threads-per-wait figure; SKILL.md \u00a7MCP Tools Reference links here.",
+          "files_affected": [
+            "docs/reference/agent-wait-patterns.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        },
+        {
+          "id": "task-4-7",
+          "description": "Add release note `docs/releases/wait-for-status-change.md` following the `docs/releases/agent-mcp-tools.md` pattern. Include (a) issue link",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "File exists in docs/releases/; sections (a)-(g) all present; rollback path names the exact revert artifact; Future work section names R7, R11, R14 with issue-follow-up placeholders.",
+          "files_affected": [
+            "docs/releases/wait-for-status-change.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Which implementation option should we take for event-driven wake of the SDLC skill's monitor loop?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Option A: new `wait_for_status_change` MCP tool (recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Option B: retrofit `get_status` with event-driven wait in place",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Option C: host-side SSE consumption via a new `stream_pipeline` tool",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Option D: pure client-side change \u2014 shorter polls + rendering guard",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option A: new `wait_for_status_change` MCP tool (recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:10:12.275719Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Which event set should trigger early return from the host-side wait?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Minimal: OVERSEER_ALERT + DECISION_CREATED + terminal state (pipeline.completed/failed)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Issue-as-written: above + phase transitions (PHASE_STARTED/COMPLETED) + consensus state change (CONSENSUS_CONFIRMED/NACK/RE_REVIEW)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Maximal: above + CONSENSUS_PROPOSE + AGENT_FAILED + AGENT_TIMEOUT + overseer heartbeat gaps",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Issue-as-written: above + phase transitions (PHASE_STARTED/COMPLETED) + consensus state change (CONSENSUS_CONFIRMED/NACK/RE_REVIEW)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:10:47.656625Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Should the timeout payload (nothing-happened-in-25s) be a minimal no-change envelope or the full status envelope?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Minimal envelope: {changed: false, current_phase, status, phase_elapsed_seconds} \u2014 cheap re-render, SKILL.md must branch on `changed`",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Full envelope: same shape as get_status \u2014 zero SKILL.md branching, higher cost per timeout",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Hybrid: full on first timeout of a session, minimal thereafter",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Minimal envelope: {changed: false, current_phase, status, phase_elapsed_seconds} \u2014 cheap re-render, SKILL.md must branch on `changed`\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:11:23.010923Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Should we expose a `since` / `since_event_id` cursor parameter to avoid re-firing on already-seen events?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes: add `since` string parameter; host passes the most recent event ID from the prior call (prevents stuck-on-same-event races)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "No: rely on default `from_tip=True` semantics from #1925 and accept the transition-race window",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Auto-session: server stores per-session cursors keyed on (pipeline_id, caller-token) \u2014 avoids client-side bookkeeping but adds state to a stateless transport",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Yes: add `since` string parameter; host passes the most recent event ID from the prior call (prevents stuck-on-same-event races)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:11:58.529780Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Should the event-driven wait subscribe to the EventBus only, the message-type long-poll only, or both?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Both (recommended): EventBus for phase/decision/terminal events, message_store.get_messages for OVERSEER_ALERT/CONSENSUS_* \u2014 matches where each event actually lives",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "EventBus only: also emit OVERSEER_ALERT and CONSENSUS_* onto the EventBus so the wait endpoint subscribes to one source",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Message-type long-poll only: also emit phase/decision/terminal events onto the message bus so there is one wait primitive",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Both (recommended): EventBus for phase/decision/terminal events, message_store.get_messages for OVERSEER_ALERT/CONSENSUS_* \u2014 matches where each event actually lives\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:12:34.166284Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Should the SDLC skill keep the 10-message `recent_messages` fetch on every poll, or only on the `changed: true` path?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Keep on every poll (status quo) \u2014 no change to dashboard rendering contract",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Only on `changed: true` \u2014 timeout path uses cached recent_messages from the prior wake",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Remove entirely from wait path; fetch on-demand when OVERSEER_ALERT fires",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Defer to plan phase \u2014 depends on the envelope-shape decision above",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Only on `changed: true` \u2014 timeout path uses cached recent_messages from the prior wake\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:13:09.710675Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-7",
+      "question": "How should `provide_input` interaction with the wait loop be handled (the host's own actions generate events)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Filter out DECISION_RESOLVED events from the trigger set \u2014 wait only on decisions that still need input",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Carry a `since_event_id` cursor so host-originated events don't wake the host",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Take no special action \u2014 self-waking is harmless because the next render will correctly show no pending decisions",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Filter out DECISION_RESOLVED events from the trigger set \u2014 wait only on decisions that still need input\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:13:40.156486Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-8",
+      "question": "[Phase gate: refine] The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "## Resolved Questions\n\n### Choice decisions\n\n**Which implementation option should we take?**\nAnswer: Option A: new wait_for_status_change sibling MCP tool (recommended)\n\n**Which event set should trigger early return from the host-side wait?**\nAnswer: Issue-as-written: OVERSEER_ALERT + DECISION_CREATED + terminal state + phase transition (PHASE_STARTED/COMPLETED) + consensus state change (CONSENSUS_CONFIRMED/NACK/RE_REVIEW)\n\n**Should the timeout payload (no-event-in-25s) be minimal or a full status envelope?**\nAnswer: Minimal envelope: {changed: false, current_phase, status, phase_elapsed_seconds} \u2014 SKILL.md branches on `changed`\n\n**Should we expose a `since` / `since_event_id` cursor parameter?**\nAnswer: Yes \u2014 add `since` string parameter; host passes the most recent event ID from the prior call to prevent stuck-on-same-event races\n\n**Should the event-driven wait be wired into the EventBus, message-type long-poll, or both?**\nAnswer: Both \u2014 EventBus for phase/decision/terminal events, message_store.get_messages for OVERSEER_ALERT/CONSENSUS_*\n\n**Should the SDLC skill keep the 10-message recent_messages fetch on every poll, or only on the `changed: true` path?**\nAnswer: Only on `changed: true` \u2014 timeout path reuses cached recent_messages from the prior wake\n\n**How should `provide_input` interaction with the wait loop be handled?**\nAnswer: Filter out DECISION_RESOLVED events from the trigger set \u2014 wait only on decisions that still need input\n\n### Feedback\n\n**Are there host-side consumers of get_status besides the SDLC skill that should benefit?**\nAnswer: SDLC skill only \u2014 keep Option A scoped. Other callers keep get_status.\n\n**Expected concurrency load and EGG_ORCH_WAITRESS_THREADS=16 budget?**\nAnswer: Raise default or document cap in plan. Call out the budget risk explicitly.\n\n**Should wait_for_status_change be available over the Python SDK MCP tools surface (PR #1920) as well as streamable-HTTP?**\nAnswer: Not sure / skip \u2014 defer to plan phase.\n\n**Is the 60s liveness-floor constraint literal or aspirational?**\nAnswer: Not sure / skip \u2014 defer to plan phase.\n\n**Should the new wait path emit its own metric parallel to egg_inflight_long_polls?**\nAnswer: Yes \u2014 add egg_inflight_host_waits metric so operators can distinguish host-side from sandbox-side waits.\n\n**Upstream plans to raise streamable-HTTP MCP client timeout (anthropics/claude-code#20335)?**\nAnswer: Keep design flexible in case it lifts \u2014 parameterize the cap so raising it later is a one-line change.",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:09:19.533026Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-9",
+      "question": "Open feedback request feedback-1",
+      "type": "hitl",
+      "phase": null,
+      "options": [],
+      "resolved": true,
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"SDLC skill only \u2014 keep Option A scoped. Other callers (babysit-pr, agent-diagnose, external tools) keep get_status. This does NOT push us toward Option B; Option A remains preferred precisely because non-SDLC consumers should not be affected.\", \"Q2\": \"Raise default or document cap in plan. Call out the budget risk explicitly \u2014 at current scale (O(10) pipelines \u00d7 1 host session + per-agent waits) we remain under 16, but the budget is shared with every sandbox long-poll and SSE stream. The plan should either raise EGG_ORCH_WAITRESS_THREADS default or document the cap with guidance on when to bump it.\", \"Q3\": \"Not sure / skip \u2014 defer to plan phase. The plan should decide after checking whether the SDLC skill actually reaches #1920's SDK MCP surface. Default assumption: streamable-HTTP only, add SDK parity later if needed.\", \"Q4\": \"Not sure / skip \u2014 defer to plan phase. Default assumption: aspirational (25s hard cap \u00d7 loop composition is already well inside 60s), but the plan phase should validate this against the actual overseer-wedge scenario.\", \"Q5\": \"Yes \u2014 add egg_inflight_host_waits metric parallel to egg_inflight_long_polls so operators can distinguish host-side waits from sandbox-side waits when investigating a saturated Waitress thread pool.\", \"Q6\": \"Keep design flexible in case it lifts \u2014 parameterize the cap (e.g. GET_STATUS_MAX_WAIT constant + wait_for_status_change's own MAX_WAIT constant) so raising it later is a one-line change. No known imminent upstream change, but the cap is documented as transport-dependent so the design should accommodate a future lift.\"}}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:14:28.031896Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-10",
+      "question": "[Phase gate: plan] The plan phase has completed. Please review the plan and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Plan addresses all 13 resolved decisions from refine HITL and enumerates 17 risks with mitigations. Key alignment points confirmed:\n- Option A (sibling wait_for_status_change tool), get_status unchanged\n- Trigger set: OVERSEER_ALERT + DECISION_CREATED + PHASE_STARTED/COMPLETED + PIPELINE_COMPLETED/FAILED/CANCELLED + CONSENSUS_CONFIRMED/NACK/RE_REVIEW; DECISION_RESOLVED explicitly excluded (prevents self-wake)\n- Minimal envelope with distinct no_change: true key (structural branching, not conditional) shipping concurrent.consensus + cursor on both paths\n- Opaque compound cursor msg:<id>|evt:<seq> with independent parsing\n- Both wiring: EventBus for phase/decision/terminal, message_store.get_messages for OVERSEER_ALERT/CONSENSUS_*\n- Cached snapshot on timeout path (host reuses prior recent_messages/agents/decisions, refreshes only the four minimal-envelope fields)\n- EGG_ORCH_WAITRESS_THREADS default 16\u219224 to absorb host-wait load\n- egg_inflight_host_waits metric parallel to egg_inflight_long_polls\n- Declined SDK parity for v1 (SDLC is sole consumer); logged as Future work\n- Aspirational 60s liveness floor (25s cap \u00d7 loop re-entry \u2264 55s)\n- R16 double-sleep prevention pinned with explicit regression test (TASK-4-4)\n- Daemon-thread lame-duck (R14) accepted, bounded, documented, with cancellation-signal follow-up noted\n- Tests parameterized across in_memory + redis backends\n- All changes bundled into a single PR\n\nApproved to proceed to implement phase.",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:48:42.565953Z",
+      "debounce_until": null
+    }
+  ],
+  "workflow_owner": null,
+  "audit_log": [
+    {
+      "timestamp": "2026-04-24T00:16:59.979569Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-1",
+        "question": "Which implementation option should we take for event-driven wake of the SDLC skill's monitor loop?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Option A: new `wait_for_status_change` MCP tool (recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Option B: retrofit `get_status` with event-driven wait in place",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Option C: host-side SSE consumption via a new `stream_pipeline` tool",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Option D: pure client-side change \u2014 shorter polls + rendering guard",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Which implementation option should we take for eve...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:17:08.003998Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-2",
+        "question": "Which event set should trigger early return from the host-side wait?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Minimal: OVERSEER_ALERT + DECISION_CREATED + terminal state (pipeline.completed/failed)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Issue-as-written: above + phase transitions (PHASE_STARTED/COMPLETED) + consensus state change (CONSENSUS_CONFIRMED/NACK/RE_REVIEW)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Maximal: above + CONSENSUS_PROPOSE + AGENT_FAILED + AGENT_TIMEOUT + overseer heartbeat gaps",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Which event set should trigger early return from t...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:17:13.811329Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-3",
+        "question": "Should the timeout payload (nothing-happened-in-25s) be a minimal no-change envelope or the full status envelope?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Minimal envelope: {changed: false, current_phase, status, phase_elapsed_seconds} \u2014 cheap re-render, SKILL.md must branch on `changed`",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Full envelope: same shape as get_status \u2014 zero SKILL.md branching, higher cost per timeout",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Hybrid: full on first timeout of a session, minimal thereafter",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the timeout payload (nothing-happened-in-25...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:17:20.594716Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-4",
+        "question": "Should we expose a `since` / `since_event_id` cursor parameter to avoid re-firing on already-seen events?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Yes: add `since` string parameter; host passes the most recent event ID from the prior call (prevents stuck-on-same-event races)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "No: rely on default `from_tip=True` semantics from #1925 and accept the transition-race window",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Auto-session: server stores per-session cursors keyed on (pipeline_id, caller-token) \u2014 avoids client-side bookkeeping but adds state to a stateless transport",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should we expose a `since` / `since_event_id` curs...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:17:28.924702Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-5",
+        "question": "Should the event-driven wait subscribe to the EventBus only, the message-type long-poll only, or both?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Both (recommended): EventBus for phase/decision/terminal events, message_store.get_messages for OVERSEER_ALERT/CONSENSUS_* \u2014 matches where each event actually lives",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "EventBus only: also emit OVERSEER_ALERT and CONSENSUS_* onto the EventBus so the wait endpoint subscribes to one source",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Message-type long-poll only: also emit phase/decision/terminal events onto the message bus so there is one wait primitive",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the event-driven wait subscribe to the Even...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:17:35.009559Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-6",
+        "question": "Should the SDLC skill keep the 10-message `recent_messages` fetch on every poll, or only on the `changed: true` path?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Keep on every poll (status quo) \u2014 no change to dashboard rendering contract",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Only on `changed: true` \u2014 timeout path uses cached recent_messages from the prior wake",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Remove entirely from wait path; fetch on-demand when OVERSEER_ALERT fires",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Defer to plan phase \u2014 depends on the envelope-shape decision above",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the SDLC skill keep the 10-message `recent_...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:17:40.645855Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-7",
+        "question": "How should `provide_input` interaction with the wait loop be handled (the host's own actions generate events)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Filter out DECISION_RESOLVED events from the trigger set \u2014 wait only on decisions that still need input",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Carry a `since_event_id` cursor so host-originated events don't wake the host",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Take no special action \u2014 self-waking is harmless because the next render will correctly show no pending decisions",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should `provide_input` interaction with the wa...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:17:54.961523Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Are there host-side consumers of `get_status` besides the SDLC skill's Phase 3 / Phase S5 monitor loop that should also benefit from event-driven wake (e.g. babysit-pr, agent-diagnose, external tools)? If so, does that push us toward Option B (retrofit) instead of Option A (sibling tool)?",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "What is the expected concurrency load? Specifically: how many host sessions per orchestrator in production, and does the current EGG_ORCH_WAITRESS_THREADS=16 budget accommodate one long-poll per host session on top of per-agent waits?",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "Should `wait_for_status_change` also be available as an in-process SDK MCP tool (see PR #1920) as well as the streamable-HTTP MCP server, or only the latter?",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "Is the 60-second liveness-floor constraint from the issue body literal (must guarantee a return at most every 60s of wall-clock time regardless of events) or aspirational (cap any single call at 25s and rely on loop composition to bound aggregate quiet time)?",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "Should the new wait path emit its own metric (parallel to `egg_inflight_long_polls`) so operators can distinguish host-side waits from sandbox-side waits when investigating a saturated Waitress thread pool?",
+            "answer": null
+          },
+          {
+            "id": "Q6",
+            "question": "Are there known upstream plans or timelines to raise the streamable-HTTP MCP client timeout (anthropics/claude-code#20335)? If it lifts within the next quarter, the 25s cap becomes moot and the design may want to accommodate that.",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 6 question(s)",
+      "checkpoint_id": null
+    }
+  ],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Add wait_for_status_change MCP tool for event-driven host waits",
+    "description": "The SDLC skill's Phase 3 / Phase S5 monitor loop polls\n`get_status(task_id, wait=25)` on a pure time-based sleep.\nEvery cycle the orchestrator returns a full snapshot\nregardless of whether anything changed, wasting tokens during\nquiet phases (long test runs, idle BRC consensus) and delaying\nreactions to OVERSEER_ALERT, phase transitions, and HITL\ngates by up to a full poll interval. The server primitives for\nevent-triggered wait already exist (#1919); this PR is the\nhost-side counterpart.\n\n1. **New MCP tool `wait_for_status_change(task_id, wait=25,\n   since=<cursor>)`** alongside the untouched `get_status`.\n   Wires both the EventBus (for `PHASE_STARTED`,\n   `PHASE_COMPLETED`, `PIPELINE_COMPLETED`, `PIPELINE_FAILED`,\n   `PIPELINE_CANCELLED`, `DECISION_CREATED`) and\n   `message_store.get_messages` with\n   `wait_for_types=['OVERSEER_ALERT', 'CONSENSUS_CONFIRMED',\n   'CONSENSUS_NACK', 'CONSENSUS_RE_REVIEW']`. On any event\n   returns the full status envelope plus `changed: true,\n   trigger, event_type|messages, cursor`. On 25 s timeout\n   returns `{changed: false, no_change: true, current_phase,\n   status, phase_elapsed_seconds, concurrent.consensus,\n   cursor}`. `DECISION_RESOLVED` is explicitly excluded from\n   the allowlist so the host does not self-wake after\n   `provide_input`.\n2. **New HTTP route** `GET /api/v1/pipelines/<id>/status/wait`\n   in `orchestrator/routes/pipelines.py` implementing the\n   composite wait via `queue.Queue(maxsize=16)` + daemon\n   thread for the `message_store.get_messages` call +\n   wildcard EventBus handler. Matches the existing\n   `/messages/wait` shape. Tracked by a new\n   `egg_inflight_host_waits` prometheus gauge so operators\n   can dashboard host-side load independently from\n   sandbox-side long polls. `_apply_delphi_filter` applied to\n   any returned messages so the new route inherits the\n   reviewer-redaction contract.\n3. **EventBus `sequence: int` field** added to the `Event`\n   dataclass (orchestrator/events.py) with a per-`EventBus`\n   monotonic counter populated under the existing `_lock`.\n   The MCP cursor is an opaque compound string\n   `msg:<redis_stream_id>|evt:<sequence>` that the server\n   parses into its message-bus and EventBus halves\n   independently, closing the same-event-seen-twice race\n   (#1925) for both sources.\n4. **Waitress default raised 16 \u2192 24** in\n   `orchestrator/env_config.py::DEFAULT_WAITRESS_THREADS` to\n   absorb the new host-side wait load (each call holds one\n   Waitress worker + one daemon thread for up to 25 s). The\n   refuse-to-boot floor stays at 4.\n5. **SDLC skill updates** in `skills/sdlc/SKILL.md` \u2014 \u00a7Phase 3\n   step 1, \u00a7Phase S5 step 1, the surrounding \"Important\"\n   notes, the \u00a7Consensus / \u00a7HITL / \u00a7Pipeline Details /\n   \u00a7Long-Running Phase Detection / \u00a7Troubleshooting\n   sections, and the \u00a7MCP Tools Reference \u2014 switch from\n   `get_status(task_id, wait=25)` to\n   `wait_for_status_change(task_id, wait=25,\n   since=<prior_cursor>)` on every poll after the first.\n   The minimal timeout envelope ships `concurrent.consensus`\n   so dashboard consensus never drifts by more than one\n   wake cycle. A worked example shows both envelope shapes\n   side-by-side to pin the structural branching.\n6. **Double-sleep regression prevention** \u2014 the existing\n   `_apply_get_status_wait` in\n   `orchestrator/mcp_server.py:50-67` stays keyed on\n   `tool_name == 'get_status'` (do NOT generalize). A new\n   regression test pins this so a future author cannot\n   silently introduce a 25 s async wrapper sleep on top of\n   the 25 s server-side wait.\n7. **Docs + release note** \u2014 new \"Host-Side Waits\" \u00a77 in\n   `docs/reference/agent-wait-patterns.md` and release note\n   at `docs/releases/wait-for-status-change.md`.\n\nThe 25 s cap is the existing `GET_STATUS_MAX_WAIT` constant\nso raising it (if Claude Code lifts the streamable-HTTP\ntool-call timeout upstream, anthropics/claude-code#20335) is\na one-line change. Existing `get_status` consumers are\nunaffected \u2014 the refactor that extracts\n`_build_status_snapshot` is pure extraction and a\nsnapshot-diff test confirms behaviour preservation. Python\nSDK MCP surface parity (#1920) is declined for v1 \u2014 the\nSDLC skill is the only consumer today and in-sandbox agents\nalready use `egg-orch message wait-loop`. The 60 s liveness\nfloor from the issue body is satisfied aspirationally \u2014 the\n25 s per-call cap plus immediate loop re-entry bounds the\naggregate quiet interval under the floor by construction.",
+    "test_plan": "- Automated: new\n  `orchestrator/tests/test_pipelines_status_wait_route.py`\n  parametrised over backend=in_memory and backend=redis,\n  covering (a) EventBus wake, (b) message-bus wake, (c)\n  simultaneous fire (winner/loser), (d) timeout, (e) `since`\n  cursor replay avoidance, (f) `DECISION_RESOLVED`\n  exclusion, (g) malformed-cursor 400, (h) unknown\n  pipeline_id 404, (i) daemon-thread lame-duck release\n  within wait+epsilon with metric decrement on route\n  return, (j) queue.Full drop-with-WARNING. Extended\n  `test_mcp_tools.py` covers envelope construction for both\n  branches and dispatcher wiring; existing\n  `_handle_get_status` cases pass unchanged because the\n  refactor is pure extraction. Extended `test_mcp_server.py`\n  adds the double-sleep regression (pinning\n  `_apply_get_status_wait` to `get_status` only). New\n  `test_events_event_sequence.py` covers the `sequence`\n  counter under concurrent publishes. New\n  `integration_tests/test_host_wait_end_to_end.py` drives\n  the full MCP \u2192 route \u2192 event-bus flow against a real\n  orchestrator with simulated OVERSEER_ALERT,\n  DECISION_CREATED, PHASE_STARTED, and a cursor round-trip\n  closing the R2 race window. `make lint` and\n  `make test-unit` (orchestrator) must pass.\n- Manual: (1) Run the SDLC skill against a local\n  orchestrator, confirm dashboard renders on `{changed:\n  true}` and reuses cached snapshot on `{no_change: true}`\n  while still refreshing elapsed time and consensus state.\n  (2) Send `OVERSEER_ALERT` via `egg-orch message send`,\n  confirm host wakes within < 1 s. (3) Force a phase\n  transition via `egg-contract advance-phase`, confirm host\n  wakes promptly. (4) Resolve a HITL decision via\n  `provide_input`, confirm the subsequent wait does NOT\n  return on `DECISION_RESOLVED` (no self-wake). (5)\n  `curl /metrics | grep egg_inflight_host_waits` during an\n  active session \u2014 gauge reflects the in-flight wait and\n  decrements on return. (6) Close the Claude Code client\n  mid-wait, confirm the EventBus handler is unsubscribed\n  within 1 s and the metric decrements. (7)\n  `curl /api/v1/pipelines/<id>/status/wait?since=garbage`\n  returns 400 with a descriptive error.",
+    "manual_steps": "Pre-merge: none beyond the manual verification above.\n\nPost-merge: operators should watch `egg_inflight_host_waits`\nin Grafana after deploy. The raised Waitress default (16 \u2192\n24) accommodates the new load, but if\n`egg_inflight_long_polls + egg_inflight_host_waits`\napproaches 24 under steady state, raise the budget further.\nThe lame-duck daemon-thread window (up to 25 s per\nevent-wake) is expected and bounded; if operators observe\npersistent thread growth beyond the wait cap, trigger the\nfollow-up tracked in the release note's \"Future work\". No\nschema migration; no breaking changes \u2014 the new tool is\nadditive and `Event.sequence` is an additive field."
+  },
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Are there host-side consumers of `get_status` besides the SDLC skill's Phase 3 / Phase S5 monitor loop that should also benefit from event-driven wake (e.g. babysit-pr, agent-diagnose, external tools)? If so, does that push us toward Option B (retrofit) instead of Option A (sibling tool)?",
+        "answer": "SDLC skill only \u2014 keep Option A scoped. Other callers (babysit-pr, agent-diagnose, external tools) keep get_status. This does NOT push us toward Option B; Option A remains preferred precisely because non-SDLC consumers should not be affected."
+      },
+      {
+        "id": "Q2",
+        "question": "What is the expected concurrency load? Specifically: how many host sessions per orchestrator in production, and does the current EGG_ORCH_WAITRESS_THREADS=16 budget accommodate one long-poll per host session on top of per-agent waits?",
+        "answer": "Raise default or document cap in plan. Call out the budget risk explicitly \u2014 at current scale (O(10) pipelines \u00d7 1 host session + per-agent waits) we remain under 16, but the budget is shared with every sandbox long-poll and SSE stream. The plan should either raise EGG_ORCH_WAITRESS_THREADS default or document the cap with guidance on when to bump it."
+      },
+      {
+        "id": "Q3",
+        "question": "Should `wait_for_status_change` also be available as an in-process SDK MCP tool (see PR #1920) as well as the streamable-HTTP MCP server, or only the latter?",
+        "answer": "Not sure / skip \u2014 defer to plan phase. The plan should decide after checking whether the SDLC skill actually reaches #1920's SDK MCP surface. Default assumption: streamable-HTTP only, add SDK parity later if needed."
+      },
+      {
+        "id": "Q4",
+        "question": "Is the 60-second liveness-floor constraint from the issue body literal (must guarantee a return at most every 60s of wall-clock time regardless of events) or aspirational (cap any single call at 25s and rely on loop composition to bound aggregate quiet time)?",
+        "answer": "Not sure / skip \u2014 defer to plan phase. Default assumption: aspirational (25s hard cap \u00d7 loop composition is already well inside 60s), but the plan phase should validate this against the actual overseer-wedge scenario."
+      },
+      {
+        "id": "Q5",
+        "question": "Should the new wait path emit its own metric (parallel to `egg_inflight_long_polls`) so operators can distinguish host-side waits from sandbox-side waits when investigating a saturated Waitress thread pool?",
+        "answer": "Yes \u2014 add egg_inflight_host_waits metric parallel to egg_inflight_long_polls so operators can distinguish host-side waits from sandbox-side waits when investigating a saturated Waitress thread pool."
+      },
+      {
+        "id": "Q6",
+        "question": "Are there known upstream plans or timelines to raise the streamable-HTTP MCP client timeout (anthropics/claude-code#20335)? If it lifts within the next quarter, the 25s cap becomes moot and the design may want to accommodate that.",
+        "answer": "Keep design flexible in case it lifts \u2014 parameterize the cap (e.g. GET_STATUS_MAX_WAIT constant + wait_for_status_change's own MAX_WAIT constant) so raising it later is a one-line change. No known imminent upstream change, but the cap is documented as transport-dependent so the design should accommodate a future lift."
+      }
+    ],
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-04-24T03:14:30.621503Z",
+    "comment_id": null,
+    "debounce_until": null
+  },
+  "phase_configs": null,
+  "agent_executions": []
+}

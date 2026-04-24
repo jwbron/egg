@@ -331,6 +331,17 @@ class MessageStore:
                 # wait() releases the lock, waits for notify, re-acquires it.
                 cv.wait(timeout=remaining)
 
+    def get_latest_id(self, pipeline_id: str) -> str | None:
+        """Return the ID of the most recent message for *pipeline_id*, or ``None``.
+
+        O(1) — reads the tail of the in-memory list under the lock.
+        """
+        with self._lock:
+            msgs = self._messages.get(pipeline_id)
+            if msgs:
+                return msgs[-1].id
+            return None
+
     def get_status(self, pipeline_id: str) -> dict[str, Any]:
         """Get message statistics for a pipeline.
 

@@ -150,6 +150,197 @@ if TYPE_CHECKING:
 logger = get_logger("orchestrator.pipelines")
 
 
+# -----------------------------------------------------------------
+# egg_inflight_host_waits metric (issue #1932 TASK-1-3).
+#
+# Gauge counting in-flight ``/status/wait`` route calls.  Paired with
+# ``egg_inflight_long_polls`` from ``routes/messages.py`` — both draw
+# against the same Waitress thread pool so operators alert on the
+# sum when it approaches ``EGG_ORCH_WAITRESS_THREADS``.  The
+# lame-duck daemon thread that keeps running after the route returns
+# (up to ``wait`` seconds of ``message_store.get_messages``) is
+# deliberately NOT counted against this gauge — the metric represents
+# in-flight *route* calls, not in-flight store waits.
+#
+# Best-effort registration so missing-metrics-backend deployments
+# degrade gracefully (matches the pattern at routes/messages.py:80-85).
+# -----------------------------------------------------------------
+try:
+    from metrics import get_metrics_registry as _get_metrics_registry_for_host_wait
+
+    _inflight_host_waits = _get_metrics_registry_for_host_wait().gauge(
+        "egg_inflight_host_waits",
+        labels={"endpoint": "pipelines.status_wait"},
+    )
+except Exception:  # pragma: no cover - metrics best-effort
+    _inflight_host_waits = None
+
+
+def _track_host_wait_start() -> None:
+    if _inflight_host_waits is not None:
+        try:
+            _inflight_host_waits.inc()
+        except Exception:  # pragma: no cover
+            pass
+
+
+def _track_host_wait_end() -> None:
+    if _inflight_host_waits is not None:
+        try:
+            _inflight_host_waits.dec()
+        except Exception:  # pragma: no cover
+            pass
+
+
+# -----------------------------------------------------------------
+# Cursor protocol for /status/wait  (issue #1932 TASK-1-2).
+#
+# Opaque compound cursor "msg:<redis_stream_id>|evt:<sequence>":
+#   * ``msg:<id>`` is the message-store tip ID from the prior call.
+#     Either half may be empty when the corresponding source has not
+#     emitted yet (e.g. ``msg:|evt:5`` = "no message seen, EventBus
+#     tip at seq 5").
+#   * ``evt:<sequence>`` is the EventBus per-bus monotonic sequence
+#     (see ``Event.sequence`` added in TASK-1-1).  The sequence is
+#     signed purely so malformed inputs with leading ``-`` are
+#     accepted by the regex and handled gracefully by the parser.
+#
+# The regex is intentionally permissive — unknown halves degrade to
+# ``None`` which the route maps to "snap to tip" (``from_tip`` on
+# the message bus, ``current_sequence`` on the EventBus) so
+# first-call semantics are race-free.
+# -----------------------------------------------------------------
+_STATUS_WAIT_CURSOR_RE = re.compile(r"^msg:([^|]*)\|evt:(-?\d*)$")
+
+# Event allowlist for ``/status/wait`` (issue #1932 locked in
+# refine HITL decision 2).  The route returns early when an event
+# matching any of these types is published.  ``DECISION_RESOLVED``
+# is intentionally excluded — it is the post-``provide_input``
+# event and would cause the host to self-wake on an action it
+# initiated.  Agent-lifecycle events are excluded because the host
+# does not drive on them.  See
+# docs/reference/agent-wait-patterns.md §7.
+_STATUS_WAIT_EVENT_TYPES = frozenset(
+    {
+        "phase.started",
+        "phase.completed",
+        "decision.created",
+        "pipeline.completed",
+        "pipeline.failed",
+        "pipeline.cancelled",
+    }
+)
+
+# Message-type allowlist for ``/status/wait`` (same HITL decision).
+# Wired to ``message_store.get_messages(wait_for_types=...)`` so a
+# message of a non-matching type does NOT unblock the waiter.
+_STATUS_WAIT_MESSAGE_TYPES = (
+    "OVERSEER_ALERT",
+    "CONSENSUS_CONFIRMED",
+    "CONSENSUS_NACK",
+    "CONSENSUS_RE_REVIEW",
+)
+
+
+def _parse_status_wait_cursor(
+    raw: str | None,
+) -> tuple[bool, str | None, int | None]:
+    """Parse a ``/status/wait`` cursor.
+
+    Returns ``(ok, msg_since_id, event_since_seq)`` where either half
+    may be ``None`` (meaning "snap to tip on this source").  ``ok``
+    is False only for a syntactically malformed cursor — the route
+    returns 400 in that case.  An empty / missing cursor is treated
+    as "snap to tip on both sources" (``ok=True, None, None``).
+    """
+    if raw is None or raw == "":
+        return True, None, None
+    match = _STATUS_WAIT_CURSOR_RE.match(raw)
+    if not match:
+        return False, None, None
+    msg_part = match.group(1)
+    evt_part = match.group(2)
+    msg_since_id = msg_part if msg_part else None
+    event_since_seq: int | None = None
+    if evt_part:
+        try:
+            event_since_seq = int(evt_part)
+        except ValueError:  # pragma: no cover — the regex guarantees digits/-
+            event_since_seq = None
+    return True, msg_since_id, event_since_seq
+
+
+def _build_status_wait_cursor(
+    msg_tip_id: str | None,
+    event_tip_seq: int,
+) -> str:
+    """Format a cursor for a ``/status/wait`` response.
+
+    Both halves are emitted — the consumer treats empty halves as
+    "snap to tip" on the next call, matching ``_parse_status_wait_cursor``.
+    """
+    msg_part = msg_tip_id or ""
+    return f"msg:{msg_part}|evt:{event_tip_seq}"
+
+
+def _message_store_tip_id(pipeline_id: str) -> str | None:
+    """Best-effort read of the message-store tip ID for a pipeline.
+
+    Used to build the initial / terminal cursor when the route
+    returns without matching a message.  Returns ``None`` when the
+    store has no messages yet — the caller formats this as the
+    empty ``msg:`` half of the compound cursor.
+    """
+    try:
+        store = _get_message_store()()
+    except Exception:  # pragma: no cover — store may not be importable
+        return None
+    try:
+        return store.get_latest_id(pipeline_id)
+    except Exception:
+        return None
+
+
+def _build_minimal_status_envelope(
+    pipeline: "Pipeline",
+    cursor: str,
+) -> dict[str, Any]:
+    """Compute the small envelope used on both wait paths.
+
+    Ships ``current_phase`` / ``status`` / ``phase_elapsed_seconds``
+    so dashboards can refresh cheaply on a timeout without paying
+    for a second round-trip.  ``concurrent.consensus`` is also
+    included (R5 mitigation from the refine phase) so the host
+    does not miss a BRC state change during a quiet interval.
+    """
+    phase_key = pipeline.current_phase.value if pipeline.current_phase else ""
+    phase_data = pipeline.phases.get(phase_key, None)
+    envelope: dict[str, Any] = {
+        "current_phase": phase_key,
+        "status": pipeline.status.value if pipeline.status else "",
+        "cursor": cursor,
+    }
+    if phase_data is not None:
+        started_at = getattr(phase_data, "started_at", None)
+        if started_at:
+            try:
+                if isinstance(started_at, str):
+                    started_dt = datetime.fromisoformat(started_at)
+                else:
+                    started_dt = started_at
+                if started_dt.tzinfo is None:
+                    started_dt = started_dt.replace(tzinfo=UTC)
+                elapsed = int((datetime.now(UTC) - started_dt).total_seconds())
+                envelope["phase_elapsed_seconds"] = max(0, elapsed)
+            except (ValueError, TypeError, AttributeError):
+                pass
+
+    concurrent_data = _get_concurrent_status(pipeline)
+    if concurrent_data and "consensus" in concurrent_data:
+        envelope["concurrent"] = {"consensus": concurrent_data["consensus"]}
+    return envelope
+
+
 def _check_and_respawn_overseer(
     *,
     spawner: "ContainerSpawner",
@@ -2284,6 +2475,253 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
             f"Pipeline {pipeline_id} not found",
             status_code=404,
         )
+
+
+# -----------------------------------------------------------------
+# GET /api/v1/pipelines/<pipeline_id>/status/wait (issue #1932)
+#
+# Event-driven host-side wait primitive.  Blocks up to ``wait``
+# seconds until one of the allowlisted EventBus events or message
+# types fires, then returns a small envelope the MCP handler
+# enriches with a full status snapshot.  See
+# docs/reference/agent-wait-patterns.md §7 for the end-to-end
+# protocol.
+# -----------------------------------------------------------------
+@pipelines_bp.route("/<pipeline_id>/status/wait", methods=["GET"])
+def wait_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
+    """Block up to ``wait`` seconds on the next pipeline-relevant event.
+
+    Query params:
+        wait: seconds to block, default 25, clamped to
+              ``GET_STATUS_MAX_WAIT`` (25) so the caller stays
+              safely inside the Claude Code MCP tool-call timeout.
+        since: opaque cursor ``msg:<id>|evt:<seq>`` from a prior
+              response.  An empty / missing cursor snaps to the tip
+              on both sources (first-call semantics).  Returns 400
+              if the cursor is syntactically malformed.
+
+    Responses:
+        200 — either a ``changed=true`` envelope (event or message
+              fired before the timeout) or a ``changed=false,
+              no_change=true`` envelope (timeout elapsed with no
+              pipeline-relevant event).  Always carries ``cursor``
+              so the caller can seed the next request.
+        400 — malformed cursor or malformed ``wait``.
+        404 — pipeline does not exist.
+
+    Implementation:
+        * ``queue.Queue(maxsize=16)`` coordinates the two sources:
+          a wildcard EventBus handler (synchronous) and a daemon
+          thread running ``message_store.get_messages(wait=...)``.
+        * First source wins.  On return the EventBus handler is
+          unsubscribed in ``finally``; the daemon thread is left
+          lame-duck for up to ``wait`` seconds (accepted per plan
+          risk R14 — bounded, non-blocking on shutdown).
+        * ``egg_inflight_host_waits`` gauge is incremented at entry
+          and decremented on return.
+
+    Args:
+        pipeline_id: Pipeline ID from the URL.
+    """
+    # Validate pipeline exists before doing any expensive setup.
+    repo_path = get_repo_path()
+    try:
+        _store, pipeline = _resolve_pipeline(pipeline_id, repo_path)
+    except InvalidPipelineIdError:
+        return make_error_response(
+            f"Invalid pipeline ID format: {pipeline_id}",
+            status_code=400,
+        )
+    except PipelineNotFoundError:
+        return make_error_response(
+            f"Pipeline {pipeline_id} not found",
+            status_code=404,
+        )
+
+    # Parse + clamp ``wait``.  ``GET_STATUS_MAX_WAIT`` lives in
+    # ``mcp_server`` — importing it here keeps the cap in one place.
+    try:
+        from mcp_server import GET_STATUS_MAX_WAIT
+    except ImportError:
+        try:
+            from ..mcp_server import GET_STATUS_MAX_WAIT  # type: ignore[no-redef]
+        except ImportError:
+            GET_STATUS_MAX_WAIT = 25  # conservative fallback
+    try:
+        requested_wait = int(request.args.get("wait", str(GET_STATUS_MAX_WAIT)))
+    except (ValueError, TypeError):
+        return make_error_response(
+            "Invalid 'wait' query parameter: must be an integer",
+            status_code=400,
+        )
+    timeout = min(max(requested_wait, 1), GET_STATUS_MAX_WAIT)
+
+    # Parse the opaque compound cursor.  ``ok=False`` is the only
+    # 400 path here — unknown cursors on either source are tolerated
+    # and degrade to "snap to tip".
+    ok, msg_since_id, event_since_seq = _parse_status_wait_cursor(request.args.get("since"))
+    if not ok:
+        return make_error_response(
+            "Invalid 'since' cursor — expected 'msg:<id>|evt:<seq>' (either half may be empty).",
+            status_code=400,
+        )
+
+    # Lazy imports keep the route cheap to load at module import and
+    # match the pattern used elsewhere in this file.  We compare events
+    # against ``_STATUS_WAIT_EVENT_TYPES`` by the string value of
+    # ``event.event_type`` — the ``EventType`` class itself is not
+    # needed here.
+    try:
+        from events import get_event_bus
+    except ImportError:  # pragma: no cover
+        try:
+            from ..events import get_event_bus  # type: ignore[no-redef]
+        except ImportError:
+            return make_error_response("Event bus not available", status_code=500)
+
+    try:
+        from routes.messages import _apply_delphi_filter as _delphi
+    except ImportError:  # pragma: no cover
+        try:
+            from .messages import _apply_delphi_filter as _delphi  # type: ignore[no-redef]
+        except ImportError:
+            _delphi = None  # type: ignore[assignment]
+
+    import queue as _queue
+
+    event_bus = get_event_bus()
+
+    # Snap event_since_seq to the current tip on first call.  This
+    # preserves the "events before the call are already seen"
+    # semantic and matches the message-bus ``from_tip`` behaviour
+    # used by ``/messages/wait`` (issue #1925).
+    if event_since_seq is None:
+        event_since_seq = event_bus.current_sequence()
+
+    wake_q: _queue.Queue[tuple[str, Any]] = _queue.Queue(maxsize=16)
+
+    def _on_event(event) -> None:  # pragma: no cover - exercised via tests
+        if event.pipeline_id != pipeline_id:
+            return
+        if event.event_type.value not in _STATUS_WAIT_EVENT_TYPES:
+            return
+        if event.sequence <= event_since_seq:
+            return
+        try:
+            wake_q.put_nowait(("event", event))
+        except _queue.Full:
+            logger.warning(
+                "status_wait event queue full; dropping event",
+                pipeline_id=pipeline_id,
+                event_type=event.event_type.value,
+            )
+
+    def _on_message_store_wake() -> None:  # pragma: no cover - exercised via tests
+        try:
+            store_fn = _get_message_store()
+            store = store_fn()
+            messages = store.get_messages(
+                pipeline_id,
+                since_id=msg_since_id,
+                limit=100,
+                wait=timeout,
+                wait_for_types=list(_STATUS_WAIT_MESSAGE_TYPES),
+                from_tip=msg_since_id is None,
+            )
+        except Exception as exc:  # pragma: no cover
+            logger.debug(
+                "status_wait daemon error",
+                pipeline_id=pipeline_id,
+                error=str(exc),
+            )
+            return
+        if not messages:
+            return
+        try:
+            wake_q.put_nowait(("message", messages))
+        except _queue.Full:
+            logger.warning(
+                "status_wait message queue full; dropping message",
+                pipeline_id=pipeline_id,
+            )
+
+    _track_host_wait_start()
+    event_bus.subscribe(None, _on_event)
+    daemon: threading.Thread | None = None
+    try:
+        daemon = threading.Thread(
+            target=_on_message_store_wake,
+            name=f"status-wait-msg-{pipeline_id}",
+            daemon=True,
+        )
+        daemon.start()
+
+        try:
+            source, payload = wake_q.get(timeout=timeout)
+        except _queue.Empty:
+            source = None
+            payload = None
+
+        # Re-load the pipeline once here so both paths share a
+        # consistent snapshot for the minimal envelope.
+        try:
+            _store2, fresh_pipeline = _resolve_pipeline(pipeline_id, repo_path)
+        except (InvalidPipelineIdError, PipelineNotFoundError):
+            fresh_pipeline = pipeline
+
+        if source == "event":
+            event = payload
+            tip_msg_id = _message_store_tip_id(pipeline_id) or msg_since_id
+            cursor = _build_status_wait_cursor(tip_msg_id, event.sequence)
+            envelope = _build_minimal_status_envelope(fresh_pipeline, cursor)
+            envelope.update(
+                {
+                    "changed": True,
+                    "trigger": "event",
+                    "event_type": event.event_type.value,
+                }
+            )
+            return make_success_response("Event wake", data=envelope)
+
+        if source == "message":
+            messages = payload
+            last_id = messages[-1].id if messages else msg_since_id
+            # Delphi filter pass — currently a no-op for the host caller
+            # (role=None returns messages unchanged) but plumbed here so a
+            # future role parameter can enable reviewer-redaction (R13).
+            if _delphi is not None:
+                try:
+                    messages = _delphi(pipeline_id, None, messages)
+                except Exception:  # pragma: no cover
+                    pass
+            tip_evt_seq = event_bus.current_sequence()
+            cursor = _build_status_wait_cursor(last_id, tip_evt_seq)
+            envelope = _build_minimal_status_envelope(fresh_pipeline, cursor)
+            envelope.update(
+                {
+                    "changed": True,
+                    "trigger": "message",
+                    "messages": [m.to_dict() for m in messages],
+                }
+            )
+            return make_success_response("Message wake", data=envelope)
+
+        # Timeout path — minimal envelope only.
+        tip_msg_id = _message_store_tip_id(pipeline_id) or msg_since_id
+        tip_evt_seq = event_bus.current_sequence()
+        cursor = _build_status_wait_cursor(tip_msg_id, tip_evt_seq)
+        envelope = _build_minimal_status_envelope(fresh_pipeline, cursor)
+        envelope.update({"changed": False, "no_change": True})
+        return make_success_response("No change within wait window", data=envelope)
+    finally:
+        try:
+            event_bus.unsubscribe(None, _on_event)
+        except Exception:  # pragma: no cover — unsubscribe is best-effort
+            pass
+        _track_host_wait_end()
+        # Daemon thread is deliberately left running — it exits on
+        # its own when ``message_store.get_messages`` returns or the
+        # timeout elapses (plan risk R14, accepted).
 
 
 def _get_pr_info(pipeline: "Pipeline") -> tuple[str | None, int | None]:

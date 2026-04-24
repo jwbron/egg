@@ -101,6 +101,15 @@ class Event:
     data: dict[str, Any] = field(default_factory=dict)
     source: str = "orchestrator"
 
+    # Per-EventBus monotonic sequence number assigned at publish() time
+    # under the bus lock (issue #1932 TASK-1-1).  Exposed to callers via
+    # the opaque ``msg:<id>|evt:<seq>`` cursor used by
+    # ``/api/v1/pipelines/<id>/status/wait`` so host-side waits can
+    # gate on events they have already seen.  Additive and
+    # backwards-compatible — existing callers constructing ``Event``
+    # directly leave it at 0 and the bus overwrites it on ``publish``.
+    sequence: int = 0
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
@@ -109,6 +118,7 @@ class Event:
             "timestamp": self.timestamp.isoformat(),
             "data": self.data,
             "source": self.source,
+            "sequence": self.sequence,
         }
 
 
@@ -143,6 +153,13 @@ class EventBus:
         self._max_history = max_history
         self._async_delivery = async_delivery
         self._lock = threading.RLock()
+        # Per-bus monotonic sequence counter assigned at publish() time
+        # (issue #1932 TASK-1-1).  Callers read via ``Event.sequence`` and
+        # via ``current_sequence()``.  The counter is incremented under
+        # ``_lock`` so publishes stay totally ordered — this is the
+        # authoritative source for the EventBus half of the opaque
+        # cursor used by ``/status/wait``.
+        self._sequence: int = 0
 
         # Async delivery queue
         self._event_queue: Queue[Event] = Queue()
@@ -228,11 +245,20 @@ class EventBus:
     def publish(self, event: Event) -> None:
         """Publish an event.
 
+        Assigns a monotonic per-bus ``sequence`` to the event under the
+        bus lock (issue #1932 TASK-1-1) so later publishes always carry
+        a strictly greater sequence.  The caller's passed-in
+        ``event.sequence`` is overwritten.
+
         Args:
             event: Event to publish
         """
-        # Add to history
+        # Assign the monotonic sequence + record history under the lock
+        # so concurrent publishes from different threads stay totally
+        # ordered and history iteration sees a consistent prefix.
         with self._lock:
+            self._sequence += 1
+            event.sequence = self._sequence
             self._history.append(event)
             if len(self._history) > self._max_history:
                 self._history.pop(0)
@@ -308,6 +334,18 @@ class EventBus:
             events = events[:limit]
 
         return events
+
+    def current_sequence(self) -> int:
+        """Return the current sequence tip (issue #1932 TASK-1-1).
+
+        Callers use this to seed the EventBus half of the opaque cursor
+        when no prior cursor is available — e.g. the first call to
+        ``/status/wait`` snaps to the tip so events *before* the call
+        are treated as "already seen" and do not immediately wake the
+        waiter.
+        """
+        with self._lock:
+            return self._sequence
 
     def stop(self) -> None:
         """Stop async delivery."""

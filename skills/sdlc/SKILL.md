@@ -314,9 +314,66 @@ Store the returned `task_id`. Confirm submission to the user:
 
 Poll the pipeline status in a loop. On each poll:
 
-1. Call the `get_status` MCP tool with the `task_id`:
-   - **First poll** after submission: `get_status(task_id)` — omit `wait` (or use `wait: 0`) for immediate feedback.
-   - **Subsequent polls**: `get_status(task_id, wait=25)` — the tool waits 25 seconds on the server event loop before fetching status. (Capped at 25s to stay under the Claude Code streamable-HTTP MCP client timeout. Call again immediately for longer effective poll intervals.)
+1. Call the appropriate MCP tool with the `task_id`:
+   - **First poll** after submission: `get_status(task_id)` — omit `wait` (or use `wait: 0`) for immediate feedback. `get_status` returns the full status snapshot but **does NOT** include a `cursor` field — `cursor` is exclusive to `wait_for_status_change` responses.
+   - **First `wait_for_status_change` call** (immediately after the `get_status` first-poll snapshot): `wait_for_status_change(task_id, wait=25)` — omit `since` (or pass `""`); the route snaps to the tip of both event sources, so only events that arrive after the call begins will wake it.
+   - **Every subsequent `wait_for_status_change` call**: `wait_for_status_change(task_id, wait=25, since=<last_cursor>)` — pass the `cursor` returned by the prior `wait_for_status_change` response. The tool blocks server-side for up to 25 seconds and returns **immediately** when any of these events arrive: a new `OVERSEER_ALERT`; a phase transition (`PHASE_STARTED` / `PHASE_COMPLETED`); a terminal pipeline state (`PIPELINE_COMPLETED` / `PIPELINE_FAILED` / `PIPELINE_CANCELLED`); a new HITL `DECISION_CREATED`; a consensus message (`CONSENSUS_CONFIRMED` / `CONSENSUS_NACK` / `CONSENSUS_RE_REVIEW`). The 25 s cap is enforced server-side to stay under the Claude Code streamable-HTTP MCP client timeout. Call again immediately on return for the next poll cycle.
+
+   **Cursor handling.** Hold the cursor in conversation context as `last_cursor`. The cursor is **only ever produced by `wait_for_status_change`** — `get_status` does not return one. Bootstrap by calling `wait_for_status_change(task_id, wait=25)` (no `since`) once after the first `get_status` snapshot; capture `response.cursor` into `last_cursor`. Every subsequent call passes `since=<last_cursor>` and refreshes `last_cursor` from the new `response.cursor`. The cursor is opaque (shape `msg:<id>|evt:<seq>`); treat it as a string. Threading the cursor correctly is what closes the wait→wait race window — events that fired after a prior `wait_for_status_change` returned but before the next call still wake the wait.
+
+   **Two response envelopes.** Branch structurally on the `no_change` key, **not** on the `changed` boolean alone:
+
+   ```json
+   // Path A — changed: true, trigger: "event" (EventBus event fired)
+   {
+     "changed": true,
+     "trigger": "event",
+     "event_type": "phase.started",          // wire value — e.g. "phase.started", "decision.created", "pipeline.completed"
+     "cursor": "msg:1738012734-0|evt:142",
+     "current_phase": "plan",
+     "status": "running",
+     "phase_elapsed_seconds": 127,         // present when the current phase has a started_at; absent at phase boundaries
+     "pipeline": { ... },
+     "running_agents": [ ... ],
+     "completed_agents": [ ... ],
+     "pending_decisions": [ ... ],
+     "recent_messages": [ ... ],
+     "concurrent": { "consensus": { ... } }
+   }
+
+   // Path A — changed: true, trigger: "message" (message-bus wake)
+   {
+     "changed": true,
+     "trigger": "message",
+     "messages": [ { "type": "OVERSEER_ALERT", ... } ],  // array of new messages
+     "cursor": "msg:1738012740-0|evt:142",
+     "current_phase": "plan",
+     "status": "running",
+     "phase_elapsed_seconds": 130,
+     "pipeline": { ... },
+     "running_agents": [ ... ],
+     "completed_agents": [ ... ],
+     "pending_decisions": [ ... ],
+     "recent_messages": [ ... ],
+     "concurrent": { "consensus": { ... } }
+   }
+
+   // Path B — no_change: true (25 s elapsed, no event)
+   {
+     "changed": false,
+     "no_change": true,
+     "current_phase": "plan",
+     "status": "running",
+     "phase_elapsed_seconds": 152,         // present when the current phase has a started_at; absent at phase boundaries
+     "concurrent": { "consensus": { ... } },  // present when consensus data is available; absent on non-BRC pipelines
+     "cursor": "msg:1738012750-0|evt:148"
+   }
+   ```
+
+   On Path A, the response is a **superset of `get_status`** plus `changed/trigger/event_type|messages/cursor`. Cache it in conversation context as `last_status` and render the full dashboard.
+
+   On Path B, the response is a **minimal envelope**. Reuse the cached `pipeline`, `running_agents`, `completed_agents`, `pending_decisions`, `recent_messages`, and `concurrent.agents` (where present) from the prior `last_status`, and refresh only the fields that ship in the minimal envelope: `current_phase`, `status`, `phase_elapsed_seconds` (when present), and `concurrent.consensus` (when present). Then proceed to the next poll. This is what makes the dashboard re-render cheap during quiet phases.
+
 2. Display a compact status dashboard:
 
 ```
@@ -342,9 +399,9 @@ Overseer: <subject> — <body summary, first 120 chars>
    - If `status` is `complete` → exit the loop, move to Phase 5
    - If `status` is `failed` → apply the **failed status grace period** (see below) before exiting
 
-6. **Track elapsed time** — Use the server-computed `phase_elapsed_seconds` field from the `get_status` response when available. This is more accurate than client-side wall-clock tracking because it is unaffected by blocking dialogs or client-server clock skew. Fall back to local wall-clock tracking only when `phase_elapsed_seconds` is absent (e.g., pending phases). Use this for [Long-Running Phase Detection](#long-running-phase-detection).
+6. **Track elapsed time** — Use the server-computed `phase_elapsed_seconds` field from the response when available (both Path A and Path B envelopes carry it). This is more accurate than client-side wall-clock tracking because it is unaffected by blocking dialogs or client-server clock skew. Fall back to local wall-clock tracking only when `phase_elapsed_seconds` is absent (e.g., pending phases). Use this for [Long-Running Phase Detection](#long-running-phase-detection).
 
-**Important: The `wait` parameter on `get_status` handles the polling delay internally.** Do not use separate `sleep` commands or background sleeps for the poll interval.
+**Important: The `wait` parameter on `wait_for_status_change` blocks the server-side event loop and returns early on any pipeline-relevant event.** Do not use separate `sleep` commands or conditional sleeps between calls — the skill's liveness guarantee depends on immediate loop re-entry. The aggregate quiet interval is bounded at ~25 s (server-side wait) plus one LLM turn, well inside the aspirational 60 s liveness floor by construction. The overseer is the primary deadlock detector and emits `OVERSEER_ALERT` on stalls, which is in the trigger set above. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--wait_for_status_change) for the full event allowlist and the threading model.
 
 Keep the dashboard output concise. Only show changes from the previous poll when possible.
 
@@ -398,7 +455,7 @@ Handle each response:
 
 ### Consensus Monitoring
 
-When the pipeline uses concurrent agents (BRC protocol), the `get_status` response may include a `concurrent.consensus` object. On each poll cycle, check this data for red flags and surface problems to the user before they escalate.
+When the pipeline uses concurrent agents (BRC protocol), the status response may include a `concurrent.consensus` object. The Path A (`changed: true`) envelope from `wait_for_status_change` carries the same `concurrent.consensus` shape as `get_status`, and the Path B (`no_change: true`) minimal envelope explicitly ships `concurrent.consensus` so consensus drift never goes invisible during quiet phases. On each poll cycle, check this data for red flags and surface problems to the user before they escalate.
 
 **Enhanced dashboard** — When consensus data is present, extend the status display:
 
@@ -417,7 +474,7 @@ NACKs: <reviewer> → <producer>: "<reason>"
 
 ### Consensus Fallback (when `concurrent.consensus` is missing)
 
-The `concurrent.consensus` object may not be present in all `get_status` responses. When it is absent, **fall back to message-based consensus tracking** by classifying entries in `recent_messages`:
+The `concurrent.consensus` object may not be present in all status responses (e.g., for non-BRC pipelines). When it is absent, **fall back to message-based consensus tracking** by classifying entries in `recent_messages`. (On the `wait_for_status_change` Path B minimal envelope, `recent_messages` is reused from the cached `last_status` since the minimal envelope does not refresh it; combine that cached list with any `messages` ferried by a `trigger: "message"` Path A response.):
 
 1. **Classify messages using the `type` field** (primary) — each `recent_messages` entry includes a `type` field with reliable enum values: `CONSENSUS_PROPOSE`, `CONSENSUS_ACK`, `CONSENSUS_NACK`, `CONSENSUS_CONFIRMED`. Use these for classification, not subject parsing.
 2. **Identify roles using the `from_role` field** — each message includes `from_role` indicating which agent sent it.
@@ -514,7 +571,7 @@ Handle each response:
 
 ### Long-Running Phase Detection
 
-Track elapsed time for each phase using the server-computed `phase_elapsed_seconds` field from the `get_status` response. Fall back to wall-clock tracking only when this field is unavailable. When the **implement phase** has been running for 60+ minutes and consensus appears mostly complete (majority of agents confirmed), proactively offer the user an early exit:
+Track elapsed time for each phase using the server-computed `phase_elapsed_seconds` field from the status response (returned by both `get_status` and `wait_for_status_change` Path A / Path B envelopes). Fall back to wall-clock tracking only when this field is unavailable. When the **implement phase** has been running for 60+ minutes and consensus appears mostly complete (majority of agents confirmed), proactively offer the user an early exit:
 
 ```
 ### Long-Running Implement Phase
@@ -544,7 +601,7 @@ When monitoring detects a stuck pipeline (no progress for 10+ minutes after cons
 
 **Step 1: Check for committed work on the branch**
 
-The branch name can be found in the `get_status` response's pipeline details (look for `branch` in the response), or derive it from the pipeline's task description using the `egg/<description>` naming convention.
+The branch name can be found in the `pipeline` block of the cached `last_status` (returned by `get_status` or any `wait_for_status_change` Path A response — look for `branch`), or derive it from the pipeline's task description using the `egg/<description>` naming convention.
 
 ```bash
 git fetch origin
@@ -582,7 +639,7 @@ Handle each response:
 
 ## Phase 4 — HITL (Human-in-the-Loop)
 
-When `get_status` returns `pending_decisions`, partition the batch by `decision_type` and handle each group as described below. A single `get_status` response can surface multiple pending decisions at once (e.g. a refiner that registered 10 `choice` decisions via `register_open_question`); when that happens, group them so the user sees up to 4 per `AskUserQuestion` call rather than one prompt per decision.
+When the cached `last_status` (sourced from `get_status` or a `wait_for_status_change` Path A response — `wait_for_status_change` wakes immediately on `DECISION_CREATED`, so a freshly-created decision shows up on the very next response) carries a non-empty `pending_decisions` list, partition the batch by `decision_type` and handle each group as described below. A single response can surface multiple pending decisions at once (e.g. a refiner that registered 10 `choice` decisions via `register_open_question`); when that happens, group them so the user sees up to 4 per `AskUserQuestion` call rather than one prompt per decision.
 
 **Handling rules by `decision_type`**:
 
@@ -605,7 +662,7 @@ If `resolved_questions_map` does not yet exist when a handler tries to read it, 
 
 ### For `phase_gate` decisions (phase approval gates):
 
-The `get_status` response enriches phase_gate decisions with `draft_content` (the phase's output document), `completed_agents_summary` (role + status for each completed agent), and `reviewer_feedback` (list of reviewer verdicts).
+The status response (from `get_status` or a `wait_for_status_change` Path A response) enriches phase_gate decisions with `draft_content` (the phase's output document), `completed_agents_summary` (role + status for each completed agent), and `reviewer_feedback` (list of reviewer verdicts).
 
 1. **Show the draft document** — Display the `draft_content` field from the decision. If the content is long, show a summary of the key sections (headings and first paragraph of each) followed by the full content in a collapsed format. If `draft_content` is missing, note that no draft was found.
 
@@ -880,14 +937,14 @@ When the pipeline is stuck, failing, or behaving unexpectedly, use MCP tools to 
 | SDLC contract state | `get_contract` | Task progress, pending decisions |
 | Send message to agent | `send_message` | Nudge agents, request status updates |
 | Phase details | `get_phase` | Current phase, execution timing, review cycles |
-| Message bus stats | Via `get_status` MCP tool | `concurrent.consensus` field in response |
+| Message bus stats | Via `get_status` or `wait_for_status_change` | `concurrent.consensus` field in response (carried on Path B minimal envelope as well) |
 
 **When to use these during the workflow:**
-- **Phase 3 (Monitor)**: If status appears stuck for multiple polls, call `get_pipeline_snapshot` to check for failed containers and consensus state. If the pipeline uses concurrent agents (`EGG_CONCURRENT_MODE`), call `get_consensus_status` to see which agents are blocking — a stuck agent may be waiting on a NACK resolution or hasn't proposed yet. Show the user a summary of what you find.
-- **Phase 4 (HITL)**: If `provide_input` fails, call `check_health` first. If the orchestrator is healthy, verify the decision state with `get_status`.
+- **Phase 3 (Monitor)**: If status appears stuck for multiple polls (consecutive Path B `no_change: true` envelopes from `wait_for_status_change` with no Path A wakes), call `get_pipeline_snapshot` to check for failed containers and consensus state. If the pipeline uses concurrent agents (`EGG_CONCURRENT_MODE`), call `get_consensus_status` to see which agents are blocking — a stuck agent may be waiting on a NACK resolution or hasn't proposed yet. Show the user a summary of what you find.
+- **Phase 4 (HITL)**: If `provide_input` fails, call `check_health` first. If the orchestrator is healthy, verify the decision state with a one-shot `get_status` (do not pass through `wait_for_status_change` — the wait deliberately excludes `DECISION_RESOLVED` from its trigger set, so it would not self-wake on the resolution we just submitted).
 - **Phase 5 (Failure)**: Before offering re-run options, call `get_container_logs` for the failed agent to give the user context on what went wrong.
 
-**Reading consensus state**: The `get_status` response includes a `concurrent.consensus` object when agents are running in BRC mode. Key fields:
+**Reading consensus state**: The status response (from either `get_status` or `wait_for_status_change`) includes a `concurrent.consensus` object when agents are running in BRC mode. Key fields:
 - `is_complete`: Whether all agents have confirmed
 - `blocking_agents`: Roles not yet confirmed (tells you who's holding things up)
 - `agents.<role>.producer_phase`: `WORKING` → `PROPOSED` → `CONFIRMED`
@@ -895,9 +952,36 @@ When the pipeline is stuck, failing, or behaving unexpectedly, use MCP tools to 
 - `has_unresolved_nacks`: Whether any reviewer has NACKed without the producer re-proposing
 - `unresolved_nacks`: List with `reviewer`, `producer`, `reason`, and `version` — surface these to the user when consensus is stuck
 
+## MCP Tools Reference
+
+All orchestrator and gateway interactions use the MCP tool surface. Never call REST APIs or CLIs directly.
+
+| Tool | Purpose |
+|------|---------|
+| `submit_task` | Submit a new pipeline task |
+| `get_status` | One-shot status snapshot (no cursor) — use for first poll and after `provide_input` |
+| `wait_for_status_change` | Long-poll for status changes; returns Path A (changed) or Path B (no_change) envelope with cursor for threading |
+| `provide_input` | Respond to HITL decisions (serialize JSON payload as string) |
+| `list_tasks` | List tasks for a repository |
+| `cancel_task` | Cancel a running task |
+| `check_health` | Verify orchestrator + gateway health |
+| `list_containers` | List containers in a pipeline |
+| `get_container_logs` | View agent logs (auto-selects container by role) |
+| `send_message` | Send a message to an agent on the message bus |
+| `get_consensus_status` | BRC consensus state: agent phases, blocking agents, unresolved NACKs |
+| `get_phase` | Current phase, execution timing, review cycles |
+| `get_pipeline_snapshot` | Comprehensive view: pipeline state, containers, messages, decisions |
+| `get_contract` | SDLC contract state: task progress, pending decisions (gateway-backed) |
+| `list_checkpoints` | Browse prior agent session transcripts (gateway-backed) |
+| `search_checkpoints` | Search checkpoint metadata for keywords (gateway-backed) |
+
+**Polling protocol:** First poll uses `get_status(task_id)`. Every subsequent poll uses `wait_for_status_change(task_id, wait=25, since=<last_cursor>)`. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--wait_for_status_change) for the full envelope contract and trigger allowlist.
+
 ## Critical Rules
 
 - **Always use MCP tools** — never call orchestrator/gateway APIs or CLIs directly
+- **First poll uses `get_status(task_id)`; every subsequent poll uses `wait_for_status_change(task_id, wait=25, since=<last_cursor>)`** — thread the `cursor` from each `wait_for_status_change` response into the next call's `since`. The first `wait_for_status_change` call after the `get_status` snapshot omits `since` (route snaps to tip); `get_status` itself does NOT return a cursor. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--wait_for_status_change) for the trigger allowlist and envelope contract.
+- **Branch structurally on the `no_change` key**, not on `changed` alone, when handling the two `wait_for_status_change` envelope shapes. On Path B (`no_change: true`) reuse the cached `last_status` for `running_agents`/`completed_agents`/`recent_messages`/`pending_decisions` and refresh only the four fields the minimal envelope ships.
 - **Always serialize JSON payloads as strings** for `provide_input` — the `response` parameter is a string, not an object. Pass `'{"action": "approve"}'` not `{"action": "approve"}`
 - **Never skip HITL** — always present decisions to the user and wait for their response
 - **Stop polling on exit** — always exit the monitoring loop when the workflow ends
@@ -1183,9 +1267,58 @@ Store the returned `task_id`. Confirm submission to the user:
 
 Poll the pipeline status in a loop. On each poll:
 
-1. Call the `get_status` MCP tool with the `task_id`:
-   - **First poll** after submission: `get_status(task_id)` — omit `wait` (or use `wait: 0`) for immediate feedback.
-   - **Subsequent polls**: `get_status(task_id, wait=25)` — the tool waits 25 seconds on the server event loop before fetching status. (Capped at 25s to stay under the Claude Code streamable-HTTP MCP client timeout. Call again immediately for longer effective poll intervals.)
+1. Call the appropriate MCP tool with the `task_id`:
+   - **First poll** after submission: `get_status(task_id)` — omit `wait` (or use `wait: 0`) for immediate feedback. `get_status` returns the full status snapshot but **does NOT** include a `cursor` field — `cursor` is exclusive to `wait_for_status_change` responses.
+   - **First `wait_for_status_change` call** (immediately after the `get_status` first-poll snapshot): `wait_for_status_change(task_id, wait=25)` — omit `since` (or pass `""`); the route snaps to the tip of both event sources.
+   - **Every subsequent `wait_for_status_change` call**: `wait_for_status_change(task_id, wait=25, since=<last_cursor>)` — pass the `cursor` returned by the prior `wait_for_status_change` response. The tool blocks server-side for up to 25 seconds and returns **immediately** on the same trigger set used by the full flow: new `OVERSEER_ALERT`; phase transition (`PHASE_STARTED` / `PHASE_COMPLETED`); terminal pipeline state (`PIPELINE_COMPLETED` / `PIPELINE_FAILED` / `PIPELINE_CANCELLED`); HITL `DECISION_CREATED` (handled inline below); consensus message (`CONSENSUS_CONFIRMED` / `CONSENSUS_NACK` / `CONSENSUS_RE_REVIEW`). The 25 s cap stays under the Claude Code streamable-HTTP MCP client timeout. Call again immediately on return.
+
+   **Cursor handling.** Hold the cursor in conversation context as `last_cursor`. The cursor is **only ever produced by `wait_for_status_change`** — `get_status` does not return one. Bootstrap by calling `wait_for_status_change(task_id, wait=25)` (no `since`) once after the first `get_status` snapshot; capture `response.cursor` into `last_cursor`. Every subsequent call passes `since=<last_cursor>` and refreshes `last_cursor` from the new `response.cursor`.
+
+   **Two response envelopes.** Branch structurally on the `no_change` key (do not branch on the `changed` boolean alone — `no_change` is a distinct top-level key for exactly this purpose):
+
+   ```json
+   // Path A — changed: true, trigger: "event" (EventBus event fired)
+   {
+     "changed": true,
+     "trigger": "event",
+     "event_type": "phase.started",             // wire value — e.g. "phase.started", "decision.created", "pipeline.completed"
+     "cursor": "msg:1738012734-0|evt:142",
+     "current_phase": "implement",
+     "status": "running",
+     "phase_elapsed_seconds": 127,            // present when the current phase has a started_at; absent at phase boundaries
+     "concurrent": { "consensus": { ... }, "agents": [ ... ] },
+     "recent_messages": [ ... ],
+     "pending_decisions": [ ... ]
+   }
+
+   // Path A — changed: true, trigger: "message" (message-bus wake)
+   {
+     "changed": true,
+     "trigger": "message",
+     "messages": [ { "type": "OVERSEER_ALERT", ... } ],  // array of new messages
+     "cursor": "msg:1738012740-0|evt:142",
+     "current_phase": "implement",
+     "status": "running",
+     "phase_elapsed_seconds": 130,
+     "concurrent": { "consensus": { ... }, "agents": [ ... ] },
+     "recent_messages": [ ... ],
+     "pending_decisions": [ ... ]
+   }
+
+   // Path B — no_change: true (25 s elapsed, no event)
+   {
+     "changed": false,
+     "no_change": true,
+     "current_phase": "implement",
+     "status": "running",
+     "phase_elapsed_seconds": 152,            // present when the current phase has a started_at; absent at phase boundaries
+     "concurrent": { "consensus": { ... } },  // present when consensus data is available; absent on non-BRC pipelines
+     "cursor": "msg:1738012750-0|evt:148"
+   }
+   ```
+
+   On Path A, render the full dashboard and cache the response as `last_status`. On Path B, fall back to the cached `last_status` for `running_agents`, `completed_agents`, `concurrent.agents` (where present), `recent_messages`, and `pending_decisions` — refreshing only the fields the minimal envelope ships (`current_phase`, `status`, `phase_elapsed_seconds` when present, and `concurrent.consensus` when present). Then proceed to the next poll. The dashboard fallback wording below ("when not available, fall back to basic status") still applies whenever `concurrent` data is absent on either path.
+
 2. Display a compact status dashboard:
 
 ```
@@ -1211,7 +1344,7 @@ Recent: <latest message subject from recent_messages>
 
 Keep the dashboard output concise. Only show changes from the previous poll when possible.
 
-**Important: The `wait` parameter on `get_status` handles the polling delay internally.** Do not use separate `sleep` commands or background sleeps for the poll interval.
+**Important: The `wait` parameter on `wait_for_status_change` blocks the server-side event loop and returns early on any pipeline-relevant event.** Do not use separate `sleep` commands or background sleeps for the poll interval — the skill's liveness guarantee depends on immediate loop re-entry. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--wait_for_status_change) for the event allowlist and threading model.
 
 ### Failed Status Grace Period
 
@@ -1294,7 +1427,7 @@ Phase: <phase where failure occurred>
 
 ## Short Flow Critical Rules
 
-- **Always use MCP tools** (`submit_task`, `get_status`, `provide_input`, `cancel_task`) — never call orchestrator APIs directly
+- **Always use MCP tools** (`submit_task`, `get_status` for the first poll, `wait_for_status_change` for every subsequent poll, `provide_input`, `cancel_task`) — never call orchestrator APIs directly. `wait_for_status_change` requires threading the response `cursor` into `since` on the next call; see [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--wait_for_status_change) for the contract.
 - **Always serialize JSON payloads as strings** for `provide_input`
 - **Always pass `config`** with `{"start_phase": "implement", "hitl_gates": false, "overseer_enabled": true}` when calling `submit_task`
 - **Auto-approve phase gates** — this is a no-HITL flow; if a gate appears, approve it automatically and inform the user

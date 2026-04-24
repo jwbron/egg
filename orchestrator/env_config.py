@@ -90,8 +90,14 @@ def log_message_poll_max_wait_startup() -> None:
 
 # -----------------------------------------------------------------
 # EGG_ORCH_WAITRESS_THREADS — worker thread count for the waitress
-# production server.  Raised from the previous hard-coded 16 so the
-# pool can absorb long-poll volume from ``egg-orch message wait``.
+# production server.  Raised from 16 → 24 in issue #1932 so the pool
+# can absorb host-side ``wait_for_status_change`` load on top of the
+# existing sandbox-side ``egg-orch message wait-loop`` long-poll
+# volume.  Each host-side wait costs two threads for up to the wait
+# duration (one Waitress worker blocked on ``queue.get``, one daemon
+# thread blocked inside ``message_store.get_messages``) — see
+# docs/reference/agent-wait-patterns.md §7 "Host-Side Waits" for the
+# budget rationale.
 #
 # Refuse-to-boot semantics: if the operator sets a value below 4 the
 # server MUST ``sys.exit(78)`` (``EX_CONFIG``) so k8s restarts and
@@ -100,7 +106,7 @@ def log_message_poll_max_wait_startup() -> None:
 # §7.
 # -----------------------------------------------------------------
 
-DEFAULT_WAITRESS_THREADS = 16
+DEFAULT_WAITRESS_THREADS = 24
 WAITRESS_THREADS_MIN = 4
 WAITRESS_REFUSE_EXIT_CODE = 78  # EX_CONFIG per sysexits.h
 

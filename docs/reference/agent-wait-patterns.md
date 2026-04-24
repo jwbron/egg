@@ -421,7 +421,314 @@ There is also a deliberately-misconfigured integration test
 (`test_misconfigured_cap_504`) that exercises the 504 path so the named
 failure mode cannot regress silently.
 
-## 7. `EGG_ORCH_WAITRESS_THREADS` — Thread-Pool / Long-Poll Coupling
+## 7. Host-Side Waits — `wait_for_status_change`
+
+The first six sections cover **sandbox-side** waits: an agent inside a
+sandbox container waits for BRC messages via `egg-orch message wait` /
+`wait-loop`. This section covers the **host-side** wait — the SDLC
+skill running in a Claude Code session on the operator's host waits for
+pipeline state changes via the `wait_for_status_change` MCP tool.
+
+`wait_for_status_change` is the event-triggered sibling of `get_status`
+landed by [#1932](https://github.com/jwbron/egg/issues/1932). It exists
+because the SDLC skill's monitor loop previously polled
+`get_status(task_id, wait=25)` on a pure time-based sleep — every 25 s
+the orchestrator returned a full snapshot regardless of whether
+anything had changed, burning tokens during quiet phases and delaying
+reactions to `OVERSEER_ALERT`, phase transitions, and HITL gates by up
+to a full poll interval.
+
+`wait_for_status_change` blocks server-side and returns **immediately**
+when any pipeline-relevant event arrives, or returns a minimal
+no-change envelope on the 25 s timeout so the dashboard re-render
+stays cheap. `get_status` itself is unchanged — it remains the
+correct one-shot snapshot tool.
+
+> **Audience:** prompt maintainers wiring up host-side polling, and
+> operators sizing the orchestrator's Waitress thread pool (see
+> §8 — the `EGG_ORCH_WAITRESS_THREADS` default raised from 16 → 24
+> to absorb the host-side wait load).
+
+### 7.1 The two response envelopes
+
+`wait_for_status_change` returns one of two structurally distinct
+envelopes. The skill's render path branches on the `no_change` key,
+**not** on the `changed` boolean alone — `no_change` is a separate
+top-level key for exactly this purpose.
+
+```json
+// Path A — changed: true, trigger: "event" (EventBus event fired)
+{
+  "changed": true,
+  "trigger": "event",
+  "event_type": "phase.started",             // wire value — e.g. "phase.started", "decision.created", "pipeline.completed"
+  "cursor": "msg:1738012734-0|evt:142",
+  "current_phase": "plan",
+  "status": "running",
+  "phase_elapsed_seconds": 127,
+  "pipeline":          { "id": "...", "repo": "...", "issue_number": 1932, ... },
+  "running_agents":    [ ... ],
+  "completed_agents":  [ ... ],
+  "pending_decisions": [ ... ],
+  "recent_messages":   [ ... ],
+  "concurrent": { "consensus": { ... } }
+}
+
+// Path A — changed: true, trigger: "message" (message-bus wake)
+{
+  "changed": true,
+  "trigger": "message",
+  "messages": [ { "type": "OVERSEER_ALERT", ... } ],   // array of new messages
+  "cursor": "msg:1738012740-0|evt:142",
+  "current_phase": "plan",
+  "status": "running",
+  "phase_elapsed_seconds": 130,
+  "pipeline":          { "id": "...", "repo": "...", "issue_number": 1932, ... },
+  "running_agents":    [ ... ],
+  "completed_agents":  [ ... ],
+  "pending_decisions": [ ... ],
+  "recent_messages":   [ ... ],
+  "concurrent": { "consensus": { ... } }
+}
+
+// Path B — no_change: true (25 s elapsed, no event)
+{
+  "changed": false,
+  "no_change": true,
+  "current_phase": "plan",
+  "status": "running",
+  "phase_elapsed_seconds": 152,
+  "concurrent": { "consensus": { ... } },
+  "cursor": "msg:1738012750-0|evt:148"
+}
+```
+
+| Field | Path A | Path B | Notes |
+|-------|--------|--------|-------|
+| `changed` | `true` | `false` | Always present. |
+| `no_change` | absent | `true` | **Distinct top-level key** — branch on this, not on `!changed`. |
+| `trigger` | `"event"` or `"message"` | absent | Names which source unblocked the wait. |
+| `event_type` | string when `trigger == "event"` | absent | Wire-format value from `EventType`, e.g. `phase.started`, `decision.created`, `pipeline.completed`. |
+| `messages` | array when `trigger == "message"` | absent | Passed through `_apply_delphi_filter` for consistency with the message bus route; currently a no-op for the host caller (`role=None`). |
+| `cursor` | always | always | Opaque `msg:<id>|evt:<seq>`. Thread into next call's `since`. |
+| `current_phase`, `status` | always | always | Refreshed on every call. |
+| `phase_elapsed_seconds` | when current phase has a `started_at` | when current phase has a `started_at` | Absent at phase boundaries (the new phase hasn't recorded `started_at` yet) and on pending phases. Fall back to `phase_started_at` (full envelope only) or wall-clock when absent. |
+| `concurrent.consensus` | when consensus data is available | when consensus data is available | Absent on non-BRC pipelines. The Path B minimal envelope ships it whenever it would have been on Path A — so consensus drift never goes invisible during quiet phases on BRC pipelines, and is correctly absent for non-BRC pipelines. |
+| `pipeline`, `running_agents`, `completed_agents`, `pending_decisions`, `recent_messages` | always | absent | On Path B, reuse the cached values from the prior Path A response. |
+| `concurrent.agents` | when concurrent data is available | absent | On Path B, reuse the cached value from the prior Path A response. |
+
+Path A is a **superset of `get_status`** plus `changed/trigger/
+(event_type|messages)/cursor`. Drop-in compatible with any code that
+already consumes `get_status` output.
+
+### 7.2 Event-trigger allowlist
+
+The route is wired with an **explicit allowlist** of trigger types —
+not a denylist. Anything not on this list will not wake the wait,
+even if it changes pipeline state.
+
+| Trigger | Source | Notes |
+|---------|--------|-------|
+| `OVERSEER_ALERT` | message bus | Surface the alert to the user via the existing overseer flow. |
+| `CONSENSUS_CONFIRMED` | message bus | Consensus reached for a producer or globally. |
+| `CONSENSUS_NACK` | message bus | A reviewer NACKed; producer must re-propose. |
+| `CONSENSUS_RE_REVIEW` | message bus | A producer re-proposed; reviewers must re-review. |
+| `PHASE_STARTED` | EventBus | New phase began (e.g. plan → implement). Wire value: `phase.started`. |
+| `PHASE_COMPLETED` | EventBus | Phase ended. Wire value: `phase.completed`. |
+| `PIPELINE_COMPLETED` | EventBus | Terminal success. Wire value: `pipeline.completed`. |
+| `PIPELINE_FAILED` | EventBus | Terminal failure. Wire value: `pipeline.failed`. |
+| `PIPELINE_CANCELLED` | EventBus | Operator cancelled the pipeline. Wire value: `pipeline.cancelled`. |
+| `DECISION_CREATED` | EventBus | New HITL gate; surface to the user. Wire value: `decision.created`. |
+
+> **Wire values vs Python constants:** The names in this table are the Python
+> `EventType` constant names. The JSON responses use **dotted lowercase wire
+> values** (e.g. `phase.started`, `decision.created`). Always compare against
+> wire values in code — see §7.1 response fields for the exact strings.
+
+**Explicitly excluded:** `DECISION_RESOLVED`. This is the post-
+`provide_input` event and would cause the host to self-wake on an
+action it just initiated. Agent-lifecycle events (`AGENT_STARTED`,
+`AGENT_COMPLETED`), `CONSENSUS_PROPOSE`, and `CONSENSUS_ACK` are
+also excluded — they are intermediate consensus-protocol noise the
+host does not need to render.
+
+### 7.3 The opaque cursor protocol
+
+Every response carries a `cursor` field of shape `msg:<id>|evt:<seq>`.
+The two halves cover the two underlying sources:
+
+- `msg:<redis_stream_id>` — the message-bus cursor, identical to the
+  `--since` cursor used by `egg-orch message wait`. Either half may
+  be empty: `msg:|evt:5` means "no message seen yet, EventBus tip is
+  at sequence 5".
+- `evt:<seq>` — the in-process EventBus monotonic sequence counter
+  (a new field on the `Event` dataclass, populated under the existing
+  EventBus lock). Each `EventBus.publish()` call increments the
+  counter, so consumers can prove "I have seen everything up to
+  seq N".
+
+The cursor is **opaque**. Callers should treat it as a string and
+thread it through `since` on the next call. The server parses the
+two halves independently and routes the message-bus half to the
+`get_messages(since_id=...)` long-poll and the EventBus half to a
+per-pipeline sequence gate. This closes the snapshot→wait race window
+on **both** sources: an event that fired between the prior snapshot
+and the next call still wakes the wait.
+
+A cursor-less call (omit `since` or pass `""`) starts from the
+**tip** of both sources — the call only matches events that arrive
+after the call begins. Same semantics as the `wait` / `wait-loop`
+default since #1925.
+
+### 7.4 Concurrency model — queue + daemon thread
+
+The host route uses **2 threads per in-flight wait** for up to the
+wait duration. The implementation pattern:
+
+```text
+                                    ┌───────────────────────────┐
+HTTP request ────► main worker ────►│  q = Queue(maxsize=16)    │
+                                    └───────────────────────────┘
+                                          ▲                    ▲
+                                          │ put_nowait         │ put_nowait
+                                          │ (try/except Full)  │ (try/except Full)
+                                          │                    │
+                          ┌───────────────────────┐   ┌──────────────────────────────┐
+                          │ wildcard EventBus     │   │ daemon thread                │
+                          │ handler (filtered by  │   │ message_store.get_messages(  │
+                          │ pid + type + seq>...) │   │   wait=25, wait_for_types=…) │
+                          └───────────────────────┘   └──────────────────────────────┘
+
+                          main worker:  q.get(timeout=wait)
+                                        ── on event/msg, unsubscribe handler, return
+                                        ── on queue.Empty,  unsubscribe handler, return minimal envelope
+```
+
+- **Main worker thread** — the Waitress worker handling the HTTP
+  request. Blocks on `q.get(timeout=wait)`. First source to push a
+  result wins; the other source's output is discarded.
+- **Daemon `Thread`** — runs `message_store.get_messages(wait=25,
+  wait_for_types=[...])` and pushes onto the same queue when it
+  returns. Spawned per call, exits when the inner long-poll returns
+  (event match, queue full, or 25 s timeout).
+- **Wildcard EventBus handler** — registered against the in-process
+  `EventBus`, filters on `(event.pipeline_id == pid, event.event_type
+  ∈ allowlist, event.sequence > event_since_seq)` and `put_nowait`'s
+  the matching event. Unsubscribed in the route's `finally`.
+
+#### Daemon-thread lame-duck (accepted)
+
+When the EventBus path wakes the route first, the daemon thread
+running `get_messages(wait=25)` continues blocking inside the message
+store for up to 25 s after the route returns. We accept this:
+
+- The thread is `daemon=True`, so it does **NOT** block process
+  shutdown.
+- Its cost is one thread (drawn from the same Python thread pool
+  Waitress uses) for ≤ 25 s per lame-duck.
+- At steady state the lame-duck is either absorbed by the next call
+  or times out harmlessly.
+- Operators can observe the pressure via the
+  `egg_inflight_host_waits` Prometheus gauge (route-call count) plus
+  the existing `egg_inflight_long_polls` (sandbox long-poll count).
+
+If saturation becomes a real issue, a follow-up can add an explicit
+cancellation signal to `message_store.get_messages` (a
+`threading.Event` polled every ~500 ms) — a mechanical refactor,
+out of scope for the initial #1932 PR.
+
+#### Queue-full path
+
+`Queue(maxsize=16)` bounds the per-call queue. If a burst of EventBus
+events fills the queue between subscribe and `q.get()`, additional
+events are dropped with a `WARNING` log naming the pipeline_id; the
+route still returns with the first delivered event. This is a
+deliberate dropped-events policy — the cursor on the returned event
+points the next call past the gap, so missed intermediate events do
+not block forward progress.
+
+### 7.5 Error responses
+
+The route uses the orchestrator's standard `make_error_response`
+helper, so every error body has the shape
+`{"success": false, "message": "..."}` (with an optional `details`
+key when the route adds context). There is no `error` key, no
+`detail` key, no per-error custom fields — clients should read the
+human-readable explanation from `message`.
+
+| Status | When | Body shape |
+|--------|------|------------|
+| **400** | Malformed `since` cursor — does not match the `msg:[^|]*\|evt:-?\d*` regex. | `{"success": false, "message": "Invalid 'since' cursor — expected 'msg:<id>|evt:<seq>' (either half may be empty)."}` |
+| **400** | Non-integer `wait` query parameter. | `{"success": false, "message": "Invalid 'wait' query parameter: must be an integer"}` |
+| **400** | Malformed `pipeline_id` (path parameter fails the orchestrator's pipeline-id format check). | `{"success": false, "message": "Invalid pipeline ID format: <pipeline_id>"}` |
+| **404** | Unknown `pipeline_id`. | `{"success": false, "message": "Pipeline <pipeline_id> not found"}` |
+| **200** | Event match (Path A), message match (Path A), or timeout (Path B). | See §7.1. |
+
+`wait` values outside the `[1, GET_STATUS_MAX_WAIT]` range are
+**not** an error — they are clamped silently to the bound. Only
+non-integer `wait` strings produce a 400.
+
+The route does **not** retry on transient errors — the MCP client
+(skill) handles its own retry. Permanent errors (400/404) propagate
+to the skill as MCP tool errors, which the skill should surface to
+the user rather than silently retry.
+
+### 7.6 Liveness floor (aspirational)
+
+The 25 s server-side cap on every `wait_for_status_change` call,
+combined with the skill's immediate loop re-entry on each return,
+bounds the aggregate quiet interval at **~25 s + one LLM turn ≤
+~55 s** — well inside the aspirational 60 s liveness floor by
+construction. The skill does not need a second timing mechanism.
+
+The **overseer is the primary deadlock detector**. It emits
+`OVERSEER_ALERT` on stalls, which is in the trigger allowlist, so a
+wedged pipeline wakes the host naturally via the early-return path.
+A future hard 60 s liveness watchdog (covered as "Future work" in
+the [release note](../releases/wait-for-status-change.md)) would be
+a defence-in-depth addition; the current design relies on the
+construction above for liveness.
+
+### 7.7 Worked example
+
+```text
+# poll cycle in pseudocode (the skill itself uses MCP tool calls,
+# but the shape is the same)
+
+# first poll — one-shot snapshot (no cursor)
+last_status = get_status(task_id)
+render_full_dashboard(last_status)
+
+# bootstrap cursor — first wait_for_status_change, no since
+resp = wait_for_status_change(task_id, wait=25)
+last_cursor = resp.cursor
+if not resp.no_change:
+    last_status = resp
+    render_full_dashboard(last_status)
+
+# subsequent polls — event-triggered wait
+while not last_status.status in {"complete", "failed", "cancelled"}:
+    resp = wait_for_status_change(task_id, wait=25, since=last_cursor)
+    last_cursor = resp.cursor
+    if resp.no_change:
+        # Path B — refresh four fields, reuse cached snapshot
+        last_status.current_phase           = resp.current_phase
+        last_status.status                  = resp.status
+        last_status.phase_elapsed_seconds   = resp.phase_elapsed_seconds
+        last_status.concurrent.consensus    = resp.concurrent.consensus
+        render_dashboard_lite(last_status)   # cheap re-render
+    else:
+        # Path A — replace cached snapshot, render full dashboard
+        last_status = resp
+        render_full_dashboard(last_status)
+        TERMINAL_STATES = {"pipeline.completed", "pipeline.failed", "pipeline.cancelled"}
+        if resp.event_type in TERMINAL_STATES:
+            break
+        if resp.event_type == "decision.created":
+            handle_hitl(last_status.pending_decisions)
+```
+
+## 8. `EGG_ORCH_WAITRESS_THREADS` — Thread-Pool / Long-Poll Coupling
 
 The orchestrator runs under the Waitress WSGI server. Each blocking
 long-poll occupies **one thread** for the full wait duration. If the
@@ -431,29 +738,56 @@ blocked long-polls and trigger spurious k8s readiness-probe restarts.
 
 | Env var | Default | Minimum (refuse-to-boot) | Effect |
 |---------|---------|--------------------------|--------|
-| `EGG_ORCH_WAITRESS_THREADS` | `16` | `4` | Sets Waitress `threads=` on `serve()`. Values `< 4` cause the orchestrator to `sys.exit(78)` (EX_CONFIG) at boot with an ERROR log. |
+| `EGG_ORCH_WAITRESS_THREADS` | `24` | `4` | Sets Waitress `threads=` on `serve()`. Values `< 4` cause the orchestrator to `sys.exit(78)` (EX_CONFIG) at boot with an ERROR log. |
+
+> **Default raised from 16 → 24 in [#1932](https://github.com/jwbron/egg/issues/1932)** to absorb the host-side
+> `wait_for_status_change` load on top of the existing sandbox-side
+> `message wait-loop` waits. Each `wait_for_status_change` call costs
+> **2 threads** for up to the wait duration (one main worker + one
+> daemon thread running `message_store.get_messages` — see §7.4).
+> Operators who set `EGG_ORCH_WAITRESS_THREADS` explicitly are
+> unaffected; the new default only applies when the env var is unset.
 
 ### Sizing rule of thumb
 
-> **Thread budget = (concurrent long-poll count) + (headroom for short
-> requests)**. With `EGG_MESSAGE_POLL_MAX_WAIT=60`, each agent holds one
-> thread for up to 60 s. For a six-agent concurrent pipeline, 16 threads
-> leaves 10 threads free for short requests, which is safe.
+> **Thread budget = (concurrent long-poll count) + (concurrent
+> host-wait count × 2) + (headroom for short requests)**. With
+> `EGG_MESSAGE_POLL_MAX_WAIT=60`, each sandbox agent holds one thread
+> for up to 60 s; each host `wait_for_status_change` holds 2 threads
+> for up to 25 s. For a six-agent concurrent pipeline plus one host
+> session, 24 threads leaves 16 threads free for short requests
+> after sandbox waits (`6 × 1 = 6`) and host waits (`1 × 2 = 2`),
+> which is safe.
 
-If you raise `EGG_MESSAGE_POLL_MAX_WAIT` or run more than ~6 concurrent
-agents, raise `EGG_ORCH_WAITRESS_THREADS` accordingly. The orchestrator
-exports `egg_inflight_long_polls` (Prometheus gauge) so you can
-monitor saturation; if the peak value approaches the thread count, raise
-the thread count.
+If you raise `EGG_MESSAGE_POLL_MAX_WAIT`, run more than ~6 concurrent
+agents, or run multiple concurrent host sessions on the same
+orchestrator, raise `EGG_ORCH_WAITRESS_THREADS` accordingly. The
+orchestrator exports two Prometheus gauges so you can monitor
+saturation:
+
+- `egg_inflight_long_polls` — sandbox-side `message wait` calls in
+  flight.
+- `egg_inflight_host_waits` (new in #1932, label `endpoint=
+  pipelines.status_wait`) — host-side `wait_for_status_change` route
+  calls in flight. **Does not** count the lame-duck daemon thread
+  (see §7.4) — that is bounded at 25 s and does not need separate
+  metric coverage.
+
+If `egg_inflight_long_polls + 2 × egg_inflight_host_waits` approaches
+the configured thread count, raise it.
 
 > **Why not Gunicorn?** Gunicorn migration is out of scope for #1897 and
 > tracked as a follow-up issue. The current Waitress server is sufficient
 > once the thread pool is sized correctly.
 
-## 8. Related Documentation
+## 9. Related Documentation
 
 - [Concurrent Execution Guide — Message Bus](../guides/concurrent-execution.md#message-bus) — the message-bus HTTP surface
 - [Concurrent Execution Guide — Consensus Wrapper](../guides/concurrent-execution.md#consensus-wrapper) — how the wrapper uses SSE + `wait-loop`
 - [Orchestrator CLI Reference — `egg-orch message`](orchestrator-cli.md#common-workflows) — full command surface
 - [Pipeline Health Monitoring](../guides/pipeline-health-monitoring.md) — how `HEARTBEAT` feeds stall detection
+- [Orchestrator Architecture — MCP Server](../architecture/orchestrator.md#api-endpoints) — full MCP tool inventory including `wait_for_status_change`
+- [SDLC Skill](../../skills/sdlc/SKILL.md) — host-side consumer of `wait_for_status_change` (see §Phase 3 and §Phase S5)
+- [Release note — `wait_for_status_change`](../releases/wait-for-status-change.md) — rationale, rollback, and follow-up work for #1932
 - [Issue #1897](https://github.com/jwbron/egg/issues/1897) — original bug report with the four observed anti-patterns
+- [Issue #1932](https://github.com/jwbron/egg/issues/1932) — host-side event-driven wake (this section's source issue)
