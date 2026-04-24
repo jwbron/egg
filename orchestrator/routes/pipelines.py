@@ -1743,13 +1743,16 @@ def _cleanup_remote_branches(
     pipeline: "Pipeline",
     repo_path: Path,
 ) -> None:
-    """Best-effort cleanup of remote worktree branches for a pipeline.
+    """Best-effort cleanup of remote branches for a pipeline.
 
-    Iterates all containers across all phase executions and deletes their
-    remote worktree branches (``egg/{container_id}/work``).  Failures are
-    logged as warnings and do not block pipeline deletion.
+    Deletes the pipeline's shared branch (``pipeline.branch``, typically
+    ``egg/{pipeline_id}``) and every per-container worktree branch
+    (``egg/{container_id}/work``).  Failures are logged as warnings and do
+    not block pipeline deletion.
     """
     branches: set[str] = set()
+    if pipeline.branch:
+        branches.add(pipeline.branch)
     for phase_exec in pipeline.phases.values():
         for container in phase_exec.containers:
             branches.add(f"egg/{container.container_id}/work")
