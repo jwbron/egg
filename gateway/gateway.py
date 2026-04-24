@@ -222,13 +222,13 @@ except ImportError:
         get_jira_client,
         validate_jira_api_path,
     )
-    from jira_client import (
+    from jira_client import (  # type: ignore[no-redef, import-untyped]
         validate_fields as validate_jira_fields,
     )
     from jira_credentials import (  # type: ignore[no-redef, import-untyped]
         reload_jira_credentials,
     )
-    from jira_policy import (  # type: ignore[no-redef, import-untyped]
+    from jira_policy import (  # type: ignore[no-redef]
         extract_project_key,
         is_project_allowed,
         reload_jira_policy,
@@ -3733,7 +3733,7 @@ def jira_search() -> tuple[Response, int] | Response:
     try:
         from .jira_policy import allowed_projects
     except ImportError:
-        from jira_policy import allowed_projects  # type: ignore[no-redef, import-untyped]
+        from jira_policy import allowed_projects  # type: ignore[no-redef]
     allowed = allowed_projects()
 
     scope = extract_search_projects(jql, allowed)

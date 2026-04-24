@@ -76,10 +76,10 @@ def require_private_mode(f: F) -> F:  # noqa: UP047
             # Lazy import — gateway.py imports this module near the top, so a
             # module-level import would be circular.
             try:
-                from .gateway import audit_log  # type: ignore[attr-defined]
+                from .gateway import audit_log
             except ImportError:
                 try:
-                    from gateway import audit_log  # type: ignore[no-redef, import-untyped]
+                    from gateway import audit_log  # type: ignore[no-redef, attr-defined]
                 except ImportError:
                     audit_log = None  # type: ignore[assignment]
 

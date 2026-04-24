@@ -341,10 +341,10 @@ class JiraClient:
                     return False
 
             try:
-                from .gateway import audit_log  # type: ignore[attr-defined]
+                from .gateway import audit_log
             except ImportError:
                 try:
-                    from gateway import audit_log  # type: ignore[no-redef, import-untyped]
+                    from gateway import audit_log  # type: ignore[no-redef, attr-defined]
                 except ImportError:
                     audit_log = None  # type: ignore[assignment]
             if audit_log is not None and has_request_context():
