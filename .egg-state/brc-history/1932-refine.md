@@ -1,6 +1,6 @@
 # BRC Consensus History — refine phase
 
-Generated: 2026-04-24T00:23:03Z
+Generated: 2026-04-24T00:34:09Z
 Pipeline: issue-1932
 
 ### [2026-04-24T00:10:25Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_ON_ROLE
@@ -368,4 +368,166 @@ id: 11313304-0500-4d
 phase: refine
 metadata:
   state: IDLE
+````
+
+### [2026-04-24T00:28:07Z] orchestrator (OVERSEER_ALERT): overseer_restart: overseer [info]
+
+Overseer container was respawned. Old container dd5c69ce-448 exited with code 0. New container 5a4047fe-4f2 is now running.
+
+````yaml
+id: e1d3bd7c-3b84-43
+phase: refine
+metadata:
+  exit_code: 0
+  old_container_id: dd5c69ce-4483-4e89-918d-2d6028620db0
+  new_container_id: 5a4047fe-4f2a-481e-a848-2de01408c572
+  log_tail: "The pipeline is correctly paused awaiting human resolution of **7 design\
+    \ decisions** and **1 feedback form (6 questions)** covering:\n- Implementation\
+    \ strategy (Option A: new `wait_for_status_change` MCP tool \u2014 recommended\
+    \ by refiner)\n- Event set composition for early wake\n- Timeout payload shape\n\
+    - Cursor parameter design (`since`/`since_event_id`)\n- EventBus vs message-poll\
+    \ routing\n- `recent_messages` fetch strategy\n- Self-wake avoidance\n\n**No action\
+    \ required from overseer** \u2014 pipeline will auto-resume once decisions are\
+    \ resolved by the human operator.\n\n---\n\n### Health Score: \U0001F7E2 **EXCELLENT**\n\
+    - 0 critical alerts\n- 0 escalations requiring operator intervention\n- All agents\
+    \ self-recovered from minor issues\n- Full BRC consensus achieved with high-quality\
+    \ output\n2026-04-24 00:27:50 [INFO    ] egg-agent: Agent completed event_type=system\
+    \ event_subtype=result model=claude-sonnet-4-6 session_id=47e6b8b8-e896-48f3-9df8-7ce5ed1304c4\
+    \ cost_usd=1.7244284499999998 num_turns=74 duration_ms=1125925 success=True [/opt/egg-runtime/shared/egg_agent/client.py:471]\n\
+    - Clean phase transition to HITL gate"
+  respawn_attempt: 1
+  max_respawns: 3
+````
+
+### [2026-04-24T00:29:22Z] overseer (HEARTBEAT): heartbeat: IDLE
+
+Overseer monitoring stable. Pipeline is healthy at HITL gate — 7 decisions + 1 feedback form pending human resolution. 0 critical alerts across 3 monitor cycles. No agent action required.
+
+````yaml
+id: fe396eed-37ef-47
+phase: refine
+metadata:
+  state: IDLE
+````
+
+### [2026-04-24T00:30:10Z] orchestrator (OVERSEER_ALERT): overseer_restart: overseer [info]
+
+Overseer container was respawned. Old container 5a4047fe-4f2 exited with code 0. New container 182d0eca-528 is now running.
+
+````yaml
+id: 4b66a2b9-137c-4d
+phase: refine
+metadata:
+  exit_code: 0
+  old_container_id: 5a4047fe-4f2a-481e-a848-2de01408c572
+  new_container_id: 182d0eca-5288-4577-9d4a-7522217bf404
+  log_tail: "### \U0001F512 What's blocking: 7 Design Decisions + 1 Feedback Form\n\
+    \nThe refiner's analysis (`.egg-state/drafts/1932-analysis.md`, 426 lines) proposes\
+    \ **Option A** (new `wait_for_status_change` MCP tool) as the recommended approach.\
+    \ Here are the 7 decisions awaiting your input:\n\n| # | Question | Refiner's\
+    \ Recommendation |\n|---|---|---|\n| 1 | **Implementation strategy** | Option\
+    \ A: new `wait_for_status_change` sibling tool |\n| 2 | **Event trigger set**\
+    \ | Issue-as-written: OVERSEER_ALERT + DECISION_CREATED + terminal + phase transitions\
+    \ + consensus changes |\n| 3 | **Timeout payload shape** | Minimal envelope `{changed:\
+    \ false, current_phase, status, phase_elapsed_seconds}` |\n| 4 | **`since` cursor\
+    \ parameter** | Yes \u2014 expose `since` to prevent stuck-on-same-event races\
+    \ |\n| 5 | **Event source** | Both: EventBus for phase/decision/terminal + message-poll\
+    \ for OVERSEER_ALERT/CONSENSUS_* |\n| 6 | **`recent_messages` on timeout** | Defer\
+    \ to plan phase (depends on envelope shape) |\n| 7 | **Self-wake avoidance** |\
+    \ Filter out `DECISION_RESOLVED` from trigger set |\n\nPlus **6 open-ended feedback\
+    \ questions** covering: concurrency load, SDK surface availability, liveness floor\
+    \ literalness, metrics, and upstream timeout timeline.\n\n---\n\n2026-04-24 00:29:40\
+    \ [INFO    ] egg-agent: Agent completed event_type=system event_subtype=result\
+    \ model=claude-sonnet-4-6 session_id=64b05ea2-89be-41b6-9991-f9e78d866780 cost_usd=0.20284734999999995\
+    \ num_turns=7 duration_ms=90424 success=True [/opt/egg-runtime/shared/egg_agent/client.py:471]\n\
+    **Would you like to answer these decisions now so the pipeline can advance to\
+    \ the plan phase?** I can walk you through each one, or you can provide your answers\
+    \ and I'll submit them via the HITL contract. Otherwise, I'll keep monitoring\
+    \ and re-check periodically for any state changes."
+  respawn_attempt: 2
+  max_respawns: 3
+````
+
+### [2026-04-24T00:30:33Z] overseer (HEARTBEAT): heartbeat: WORKING
+
+Overseer cycle 1: pipeline healthy at HITL gate. Classifying state and checking pending decisions.
+
+````yaml
+id: 2dbcd6c4-bca4-45
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-04-24T00:31:04Z] overseer (HEARTBEAT): heartbeat: IDLE
+
+Cycle 1 complete. Pipeline healthy at HITL gate. 7 decisions + 1 feedback form pending human resolution. 0 alerts. No corrective action taken. Monitoring for state changes.
+
+````yaml
+id: e53501b3-0a4d-41
+phase: refine
+metadata:
+  state: IDLE
+````
+
+### [2026-04-24T00:31:41Z] orchestrator (OVERSEER_ALERT): overseer_restart: overseer [info]
+
+Overseer container was respawned. Old container 182d0eca-528 exited with code 0. New container 3f258d94-16d is now running.
+
+````yaml
+id: 61c5d42b-0444-42
+phase: refine
+metadata:
+  exit_code: 0
+  old_container_id: 182d0eca-5288-4577-9d4a-7522217bf404
+  new_container_id: 3f258d94-16da-477f-89c0-949d952d8353
+  log_tail: "  Decisions pending:   7 / 7  (all unresolved)\n  Feedback form:    \
+    \   1 (6 questions, not submitted)\n  Blocking since:      ~00:22 UTC (\u2248\
+    9 min at last check)\n\n\u2500\u2500 Refiner Output \u2500\u2500\u2500\u2500\u2500\
+    \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+    \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+    \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+    \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n  Artifact:   .egg-state/drafts/1932-analysis.md\
+    \  (426 lines)\n  Commit:     23eebdfb9\n  Complexity: medium\n  Recommends: Option\
+    \ A \u2014 new wait_for_status_change MCP sibling tool\n\n\u2500\u2500 Overseer\
+    \ Health \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+    \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+    \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+    \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+    \n  Cycles run:          2 (this session) + prior overseer sessions\n  Heartbeats\
+    \ emitted:  \u2705\n  Corrective actions:  0 required\n\n\u2500\u2500 Overall\
+    \ Score:  \U0001F7E2 EXCELLENT \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+    \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+    \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\
+    \u2500\u2500\u2500\n```\n\n2026-04-24 00:31:30 [INFO    ] egg-agent: Agent completed\
+    \ event_type=system event_subtype=result model=claude-sonnet-4-6 session_id=1265f126-24ef-450a-b8a6-88eb177a12dd\
+    \ cost_usd=0.14156795 num_turns=6 duration_ms=77650 success=True [/opt/egg-runtime/shared/egg_agent/client.py:471]\n\
+    **The pipeline is healthy and correctly paused.** It will auto-resume once you\
+    \ resolve the 7 decisions and submit the feedback form. Would you like to go through\
+    \ each decision now so I can submit your answers and unblock the plan phase?"
+  respawn_attempt: 3
+  max_respawns: 3
+````
+
+### [2026-04-24T00:32:24Z] overseer (HEARTBEAT): heartbeat: WORKING
+
+Cycle 1 complete. 0 alerts. Pipeline healthy at HITL gate. 7/7 decisions unresolved + 1 feedback form (6 questions). BRC consensus confirmed by all 3 agents. Overseer at max_respawns (3/3) — presenting decisions to human for resolution.
+
+````yaml
+id: 97d94f53-8962-45
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-04-24T00:34:09Z] overseer (HEARTBEAT): heartbeat: WAITING_ON_ROLE
+
+Cycle 2 complete. No state change. Still 7/7 decisions + 1 feedback form unresolved. 0 alerts. Awaiting human input to unblock plan phase.
+
+````yaml
+id: 11d3833a-2ba2-44
+phase: refine
+metadata:
+  state: WAITING_ON_ROLE
+  waiting_on: human
 ````
