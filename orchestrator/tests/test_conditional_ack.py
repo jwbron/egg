@@ -223,6 +223,34 @@ class TestTrackerCondition:
         assert len(conditions) == 1
         assert conditions[0]["condition"] == "git mv X Y before merge"
 
+    def test_handle_ack_whitespace_condition_excluded_from_event_and_result(self, matrix_graph):
+        """Whitespace-only condition should not appear in the return value or
+        event data — it must be consistent with the matrix normalization."""
+        tracker = PeerConsensusTracker("test-pid", matrix_graph, cooldown_seconds=0)
+        tracker.register_agent("coder")
+        tracker.register_agent("reviewer_code")
+        tracker.register_agent("reviewer_contract")
+
+        tracker.handle_propose(
+            "coder",
+            {
+                "summary": "impl",
+                "artifacts": ["src/a.py"],
+                "commit_sha": "abc123",
+            },
+        )
+        result = tracker.handle_ack(
+            "reviewer_code",
+            "coder",
+            {
+                "artifact_references": ["src/a.py"],
+                "pre_merge_condition": "   ",
+            },
+        )
+        # Whitespace-only condition should be treated as no condition.
+        assert "pre_merge_condition" not in result
+        assert tracker.get_pre_merge_conditions() == []
+
     def test_handle_ack_without_condition_is_unchanged(self, matrix_graph):
         tracker = PeerConsensusTracker("test-pid", matrix_graph, cooldown_seconds=0)
         tracker.register_agent("coder")

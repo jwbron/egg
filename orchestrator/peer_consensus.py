@@ -320,8 +320,11 @@ class PeerConsensusTracker:
             # Surface conditional-ACK obligations on the event stream so
             # downstream consumers (PR builder, HITL gate, audit log) can
             # react without having to inspect the matrix directly (#1998).
-            if review.pre_merge_condition:
-                event_data["pre_merge_condition"] = review.pre_merge_condition
+            # Use the normalized value (record_ack strips whitespace) so the
+            # event stream is consistent with persisted matrix state.
+            normalized_condition = (review.pre_merge_condition or "").strip()
+            if normalized_condition:
+                event_data["pre_merge_condition"] = normalized_condition
 
             emit_event(
                 EventType.CONSENSUS_ACK_RECEIVED,
@@ -336,8 +339,8 @@ class PeerConsensusTracker:
                 "fully_acked": fully_acked,
                 "version": ack_version,
             }
-            if review.pre_merge_condition:
-                result["pre_merge_condition"] = review.pre_merge_condition
+            if normalized_condition:
+                result["pre_merge_condition"] = normalized_condition
             return result
 
     def handle_nack(
