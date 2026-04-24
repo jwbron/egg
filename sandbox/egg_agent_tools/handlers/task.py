@@ -312,9 +312,7 @@ def task_mark_gap(req: dict[str, Any]) -> dict[str, Any]:
         raise HandlerError("'to_role' must be a non-empty string")
     from_role = req.get("from_role") or get_agent_role()
     if not from_role:
-        raise HandlerError(
-            "Sender role required. Set EGG_AGENT_ROLE or pass 'from_role'."
-        )
+        raise HandlerError("Sender role required. Set EGG_AGENT_ROLE or pass 'from_role'.")
 
     repo_path = req.get("repo_path") or get_repo_path()
     identifier = _resolve_identifier(req)
@@ -333,9 +331,7 @@ def task_mark_gap(req: dict[str, Any]) -> dict[str, Any]:
         # Re-read the contract on every attempt so a concurrent writer
         # that already landed a gap at our chosen index forces us to
         # recompute the next free slot + id.
-        read_result = gateway_request(
-            f"/api/v1/contract/{identifier}", params=params or None
-        )
+        read_result = gateway_request(f"/api/v1/contract/{identifier}", params=params or None)
         if not read_result.get("success"):
             raise GatewayError(read_result.get("message", "contract fetch failed"))
         contract = read_result.get("data", {}) or {}
@@ -374,10 +370,7 @@ def task_mark_gap(req: dict[str, Any]) -> dict[str, Any]:
                 "field_path": field_path,
                 "new_value": gap_record,
                 "actor": "egg",
-                "reason": (
-                    f"Recorded gap {gap_id} on {task_id} "
-                    f"(from {from_role} to {to_role})"
-                ),
+                "reason": (f"Recorded gap {gap_id} on {task_id} (from {from_role} to {to_role})"),
                 **container_id_field(),
             },
         )

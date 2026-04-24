@@ -162,8 +162,7 @@ def progress_overseer_alert(req: dict[str, Any]) -> dict[str, Any]:
         raise HandlerError("'priority' is required")
     if priority not in _VALID_OVERSEER_PRIORITIES:
         raise HandlerError(
-            f"'priority' must be one of {list(_VALID_OVERSEER_PRIORITIES)}; "
-            f"got {priority!r}"
+            f"'priority' must be one of {list(_VALID_OVERSEER_PRIORITIES)}; got {priority!r}"
         )
     summary = req.get("summary")
     if not summary or not isinstance(summary, str):
@@ -190,9 +189,7 @@ def progress_overseer_alert(req: dict[str, Any]) -> dict[str, Any]:
         "body": body_text,
     }
 
-    result = orchestrator_request(
-        f"/api/v1/pipelines/{pid}/messages", method="POST", data=data
-    )
+    result = orchestrator_request(f"/api/v1/pipelines/{pid}/messages", method="POST", data=data)
     if not result.get("success"):
         raise GatewayError(result.get("message", "overseer alert failed"))
     alert_msg = result.get("data", {}).get("message", {})
@@ -234,9 +231,7 @@ def progress_query_status(req: dict[str, Any]) -> dict[str, Any]:
         )
     pid = env_pid or caller_pid
     if not pid:
-        raise HandlerError(
-            "pipeline_id required. Set EGG_PIPELINE_ID or pass 'pipeline_id'."
-        )
+        raise HandlerError("pipeline_id required. Set EGG_PIPELINE_ID or pass 'pipeline_id'.")
     include_raw = bool(req.get("include_raw", False))
     result = orchestrator_request(f"/api/v1/pipelines/{pid}/status")
     if not result.get("success", True):

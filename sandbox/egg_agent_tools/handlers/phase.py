@@ -24,9 +24,7 @@ _COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
 
 def _validate_commit_sha(commit: str) -> str:
     if not _COMMIT_SHA_PATTERN.match(commit):
-        raise HandlerError(
-            f"Invalid commit SHA '{commit}': expected 7-40 hexadecimal characters"
-        )
+        raise HandlerError(f"Invalid commit SHA '{commit}': expected 7-40 hexadecimal characters")
     return commit
 
 
@@ -41,9 +39,7 @@ def _parse_phase_id(phase_id: str) -> int:
     try:
         phase_num = int(stripped)
     except ValueError as exc:
-        raise HandlerError(
-            f"Invalid phase ID '{phase_id}': expected format 'phase-N'"
-        ) from exc
+        raise HandlerError(f"Invalid phase ID '{phase_id}': expected format 'phase-N'") from exc
     if phase_num < 1:
         raise HandlerError(f"Phase number must be >= 1: {phase_id}")
     return phase_num - 1
@@ -281,9 +277,7 @@ def phase_complete_phase(req: dict[str, Any]) -> dict[str, Any]:
             },
         )
         if not commit_result.get("success"):
-            raise GatewayError(
-                commit_result.get("message", "phase commit link failed")
-            )
+            raise GatewayError(commit_result.get("message", "phase commit link failed"))
 
     # Step 2: flip status to complete.  On failure the caller sees a
     # vanilla GatewayError ("Error setting status: …") and can retry.

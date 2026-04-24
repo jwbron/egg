@@ -128,12 +128,8 @@ class TaskGap(BaseModel):
         pattern=r"^gap-[0-9]+$",
         description="Unique gap identifier of the form 'gap-<N>'",
     )
-    from_role: str = Field(
-        ..., min_length=1, description="Agent role that recorded the gap"
-    )
-    to_role: str = Field(
-        ..., min_length=1, description="Target role (usually 'coder')"
-    )
+    from_role: str = Field(..., min_length=1, description="Agent role that recorded the gap")
+    to_role: str = Field(..., min_length=1, description="Target role (usually 'coder')")
     description: str = Field(..., min_length=1, description="Gap description")
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC),

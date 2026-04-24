@@ -1458,10 +1458,7 @@ def cmd_overseer_alert(args: argparse.Namespace) -> int:
         return 0
 
     msg = resp.get("alert") or {}
-    print(
-        f"OVERSEER_ALERT broadcast: {msg.get('id', 'unknown')} "
-        f"({args.anomaly}, {args.priority})"
-    )
+    print(f"OVERSEER_ALERT broadcast: {msg.get('id', 'unknown')} ({args.anomaly}, {args.priority})")
     return 0
 
 

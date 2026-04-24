@@ -963,9 +963,7 @@ def search_checkpoints(query: str, filters: dict[str, Any]) -> dict[str, Any]:
         cp = load_checkpoint_from_ref(summary_dict["id"], ref, repo_path)
         if cp is None:
             continue
-        if composite_role and not (
-            cp.session and cp.session.agent_role == composite_role
-        ):
+        if composite_role and not (cp.session and cp.session.agent_role == composite_role):
             continue
         snippets = _search_checkpoint_transcript(cp, query)
         if snippets:

@@ -70,8 +70,7 @@ NAMESPACE_DESCRIPTIONS: dict[str, str] = {
         "inspect state, read peer history, and block on typed events / emit heartbeats"
     ),
     "checkpoint": (
-        "browse agent checkpoint history: list, show, and search across "
-        "captured sessions"
+        "browse agent checkpoint history: list, show, and search across captured sessions"
     ),
     "phase": (
         "look up your phase context (role, pipeline, assigned tasks, "

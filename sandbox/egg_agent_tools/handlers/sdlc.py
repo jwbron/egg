@@ -310,9 +310,7 @@ def show_contract(req: dict[str, Any]) -> dict[str, Any]:
         projected: dict[str, Any] = {}
         for name in fields:
             if not isinstance(name, str):
-                raise HandlerError(
-                    f"'fields' entries must be strings; got {type(name).__name__}"
-                )
+                raise HandlerError(f"'fields' entries must be strings; got {type(name).__name__}")
             if name not in contract:
                 raise HandlerError(f"Unknown field: {name}")
             projected[name] = contract[name]
@@ -346,9 +344,7 @@ def verify_criterion(req: dict[str, Any]) -> dict[str, Any]:
     lower = criterion_id.lower()
     stripped = lower.removeprefix("ac-")
     if stripped == lower:
-        raise HandlerError(
-            f"Invalid criterion ID '{criterion_id}': expected format 'ac-N'"
-        )
+        raise HandlerError(f"Invalid criterion ID '{criterion_id}': expected format 'ac-N'")
     try:
         criterion_num = int(stripped)
     except ValueError as exc:

@@ -131,8 +131,7 @@ _READ_PEER_ARTIFACT_SCHEMA: dict[str, Any] = {
             "type": "string",
             "pattern": "^[a-z0-9_-]+$",
             "description": (
-                "Optional filter: only records whose from_role matches. "
-                "Must match [a-z0-9_-]."
+                "Optional filter: only records whose from_role matches. Must match [a-z0-9_-]."
             ),
         },
         "producer_role": {

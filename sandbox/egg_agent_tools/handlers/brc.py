@@ -409,18 +409,14 @@ def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
     if not phase or not isinstance(phase, str):
         raise HandlerError("'phase' is required")
     if phase not in _VALID_PHASES:
-        raise HandlerError(
-            f"'phase' must be one of {list(_VALID_PHASES)}; got {phase!r}"
-        )
+        raise HandlerError(f"'phase' must be one of {list(_VALID_PHASES)}; got {phase!r}")
 
     peer_role = req.get("peer_role") or req.get("producer_role")
     if peer_role is not None:
         if not isinstance(peer_role, str):
             raise HandlerError("'peer_role' must be a string if provided")
         if not _ROLE_SLUG_PATTERN.match(peer_role):
-            raise HandlerError(
-                f"'peer_role' must match [a-z0-9_-]; got {peer_role!r}"
-            )
+            raise HandlerError(f"'peer_role' must match [a-z0-9_-]; got {peer_role!r}")
 
     raw_mt = req.get("message_type")
     message_types: frozenset[str] | None
@@ -464,9 +460,7 @@ def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
     # Containment check: catches symlinks / .. in identifier/phase that
     # escape the allowed directory even after the env-only resolution.
     if not history_file.is_relative_to(history_dir):
-        raise HandlerError(
-            "Resolved brc-history path escapes .egg-state/brc-history/"
-        )
+        raise HandlerError("Resolved brc-history path escapes .egg-state/brc-history/")
 
     if not history_file.exists():
         return {
@@ -481,14 +475,9 @@ def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
     try:
         records = json.loads(history_file.read_text())
     except (OSError, json.JSONDecodeError) as exc:
-        raise HandlerError(
-            f"Failed to read brc-history file for phase {phase!r}: {exc}"
-        ) from exc
+        raise HandlerError(f"Failed to read brc-history file for phase {phase!r}: {exc}") from exc
     if not isinstance(records, list):
-        raise HandlerError(
-            f"Malformed brc-history file for phase {phase!r}: "
-            "expected a JSON array"
-        )
+        raise HandlerError(f"Malformed brc-history file for phase {phase!r}: expected a JSON array")
 
     filtered: list[dict[str, Any]] = []
     skipped_malformed = 0
@@ -511,9 +500,7 @@ def brc_read_peer_artifact(req: dict[str, Any]) -> dict[str, Any]:
         page = filtered[offset : offset + limit]
         next_offset = offset + len(page)
         next_cursor = (
-            _encode_cursor(
-                {"offset": next_offset, "skipped_malformed": total_skipped}
-            )
+            _encode_cursor({"offset": next_offset, "skipped_malformed": total_skipped})
             if next_offset < total
             else None
         )
