@@ -42,10 +42,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option A: new `wait_for_status_change` MCP tool (recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:10:12.275719Z",
       "debounce_until": null
     },
     {
@@ -75,10 +75,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Issue-as-written: above + phase transitions (PHASE_STARTED/COMPLETED) + consensus state change (CONSENSUS_CONFIRMED/NACK/RE_REVIEW)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:10:47.656625Z",
       "debounce_until": null
     },
     {
@@ -108,10 +108,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Minimal envelope: {changed: false, current_phase, status, phase_elapsed_seconds} \u2014 cheap re-render, SKILL.md must branch on `changed`\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:11:23.010923Z",
       "debounce_until": null
     },
     {
@@ -141,10 +141,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Yes: add `since` string parameter; host passes the most recent event ID from the prior call (prevents stuck-on-same-event races)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:11:58.529780Z",
       "debounce_until": null
     },
     {
@@ -174,10 +174,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Both (recommended): EventBus for phase/decision/terminal events, message_store.get_messages for OVERSEER_ALERT/CONSENSUS_* \u2014 matches where each event actually lives\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:12:34.166284Z",
       "debounce_until": null
     },
     {
@@ -212,10 +212,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Only on `changed: true` \u2014 timeout path uses cached recent_messages from the prior wake\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:13:09.710675Z",
       "debounce_until": null
     },
     {
@@ -245,10 +245,33 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Filter out DECISION_RESOLVED events from the trigger set \u2014 wait only on decisions that still need input\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:13:40.156486Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-8",
+      "question": "[Phase gate: refine] The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "## Resolved Questions\n\n### Choice decisions\n\n**Which implementation option should we take?**\nAnswer: Option A: new wait_for_status_change sibling MCP tool (recommended)\n\n**Which event set should trigger early return from the host-side wait?**\nAnswer: Issue-as-written: OVERSEER_ALERT + DECISION_CREATED + terminal state + phase transition (PHASE_STARTED/COMPLETED) + consensus state change (CONSENSUS_CONFIRMED/NACK/RE_REVIEW)\n\n**Should the timeout payload (no-event-in-25s) be minimal or a full status envelope?**\nAnswer: Minimal envelope: {changed: false, current_phase, status, phase_elapsed_seconds} \u2014 SKILL.md branches on `changed`\n\n**Should we expose a `since` / `since_event_id` cursor parameter?**\nAnswer: Yes \u2014 add `since` string parameter; host passes the most recent event ID from the prior call to prevent stuck-on-same-event races\n\n**Should the event-driven wait be wired into the EventBus, message-type long-poll, or both?**\nAnswer: Both \u2014 EventBus for phase/decision/terminal events, message_store.get_messages for OVERSEER_ALERT/CONSENSUS_*\n\n**Should the SDLC skill keep the 10-message recent_messages fetch on every poll, or only on the `changed: true` path?**\nAnswer: Only on `changed: true` \u2014 timeout path reuses cached recent_messages from the prior wake\n\n**How should `provide_input` interaction with the wait loop be handled?**\nAnswer: Filter out DECISION_RESOLVED events from the trigger set \u2014 wait only on decisions that still need input\n\n### Feedback\n\n**Are there host-side consumers of get_status besides the SDLC skill that should benefit?**\nAnswer: SDLC skill only \u2014 keep Option A scoped. Other callers keep get_status.\n\n**Expected concurrency load and EGG_ORCH_WAITRESS_THREADS=16 budget?**\nAnswer: Raise default or document cap in plan. Call out the budget risk explicitly.\n\n**Should wait_for_status_change be available over the Python SDK MCP tools surface (PR #1920) as well as streamable-HTTP?**\nAnswer: Not sure / skip \u2014 defer to plan phase.\n\n**Is the 60s liveness-floor constraint literal or aspirational?**\nAnswer: Not sure / skip \u2014 defer to plan phase.\n\n**Should the new wait path emit its own metric parallel to egg_inflight_long_polls?**\nAnswer: Yes \u2014 add egg_inflight_host_waits metric so operators can distinguish host-side from sandbox-side waits.\n\n**Upstream plans to raise streamable-HTTP MCP client timeout (anthropics/claude-code#20335)?**\nAnswer: Keep design flexible in case it lifts \u2014 parameterize the cap so raising it later is a one-line change.",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:09:19.533026Z",
       "debounce_until": null
     }
   ],
@@ -629,37 +652,37 @@
       {
         "id": "Q1",
         "question": "Are there host-side consumers of `get_status` besides the SDLC skill's Phase 3 / Phase S5 monitor loop that should also benefit from event-driven wake (e.g. babysit-pr, agent-diagnose, external tools)? If so, does that push us toward Option B (retrofit) instead of Option A (sibling tool)?",
-        "answer": null
+        "answer": "SDLC skill only \u2014 keep Option A scoped. Other callers (babysit-pr, agent-diagnose, external tools) keep get_status. This does NOT push us toward Option B; Option A remains preferred precisely because non-SDLC consumers should not be affected."
       },
       {
         "id": "Q2",
         "question": "What is the expected concurrency load? Specifically: how many host sessions per orchestrator in production, and does the current EGG_ORCH_WAITRESS_THREADS=16 budget accommodate one long-poll per host session on top of per-agent waits?",
-        "answer": null
+        "answer": "Raise default or document cap in plan. Call out the budget risk explicitly \u2014 at current scale (O(10) pipelines \u00d7 1 host session + per-agent waits) we remain under 16, but the budget is shared with every sandbox long-poll and SSE stream. The plan should either raise EGG_ORCH_WAITRESS_THREADS default or document the cap with guidance on when to bump it."
       },
       {
         "id": "Q3",
         "question": "Should `wait_for_status_change` also be available as an in-process SDK MCP tool (see PR #1920) as well as the streamable-HTTP MCP server, or only the latter?",
-        "answer": null
+        "answer": "Not sure / skip \u2014 defer to plan phase. The plan should decide after checking whether the SDLC skill actually reaches #1920's SDK MCP surface. Default assumption: streamable-HTTP only, add SDK parity later if needed."
       },
       {
         "id": "Q4",
         "question": "Is the 60-second liveness-floor constraint from the issue body literal (must guarantee a return at most every 60s of wall-clock time regardless of events) or aspirational (cap any single call at 25s and rely on loop composition to bound aggregate quiet time)?",
-        "answer": null
+        "answer": "Not sure / skip \u2014 defer to plan phase. Default assumption: aspirational (25s hard cap \u00d7 loop composition is already well inside 60s), but the plan phase should validate this against the actual overseer-wedge scenario."
       },
       {
         "id": "Q5",
         "question": "Should the new wait path emit its own metric (parallel to `egg_inflight_long_polls`) so operators can distinguish host-side waits from sandbox-side waits when investigating a saturated Waitress thread pool?",
-        "answer": null
+        "answer": "Yes \u2014 add egg_inflight_host_waits metric parallel to egg_inflight_long_polls so operators can distinguish host-side waits from sandbox-side waits when investigating a saturated Waitress thread pool."
       },
       {
         "id": "Q6",
         "question": "Are there known upstream plans or timelines to raise the streamable-HTTP MCP client timeout (anthropics/claude-code#20335)? If it lifts within the next quarter, the 25s cap becomes moot and the design may want to accommodate that.",
-        "answer": null
+        "answer": "Keep design flexible in case it lifts \u2014 parameterize the cap (e.g. GET_STATUS_MAX_WAIT constant + wait_for_status_change's own MAX_WAIT constant) so raising it later is a one-line change. No known imminent upstream change, but the cap is documented as transport-dependent so the design should accommodate a future lift."
       }
     ],
-    "submitted": false,
-    "submitted_by": null,
-    "submitted_at": null,
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-04-24T03:14:30.621503Z",
     "comment_id": null,
     "debounce_until": null
   },

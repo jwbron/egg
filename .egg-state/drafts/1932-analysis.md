@@ -424,3 +424,53 @@ transport.
 ---
 
 *Authored-by: egg*
+
+
+## HITL Resolution
+
+The following was approved by a human reviewer at the refine phase gate:
+
+## Resolved Questions
+
+### Choice decisions
+
+**Which implementation option should we take?**
+Answer: Option A: new wait_for_status_change sibling MCP tool (recommended)
+
+**Which event set should trigger early return from the host-side wait?**
+Answer: Issue-as-written: OVERSEER_ALERT + DECISION_CREATED + terminal state + phase transition (PHASE_STARTED/COMPLETED) + consensus state change (CONSENSUS_CONFIRMED/NACK/RE_REVIEW)
+
+**Should the timeout payload (no-event-in-25s) be minimal or a full status envelope?**
+Answer: Minimal envelope: {changed: false, current_phase, status, phase_elapsed_seconds} — SKILL.md branches on `changed`
+
+**Should we expose a `since` / `since_event_id` cursor parameter?**
+Answer: Yes — add `since` string parameter; host passes the most recent event ID from the prior call to prevent stuck-on-same-event races
+
+**Should the event-driven wait be wired into the EventBus, message-type long-poll, or both?**
+Answer: Both — EventBus for phase/decision/terminal events, message_store.get_messages for OVERSEER_ALERT/CONSENSUS_*
+
+**Should the SDLC skill keep the 10-message recent_messages fetch on every poll, or only on the `changed: true` path?**
+Answer: Only on `changed: true` — timeout path reuses cached recent_messages from the prior wake
+
+**How should `provide_input` interaction with the wait loop be handled?**
+Answer: Filter out DECISION_RESOLVED events from the trigger set — wait only on decisions that still need input
+
+### Feedback
+
+**Are there host-side consumers of get_status besides the SDLC skill that should benefit?**
+Answer: SDLC skill only — keep Option A scoped. Other callers keep get_status.
+
+**Expected concurrency load and EGG_ORCH_WAITRESS_THREADS=16 budget?**
+Answer: Raise default or document cap in plan. Call out the budget risk explicitly.
+
+**Should wait_for_status_change be available over the Python SDK MCP tools surface (PR #1920) as well as streamable-HTTP?**
+Answer: Not sure / skip — defer to plan phase.
+
+**Is the 60s liveness-floor constraint literal or aspirational?**
+Answer: Not sure / skip — defer to plan phase.
+
+**Should the new wait path emit its own metric parallel to egg_inflight_long_polls?**
+Answer: Yes — add egg_inflight_host_waits metric so operators can distinguish host-side from sandbox-side waits.
+
+**Upstream plans to raise streamable-HTTP MCP client timeout (anthropics/claude-code#20335)?**
+Answer: Keep design flexible in case it lifts — parameterize the cap so raising it later is a one-line change.
