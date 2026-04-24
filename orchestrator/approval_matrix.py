@@ -121,7 +121,7 @@ class ApprovalMatrix:
         entry.reason = ""
         entry.timestamp = datetime.now(UTC)
         entry.ack_commit_sha = commit_sha
-        entry.pre_merge_condition = pre_merge_condition or ""
+        entry.pre_merge_condition = (pre_merge_condition or "").strip()
         return entry
 
     def record_nack(

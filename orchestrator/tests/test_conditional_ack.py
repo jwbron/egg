@@ -83,6 +83,23 @@ class TestApprovalMatrixCondition:
         assert entry is not None
         assert entry.pre_merge_condition == "human must git mv X Y"
 
+    def test_whitespace_only_condition_normalized_to_empty(self, matrix_graph):
+        """Whitespace-only conditions are stripped at the source (#1998 review)."""
+        matrix = ApprovalMatrix(matrix_graph)
+        matrix.record_proposal("coder")
+        matrix.record_ack(
+            "reviewer_code",
+            "coder",
+            version=1,
+            artifact_refs=["src/a.py"],
+            pre_merge_condition="   ",
+        )
+        entry = matrix.get_entry("reviewer_code", "coder")
+        assert entry is not None
+        assert entry.pre_merge_condition == ""
+        # Should not appear in active conditions either.
+        assert matrix.get_pre_merge_conditions() == []
+
     def test_nack_clears_condition(self, matrix_graph):
         matrix = ApprovalMatrix(matrix_graph)
         matrix.record_proposal("coder")
