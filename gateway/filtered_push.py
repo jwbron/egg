@@ -134,6 +134,46 @@ def _tree_of(exec_path: str, sha: str) -> str | None:
     return (result.stdout or "").strip() or None
 
 
+def _resolve_main_head(exec_path: str) -> str | None:
+    """Fetch the default branch from ``origin`` and return its head SHA.
+
+    Always fetches from the hardcoded ``origin`` remote — never from an
+    agent-supplied remote name — so that a compromised remote configuration
+    cannot influence the ancestry check.
+
+    Tries ``main`` then ``master``.  Returns ``None`` if neither can be
+    resolved (detached remote, air-gapped test, etc.) — the caller then
+    skips the main-reachability reclassification and falls back to the
+    pre-existing fail-closed behavior.
+
+    The fetch is performed by the gateway process (not the agent) so
+    an agent cannot spoof ``refs/remotes/origin/main`` locally to
+    launder a commit through the pulled-cross-role path.  We capture
+    the SHA returned by ``rev-parse`` immediately after the fetch and
+    pass that SHA (not the ref name) to ``merge-base --is-ancestor``,
+    so even a mid-operation ref write by the agent cannot alter the
+    reachability decision.
+    """
+    remote = "origin"
+    for default_branch in ("main", "master"):
+        fetch = _git(exec_path, "fetch", "--no-tags", remote, default_branch, timeout=30)
+        if fetch.returncode != 0:
+            continue
+        rev = _git(exec_path, "rev-parse", f"refs/remotes/{remote}/{default_branch}")
+        if rev.returncode != 0:
+            continue
+        sha = (rev.stdout or "").strip()
+        if sha:
+            return sha
+    return None
+
+
+def _is_ancestor(exec_path: str, sha: str, tip_sha: str) -> bool:
+    """Return True iff ``sha`` is an ancestor of (or equal to) ``tip_sha``."""
+    result = _git(exec_path, "merge-base", "--is-ancestor", sha, tip_sha)
+    return result.returncode == 0
+
+
 def _filter_tree(
     exec_path: str, base_tree: str, blocked_paths: list[str]
 ) -> tuple[str | None, str | None]:
@@ -371,6 +411,28 @@ def execute_filtered_push(
     excluded_paths: set[str] = set()
     pushed_paths: set[str] = set()
 
+    # Resolve the authoritative tip of the default branch once per push
+    # so we can reclassify unregistered-but-on-main commits as pulled
+    # rather than fail-closing them as own (#2026).  PR-merge SHAs on
+    # main typically have no authorship registry entry; without this
+    # check, the filter would strip their blocked paths and produce a
+    # commit with the same subject but a different tree.
+    # ``_resolve_main_head`` hardcodes "origin" internally so
+    # an agent-supplied remote value cannot influence the ancestry check.
+    main_head = _resolve_main_head(exec_path)
+    main_reachable_unregistered: list[str] = []
+    filtered_unregistered: list[str] = []
+
+    # Tracks paths we've actually removed from an earlier own-commit's
+    # tree so later own-commits can inherit the removal.  This must
+    # start empty and accumulate per-commit — we deliberately do NOT
+    # seed it with ``blocked_own_files`` because that would re-strip
+    # files introduced by pulled-cross-role commits (the #2026 bug
+    # manifested this way when an unregistered main-side commit was
+    # reclassified as pulled but the NEXT own-commit's tree inherited
+    # the upstream file and then had it blanket-stripped).
+    actually_stripped: set[str] = set()
+
     for sha in attributed_commits:
         commit_files = files_by_sha.get(sha, [])
         author_role = None
@@ -380,6 +442,19 @@ def execute_filtered_push(
                 break
 
         is_own = author_role is None or author_role == push_role
+
+        # #2026: unregistered commits reachable from <remote>/main are
+        # pulled, not own.  PR-merge SHAs on main are never in the
+        # authorship registry (GitHub rewrites on merge), so fail-closing
+        # them as own would silently strip blocked paths from their
+        # trees.  Routing them to the pulled-cross-role path preserves
+        # the tree bitwise.  See ``_resolve_main_head`` for why the fetch
+        # happens gateway-side (ref-spoofing defense).
+        if author_role is None and main_head and _is_ancestor(exec_path, sha, main_head):
+            is_own = False
+            main_reachable_unregistered.append(sha)
+        elif author_role is None:
+            filtered_unregistered.append(sha)
 
         meta = _commit_metadata(exec_path, sha)
         if meta is None:
@@ -461,11 +536,15 @@ def execute_filtered_push(
             if tree_sha is None:
                 _rollback(exec_path, original_head, branch)
                 return FilteredPushResult(success=False, error=f"Missing tree for {sha}")
-            # Strip inherited blocked files from the tree.
+            # Strip inherited blocked files from the tree — but only
+            # those we've already removed from an earlier own-commit.
+            # Blanket-stripping every path in ``blocked_own_files``
+            # silently deletes files a pulled-cross-role commit
+            # legitimately introduced upstream (#2026).
             tree_changed = False
-            if blocked_own_files:
+            if actually_stripped:
                 filtered_tree, filter_err = _filter_tree(
-                    exec_path, tree_sha, sorted(blocked_own_files)
+                    exec_path, tree_sha, sorted(actually_stripped)
                 )
                 if filter_err:
                     _rollback(exec_path, original_head, branch)
@@ -516,6 +595,11 @@ def execute_filtered_push(
         if err:
             _rollback(exec_path, original_head, branch)
             return FilteredPushResult(success=False, error=err)
+        # Record the paths we actually removed so later own-commits
+        # can inherit the removal without having to re-derive which
+        # files need stripping.
+        if new_tree and new_tree != base_tree:
+            actually_stripped.update(blocked_here)
         # Did filtering leave anything different from the parent's tree?
         parent_tree: str | None = None
         if new_parent:
@@ -642,6 +726,20 @@ def execute_filtered_push(
                 branch=branch,
                 exc_info=True,
             )
+
+    # Operator telemetry for attribution gaps (#2026, #2030).  Both
+    # signals together tell us how often the registry is missing
+    # entries and how often that miss would have corrupted a tree
+    # absent the main-reachability safety net.
+    if main_reachable_unregistered or filtered_unregistered:
+        logger.warning(
+            "filtered_push_attribution_gap",
+            branch=branch,
+            push_role=push_role,
+            main_reachable_unregistered=main_reachable_unregistered,
+            filtered_unregistered=filtered_unregistered,
+            main_head_resolved=main_head is not None,
+        )
 
     return FilteredPushResult(
         success=True,

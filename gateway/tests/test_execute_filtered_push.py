@@ -733,7 +733,13 @@ class TestAllDropped:
 
 class TestUnregisteredTreatedAsOwn:
     def test_authored_by_none_is_filtered_as_own(self, repo: Path):
-        """authored_by=None (unregistered) triggers the own-role filter."""
+        """authored_by=None (unregistered) triggers the own-role filter.
+
+        No remote is configured so ``_resolve_main_head`` returns None
+        and the main-reachability reclassification (#2026) is skipped.
+        This preserves the happy-path flow: a fresh own-commit that
+        hasn't been registered yet still gets filtered on first push.
+        """
         _ensure_branch(repo, "egg/issue-1882")
         sha = _commit_file(
             repo,
@@ -776,3 +782,143 @@ class TestUnregisteredTreatedAsOwn:
         # Fail-closed: authored_by=None treated as own → blocked path stripped.
         assert result.success
         assert "docs/z.md" in result.excluded_files
+
+
+# ---------------------------------------------------------------------------
+# #2026: Unregistered commits reachable from origin/main are pulled
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def repo_with_remote(tmp_path: Path) -> Path:
+    """Build a work repo backed by a bare ``origin`` remote.
+
+    Pattern: bare repo at ``<tmp>/bare.git`` acts as ``origin``; the
+    work repo at ``<tmp>/work`` is initialised with one baseline
+    commit on ``main`` and pushes it to ``origin`` so that
+    ``origin/main`` exists for ``_resolve_main_head`` to fetch.
+    """
+    bare = tmp_path / "bare.git"
+    subprocess.run(
+        ["git", "init", "--bare", str(bare)],
+        check=True,
+        capture_output=True,
+    )
+    work = tmp_path / "work"
+    _make_repo(work)
+    _commit_file(work, "baseline.txt", "baseline\n", message="baseline")
+    _run(work, "remote", "add", "origin", str(bare))
+    _run(work, "push", "-u", "origin", "main")
+    return work
+
+
+class TestMainReachableUnregisteredIsPulled:
+    """Regression tests for #2026.
+
+    Before the fix, an unregistered commit touching a blocked path
+    was fail-closed as own-authored and had its tree filtered — this
+    silently stripped the blocked path and produced a commit with
+    the same subject but a catastrophically different diff.  The fix
+    reclassifies unregistered-but-on-origin/main commits as pulled
+    (tree preserved bitwise) via ``_resolve_main_head`` +
+    ``_is_ancestor``.
+    """
+
+    def test_pr_merge_commit_tree_preserved(self, repo_with_remote: Path):
+        repo = repo_with_remote
+
+        # A PR-merge-style commit lands on main, touching a path that
+        # downstream roles can't write to.  Push to origin so it's
+        # reachable from origin/main.
+        upstream_sha = _commit_file(
+            repo,
+            "docs/upstream.md",
+            "upstream content\n" * 50,
+            author_name="doc-updater-bot",
+            author_email="doc-updater@github.com",
+            message="docs: upstream update (#42)",
+        )
+        _run(repo, "push", "origin", "main")
+
+        # A downstream role (coder, say) creates a pipeline branch.
+        _run(repo, "checkout", "-b", "egg/issue-2026")
+        own_sha = _commit_file(
+            repo,
+            "src/feature.py",
+            "feature()\n",
+            author_name="coder",
+            author_email="coder@egg.local",
+            message="feat: add feature",
+        )
+
+        # Push range: the upstream commit (no registry entry) + the
+        # own commit (registered as coder).  ``docs/upstream.md`` is
+        # blocked for the coder role, which is what triggered the
+        # original silent-strip bug.
+        attributed_files = [
+            AttributedFile(path="docs/upstream.md", commit_sha=upstream_sha, authored_by=None),
+            AttributedFile(path="src/feature.py", commit_sha=own_sha, authored_by="coder"),
+        ]
+        result = execute_filtered_push(
+            exec_path=str(repo),
+            push_role="coder",
+            branch="egg/issue-2026",
+            attributed_commits=[upstream_sha, own_sha],
+            attributed_files=attributed_files,
+            blocked_own_files={"docs/upstream.md"},
+            push_fn=_PushStub(),
+            registry_register=_RegistryStub(),
+        )
+
+        assert result.success is True
+        # Tree MUST contain the upstream file — the bug would have
+        # stripped it.  This is the regression assertion.
+        tip = result.new_tip
+        assert tip is not None
+        tip_listing = _run(repo, "ls-tree", "-r", tip)
+        assert "docs/upstream.md" in tip_listing
+        assert "src/feature.py" in tip_listing
+
+        # The upstream commit is reported as pulled, not rewritten.
+        pulled_shas = [p["sha"] for p in result.pulled_commits]
+        assert upstream_sha in pulled_shas
+        # And it did not appear in excluded_files (which would indicate
+        # the filter ran on it).
+        assert "docs/upstream.md" not in result.excluded_files
+
+    def test_unregistered_not_on_main_still_filtered(self, repo_with_remote: Path) -> None:
+        """Happy-path guard: a fresh own-commit that isn't on main
+        retains the fail-closed-as-own behavior so it gets filtered
+        normally before registration.  The #2026 fix must not regress
+        this (agents register commits AFTER the filter runs).
+        """
+        repo = repo_with_remote
+        _run(repo, "checkout", "-b", "egg/issue-2026b")
+
+        # A fresh local commit that touches a blocked path; it is NOT
+        # on origin/main (it lives only on the local branch).
+        sha = _commit_file(
+            repo,
+            "docs/local.md",
+            "local docs\n",
+            author_name="coder",
+            author_email="coder@egg.local",
+            message="docs: local",
+        )
+        attributed_files = [
+            AttributedFile(path="docs/local.md", commit_sha=sha, authored_by=None),
+        ]
+        result = execute_filtered_push(
+            exec_path=str(repo),
+            push_role="coder",
+            branch="egg/issue-2026b",
+            attributed_commits=[sha],
+            attributed_files=attributed_files,
+            blocked_own_files={"docs/local.md"},
+            push_fn=_PushStub(),
+            registry_register=_RegistryStub(),
+        )
+
+        # Filter ran: docs/local.md is stripped (happy-path unchanged).
+        assert result.success is True
+        assert "docs/local.md" in result.excluded_files

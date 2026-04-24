@@ -828,6 +828,24 @@ class TestAckPreMergeConditionValidation:
         assert "chars" in data["message"]
         tracker.handle_ack.assert_not_called()
 
+    def test_short_imperative_condition_passes(self, app):
+        """A 14-char condition passes under the ``_BRC_CONDITION_KINDS`` dispatch.
+
+        ``_validate_brc_content`` uses ``_BRC_CONDITION_MIN_LEN`` (10) for
+        content kinds in ``_BRC_CONDITION_KINDS`` (e.g. "pre-merge condition")
+        instead of the default 50-char minimum.  This boundary value (14 chars)
+        would have been rejected without the kind-based dispatch (#2005).
+        """
+        _, status_code, tracker = self._ack_with_payload(
+            app,
+            {
+                "reason": _SUBSTANTIVE_REASON,
+                "pre_merge_condition": "rotate API key",
+            },
+        )
+        assert status_code == 200
+        tracker.handle_ack.assert_called_once()
+
     def test_boilerplate_condition_returns_400(self, app):
         """The shared boilerplate set applies to conditions too."""
         response, status_code, tracker = self._ack_with_payload(
