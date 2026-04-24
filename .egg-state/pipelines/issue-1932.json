@@ -284,7 +284,7 @@
       "status": "complete",
       "started_at": "2026-04-24T03:49:17.644949Z",
       "work_started_at": "2026-04-24T03:49:17.795643Z",
-      "completed_at": "2026-04-24T04:37:31.493636Z",
+      "completed_at": "2026-04-24T04:37:50.343335Z",
       "containers": [
         {
           "container_id": "c1ff01e0-8578-42e8-8d26-2e797116a681",
@@ -652,7 +652,7 @@
     }
   ],
   "created_at": "2026-04-24T00:08:18.054872Z",
-  "updated_at": "2026-04-24T04:37:49.380556Z",
+  "updated_at": "2026-04-24T04:37:50.343403Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -666,5 +666,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 46
+  "version": 47
 }
