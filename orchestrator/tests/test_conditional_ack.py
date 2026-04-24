@@ -483,7 +483,7 @@ class TestSignalPathIntegration:
                     "payload": {
                         "artifact_references": ["src/a.py"],
                         "reason": self._SUBSTANTIVE_REASON,
-                        "pre_merge_condition": "git mv legacy/x new/x before merge",
+                        "pre_merge_condition": "human must run: git mv legacy/x.py new/x.py before merging this PR",
                     },
                 },
                 Path("/tmp/repo"),
@@ -492,19 +492,19 @@ class TestSignalPathIntegration:
             assert status_code == 200
             body = json.loads(response.data)
             assert body["success"] is True
-            assert body["data"]["pre_merge_condition"] == "git mv legacy/x new/x before merge"
+            assert body["data"]["pre_merge_condition"] == "human must run: git mv legacy/x.py new/x.py before merging this PR"
 
         section = p._build_pre_merge_obligations_section(_SIGNAL_PIPELINE_ID)
         assert "Pre-merge Obligations" in section
         assert "reviewer_code" in section
-        assert "git mv legacy/x new/x before merge" in section
+        assert "human must run: git mv legacy/x.py new/x.py before merging this PR" in section
 
         stored = live_store.get_messages(_SIGNAL_PIPELINE_ID, limit=10)
         ack_msgs = [m for m in stored if m.message_type == "CONSENSUS_ACK"]
         assert len(ack_msgs) == 1
         assert (
             ack_msgs[0].metadata["payload"]["pre_merge_condition"]
-            == "git mv legacy/x new/x before merge"
+            == "human must run: git mv legacy/x.py new/x.py before merging this PR"
         )
 
     def test_signal_ack_without_condition_renders_no_section(self):
