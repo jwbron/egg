@@ -192,7 +192,7 @@ class TestEnsureStatefilesRestoresPRMetadata:
         assert result is True
 
         # Now verify _build_pr_body picks up the PR metadata
-        title, body = _build_pr_body(pipeline, tmp_path)
+        title, body, _ = _build_pr_body(pipeline, tmp_path)
 
         assert title == "Add retry logic to API client"
         assert "exponential backoff" in body
@@ -222,7 +222,7 @@ class TestEnsureStatefilesRestoresPRMetadata:
 
         assert result is True
 
-        title, body = _build_pr_body(pipeline, tmp_path)
+        title, body, _ = _build_pr_body(pipeline, tmp_path)
 
         assert title == "Add retry logic to API client"
         assert "exponential backoff" in body
@@ -288,7 +288,7 @@ class TestEnsureStatefilesRestoresDraftFromRemote:
         assert plan_path.read_text() == SAMPLE_PLAN
 
         # Verify contract has PR metadata from the restored plan
-        title, body = _build_pr_body(pipeline, tmp_path)
+        title, body, _ = _build_pr_body(pipeline, tmp_path)
         assert title == "Add retry logic to API client"
         assert "exponential backoff" in body
 
@@ -398,7 +398,7 @@ class TestEnsureStatefilesRestoresDraftFromRemote:
         assert plan_path.read_text() == SAMPLE_PLAN
 
         # Verify contract has PR metadata from the restored plan
-        title, body = _build_pr_body(pipeline, tmp_path)
+        title, body, _ = _build_pr_body(pipeline, tmp_path)
         assert title == "Add retry logic to API client"
         assert "exponential backoff" in body
 

@@ -73,7 +73,7 @@ class TestBuildPrBody:
         contract_file = contract_dir / "42.json"
         contract_file.write_text(json.dumps(_make_contract_json()))
 
-        title, body = _build_pr_body(pipeline, tmp_path)
+        title, body, _ = _build_pr_body(pipeline, tmp_path)
 
         assert title == "Fix authentication bypass in login flow"
         assert "Fixes a bypass" in body
@@ -87,7 +87,7 @@ class TestBuildPrBody:
         contract_file = contract_dir / "42.json"
         contract_file.write_text(json.dumps(_make_contract_json(pr_title=None)))
 
-        title, body = _build_pr_body(pipeline, tmp_path)
+        title, body, _ = _build_pr_body(pipeline, tmp_path)
 
         assert title == "Fix the auth bug"
 
@@ -95,7 +95,7 @@ class TestBuildPrBody:
         """Test fallback to pipeline ID when no contract exists."""
         pipeline = _make_pipeline()
 
-        title, body = _build_pr_body(pipeline, tmp_path)
+        title, body, _ = _build_pr_body(pipeline, tmp_path)
 
         assert "issue-42" in title
 
@@ -103,7 +103,7 @@ class TestBuildPrBody:
         """Test that commit log is NOT included in body (GitHub shows it natively)."""
         pipeline = _make_pipeline()
 
-        title, body = _build_pr_body(pipeline, tmp_path)
+        title, body, _ = _build_pr_body(pipeline, tmp_path)
 
         assert "## Commits" not in body
 
@@ -111,7 +111,7 @@ class TestBuildPrBody:
         """Test that diff stats are NOT included in body (GitHub shows it natively)."""
         pipeline = _make_pipeline()
 
-        title, body = _build_pr_body(pipeline, tmp_path)
+        title, body, _ = _build_pr_body(pipeline, tmp_path)
 
         assert "## Changes" not in body
 
@@ -119,7 +119,7 @@ class TestBuildPrBody:
         """Test that issue reference is added when no PR description."""
         pipeline = _make_pipeline()
 
-        title, body = _build_pr_body(pipeline, tmp_path)
+        title, body, _ = _build_pr_body(pipeline, tmp_path)
 
         assert "Closes #42" in body
 
@@ -127,7 +127,7 @@ class TestBuildPrBody:
         """Test that body ends with attribution."""
         pipeline = _make_pipeline()
 
-        title, body = _build_pr_body(pipeline, tmp_path)
+        title, body, _ = _build_pr_body(pipeline, tmp_path)
 
         assert "Authored-by: egg" in body
 
@@ -135,7 +135,7 @@ class TestBuildPrBody:
         """Test that pipeline context section is included in body."""
         pipeline = _make_pipeline()
 
-        title, body = _build_pr_body(pipeline, tmp_path)
+        title, body, _ = _build_pr_body(pipeline, tmp_path)
 
         assert "## Pipeline Context" in body
         assert "Pipeline: `issue-42`" in body
@@ -145,7 +145,7 @@ class TestBuildPrBody:
         """Test that pipeline context appears before the authored-by line."""
         pipeline = _make_pipeline()
 
-        title, body = _build_pr_body(pipeline, tmp_path)
+        title, body, _ = _build_pr_body(pipeline, tmp_path)
 
         context_pos = body.index("## Pipeline Context")
         authored_pos = body.index("Authored-by: egg")
@@ -160,7 +160,7 @@ class TestBuildPrBody:
         contract_file = contract_dir / "42.json"
         contract_file.write_text(json.dumps(_make_contract_json(pr_description="A" * 10_000)))
 
-        title, body = _build_pr_body(pipeline, tmp_path)
+        title, body, _ = _build_pr_body(pipeline, tmp_path)
 
         assert len(body) < 65_536
 
@@ -222,7 +222,7 @@ class TestBuildPrBodyPlanDraftFallback:
             manual_steps="Pre-merge: run migration",
         )
 
-        title, body = _build_pr_body(pipeline, tmp_path)
+        title, body, _ = _build_pr_body(pipeline, tmp_path)
 
         assert title == "Fix the auth bug via plan draft"
         assert "From the plan draft description." in body
@@ -245,7 +245,7 @@ class TestBuildPrBodyPlanDraftFallback:
             manual_steps="None",
         )
 
-        title, body = _build_pr_body(pipeline, tmp_path)
+        title, body, _ = _build_pr_body(pipeline, tmp_path)
 
         assert title == "Draft-only title"
         assert "Draft-only description." in body
@@ -273,7 +273,7 @@ class TestBuildPrBodyPlanDraftFallback:
             manual_steps="None",
         )
 
-        title, body = _build_pr_body(pipeline, tmp_path)
+        title, body, _ = _build_pr_body(pipeline, tmp_path)
 
         assert title == "From contract"
         assert "From contract description." in body
@@ -287,7 +287,7 @@ class TestBuildPrBodyPlanDraftFallback:
         contract_dir.mkdir(parents=True)
         (contract_dir / "42.json").write_text(json.dumps(_make_contract_json(pr_title=None)))
 
-        title, body = _build_pr_body(pipeline, tmp_path)
+        title, body, _ = _build_pr_body(pipeline, tmp_path)
 
         assert title == "Fix the auth bug"
 
@@ -301,9 +301,107 @@ class TestBuildPrBodyPlanDraftFallback:
         drafts_dir.mkdir(parents=True)
         (drafts_dir / "42-plan.md").write_text("# Plan with no yaml-tasks block\n\nJust prose.\n")
 
-        title, body = _build_pr_body(pipeline, tmp_path)
+        title, body, _ = _build_pr_body(pipeline, tmp_path)
 
         assert title == "Fix the auth bug"
+
+
+class TestBuildPrBodyFallbackBanner:
+    """Regression tests for #1975 — when PR metadata falls through to the
+    issue-title/generic stub, the body must surface a visible banner
+    (and the caller must mark the PR as draft) so reviewers don't
+    silently merge a planner-broken PR whose body is empty.
+    """
+
+    def test_banner_present_when_yaml_tasks_parse_fails(self, tmp_path):
+        """A plan draft with a broken yaml-tasks block emits a banner
+        containing the specific PyYAML error message."""
+        pipeline = _make_pipeline()
+        contract_dir = tmp_path / ".egg-state" / "contracts"
+        contract_dir.mkdir(parents=True)
+        (contract_dir / "42.json").write_text(json.dumps(_make_contract_json(pr_title=None)))
+
+        # Reproduces the #1932 failure mode from #1974: unquoted `: int` in
+        # a scalar makes PyYAML think a nested mapping starts mid-line.
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        drafts_dir.mkdir(parents=True)
+        (drafts_dir / "42-plan.md").write_text(
+            "# Plan\n\n"
+            "```yaml\n"
+            "# yaml-tasks\n"
+            "phases:\n"
+            "  - id: 1\n"
+            "    name: Phase 1\n"
+            "    tasks:\n"
+            "      - id: TASK-1-1\n"
+            "        description: Add `sequence: int = 0` field to `Event`\n"
+            "```\n"
+        )
+
+        title, body, used_stub_fallback = _build_pr_body(pipeline, tmp_path)
+
+        assert used_stub_fallback is True
+        # Tier 3 still fills in the issue title, but the banner signals it.
+        assert title == "Fix the auth bug"
+        assert "Automated PR metadata fell back to the issue title" in body
+        assert "Opened as a draft to block merge" in body
+        # The specific YAML scanner error surfaces in the body so reviewers
+        # can see the failure without digging through orchestrator logs.
+        assert "Invalid YAML in yaml-tasks" in body
+        assert "mapping values are not allowed here" in body
+        # The plan draft path is surfaced so the reader can find the file.
+        assert ".egg-state/drafts/42-plan.md" in body
+        # Banner comes before the generic "Closes #N" / placeholder test plan
+        # so a human reader sees the warning before the stub content.
+        assert body.index("fell back to the issue title") < body.index("Closes #42")
+        assert body.index("fell back to the issue title") < body.index("## Test Plan")
+
+    def test_banner_absent_when_contract_provides_metadata(self, tmp_path):
+        """No banner is emitted when contract.pr is populated (tier 1)."""
+        pipeline = _make_pipeline()
+        contract_dir = tmp_path / ".egg-state" / "contracts"
+        contract_dir.mkdir(parents=True)
+        (contract_dir / "42.json").write_text(json.dumps(_make_contract_json()))
+
+        _title, body, used_stub_fallback = _build_pr_body(pipeline, tmp_path)
+
+        assert used_stub_fallback is False
+        assert "fell back to the issue title" not in body
+        assert "Opened as a draft" not in body
+
+    def test_banner_absent_when_plan_draft_parses_cleanly(self, tmp_path):
+        """No banner when tier 2 recovers PR metadata from the plan draft."""
+        pipeline = _make_pipeline()
+        contract_dir = tmp_path / ".egg-state" / "contracts"
+        contract_dir.mkdir(parents=True)
+        (contract_dir / "42.json").write_text(json.dumps(_make_contract_json(pr_title=None)))
+        _write_plan_draft(
+            tmp_path,
+            42,
+            title="From plan draft",
+            description="Plan-draft description.",
+            test_plan="- X",
+            manual_steps="None",
+        )
+
+        _title, body, used_stub_fallback = _build_pr_body(pipeline, tmp_path)
+
+        assert used_stub_fallback is False
+        assert "fell back to the issue title" not in body
+
+    def test_banner_notes_missing_draft(self, tmp_path):
+        """When no plan draft exists on disk, the banner says so."""
+        pipeline = _make_pipeline()
+        contract_dir = tmp_path / ".egg-state" / "contracts"
+        contract_dir.mkdir(parents=True)
+        (contract_dir / "42.json").write_text(json.dumps(_make_contract_json(pr_title=None)))
+
+        _title, body, used_stub_fallback = _build_pr_body(pipeline, tmp_path)
+
+        assert used_stub_fallback is True
+        assert "fell back to the issue title" in body
+        assert "Plan draft not found" in body
+        assert ".egg-state/drafts/42-plan.md" in body
 
 
 class TestAutoCreatePr:
@@ -316,7 +414,10 @@ class TestAutoCreatePr:
         spawner.gateway.create_pr.return_value = "https://github.com/owner/repo/pull/1"
 
         with (
-            patch("routes.pipelines._build_pr_body", return_value=("Fix auth", "Body text")),
+            patch(
+                "routes.pipelines._build_pr_body",
+                return_value=("Fix auth", "Body text", False),
+            ),
             patch("routes.pipelines.get_default_branch", return_value="main"),
         ):
             result = _auto_create_pr(pipeline, Path("/tmp/repo"), spawner)
@@ -342,7 +443,10 @@ class TestAutoCreatePr:
         spawner.gateway.create_pr.return_value = "https://github.com/owner/repo/pull/2"
 
         with (
-            patch("routes.pipelines._build_pr_body", return_value=("Fix auth", "Body text")),
+            patch(
+                "routes.pipelines._build_pr_body",
+                return_value=("Fix auth", "Body text", False),
+            ),
             patch("routes.pipelines.get_default_branch", return_value="main"),
         ):
             result = _auto_create_pr(pipeline, Path("/tmp/repo"), spawner, gateway_mode="private")
@@ -388,12 +492,34 @@ class TestAutoCreatePr:
         spawner.gateway.create_pr.side_effect = Exception("Gateway unreachable")
 
         with (
-            patch("routes.pipelines._build_pr_body", return_value=("Title", "Body")),
+            patch("routes.pipelines._build_pr_body", return_value=("Title", "Body", False)),
             patch("routes.pipelines.get_default_branch", return_value="main"),
         ):
             result = _auto_create_pr(pipeline, Path("/tmp/repo"), spawner)
 
         assert result is None
+
+    def test_stub_fallback_forces_draft_in_public_mode(self):
+        """Regression #1975: when _build_pr_body signals stub fallback, the
+        PR is opened as a draft even in public mode so humans don't
+        silently merge a planner-broken PR."""
+        pipeline = _make_pipeline()
+        spawner = MagicMock()
+        spawner.gateway.create_pr.return_value = "https://github.com/owner/repo/pull/1"
+
+        with (
+            patch(
+                "routes.pipelines._build_pr_body",
+                return_value=("Issue #42", "stub body", True),
+            ),
+            patch("routes.pipelines.get_default_branch", return_value="main"),
+        ):
+            result = _auto_create_pr(pipeline, Path("/tmp/repo"), spawner)
+
+        assert result == "https://github.com/owner/repo/pull/1"
+        call_kwargs = spawner.gateway.create_pr.call_args[1]
+        assert call_kwargs["mode"] == "public"
+        assert call_kwargs["draft"] is True
 
 
 class TestComputeGatewayMode:
@@ -540,7 +666,7 @@ class TestAutoCreatePrPassesBaseBranch:
         spawner.gateway.create_pr.return_value = "https://github.com/owner/repo/pull/1"
 
         with (
-            patch("routes.pipelines._build_pr_body", return_value=("Title", "Body")),
+            patch("routes.pipelines._build_pr_body", return_value=("Title", "Body", False)),
             patch("routes.pipelines.get_default_branch", return_value="master"),
         ):
             result = _auto_create_pr(pipeline, Path("/tmp/repo"), spawner)
@@ -557,7 +683,10 @@ class TestAutoCreatePrPassesBaseBranch:
         spawner.gateway.create_pr.return_value = "https://github.com/owner/repo/pull/3"
 
         with (
-            patch("routes.pipelines._build_pr_body", return_value=("Title", "Body")) as mock_build,
+            patch(
+                "routes.pipelines._build_pr_body",
+                return_value=("Title", "Body", False),
+            ) as mock_build,
             patch("routes.pipelines.get_default_branch") as mock_detect,
         ):
             result = _auto_create_pr(pipeline, Path("/tmp/repo"), spawner)

@@ -1451,7 +1451,7 @@ class TestBuildPrBodyBrcLink:
         (history_dir / "42-plan.md").write_text("stub")
         (history_dir / "42-implement.md").write_text("stub")
 
-        title, body = _build_pr_body(pipeline, tmp_path)
+        title, body, _ = _build_pr_body(pipeline, tmp_path)
 
         assert "_Per-phase BRC transcripts:" in body
         assert "[`plan`](./.egg-state/brc-history/42-plan.md)" in body
@@ -1468,7 +1468,7 @@ class TestBuildPrBodyBrcLink:
         pipeline = _make_pipeline()
         _setup_contract(tmp_path)
 
-        title, body = _build_pr_body(pipeline, tmp_path)
+        title, body, _ = _build_pr_body(pipeline, tmp_path)
 
         assert "Per-phase BRC transcripts" not in body
         assert "Authored-by: egg" in body
@@ -1482,6 +1482,6 @@ class TestBuildPrBodyBrcLink:
         history_dir.mkdir(parents=True)
         (history_dir / "42-implement.md").write_text("stub")
 
-        title, body = _build_pr_body(pipeline, tmp_path)
+        title, body, _ = _build_pr_body(pipeline, tmp_path)
 
         assert body.index("Per-phase BRC transcripts") < body.index("Authored-by: egg")
