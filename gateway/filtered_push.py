@@ -294,7 +294,7 @@ def execute_filtered_push(
     attributed_commits: list[str],
     attributed_files: list[AttributedFile],
     blocked_own_files: set[str],
-    push_fn: Callable[[], tuple[bool, str | None]],
+    push_fn: Callable[[str], tuple[bool, str | None]],
     registry_register: Callable[..., Any],
     pipeline_id: str | None = None,
     repo: str | None = None,
@@ -312,10 +312,13 @@ def execute_filtered_push(
         blocked_own_files: The set of paths the role cannot write; any
             own-role file matching this set is stripped from each commit
             it appears in.
-        push_fn: Callable ``push_fn() -> (ok: bool, error: str | None)``
-            that performs ``git push`` with whatever refspec / options
-            the caller wants.  Invoked after HEAD has been advanced to
-            the rewritten tip.
+        push_fn: Callable ``push_fn(tip_sha) -> (ok: bool, error: str | None)``
+            that performs the actual ``git push``.  The helper hands it
+            the rewritten tip SHA so the callee can build a SHA-to-refspec
+            push (``<tip_sha>:refs/heads/<branch>``) without needing a
+            local ``refs/heads/<branch>`` — see #1994 (directory-style
+            refs like ``refs/heads/<branch>/work`` from sibling worktrees
+            otherwise block creating the leaf ref locally).
         registry_register: Callable ``(sha, role, pipeline_id, repo,
             branch) -> bool`` that registers a rewritten own-commit
             with the authorship registry.  Best-effort; failures are
@@ -564,19 +567,15 @@ def execute_filtered_push(
             rewritten_commits=rewritten_commits,
         )
 
-    # update-ref so the local branch matches our rewrite.
-    ur = _git(exec_path, "update-ref", f"refs/heads/{branch}", final_tip)
-    if ur.returncode != 0:
-        _rollback(exec_path, original_head, branch)
-        return FilteredPushResult(
-            success=False,
-            error=f"update-ref refs/heads/{branch} failed: {(ur.stderr or '').strip()}",
-        )
-
-    # Now push.  If it fails, roll HEAD + the branch ref back and
-    # restore the worktree so the caller sees the pre-attempt state.
+    # Push the rewritten tip straight to the remote.  We intentionally
+    # do NOT ``update-ref refs/heads/<branch>`` beforehand: sibling
+    # worktrees may hold a directory-style ref like
+    # ``refs/heads/<branch>/work`` (per-role work branches from #1986)
+    # which blocks creating ``refs/heads/<branch>`` as a leaf ref in
+    # the shared ref store.  Pushing by SHA sidesteps that entirely
+    # (see #1994).
     try:
-        ok, push_err = push_fn()
+        ok, push_err = push_fn(final_tip)
     except Exception as exc:  # pragma: no cover - defensive
         _rollback(exec_path, original_head, branch)
         return FilteredPushResult(success=False, error=f"push raised: {exc}")
@@ -584,6 +583,19 @@ def execute_filtered_push(
     if not ok:
         _rollback(exec_path, original_head, branch)
         return FilteredPushResult(success=False, error=push_err or "Push failed")
+
+    # Best-effort: sync the local branch ref to the pushed tip so
+    # ``git log <branch>`` matches origin.  Allowed to fail silently
+    # when a directory-style ref collision prevents the write — the
+    # push already landed on origin, and a subsequent ``git fetch``
+    # reconciles local state.
+    ur = _git(exec_path, "update-ref", f"refs/heads/{branch}", final_tip)
+    if ur.returncode != 0:
+        logger.warning(
+            "filtered_push_local_ref_sync_failed",
+            branch=branch,
+            error=(ur.stderr or "").strip(),
+        )
 
     # Post-success: fast-forward the worktree + index to the new tip,
     # then re-stage the excluded files so the next role sees them as

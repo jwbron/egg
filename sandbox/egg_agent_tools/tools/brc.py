@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from egg_agent_tools.handlers import brc as handlers
+from egg_agent_tools.handlers.errors import HandlerError
 from egg_agent_tools.tools._common import invoke_handler
 from egg_agent_tools.tools._registry import ToolRegistration
 from egg_agent_tools.tools._tool_compat import tool
@@ -51,6 +52,17 @@ _PROPOSE_SCHEMA: dict[str, Any] = {
             "type": "array",
             "items": {"type": "string"},
             "description": "Re-proposal delta (changed artifact references)",
+        },
+        "push": {
+            "type": "boolean",
+            "default": True,
+            "description": (
+                "Push committed changes to origin via the gateway before "
+                "sending the proposal (default true). Required in BRC "
+                "mode — reviewers pull from origin, so an un-pushed "
+                "artifact is invisible to them. Pass false only if you "
+                "have already pushed through another route."
+            ),
         },
         "pipeline_id": {"type": "string"},
         "role": {"type": "string"},
@@ -163,12 +175,34 @@ _READ_PEER_ARTIFACT_SCHEMA: dict[str, Any] = {
 
 @tool(
     "propose",
-    "Send a CONSENSUS_PROPOSE signal starting or re-starting the BRC cycle for "
-    "this producer. Prefer this over 'egg-orch consensus propose'.",
+    "Send a CONSENSUS_PROPOSE signal starting or re-starting the BRC cycle "
+    "for this producer. Pushes your committed changes to origin via the "
+    "gateway first (disable with push=false). Prefer this over "
+    "'egg-orch consensus propose --push'.",
     _PROPOSE_SCHEMA,
 )
 async def brc_propose(args: dict[str, Any]) -> dict[str, Any]:
-    return await invoke_handler(handlers.brc_propose, args)
+    from egg_agent_tools.push import consensus_push
+
+    # Strip the MCP-only ``push`` flag before handing the dict to the
+    # handler so its schema stays clean.  Default: push (BRC requires
+    # the artifact on origin for reviewers to pull).
+    inbound = dict(args or {})
+    should_push = bool(inbound.pop("push", True))
+
+    def _push_then_propose(handler_args: dict[str, Any]) -> dict[str, Any]:
+        if should_push:
+            rc = consensus_push()
+            if rc != 0:
+                raise HandlerError(
+                    f"Push to origin failed (exit {rc}); CONSENSUS_PROPOSE not "
+                    "sent. Fix the push error first (see gateway logs), then "
+                    "retry mcp__brc__propose. Pass push=false only if you have "
+                    "already pushed through another route."
+                )
+        return handlers.brc_propose(handler_args)
+
+    return await invoke_handler(_push_then_propose, inbound)
 
 
 @tool(

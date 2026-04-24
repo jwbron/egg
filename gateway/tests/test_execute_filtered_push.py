@@ -132,15 +132,22 @@ def repo(tmp_path: Path) -> Path:
 
 
 class _PushStub:
-    """Callable passed as ``push_fn`` to execute_filtered_push."""
+    """Callable passed as ``push_fn`` to execute_filtered_push.
+
+    ``push_fn`` now receives the rewritten tip SHA as its only argument
+    (see #1994) so real callers can build a ``<sha>:refs/heads/<branch>``
+    refspec without depending on a local ref.
+    """
 
     def __init__(self, ok: bool = True, error: str | None = None) -> None:
         self.ok = ok
         self.error = error
         self.calls = 0
+        self.last_tip: str | None = None
 
-    def __call__(self) -> tuple[bool, str | None]:
+    def __call__(self, tip_sha: str) -> tuple[bool, str | None]:
         self.calls += 1
+        self.last_tip = tip_sha
         return self.ok, self.error
 
 

@@ -212,6 +212,95 @@ class TestToolWrapperSuccess:
         assert "fail" in resp["content"][0]["text"]
 
 
+class TestBrcProposePushStep:
+    """The ``mcp__brc__propose`` wrapper pushes to origin before sending
+    CONSENSUS_PROPOSE (default push=True).  The CLI ``egg-orch consensus
+    propose --push`` shares the helper; wiring the push into the wrapper
+    closes #1994 so MCP-only agents can publish artifacts.
+    """
+
+    _ARGS = {
+        "pipeline_id": "p1",
+        "role": "refiner",
+        "summary": "x" * 60,
+    }
+
+    def _wrapper(self):
+        reg = TOOL_REGISTRY["mcp__brc__propose"]
+        handler = getattr(reg.sdk_tool, "handler", None)
+        assert handler is not None
+        return handler
+
+    def test_push_true_invokes_consensus_push_then_handler(self):
+        order: list[str] = []
+
+        def _push():
+            order.append("push")
+            return 0
+
+        def _handler(req):
+            order.append("handler")
+            # The MCP-only ``push`` flag must be stripped before the
+            # handler sees the dict.
+            assert "push" not in req
+            return {"ok": True, "signal": {"data": {}}, "phase": "refine"}
+
+        with (
+            patch("egg_agent_tools.push.consensus_push", side_effect=_push),
+            patch("egg_agent_tools.handlers.brc.brc_propose", side_effect=_handler),
+        ):
+            resp = _run(self._wrapper()(dict(self._ARGS)))
+
+        assert order == ["push", "handler"]
+        assert "is_error" not in resp
+        body = json.loads(resp["content"][0]["text"])
+        assert body["ok"] is True
+
+    def test_push_false_skips_consensus_push(self):
+        push_calls = {"n": 0}
+
+        def _push():
+            push_calls["n"] += 1
+            return 0
+
+        def _handler(req):
+            assert "push" not in req
+            return {"ok": True, "signal": {"data": {}}}
+
+        args = {**self._ARGS, "push": False}
+        with (
+            patch("egg_agent_tools.push.consensus_push", side_effect=_push),
+            patch("egg_agent_tools.handlers.brc.brc_propose", side_effect=_handler),
+        ):
+            resp = _run(self._wrapper()(args))
+
+        assert push_calls["n"] == 0
+        assert "is_error" not in resp
+
+    def test_push_failure_short_circuits_and_returns_error(self):
+        """If consensus_push fails the handler must NOT fire (we don't
+        want to broadcast a PROPOSE for an artifact that never landed
+        on origin)."""
+        handler_calls = {"n": 0}
+
+        def _push():
+            return 1  # non-zero = failure
+
+        def _handler(req):
+            handler_calls["n"] += 1
+            return {"ok": True}
+
+        with (
+            patch("egg_agent_tools.push.consensus_push", side_effect=_push),
+            patch("egg_agent_tools.handlers.brc.brc_propose", side_effect=_handler),
+        ):
+            resp = _run(self._wrapper()(dict(self._ARGS)))
+
+        assert handler_calls["n"] == 0
+        assert resp["is_error"] is True
+        assert "Push to origin failed" in resp["content"][0]["text"]
+
+
 class TestMessagePrimitiveWrappers:
     """Event-driven wrappers added in #1922 (wait_for_event / wait_loop /
     send_heartbeat) also return JSON-serialised responses on success and
