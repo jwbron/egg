@@ -177,3 +177,10 @@ Every ambiguity below needs an answer from the human before the plan phase can d
 - [HRT case study](https://www.python.org/success-stories/building-a-dependency-graph-of-our-python-codebase/) — large-codebase experience report; motivates the static-graph-first approach.
 
 *Authored-by: egg*
+
+
+## HITL Resolution
+
+The following was approved by a human reviewer at the refine phase gate:
+
+Human approved refine analysis. Recommendations pre-agreed for downstream decisions: d3=grimp, d12=module-level, d9=non-tracked sidecar, d1=auto-after-test-all+manual-record-good, d4=bare-sha, d8=untracked-file (moot), d6=leave-as-is (sidecar), d5=full-suite-on-non-py, d10=scan-during-graph-construction, d2=make-test-all, d11=N/A, d7=make-test-narrowed-default + make-test-all-full. Q1 no-hard-target (measure+log), Q2 defer-to-plan, Q3 accept+add uv.lock+.python-version, Q4 yes-canary-every-10th, Q5 intersect, Q6 yes-why-flag, Q7 explicit-trigger, Q8 follow-up-issue, Q9 last-writer-wins, Q10 stay-full-suite-only, Q11 docs/guides/testing.md + make help + CONTRIBUTING pointer, Q12 never-update-on-partial-pass, Q13 always-fall-back-to-base, Q14 fall-back-to-base, Q15 stderr+JSON, Q16 branch-only.

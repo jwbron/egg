@@ -42,10 +42,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Other: Automatic write to the sidecar file (.egg-state/last-known-good/<branch>.sha) after every green `make test-all` pass \u2014 no commit involved since decision-10 = sidecar. `make test-record-good` is the manual override. Commit-based options don't apply under sidecar storage.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T20:12:04.563745Z",
       "debounce_until": null
     },
     {
@@ -80,10 +80,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Switch CI to `make test-all` \u2014 preserves the 80% coverage gate as-is; `make test` stays the agent/dev fast path. (Recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T20:12:04.608986Z",
       "debounce_until": null
     },
     {
@@ -123,10 +123,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Static reverse import-graph via `grimp` (maintained, Rust-backed, has `find_downstream_modules`; adds one dev dep) \u2014 recommended\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T20:12:09.657035Z",
       "debounce_until": null
     },
     {
@@ -156,10 +156,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Bare 40-char sha (one-line file; simplest; no parsing cost) \u2014 recommended\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T20:12:09.694627Z",
       "debounce_until": null
     },
     {
@@ -189,10 +189,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Any non-`.py` change \u2192 full suite (simple, conservative, no allowlist maintenance) \u2014 recommended for v1\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T20:12:14.752701Z",
       "debounce_until": null
     },
     {
@@ -227,10 +227,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Don't rewrite; leave LKG as-is and accept that branches cut from main may inherit stale-but-valid values\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T20:12:14.791062Z",
       "debounce_until": null
     },
     {
@@ -260,10 +260,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"`make test-all` (matches the issue's proposal; the default `make test` becomes changeset-aware) \u2014 recommended\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T20:12:14.823295Z",
       "debounce_until": null
     },
     {
@@ -298,10 +298,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Make the file untracked (.gitignore) and accept the loss of cross-sandbox continuity \u2014 sidesteps gateway policy entirely.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T20:12:19.880257Z",
       "debounce_until": null
     },
     {
@@ -336,10 +336,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Non-tracked sidecar in `.egg-state/last-known-good/<branch>.sha` (gitignored; per-branch; no merge/history noise; analysis-recommended) \u2014 flips the issue's default\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T20:12:19.899587Z",
       "debounce_until": null
     },
     {
@@ -374,10 +374,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Scan during graph construction: record which modules contain dynamic-import patterns; widen only if a changed module is in (or reachable from) that set \u2014 more targeted\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T20:12:24.944507Z",
       "debounce_until": null
     },
     {
@@ -412,10 +412,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Not an issue if CI uses `make test-all` (decision-2) \u2014 only `make test` needs the baseline\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T20:12:29.992740Z",
       "debounce_until": null
     },
     {
@@ -445,10 +445,33 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Module-level (grimp default; one node per import-resolvable module; sufficient for file-level test selection) \u2014 recommended\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T20:12:30.024169Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-13",
+      "question": "[Phase gate: refine] The refine phase has completed. Please review the analysis and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Human approved refine analysis. Recommendations pre-agreed for downstream decisions: d3=grimp, d12=module-level, d9=non-tracked sidecar, d1=auto-after-test-all+manual-record-good, d4=bare-sha, d8=untracked-file (moot), d6=leave-as-is (sidecar), d5=full-suite-on-non-py, d10=scan-during-graph-construction, d2=make-test-all, d11=N/A, d7=make-test-narrowed-default + make-test-all-full. Q1 no-hard-target (measure+log), Q2 defer-to-plan, Q3 accept+add uv.lock+.python-version, Q4 yes-canary-every-10th, Q5 intersect, Q6 yes-why-flag, Q7 explicit-trigger, Q8 follow-up-issue, Q9 last-writer-wins, Q10 stay-full-suite-only, Q11 docs/guides/testing.md + make help + CONTRIBUTING pointer, Q12 never-update-on-partial-pass, Q13 always-fall-back-to-base, Q14 fall-back-to-base, Q15 stderr+JSON, Q16 branch-only.",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T20:10:41.076423Z",
       "debounce_until": null
     }
   ],
@@ -1341,87 +1364,87 @@
       {
         "id": "Q1",
         "question": "Performance/size target: what makes this issue successful? (e.g., 'a one-file change in a gateway/ leaf module should select \u2264 N tests and complete in \u2264 T seconds on the reference runner.') Without a target, we cannot validate the implementation.",
-        "answer": null
+        "answer": "No hard target for v1. Instrument the implementation to log (a) selected test count, (b) total test count, (c) selection compute time, (d) pytest wall time. Set a concrete target in a follow-up issue after we have baseline data from real branches \u2014 guessing a number now would either be trivially met or artificially constrain the design."
       },
       {
         "id": "Q2",
         "question": "Shared-fixture fallback enumeration: for the `shared/tests/` fixtures 'used repo-wide', which exact files should trigger a full-suite fallback? (e.g., `shared/tests/conftest.py`, specific fixture modules.)",
-        "answer": null
+        "answer": "Defer exact enumeration to plan phase. Default rule to start from: any change under `shared/tests/` triggers a full-suite fallback (it's a small tree; safer to be coarse). Plan phase should refine this by inspecting which `shared/tests/` files are actually consumed as cross-package fixtures vs. being self-contained tests."
       },
       {
         "id": "Q3",
         "question": "Fallback-trigger list completeness: review the recommended set (any `conftest.py` change; `Makefile`, `pyproject.toml`, `uv.lock`; `.github/workflows/test.yml`; dynamic-import-touched files; unresolvable baseline; non-`.py` changes per decision-5). Anything missing or overreaching?",
-        "answer": null
+        "answer": "Accept the listed set (any conftest.py change, Makefile, pyproject.toml, uv.lock, .github/workflows/test.yml, dynamic-import-touched files, unresolvable baseline, non-.py changes per decision-6). Add: `.python-version` (interpreter pin). Nothing listed looks like overreach."
       },
       {
         "id": "Q4",
         "question": "Canary mode: every Nth `make test` run on a branch (or once per day) forces a full suite to catch cases where static selection silently misses a test. Do we want this, and at what cadence?",
-        "answer": null
+        "answer": "Yes, canary mode. Every 10th invocation on a branch forces a full suite (cheap silent-miss insurance). Cadence and keying (per-branch counter) settle in plan phase."
       },
       {
         "id": "Q5",
         "question": "Explicit pytest args: how should `make test` behave when invoked with explicit paths/args (e.g., `make test PYTEST_ARGS='gateway/tests/test_specific.py'`) \u2014 bypass narrowing (dev override), intersect, or union?",
-        "answer": null
+        "answer": "Intersect by default: narrow to the selected set, then apply user's `-k`/path args within that set. Bypass narrowing only when the user passes explicit test file paths (e.g. `make test PYTEST_ARGS='gateway/tests/test_specific.py'`) \u2014 that's an unambiguous dev override."
       },
       {
         "id": "Q6",
         "question": "Introspection `--why`: should the implementation surface why a test was selected (print import chain from changed module \u2192 test)? Useful for agents diagnosing 'I expected this test to run and it didn't.'",
-        "answer": null
+        "answer": "Yes, `--why <test>` that prints the import chain from changed module \u2192 test. Debuggability beats terseness; agents will need this."
       },
       {
         "id": "Q7",
         "question": "Fallback-cause printing: when `make test` falls back to full suite due to a trigger file change, should it print which trigger caused it, or is a generic message sufficient?",
-        "answer": null
+        "answer": "Explicit trigger identification. 'Falling back: Makefile changed' is far more useful than 'Falling back' when an agent wonders why its narrow change pulled in the full suite."
       },
       {
         "id": "Q8",
         "question": "Testmon follow-up appetite: appetite for adding `pytest-testmon` in a follow-up issue (intra-file narrowing), or close the door on dynamic selection entirely?",
-        "answer": null
+        "answer": "Yes, leave a follow-up issue open for pytest-testmon experimentation once we have real static-selection miss-rate data. Do not close the door on dynamic selection."
       },
       {
         "id": "Q9",
         "question": "Parallel agents: two sandboxes running `make test-all` on the same branch race on LKG updates. Last-writer-wins is safe (both shas represent green states) but can churn the file. Acceptable, or need explicit coordination (per-agent sidecar, lock, merge logic)?",
-        "answer": null
+        "answer": "Last-writer-wins is acceptable. Sidecar is per-branch; parallel sandboxes on the same branch are rare; both shas represent green states so neither is incorrect. No coordination needed."
       },
       {
         "id": "Q10",
         "question": "Integration / e2e / security test targets are out of scope per the issue. Confirm they stay full-suite-only for this PR, or should they be considered for a follow-up issue?",
-        "answer": null
+        "answer": "Stay full-suite-only for integration/e2e/security in this PR. Those targets are explicitly out of scope per the issue. If narrowing them is valuable, it's a follow-up issue."
       },
       {
         "id": "Q11",
         "question": "Documentation placement: the repo has no `docs/guides/testing.md` today. Preferred location \u2014 update `CONTRIBUTING.md`, create new `docs/guides/testing.md`, update `make help`, or some combination?",
-        "answer": null
+        "answer": "Create `docs/guides/testing.md` as the canonical doc. Add a one-line summary to `make help` output. Add a pointer from `CONTRIBUTING.md` (one line + link to the guide). Matches the existing docs/guides/ convention."
       },
       {
         "id": "Q12",
         "question": "Partial-pass LKG behavior: issue says 'never updated on a partial pass.' Confirm that's still the intent (no, even cheap no-op-style writes) under the chosen LKG storage/update mechanism.",
-        "answer": null
+        "answer": "Confirmed: never update LKG on a partial (changeset-aware) pass. With sidecar + auto-update gated on `make test-all`, this invariant holds naturally."
       },
       {
         "id": "Q13",
         "question": "Read-only agent phases: some agent roles have `.egg-readonly` markers. Should those roles READ LKG (to compute the baseline) but never WRITE it, or accept that they always fall back to base-branch baseline?",
-        "answer": null
+        "answer": "Read-only agent phases (refiner, reviewer_*) always fall back to the base-branch baseline. They don't run `make test-all`, so they have no LKG to update, and reading a stale cross-sandbox sidecar would be more confusing than useful. Simpler."
       },
       {
         "id": "Q14",
         "question": "Bootstrap / first-use: how do we initialize LKG on branches that predate this change (including main's first commit under the new scheme)? Checked-in default, empty, or absent treated as 'no LKG, use base branch'?",
-        "answer": null
+        "answer": "Absent sidecar = 'no LKG, use base branch.' No bootstrap ceremony. Every branch starts without an LKG and advances its own as `make test-all` passes."
       },
       {
         "id": "Q15",
         "question": "Selection-decision logging: stderr always, JSON file at `.egg-state/selection/<sha>.json`, or both?",
-        "answer": null
+        "answer": "Both: human-readable log line to stderr on every `make test` invocation, plus a JSON record at `.egg-state/selection/<sha>.json` for post-hoc analysis. Structured log is cheap and pays off whenever something looks wrong."
       },
       {
         "id": "Q16",
         "question": "Worktree keying: in worktree scenarios (agents on multiple branches in parallel), is a sidecar file keyed by `<branch>` sufficient, or do we need keying by worktree path too?",
-        "answer": null
+        "answer": "`<branch>` key is sufficient for v1. Parallel worktrees on the same branch are rare enough that last-writer-wins (Q9) handles it. If we see pathological churn later, revisit with worktree-path keying."
       }
     ],
-    "submitted": false,
-    "submitted_by": null,
-    "submitted_at": null,
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-04-24T20:12:40.106214Z",
     "comment_id": null,
     "debounce_until": null
   },
