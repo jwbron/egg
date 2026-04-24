@@ -118,7 +118,7 @@ make build
 | Command | Description |
 |---------|-------------|
 | `make k3s-setup` | Install k3s + Calico CNI (idempotent) |
-| `make deploy` | Deploy all k8s resources (`kubectl apply -k k8s/overlays/local/`) |
+| `make deploy` | Deploy all k8s resources; runs `envsubst` to expand `EGG_HOST_HOME` (default: `$HOME`) and `EGG_HOST_REPO_MAP` (auto-derived from `~/.config/egg/repositories.yaml` via `scripts/build-host-repo-map.py`) into the Kustomize output before applying. Requires `envsubst` from GNU gettext (`dnf install gettext` / `brew install gettext`). Override at deploy time: `make deploy EGG_HOST_HOME=/data/egg` or `EGG_HOST_REPO_MAP='{"owner/repo":"/path"}' make deploy`. |
 | `make build` | Build images and import into k3s |
 | `make k3s-teardown` | Remove k3s installation |
 
