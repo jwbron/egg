@@ -637,10 +637,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"brc — extend existing namespace; groups all messaging verbs together\"}",
       "phase": "plan",
       "content_changed": null
+    },
+    {
+      "id": "decision-19",
+      "question": "Overseer scope: ship mcp__overseer__query_status in iteration 2 or defer to iteration 3?",
+      "context": "Open contract question decision-16, registered by an agent during the plan phase.",
+      "options": [
+        "Ship — minimal read-only view over GET /api/v1/pipelines/<pid>/status (Recommended)",
+        "Defer — no immediate consumer; mark human-operator-only for now and file a follow-up issue",
+        "Ship richer — include overseer recent-alerts list and per-phase respawn history",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T03:58:12.820579Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "plan",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:10:06.375518Z",
-  "updated_at": "2026-04-24T03:58:10.825220Z",
+  "updated_at": "2026-04-24T03:58:12.836360Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -654,5 +673,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 54
+  "version": 55
 }
