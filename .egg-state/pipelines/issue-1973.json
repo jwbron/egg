@@ -5,7 +5,7 @@
   "branch": "egg/issue-1973",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "complete",
   "current_phase": "pr",
   "config": {
     "auto_create_pr": true,
@@ -822,7 +822,7 @@
     }
   ],
   "created_at": "2026-04-24T19:39:48.417158Z",
-  "updated_at": "2026-04-24T23:53:02.314706Z",
+  "updated_at": "2026-04-24T23:53:38.151990Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -836,6 +836,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-24T22:53:34.614889Z",
-  "version": 73,
+  "version": 74,
   "jira_ticket": null
 }
