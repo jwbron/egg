@@ -95,6 +95,15 @@ The gateway exposes a controlled API for git/gh operations:
 - `POST /api/gh/pr/close` — close PR (only egg's own PRs)
 - **No merge endpoint** — human must merge via GitHub UI
 
+**Jira read endpoints (`/api/v1/jira/*`) — private-mode only, fail closed in public mode:**
+
+- `POST /api/v1/jira/ticket/get` — read a single ticket (returns ADF-rendered body via `expand=renderedBody,renderedFields`)
+- `POST /api/v1/jira/search` — JQL search against `/rest/api/3/search/jql` with a conservative static project-scope extractor (deny-on-ambiguity)
+- `POST /api/v1/jira/ticket/comments` — read comments for a ticket
+- `POST /api/v1/jira/execute` — GET-only passthrough, regex-allowlisted paths; write verbs (`transitions`, `worklog`, `attachments`, `watchers`, `DELETE`, `PUT`, `PATCH`) are permanently denied
+
+All four routes compose `@require_session_auth` → `@require_private_mode` → project-allowlist check → fields/JQL validation → `JiraClient` call → structured audit log. In **public mode**, `@require_private_mode` short-circuits every call with a 403 and a `private_mode_required` audit entry **before** any upstream request is issued — no Atlassian traffic ever leaves the gateway in public mode. See [Jira wrapper reference](../reference/jira-wrapper.md).
+
 ### CLI Wrappers
 
 The egg container uses `git` and `gh` CLI wrappers that:
@@ -310,7 +319,9 @@ The gateway maintains a strict allowlist of permitted domains:
 - **Enforced at proxy** — Squid validates destination before forwarding
 - **SNI-based validation** — for HTTPS, the proxy inspects the Server Name Indication (SNI) in the TLS ClientHello to determine the destination domain. This does **not** require MITM CA certificates or decrypting traffic — the proxy reads the plaintext hostname from the CONNECT request and SNI extension, then either tunnels or rejects.
 
-**Explicitly excluded:** `*.actions.githubusercontent.com`, `ghcr.io`, `*.github.io`, `copilot-*.githubusercontent.com`
+**Explicitly excluded:** `*.actions.githubusercontent.com`, `ghcr.io`, `*.github.io`, `copilot-*.githubusercontent.com`, **`*.atlassian.net` / `*.atlassian.com` / `api.atlassian.com` / `jira.atlassian.com`**
+
+**Why Atlassian domains are excluded from the Squid allowlist:** all Jira traffic **must** flow through the gateway REST endpoints (`/api/v1/jira/*`). Adding `*.atlassian.net` to Squid would let a compromised sandbox reach Jira directly through the proxy, bypassing the private-mode gate, the project allowlist, the verb allowlist, and the audit log. A dedicated regression test (`gateway/tests/test_allowed_domains.py`) asserts that none of `atlassian.net`, `atlassian.com`, `api.atlassian.com`, or `jira.atlassian.com` appear in `gateway/allowed_domains.txt`.
 
 ### What Gets Blocked
 

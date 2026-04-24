@@ -173,6 +173,42 @@ anthropic_credentials = _load_module_with_replaced_imports(
     GATEWAY_DIR / "anthropic_credentials.py",
 )
 
+# jira_credentials imports parse_env_file from anthropic_credentials
+jira_credentials = _load_module_with_replaced_imports(
+    "jira_credentials",
+    GATEWAY_DIR / "jira_credentials.py",
+    import_replacements={
+        "from .anthropic_credentials import": "from anthropic_credentials import",
+    },
+)
+
+# jira_client imports from jira_credentials (plus lazy ref to gateway.audit_log)
+jira_client = _load_module_with_replaced_imports(
+    "jira_client",
+    GATEWAY_DIR / "jira_client.py",
+    import_replacements={
+        "from .jira_credentials import": "from jira_credentials import",
+    },
+)
+
+# jira_policy has no relative imports to other gateway modules
+jira_policy = _load_module_with_replaced_imports(
+    "jira_policy",
+    GATEWAY_DIR / "jira_policy.py",
+)
+
+# jira_search has no relative imports to other gateway modules
+jira_search = _load_module_with_replaced_imports(
+    "jira_search",
+    GATEWAY_DIR / "jira_search.py",
+)
+
+# mode_gate has a lazy gateway import for audit_log — no eager relative import
+mode_gate = _load_module_with_replaced_imports(
+    "mode_gate",
+    GATEWAY_DIR / "mode_gate.py",
+)
+
 # worktree_manager has no relative imports to other gateway modules
 worktree_manager = _load_module_with_replaced_imports(
     "worktree_manager",
@@ -294,6 +330,11 @@ gateway = _load_module_with_replaced_imports(
         "from .rate_limiter import": "from rate_limiter import",
         "from .repo_visibility import": "from repo_visibility import",
         "from .worktree_manager import": "from worktree_manager import",
+        "from .jira_client import": "from jira_client import",
+        "from .jira_credentials import": "from jira_credentials import",
+        "from .jira_policy import": "from jira_policy import",
+        "from .jira_search import": "from jira_search import",
+        "from .mode_gate import": "from mode_gate import",
     },
 )
 

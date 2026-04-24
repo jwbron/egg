@@ -8749,6 +8749,7 @@ def _spawn_and_wait(
         repo_volumes=repo_volumes,
         branch=branch,
         extra_mounts=extra_mounts,
+        jira_ticket=(sandbox_env.get("EGG_JIRA_TICKET") or None),
         **retry_kwargs,
     )
 
@@ -10364,6 +10365,22 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 sandbox_env["EGG_REPO"] = pipeline.repo
             else:
                 repos = []
+
+            # Jira ticket advisory env vars (issue #1556).  These give sandbox
+            # agents a stable handle for the ticket the pipeline is working
+            # against (``jira ticket get "$EGG_JIRA_TICKET"``) without
+            # hard-coding the key.  They are ADVISORY — the gateway's project
+            # allowlist is the only hard boundary, and we never export
+            # Atlassian credentials (JIRA_BASE_URL / JIRA_USERNAME /
+            # JIRA_API_TOKEN) to the sandbox.  An empty string is exported
+            # when no ticket is configured so agent wrappers can rely on
+            # variable presence.
+            jira_ticket_value = getattr(pipeline, "jira_ticket", None) or ""
+            sandbox_env["EGG_JIRA_TICKET"] = jira_ticket_value
+            if jira_ticket_value and "-" in jira_ticket_value:
+                sandbox_env["EGG_JIRA_PROJECT"] = jira_ticket_value.split("-", 1)[0]
+            else:
+                sandbox_env["EGG_JIRA_PROJECT"] = ""
 
             phase_failed = False
             tester_gap_summary: str | None = None

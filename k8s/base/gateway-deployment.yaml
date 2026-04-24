@@ -49,6 +49,13 @@ spec:
             # secrets.env from /secrets/secrets.env, and github-app.pem from
             # /secrets/github-app.pem. See gateway/entrypoint.sh and
             # gateway/anthropic_credentials.py.
+            #
+            # Credential keys discovered in secrets.env (no new mount needed):
+            #   ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN   — gateway/anthropic_credentials.py
+            #   GITHUB_TOKEN / GITHUB_READONLY_TOKEN / GITHUB_USER_TOKEN — gateway/git_client.py
+            #   JIRA_BASE_URL / JIRA_USERNAME / JIRA_API_TOKEN — gateway/jira_credentials.py (issue #1556)
+            # The Jira project allowlist lives alongside the gateway config
+            # at config/context-filters.yaml (jira.projects).
             - name: EGG_CONFIG_DIR
               value: "/secrets"
             - name: EGG_SECRETS_PATH

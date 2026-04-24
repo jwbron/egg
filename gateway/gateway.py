@@ -17,6 +17,10 @@ Endpoints:
     POST /api/v1/gh/pr/edit     - Edit PR (policy: pr_ownership)
     POST /api/v1/gh/pr/close    - Close PR (policy: pr_ownership)
     POST /api/v1/gh/execute     - Generic gh command (policy: filtered)
+    POST /api/v1/jira/ticket/get       - Read Jira issue (policy: private-mode, project allowlist)
+    POST /api/v1/jira/search           - JQL search (policy: private-mode, statically project-scoped)
+    POST /api/v1/jira/ticket/comments  - Read Jira issue comments (policy: private-mode, project allowlist)
+    POST /api/v1/jira/execute          - Generic read-only Jira REST call (policy: private-mode, allowlisted path)
     GET  /api/v1/health         - Health check (no auth required)
 
 Usage:
@@ -45,7 +49,7 @@ from typing import Any, TypeVar
 F = TypeVar("F", bound=Callable[..., Any])  # noqa: UP047 – Python 3.11 compat
 
 import httpx
-from flask import Flask, Response, g, jsonify, request, stream_with_context
+from flask import Flask, Response, g, has_request_context, jsonify, request, stream_with_context
 from waitress import serve
 
 # Add shared directory to path for egg_logging
@@ -106,6 +110,23 @@ try:
         resolve_gh_api_template_variables,
         validate_gh_api_path,
     )
+    from .jira_client import (
+        JiraCredentialsUnavailable,
+        JiraUpstreamError,
+        get_jira_client,
+        validate_jira_api_path,
+    )
+    from .jira_client import (
+        validate_fields as validate_jira_fields,
+    )
+    from .jira_credentials import reload_jira_credentials
+    from .jira_policy import (
+        extract_project_key,
+        is_project_allowed,
+        reload_jira_policy,
+    )
+    from .jira_search import extract_search_projects
+    from .mode_gate import require_private_mode
     from .phase_filter import (
         OperationType,
         PipelinePhase,
@@ -184,6 +205,38 @@ except ImportError:
         resolve_gh_api_template_variables,
         validate_gh_api_path,
     )
+
+    # The Jira modules are new in issue #1556 and the flat-module test
+    # conftest does not yet preload them.  Make the gateway directory
+    # discoverable before the fallback import so standalone / test loading
+    # still finds jira_client, jira_credentials, jira_policy, jira_search,
+    # and mode_gate by name.  In production (package import), the relative
+    # ``from .jira_client import ...`` path above succeeds and this branch
+    # never runs.
+    _egg_gateway_dir = str(Path(__file__).parent)
+    if _egg_gateway_dir not in sys.path:
+        sys.path.insert(0, _egg_gateway_dir)
+    from jira_client import (  # type: ignore[no-redef, import-untyped]
+        JiraCredentialsUnavailable,
+        JiraUpstreamError,
+        get_jira_client,
+        validate_jira_api_path,
+    )
+    from jira_client import (  # type: ignore[no-redef]
+        validate_fields as validate_jira_fields,
+    )
+    from jira_credentials import (  # type: ignore[no-redef, import-untyped]
+        reload_jira_credentials,
+    )
+    from jira_policy import (  # type: ignore[no-redef, import-untyped]
+        extract_project_key,
+        is_project_allowed,
+        reload_jira_policy,
+    )
+    from jira_search import (  # type: ignore[no-redef, import-untyped]
+        extract_search_projects,
+    )
+    from mode_gate import require_private_mode  # type: ignore[no-redef, import-untyped]
     from phase_filter import (  # type: ignore[no-redef, import-untyped]
         OperationType,
         PipelinePhase,
@@ -696,6 +749,40 @@ def _reload_all_config() -> None:
     else:
         reload_policy_caches()
         logger.warning("Policy caches reloaded (repo_config unavailable)")
+
+    # Jira credentials + project allowlist — both sit on disk next to the
+    # other gateway config, so a single ``POST /api/v1/config/reload`` should
+    # refresh them alongside the GitHub policy caches.  Failing the Jira
+    # reload must not tank the endpoint (operators may be running without
+    # Jira configured), so we log and continue.
+    try:
+        reload_jira_credentials()
+    except Exception:  # pragma: no cover — defensive
+        logger.exception("Jira credentials reload failed")
+    try:
+        reload_jira_policy()
+    except Exception:  # pragma: no cover — defensive
+        logger.exception("Jira project allowlist reload failed")
+    # ``_reload_all_config`` is reachable from two call sites: (a) the
+    # ``POST /api/v1/config/reload`` endpoint, which runs inside a Flask
+    # request; and (b) the SIGHUP handler, which does NOT.  ``audit_log``
+    # dereferences ``request.remote_addr`` so calling it outside a request
+    # raises ``RuntimeError: Working outside of request context``.  Gate
+    # the audit on ``has_request_context`` so HTTP reloads still audit and
+    # SIGHUP falls back to a bare logger line.
+    if has_request_context():
+        audit_log(
+            "jira_config_reloaded",
+            "config_reload",
+            success=True,
+            details={"components": ["jira_credentials", "jira_policy"]},
+        )
+    else:
+        logger.info(
+            "Jira configuration reloaded",
+            components=["jira_credentials", "jira_policy"],
+            trigger="sighup",
+        )
 
 
 @app.route("/api/v1/config/reload", methods=["POST"])
@@ -3842,6 +3929,500 @@ def gh_execute() -> tuple[Response, int] | Response:
 
 
 # =============================================================================
+# Jira REST Endpoints
+# =============================================================================
+#
+# Read-only wrappers around Atlassian Cloud's REST API v3.  Routes live on
+# the ``/api/v1/jira/*`` prefix and mirror the shape of ``/api/v1/gh/*``:
+# session auth, private-mode gate, project allowlist, structured audit log.
+#
+# Credentials come from ``gateway/jira_credentials.py`` (loaded from the same
+# ``secrets.env`` file as the GitHub and Anthropic credentials) and are
+# never exported to the sandbox.  See:
+# - gateway/jira_client.py       — client + path allowlist
+# - gateway/jira_policy.py       — project allowlist loader
+# - gateway/jira_search.py       — JQL project-scope extractor
+# - gateway/mode_gate.py         — @require_private_mode decorator
+
+# Regex for the Jira ticket-key shape agents are allowed to pass in
+# ``/api/v1/jira/ticket/*`` request bodies.  ``jira_client`` does its own
+# allowlist check on the full REST path, but we validate the shape here so
+# the error message is actionable before we ever look at the client.
+_JIRA_TICKET_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]*-\d+$")
+
+
+def _session_jira_context() -> dict[str, Any]:
+    """Return session-scoped fields to include in Jira audit records.
+
+    Pipeline ID, agent role, and the new ``jira_ticket`` are observational
+    — they aren't used as policy gates (the project allowlist is the only
+    hard boundary — refine decision #9) but they make the audit trail
+    self-describing.
+    """
+    ctx: dict[str, Any] = {
+        "session_mode": getattr(g, "session_mode", None),
+    }
+    session = getattr(g, "session", None)
+    if session is not None:
+        ctx["pipeline_id"] = getattr(session, "pipeline_id", None)
+        ctx["agent_role"] = getattr(session, "agent_role", None)
+        ctx["jira_ticket"] = getattr(session, "jira_ticket", None)
+    return ctx
+
+
+def _jira_error_from_upstream(exc: JiraUpstreamError) -> tuple[Response, int]:
+    """Translate a ``JiraUpstreamError`` to an HTTP response.
+
+    Atlassian status codes in the 4xx range are passed through so the agent
+    sees the real reason; 5xx upstream errors collapse to a 502 with the
+    raw body in the audit trail.
+    """
+    if 400 <= exc.status_code < 500:
+        status = exc.status_code
+    else:
+        status = 502
+    return make_error(
+        f"Jira upstream error {exc.status_code}",
+        status_code=status,
+        details={
+            "upstream_status": exc.status_code,
+            "upstream_body": exc.body,
+            "path": exc.path,
+        },
+    )
+
+
+def _jira_not_configured_error(exc: JiraCredentialsUnavailable) -> tuple[Response, int]:
+    """Translate missing credentials to an HTTP 503 response."""
+    return make_error(
+        "Jira credentials not configured on the gateway",
+        status_code=503,
+        details={"reason": str(exc)},
+    )
+
+
+def _project_not_allowlisted_response(
+    *,
+    event: str,
+    ticket: str | None,
+    project: str | None,
+    reason: str,
+    extra: dict[str, Any] | None = None,
+) -> tuple[Response, int]:
+    """Emit a structured audit record and return the canonical 403."""
+    details: dict[str, Any] = {"project": project, "reason": reason}
+    if ticket is not None:
+        details["ticket"] = ticket
+    if extra:
+        details.update(extra)
+    details.update(_session_jira_context())
+    audit_log(event, event, success=False, details=details)
+    return make_error(
+        "Jira project not allowlisted",
+        status_code=403,
+        details={"project": project, "reason": reason},
+    )
+
+
+@app.route("/api/v1/jira/ticket/get", methods=["POST"])
+@require_session_auth
+@require_private_mode
+def jira_ticket_get() -> tuple[Response, int] | Response:
+    """Fetch a single Jira issue.
+
+    Request body::
+
+        {"ticket": "FOO-123", "fields": ["summary", "status"]}
+
+    ``fields`` is optional; when omitted, Atlassian returns the default field
+    set.  ``expand`` defaults to ``renderedBody,renderedFields`` in the
+    client so agents receive both ADF and rendered HTML.
+    """
+    data = request.get_json(silent=True) or {}
+    ticket = data.get("ticket")
+    fields = data.get("fields")
+
+    if not isinstance(ticket, str) or not _JIRA_TICKET_KEY_RE.fullmatch(ticket):
+        audit_log(
+            "jira_ticket_get_rejected",
+            "jira_ticket_get",
+            success=False,
+            details={"reason": "invalid ticket shape", "ticket": ticket, **_session_jira_context()},
+        )
+        return make_error(
+            "Invalid ticket key (expected e.g. 'FOO-123')",
+            status_code=400,
+            details={"ticket": ticket},
+        )
+
+    project = extract_project_key(ticket)
+    if not is_project_allowed(project):
+        return _project_not_allowlisted_response(
+            event="jira_ticket_get_denied",
+            ticket=ticket,
+            project=project,
+            reason="project not allowlisted",
+        )
+
+    try:
+        cleaned_fields = validate_jira_fields(fields)
+    except ValueError as exc:
+        audit_log(
+            "jira_ticket_get_rejected",
+            "jira_ticket_get",
+            success=False,
+            details={"reason": str(exc), "ticket": ticket, **_session_jira_context()},
+        )
+        return make_error(f"Invalid fields: {exc}", status_code=400)
+
+    try:
+        body = get_jira_client().get_ticket(ticket, cleaned_fields or None)
+    except JiraCredentialsUnavailable as exc:
+        return _jira_not_configured_error(exc)
+    except JiraUpstreamError as exc:
+        audit_log(
+            "jira_ticket_get_upstream_error",
+            "jira_ticket_get",
+            success=False,
+            details={
+                "ticket": ticket,
+                "project": project,
+                "upstream_status": exc.status_code,
+                **_session_jira_context(),
+            },
+        )
+        return _jira_error_from_upstream(exc)
+
+    audit_log(
+        "jira_ticket_get",
+        "jira_ticket_get",
+        success=True,
+        details={
+            "ticket": ticket,
+            "project": project,
+            "not_found": body.get("status") == "not_found",
+            **_session_jira_context(),
+        },
+    )
+    return make_success("Jira ticket fetched", body)
+
+
+@app.route("/api/v1/jira/search", methods=["POST"])
+@require_session_auth
+@require_private_mode
+def jira_search() -> tuple[Response, int] | Response:
+    """Run a JQL query against Atlassian Cloud.
+
+    Request body::
+
+        {"jql": "project = ENG AND status = Open",
+         "fields": [...],
+         "nextPageToken": "...",
+         "maxResults": 50}
+
+    The JQL must be statically provable as scoped to allowlisted projects.
+    See ``gateway/jira_search.py`` for the exact acceptance rules.
+    """
+    data = request.get_json(silent=True) or {}
+    jql = data.get("jql")
+    fields = data.get("fields")
+    next_page_token = data.get("nextPageToken")
+    max_results = data.get("maxResults")
+
+    if not isinstance(jql, str) or not jql.strip():
+        audit_log(
+            "jira_search_rejected",
+            "jira_search",
+            success=False,
+            details={"reason": "jql required", **_session_jira_context()},
+        )
+        return make_error("jql is required", status_code=400)
+
+    # Import allowlist lazily because ``allowed_projects`` resolves the
+    # policy singleton on first access.  Getting the frozenset once per
+    # request keeps the mtime check out of the hot path for tests that
+    # monkeypatch ``is_project_allowed`` directly.
+    try:
+        from .jira_policy import allowed_projects
+    except ImportError:
+        from jira_policy import allowed_projects  # type: ignore[no-redef]
+    allowed = allowed_projects()
+
+    scope = extract_search_projects(jql, allowed)
+    if scope.projects is None:
+        audit_log(
+            "jira_search_rejected",
+            "jira_search",
+            success=False,
+            details={
+                "reason": scope.reason,
+                "jql_length": len(jql),
+                **_session_jira_context(),
+            },
+        )
+        return make_error(
+            f"JQL rejected: {scope.reason}",
+            status_code=403,
+            details={"reason": scope.reason},
+        )
+
+    try:
+        cleaned_fields = validate_jira_fields(fields)
+    except ValueError as exc:
+        audit_log(
+            "jira_search_rejected",
+            "jira_search",
+            success=False,
+            details={"reason": str(exc), **_session_jira_context()},
+        )
+        return make_error(f"Invalid fields: {exc}", status_code=400)
+
+    # Normalise max_results: accept an int or a string-that-parses.  Missing
+    # / invalid falls back to the client-side default (50, capped at 100).
+    effective_max: int | None = None
+    if max_results is not None:
+        try:
+            effective_max = max(1, min(int(max_results), 100))
+        except (TypeError, ValueError):
+            audit_log(
+                "jira_search_rejected",
+                "jira_search",
+                success=False,
+                details={
+                    "reason": "maxResults must be an integer",
+                    **_session_jira_context(),
+                },
+            )
+            return make_error("maxResults must be an integer", status_code=400)
+
+    try:
+        body = get_jira_client().search(
+            jql=jql,
+            fields=cleaned_fields or None,
+            next_page_token=next_page_token if isinstance(next_page_token, str) else None,
+            max_results=effective_max,
+        )
+    except JiraCredentialsUnavailable as exc:
+        return _jira_not_configured_error(exc)
+    except JiraUpstreamError as exc:
+        audit_log(
+            "jira_search_upstream_error",
+            "jira_search",
+            success=False,
+            details={
+                "upstream_status": exc.status_code,
+                **_session_jira_context(),
+            },
+        )
+        return _jira_error_from_upstream(exc)
+
+    audit_log(
+        "jira_search",
+        "jira_search",
+        success=True,
+        details={
+            "projects_extracted": sorted(scope.projects),
+            "jql_length": len(jql),
+            "max_results": effective_max,
+            "next_page_token_present": bool(next_page_token),
+            **_session_jira_context(),
+        },
+    )
+    return make_success("Jira search executed", body)
+
+
+@app.route("/api/v1/jira/ticket/comments", methods=["POST"])
+@require_session_auth
+@require_private_mode
+def jira_ticket_comments() -> tuple[Response, int] | Response:
+    """Fetch comments for a Jira issue."""
+    data = request.get_json(silent=True) or {}
+    ticket = data.get("ticket")
+
+    if not isinstance(ticket, str) or not _JIRA_TICKET_KEY_RE.fullmatch(ticket):
+        audit_log(
+            "jira_ticket_comments_rejected",
+            "jira_ticket_comments",
+            success=False,
+            details={"reason": "invalid ticket shape", "ticket": ticket, **_session_jira_context()},
+        )
+        return make_error(
+            "Invalid ticket key (expected e.g. 'FOO-123')",
+            status_code=400,
+            details={"ticket": ticket},
+        )
+
+    project = extract_project_key(ticket)
+    if not is_project_allowed(project):
+        return _project_not_allowlisted_response(
+            event="jira_ticket_comments_denied",
+            ticket=ticket,
+            project=project,
+            reason="project not allowlisted",
+        )
+
+    try:
+        body = get_jira_client().get_comments(ticket)
+    except JiraCredentialsUnavailable as exc:
+        return _jira_not_configured_error(exc)
+    except JiraUpstreamError as exc:
+        audit_log(
+            "jira_ticket_comments_upstream_error",
+            "jira_ticket_comments",
+            success=False,
+            details={
+                "ticket": ticket,
+                "project": project,
+                "upstream_status": exc.status_code,
+                **_session_jira_context(),
+            },
+        )
+        return _jira_error_from_upstream(exc)
+
+    audit_log(
+        "jira_ticket_comments",
+        "jira_ticket_comments",
+        success=True,
+        details={
+            "ticket": ticket,
+            "project": project,
+            "not_found": body.get("status") == "not_found",
+            **_session_jira_context(),
+        },
+    )
+    return make_success("Jira ticket comments fetched", body)
+
+
+@app.route("/api/v1/jira/execute", methods=["POST"])
+@require_session_auth
+@require_private_mode
+def jira_execute() -> tuple[Response, int] | Response:
+    """Generic read-only passthrough for whitelisted Jira REST paths.
+
+    Request body::
+
+        {"method": "GET",
+         "path": "issue/FOO-123",
+         "query": {"fields": "summary"},
+         "body": null}
+
+    Only methods + paths accepted by ``validate_jira_api_path`` are allowed.
+    Write verbs (DELETE/PUT/PATCH) and path fragments listed in
+    ``JIRA_WRITE_VERBS_DENIED`` are refused unconditionally.
+    """
+    data = request.get_json(silent=True) or {}
+    method = data.get("method") or "GET"
+    path = data.get("path")
+    query = data.get("query")
+    req_body = data.get("body")
+
+    if not isinstance(path, str) or not path:
+        audit_log(
+            "jira_execute_rejected",
+            "jira_execute",
+            success=False,
+            details={"reason": "path required", **_session_jira_context()},
+        )
+        return make_error("path is required", status_code=400)
+
+    if not isinstance(method, str):
+        audit_log(
+            "jira_execute_rejected",
+            "jira_execute",
+            success=False,
+            details={"reason": "method must be a string", **_session_jira_context()},
+        )
+        return make_error("method must be a string", status_code=400)
+
+    method_upper = method.upper()
+    ok, reason = validate_jira_api_path(path, method_upper)
+    if not ok:
+        audit_log(
+            "jira_execute_denied",
+            "jira_execute",
+            success=False,
+            details={
+                "method": method_upper,
+                "path": path,
+                "reason": reason,
+                **_session_jira_context(),
+            },
+        )
+        return make_error(
+            f"Jira API call rejected: {reason}",
+            status_code=403,
+            details={"method": method_upper, "path": path, "reason": reason},
+        )
+
+    # Path is structurally OK — extract project key (if any) and allowlist it.
+    # The accepted shapes are ``issue/<KEY>[/comment]`` and
+    # ``project/<KEY>``.  Both carry a project key inline that is checked
+    # against the allowlist.  Bare ``project`` is excluded (would leak all
+    # projects visible to the API token).
+    stripped = path.strip("/").split("?", 1)[0]
+    ticket: str | None = None
+    project: str | None = None
+    head = stripped.split("/")
+    if head and head[0] == "issue" and len(head) >= 2:
+        ticket = head[1]
+        project = extract_project_key(ticket)
+    elif head and head[0] == "project" and len(head) >= 2:
+        project = head[1]
+
+    if project is not None and not is_project_allowed(project):
+        return _project_not_allowlisted_response(
+            event="jira_execute_denied",
+            ticket=ticket,
+            project=project,
+            reason="project not allowlisted",
+            extra={"method": method_upper, "path": path},
+        )
+
+    # Normalise query & body — they must be dicts or None.
+    if query is not None and not isinstance(query, dict):
+        return make_error("query must be an object", status_code=400)
+    if req_body is not None and not isinstance(req_body, dict):
+        return make_error("body must be an object", status_code=400)
+
+    try:
+        body = get_jira_client().execute_raw(
+            method=method_upper,
+            path=stripped,
+            query=query,
+            body=req_body,
+        )
+    except JiraCredentialsUnavailable as exc:
+        return _jira_not_configured_error(exc)
+    except JiraUpstreamError as exc:
+        audit_log(
+            "jira_execute_upstream_error",
+            "jira_execute",
+            success=False,
+            details={
+                "method": method_upper,
+                "path": stripped,
+                "upstream_status": exc.status_code,
+                **_session_jira_context(),
+            },
+        )
+        return _jira_error_from_upstream(exc)
+
+    audit_log(
+        "jira_execute",
+        "jira_execute",
+        success=True,
+        details={
+            "method": method_upper,
+            "path": stripped,
+            "project": project,
+            "ticket": ticket,
+            **_session_jira_context(),
+        },
+    )
+    return make_success("Jira API call executed", body)
+
+
+# =============================================================================
 # Worktree Lifecycle Endpoints
 # =============================================================================
 
@@ -4468,6 +5049,7 @@ def session_create() -> tuple[Response, int] | Response:
     agent_anchor_id = data.get("agent_anchor_id")  # Optional agent anchor ID
     claude_code_version = data.get("claude_code_version")  # Optional Claude Code version
     branch = data.get("branch")  # Optional git branch for non-pushing sessions
+    jira_ticket = data.get("jira_ticket")  # Optional Atlassian ticket key — advisory only
 
     # Validate required fields
     if not container_id:
@@ -4746,6 +5328,7 @@ def session_create() -> tuple[Response, int] | Response:
         agent_anchor_id=agent_anchor_id,
         claude_code_version=claude_code_version,
         branch=branch,
+        jira_ticket=jira_ticket if isinstance(jira_ticket, str) and jira_ticket else None,
     )
 
     # Pre-populate checkpoint context so non-pushing sessions (reviewers,

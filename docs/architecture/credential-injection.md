@@ -1,6 +1,6 @@
 # Credential Injection
 
-The gateway sidecar injects credentials at the proxy layer, ensuring the sandbox container has zero credential access. This covers both GitHub (via git wrappers) and Anthropic API (via `ANTHROPIC_BASE_URL`) credentials.
+The gateway sidecar injects credentials at the proxy layer, ensuring the sandbox container has zero credential access. This covers GitHub (via git wrappers), Anthropic API (via `ANTHROPIC_BASE_URL`), and Atlassian/Jira (via the `/api/v1/jira/*` REST endpoints) credentials.
 
 **Key properties:**
 - **Zero credential exposure**: Container never sees API keys, OAuth tokens, or GitHub tokens
@@ -147,22 +147,51 @@ Gateway enforcement cannot be bypassed because:
 |------|--------|-----------------|
 | API Key | `ANTHROPIC_API_KEY` in secrets.env | `x-api-key: <key>` |
 | OAuth Token | `ANTHROPIC_OAUTH_TOKEN` in secrets.env | `Authorization: Bearer <token>` |
+| Atlassian / Jira | `JIRA_BASE_URL` + `JIRA_USERNAME` + `JIRA_API_TOKEN` in secrets.env | `Authorization: Basic <base64(username:token)>` |
 
-OAuth takes precedence if both are configured. OAuth tokens may expire; the user runs `claude auth status` to generate a new token, and the gateway hot-reloads via mtime-based cache refresh.
+OAuth takes precedence over API key if both are configured. OAuth tokens may expire; the user runs `claude auth status` to generate a new token, and the gateway hot-reloads via mtime-based cache refresh.
+
+### Atlassian / Jira
+
+Sandboxed agents reach Jira exclusively through the gateway's `/api/v1/jira/*` REST endpoints. Atlassian credentials are held by the gateway and injected per-request; they never enter the sandbox.
+
+**Credential storage:**
+```bash
+# ~/.config/egg/secrets.env
+JIRA_BASE_URL="https://your-site.atlassian.net"
+JIRA_USERNAME="bot@example.com"   # Atlassian account email
+JIRA_API_TOKEN="ATATT3x..."       # Atlassian Cloud API token
+```
+
+**Loader:** `gateway/jira_credentials.py` mirrors `gateway/anthropic_credentials.py` — mtime-based cache refresh of `~/.config/egg/secrets.env` (override with `EGG_SECRETS_PATH`). `get_jira_credentials()` returns a `JiraCredentials` dataclass with `base_url`, `username`, `api_token`, and a `basic_auth_header()` helper that emits the base64-encoded `Basic` header. Missing values raise `JiraCredentialsUnavailable`, which the route layer translates to HTTP 503. `reload_jira_credentials()` is wired into the gateway's `_reload_all_config()` hook, so `POST /api/v1/config/reload` picks up rotated tokens without a process restart.
+
+**Zero-credential invariant:** The orchestrator's sandbox-launch env builder (`orchestrator/routes/pipelines.py`) is forbidden from exporting `JIRA_BASE_URL`, `JIRA_USERNAME`, or `JIRA_API_TOKEN` to the agent container. A regression test in `orchestrator/tests/test_start_pipeline.py` iterates the sandbox env and asserts those three keys are absent. The only Jira-related variables the agent sees are `EGG_JIRA_TICKET` (the ticket the pipeline is scoped to) and `EGG_JIRA_PROJECT` (optional, advisory) — neither is a credential.
+
+**Private-mode only + project allowlist:** Every `/api/v1/jira/*` route is decorated with `@require_private_mode` (`gateway/mode_gate.py`). In public mode, the decorator returns 403 and emits a `private_mode_required` audit entry **before** any credential is loaded or any upstream request is issued. After the mode gate, each route checks the extracted project key against the allowlist in `config/context-filters.yaml` (`jira.projects`) — see [Jira wrapper reference](../reference/jira-wrapper.md) for the full policy semantics.
+
+**Squid allowlist excludes Atlassian domains:** `*.atlassian.net`, `*.atlassian.com`, `api.atlassian.com`, and `jira.atlassian.com` are intentionally **not** in `gateway/allowed_domains.txt`. All Jira traffic flows through the gateway REST endpoints, never through the Squid proxy, so the private-mode gate and the project allowlist cannot be bypassed by a direct `CONNECT` to Atlassian through the proxy. A regression test (`gateway/tests/test_allowed_domains.py`) enforces this invariant.
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `gateway/gateway.py` | Anthropic proxy endpoints, credential injection, tool filtering |
-| `gateway/anthropic_credentials.py` | Credential loading from secrets.env |
-| `gateway/allowed_domains.txt` | Domain allowlist (api.anthropic.com intentionally absent) |
+| `gateway/gateway.py` | Anthropic proxy endpoints, `/api/v1/jira/*` routes, credential injection, tool filtering, `_reload_all_config()` hot-reload hook |
+| `gateway/anthropic_credentials.py` | Anthropic credential loading from secrets.env |
+| `gateway/jira_credentials.py` | Atlassian credential loading from secrets.env (mtime refresh, basic-auth header helper) |
+| `gateway/jira_client.py` | Jira REST client + `validate_jira_api_path` regex allowlist + 429 retry + 404 envelope |
+| `gateway/jira_policy.py` | Project allowlist loader for `config/context-filters.yaml` (`jira.projects`) |
+| `gateway/mode_gate.py` | `@require_private_mode` decorator (fails closed in public mode, marks view for regression test) |
+| `gateway/session_manager.py` | `Session.jira_ticket` audit field (observational; project allowlist is the only hard boundary) |
+| `gateway/allowed_domains.txt` | Domain allowlist (api.anthropic.com and all Atlassian domains intentionally absent) |
 | `sandbox/entrypoint.py` | Set ANTHROPIC_BASE_URL, remove creds from env, set disallowedTools in private mode |
+| `sandbox/scripts/jira` | Sandbox CLI wrapper — POSTs to `/api/v1/jira/*` with `EGG_SESSION_TOKEN` |
 | `shared/egg_agent/client.py` | Pass `disallowed_tools` via SDK options for headless agents in private mode |
-| `config/secrets.template.env` | Template for Anthropic credentials |
+| `config/secrets.template.env` | Template for Anthropic and Atlassian credentials |
+| `config/context-filters.yaml` | Operator-facing Jira project allowlist (`jira.projects:`) |
 
 ## Related Documentation
 
 - [Git Isolation Architecture](git-isolation.md) — Worktree isolation via gateway
 - [Network Isolation](network-isolation.md) — Full network lockdown design
+- [Jira Wrapper Reference](../reference/jira-wrapper.md) — `/api/v1/jira/*` endpoint surface, JQL scope extractor, not-found envelope, future-verb extension points
 - [Architecture Overview](README.md) — System design

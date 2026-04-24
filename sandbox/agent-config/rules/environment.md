@@ -32,6 +32,45 @@ All git/gh operations routed through gateway. Key restrictions:
 
 If push fails: check `git remote -v` is HTTPS, check `curl http://egg-gateway:9848/api/v1/health`, verify branch is egg-owned.
 
+### Jira Wrapper (`jira`)
+
+The `sandbox/scripts/jira` wrapper is the only way for the sandbox to reach Jira — it POSTs to the gateway's `/api/v1/jira/*` routes with `Authorization: Bearer $EGG_SESSION_TOKEN` and Atlassian credentials never enter the sandbox. **Private network mode only**: in public mode every Jira call returns 403 `private_mode_required` before any upstream request.
+
+| Verb | Gateway route |
+|------|---------------|
+| `jira ticket get <KEY> [--fields f1,f2]` | `POST /api/v1/jira/ticket/get` |
+| `jira search '<JQL>' [--fields ...] [--max-results N] [--next-page-token TOK]` | `POST /api/v1/jira/search` |
+| `jira ticket comments <KEY>` | `POST /api/v1/jira/ticket/comments` |
+| `jira execute <METHOD> <PATH> [--query k=v,...] [--body-file path]` | `POST /api/v1/jira/execute` (GET-only) |
+
+**Environment variables** (advisory, set by the orchestrator):
+
+| Variable | Meaning |
+|----------|---------|
+| `EGG_JIRA_TICKET` | The ticket the pipeline is scoped to (e.g. `ENG-1234`); empty if the pipeline has no Jira ticket |
+| `EGG_JIRA_PROJECT` | Optional project hint; empty if absent |
+
+Both are **advisory only** — the project allowlist (`config/context-filters.yaml` → `jira.projects:`) is the only hard boundary enforced by the gateway.
+
+**Example:**
+```bash
+# Read the ticket the pipeline is scoped to
+jira ticket get "$EGG_JIRA_TICKET"
+
+# Search within an allowlisted project (JQL must statically scope to allowlisted projects)
+jira search 'project = ENG AND status = "Open"'
+
+# Read comments
+jira ticket comments "$EGG_JIRA_TICKET"
+
+# This WILL be rejected with 403 jira_search_rejected — the JQL scope extractor
+# denies on ambiguity, so any `OR` clause containing `project` is refused even
+# when every candidate is allowlisted.
+jira search 'project = ENG OR project = SEC'
+```
+
+**Hard limits (always denied):** `transitions`, `worklog`, `attachments`, `watchers`, HTTP `DELETE` / `PUT` / `PATCH`, path traversal (`..`), duplicate slashes, non-ASCII keys. Non-GET `execute` calls return 403 regardless of the path. See [Jira Wrapper Reference](../../../docs/reference/jira-wrapper.md) for the full endpoint surface, JQL scope extractor rules, and the `not_found` response envelope.
+
 ## File System
 
 | Path | Purpose |

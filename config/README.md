@@ -255,3 +255,21 @@ Controls which Confluence spaces, JIRA projects, and repositories are synced.
 **Phase 3 (Target)**: LOW risk - DLP scanning + output monitoring
 
 See file for detailed allowlists and blocked patterns.
+
+### `jira.projects` — Jira Project Allowlist
+
+The `jira` section controls which Jira projects are accessible through the gateway's
+`/api/v1/jira/*` routes. Agents can only read tickets, comments, and search results
+from allowlisted projects. Fail-closed: missing file, missing section, or malformed
+YAML results in an empty allowlist (no project accessible).
+
+```yaml
+jira:
+  projects:
+    - ENG       # Engineering project
+    - DEVOPS    # DevOps project
+```
+
+- **Keys must match Atlassian format**: uppercase letter followed by uppercase letters, digits, or underscores (`[A-Z][A-Z0-9_]*`). Invalid entries are logged and ignored.
+- **Empty list** (`projects: []`): No Jira projects accessible — all ticket/search/execute requests return 403.
+- **Hot-reloadable**: Changes are picked up via `POST /api/v1/config/reload` or SIGHUP without restarting the gateway.
