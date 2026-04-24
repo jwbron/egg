@@ -492,7 +492,10 @@ class TestSignalPathIntegration:
             assert status_code == 200
             body = json.loads(response.data)
             assert body["success"] is True
-            assert body["data"]["pre_merge_condition"] == "human must run: git mv legacy/x.py new/x.py before merging this PR"
+            assert (
+                body["data"]["pre_merge_condition"]
+                == "human must run: git mv legacy/x.py new/x.py before merging this PR"
+            )
 
         section = p._build_pre_merge_obligations_section(_SIGNAL_PIPELINE_ID)
         assert "Pre-merge Obligations" in section
