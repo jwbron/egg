@@ -320,10 +320,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-24T20:10:43.453280Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-24T20:12:16.459733Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Make the file untracked (.gitignore) and accept the loss of cross-sandbox continuity — sidesteps gateway policy entirely.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -503,7 +503,7 @@
     }
   ],
   "created_at": "2026-04-24T19:39:48.417158Z",
-  "updated_at": "2026-04-24T20:12:14.656207Z",
+  "updated_at": "2026-04-24T20:12:16.477124Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -517,6 +517,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 32,
+  "version": 33,
   "jira_ticket": null
 }
