@@ -98,9 +98,7 @@ class TestHostHomeFallback:
             == "/home/user/.egg-worktrees/x"
         )
 
-    def test_mountinfo_takes_precedence_over_host_home(
-        self, override_mounts, override_host_home
-    ):
+    def test_mountinfo_takes_precedence_over_host_home(self, override_mounts, override_host_home):
         # mountinfo disagrees with HOST_HOME — trust mountinfo because it
         # reflects what the kernel actually set up.
         override_mounts([("/home/egg/.egg-worktrees", "/real/host/path")])
@@ -120,9 +118,7 @@ class TestHostHomeFallback:
             == "/home/egg/.egg-worktrees/x"
         )
 
-    def test_host_home_ignored_for_non_container_path(
-        self, override_mounts, override_host_home
-    ):
+    def test_host_home_ignored_for_non_container_path(self, override_mounts, override_host_home):
         override_mounts([])
         override_host_home("/home/user")
 
