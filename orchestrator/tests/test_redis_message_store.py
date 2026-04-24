@@ -759,3 +759,53 @@ class TestRedisFromTipSemantics:
             from_tip=True,
         )
         assert len(messages) == 1
+
+
+class TestGetLatestId:
+    """Tests for ``RedisMessageStore.get_latest_id``."""
+
+    def test_empty_pipeline_returns_none(self, store):
+        assert store.get_latest_id("nonexistent-pipeline") is None
+
+    def test_single_message(self, store, sample_message):
+        store.add_message(sample_message)
+        assert store.get_latest_id("test-pipeline") == sample_message.id
+
+    def test_returns_most_recent(self, store):
+        m1 = Message(
+            pipeline_id="test-pipeline",
+            from_role="coder",
+            to_role="all",
+            message_type=MessageType.PROGRESS,
+            subject="first",
+        )
+        m2 = Message(
+            pipeline_id="test-pipeline",
+            from_role="coder",
+            to_role="all",
+            message_type=MessageType.PROGRESS,
+            subject="second",
+        )
+        store.add_message(m1)
+        store.add_message(m2)
+        assert store.get_latest_id("test-pipeline") == m2.id
+
+    def test_pipeline_isolation(self, store):
+        m1 = Message(
+            pipeline_id="pipeline-a",
+            from_role="coder",
+            to_role="all",
+            message_type=MessageType.PROGRESS,
+            subject="a",
+        )
+        m2 = Message(
+            pipeline_id="pipeline-b",
+            from_role="coder",
+            to_role="all",
+            message_type=MessageType.PROGRESS,
+            subject="b",
+        )
+        store.add_message(m1)
+        store.add_message(m2)
+        assert store.get_latest_id("pipeline-a") == m1.id
+        assert store.get_latest_id("pipeline-b") == m2.id

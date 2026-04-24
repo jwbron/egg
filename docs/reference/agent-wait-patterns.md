@@ -533,12 +533,17 @@ even if it changes pipeline state.
 | `CONSENSUS_CONFIRMED` | message bus | Consensus reached for a producer or globally. |
 | `CONSENSUS_NACK` | message bus | A reviewer NACKed; producer must re-propose. |
 | `CONSENSUS_RE_REVIEW` | message bus | A producer re-proposed; reviewers must re-review. |
-| `PHASE_STARTED` | EventBus | New phase began (e.g. plan → implement). |
-| `PHASE_COMPLETED` | EventBus | Phase ended. |
-| `PIPELINE_COMPLETED` | EventBus | Terminal success. |
-| `PIPELINE_FAILED` | EventBus | Terminal failure. |
-| `PIPELINE_CANCELLED` | EventBus | Operator cancelled the pipeline. |
-| `DECISION_CREATED` | EventBus | New HITL gate; surface to the user. |
+| `PHASE_STARTED` | EventBus | New phase began (e.g. plan → implement). Wire value: `phase.started`. |
+| `PHASE_COMPLETED` | EventBus | Phase ended. Wire value: `phase.completed`. |
+| `PIPELINE_COMPLETED` | EventBus | Terminal success. Wire value: `pipeline.completed`. |
+| `PIPELINE_FAILED` | EventBus | Terminal failure. Wire value: `pipeline.failed`. |
+| `PIPELINE_CANCELLED` | EventBus | Operator cancelled the pipeline. Wire value: `pipeline.cancelled`. |
+| `DECISION_CREATED` | EventBus | New HITL gate; surface to the user. Wire value: `decision.created`. |
+
+> **Wire values vs Python constants:** The names in this table are the Python
+> `EventType` constant names. The JSON responses use **dotted lowercase wire
+> values** (e.g. `phase.started`, `decision.created`). Always compare against
+> wire values in code — see §7.1 response fields for the exact strings.
 
 **Explicitly excluded:** `DECISION_RESOLVED`. This is the post-
 `provide_input` event and would cause the host to self-wake on an
@@ -716,9 +721,10 @@ while not last_status.status in {"complete", "failed", "cancelled"}:
         # Path A — replace cached snapshot, render full dashboard
         last_status = resp
         render_full_dashboard(last_status)
+        TERMINAL_STATES = {"pipeline.completed", "pipeline.failed", "pipeline.cancelled"}
         if resp.event_type in TERMINAL_STATES:
             break
-        if resp.event_type == "DECISION_CREATED":
+        if resp.event_type == "decision.created":
             handle_hitl(last_status.pending_decisions)
 ```
 

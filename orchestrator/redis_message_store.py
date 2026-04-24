@@ -331,17 +331,19 @@ class RedisMessageStore:
     def get_latest_id(self, pipeline_id: str) -> str | None:
         """Return the ID of the most recent message for *pipeline_id*, or ``None``.
 
-        Uses ``XREVRANGE … COUNT 1`` for an O(1) tail read.
+        Uses ``XREVRANGE … COUNT 1`` for an O(1) tail read.  Extracts the
+        ``id`` field directly from the Redis hash to avoid deserializing the
+        full :class:`Message` (JSON metadata, ISO timestamps, etc.).
         """
         key = _stream_key(pipeline_id)
         try:
             entries = self._redis.xrevrange(key, count=1)
             if entries:
-                stream_id, fields = entries[0]
-                if isinstance(stream_id, bytes):
-                    stream_id = stream_id.decode("utf-8")
-                msg = _message_from_redis(stream_id, fields)
-                return msg.id
+                _stream_id, fields = entries[0]
+                msg_id = fields.get(b"id") or fields.get("id", b"")
+                if isinstance(msg_id, bytes):
+                    msg_id = msg_id.decode("utf-8")
+                return msg_id or None
         except Exception:
             return None
         return None
