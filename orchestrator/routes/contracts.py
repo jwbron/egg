@@ -26,7 +26,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from flask import Blueprint, Response, jsonify, request
 
@@ -34,6 +34,9 @@ from flask import Blueprint, Response, jsonify, request
 _shared_path = Path(__file__).parent.parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
+
+if TYPE_CHECKING:
+    from egg_contracts import Contract
 
 # The orchestrator package lives one level up.
 _parent_path = Path(__file__).parent.parent
@@ -96,10 +99,13 @@ def _error(
 def _success(
     message: str,
     data: dict[str, Any] | None = None,
+    source: str | None = None,
 ) -> tuple[Response, int]:
     payload: dict[str, Any] = {"success": True, "message": message}
     if data is not None:
         payload["data"] = data
+    if source is not None:
+        payload["source"] = source
     return jsonify(payload), 200
 
 
@@ -162,35 +168,94 @@ def _worktree_for_request() -> tuple[Path | None, tuple[Response, int] | None]:
     return worktree, None
 
 
+def _branch_read_contract(
+    identifier: int | str,
+    pipeline_id: str,
+) -> Contract | None:
+    """Fall back to reading the committed contract from the pipeline's branch.
+
+    Used by the GET paths when the shared worktree has been pruned — the
+    ``.egg-state/contracts/<pipeline_id>.json`` file committed to the
+    feature branch is authoritative after the pipeline's final commit
+    and stays accessible via ``git show`` for the life of the PR.
+
+    Returns the loaded ``Contract`` on success, ``None`` when the
+    pipeline record can't be located or the branch has no such file.
+    """
+    # Lazy import: routes/__init__.py pulls in flask/state_store at
+    # import time; importing at module top would make contracts.py
+    # depend on initialisation order. Matches the pattern used by
+    # signals.py / phases.py / decisions.py.
+    from routes import get_state_store_for_pipeline
+    from state_store import InvalidPipelineIdError, PipelineNotFoundError
+
+    try:
+        store, pipeline = get_state_store_for_pipeline(pipeline_id)
+    except (PipelineNotFoundError, InvalidPipelineIdError):
+        return None
+    except Exception as exc:  # pragma: no cover — defensive
+        logger.warning(
+            "Branch-read fallback could not resolve pipeline",
+            extra={"pipeline_id": pipeline_id, "error": str(exc)},
+        )
+        return None
+
+    branch = pipeline.branch or f"egg/{pipeline_id}"
+    return contract_store.load_contract_from_branch(identifier, store.repo_path, branch)
+
+
 @contracts_bp.route("/<identifier>", methods=["GET"])
 def get_contract(identifier: str) -> tuple[Response, int]:
-    """Return the live contract for *identifier*."""
+    """Return the contract for *identifier*.
+
+    Prefers the live shared-worktree copy. When the worktree has already
+    been pruned (typical after the pipeline reaches PR / complete), falls
+    back to reading the committed contract from the pipeline's branch so
+    post-hoc callers — PR review, auditing, follow-up analysis — can
+    still retrieve it (#1977).
+    """
     ident = _coerce_identifier(identifier)
     validation_error = _validate_identifier(ident)
     if validation_error:
         return validation_error
 
-    worktree, error = _worktree_for_request()
-    if error:
-        return error
-    assert worktree is not None
-
     include_audit = request.args.get("include_audit_log", "false").lower() == "true"
 
-    try:
-        with contract_store.lock_for(ident):
-            contract = load_contract(ident, worktree)
-    except ContractNotFoundError:
-        return _error(
-            f"Contract for {'#' + str(ident) if isinstance(ident, int) else ident} not found",
-            status_code=404,
+    worktree, error = _worktree_for_request()
+    if error is None:
+        assert worktree is not None
+        try:
+            with contract_store.lock_for(ident):
+                contract = load_contract(ident, worktree)
+        except ContractNotFoundError:
+            return _error(
+                f"Contract for {'#' + str(ident) if isinstance(ident, int) else ident} not found",
+                status_code=404,
+            )
+        except ContractValidationError as exc:
+            return _error(f"Contract validation failed: {exc}", status_code=500)
+
+        return _success(
+            "Contract retrieved",
+            data=export_contract(contract, include_audit_log=include_audit),
+            source="worktree",
         )
+
+    # Worktree missing — try the branch before surfacing 404.
+    pipeline_id, _repo_hint = _pipeline_context()
+    if not pipeline_id:
+        return error
+
+    try:
+        contract = _branch_read_contract(ident, pipeline_id)
     except ContractValidationError as exc:
         return _error(f"Contract validation failed: {exc}", status_code=500)
-
+    if contract is None:
+        return error
     return _success(
         "Contract retrieved",
         data=export_contract(contract, include_audit_log=include_audit),
+        source="branch",
     )
 
 
@@ -202,14 +267,31 @@ def contract_exists(identifier: str) -> tuple[Response, int]:
         return validation_error
 
     worktree, error = _worktree_for_request()
-    if error:
-        return error
-    assert worktree is not None
+    if error is None:
+        assert worktree is not None
+        exists = _contract_exists(ident, worktree)
+        return _success(
+            "Contract exists" if exists else "Contract does not exist",
+            data={"exists": exists},
+            source="worktree",
+        )
 
-    exists = _contract_exists(ident, worktree)
+    # Worktree missing — check the branch. "Does this pipeline ever
+    # have a contract?" is a reasonable archival query (#1977).
+    pipeline_id, _repo_hint = _pipeline_context()
+    if not pipeline_id:
+        return error
+
+    try:
+        contract = _branch_read_contract(ident, pipeline_id)
+    except ContractValidationError as exc:
+        return _error(f"Contract validation failed: {exc}", status_code=500)
+    if contract is None:
+        return error
     return _success(
-        "Contract exists" if exists else "Contract does not exist",
-        data={"exists": exists},
+        "Contract exists",
+        data={"exists": True},
+        source="branch",
     )
 
 
