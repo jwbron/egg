@@ -405,10 +405,105 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-14",
+      "question": "Open feedback request feedback-3",
+      "context": "Open contract feedback feedback-3, registered by an agent during the refine phase.",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [
+        {
+          "id": "Q1",
+          "question": "Performance/size target: what makes this issue successful? (e.g., 'a one-file change in a gateway/ leaf module should select ≤ N tests and complete in ≤ T seconds on the reference runner.') Without a target, we cannot validate the implementation.",
+          "answer": ""
+        },
+        {
+          "id": "Q2",
+          "question": "Shared-fixture fallback enumeration: for the `shared/tests/` fixtures 'used repo-wide', which exact files should trigger a full-suite fallback? (e.g., `shared/tests/conftest.py`, specific fixture modules.)",
+          "answer": ""
+        },
+        {
+          "id": "Q3",
+          "question": "Fallback-trigger list completeness: review the recommended set (any `conftest.py` change; `Makefile`, `pyproject.toml`, `uv.lock`; `.github/workflows/test.yml`; dynamic-import-touched files; unresolvable baseline; non-`.py` changes per decision-5). Anything missing or overreaching?",
+          "answer": ""
+        },
+        {
+          "id": "Q4",
+          "question": "Canary mode: every Nth `make test` run on a branch (or once per day) forces a full suite to catch cases where static selection silently misses a test. Do we want this, and at what cadence?",
+          "answer": ""
+        },
+        {
+          "id": "Q5",
+          "question": "Explicit pytest args: how should `make test` behave when invoked with explicit paths/args (e.g., `make test PYTEST_ARGS='gateway/tests/test_specific.py'`) — bypass narrowing (dev override), intersect, or union?",
+          "answer": ""
+        },
+        {
+          "id": "Q6",
+          "question": "Introspection `--why`: should the implementation surface why a test was selected (print import chain from changed module → test)? Useful for agents diagnosing 'I expected this test to run and it didn't.'",
+          "answer": ""
+        },
+        {
+          "id": "Q7",
+          "question": "Fallback-cause printing: when `make test` falls back to full suite due to a trigger file change, should it print which trigger caused it, or is a generic message sufficient?",
+          "answer": ""
+        },
+        {
+          "id": "Q8",
+          "question": "Testmon follow-up appetite: appetite for adding `pytest-testmon` in a follow-up issue (intra-file narrowing), or close the door on dynamic selection entirely?",
+          "answer": ""
+        },
+        {
+          "id": "Q9",
+          "question": "Parallel agents: two sandboxes running `make test-all` on the same branch race on LKG updates. Last-writer-wins is safe (both shas represent green states) but can churn the file. Acceptable, or need explicit coordination (per-agent sidecar, lock, merge logic)?",
+          "answer": ""
+        },
+        {
+          "id": "Q10",
+          "question": "Integration / e2e / security test targets are out of scope per the issue. Confirm they stay full-suite-only for this PR, or should they be considered for a follow-up issue?",
+          "answer": ""
+        },
+        {
+          "id": "Q11",
+          "question": "Documentation placement: the repo has no `docs/guides/testing.md` today. Preferred location — update `CONTRIBUTING.md`, create new `docs/guides/testing.md`, update `make help`, or some combination?",
+          "answer": ""
+        },
+        {
+          "id": "Q12",
+          "question": "Partial-pass LKG behavior: issue says 'never updated on a partial pass.' Confirm that's still the intent (no, even cheap no-op-style writes) under the chosen LKG storage/update mechanism.",
+          "answer": ""
+        },
+        {
+          "id": "Q13",
+          "question": "Read-only agent phases: some agent roles have `.egg-readonly` markers. Should those roles READ LKG (to compute the baseline) but never WRITE it, or accept that they always fall back to base-branch baseline?",
+          "answer": ""
+        },
+        {
+          "id": "Q14",
+          "question": "Bootstrap / first-use: how do we initialize LKG on branches that predate this change (including main's first commit under the new scheme)? Checked-in default, empty, or absent treated as 'no LKG, use base branch'?",
+          "answer": ""
+        },
+        {
+          "id": "Q15",
+          "question": "Selection-decision logging: stderr always, JSON file at `.egg-state/selection/<sha>.json`, or both?",
+          "answer": ""
+        },
+        {
+          "id": "Q16",
+          "question": "Worktree keying: in worktree scenarios (agents on multiple branches in parallel), is a sidecar file keyed by `<branch>` sufficient, or do we need keying by worktree path too?",
+          "answer": ""
+        }
+      ],
+      "status": "pending",
+      "created_at": "2026-04-24T20:10:43.824031Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T19:39:48.417158Z",
-  "updated_at": "2026-04-24T20:10:43.770639Z",
+  "updated_at": "2026-04-24T20:10:43.850865Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -422,6 +517,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 24,
+  "version": 25,
   "jira_ticket": null
 }
