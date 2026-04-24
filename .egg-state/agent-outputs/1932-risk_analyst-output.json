@@ -3,7 +3,7 @@
   "phase": "plan",
   "role": "risk_analyst",
   "title": "Risk assessment — event-driven wake for SDLC monitor loop (host-side)",
-  "summary": "Issue #1932 introduces a new `wait_for_status_change` sibling MCP tool that blocks on EventBus (PHASE_STARTED / PHASE_COMPLETED / DECISION_CREATED / PIPELINE_COMPLETED / PIPELINE_FAILED) plus a message-type long-poll (OVERSEER_ALERT / CONSENSUS_CONFIRMED / CONSENSUS_NACK / CONSENSUS_RE_REVIEW) and returns a minimal {changed:false,...} envelope on 25s timeout. Risk surface is medium-small: all primitives already exist from #1919 / #1925 (orchestrator/routes/messages.py:347-436, orchestrator/events.py:119-319, orchestrator/redis_message_store.py:158-329). The sharp edges are race conditions at the get_status→wait boundary, self-wake from host-originated events (provide_input → DECISION_CREATED/RESOLVED), EventBus cursor semantics (no stable event IDs — only timestamps, orchestrator/events.py:94-103), Waitress thread-budget erosion with >10 concurrent pipelines (EGG_ORCH_WAITRESS_THREADS=16 default, orchestrator/cli.py:280-310), SKILL.md prompt drift when branching on `changed`, and invisible state changes in concurrent.consensus that don't emit a message proxy. The HITL-resolved design is sound; most risks have concrete mitigations already named in the analysis — we flag four that the plan phase must still close, and three that warrant human review before implementation.",
+  "summary": "Issue #1932 introduces a new `wait_for_status_change` sibling MCP tool that blocks on EventBus (PHASE_STARTED / PHASE_COMPLETED / DECISION_CREATED / PIPELINE_COMPLETED / PIPELINE_FAILED / PIPELINE_CANCELLED) plus a message-type long-poll (OVERSEER_ALERT / CONSENSUS_CONFIRMED / CONSENSUS_NACK / CONSENSUS_RE_REVIEW) and returns a minimal {changed:false,...} envelope on 25s timeout. Architect (commit 3edb5efe4) chose the Flask-route daemon-thread pattern: a new route `/api/v1/pipelines/<id>/status/wait` spawns a daemon thread that calls message_store.get_messages(wait=25) while the main Waitress worker blocks on a queue.Queue, first source wins. This consumes 2 threads per host wait. 18 risks identified in v3 across correctness, performance, quality, availability, security, compatibility, and architecture. Most concrete sharp edges: R4 (Waitress thread budget — 2 threads/call × N concurrent host sessions vs 16-thread default; architect explicitly requires a bump), R14 (daemon thread leak on rapid wake — up to 25s lame-duck per aborted wait), R3 (per-pipeline monotonic event_id needs a threading.RLock-guarded counter on EventBus, aligned with architect's opaque cursor design), R16 (double-sleep regression if _apply_get_status_wait is generalized), R7 (HITL-deferred 60s liveness-floor interpretation). Four items (R3, R4, R7, R11) need plan-phase human review; 14 are TASK_PLANNER acceptance-criteria material.",
   "scope": {
     "in_scope_changes": [
       "New MCP tool `wait_for_status_change` in orchestrator/mcp_tools.py PIPELINE_TOOLS (around the existing get_status at lines 277-304) + handler function alongside _handle_get_status (orchestrator/mcp_tools.py:1548-1655)",
@@ -92,10 +92,12 @@
         "orchestrator/mcp_server.py:160-173 (anyio.to_thread.run_sync path — but note the async wait is pre-sync-handler, so event-triggered block does NOT hold a worker; only the short sync fetch after wake-up does)"
       ],
       "mitigations": [
-        "Confirm the wait-primitive is truly async (blocks on the event loop, not inside anyio.to_thread.run_sync). The precise anchor: `anyio.to_thread.run_sync(...)` at orchestrator/mcp_server.py:173 is the boundary — code BEFORE that call runs on the event loop (free), code INSIDE runs on a worker thread (pinned). The existing pattern at orchestrator/mcp_server.py:160-173 has `await _apply_get_status_wait(...)` on line 163 running BEFORE the `run_sync` call, so during the wait no worker thread is held. The new wait_for_status_change MUST follow the same ordering: event-triggered block before run_sync, sync fetch inside run_sync.",
-        "Add egg_inflight_host_waits metric (HITL-approved). Emit at async-wait-enter / async-wait-exit boundary. Also emit a structured log line with the wake-reason (event_type that fired, or 'timeout') for production debuggability — aids operators correlating wake patterns with pipeline behaviour without adding another metric.",
-        "Document the concurrency math in the plan phase: 'N pipelines × (1 host wait + K agent waits) × (async-only during block + brief sync fetch) = << 16 thread-seconds per cycle'.",
-        "If implementation deviates from the 'block on event loop first' pattern (e.g., the new /status/wait route itself is a Flask sync view that blocks on `anyio.from_thread.run(...)` or similar from inside run_sync), we double the thread cost per host-poll. The plan phase should EXPLICITLY choose a pattern: either (a) compose the wait inside the async MCP wrapper so the HTTP round-trip is not made during the wait, OR (b) make the Flask route async-ready and carry the event-loop block into it. Option (a) is the safer bet — it keeps the MCP async wrapper as the coordination point and avoids touching orchestrator routes' sync/async model."
+        "Architect v1 CHOSE the Flask-route daemon-thread pattern (option b, not my original option-a recommendation). Specifically: new route `GET /api/v1/pipelines/<id>/status/wait` spawns a daemon Thread that calls message_store.get_messages(wait=25, ...) and the main Flask/Waitress worker thread blocks on `queue.Queue.get(timeout=25)` waiting for either source to fire. This means EACH in-flight host wait consumes **2 threads**: 1 Waitress worker (main, held for up to 25s) + 1 daemon thread (running message_store blocker, held for up to 25s regardless of which source wins — it will return on its own when its wait elapses). The architect explicitly acknowledges this (architecture artifact `concurrency_and_threading.waitress_thread_pressure`) and pairs it with RISK-3 requiring an EGG_ORCH_WAITRESS_THREADS bump or an explicit budget in the plan.",
+        "Hard budget math for plan phase: with the chosen pattern, `N concurrent SDLC host sessions × 2 threads` directly competes with sandbox-side long-polls. At N=10 host sessions + 10 pipelines × 2 agents × 1 wait-loop each = 20 sandbox waits, total demand is 40 threads. Default EGG_ORCH_WAITRESS_THREADS=16 is insufficient. Plan must either (i) raise default to 24-32 (cheap: ~4MB RSS per 8 added threads per architect RISK-11), or (ii) add admission-control that rejects new host waits when saturated (harder, worse UX).",
+        "Add egg_inflight_host_waits metric (HITL-approved). Emit at route-entry / route-exit boundary (NOT at daemon-thread boundary — the daemon thread outliving the main thread is an intentional leak window, see R14). Also emit a structured log line with the wake-reason (event_type that fired, or 'timeout', or 'daemon-thread-won') for production debuggability.",
+        "The precise async/sync anchor: `anyio.to_thread.run_sync(...)` at orchestrator/mcp_server.py:173 is the boundary. For the new tool, `_handle_wait_for_status_change` runs INSIDE run_sync (pinned to a worker) and itself makes an HTTP round-trip to /status/wait which blocks its own thread — so the caller side of the MCP transport DOES pin a worker for the whole wait. This doubles the original option-a cost calculation.",
+        "Alternative explicitly rejected by architect: moving the route to quart/asgi. Documented as out-of-proportion for a single route — acceptable.",
+        "Test: add a load test that spawns 20 concurrent wait_for_status_change callers against a single orchestrator process with EGG_ORCH_WAITRESS_THREADS=16 and asserts either (a) all complete within 30s, or (b) graceful 503 with admission control, NOT thread-pool deadlock."
       ],
       "rollback": "Drop the wait=25 default in SKILL.md to wait=5 — reduces per-poll thread holding time at cost of more polls. Orthogonally, raising EGG_ORCH_WAITRESS_THREADS is a single env var change.",
       "needs_human_review": true,
@@ -240,6 +242,105 @@
       "human_review_reason": "HITL deferred this explicitly. The plan phase is the venue to close it."
     },
     {
+      "id": "R14",
+      "title": "Daemon thread leak on rapid wake turnover",
+      "category": "performance",
+      "impact": "medium",
+      "likelihood": "medium",
+      "description": "In the architect's chosen daemon-thread pattern (see R4 update): when the main route thread wakes on an EventBus event, the daemon thread running message_store.get_messages(wait=25) is still blocked inside the store. The architect proposes 'signal it to stop (best effort — it will return on its own within 25s)'. So an event-triggered wake leaves a lame-duck thread running for up to 25s past the route's return. If the caller immediately re-enters wait_for_status_change (which is the point — that's what the SDLC skill does), and events fire rapidly, we accumulate lame-duck daemon threads at up to 25x the steady-state count during the 25s leak window.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py (new /status/wait route)",
+        "orchestrator/message_store.py (wait implementation — can we short-circuit?)",
+        "orchestrator/redis_message_store.py"
+      ],
+      "mitigations": [
+        "Add a cancellation token to message_store.get_messages(wait=...) — a shared Event/Condition that the waiter checks between iterations. When main thread wakes early, it sets the token and the daemon returns within the inner-loop cap (~100ms) instead of waiting 25s. Touches orchestrator/message_store.py:188-294 and orchestrator/redis_message_store.py:158-329.",
+        "If full cancellation is too invasive: cap lame-duck accumulation via a semaphore. `with semaphore(permits=EGG_ORCH_DAEMON_WAIT_SLOTS)` around the daemon spawn, sized to 2× EGG_ORCH_WAITRESS_THREADS, would hard-limit accumulation.",
+        "Minimal-bandage: add a per-pipeline counter of in-flight daemon threads, surfaced on a metric (egg_host_wait_daemon_threads) so operators see the leak if it happens in production.",
+        "Test: rapid-fire 50 wait_for_status_change calls each waking on 'event' within 1s, assert total thread count returns to baseline within 30s (leak-cap validation)."
+      ],
+      "rollback": "Accept the leak — it's bounded to 25s per thread and bounded by inbound call rate. With rate limiting at 30 req/min (R9), worst case = 30 leaks × 25s = 12.5 thread-seconds per minute lame-duck overhead. Acceptable at default scale, painful at 10× that.",
+      "needs_human_review": false
+    },
+    {
+      "id": "R15",
+      "title": "EventBus wildcard handler blocks delivery thread",
+      "category": "performance",
+      "impact": "medium",
+      "likelihood": "low-medium",
+      "description": "EventBus._deliver_event (orchestrator/events.py:148-165) runs ALL registered handlers synchronously on either the caller thread (sync delivery) or the single worker thread (async delivery — orchestrator/events.py:129-136). The architect's new route registers a wildcard handler that does `q.put_nowait(('event', event))`. `put_nowait` is cheap, but if the queue is full (maxsize=16 per architect) it raises `queue.Full`, which needs catching — otherwise the exception bubbles up and CANCELS delivery to the rest of the handlers (the try/except at events.py:157-165 catches it, but logs at ERROR, noising production logs). More subtle: any future author extending this handler (e.g., adding a structured log emit, or a metric update) introduces latency to EVERY other subscriber of EventBus.",
+      "affected_files": [
+        "orchestrator/events.py:148-165 (_deliver_event)",
+        "orchestrator/routes/pipelines.py (new handler registration)"
+      ],
+      "mitigations": [
+        "Handler MUST remain `put_nowait` only — no state reads, no serialization, no metric emit. Document this constraint in the handler definition.",
+        "Catch queue.Full explicitly in the handler and drop the event with a WARN log (not ERROR) — a full queue means the caller hasn't drained fast enough and dropping an event is preferable to cancelling delivery to other subscribers.",
+        "Alternative: increase queue maxsize to 64 (architect chose 16 — trade memory for drop probability). Default 16 is fine given the short (<25s) window.",
+        "Test: synthesize 64 events in a tight loop; assert no ERROR log lines, and that the first 16 reach the queue while subsequent ones are logged as dropped."
+      ],
+      "rollback": "Replace queue with a simple `threading.Event` (set on any matching event) and poll. Trades throughput for simplicity.",
+      "needs_human_review": false
+    },
+    {
+      "id": "R16",
+      "title": "Double-sleep bug if _apply_get_status_wait generalization is extended",
+      "category": "correctness",
+      "impact": "high",
+      "likelihood": "low",
+      "description": "The async-sleep wrapper at orchestrator/mcp_server.py:50-67 currently short-circuits on `tool_name != 'get_status'`, which is the only gate keeping wait_for_status_change from being double-sleeping (25s async wrapper + 25s server-side queue.get). A future author generalizing the wrapper to 'any tool with a wait param' would silently break the new tool — adding an extra 25s to every poll, approximately tripling the steady-state latency. This is a paper-thin contract.",
+      "affected_files": [
+        "orchestrator/mcp_server.py:50-67 (_apply_get_status_wait)"
+      ],
+      "mitigations": [
+        "Rename `_apply_get_status_wait` → `_apply_get_status_only_wait` and add a docstring explicitly warning that the name is meaningful: DO NOT generalize. This is cheap guard-rail code.",
+        "Add a type-level assertion: `assert tool_name == 'get_status'` after the name check, so any future expansion is forced to touch the invariant.",
+        "Add a test that calls the new tool with `wait=25` and asserts the total tool-call wall time ≤ 26s (not 50s). This would catch the double-sleep regression.",
+        "Document in the new tool's handler docstring: 'Do NOT pass through _apply_get_status_wait — server-side block handles the wait.'"
+      ],
+      "rollback": "Revert _apply_get_status_wait to its current form. Cheap, low-surface.",
+      "needs_human_review": false
+    },
+    {
+      "id": "R17",
+      "title": "Cursor-malformed and task_id-not-found error paths",
+      "category": "correctness",
+      "impact": "low",
+      "likelihood": "medium",
+      "description": "The architect-chosen opaque cursor format is `'{msg_id}|{event_seq}'` base64-encoded. Callers that hand-craft a cursor (e.g., tests, external MCP consumers) may pass garbage. Current /messages/wait returns 400/404 on similar issues (orchestrator/routes/messages.py:370-378), but the new tool's LLM caller (SDLC skill) is likely to silently mask errors as 'no change' unless the error payload is unambiguous.",
+      "affected_files": [
+        "orchestrator/routes/pipelines.py (new /status/wait route)",
+        "orchestrator/mcp_tools.py (handler error mapping)"
+      ],
+      "mitigations": [
+        "On malformed cursor: return 400 with `{success: false, message: 'cursor malformed'}`. The MCP tool handler translates to `{error: 'cursor malformed', recoverable: true, suggested_action: 'omit since parameter'}`.",
+        "On task_id not found: return 404 with the standard message. MCP tool handler surfaces as `{error: 'task_not_found'}` — the SDLC skill should treat this as a hard exit, not a timeout.",
+        "Document error paths in the MCP tool schema's description so the LLM recognizes them.",
+        "Test both cases; assert the tool handler never returns `{changed: false, no_change: true}` when the route returned a non-2xx."
+      ],
+      "rollback": "Treat all errors as changed:false. Bad UX but degrades gracefully.",
+      "needs_human_review": false
+    },
+    {
+      "id": "R18",
+      "title": "EGG_ORCH_WAITRESS_THREADS default bump — memory footprint in tight-limit k8s",
+      "category": "performance",
+      "impact": "low",
+      "likelihood": "low",
+      "description": "R4's mitigation recommends raising EGG_ORCH_WAITRESS_THREADS default (e.g., 16→24 or 32). Each waitress thread holds a default 512KB stack; raising by 8 threads adds ~4MB RSS. Negligible on a dev box; non-trivial on k8s deploys configured with tight limits (<256MB). Per architect RISK-11.",
+      "affected_files": [
+        "orchestrator/cli.py:280-310 (thread pool config)",
+        "k8s/ deployment manifests (memory limits)"
+      ],
+      "mitigations": [
+        "Plan must: (a) note the memory impact in the release notes, (b) confirm k8s/ manifest memory limits in the repo are comfortably above 256MB (check integration_tests/ and docs/k8s).",
+        "If raising default is too aggressive, document the budget in README / production runbook instead; operators at scale set EGG_ORCH_WAITRESS_THREADS themselves.",
+        "Keep the refuse-to-boot floor of 4 — good guard against accidental misconfig."
+      ],
+      "rollback": "Don't raise the default; document the budget and let operators opt in.",
+      "needs_human_review": false
+    },
+    {
       "id": "R13",
       "title": "Authz / Delphi-filter inheritance for new wait endpoint",
       "category": "security",
@@ -291,10 +392,10 @@
       "default": "Add event_id (recommended by risk_analyst — cleanest, backwards-compatible, ~5 lines)"
     },
     {
-      "topic": "Wait-endpoint threading pattern",
-      "question": "Compose the event-triggered block in the MCP async wrapper (recommended), or make the Flask route itself async-ready?",
+      "topic": "Wait-endpoint threading pattern (pattern chosen by architect; budget decision remains)",
+      "question": "Architect chose Flask-route daemon-thread pattern (2 threads per host wait). Plan phase must decide: raise EGG_ORCH_WAITRESS_THREADS default (to 24 or 32), add admission control, or accept saturation risk at >10 concurrent host sessions?",
       "risk_ref": "R4",
-      "default": "Compose in MCP wrapper — matches existing _apply_get_status_wait pattern, avoids touching Flask sync/async model"
+      "default": "Raise default to 32 with a refuse-to-boot floor of 8 — ~12MB RSS cost per orchestrator process, comfortable margin over 2×max_concurrent_pipelines. Document the scaling guide in README."
     },
     {
       "topic": "60s liveness-floor interpretation",
@@ -321,6 +422,7 @@
     ".egg-state/drafts/1932-analysis.md",
     ".egg-state/contracts/issue-1932.json (HITL resolutions at refine gate)",
     ".egg-state/brc-history/1932-refine.md (refine phase consensus record)",
+    ".egg-state/agent-outputs/1932-architect-output.json (commit 3edb5efe4, reviewed in v3)",
     "orchestrator/mcp_server.py:36-176",
     "orchestrator/mcp_tools.py:260-304,1548-1839",
     "orchestrator/routes/messages.py:60-425",
@@ -333,10 +435,12 @@
     "skills/sdlc/SKILL.md:310-420,1174-1210"
   ],
   "notes": [
-    "This assessment was produced without the ARCHITECT agent's output (not yet published to origin/egg/issue-1932 at time of risk analysis). It is grounded in the HITL-resolved design envelope from the refine phase gate (all seven choice decisions plus six feedback items resolved). If architect output materially diverges from Option A + 'Issue-as-written' event set + minimal envelope + `since` cursor + both-source subscription + metric, this risk assessment needs a re-review and re-propose cycle.",
-    "Concrete architect-divergence trigger heuristic: re-propose this risk assessment if ANY of the following is true in the architect artifact — (a) R4 pattern chosen is Flask-async-route (option b) instead of MCP-wrapper composition (option a); (b) R3 chosen cursor scheme is NOT per-pipeline monotonic event_id (e.g., UUIDv7 or synthesized timestamp+counter requires updating R3's ~15-line estimate and test plan); (c) any risk-affecting file from `affected_files` is architecturally replaced (e.g., EventBus is swapped for Redis pub/sub, which changes R8 backend-parity scope); (d) the trigger event set gains or loses items versus the HITL-resolved 'issue-as-written' choice.",
-    "The heaviest single risk is R3 (cursor semantics); it touches the EventBus and has cross-cutting ripples. R4 is the most likely to cause production incidents (thread-pool math). R7 is the most likely to cause user-visible staleness in the field.",
-    "None of the risks block the plan phase — all have named mitigations. Four items (R3, R4, R7, R11) benefit from explicit human review at plan-gate; the other nine are straightforwardly closable by the TASK_PLANNER via acceptance criteria.",
-    "Updated in v2: added R13 (authz/Delphi-filter inheritance for new wait endpoint), reinforced R1 with the provide_input return/emit ordering race note, tightened R3 estimate from '3 lines' to '~15 lines plus test' and named the threading.RLock, quantified the token cost of R7's aspirational-vs-literal floor (~7.2k vs ~30k tokens per quiet hour), and named `anyio.to_thread.run_sync` at orchestrator/mcp_server.py:173 as the precise R4 boundary. All changes respond to reviewer_plan's non-blocking ACK feedback."
+    "v1 of this assessment was produced without the ARCHITECT agent's output (not yet published to origin/egg/issue-1932 at v1 time). v3 now reflects the architect's published design (commit 3edb5efe4, `.egg-state/agent-outputs/1932-architect-output.json`).",
+    "Architect divergences from the v1 assumptions, per the pre-registered re-propose heuristic (criteria a and b): (a) architect chose the Flask-route daemon-thread pattern (my v1 R4 'option b'), NOT the MCP-wrapper composition (option a). This was explicit — the architect acknowledged the 2-thread-per-call cost and paired it with their RISK-3 recommending EGG_ORCH_WAITRESS_THREADS bump. R4 is updated to quantify the budget math (N=10 host sessions + 20 sandbox waits = 40 threads vs 16 default). (b) architect's cursor is an OPAQUE compound `{msg_id}|{event_seq}` base64, aligning with my v1 R3 'Preferred' path (per-pipeline monotonic event counter on EventBus). No other material divergence.",
+    "v3 also folds in 5 new risks surfaced by the architect that my v1/v2 missed: R14 (daemon thread leak on rapid wake), R15 (EventBus wildcard handler blocks delivery), R16 (double-sleep bug from _apply_get_status_wait generalization), R17 (cursor-malformed / task_id-not-found error mapping), R18 (EGG_ORCH_WAITRESS_THREADS bump RSS cost in tight k8s). All have mitigations and tests.",
+    "Heaviest single risk: R4 (thread budget) — upgraded to high-impact because the chosen pattern consumes 2 threads per call rather than 0 during the wait. R3 remains cross-cutting but now aligned with architect's design. R7 (liveness-floor) is unchanged — still needs human decision at plan gate. R14 (daemon thread leak) is new and has medium impact at scale.",
+    "Human-review items now: R3 (cursor scheme — aligned with architect, but plan must confirm event_id is added to EventBus), R4 (thread budget — plan must commit to EGG_ORCH_WAITRESS_THREADS bump), R7 (literal vs aspirational 60s floor — HITL-deferred), R11 (Python SDK MCP surface parity — HITL-deferred).",
+    "Total risks in v3: 18 (R1-R18). No blocker; four items need human review at plan gate; the other fourteen are TASK_PLANNER acceptance-criteria material.",
+    "Changelog: v1 was 12 risks based on HITL-resolved design envelope; v2 added R13 + reinforced R1/R3/R4/R7 per reviewer_plan's ACK feedback; v3 added R14-R18 and rewrote R4 to reflect architect's chosen daemon-thread pattern."
   ]
 }
