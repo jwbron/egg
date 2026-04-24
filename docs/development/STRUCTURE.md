@@ -145,6 +145,7 @@ orchestrator/
 │       └── agent_inspector.py   # Claude-powered agent progress analysis
 ├── routes/                 # API route handlers
 │   ├── anchors.py          # Agent anchor CRUD and team anchor generation endpoints
+│   ├── commit_authorship.py # Commit-authorship registry endpoints (register + lookup); called by gateway commit observer and push handler
 │   ├── containers.py       # Container management endpoints
 │   ├── decisions.py        # HITL decision endpoints
 │   ├── deployment.py       # Deployment introspection and action endpoints (k8s diagnostics, prune, rebuild)
@@ -153,7 +154,6 @@ orchestrator/
 │   ├── metrics.py          # Metrics endpoints
 │   ├── phases.py           # Phase management endpoints
 │   ├── pipelines.py        # Pipeline CRUD and visualization endpoints
-│   ├── commit_authorship.py # Commit-authorship registry endpoints (register + lookup); called by gateway commit observer and push handler
 │   ├── progress.py         # Structured progress event endpoints (emit, query)
 │   └── signals.py          # Signal handling endpoints (incl. readiness for concurrent mode)
 ├── Dockerfile              # Orchestrator container image
