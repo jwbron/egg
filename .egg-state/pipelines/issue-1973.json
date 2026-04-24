@@ -346,10 +346,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-11",
+      "question": "Dynamic-import handling: how should the selector widen for `importlib` / `__import__` / `SourceFileLoader` / entry-point plugins?",
+      "context": "Open contract question decision-10, registered by an agent during the refine phase.",
+      "options": [
+        "Grep-and-widen: if any changed file contains a dynamic-import pattern, fall back to full suite (blunt but simple) — recommended for v1",
+        "Scan during graph construction: record which modules contain dynamic-import patterns; widen only if a changed module is in (or reachable from) that set — more targeted",
+        "Runtime import-hook on a seed full-run: instrument the initial `make test-all` to record runtime import edges and persist them alongside the graph",
+        "Shadow-imports file (Qik `qikimports.py` style): hand-maintained list of known dynamic edges, consulted at graph-build time",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T20:10:43.612669Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T19:39:48.417158Z",
-  "updated_at": "2026-04-24T20:10:43.562920Z",
+  "updated_at": "2026-04-24T20:10:43.633937Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -363,6 +383,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 21,
+  "version": 22,
   "jira_ticket": null
 }
