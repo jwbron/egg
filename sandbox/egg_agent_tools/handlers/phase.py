@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Any
 
 from egg_agent_tools.handlers._gateway import (
+    container_id_field,
     gateway_request,
     get_agent_role,
     get_container_id,
@@ -16,6 +18,31 @@ from egg_agent_tools.handlers._gateway import (
     get_repo_path,
 )
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
+_COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
+
+
+def _validate_commit_sha(commit: str) -> str:
+    if not _COMMIT_SHA_PATTERN.match(commit):
+        raise HandlerError(f"Invalid commit SHA '{commit}': expected 7-40 hexadecimal characters")
+    return commit
+
+
+def _parse_phase_id(phase_id: str) -> int:
+    """Parse ``phase-N`` → phase_idx (0-based)."""
+    if not isinstance(phase_id, str):
+        raise HandlerError(f"Invalid phase ID {phase_id!r}: must be a string")
+    lower = phase_id.lower()
+    stripped = lower.removeprefix("phase-")
+    if stripped == lower:
+        raise HandlerError(f"Invalid phase ID '{phase_id}': expected format 'phase-N'")
+    try:
+        phase_num = int(stripped)
+    except ValueError as exc:
+        raise HandlerError(f"Invalid phase ID '{phase_id}': expected format 'phase-N'") from exc
+    if phase_num < 1:
+        raise HandlerError(f"Phase number must be >= 1: {phase_id}")
+    return phase_num - 1
 
 
 def _resolve_identifier(req: dict[str, Any]) -> int | str:
@@ -41,7 +68,7 @@ def _fetch_contract(identifier: int | str, repo_path: str | None) -> dict[str, A
     result = gateway_request(f"/api/v1/contract/{identifier}", params=params or None)
     if not result.get("success"):
         raise GatewayError(result.get("message", "contract fetch failed"))
-    return result.get("data", {})  # type: ignore[no-any-return]
+    return result.get("data") or {}
 
 
 def _tasks_for_role(contract: dict[str, Any], role: str | None) -> list[dict[str, Any]]:
@@ -119,6 +146,10 @@ def phase_get_context(req: dict[str, Any]) -> dict[str, Any]:
 
     Response includes pipeline/phase/role, a filtered task list, and a
     list of referenced artifact paths (best-effort).
+
+    No CLI counterpart — this aggregates the contract read, env-vars,
+    and best-effort artifact scan into a single ergonomic agent view
+    (decision-13).
     """
     role = req.get("role") or get_agent_role()
     phase = req.get("phase") or get_phase()
@@ -166,6 +197,10 @@ def phase_get_assigned_tasks(req: dict[str, Any]) -> dict[str, Any]:
         role (str): override (defaults to EGG_AGENT_ROLE).
         status (str): optional filter (pending/in-progress/complete).
         pipeline_id, issue, repo_path: overrides.
+
+    No CLI counterpart — this is the role-filtered view of the task
+    list; the raw task set is in `egg-contract show --json` but the
+    role-projection is agent-specific (decision-13).
     """
     role = req.get("role") or get_agent_role()
     status_filter = req.get("status")
@@ -181,3 +216,86 @@ def phase_get_assigned_tasks(req: dict[str, Any]) -> dict[str, Any]:
         "tasks": tasks,
         "count": len(tasks),
     }
+
+
+def phase_complete_phase(req: dict[str, Any]) -> dict[str, Any]:
+    """Mark a phase as complete, optionally linking a commit SHA.
+
+    Request:
+        phase (str): required — e.g. ``phase-1``.
+        commit (str): optional git commit SHA to link to the phase.
+        repo_path, pipeline_id, issue: optional overrides.
+
+    Response:
+        { ok: True, phase: phase_id, commit: sha|None }
+
+    State-machine effect: transitions ``phases.<p>.status`` to
+    ``"complete"``; orchestrator's downstream phase_complete signal
+    fires to advance the pipeline once all phases have been completed.
+    Does NOT advance the overall pipeline phase on its own.
+
+    Atomicity: the commit-link and the status transition are two
+    separate gateway mutations (the gateway's ``contract/mutate``
+    endpoint takes a single field-path per call).  We link the commit
+    FIRST so a mid-way failure leaves the phase not-yet-complete with
+    the commit populated — callers can retry the same request to
+    progress.  If the status step fails, the raise preserves the
+    legacy "Error setting status:" stderr surface from the CLI shim
+    (see reviewer NACK #6).  A successful return guarantees both
+    mutations landed.
+    """
+    phase_id = req.get("phase")
+    if not phase_id or not isinstance(phase_id, str):
+        raise HandlerError("'phase' is required")
+    phase_idx = _parse_phase_id(phase_id)
+
+    commit = req.get("commit")
+    if commit is not None:
+        if not isinstance(commit, str):
+            raise HandlerError("'commit' must be a string if provided")
+        _validate_commit_sha(commit)
+
+    repo_path = req.get("repo_path") or get_repo_path()
+    identifier = _resolve_identifier(req)
+
+    # Step 1 (iff commit provided): link the commit.  This is
+    # idempotent — re-running with the same SHA is a no-op on the
+    # gateway's side.
+    if commit:
+        commit_path = f"phases.{phase_idx}.commit"
+        commit_result = gateway_request(
+            "/api/v1/contract/mutate",
+            method="POST",
+            data={
+                "identifier": identifier,
+                "repo_path": repo_path,
+                "field_path": commit_path,
+                "new_value": commit,
+                "actor": "egg",
+                "reason": f"Linked commit {commit[:7]} to {phase_id}",
+                **container_id_field(),
+            },
+        )
+        if not commit_result.get("success"):
+            raise GatewayError(commit_result.get("message", "phase commit link failed"))
+
+    # Step 2: flip status to complete.  On failure the caller sees a
+    # vanilla GatewayError ("Error setting status: …") and can retry.
+    status_path = f"phases.{phase_idx}.status"
+    result = gateway_request(
+        "/api/v1/contract/mutate",
+        method="POST",
+        data={
+            "identifier": identifier,
+            "repo_path": repo_path,
+            "field_path": status_path,
+            "new_value": "complete",
+            "actor": "egg",
+            "reason": f"Marked {phase_id} as complete",
+            **container_id_field(),
+        },
+    )
+    if not result.get("success"):
+        raise GatewayError(result.get("message", "phase status mutate failed"))
+
+    return {"ok": True, "phase": phase_id, "commit": commit}

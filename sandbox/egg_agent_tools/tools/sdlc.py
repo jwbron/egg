@@ -1,4 +1,4 @@
-"""SDLC / HITL @tool wrappers (register_open_question, request_feedback, check_hitl_answers)."""
+"""SDLC / HITL @tool wrappers."""
 
 from __future__ import annotations
 
@@ -72,6 +72,43 @@ _HITL_ANSWERS_SCHEMA: dict[str, Any] = {
     },
 }
 
+_SHOW_CONTRACT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "fields": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": (
+                "Optional projection: only return the named top-level contract "
+                "fields (e.g. ['current_phase', 'decisions']). Unknown names "
+                "raise an error — do not use this to probe for unknown fields."
+            ),
+        },
+        "audit": {
+            "type": "boolean",
+            "description": "Include the audit log in the response (mirrors --audit)",
+            "default": False,
+        },
+        "issue": {"type": "integer"},
+        "pipeline_id": {"type": "string"},
+        "repo_path": {"type": "string"},
+    },
+}
+
+_VERIFY_CRITERION_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "criterion": {
+            "type": "string",
+            "description": "Criterion ID (e.g. 'ac-1'); REVIEWER role required.",
+        },
+        "issue": {"type": "integer"},
+        "pipeline_id": {"type": "string"},
+        "repo_path": {"type": "string"},
+    },
+    "required": ["criterion"],
+}
+
 
 @tool(
     "register_open_question",
@@ -105,6 +142,28 @@ async def check_hitl_answers(args: dict[str, Any]) -> dict[str, Any]:
     return await invoke_handler(handlers.check_hitl_answers, args)
 
 
+@tool(
+    "show_contract",
+    "Read the SDLC contract (optionally projected via `fields=[...]`). Reads the "
+    "contract; does not mutate state. Prefer this over 'egg-contract show'.",
+    _SHOW_CONTRACT_SCHEMA,
+)
+async def show_contract(args: dict[str, Any]) -> dict[str, Any]:
+    return await invoke_handler(handlers.show_contract, args)
+
+
+@tool(
+    "verify_criterion",
+    "Mark an acceptance criterion as verified. REVIEWER role required (gateway "
+    "rejects non-reviewer writers). State-machine effect: flips "
+    "`acceptance_criteria.<N>.verified` to True; no-op if already verified. "
+    "Prefer this over 'egg-contract verify-criterion'.",
+    _VERIFY_CRITERION_SCHEMA,
+)
+async def verify_criterion(args: dict[str, Any]) -> dict[str, Any]:
+    return await invoke_handler(handlers.verify_criterion, args)
+
+
 from egg_agent_tools.tools._registry import ToolRegistration  # noqa: E402,I001
 
 REGISTRATIONS: list[ToolRegistration] = [
@@ -128,5 +187,19 @@ REGISTRATIONS: list[ToolRegistration] = [
         handler=handlers.check_hitl_answers,
         sdk_tool=check_hitl_answers,
         cli_command=None,
+    ),
+    ToolRegistration(
+        name="mcp__sdlc__show_contract",
+        namespace=NAMESPACE,
+        handler=handlers.show_contract,
+        sdk_tool=show_contract,
+        cli_command=("egg-contract", "show"),
+    ),
+    ToolRegistration(
+        name="mcp__sdlc__verify_criterion",
+        namespace=NAMESPACE,
+        handler=handlers.verify_criterion,
+        sdk_tool=verify_criterion,
+        cli_command=("egg-contract", "verify-criterion"),
     ),
 ]

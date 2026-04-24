@@ -119,6 +119,47 @@ _LIST_BLOCKING_SCHEMA: dict[str, Any] = {
     },
 }
 
+_READ_PEER_ARTIFACT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "phase": {
+            "type": "string",
+            "enum": ["refine", "plan", "implement", "pr"],
+            "description": "Phase whose BRC history to read",
+        },
+        "peer_role": {
+            "type": "string",
+            "pattern": "^[a-z0-9_-]+$",
+            "description": (
+                "Optional filter: only records whose from_role matches. Must match [a-z0-9_-]."
+            ),
+        },
+        "producer_role": {
+            "type": "string",
+            "pattern": "^[a-z0-9_-]+$",
+            "description": "Alias of peer_role for consistency with other BRC verbs",
+        },
+        "message_type": {
+            "description": (
+                "Optional message_type filter; accepts a single type or a "
+                "list (CONSENSUS_PROPOSE, CONSENSUS_ACK, CONSENSUS_NACK, "
+                "CONSENSUS_CONFIRMED, CONSENSUS_RE_REVIEW, CONSENSUS_WITHDRAWN)"
+            ),
+        },
+        "limit": {
+            "type": "integer",
+            "default": 50,
+            "description": "Maximum items per page (default 50, max 500)",
+        },
+        "cursor": {
+            "type": "string",
+            "description": "Opaque pagination token returned by a prior call",
+        },
+    },
+    "required": ["phase"],
+    "additionalProperties": False,
+}
+
 
 @tool(
     "propose",
@@ -179,6 +220,19 @@ async def brc_list_blocking(args: dict[str, Any]) -> dict[str, Any]:
     return await invoke_handler(handlers.brc_list_blocking, args)
 
 
+@tool(
+    "read_peer_artifact",
+    "Read BRC consensus history for a peer from the local "
+    "`.egg-state/brc-history/<identifier>-<phase>.json` log. Paginated via "
+    "`limit` + opaque `cursor`. No CLI counterpart — this is a net-new "
+    "capability so reviewers don't have to hand-grep brc-history files "
+    "(decision-8).",
+    _READ_PEER_ARTIFACT_SCHEMA,
+)
+async def brc_read_peer_artifact(args: dict[str, Any]) -> dict[str, Any]:
+    return await invoke_handler(handlers.brc_read_peer_artifact, args)
+
+
 REGISTRATIONS: list[ToolRegistration] = [
     ToolRegistration(
         name="mcp__brc__propose",
@@ -220,6 +274,13 @@ REGISTRATIONS: list[ToolRegistration] = [
         namespace=NAMESPACE,
         handler=handlers.brc_list_blocking,
         sdk_tool=brc_list_blocking,
+        cli_command=None,
+    ),
+    ToolRegistration(
+        name="mcp__brc__read_peer_artifact",
+        namespace=NAMESPACE,
+        handler=handlers.brc_read_peer_artifact,
+        sdk_tool=brc_read_peer_artifact,
         cli_command=None,
     ),
 ]

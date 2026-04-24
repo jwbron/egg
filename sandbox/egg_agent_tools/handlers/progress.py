@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from egg_agent_tools.handlers._gateway import (
@@ -11,11 +12,15 @@ from egg_agent_tools.handlers._gateway import (
 )
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
+_PIPELINE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+
 
 def _require_pipeline_id(req: dict[str, Any]) -> str:
     pid = req.get("pipeline_id") or get_pipeline_id()
     if not pid:
         raise HandlerError("pipeline_id required. Set EGG_PIPELINE_ID or pass 'pipeline_id'.")
+    if not _PIPELINE_ID_PATTERN.match(pid):
+        raise HandlerError(f"Invalid pipeline_id {pid!r}: must match [a-zA-Z0-9_-]+")
     return pid
 
 
@@ -66,7 +71,7 @@ def progress_emit(req: dict[str, Any]) -> dict[str, Any]:
     result = orchestrator_request(f"/api/v1/pipelines/{pid}/progress", method="POST", data=data)
     if not result.get("success"):
         raise GatewayError(result.get("message", "progress emit failed"))
-    event = result.get("data", {}).get("event", {})
+    event = (result.get("data") or {}).get("event", {})
     return {
         "ok": True,
         "role": role,
@@ -118,3 +123,140 @@ def progress_heartbeat(req: dict[str, Any]) -> dict[str, Any]:
     if not result.get("success"):
         raise GatewayError(result.get("message", "heartbeat failed"))
     return {"ok": True, "role": role, "signal": result}
+
+
+_VALID_OVERSEER_PRIORITIES = ("low", "medium", "high")
+
+
+def progress_overseer_alert(req: dict[str, Any]) -> dict[str, Any]:
+    """Broadcast an OVERSEER_ALERT message to the human operator.
+
+    Wraps ``POST /api/v1/pipelines/<pid>/messages`` with
+    ``message_type=OVERSEER_ALERT`` and ``to_role="all"`` hard-coded —
+    mirrors ``egg-orch overseer alert`` so the overseer-only alert
+    channel is the single source of truth for anomaly escalation.
+    The sdlc skill and ``get_status`` enrichment only react to
+    OVERSEER_ALERT; STATUS/HANDOFF blend into normal traffic.
+
+    Request:
+        anomaly (str): required — anomaly type (free text; known types
+            include stuck-phase-transition, agent-heartbeat-stall,
+            agent-loop, orchestrator-consensus-silent,
+            unauthorized-overseer-action, unmediated-disagreement).
+        priority (str): required — one of ``low``/``medium``/``high``.
+        summary (str): required — one-line description.
+        detail (str): optional longer description / observed evidence.
+        recommend (str): optional recommended action for the human.
+        pipeline_id, role: optional overrides (role defaults to
+            EGG_AGENT_ROLE or ``overseer``).
+
+    Response:
+        { ok: True, role, alert: {...} }
+
+    State-machine effect: none. This is a write into the message bus;
+    the pipeline state machine is not advanced.
+    """
+    pid = _require_pipeline_id(req)
+    role = req.get("role") or get_agent_role() or "overseer"
+
+    anomaly = req.get("anomaly")
+    if not anomaly or not isinstance(anomaly, str):
+        raise HandlerError("'anomaly' is required")
+    priority = req.get("priority")
+    if not priority or not isinstance(priority, str):
+        raise HandlerError("'priority' is required")
+    if priority not in _VALID_OVERSEER_PRIORITIES:
+        raise HandlerError(
+            f"'priority' must be one of {list(_VALID_OVERSEER_PRIORITIES)}; got {priority!r}"
+        )
+    summary = req.get("summary")
+    if not summary or not isinstance(summary, str):
+        raise HandlerError("'summary' is required")
+
+    body_parts: list[str] = [summary]
+    detail = req.get("detail")
+    if detail:
+        if not isinstance(detail, str):
+            raise HandlerError("'detail' must be a string")
+        body_parts.append(f"\nDetail:\n{detail}")
+    recommend = req.get("recommend")
+    if recommend:
+        if not isinstance(recommend, str):
+            raise HandlerError("'recommend' must be a string")
+        body_parts.append(f"\nRecommended action:\n{recommend}")
+    body_text = "\n".join(body_parts).strip()
+
+    data = {
+        "from_role": role,
+        "to_role": "all",
+        "message_type": "OVERSEER_ALERT",
+        "subject": f"{anomaly} [{priority}]",
+        "body": body_text,
+    }
+
+    result = orchestrator_request(f"/api/v1/pipelines/{pid}/messages", method="POST", data=data)
+    if not result.get("success"):
+        raise GatewayError(result.get("message", "overseer alert failed"))
+    alert_msg = (result.get("data") or {}).get("message", {})
+    return {"ok": True, "role": role, "alert": alert_msg, "signal": result}
+
+
+def progress_query_status(req: dict[str, Any]) -> dict[str, Any]:
+    """Read pipeline status via ``GET /api/v1/pipelines/<pid>/status``.
+
+    CLI counterpart: ``egg-orch pipeline status``. Wrapped as an MCP
+    tool so the overseer role (and any observer) can read pipeline
+    state without shelling out.
+
+    Security: the caller may supply ``pipeline_id`` only if it
+    matches ``EGG_PIPELINE_ID`` exactly. A disagreeing override is
+    rejected with ``HandlerError`` (risk_analyst R2 + reviewer_code
+    NACK #2 — cross-pipeline-read hardening). When no env pipeline id
+    is set (e.g. operator shell use), the caller-supplied value is
+    accepted as a fallback.
+
+    Request:
+        pipeline_id: optional; must match EGG_PIPELINE_ID when that
+            env var is set.
+        include_raw (bool): if True, include the full raw status
+            payload alongside the summary.
+
+    Response:
+        { ok: True, pipeline_id, status, current_phase, pending_decisions,
+          updated_at, raw?: {...} }
+
+    State-machine effect: none. Pure read.
+    """
+    env_pid = get_pipeline_id()
+    caller_pid = req.get("pipeline_id")
+    if caller_pid and env_pid and caller_pid != env_pid:
+        raise HandlerError(
+            "Caller-supplied pipeline_id must match EGG_PIPELINE_ID; "
+            f"got {caller_pid!r} (env={env_pid!r})."
+        )
+    pid = env_pid or caller_pid
+    if not pid:
+        raise HandlerError("pipeline_id required. Set EGG_PIPELINE_ID or pass 'pipeline_id'.")
+    if not _PIPELINE_ID_PATTERN.match(pid):
+        raise HandlerError(f"Invalid pipeline_id {pid!r}: must match [a-zA-Z0-9_-]+")
+    include_raw = bool(req.get("include_raw", False))
+    result = orchestrator_request(f"/api/v1/pipelines/{pid}/status")
+    if not result.get("success"):
+        # The orchestrator returns {success: False, ...} for missing
+        # pipelines.  Surface as GatewayError so the MCP client gets a
+        # structured is_error payload.  Consistent with every other
+        # handler — defaults to None/falsy when the key is absent.
+        raise GatewayError(result.get("message", "pipeline status fetch failed"))
+    data = result.get("data") or {}
+
+    response: dict[str, Any] = {
+        "ok": True,
+        "pipeline_id": pid,
+        "status": data.get("status"),
+        "current_phase": data.get("current_phase"),
+        "pending_decisions": data.get("pending_decisions", 0),
+        "updated_at": data.get("updated_at"),
+    }
+    if include_raw:
+        response["raw"] = data
+    return response

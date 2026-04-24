@@ -38,6 +38,11 @@ FIELD_OWNERSHIP: dict[str, FieldOwner] = {
     "phases.*.tasks.*.notes": Role.IMPLEMENTER,
     "phases.*.tasks.*.files_affected": Role.IMPLEMENTER,
     "phases.*.tasks.*.files_affected.*": Role.IMPLEMENTER,
+    # Task gaps: tester→coder coverage-gap handoff (#1917).  Shared
+    # between implementer (the tester appends; the coder may flip
+    # `resolved=True` once the gap is addressed) and reviewer.
+    "phases.*.tasks.*.gaps": frozenset({Role.IMPLEMENTER, Role.REVIEWER}),
+    "phases.*.tasks.*.gaps.*": frozenset({Role.IMPLEMENTER, Role.REVIEWER}),
     # Task status: shared between implementer (mark done during implementation)
     # and reviewer (validate/override during review)
     "phases.*.tasks.*.status": frozenset({Role.IMPLEMENTER, Role.REVIEWER}),

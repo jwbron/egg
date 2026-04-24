@@ -44,6 +44,24 @@ _ASSIGNED_SCHEMA: dict[str, Any] = {
     },
 }
 
+_COMPLETE_PHASE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "phase": {
+            "type": "string",
+            "description": "Phase ID (e.g. 'phase-1')",
+        },
+        "commit": {
+            "type": "string",
+            "description": "Optional git commit SHA to link to the phase",
+        },
+        "issue": {"type": "integer"},
+        "pipeline_id": {"type": "string"},
+        "repo_path": {"type": "string"},
+    },
+    "required": ["phase"],
+}
+
 
 @tool(
     "get_context",
@@ -66,6 +84,18 @@ async def phase_get_assigned_tasks(args: dict[str, Any]) -> dict[str, Any]:
     return await invoke_handler(handlers.phase_get_assigned_tasks, args)
 
 
+@tool(
+    "complete_phase",
+    "Mark a phase as complete, optionally linking a commit SHA. State-machine "
+    "effect: transitions phases.<N>.status to 'complete'; the orchestrator's "
+    "downstream phase_complete signal fires once all phases are done. Prefer "
+    "this over 'egg-contract complete-phase'.",
+    _COMPLETE_PHASE_SCHEMA,
+)
+async def phase_complete_phase(args: dict[str, Any]) -> dict[str, Any]:
+    return await invoke_handler(handlers.phase_complete_phase, args)
+
+
 REGISTRATIONS: list[ToolRegistration] = [
     ToolRegistration(
         name="mcp__phase__get_context",
@@ -80,5 +110,12 @@ REGISTRATIONS: list[ToolRegistration] = [
         handler=handlers.phase_get_assigned_tasks,
         sdk_tool=phase_get_assigned_tasks,
         cli_command=None,
+    ),
+    ToolRegistration(
+        name="mcp__phase__complete_phase",
+        namespace=NAMESPACE,
+        handler=handlers.phase_complete_phase,
+        sdk_tool=phase_complete_phase,
+        cli_command=("egg-contract", "complete-phase"),
     ),
 ]

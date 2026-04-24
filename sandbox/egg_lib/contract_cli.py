@@ -340,7 +340,16 @@ def _render_gateway_error_and_exit(err: GatewayError) -> int:
 
 
 def cmd_show(args: argparse.Namespace) -> int:
-    """Display current contract state."""
+    """Display current contract state.
+
+    Delegates to :func:`egg_agent_tools.handlers.sdlc.show_contract`
+    so the CLI and the ``mcp__sdlc__show_contract`` MCP tool share a
+    handler. Stdout/stderr shape is byte-compatible with the prior
+    hand-rolled implementation (summary for TTY, ``--json`` for
+    machine consumption, ``--audit`` to include audit-log).
+    """
+    from egg_agent_tools.handlers import sdlc as _handlers
+
     identifier = get_contract_identifier(args)
     if identifier is None:
         print(
@@ -350,31 +359,28 @@ def cmd_show(args: argparse.Namespace) -> int:
         )
         return 1
 
-    params: dict[str, str] = {}
-    if args.repo_path:
-        params["repo_path"] = args.repo_path
-    if args.audit:
-        params["include_audit_log"] = "true"
-    container_id = get_container_id()
-    if container_id:
-        params["container_id"] = container_id
-
-    endpoint = f"/api/v1/contract/{identifier}"
-    if params:
-        endpoint += "?" + urlencode(params)
-
-    result = make_gateway_request(endpoint)
-
-    if result.get("success"):
-        contract = result.get("data", {})
-        if args.json:
-            print(json.dumps(contract, indent=2))
-        else:
-            _print_contract_summary(contract)
+    req: dict[str, Any] = {
+        "repo_path": args.repo_path or get_repo_path(),
+        "audit": bool(getattr(args, "audit", False)),
+    }
+    if isinstance(identifier, int):
+        req["issue"] = identifier
     else:
-        print(f"Error: {result.get('message')}", file=sys.stderr)
-        return 1
+        req["pipeline_id"] = identifier
 
+    try:
+        resp = _handlers.show_contract(req)
+    except GatewayError as err:
+        return _render_gateway_error_and_exit(err)
+    except HandlerError as err:
+        print(f"Error: {err.message}", file=sys.stderr)
+        return err.exit_code
+
+    contract = resp.get("contract", {}) or {}
+    if args.json:
+        print(json.dumps(contract, indent=2))
+    else:
+        _print_contract_summary(contract)
     return 0
 
 
@@ -442,7 +448,14 @@ def _print_contract_summary(contract: dict[str, Any]) -> None:
 
 
 def cmd_add_commit(args: argparse.Namespace) -> int:
-    """Link a commit to a task."""
+    """Link a commit to a task.
+
+    Delegates to :func:`egg_agent_tools.handlers.task.task_add_commit`
+    so the CLI and the ``mcp__task__add_commit`` MCP tool share a
+    handler (iter-2 drift gate).
+    """
+    from egg_agent_tools.handlers import task as _handlers
+
     identifier = get_contract_identifier(args)
     if identifier is None:
         print(
@@ -452,44 +465,36 @@ def cmd_add_commit(args: argparse.Namespace) -> int:
         )
         return 1
 
-    try:
-        phase_idx, task_idx = parse_task_id(args.task)
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    try:
-        validate_commit_sha(args.commit)
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    field_path = f"phases.{phase_idx}.tasks.{task_idx}.commit"
-
-    result = make_gateway_request(
-        "/api/v1/contract/mutate",
-        method="POST",
-        data={
-            "identifier": identifier,
-            "repo_path": args.repo_path or get_repo_path(),
-            "field_path": field_path,
-            "new_value": args.commit,
-            "actor": "egg",
-            "reason": f"Linked commit {args.commit[:7]} to {args.task}",
-            **_container_id_field(),
-        },
-    )
-
-    if result.get("success"):
-        print(f"Linked commit {args.commit[:7]} to {args.task}")
-        return 0
+    req: dict[str, Any] = {
+        "task": args.task,
+        "commit": args.commit,
+        "repo_path": args.repo_path or get_repo_path(),
+    }
+    if isinstance(identifier, int):
+        req["issue"] = identifier
     else:
-        print(f"Error: {result.get('message')}", file=sys.stderr)
-        return 1
+        req["pipeline_id"] = identifier
+
+    try:
+        _handlers.task_add_commit(req)
+    except GatewayError as err:
+        return _render_gateway_error_and_exit(err)
+    except HandlerError as err:
+        print(f"Error: {err.message}", file=sys.stderr)
+        return err.exit_code
+    print(f"Linked commit {args.commit[:7]} to {args.task}")
+    return 0
 
 
 def cmd_update_notes(args: argparse.Namespace) -> int:
-    """Add implementation notes to a task."""
+    """Add implementation notes to a task.
+
+    Delegates to :func:`egg_agent_tools.handlers.task.task_update_notes`
+    so the CLI and the ``mcp__task__update_notes`` MCP tool share a
+    handler (iter-2 drift gate).
+    """
+    from egg_agent_tools.handlers import task as _handlers
+
     identifier = get_contract_identifier(args)
     if identifier is None:
         print(
@@ -499,34 +504,25 @@ def cmd_update_notes(args: argparse.Namespace) -> int:
         )
         return 1
 
-    try:
-        phase_idx, task_idx = parse_task_id(args.task)
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    field_path = f"phases.{phase_idx}.tasks.{task_idx}.notes"
-
-    result = make_gateway_request(
-        "/api/v1/contract/mutate",
-        method="POST",
-        data={
-            "identifier": identifier,
-            "repo_path": args.repo_path or get_repo_path(),
-            "field_path": field_path,
-            "new_value": args.notes,
-            "actor": "egg",
-            "reason": f"Updated notes for {args.task}",
-            **_container_id_field(),
-        },
-    )
-
-    if result.get("success"):
-        print(f"Updated notes for {args.task}")
-        return 0
+    req: dict[str, Any] = {
+        "task": args.task,
+        "notes": args.notes,
+        "repo_path": args.repo_path or get_repo_path(),
+    }
+    if isinstance(identifier, int):
+        req["issue"] = identifier
     else:
-        print(f"Error: {result.get('message')}", file=sys.stderr)
-        return 1
+        req["pipeline_id"] = identifier
+
+    try:
+        _handlers.task_update_notes(req)
+    except GatewayError as err:
+        return _render_gateway_error_and_exit(err)
+    except HandlerError as err:
+        print(f"Error: {err.message}", file=sys.stderr)
+        return err.exit_code
+    print(f"Updated notes for {args.task}")
+    return 0
 
 
 def cmd_complete_task(args: argparse.Namespace) -> int:
@@ -586,7 +582,22 @@ def cmd_complete_task(args: argparse.Namespace) -> int:
 
 
 def cmd_complete_phase(args: argparse.Namespace) -> int:
-    """Mark a phase as complete, optionally linking a commit."""
+    """Mark a phase as complete, optionally linking a commit.
+
+    Delegates to :func:`egg_agent_tools.handlers.phase.phase_complete_phase`
+    so the CLI and the ``mcp__phase__complete_phase`` MCP tool share a
+    handler (iter-2 drift gate).
+
+    Handler ordering changed in response to reviewer_code NACK #6: the
+    commit-link happens BEFORE the status flip, so a mid-way failure
+    leaves the phase not-complete-yet with the commit already
+    populated, and callers can retry the same request to progress.
+    The stderr phrasing "Error setting status:" is preserved from the
+    legacy CLI surface so scripts that grep the exit messages keep
+    working.
+    """
+    from egg_agent_tools.handlers import phase as _handlers
+
     identifier = get_contract_identifier(args)
     if identifier is None:
         print(
@@ -596,69 +607,36 @@ def cmd_complete_phase(args: argparse.Namespace) -> int:
         )
         return 1
 
-    try:
-        phase_idx = parse_phase_id(args.phase)
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    repo_path = args.repo_path or get_repo_path()
-
-    # Set phase status to complete
-    status_path = f"phases.{phase_idx}.status"
-    result = make_gateway_request(
-        "/api/v1/contract/mutate",
-        method="POST",
-        data={
-            "identifier": identifier,
-            "repo_path": repo_path,
-            "field_path": status_path,
-            "new_value": "complete",
-            "actor": "egg",
-            "reason": f"Marked {args.phase} as complete",
-            **_container_id_field(),
-        },
-    )
-
-    if not result.get("success"):
-        print(f"Error setting status: {result.get('message')}", file=sys.stderr)
-        return 1
-
-    # Optionally link a commit
+    req: dict[str, Any] = {
+        "phase": args.phase,
+        "repo_path": args.repo_path or get_repo_path(),
+    }
+    if isinstance(identifier, int):
+        req["issue"] = identifier
+    else:
+        req["pipeline_id"] = identifier
     if args.commit:
-        try:
-            validate_commit_sha(args.commit)
-        except ValueError as e:
-            print(f"Error: {e}", file=sys.stderr)
-            return 1
+        req["commit"] = args.commit
 
-        commit_path = f"phases.{phase_idx}.commit"
-        commit_result = make_gateway_request(
-            "/api/v1/contract/mutate",
-            method="POST",
-            data={
-                "identifier": identifier,
-                "repo_path": repo_path,
-                "field_path": commit_path,
-                "new_value": args.commit,
-                "actor": "egg",
-                "reason": f"Linked commit {args.commit[:7]} to {args.phase}",
-                **_container_id_field(),
-            },
-        )
+    try:
+        _handlers.phase_complete_phase(req)
+    except GatewayError as err:
+        # The handler raises two distinct GatewayError shapes now: a
+        # "phase commit link failed" (when supplied) or a bare status
+        # error.  Both land here; the CLI maps all gateway failures to
+        # the legacy "Error setting status:" prefix so exit-grep
+        # scripts keep working.
+        msg = err.message or str(err)
+        print(f"Error setting status: {msg}", file=sys.stderr)
+        return err.exit_code
+    except HandlerError as err:
+        print(f"Error: {err.message}", file=sys.stderr)
+        return err.exit_code
 
-        if not commit_result.get("success"):
-            print(
-                f"Warning: Phase marked complete but failed to link commit: "
-                f"{commit_result.get('message')}",
-                file=sys.stderr,
-            )
-            return 1
-
+    if args.commit:
         print(f"Completed {args.phase} (commit {args.commit[:7]})")
     else:
         print(f"Completed {args.phase}")
-
     return 0
 
 
@@ -720,7 +698,13 @@ def cmd_verify_criterion(args: argparse.Namespace) -> int:
     Note: This operation requires REVIEWER role. Agents running as IMPLEMENTER
     will receive a role authorization error from the gateway. This command is
     used by contract verification reviewers to mark criteria as verified.
+
+    Delegates to :func:`egg_agent_tools.handlers.sdlc.verify_criterion`
+    so the CLI and the ``mcp__sdlc__verify_criterion`` MCP tool share a
+    handler (iter-2 drift gate).
     """
+    from egg_agent_tools.handlers import sdlc as _handlers
+
     identifier = get_contract_identifier(args)
     if identifier is None:
         print(
@@ -730,34 +714,24 @@ def cmd_verify_criterion(args: argparse.Namespace) -> int:
         )
         return 1
 
-    try:
-        criterion_idx = parse_criterion_id(args.criterion)
-    except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        return 1
-
-    field_path = f"acceptance_criteria.{criterion_idx}.verified"
-
-    result = make_gateway_request(
-        "/api/v1/contract/mutate",
-        method="POST",
-        data={
-            "identifier": identifier,
-            "repo_path": args.repo_path or get_repo_path(),
-            "field_path": field_path,
-            "new_value": True,
-            "actor": "egg",
-            "reason": f"Verified criterion {args.criterion}",
-            **_container_id_field(),
-        },
-    )
-
-    if result.get("success"):
-        print(f"Verified criterion {args.criterion}")
-        return 0
+    req: dict[str, Any] = {
+        "criterion": args.criterion,
+        "repo_path": args.repo_path or get_repo_path(),
+    }
+    if isinstance(identifier, int):
+        req["issue"] = identifier
     else:
-        print(f"Error: {result.get('message')}", file=sys.stderr)
-        return 1
+        req["pipeline_id"] = identifier
+
+    try:
+        _handlers.verify_criterion(req)
+    except GatewayError as err:
+        return _render_gateway_error_and_exit(err)
+    except HandlerError as err:
+        print(f"Error: {err.message}", file=sys.stderr)
+        return err.exit_code
+    print(f"Verified criterion {args.criterion}")
+    return 0
 
 
 def cmd_add_decision(args: argparse.Namespace) -> int:

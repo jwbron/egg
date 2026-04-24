@@ -448,23 +448,45 @@ def cmd_pipeline_create(args: argparse.Namespace) -> int:
 
 
 def cmd_pipeline_status(args: argparse.Namespace) -> int:
-    """Get pipeline status."""
+    """Get pipeline status.
+
+    Delegates to :func:`egg_agent_tools.handlers.progress.progress_query_status`
+    so the CLI and the ``mcp__progress__query_status`` MCP tool share a
+    handler (iter-2 drift gate).
+    """
+    from egg_agent_tools.handlers import progress as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
     pid = require_pipeline_id(args)
-    result = orch_request(f"/api/v1/pipelines/{pid}/status")
+    req: dict[str, Any] = {"pipeline_id": pid, "include_raw": bool(args.json)}
+
+    try:
+        resp = _handlers.progress_query_status(req)
+    except GatewayError as err:
+        if args.json:
+            print_json({"success": False, "message": err.message or str(err)})
+            return int(getattr(err, "exit_code", 1))
+        return _render_handler_error(err)
+    except HandlerError as err:
+        if args.json:
+            print_json({"success": False, "message": err.message or str(err)})
+            return int(err.exit_code)
+        print(f"Error: {err.message}", file=sys.stderr)
+        return err.exit_code
 
     if args.json:
-        print_json(result)
+        # Preserve the legacy shape: `{"success": true, "data": <status>}`.
+        print_json({"success": True, "data": resp.get("raw") or resp})
         return 0
 
-    data = result.get("data", result)
     print(f"Pipeline: {pid}")
-    print(f"Status:   {data.get('status')}")
-    print(f"Phase:    {data.get('current_phase')}")
-    pending = data.get("pending_decisions", 0)
+    print(f"Status:   {resp.get('status')}")
+    print(f"Phase:    {resp.get('current_phase')}")
+    pending = resp.get("pending_decisions", 0)
     if pending:
         print(f"Pending decisions: {pending}")
-    if data.get("updated_at"):
-        print(f"Updated: {data.get('updated_at')}")
+    if resp.get("updated_at"):
+        print(f"Updated: {resp.get('updated_at')}")
     return 0
 
 
@@ -1394,40 +1416,50 @@ def cmd_overseer_alert(args: argparse.Namespace) -> int:
     to_role="all" hard-coded so the overseer agent never picks the type by
     hand. The human-facing alert surfaces (sdlc skill, get_status enrichment)
     only react to OVERSEER_ALERT — STATUS/HANDOFF blend into normal traffic.
+
+    Delegates to :func:`egg_agent_tools.handlers.progress.progress_overseer_alert`
+    so the CLI and the ``mcp__progress__overseer_alert`` MCP tool share a
+    handler (iter-2 drift gate).
     """
+    from egg_agent_tools.handlers import progress as _handlers
+    from egg_agent_tools.handlers.errors import GatewayError, HandlerError
+
     pid = require_pipeline_id(args)
     role = args.role or get_agent_role_from_env() or "overseer"
 
-    body_parts: list[str] = [args.summary]
-    if args.detail:
-        body_parts.append(f"\nDetail:\n{args.detail}")
-    if args.recommend:
-        body_parts.append(f"\nRecommended action:\n{args.recommend}")
-    body_text = "\n".join(body_parts).strip()
-
-    data: dict[str, Any] = {
-        "from_role": role,
-        "to_role": "all",
-        "message_type": "OVERSEER_ALERT",
-        "subject": f"{args.anomaly} [{args.priority}]",
-        "body": body_text,
+    req: dict[str, Any] = {
+        "pipeline_id": pid,
+        "role": role,
+        "anomaly": args.anomaly,
+        "priority": args.priority,
+        "summary": args.summary,
     }
+    if args.detail:
+        req["detail"] = args.detail
+    if args.recommend:
+        req["recommend"] = args.recommend
 
-    result = orch_request(f"/api/v1/pipelines/{pid}/messages", method="POST", data=data)
+    try:
+        resp = _handlers.progress_overseer_alert(req)
+    except GatewayError as err:
+        if args.json:
+            print_json({"success": False, "message": err.message or str(err)})
+            return int(getattr(err, "exit_code", 1))
+        return _render_handler_error(err)
+    except HandlerError as err:
+        if args.json:
+            print_json({"success": False, "message": err.message or str(err)})
+            return int(err.exit_code)
+        print(f"Error: {err.message}", file=sys.stderr)
+        return err.exit_code
 
     if args.json:
-        print_json(result)
-        return 0 if result.get("success") else 1
-
-    if result.get("success"):
-        msg = result.get("data", {}).get("message", {})
-        print(
-            f"OVERSEER_ALERT broadcast: {msg.get('id', 'unknown')} "
-            f"({args.anomaly}, {args.priority})"
-        )
+        print_json(resp.get("signal", {}))
         return 0
-    print(f"Error: {result.get('message')}", file=sys.stderr)
-    return 1
+
+    msg = resp.get("alert") or {}
+    print(f"OVERSEER_ALERT broadcast: {msg.get('id', 'unknown')} ({args.anomaly}, {args.priority})")
+    return 0
 
 
 def cmd_signal_readiness(args: argparse.Namespace) -> int:

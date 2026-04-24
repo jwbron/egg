@@ -144,6 +144,69 @@ class TestRegisterOpenQuestion:
             with pytest.raises(GatewayError):
                 sdlc.register_open_question({"question": "q?"})
 
+    def test_toctou_retry_on_index_conflict(self):
+        """Two concurrent agents may compute the same decision index;
+        the loser's write should retry after re-reading the contract."""
+        first_contract = _fake_contract(decisions=[])
+        second_contract = _fake_contract(
+            decisions=[{"id": "decision-1", "question": "other agent's"}]
+        )
+        responses = [
+            {"success": True, "data": first_contract},  # attempt 1 read
+            {"success": False, "message": "Array index 0 out of range"},
+            {"success": True, "data": second_contract},  # attempt 2 read
+            {"success": True, "data": {}},  # attempt 2 mutate
+        ]
+        with (
+            patch(
+                "egg_agent_tools.handlers.sdlc.gateway_request",
+                side_effect=lambda *a, **kw: responses.pop(0),
+            ) as gr,
+            patch("egg_agent_tools.handlers.sdlc.get_contract_identifier", return_value=42),
+        ):
+            resp = sdlc.register_open_question({"question": "q?"})
+        assert resp["ok"] is True
+        # Retried: now index 1 (second decision).
+        assert resp["id"] == "decision-2"
+        mutate_data = gr.call_args_list[3].kwargs["data"]
+        assert mutate_data["field_path"] == "decisions.1"
+
+    def test_toctou_non_retryable_error_bails_immediately(self):
+        """A non-TOCTOU gateway error must not be retried."""
+        fake_contract = _fake_contract()
+        responses = [
+            {"success": True, "data": fake_contract},
+            {"success": False, "message": "role not authorized"},
+        ]
+        with (
+            patch(
+                "egg_agent_tools.handlers.sdlc.gateway_request",
+                side_effect=lambda *a, **kw: responses.pop(0),
+            ) as gr,
+            patch("egg_agent_tools.handlers.sdlc.get_contract_identifier", return_value=1),
+        ):
+            with pytest.raises(GatewayError):
+                sdlc.register_open_question({"question": "q?"})
+        # Exactly two calls — read + mutate; no retry.
+        assert gr.call_count == 2
+
+
+class TestFetchContractNullData:
+    """_fetch_contract must return {} when the gateway response has
+    data=null (key exists with null value — the {} default is unused)."""
+
+    def test_null_data_returns_empty_dict(self):
+        with (
+            patch(
+                "egg_agent_tools.handlers.sdlc.gateway_request",
+                return_value={"success": True, "data": None},
+            ),
+            patch("egg_agent_tools.handlers.sdlc.get_contract_identifier", return_value=1),
+        ):
+            resp = sdlc.show_contract({})
+        assert resp["ok"] is True
+        assert resp["contract"] == {}
+
 
 class TestRequestFeedback:
     def test_happy_path_multiple_questions(self):
@@ -312,3 +375,225 @@ class TestCheckHitlAnswers:
         ):
             resp = sdlc.check_hitl_answers({})
         assert set(resp.keys()) >= {"ok", "decisions", "feedback"}
+
+
+# ---------------------------------------------------------------------------
+# Iter-2 (#1917): show_contract + verify_criterion
+# ---------------------------------------------------------------------------
+
+
+class TestShowContract:
+    def _mock(self, contract_data: dict):
+        return patch(
+            "egg_agent_tools.handlers.sdlc.gateway_request",
+            return_value={"success": True, "data": contract_data},
+        )
+
+    def _id(self, value=42):
+        return patch("egg_agent_tools.handlers.sdlc.get_contract_identifier", return_value=value)
+
+    def test_happy_path_returns_full_contract(self):
+        contract = {"current_phase": "plan", "decisions": [], "phases": []}
+        with self._mock(contract), self._id():
+            resp = sdlc.show_contract({})
+        assert resp["ok"] is True
+        assert resp["contract"]["current_phase"] == "plan"
+
+    def test_fields_projection_returns_only_named_fields(self):
+        contract = {
+            "current_phase": "plan",
+            "decisions": [{"id": "d1"}],
+            "phases": [{"id": "p1"}],
+        }
+        with self._mock(contract), self._id():
+            resp = sdlc.show_contract({"fields": ["current_phase", "decisions"]})
+        assert set(resp["contract"].keys()) == {"current_phase", "decisions"}
+        # Untouched field must be stripped.
+        assert "phases" not in resp["contract"]
+
+    def test_empty_fields_list_returns_empty_contract(self):
+        """Edge case: explicit [] projects to zero keys — the handler
+        should honour that rather than treating it as 'no projection'."""
+        contract = {"current_phase": "plan", "decisions": []}
+        with self._mock(contract), self._id():
+            resp = sdlc.show_contract({"fields": []})
+        assert resp["contract"] == {}
+
+    def test_unknown_field_raises_handler_error(self):
+        """decision-4 requirement: unknown names must raise, not silently
+        skip — agents learn the contract shape."""
+        contract = {"current_phase": "plan"}
+        with self._mock(contract), self._id():
+            with pytest.raises(HandlerError) as exc:
+                sdlc.show_contract({"fields": ["not_a_field"]})
+        assert "Unknown field" in str(exc.value)
+
+    def test_non_list_fields_rejected(self):
+        contract = {"current_phase": "plan"}
+        with self._mock(contract), self._id():
+            with pytest.raises(HandlerError):
+                sdlc.show_contract({"fields": "current_phase"})
+
+    def test_non_string_field_entry_rejected(self):
+        contract = {"current_phase": "plan"}
+        with self._mock(contract), self._id():
+            with pytest.raises(HandlerError):
+                sdlc.show_contract({"fields": [123]})
+
+    def test_audit_flag_passes_through_to_gateway_params(self):
+        contract = {"current_phase": "plan", "audit_log": [{"timestamp": "t"}]}
+        with (
+            patch(
+                "egg_agent_tools.handlers.sdlc.gateway_request",
+                return_value={"success": True, "data": contract},
+            ) as gr,
+            self._id(),
+        ):
+            sdlc.show_contract({"audit": True})
+        params = gr.call_args.kwargs.get("params") or {}
+        assert params.get("include_audit_log") == "true"
+
+    def test_gateway_error_propagates(self):
+        def boom(*a, **kw):
+            raise GatewayError("boom", status_code=503)
+
+        with (
+            patch("egg_agent_tools.handlers.sdlc.gateway_request", side_effect=boom),
+            self._id(),
+        ):
+            with pytest.raises(GatewayError):
+                sdlc.show_contract({})
+
+    def test_unsuccessful_response_raises(self):
+        with (
+            patch(
+                "egg_agent_tools.handlers.sdlc.gateway_request",
+                return_value={"success": False, "message": "no such contract"},
+            ),
+            self._id(),
+        ):
+            with pytest.raises(GatewayError):
+                sdlc.show_contract({})
+
+    def test_missing_identifier_raises_handler_error(self):
+        with patch("egg_agent_tools.handlers.sdlc.get_contract_identifier", return_value=None):
+            with pytest.raises(HandlerError):
+                sdlc.show_contract({})
+
+
+class TestVerifyCriterion:
+    @staticmethod
+    def _contract_with_criteria(count: int = 5):
+        return {
+            "acceptance_criteria": [
+                {"id": f"ac-{i + 1}", "description": f"criterion {i + 1}", "verified": False}
+                for i in range(count)
+            ]
+        }
+
+    def _id(self, value=42):
+        return patch("egg_agent_tools.handlers.sdlc.get_contract_identifier", return_value=value)
+
+    def test_happy_path_mutates_correct_field_path(self):
+        contract = self._contract_with_criteria(5)
+        responses = [
+            {"success": True, "data": contract},  # pre-flight read
+            {"success": True, "data": {}},  # mutate
+        ]
+        with (
+            patch(
+                "egg_agent_tools.handlers.sdlc.gateway_request",
+                side_effect=lambda *a, **kw: responses.pop(0),
+            ) as gr,
+            self._id(),
+        ):
+            resp = sdlc.verify_criterion({"criterion": "ac-3"})
+        assert resp == {"ok": True, "criterion": "ac-3"}
+        data = gr.call_args_list[1].kwargs["data"]
+        # 1-based ac-3 → 0-based index 2.
+        assert data["field_path"] == "acceptance_criteria.2.verified"
+        assert data["new_value"] is True
+
+    def test_missing_criterion_raises_handler_error(self):
+        with pytest.raises(HandlerError):
+            sdlc.verify_criterion({})
+
+    @pytest.mark.parametrize("bad", ["", "1", "ac-", "ac-0", "ac-a", "AC-", "criterion-1"])
+    def test_invalid_criterion_id(self, bad):
+        with pytest.raises(HandlerError):
+            sdlc.verify_criterion({"criterion": bad})
+
+    def test_case_insensitive_prefix(self):
+        """`AC-5` should resolve just like `ac-5` — CLI parity."""
+        contract = self._contract_with_criteria(5)
+        responses = [
+            {"success": True, "data": contract},
+            {"success": True, "data": {}},
+        ]
+        with (
+            patch(
+                "egg_agent_tools.handlers.sdlc.gateway_request",
+                side_effect=lambda *a, **kw: responses.pop(0),
+            ) as gr,
+            self._id(),
+        ):
+            sdlc.verify_criterion({"criterion": "AC-5"})
+        data = gr.call_args_list[1].kwargs["data"]
+        assert data["field_path"] == "acceptance_criteria.4.verified"
+
+    def test_criterion_out_of_range_raises_handler_error(self):
+        """Pre-flight bounds check: ac-999 on a contract with 2 criteria
+        must raise HandlerError before the mutate call."""
+        contract = self._contract_with_criteria(2)
+        with (
+            patch(
+                "egg_agent_tools.handlers.sdlc.gateway_request",
+                return_value={"success": True, "data": contract},
+            ) as gr,
+            self._id(),
+        ):
+            with pytest.raises(HandlerError) as exc:
+                sdlc.verify_criterion({"criterion": "ac-999"})
+        assert "out of range" in str(exc.value).lower()
+        # Only one call — the pre-flight read; mutate was never attempted.
+        assert gr.call_count == 1
+
+    def test_gateway_unauthorized_surfaces_as_gateway_error(self):
+        """decision-7: the gateway enforces REVIEWER — the handler is a
+        thin forward. A role-denial failure on the mutate must surface
+        as GatewayError (not silently return success)."""
+        contract = self._contract_with_criteria(3)
+        responses = [
+            {"success": True, "data": contract},  # pre-flight read succeeds
+            {
+                "success": False,
+                "message": "Role 'implementer' not authorized to modify this field",
+            },
+        ]
+        with (
+            patch(
+                "egg_agent_tools.handlers.sdlc.gateway_request",
+                side_effect=lambda *a, **kw: responses.pop(0),
+            ),
+            self._id(),
+        ):
+            with pytest.raises(GatewayError) as exc:
+                sdlc.verify_criterion({"criterion": "ac-1"})
+        assert "not authorized" in str(exc.value).lower()
+
+    def test_gateway_exception_propagates(self):
+        def boom(*a, **kw):
+            raise GatewayError("net down")
+
+        with (
+            patch("egg_agent_tools.handlers.sdlc.gateway_request", side_effect=boom),
+            self._id(),
+        ):
+            with pytest.raises(GatewayError):
+                sdlc.verify_criterion({"criterion": "ac-2"})
+
+    def test_docstring_mentions_reviewer_role(self):
+        """Agents self-select on the REVIEWER-role requirement from the
+        docstring — decision-7."""
+        assert sdlc.verify_criterion.__doc__ is not None
+        assert "REVIEWER" in sdlc.verify_criterion.__doc__

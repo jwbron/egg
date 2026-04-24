@@ -1,13 +1,17 @@
 """Tests for egg_agent_tools.server (factory + system prompt nudge).
 
 Covers:
-- build_sandbox_mcp_server registers the expected iteration-1 tools (18:
-  the original 15 plus the three message-primitive wrappers added in
-  #1922: wait_for_event, wait_loop, send_heartbeat).
+- build_sandbox_mcp_server registers the expected iteration-2 tools (30:
+  the 18 iteration-1 verbs plus the 12 iteration-2 additions landed in
+  #1917 across the sdlc, brc, phase, progress, task, and checkpoint
+  namespaces).
 - SYSTEM_PROMPT_NUDGE stays <=200 words.
 - Symmetric drift test: every mcp__<namespace>__ substring in the nudge
   corresponds to a registered namespace, and every registered namespace
   appears in the nudge (bidirectional match).
+- Derived-count / namespace-set assertions so future iterations that
+  add/remove a tool trip this suite instead of silently drifting the
+  prose verb count in ``docs/reference/agent-tools.md``.
 """
 
 from __future__ import annotations
@@ -23,7 +27,9 @@ from egg_agent_tools import SYSTEM_PROMPT_NUDGE, TOOL_LIST, TOOL_NAMESPACES  # n
 from egg_agent_tools.server import _render_nudge  # noqa: E402
 from egg_agent_tools.tools import TOOL_REGISTRY  # noqa: E402
 
-EXPECTED_TOOL_NAMES = {
+# Iteration-1 verbs (18).  Kept in its own set for documentation so the
+# reader can see the #1917 additions clearly.
+_ITER1_TOOL_NAMES = {
     "mcp__sdlc__register_open_question",
     "mcp__sdlc__request_feedback",
     "mcp__sdlc__check_hitl_answers",
@@ -44,19 +50,51 @@ EXPECTED_TOOL_NAMES = {
     "mcp__task__complete",
 }
 
+# Iteration-2 additions (12, #1917): 2 sdlc, 3 task, 1 phase, 2
+# progress, 1 brc, 3 checkpoint.  The anchor trio and directed peer
+# send/poll verbs were deferred per decisions 2 and 14.
+_ITER2_TOOL_NAMES = {
+    # sdlc
+    "mcp__sdlc__show_contract",
+    "mcp__sdlc__verify_criterion",
+    # task
+    "mcp__task__add_commit",
+    "mcp__task__update_notes",
+    "mcp__task__mark_gap",
+    # phase
+    "mcp__phase__complete_phase",
+    # progress
+    "mcp__progress__overseer_alert",
+    "mcp__progress__query_status",
+    # brc
+    "mcp__brc__read_peer_artifact",
+    # checkpoint (new namespace)
+    "mcp__checkpoint__list",
+    "mcp__checkpoint__show",
+    "mcp__checkpoint__search",
+}
+
+EXPECTED_TOOL_NAMES = _ITER1_TOOL_NAMES | _ITER2_TOOL_NAMES
+
+EXPECTED_NAMESPACES = {
+    "sdlc",
+    "brc",
+    "phase",
+    "progress",
+    "task",
+    "checkpoint",
+}
+
 
 class TestToolRegistry:
-    def test_eighteen_tools_registered(self):
-        # 15 iteration-1 verbs + 3 #1897 message primitives exposed in
-        # #1922 (wait_for_event, wait_loop, send_heartbeat).
-        assert len(TOOL_LIST) == 18
+    def test_thirty_tools_registered(self):
+        # 18 iteration-1 verbs + 12 iteration-2 verbs (#1917) = 30.
+        # Derived assertion: trips when a future iteration drifts the
+        # count without updating the prose verb-counts in
+        # docs/reference/agent-tools.md.
+        assert len(TOOL_LIST) == 30
 
     def test_expected_names_present(self):
-        # ToolRegistration.name carries the Claude-visible full name
-        # (``mcp__<namespace>__<verb>``), while the stub SDK tool's
-        # ``.name`` is just the short verb (``propose``, ``emit``) —
-        # the MCP server key supplies the ``mcp__<namespace>__``
-        # prefix at runtime.
         names = set(TOOL_REGISTRY.keys())
         assert names == EXPECTED_TOOL_NAMES
 
@@ -65,6 +103,35 @@ class TestToolRegistry:
         for tools in TOOL_NAMESPACES.values():
             flat.extend(tools)
         assert set(flat) == EXPECTED_TOOL_NAMES
+
+    def test_namespace_set_is_six(self):
+        # Derived assertion: exactly six namespaces.  Adds `checkpoint`
+        # alongside the iter-1 five (sdlc/brc/phase/progress/task).
+        assert set(TOOL_NAMESPACES.keys()) == EXPECTED_NAMESPACES
+
+    def test_iter2_tools_land_in_correct_namespace(self):
+        """Each iter-2 verb must live under the namespace the plan
+        assigns it.  Catches a tool silently landing in the wrong
+        namespace (e.g. ``mcp__brc__query_status``)."""
+        expected_ns = {
+            "mcp__sdlc__show_contract": "sdlc",
+            "mcp__sdlc__verify_criterion": "sdlc",
+            "mcp__task__add_commit": "task",
+            "mcp__task__update_notes": "task",
+            "mcp__task__mark_gap": "task",
+            "mcp__phase__complete_phase": "phase",
+            "mcp__progress__overseer_alert": "progress",
+            "mcp__progress__query_status": "progress",
+            "mcp__brc__read_peer_artifact": "brc",
+            "mcp__checkpoint__list": "checkpoint",
+            "mcp__checkpoint__show": "checkpoint",
+            "mcp__checkpoint__search": "checkpoint",
+        }
+        for tool_name, namespace in expected_ns.items():
+            assert TOOL_REGISTRY[tool_name].namespace == namespace, (
+                f"{tool_name} should live in the '{namespace}' namespace; "
+                f"found {TOOL_REGISTRY[tool_name].namespace!r}"
+            )
 
 
 class TestBuildSandboxMcpServer:
@@ -95,7 +162,7 @@ class TestSystemPromptNudge:
     def test_each_namespace_appears_in_nudge(self):
         """Every registered namespace must appear as mcp__<ns>__ in the
         generated nudge — keeps the bootstrap prompt honest when a new
-        namespace lands."""
+        namespace lands (e.g. #1917 added ``checkpoint``)."""
         for namespace in TOOL_NAMESPACES:
             assert f"mcp__{namespace}__" in SYSTEM_PROMPT_NUDGE, (
                 f"Namespace '{namespace}' registered but missing from nudge"
@@ -121,3 +188,8 @@ class TestSystemPromptNudge:
 
     def test_nudge_nonempty(self):
         assert SYSTEM_PROMPT_NUDGE.strip() != ""
+
+    def test_checkpoint_namespace_mentioned_in_nudge(self):
+        """Explicit assertion for the new #1917 namespace so the drift
+        test flags if someone removes the checkpoint wiring."""
+        assert "mcp__checkpoint__" in SYSTEM_PROMPT_NUDGE
