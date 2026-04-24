@@ -416,32 +416,73 @@ DEFAULT_PORT = 9848
 DEFAULT_THREADS = int(os.environ.get("GATEWAY_THREADS", "32"))
 HEALTH_CHECK_PORT = int(os.environ.get("GATEWAY_HEALTH_PORT", "9851"))
 
-# Host home directory for path translation
+# Host home directory for path translation (explicit override).
 # The gateway container uses /home/egg internally, but needs to return
-# host paths to the egg launcher for Docker mount sources
+# host paths to the orchestrator because those paths become the
+# ``hostPath.path`` source of agent-pod mounts — if the gateway returns
+# its in-pod path and the host layout doesn't match, kubelet
+# ``DirectoryOrCreate``s an empty root-owned dir and the agent lands in
+# an unwritable worktree (#1986).
+#
+# Normally we discover the host path directly from /proc/self/mountinfo
+# (see ``translate_to_host_path``) so no env-var configuration is
+# required. ``HOST_HOME`` remains as an explicit escape hatch for test
+# environments and unusual setups where mountinfo doesn't reflect the
+# real mapping.
 HOST_HOME = os.environ.get("HOST_HOME", "")
 CONTAINER_HOME = "/home/egg"
+
+
+def _load_bind_mount_mapping() -> list[tuple[str, str]]:
+    """Read /proc/self/mountinfo and return a list of (mount_point, host_root) tuples.
+
+    For every bind mount visible to this process, ``mount_point`` is the
+    path in this process's mount namespace and ``host_root`` is the path
+    the kernel recorded as the bind source — for kubelet-managed
+    ``hostPath`` volumes that's the actual host path. The list is sorted
+    longest-first so prefix lookup picks the most specific mount.
+    """
+    entries: list[tuple[str, str]] = []
+    try:
+        with open("/proc/self/mountinfo") as fh:
+            for line in fh:
+                # Format: mount_id parent_id major:minor root mount_point ...
+                fields = line.split()
+                if len(fields) < 5:
+                    continue
+                entries.append((fields[4], fields[3]))
+    except OSError:
+        return []
+    entries.sort(key=lambda p: len(p[0]), reverse=True)
+    return entries
+
+
+_BIND_MOUNT_MAPPING: list[tuple[str, str]] = _load_bind_mount_mapping()
 
 
 def translate_to_host_path(container_path: str) -> str:
     """
     Translate a container path to the corresponding host path.
 
-    The gateway runs with paths like /home/egg/.egg-worktrees/...
-    but the egg launcher needs host paths like /home/user/.egg-worktrees/...
-    for Docker mount sources.
+    Tries in order:
+    1. /proc/self/mountinfo — find the longest mount_point that is a
+       prefix of ``container_path`` and substitute with its host root.
+       This works for any hostPath volume without configuration.
+    2. ``HOST_HOME`` env var — explicit override, used when mountinfo is
+       not available or needs to be bypassed (tests, unusual setups).
 
     Args:
         container_path: Path inside the gateway container
 
     Returns:
-        The corresponding host path, or original path if translation not possible
+        The corresponding host path, or the original path if no
+        translation is possible.
     """
-    if not HOST_HOME:
-        # No host home configured - return as-is (may cause mount issues)
-        return container_path
+    for mount_point, host_root in _BIND_MOUNT_MAPPING:
+        if container_path == mount_point or container_path.startswith(mount_point + "/"):
+            return host_root + container_path[len(mount_point) :]
 
-    if container_path.startswith(CONTAINER_HOME):
+    if HOST_HOME and container_path.startswith(CONTAINER_HOME):
         return container_path.replace(CONTAINER_HOME, HOST_HOME, 1)
 
     return container_path

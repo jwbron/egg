@@ -2,9 +2,11 @@
 # worktrees. These append to the base's volumes/volumeMounts by name
 # (no conflicts, so strategic merge does the right thing here).
 #
-# Paths are hardcoded to /home/jwies/ because kustomize has no native
-# env var substitution. For a different host user, edit these paths or
-# use envsubst before `kubectl apply`.
+# ``${EGG_HOST_HOME}`` is expanded by ``envsubst`` in the Makefile's
+# ``deploy`` target — defaults to ``$HOME`` on the machine running the
+# deploy, so these hostPaths resolve to the current user's home
+# without per-developer edits. Override via
+# ``make deploy EGG_HOST_HOME=/data/egg`` for a different host layout.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -25,9 +27,9 @@ spec:
       volumes:
         - name: repos
           hostPath:
-            path: /home/jwies/repos
+            path: ${EGG_HOST_HOME}/repos
             type: Directory
         - name: worktrees
           hostPath:
-            path: /home/jwies/.egg-worktrees
+            path: ${EGG_HOST_HOME}/.egg-worktrees
             type: DirectoryOrCreate

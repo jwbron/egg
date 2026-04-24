@@ -1,13 +1,16 @@
 # Strategic merge patch: add local-dev-only host mounts for the orchestrator.
 # Appends to base volumes/volumeMounts by name.
 #
-# ⚠ DEVELOPER-SPECIFIC PATHS — edit before use ⚠
-# Every `/home/jwies/...` below and the owner/repo → host path map in
-# EGG_HOST_REPO_MAP point at this PR author's layout. Kustomize has no
-# env-var substitution, so other contributors must replace these with
-# their own $HOME and repo paths before `make deploy`. Tracked as a
-# follow-up in #1760: make this portable (envsubst wrapper, Helm chart,
-# or render from ~/.config/egg/repositories.yaml).
+# ``${EGG_HOST_HOME}`` and ``${EGG_HOST_REPOS_DIR}`` are expanded by
+# ``envsubst`` in the Makefile's ``deploy`` target. Defaults:
+# ``EGG_HOST_HOME=$HOME``, ``EGG_HOST_REPOS_DIR=$HOME/khan``. Override
+# either at deploy time for a different layout:
+#   make deploy EGG_HOST_HOME=/data/egg EGG_HOST_REPOS_DIR=/srv/repos
+#
+# EGG_HOST_REPO_MAP is the owner/repo → host-path map the orchestrator
+# uses when building hostPath mounts for spawned agent pods. The keys
+# listed below are an example set from one contributor's layout; edit
+# to match your own repos (or drop entries you don't use).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -35,7 +38,7 @@ spec:
             # mounts when spawning sandbox Jobs. Local-dev only; production
             # k8s would use a PV-backed repo store instead.
             - name: EGG_HOST_REPO_MAP
-              value: '{"jwbron/testing":"/home/jwies/khan/testing","jwbron/egg":"/home/jwies/khan/egg","Khan/webapp":"/home/jwies/khan/webapp","Khan/internal-services":"/home/jwies/khan/internal-services","Khan/jenkins-jobs":"/home/jwies/khan/jenkins-jobs","Khan/buildmaster2":"/home/jwies/khan/buildmaster2"}'
+              value: '{"jwbron/testing":"${EGG_HOST_REPOS_DIR}/testing","jwbron/egg":"${EGG_HOST_REPOS_DIR}/egg","Khan/webapp":"${EGG_HOST_REPOS_DIR}/webapp","Khan/internal-services":"${EGG_HOST_REPOS_DIR}/internal-services","Khan/jenkins-jobs":"${EGG_HOST_REPOS_DIR}/jenkins-jobs","Khan/buildmaster2":"${EGG_HOST_REPOS_DIR}/buildmaster2"}'
           volumeMounts:
             # repos mount is read-write because the orchestrator creates
             # per-pipeline worktrees inside each repo's .git/worktrees/.
@@ -49,11 +52,11 @@ spec:
       volumes:
         - name: repos
           hostPath:
-            path: /home/jwies/repos
+            path: ${EGG_HOST_HOME}/repos
             type: Directory
         - name: worktrees
           hostPath:
-            path: /home/jwies/.egg-worktrees
+            path: ${EGG_HOST_HOME}/.egg-worktrees
             type: DirectoryOrCreate
         - name: secrets
           secret:
