@@ -308,10 +308,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-9",
+      "question": "Acceptance target for the new reviewer: what does 'little to no issues found by the auto-reviewer' mean as a measurable contract criterion?",
+      "context": "Open contract question decision-8, registered by an agent during the refine phase.",
+      "options": [
+        "Zero blocking issues found by GHA auto-reviewer on pipeline-produced PRs (hard gate)",
+        "Zero blocking issues AND <=3 non-blocking suggestions on average",
+        "Measured by post-ship tracking: GHA blocking count per PR trends to zero over N pipelines",
+        "Qualitative only — no numeric gate, reviewed via human sign-off",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T19:59:30.729541Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T19:45:30.059639Z",
-  "updated_at": "2026-04-24T19:59:30.680596Z",
+  "updated_at": "2026-04-24T19:59:30.755133Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -325,6 +345,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 19,
+  "version": 20,
   "jira_ticket": null
 }
