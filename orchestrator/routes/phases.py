@@ -32,6 +32,7 @@ except ImportError:
         return logging.getLogger(name)
 
 
+from decision_queue import get_decision_queue
 from lifecycle_auth import require_lifecycle_secret
 from models import (
     DecisionStatus,
@@ -39,6 +40,7 @@ from models import (
     PipelinePhase,
     PipelineStatus,
 )
+from peer_consensus import get_peer_consensus_tracker
 from state_store import (
     InvalidPipelineIdError,
     PipelineNotFoundError,
@@ -584,6 +586,121 @@ def start_phase(pipeline_id: str) -> tuple[Response, int]:
         )
 
 
+# Context marker prefix used on the 3-way conditional-ACK HITL gate
+# decision (#2004). The resolve_decision handler matches on this prefix
+# to dispatch approve+accept / reject / address-in-pipeline behavior.
+CONDITIONAL_ACK_GATE_MARKER = "conditional_ack_gate:"
+
+# User-facing option labels for the conditional-ACK HITL gate. Exposed as
+# module-level constants so the resolve_decision handler and tests can
+# reference the same strings without duplication (#2004).
+CONDITIONAL_ACK_APPROVE = "Approve and accept obligations"
+CONDITIONAL_ACK_REJECT = "Reject and force NACK"
+CONDITIONAL_ACK_ADDRESS = "Address in-pipeline (invalidate ACK)"
+CONDITIONAL_ACK_OPTIONS = [
+    CONDITIONAL_ACK_APPROVE,
+    CONDITIONAL_ACK_REJECT,
+    CONDITIONAL_ACK_ADDRESS,
+]
+
+
+def _existing_conditional_ack_gate(pipeline: Pipeline) -> str | None:
+    """Return the id of the pending conditional-ACK gate decision, if any.
+
+    The gate decision is identified by a ``CONDITIONAL_ACK_GATE_MARKER``
+    prefix on the decision's context field. Only pending decisions count —
+    a previously-resolved gate for a prior conditional ACK does not block
+    a new round if the producer later attaches a fresh condition.
+    """
+    for decision in pipeline.decisions:
+        if decision.status != DecisionStatus.PENDING:
+            continue
+        if (decision.context or "").startswith(CONDITIONAL_ACK_GATE_MARKER):
+            return decision.id
+    return None
+
+
+def _ensure_conditional_ack_gate(
+    pipeline: Pipeline,
+    repo_path: Path,
+) -> str | None:
+    """Queue the 3-way conditional-ACK HITL gate if conditions are live.
+
+    Looks up the peer-consensus tracker for this pipeline and, if there
+    are any active pre-merge conditions, enqueues a ``choice`` HITL
+    decision (#2004). The decision's context embeds the conditions as
+    JSON so the resolve_decision handler can dispatch without querying
+    the tracker (which may have been torn down by then).
+
+    Returns the decision id when a new gate is queued, the existing
+    pending-decision id when one is already in flight, or ``None`` when
+    no conditions exist (or the tracker is unavailable).
+    """
+    tracker = get_peer_consensus_tracker(pipeline.id)
+    if tracker is None:
+        return None
+    try:
+        conditions = tracker.get_pre_merge_conditions()
+    except Exception:
+        # Never block phase completion on a tracker read failure — the PR
+        # body renderer applies the same guard (#1998).
+        logger.warning(
+            "Failed to read pre-merge conditions from tracker",
+            pipeline_id=pipeline.id,
+            exc_info=True,
+        )
+        return None
+    if not conditions:
+        return None
+
+    existing_id = _existing_conditional_ack_gate(pipeline)
+    if existing_id is not None:
+        return existing_id
+
+    # Render the conditions into the decision question so humans see the
+    # obligation text up front without having to fetch the raw context.
+    question_lines = [
+        "Reviewer(s) issued a conditional ACK with pre-merge obligations:",
+        "",
+    ]
+    for c in conditions:
+        reviewer = c.get("reviewer", "unknown")
+        condition = str(c.get("condition", "")).strip()
+        if not condition:
+            continue
+        question_lines.append(f"- {reviewer}: {condition}")
+    question_lines.extend(
+        [
+            "",
+            "How should we proceed?",
+        ]
+    )
+    question = "\n".join(question_lines)
+
+    # Embed the conditions list in the context so the resolve handler can
+    # act on specific (reviewer, producer) edges without re-querying the
+    # tracker. Prefixed with CONDITIONAL_ACK_GATE_MARKER so the handler
+    # can detect these decisions unambiguously.
+    context_payload = {"conditions": conditions}
+    context = CONDITIONAL_ACK_GATE_MARKER + json.dumps(context_payload)
+
+    queue = get_decision_queue(pipeline.id, repo_path)
+    decision = queue.queue_decision(
+        question=question,
+        context=context,
+        options=list(CONDITIONAL_ACK_OPTIONS),
+        decision_type="choice",
+        phase=pipeline.current_phase,
+    )
+    logger.info(
+        "Queued conditional-ACK HITL gate",
+        pipeline_id=pipeline.id,
+        decision_id=decision.id,
+        condition_count=len(conditions),
+    )
+    return decision.id
+
+
 def _collect_unresolved_phase_decisions(
     pipeline: Pipeline,
     store_repo_path: Path,
@@ -733,6 +850,23 @@ def complete_phase(pipeline_id: str) -> tuple[Response, int]:
     try:
         store, pipeline = get_state_store_for_pipeline(pipeline_id)
         original_version = pipeline.version
+
+        # If any reviewer issued a conditional ACK, surface the 3-way HITL
+        # gate (#2004) before the generic unresolved-decisions guard below.
+        # The gate decision is newly-queued on first call (returning 409 via
+        # the guard), then resolved out-of-band by the resolve_decision
+        # handler, which dispatches approve+accept / reject / address
+        # behavior on the approval matrix and contract. Skipped under
+        # force=true so operators can still drain stuck pipelines.
+        if not force:
+            gate_id = _ensure_conditional_ack_gate(pipeline, store.repo_path)
+            if gate_id is not None:
+                # queue_decision writes through the state store, so the
+                # in-memory ``pipeline`` is stale. Reload only when a gate
+                # was actually queued or already existed; this keeps the
+                # common path (no conditions) from hitting the store twice.
+                pipeline = store.load_pipeline(pipeline_id)
+                original_version = pipeline.version
 
         # Block advance while the current phase still has unresolved HITL
         # decisions. The lifecycle secret authorises *who* can advance; this
