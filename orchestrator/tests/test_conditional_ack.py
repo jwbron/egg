@@ -345,6 +345,19 @@ class TestPrBodyRendering:
             assert p._build_pre_merge_obligations_section("pipeline-Y") == ""
 
 
+# --- Shared helpers for integration tests ---------------------------------
+
+
+def _make_two_reviewer_graph():
+    """Graph with two CRITICAL reviewers → one coder, shared by integration tests."""
+    return ReviewGraph(
+        [
+            ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+            ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
+        ]
+    )
+
+
 # --- Signal-path integration ----------------------------------------------
 
 
@@ -370,19 +383,11 @@ class TestSignalPathIntegration:
         with _trackers_lock:
             _trackers.pop(_SIGNAL_PIPELINE_ID, None)
 
-    def _graph(self):
-        return ReviewGraph(
-            [
-                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
-                ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
-            ]
-        )
-
     def _register_tracker_with_proposal(self):
         from peer_consensus import create_peer_consensus_tracker
 
         tracker = create_peer_consensus_tracker(
-            _SIGNAL_PIPELINE_ID, self._graph(), cooldown_seconds=0
+            _SIGNAL_PIPELINE_ID, _make_two_reviewer_graph(), cooldown_seconds=0
         )
         tracker.register_agent("coder")
         tracker.register_agent("reviewer_code")
@@ -491,8 +496,10 @@ _RECONSTRUCT_PIPELINE_ID = "pipeline-reconstruct-condition"
 class _FakeMessage:
     """Minimal message shape expected by reconstruct_tracker_from_messages."""
 
-    def __init__(self, message_type, from_role, to_role="all", metadata=None, timestamp=None):
-        self.id = f"msg-{id(self)}"
+    def __init__(
+        self, message_type, from_role, to_role="all", metadata=None, timestamp=None, msg_id=None
+    ):
+        self.id = msg_id or f"msg-{message_type.lower()}"
         self.message_type = message_type
         self.from_role = from_role
         self.to_role = to_role
@@ -524,14 +531,6 @@ class TestReconstructionSurvivesCondition:
         with _trackers_lock:
             _trackers.pop(_RECONSTRUCT_PIPELINE_ID, None)
 
-    def _graph(self):
-        return ReviewGraph(
-            [
-                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
-                ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
-            ]
-        )
-
     def test_condition_survives_message_store_replay(self):
         base = datetime.now(UTC)
         messages = [
@@ -547,6 +546,7 @@ class TestReconstructionSurvivesCondition:
                     }
                 },
                 timestamp=base,
+                msg_id="msg-propose",
             ),
             _FakeMessage(
                 "CONSENSUS_ACK",
@@ -560,12 +560,13 @@ class TestReconstructionSurvivesCondition:
                     }
                 },
                 timestamp=base + timedelta(seconds=1),
+                msg_id="msg-ack",
             ),
         ]
 
         tracker = reconstruct_tracker_from_messages(
             _RECONSTRUCT_PIPELINE_ID,
-            self._graph(),
+            _make_two_reviewer_graph(),
             message_store=_FakeMessageStore(messages),
         )
 
