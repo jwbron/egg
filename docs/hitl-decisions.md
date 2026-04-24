@@ -306,9 +306,9 @@ Both `OrchClient.create_decision()` and the underlying orchestrator API (`POST /
 
 ## `/sdlc` Skill: Auto-Resolving Repeated Questions
 
-The `/sdlc` Claude Code skill (defined by `skills/sdlc/SKILL.md`) handles HITL via MCP calls to `get_status` / `provide_input`. Because the refiner commonly embeds agent-created `choice`/`feedback` decisions directly in the analysis/plan draft as `<!-- egg-hitl-decision id=decision-N -->` markers, a single phase_gate approval can surface several related questions at once. Those same questions are also registered as standalone contract decisions, which the [server-side bridge](#contract-decision-bridge) promotes to the orchestrator's decision queue after the phase_gate resolves.
+The `/sdlc` Claude Code skill (defined by `skills/sdlc/SKILL.md`) handles HITL via MCP calls to `get_status` / `provide_input`. Decisions surface in **two waves**: when a phase first reaches `awaiting_human`, `pending_decisions` contains only the `phase_gate`; after it is approved, the [server-side bridge](#contract-decision-bridge) promotes any deferred `choice`/`feedback` decisions into `pending_decisions` and the pipeline stays in `awaiting_human` until they are resolved (see [Two-wave surfacing](../skills/sdlc/SKILL.md#two-wave-surfacing)). Because the refiner commonly embeds those same questions directly in the analysis/plan draft as `<!-- egg-hitl-decision id=decision-N -->` markers, the answers given during the phase_gate step would otherwise be re-asked in Wave 2.
 
-Without special handling the skill would re-prompt the user for every draft-embedded question a second time once those standalone decisions arrive on subsequent `get_status` polls — the user answers each question twice. Phase 4 of the skill avoids this via a session-scoped **`resolved_questions_map`**.
+Without special handling the skill would re-prompt the user for every draft-embedded question a second time once those standalone decisions arrive — the user answers each question twice. Phase 4 of the skill avoids this via a session-scoped **`resolved_questions_map`**.
 
 ### Resolved Questions Map
 
@@ -364,7 +364,7 @@ Every auto-resolution prints a user-visible one-line note identifying the decisi
 - `orchestrator/routes/decisions.py` — Decision API endpoints (create, list, resolve)
 - `orchestrator/routes/pipelines.py` — Phase gate resolution with JSON payload parsing
 - `sandbox/egg_lib/sdlc_hitl.py` — Type-aware terminal HITL handler
-- `skills/sdlc/SKILL.md` — `/sdlc` Claude Code skill defining Phase 4 HITL handling, including the session-scoped `resolved_questions_map` that auto-resolves repeated choice/feedback questions from captured phase_gate context
+- `skills/sdlc/SKILL.md` — `/sdlc` Claude Code skill defining Phase 4 HITL handling: **two-wave surfacing** (phase_gate alone in Wave 1, deferred `choice`/`feedback` in Wave 2 after approval) and the session-scoped `resolved_questions_map` that handles cross-wave deduplication
 - `sandbox/egg_lib/orch_client.py` — `OrchClient.create_decision()` for typed decisions
 - `sandbox/egg_lib/contract_cli.py` — CLI for creating decisions and feedback
 - `shared/egg_contracts/feedback.py` — Feedback generation and parsing
