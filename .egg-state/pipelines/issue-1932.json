@@ -488,16 +488,16 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-24T03:48:03.164020Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-24T03:48:42.565953Z",
+      "resolution": "{\"action\": \"approve\", \"context\": \"Plan addresses all 13 resolved decisions from refine HITL and enumerates 17 risks with mitigations. Key alignment points confirmed:\\n- Option A (sibling wait_for_status_change tool), get_status unchanged\\n- Trigger set: OVERSEER_ALERT + DECISION_CREATED + PHASE_STARTED/COMPLETED + PIPELINE_COMPLETED/FAILED/CANCELLED + CONSENSUS_CONFIRMED/NACK/RE_REVIEW; DECISION_RESOLVED explicitly excluded (prevents self-wake)\\n- Minimal envelope with distinct no_change: true key (structural branching, not conditional) shipping concurrent.consensus + cursor on both paths\\n- Opaque compound cursor msg:<id>|evt:<seq> with independent parsing\\n- Both wiring: EventBus for phase/decision/terminal, message_store.get_messages for OVERSEER_ALERT/CONSENSUS_*\\n- Cached snapshot on timeout path (host reuses prior recent_messages/agents/decisions, refreshes only the four minimal-envelope fields)\\n- EGG_ORCH_WAITRESS_THREADS default 16→24 to absorb host-wait load\\n- egg_inflight_host_waits metric parallel to egg_inflight_long_polls\\n- Declined SDK parity for v1 (SDLC is sole consumer); logged as Future work\\n- Aspirational 60s liveness floor (25s cap × loop re-entry ≤ 55s)\\n- R16 double-sleep prevention pinned with explicit regression test (TASK-4-4)\\n- Daemon-thread lame-duck (R14) accepted, bounded, documented, with cancellation-signal follow-up noted\\n- Tests parameterized across in_memory + redis backends\\n- All changes bundled into a single PR\\n\\nApproved to proceed to implement phase.\"}",
       "phase": "plan",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:08:18.054872Z",
-  "updated_at": "2026-04-24T03:48:03.222284Z",
+  "updated_at": "2026-04-24T03:48:42.584694Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -511,5 +511,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 38
+  "version": 39
 }
