@@ -9,15 +9,1192 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "phases": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Iter-2 scope shape: which verb set should iteration 2 ship?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Option A \u2014 minimum-viable (~7 verbs: contract read/write + peer_read_artifact + overseer alert only); defer checkpoint/anchor/task-gap to iter 3",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Option B \u2014 full audit (~15 verbs across contract/checkpoint/peer/anchor/overseer/task-gap); one PR (Recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Option C \u2014 staged iter 2 in two PRs: PR-2a (P0+P1 ~10 verbs: contract, peer, checkpoint, overseer, message send/poll), PR-2b (P2 ~4 verbs: anchor trio + task_mark_gap)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Option D \u2014 Option B plus also promote iter-1 best-effort phase_get_context fields (active_peers/reviewer_peers/hitl_pending) in the same PR",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Anchor approach: how should the MCP anchor verbs (init/update/get) be backed, given that orchestrator/routes/anchors.py REST endpoints exist but no `egg-orch anchor` CLI subcommand exists (despite rule docs referencing it)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Wrap the REST endpoints directly with cli_command=None (same new-capability pattern iter 1 used for check_hitl_answers/get_context); acknowledge the drift test can't cover these",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Add the missing `egg-orch anchor init/update/show` CLI subcommands to sandbox/egg_lib/orch_cli.py first, then wrap those with the drift gate covered",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Defer anchor verbs to a third iteration \u2014 too much scope for iter 2; keep the REST-only story as-is",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Checkpoint coverage: which egg-checkpoint subcommands should be exposed as MCP tools? (egg-checkpoint has 6: list, show, browse, context, cost, search)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "All 6 subcommands (list, show, browse, context, cost, search)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Core 3: list, show, search \u2014 the verbs agents most likely need on the hot path",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Core 3 + context \u2014 adds cross-agent context summaries, useful for reviewers/overseer",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Core 3 + cost \u2014 adds cost accounting, useful if checkpoints become a budget signal for agents",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "task_mark_gap shape: how should tester\u2192coder coverage-gap handoff be surfaced? (no CLI, no endpoint, no contract field exists today)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "New orchestrator endpoint + new `task_gaps` field on the contract; add egg-contract mark-gap CLI; wrap as mcp__task__mark_gap with drift gate",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Re-use existing `decisions` with a `type: task_gap` discriminator \u2014 no new endpoint, minimum schema churn",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Add a dedicated `task_gaps` section on the contract (parallel to `tasks` and `decisions`) via a new endpoint; mcp__task__mark_gap wraps it; no CLI counterpart",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "No-CLI new capability (like brc_read_peer_artifact) \u2014 ship it MCP-only with cli_command=None; operators don't need it",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Namespace strategy: how should iter-2 verbs be grouped into mcp__<namespace>__* names?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Add new namespaces as needed \u2014 `checkpoint`, `overseer`, `anchor`, `peer` (up to 4 new namespaces); keeps each tool discoverable by semantic function",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Stuff everything into the existing 5 namespaces \u2014 `sdlc` (show_contract, verify_criterion), `brc` (peer_read_artifact, send_message, poll_messages), `task` (add_commit, update_notes, mark_gap), plus overseer/checkpoint/anchor fit somewhere",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Hybrid \u2014 add a new namespace only when the semantic group has >2 verbs (so: `checkpoint`, `anchor` likely yes; `overseer`/`peer` fold into existing namespaces)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Iter-1 phase_get_context field-promotion timing: active_peers / reviewer_peers / hitl_pending were marked best-effort in iter 1 (TD9); when should they become first-class required?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Include in this iter-2 PR \u2014 single rule-doc sweep, single review cycle",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Separate follow-up PR after iter 2 \u2014 keep iter-2 scope focused on verb additions, not shape changes to existing tools",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Leave best-effort indefinitely \u2014 the fields aren't hot-path enough to warrant hardening",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-7",
+      "question": "verify_criterion REVIEWER-role gating: egg-contract verify-criterion requires REVIEWER role (contract_cli.py:1386). Where should the gating live for mcp__sdlc__verify_criterion?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Handler enforces \u2014 reads EGG_AGENT_ROLE; raises HandlerError if not a reviewer role; belt-and-suspenders with the gateway",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Handler forwards \u2014 no role check in handler; gateway returns 403 which becomes GatewayError -> tool error block",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Gateway already enforces \u2014 handler just forwards; document the role requirement on the tool description so agents self-select",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-8",
+      "question": "Peer-read-artifact source of truth: where should mcp__brc__read_peer_artifact read from?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Local .egg-state/brc-history/*.json files \u2014 simplest; no new endpoint; matches where reviewers dig today",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "New orchestrator endpoint backed by the same store \u2014 works across worktree boundaries; cleaner authz story",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Hybrid \u2014 prefer the endpoint, fall back to file-reading; more robust but more code",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-9",
+      "question": "EGG_MCP_TOOLS flag fate: #1946 flipped it default-on. What is iter-2's plan for the flag?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Remove the flag entirely during iter 2 \u2014 burn-in from iter 1 was sufficient; simplifies the code path",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Keep the flag for iter-2 burn-in and remove in a third follow-up \u2014 same stepped rollout iter 1 used",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Keep indefinitely as a kill-switch \u2014 never remove; always want the opt-out path",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-10",
+      "question": "Harness coverage: iter 1 decision-3 deferred EGG_HARNESS=egg parallel wiring. Should iter 2 address it?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Still defer \u2014 EGG_HARNESS=egg remains experimental; agents on that path keep shelling out",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Add parallel wiring in this iter-2 PR \u2014 register iter-2 verbs on the egg harness too via shared/egg_harness_integration/",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Track in a new follow-up issue \u2014 call out the gap but don't expand iter-2 scope",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-11",
+      "question": "Rule-doc drift gate: sandbox/agent-config/rules/*.md and sandbox/egg_lib/data/hitl_editing_rules.md carry `Prefer this over ...` notes that can drift silently. Should iter 2 add a CI guard?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Add a CI test symmetric with SYSTEM_PROMPT_NUDGE drift: every `Prefer this over ...` entry in the rule docs must point at a registered tool, and every tool with a CLI counterpart must have a rule-doc entry (two-way)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "One-way check only: every `Prefer this over ...` entry must point at a registered tool (catches stale removals, misses missing entries)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Skip \u2014 rely on manual review and the existing symmetric nudge drift test; rule docs can lag",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-12",
+      "question": "Tool-timeout contingencies: checkpoint_search and peer_read_artifact could exceed the 60s MCP timeout on large data. How should iter 2 handle this?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Paginate output by default \u2014 add `limit` / `cursor` params that keep any single call under 60s; agents page explicitly when needed",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Start/poll/complete triplet for the two at-risk verbs \u2014 agent starts a job, polls for completion; heavier but handles arbitrary sizes",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Accept the 60s ceiling \u2014 let agents retry or narrow filters on timeout; document the ceiling in tool descriptions",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-13",
+      "question": "CLI-counterpart policy for new no-CLI capabilities: iter 1 allowed `cli_command=None` for new verbs (check_hitl_answers, get_context, list_blocking). What should iter 2's policy be?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Allow cli_command=None but require a docstring rationale explaining why no CLI exists; document the pattern in agent-tools.md",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Require a shell CLI for every new verb even when human-useless \u2014 forces the drift gate to cover everything uniformly",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Allow either; track the no-CLI tools in a separate list in agent-tools.md so reviewers can audit the exception set",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-14",
+      "question": "mcp__brc__send_message / mcp__brc__poll_messages tool semantics: post-#1897 the legacy QUESTION message type was removed and reviewer clarifications moved to NACK `--reason`. Exposing raw `send`/`poll` risks re-opening off-protocol chatter and stepping on a planned REQUEST/REPLY subsystem. How should iter 2 scope these?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Ship both verbs; tool descriptions explicitly restrict use to HANDOFF/STATUS operator signals and steer clarifications back to NACK --reason",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Ship poll_messages only (read-side) and defer send_message to land alongside the structured REQUEST/REPLY subsystem",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Defer both verbs \u2014 agents already have mcp__brc__wait_for_event / wait_loop / send_heartbeat from iter 1 + #1897; directed send/poll wait for the REQUEST/REPLY subsystem",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Ship both with narrow schemas that enumerate allowed message types only (HANDOFF, STATUS) \u2014 no freeform type strings accepted",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-04-24T00:19:14.535899Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-1",
+        "question": "Iter-2 scope shape: which verb set should iteration 2 ship?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Option A \u2014 minimum-viable (~7 verbs: contract read/write + peer_read_artifact + overseer alert only); defer checkpoint/anchor/task-gap to iter 3",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Option B \u2014 full audit (~15 verbs across contract/checkpoint/peer/anchor/overseer/task-gap); one PR (Recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Option C \u2014 staged iter 2 in two PRs: PR-2a (P0+P1 ~10 verbs: contract, peer, checkpoint, overseer, message send/poll), PR-2b (P2 ~4 verbs: anchor trio + task_mark_gap)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Option D \u2014 Option B plus also promote iter-1 best-effort phase_get_context fields (active_peers/reviewer_peers/hitl_pending) in the same PR",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Iter-2 scope shape: which verb set should iteratio...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:19:22.498031Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-2",
+        "question": "Anchor approach: how should the MCP anchor verbs (init/update/get) be backed, given that orchestrator/routes/anchors.py REST endpoints exist but no `egg-orch anchor` CLI subcommand exists (despite rule docs referencing it)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Wrap the REST endpoints directly with cli_command=None (same new-capability pattern iter 1 used for check_hitl_answers/get_context); acknowledge the drift test can't cover these",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Add the missing `egg-orch anchor init/update/show` CLI subcommands to sandbox/egg_lib/orch_cli.py first, then wrap those with the drift gate covered",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Defer anchor verbs to a third iteration \u2014 too much scope for iter 2; keep the REST-only story as-is",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Anchor approach: how should the MCP anchor verbs (...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:19:28.221883Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-3",
+        "question": "Checkpoint coverage: which egg-checkpoint subcommands should be exposed as MCP tools? (egg-checkpoint has 6: list, show, browse, context, cost, search)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "All 6 subcommands (list, show, browse, context, cost, search)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Core 3: list, show, search \u2014 the verbs agents most likely need on the hot path",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Core 3 + context \u2014 adds cross-agent context summaries, useful for reviewers/overseer",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Core 3 + cost \u2014 adds cost accounting, useful if checkpoints become a budget signal for agents",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Checkpoint coverage: which egg-checkpoint subcomma...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:19:35.687031Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-4",
+        "question": "task_mark_gap shape: how should tester\u2192coder coverage-gap handoff be surfaced? (no CLI, no endpoint, no contract field exists today)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "New orchestrator endpoint + new `task_gaps` field on the contract; add egg-contract mark-gap CLI; wrap as mcp__task__mark_gap with drift gate",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Re-use existing `decisions` with a `type: task_gap` discriminator \u2014 no new endpoint, minimum schema churn",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Add a dedicated `task_gaps` section on the contract (parallel to `tasks` and `decisions`) via a new endpoint; mcp__task__mark_gap wraps it; no CLI counterpart",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "No-CLI new capability (like brc_read_peer_artifact) \u2014 ship it MCP-only with cli_command=None; operators don't need it",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: task_mark_gap shape: how should tester\u2192coder cover...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:19:42.763735Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-5",
+        "question": "Namespace strategy: how should iter-2 verbs be grouped into mcp__<namespace>__* names?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Add new namespaces as needed \u2014 `checkpoint`, `overseer`, `anchor`, `peer` (up to 4 new namespaces); keeps each tool discoverable by semantic function",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Stuff everything into the existing 5 namespaces \u2014 `sdlc` (show_contract, verify_criterion), `brc` (peer_read_artifact, send_message, poll_messages), `task` (add_commit, update_notes, mark_gap), plus overseer/checkpoint/anchor fit somewhere",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Hybrid \u2014 add a new namespace only when the semantic group has >2 verbs (so: `checkpoint`, `anchor` likely yes; `overseer`/`peer` fold into existing namespaces)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Namespace strategy: how should iter-2 verbs be gro...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:19:48.757476Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-6",
+        "question": "Iter-1 phase_get_context field-promotion timing: active_peers / reviewer_peers / hitl_pending were marked best-effort in iter 1 (TD9); when should they become first-class required?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Include in this iter-2 PR \u2014 single rule-doc sweep, single review cycle",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Separate follow-up PR after iter 2 \u2014 keep iter-2 scope focused on verb additions, not shape changes to existing tools",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Leave best-effort indefinitely \u2014 the fields aren't hot-path enough to warrant hardening",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Iter-1 phase_get_context field-promotion timing: a...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:19:54.822807Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-7",
+        "question": "verify_criterion REVIEWER-role gating: egg-contract verify-criterion requires REVIEWER role (contract_cli.py:1386). Where should the gating live for mcp__sdlc__verify_criterion?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Handler enforces \u2014 reads EGG_AGENT_ROLE; raises HandlerError if not a reviewer role; belt-and-suspenders with the gateway",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Handler forwards \u2014 no role check in handler; gateway returns 403 which becomes GatewayError -> tool error block",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Gateway already enforces \u2014 handler just forwards; document the role requirement on the tool description so agents self-select",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: verify_criterion REVIEWER-role gating: egg-contrac...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:19:59.828349Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.7",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-8",
+        "question": "Peer-read-artifact source of truth: where should mcp__brc__read_peer_artifact read from?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Local .egg-state/brc-history/*.json files \u2014 simplest; no new endpoint; matches where reviewers dig today",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "New orchestrator endpoint backed by the same store \u2014 works across worktree boundaries; cleaner authz story",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Hybrid \u2014 prefer the endpoint, fall back to file-reading; more robust but more code",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Peer-read-artifact source of truth: where should m...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:20:05.490804Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.8",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-9",
+        "question": "EGG_MCP_TOOLS flag fate: #1946 flipped it default-on. What is iter-2's plan for the flag?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Remove the flag entirely during iter 2 \u2014 burn-in from iter 1 was sufficient; simplifies the code path",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Keep the flag for iter-2 burn-in and remove in a third follow-up \u2014 same stepped rollout iter 1 used",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Keep indefinitely as a kill-switch \u2014 never remove; always want the opt-out path",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: EGG_MCP_TOOLS flag fate: #1946 flipped it default-...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:20:11.028731Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.9",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-10",
+        "question": "Harness coverage: iter 1 decision-3 deferred EGG_HARNESS=egg parallel wiring. Should iter 2 address it?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Still defer \u2014 EGG_HARNESS=egg remains experimental; agents on that path keep shelling out",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Add parallel wiring in this iter-2 PR \u2014 register iter-2 verbs on the egg harness too via shared/egg_harness_integration/",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Track in a new follow-up issue \u2014 call out the gap but don't expand iter-2 scope",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Harness coverage: iter 1 decision-3 deferred EGG_H...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:20:18.596335Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.10",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-11",
+        "question": "Rule-doc drift gate: sandbox/agent-config/rules/*.md and sandbox/egg_lib/data/hitl_editing_rules.md carry `Prefer this over ...` notes that can drift silently. Should iter 2 add a CI guard?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Add a CI test symmetric with SYSTEM_PROMPT_NUDGE drift: every `Prefer this over ...` entry in the rule docs must point at a registered tool, and every tool with a CLI counterpart must have a rule-doc entry (two-way)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "One-way check only: every `Prefer this over ...` entry must point at a registered tool (catches stale removals, misses missing entries)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Skip \u2014 rely on manual review and the existing symmetric nudge drift test; rule docs can lag",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Rule-doc drift gate: sandbox/agent-config/rules/*....",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:20:24.687983Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.11",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-12",
+        "question": "Tool-timeout contingencies: checkpoint_search and peer_read_artifact could exceed the 60s MCP timeout on large data. How should iter 2 handle this?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Paginate output by default \u2014 add `limit` / `cursor` params that keep any single call under 60s; agents page explicitly when needed",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Start/poll/complete triplet for the two at-risk verbs \u2014 agent starts a job, polls for completion; heavier but handles arbitrary sizes",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Accept the 60s ceiling \u2014 let agents retry or narrow filters on timeout; document the ceiling in tool descriptions",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Tool-timeout contingencies: checkpoint_search and ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:20:30.946630Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.12",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-13",
+        "question": "CLI-counterpart policy for new no-CLI capabilities: iter 1 allowed `cli_command=None` for new verbs (check_hitl_answers, get_context, list_blocking). What should iter 2's policy be?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Allow cli_command=None but require a docstring rationale explaining why no CLI exists; document the pattern in agent-tools.md",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Require a shell CLI for every new verb even when human-useless \u2014 forces the drift gate to cover everything uniformly",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Allow either; track the no-CLI tools in a separate list in agent-tools.md so reviewers can audit the exception set",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: CLI-counterpart policy for new no-CLI capabilities...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:20:43.810890Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Documenter/doc-updater scope: which docs need updates in iter 2? (Examples to consider: docs/reference/agent-tools.md tool inventory table; docs/releases/agent-mcp-tools.md changelog; sandbox/agent-config/rules/contract.md; sandbox/agent-config/rules/orchestrator.md; sandbox/egg_lib/data/hitl_editing_rules.md; any checkpoint/anchor/overseer rule files. Please list the authoritative set.)",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Acceptance metric shape: iter 1 tracked `mcp__* in first N turns` as the success metric. Should iter 2 track the same metric against the new verbs (e.g. `zero Bash egg-contract show in a refine-phase reviewer`), invent a new per-phase metric, or skip metrics and rely on checkpoint-browser manual review?",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "Any verbs iter 1 surfaced as unfinished that this analysis missed? If iteration 1's burn-in revealed additional audit verbs not captured in .egg-state/drafts/1765-analysis.md:317-335, please list them so iter 2's scope captures them.",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "Explicit human-operator-only list: should iter 2 publish a named list of CLIs/subcommands that are deliberately NOT wrapped (for example: egg-orch health/pipeline/container/gateway/env/decision; egg-contract populate/validate/agent-*; egg-orch consensus withdraw) \u2014 per AC1.b \u2014 or leave their absence unmentioned?",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 4 question(s)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T00:24:19.027980Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.13",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-14",
+        "question": "mcp__brc__send_message / mcp__brc__poll_messages tool semantics: post-#1897 the legacy QUESTION message type was removed and reviewer clarifications moved to NACK `--reason`. Exposing raw `send`/`poll` risks re-opening off-protocol chatter and stepping on a planned REQUEST/REPLY subsystem. How should iter 2 scope these?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Ship both verbs; tool descriptions explicitly restrict use to HANDOFF/STATUS operator signals and steer clarifications back to NACK --reason",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Ship poll_messages only (read-side) and defer send_message to land alongside the structured REQUEST/REPLY subsystem",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Defer both verbs \u2014 agents already have mcp__brc__wait_for_event / wait_loop / send_heartbeat from iter 1 + #1897; directed send/poll wait for the REQUEST/REPLY subsystem",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Ship both with narrow schemas that enumerate allowed message types only (HANDOFF, STATUS) \u2014 no freeform type strings accepted",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: mcp__brc__send_message / mcp__brc__poll_messages t...",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
   "pr": null,
-  "feedback": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Documenter/doc-updater scope: which docs need updates in iter 2? (Examples to consider: docs/reference/agent-tools.md tool inventory table; docs/releases/agent-mcp-tools.md changelog; sandbox/agent-config/rules/contract.md; sandbox/agent-config/rules/orchestrator.md; sandbox/egg_lib/data/hitl_editing_rules.md; any checkpoint/anchor/overseer rule files. Please list the authoritative set.)",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "Acceptance metric shape: iter 1 tracked `mcp__* in first N turns` as the success metric. Should iter 2 track the same metric against the new verbs (e.g. `zero Bash egg-contract show in a refine-phase reviewer`), invent a new per-phase metric, or skip metrics and rely on checkpoint-browser manual review?",
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "question": "Any verbs iter 1 surfaced as unfinished that this analysis missed? If iteration 1's burn-in revealed additional audit verbs not captured in .egg-state/drafts/1765-analysis.md:317-335, please list them so iter 2's scope captures them.",
+        "answer": null
+      },
+      {
+        "id": "Q4",
+        "question": "Explicit human-operator-only list: should iter 2 publish a named list of CLIs/subcommands that are deliberately NOT wrapped (for example: egg-orch health/pipeline/container/gateway/env/decision; egg-contract populate/validate/agent-*; egg-orch consensus withdraw) \u2014 per AC1.b \u2014 or leave their absence unmentioned?",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
   "phase_configs": null,
   "agent_executions": []
 }
