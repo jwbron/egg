@@ -111,7 +111,7 @@ test-collection time rather than silently breaking every sandbox.
 ## References
 
 - [Agent MCP Tools reference](../reference/agent-tools.md) — full
-  15-verb surface, schemas, architecture, testing matrix.
+  tool surface (15 iteration-1 verbs; see the reference for the current inventory), schemas, architecture, testing matrix.
 - [SDLC Pipeline Guide — Agent MCP tools section](../guides/sdlc-pipeline.md#agent-mcp-tools-egg_mcp_tools-flag)
   — per-pipeline configuration.
 - [Sandbox environment rules](../../sandbox/agent-config/rules/environment.md)
