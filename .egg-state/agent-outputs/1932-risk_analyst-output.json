@@ -276,7 +276,7 @@
       "mitigations": [
         "Handler MUST remain `put_nowait` only — no state reads, no serialization, no metric emit. Document this constraint in the handler definition.",
         "Catch queue.Full explicitly in the handler and drop the event with a WARN log (not ERROR) — a full queue means the caller hasn't drained fast enough and dropping an event is preferable to cancelling delivery to other subscribers.",
-        "Alternative: increase queue maxsize to 64 (architect chose 16 — trade memory for drop probability). Default 16 is fine given the short (<25s) window.",
+        "Alternative: increase queue maxsize to 64 (architect chose 16 — trade memory for drop probability). Default 16 is fine given the short (<25s) window. **Coordination with R14**: if task_planner chooses maxsize=64 here, the R14 lame-duck daemon-thread accumulation window does NOT change (still bounded by the 25s wait cap, not the queue size), so the two risks are independently tunable. Queue maxsize controls event-drop probability; daemon-thread count controls thread-pool pressure. Make ONE queue-sizing decision, not two.",
         "Test: synthesize 64 events in a tight loop; assert no ERROR log lines, and that the first 16 reach the queue while subsequent ones are logged as dropped."
       ],
       "rollback": "Replace queue with a simple `threading.Event` (set on any matching event) and poll. Trades throughput for simplicity.",
@@ -313,10 +313,10 @@
         "orchestrator/mcp_tools.py (handler error mapping)"
       ],
       "mitigations": [
-        "On malformed cursor: return 400 with `{success: false, message: 'cursor malformed'}`. The MCP tool handler translates to `{error: 'cursor malformed', recoverable: true, suggested_action: 'omit since parameter'}`.",
+        "On malformed cursor: return 400 with `{success: false, message: 'cursor malformed'}`. The MCP tool handler translates to `{error: 'cursor malformed', recoverable: true, suggested_action: 'omit since parameter'}`. (Note on R13 context: the Delphi filter at orchestrator/routes/messages.py:401-425 is a sandbox-reviewer redaction mechanism. The new /status/wait endpoint is called by the SDLC HOST session — which is not a reviewer role — so in practice the filter is a pass-through no-op for the real call path. R13 is explicit defense-in-depth.)",
         "On task_id not found: return 404 with the standard message. MCP tool handler surfaces as `{error: 'task_not_found'}` — the SDLC skill should treat this as a hard exit, not a timeout.",
         "Document error paths in the MCP tool schema's description so the LLM recognizes them.",
-        "Test both cases; assert the tool handler never returns `{changed: false, no_change: true}` when the route returned a non-2xx."
+        "Test both cases; assert the tool handler never returns the minimal `{changed: false, ...}` envelope when the route returned a non-2xx. (Note: the architect's minimal envelope shape is `{changed: false, current_phase, status, phase_elapsed_seconds}` — NOT `{no_change: true}`. Aligning wording.)"
       ],
       "rollback": "Treat all errors as changed:false. Bad UX but degrades gracefully.",
       "needs_human_review": false
@@ -393,9 +393,9 @@
     },
     {
       "topic": "Wait-endpoint threading pattern (pattern chosen by architect; budget decision remains)",
-      "question": "Architect chose Flask-route daemon-thread pattern (2 threads per host wait). Plan phase must decide: raise EGG_ORCH_WAITRESS_THREADS default (to 24 or 32), add admission control, or accept saturation risk at >10 concurrent host sessions?",
+      "question": "Architect chose Flask-route daemon-thread pattern (2 threads per host wait). Plan phase must decide: raise EGG_ORCH_WAITRESS_THREADS default (architect recommends 24 w/ refuse-to-boot 4; risk_analyst leans to 32 w/ refuse-to-boot 8), add admission control, or accept saturation risk at >10 concurrent host sessions?",
       "risk_ref": "R4",
-      "default": "Raise default to 32 with a refuse-to-boot floor of 8 — ~12MB RSS cost per orchestrator process, comfortable margin over 2×max_concurrent_pipelines. Document the scaling guide in README."
+      "default": "ALIGN WITH ARCHITECT — 24 w/ refuse-to-boot 4 (~4MB RSS cost) is adequate for expected scale (N<10 host sessions typical). Risk_analyst concedes: if scale exceeds that bound, raising to 32 later is a single env-var change requiring no code. The plan should adopt the architect's 24/4 default to avoid whiplash and document 32 as the 'high-scale' operator knob in README."
     },
     {
       "topic": "60s liveness-floor interpretation",
@@ -441,6 +441,6 @@
     "Heaviest single risk: R4 (thread budget) — upgraded to high-impact because the chosen pattern consumes 2 threads per call rather than 0 during the wait. R3 remains cross-cutting but now aligned with architect's design. R7 (liveness-floor) is unchanged — still needs human decision at plan gate. R14 (daemon thread leak) is new and has medium impact at scale.",
     "Human-review items now: R3 (cursor scheme — aligned with architect, but plan must confirm event_id is added to EventBus), R4 (thread budget — plan must commit to EGG_ORCH_WAITRESS_THREADS bump), R7 (literal vs aspirational 60s floor — HITL-deferred), R11 (Python SDK MCP surface parity — HITL-deferred).",
     "Total risks in v3: 18 (R1-R18). No blocker; four items need human review at plan gate; the other fourteen are TASK_PLANNER acceptance-criteria material.",
-    "Changelog: v1 was 12 risks based on HITL-resolved design envelope; v2 added R13 + reinforced R1/R3/R4/R7 per reviewer_plan's ACK feedback; v3 added R14-R18 and rewrote R4 to reflect architect's chosen daemon-thread pattern."
+    "Changelog: v1 was 12 risks based on HITL-resolved design envelope; v2 added R13 + reinforced R1/R3/R4/R7 per reviewer_plan's ACK feedback; v3 added R14-R18 and rewrote R4 to reflect architect's chosen daemon-thread pattern. v4 applied reviewer_plan's v3-ACK coordination fixes: aligned R4 default with architect's 24/4 (not 32/8) to avoid plan-phase whiplash; fixed R17 wording to match architect's minimal envelope shape `{changed: false, ...}` (not `no_change: true`); added R13-context note in R17 clarifying Delphi-filter is defense-in-depth for host callers; cross-referenced R14↔R15 queue-sizing decision so task_planner makes one tunable decision."
   ]
 }
