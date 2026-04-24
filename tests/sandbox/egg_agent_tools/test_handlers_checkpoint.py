@@ -103,7 +103,10 @@ class TestResolveRepoPath:
         assert path == "/home/egg/repos/myrepo"
 
     def test_caller_path_under_repos_accepted(self):
-        with patch.dict("os.environ", {"EGG_REPO_PATH": "/home/egg/repos/egg"}, clear=False):
+        with (
+            patch.dict("os.environ", {"EGG_REPO_PATH": "/home/egg/repos/egg"}, clear=False),
+            patch("os.path.expanduser", side_effect=lambda p: p.replace("~", "/home/egg")),
+        ):
             path = checkpoint._resolve_repo_path({"repo_path": "/home/egg/repos/other"})
         assert path.startswith("/home/egg/repos")
 
