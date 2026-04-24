@@ -215,6 +215,35 @@ class TestTicketGet:
         assert proc.returncode != 0
         assert "not allowlisted" in proc.stderr.lower()
 
+    def test_401_response_prints_auth_hint(self, mock_gateway):
+        mock_gateway["server"].response_queue.append(
+            {
+                "status": 401,
+                "body": {
+                    "success": False,
+                    "message": "Unauthorized",
+                },
+            }
+        )
+        proc = _run_wrapper(mock_gateway, ["ticket", "get", "ENG-1"])
+        assert proc.returncode != 0
+        assert "authentication failed" in proc.stderr.lower()
+        assert "session token" in proc.stderr.lower()
+
+    def test_429_response_prints_rate_limit_hint(self, mock_gateway):
+        mock_gateway["server"].response_queue.append(
+            {
+                "status": 429,
+                "body": {
+                    "success": False,
+                    "message": "Rate limited",
+                },
+            }
+        )
+        proc = _run_wrapper(mock_gateway, ["ticket", "get", "ENG-1"])
+        assert proc.returncode != 0
+        assert "rate limit exceeded" in proc.stderr.lower()
+
 
 class TestTicketComments:
     def test_happy_path(self, mock_gateway):
