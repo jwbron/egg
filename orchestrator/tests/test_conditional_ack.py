@@ -505,10 +505,7 @@ class TestSignalPathIntegration:
         stored = live_store.get_messages(_SIGNAL_PIPELINE_ID, limit=10)
         ack_msgs = [m for m in stored if m.message_type == "CONSENSUS_ACK"]
         assert len(ack_msgs) == 1
-        assert (
-            ack_msgs[0].metadata["payload"]["pre_merge_condition"]
-            == self._SUBSTANTIVE_CONDITION
-        )
+        assert ack_msgs[0].metadata["payload"]["pre_merge_condition"] == self._SUBSTANTIVE_CONDITION
 
     def test_signal_ack_without_condition_renders_no_section(self):
         from message_store import MessageStore

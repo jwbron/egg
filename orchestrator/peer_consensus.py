@@ -1234,6 +1234,7 @@ class PeerConsensusTracker:
                 "has_objections": False,  # BRC doesn't use objections
                 "has_unresolved_nacks": has_unresolved_nacks,
                 "unresolved_nacks": unresolved_nack_details,
+                "pre_merge_conditions": self.matrix.get_pre_merge_conditions(),
                 "agents": agents,
                 "approval_matrix": self.matrix.to_dict(),
                 "review_graph": self.graph.to_dict(),
