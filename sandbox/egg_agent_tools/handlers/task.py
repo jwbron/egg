@@ -122,6 +122,8 @@ def task_complete(req: dict[str, Any]) -> dict[str, Any]:
 
     commit = req.get("commit")
     if commit is not None:
+        if not isinstance(commit, str):
+            raise HandlerError("'commit' must be a string")
         _validate_commit_sha(commit)
 
     repo_path = req.get("repo_path") or get_repo_path()

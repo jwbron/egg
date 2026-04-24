@@ -145,7 +145,9 @@ def register_open_question(req: dict[str, Any]) -> dict[str, Any]:
         if not retryable or attempt == _DECISION_RETRY_ATTEMPTS:
             break
 
-    raise last_error  # type: ignore[misc]
+    if last_error is None:
+        raise HandlerError("register_open_question failed: no attempts were made")
+    raise last_error
 
 
 def request_feedback(req: dict[str, Any]) -> dict[str, Any]:

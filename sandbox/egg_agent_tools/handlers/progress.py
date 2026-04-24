@@ -237,6 +237,8 @@ def progress_query_status(req: dict[str, Any]) -> dict[str, Any]:
     pid = env_pid or caller_pid
     if not pid:
         raise HandlerError("pipeline_id required. Set EGG_PIPELINE_ID or pass 'pipeline_id'.")
+    if not _PIPELINE_ID_PATTERN.match(pid):
+        raise HandlerError(f"Invalid pipeline_id {pid!r}: must match [a-zA-Z0-9_-]+")
     include_raw = bool(req.get("include_raw", False))
     result = orchestrator_request(f"/api/v1/pipelines/{pid}/status")
     if not result.get("success"):

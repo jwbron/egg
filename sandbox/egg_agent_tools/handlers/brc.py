@@ -18,6 +18,7 @@ from egg_agent_tools.handlers._gateway import (
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
 _COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
+_PIPELINE_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
 def _validate_commit_sha(sha: str) -> str:
@@ -30,6 +31,8 @@ def _require_pipeline_id(req: dict[str, Any]) -> str:
     pid = req.get("pipeline_id") or get_pipeline_id()
     if not pid:
         raise HandlerError("pipeline_id required. Set EGG_PIPELINE_ID or pass 'pipeline_id'.")
+    if not _PIPELINE_ID_PATTERN.match(pid):
+        raise HandlerError(f"Invalid pipeline_id {pid!r}: must match [a-zA-Z0-9_-]+")
     return pid
 
 
