@@ -360,10 +360,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-24T20:10:43.612669Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-24T20:12:23.365453Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Scan during graph construction: record which modules contain dynamic-import patterns; widen only if a changed module is in (or reachable from) that set — more targeted\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -503,7 +503,7 @@
     }
   ],
   "created_at": "2026-04-24T19:39:48.417158Z",
-  "updated_at": "2026-04-24T20:12:19.043319Z",
+  "updated_at": "2026-04-24T20:12:23.382411Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -517,6 +517,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 34,
+  "version": 35,
   "jira_ticket": null
 }
