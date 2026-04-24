@@ -400,6 +400,8 @@ class TestBuildPrBodyFallbackBanner:
 
         assert used_stub_fallback is True
         assert "fell back to the issue title" in body
+        assert "Plan draft not found" in body
+        assert ".egg-state/drafts/42-plan.md" in body
 
 
 class TestAutoCreatePr:

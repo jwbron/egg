@@ -5520,6 +5520,7 @@ def _pr_metadata_from_plan_draft(
         return None, "", "", "", warnings_out, None
     plan_path = worktree_repo_path / draft_rel
     if not plan_path.exists():
+        warnings_out.append(f"Plan draft not found at {draft_rel}")
         return None, "", "", "", warnings_out, draft_rel
     try:
         from egg_contracts.plan_parser import parse_plan
@@ -5655,8 +5656,6 @@ def _build_pr_body(
                 banner_lines.append(f"> - {msg}")
         elif parsed_plan_draft and plan_draft_path:
             banner_lines.append("> No `pr.title` found in the plan draft's yaml-tasks block.")
-        elif parsed_plan_draft and not plan_draft_path:
-            banner_lines.append("> No plan draft was found on disk.")
         banner_lines.append("> Repair the plan draft and re-run `populate_contract` (see #1974).")
         body_parts.append("\n".join(banner_lines))
 
