@@ -772,6 +772,25 @@ class TestAckPreMergeConditionValidation:
         assert "chars" in data["message"]
         tracker.handle_ack.assert_not_called()
 
+    def test_short_imperative_condition_passes(self, app):
+        """A 10-49 char condition passes with the lowered min_len=10.
+
+        Before the fix, ``min_len`` defaulted to 50 for all
+        ``_validate_brc_content`` calls — this boundary value (14 chars)
+        would have been rejected.  The #2026 PR lowered the threshold
+        for pre-merge conditions to 10 so short imperative commands
+        like ``rotate API key`` are accepted.
+        """
+        _, status_code, tracker = self._ack_with_payload(
+            app,
+            {
+                "reason": _SUBSTANTIVE_REASON,
+                "pre_merge_condition": "rotate API key",
+            },
+        )
+        assert status_code == 200
+        tracker.handle_ack.assert_called_once()
+
     def test_boilerplate_condition_returns_400(self, app):
         """The shared boilerplate set applies to conditions too."""
         response, status_code, tracker = self._ack_with_payload(

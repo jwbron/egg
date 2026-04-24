@@ -163,9 +163,9 @@ def _resolve_main_head(exec_path: str, remote: str) -> str | None:
     return None
 
 
-def _is_ancestor(exec_path: str, sha: str, ancestor_sha: str) -> bool:
-    """Return True iff ``sha`` is an ancestor of (or equal to) ``ancestor_sha``."""
-    result = _git(exec_path, "merge-base", "--is-ancestor", sha, ancestor_sha)
+def _is_ancestor(exec_path: str, sha: str, tip_sha: str) -> bool:
+    """Return True iff ``sha`` is an ancestor of (or equal to) ``tip_sha``."""
+    result = _git(exec_path, "merge-base", "--is-ancestor", sha, tip_sha)
     return result.returncode == 0
 
 
@@ -334,7 +334,6 @@ def execute_filtered_push(
     pipeline_id: str | None = None,
     repo: str | None = None,
     add_auto_filter_trailer: bool = True,
-    remote: str = "origin",
 ) -> FilteredPushResult:
     """Rewrite and push the commit range.
 
@@ -359,12 +358,6 @@ def execute_filtered_push(
             branch) -> bool`` that registers a rewritten own-commit
             with the authorship registry.  Best-effort; failures are
             swallowed.
-        remote: Git remote name used to resolve the default branch for
-            the main-reachability reclassification (#2026).  Unregistered
-            commits reachable from ``<remote>/main`` (or ``<remote>/master``)
-            are routed to the pulled-cross-role path instead of being
-            fail-closed as own — prevents silent tree corruption of
-            GitHub PR-merge commits that were never registered.
 
     Returns:
         FilteredPushResult — success or rollback diagnostics.
@@ -419,7 +412,14 @@ def execute_filtered_push(
     # main typically have no authorship registry entry; without this
     # check, the filter would strip their blocked paths and produce a
     # commit with the same subject but a different tree.
-    main_head = _resolve_main_head(exec_path, remote)
+    # Always use "origin" for the ancestry check regardless of the
+    # agent-supplied ``remote`` — a compromised remote value could
+    # point to an attacker-controlled repo, causing unregistered
+    # commits to be reclassified as "pulled" and bypass the own-file
+    # filter.  The gateway's ``resolve_remote_url`` validates the
+    # remote for URL extraction, but the fetch in
+    # ``_resolve_main_head`` must hit the known-good remote.
+    main_head = _resolve_main_head(exec_path, "origin")
     main_reachable_unregistered: list[str] = []
     filtered_unregistered: list[str] = []
 

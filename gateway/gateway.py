@@ -1451,7 +1451,6 @@ def git_push() -> tuple[Response, int] | Response:
                 registry_register=_register,
                 pipeline_id=pipeline_id_for_filter,
                 repo=repo,
-                remote=remote,
             )
             if not filter_result.success:
                 audit_log(

@@ -868,7 +868,6 @@ class TestMainReachableUnregisteredIsPulled:
             blocked_own_files={"docs/upstream.md"},
             push_fn=_PushStub(),
             registry_register=_RegistryStub(),
-            remote="origin",
         )
 
         assert result.success is True
@@ -918,7 +917,6 @@ class TestMainReachableUnregisteredIsPulled:
             blocked_own_files={"docs/local.md"},
             push_fn=_PushStub(),
             registry_register=_RegistryStub(),
-            remote="origin",
         )
 
         # Filter ran: docs/local.md is stripped (happy-path unchanged).
