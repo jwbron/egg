@@ -264,10 +264,30 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Both (recommended): EventBus for phase/decision/terminal events, message_store.get_messages for OVERSEER_ALERT/CONSENSUS_* — matches where each event actually lives\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-7",
+      "question": "Should the SDLC skill keep the 10-message `recent_messages` fetch on every poll, or only on the `changed: true` path?",
+      "context": "Open contract question decision-6, registered by an agent during the refine phase.",
+      "options": [
+        "Keep on every poll (status quo) — no change to dashboard rendering contract",
+        "Only on `changed: true` — timeout path uses cached recent_messages from the prior wake",
+        "Remove entirely from wait path; fetch on-demand when OVERSEER_ALERT fires",
+        "Defer to plan phase — depends on the envelope-shape decision above",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T03:12:34.224027Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:08:18.054872Z",
-  "updated_at": "2026-04-24T03:12:29.353164Z",
+  "updated_at": "2026-04-24T03:12:34.296947Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -281,5 +301,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 22
+  "version": 23
 }
