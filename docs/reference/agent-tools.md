@@ -187,9 +187,10 @@ cursors instead of start/poll/complete triplets:
 The handler returns `{items: [...], next_cursor: <str|None>}`. Pass
 the returned `next_cursor` back as the next call's `cursor` to fetch
 the next page; a `None` `next_cursor` means the page is the last one.
-Internally `cursor` is an opaque string (e.g. base64-encoded offset)
-that round-trips through the handler — agents must not interpret it.
-Tampered cursors are rejected with `HandlerError`. The defaults are
+The internal encoding of `cursor` is implementation-defined and must
+not be parsed or constructed by agents — treat it as an opaque token
+that round-trips through the handler. Tampered cursors are rejected
+with `HandlerError`. The defaults are
 sized to keep a worst-case page under the SDK's 60 s MCP timeout; if
 you know your dataset is small, raise `limit` to skip the second
 round-trip.

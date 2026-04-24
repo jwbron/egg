@@ -15,7 +15,7 @@ Run `egg-orch --help` for full usage. All commands support `--json`. Full refere
 | `egg-orch decision list [<id>]` | List HITL decisions |
 | `egg-orch progress emit --step <text> --state <working\|blocked\|complete>` | Emit structured progress event |
 | `egg-orch progress query [--agent <role>]` | Query structured progress events |
-| `egg-orch overseer alert --subject <text> --body <text>` | Broadcast OVERSEER_ALERT to all agents in the pipeline |
+| `egg-orch overseer alert --anomaly <type> --priority <low\|medium\|high> --summary <text> [--detail <text>] [--recommend <text>]` | Broadcast OVERSEER_ALERT to all agents in the pipeline |
 | `egg-orch health alerts` | List active deterministic health alerts |
 | `egg-orch health resolve [<id>] --agent-id <id> --alert-type <type>` | Resolve (remove) health alerts for an agent |
 | `egg-orch anchor init --task <text>` | Create initial anchor for current agent |
@@ -52,7 +52,7 @@ Progress + overseer (iter-2 added the overseer surface):
 - `mcp__progress__signal_error` — Prefer this over `egg-orch signal error`. Signal a recoverable / unrecoverable error.
 - `mcp__progress__heartbeat` — Prefer this over `egg-orch signal heartbeat`. Send a coarse-grained heartbeat.
 - `mcp__progress__overseer_alert` — Prefer this over `egg-orch overseer alert`. Broadcast an `OVERSEER_ALERT` to all agents in the pipeline.
-- `mcp__progress__query_status` — Prefer this over `egg-orch pipeline status`. Read structured pipeline status (agent matrix, BRC phase, blocked roles).
+- `mcp__progress__query_status` — Prefer this over `egg-orch pipeline status`. Read structured pipeline status (agent matrix, BRC phase, blocked roles). Note: the MCP tool lives in the `progress` namespace per decision-5; the CLI lives in the `pipeline` subcommand subtree (decision-17 keeps the drift-gate symmetric with `overseer_alert`).
 
 No-CLI BRC introspection (iteration 1 + 2):
 
