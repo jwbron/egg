@@ -1052,6 +1052,15 @@ def handle_consensus_ack_signal(
     if reason_error:
         return make_error_response(reason_error, 400)
 
+    # Validate pre-merge condition content when present (#2005). An empty
+    # or whitespace-only condition is a plain ACK, not a conditional ACK,
+    # and must pass through unaffected.
+    pre_merge_condition = (payload.get("pre_merge_condition") or "").strip()
+    if pre_merge_condition:
+        condition_error = _validate_brc_content(pre_merge_condition, "Pre-merge condition")
+        if condition_error:
+            return make_error_response(condition_error, 400)
+
     try:
         from peer_consensus import get_peer_consensus_tracker
     except ImportError:
