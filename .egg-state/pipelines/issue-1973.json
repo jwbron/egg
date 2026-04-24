@@ -281,10 +281,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-24T20:10:43.300036Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-24T20:12:11.561743Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Don't rewrite; leave LKG as-is and accept that branches cut from main may inherit stale-but-valid values\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -503,7 +503,7 @@
     }
   ],
   "created_at": "2026-04-24T19:39:48.417158Z",
-  "updated_at": "2026-04-24T20:12:09.851353Z",
+  "updated_at": "2026-04-24T20:12:11.579324Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -517,6 +517,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 30,
+  "version": 31,
   "jira_ticket": null
 }
