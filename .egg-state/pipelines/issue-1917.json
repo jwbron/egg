@@ -168,10 +168,30 @@
       "resolution": "{\"action\": \"approve\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Iter-2 scope shape: which verb set should iteration 2 ship?",
+      "context": "Open contract question decision-1, registered by an agent during the refine phase.",
+      "options": [
+        "Option A — minimum-viable (~7 verbs: contract read/write + peer_read_artifact + overseer alert only); defer checkpoint/anchor/task-gap to iter 3",
+        "Option B — full audit (~15 verbs across contract/checkpoint/peer/anchor/overseer/task-gap); one PR (Recommended)",
+        "Option C — staged iter 2 in two PRs: PR-2a (P0+P1 ~10 verbs: contract, peer, checkpoint, overseer, message send/poll), PR-2b (P2 ~4 verbs: anchor trio + task_mark_gap)",
+        "Option D — Option B plus also promote iter-1 best-effort phase_get_context fields (active_peers/reviewer_peers/hitl_pending) in the same PR",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T03:03:33.803989Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:10:06.375518Z",
-  "updated_at": "2026-04-24T03:03:31.236877Z",
+  "updated_at": "2026-04-24T03:03:33.820418Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -185,5 +205,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 12
+  "version": 13
 }
