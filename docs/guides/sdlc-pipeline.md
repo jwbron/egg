@@ -834,7 +834,7 @@ Template sections:
 - [TASK-1-2] Add role validation — Acceptance: Unauthorized mutations rejected
 ```
 
-**PR Metadata**: The plan should include a `pr:` section in the YAML appendix with a title, description, test plan, and manual steps for the pull request. The `test_plan` field is required — describe both automated test coverage and manual verification steps. The `manual_steps` field lists any pre- or post-merge actions (migrations, config changes, deployments); use an empty string if none. The pipeline uses this metadata when creating and finalizing the PR. If not provided, the PR title defaults to the issue title, and the PR description is built from commit messages.
+**PR Metadata**: The plan should include a `pr:` section in the YAML appendix with a title, description, test plan, and manual steps for the pull request. The `test_plan` field is required — describe both automated test coverage and manual verification steps. The `manual_steps` field lists any pre- or post-merge actions (migrations, config changes, deployments); use an empty string if none. The pipeline uses this metadata when creating and finalizing the PR. If not provided, the orchestrator falls back to the issue title (or a generic stub) and opens the PR as a **draft** with a warning banner in the body that lists any parse errors from the plan draft, so reviewers cannot silently merge a PR whose planner metadata is missing (see #1975).
 
 ### Phase Completion Comments
 
@@ -853,7 +853,7 @@ The orchestrator's pipeline routes (`orchestrator/routes/pipelines.py`):
 
 This happens in the plan phase itself (before human approval) to provide early validation of the plan format. The implement phase also runs task population as a fallback in case the plan phase step failed or was skipped. For manual recovery via `advance_phase`, the populate step is also run automatically when transitioning out of the plan phase, so `contract.pr` is populated even when a force-advance bypasses the normal phase completion path.
 
-The PR metadata (title and description) from the plan is stored in the contract's `pr` field and used by the orchestrator to auto-create the PR when the implement phase completes. The orchestrator builds the PR body from the contract's `pr` metadata, the git commit log, diff stats, and a Pipeline Context section (pipeline ID and issue number). The gateway injects a machine-parseable `<!-- egg-pipeline-context ... -->` HTML comment and applies `egg` and `agent:orchestrator` labels to the PR — no agent is spawned for PR creation.
+The PR metadata (title and description) from the plan is stored in the contract's `pr` field and used by the orchestrator to auto-create the PR when the implement phase completes. The orchestrator builds the PR body from the contract's `pr` metadata, the git commit log, diff stats, and a Pipeline Context section (pipeline ID and issue number). The gateway injects a machine-parseable `<!-- egg-pipeline-context ... -->` HTML comment and applies `egg` and `agent:orchestrator` labels to the PR — no agent is spawned for PR creation. If neither the contract nor the plan draft on disk contains a `pr.title`, the PR falls through to a stub (issue title or pipeline ID) and is opened as a **draft** with a warning banner listing parse failures so reviewers can diagnose and repair before merging.
 
 ## Phase Checks
 
