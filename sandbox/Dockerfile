@@ -288,7 +288,8 @@ RUN mkdir -p /opt/.egg-internal && \
     mv /usr/bin/git /opt/.egg-internal/git && \
     mv /usr/bin/gh /opt/.egg-internal/gh && \
     ln -s /opt/egg-runtime/sandbox/scripts/git /usr/bin/git && \
-    ln -s /opt/egg-runtime/sandbox/scripts/gh /usr/bin/gh
+    ln -s /opt/egg-runtime/sandbox/scripts/gh /usr/bin/gh && \
+    ln -s /opt/egg-runtime/sandbox/scripts/jira /usr/bin/jira
 
 # Make sandbox and shared modules importable via PYTHONPATH
 # This is simpler than pip install and doesn't require pyproject.toml

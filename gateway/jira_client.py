@@ -120,7 +120,12 @@ _TICKET_KEY = rf"{_PROJECT_KEY}-\d+"
 JIRA_API_ALLOWED_PATHS: list[re.Pattern[str]] = [
     re.compile(rf"^issue/{_TICKET_KEY}$"),
     re.compile(rf"^issue/{_TICKET_KEY}/comment$"),
-    re.compile(r"^search/jql$"),
+    # ``search/jql`` is intentionally NOT in this allowlist.  ``/api/v1/jira/
+    # search`` MUST go through the dedicated route so the JQL project-scope
+    # extractor (gateway/jira_search.py) runs before anything touches
+    # Atlassian.  Allowing ``search/jql`` through ``/api/v1/jira/execute``
+    # would bypass that extractor and let an agent read issues from any
+    # project (reviewer_code cycle 1 finding #3).
     re.compile(r"^project$"),
     re.compile(rf"^project/{_PROJECT_KEY}$"),
 ]
