@@ -100,7 +100,7 @@ that requires the handler docstring to explain why no CLI exists.
 
 | Tool | Purpose | Handler | CLI counterpart |
 |------|---------|---------|-----------------|
-| `mcp__brc__propose` | Broadcast a proposal with summary, artifacts, files-changed, tests-run, tasks, and commit SHA. | `handlers.brc.brc_propose` | `egg-orch consensus propose` |
+| `mcp__brc__propose` | Push committed changes to origin via the gateway then broadcast a CONSENSUS_PROPOSE signal. The `push` parameter (default `true`) can be set to `false` if you have already pushed through another route. Push failure short-circuits the handler — no proposal is sent for an un-pushed artifact. | `handlers.brc.brc_propose` | `egg-orch consensus propose --push` |
 | `mcp__brc__ack` | Acknowledge (ACK) a peer's proposal. | `handlers.brc.brc_ack` | `egg-orch consensus ack` |
 | `mcp__brc__nack` | Reject (NACK) a peer's proposal with blocker list. | `handlers.brc.brc_nack` | `egg-orch consensus nack` |
 | `mcp__brc__confirm` | Signal CONFIRMED — producer acknowledges all reviewer ACKs. | `handlers.brc.brc_confirm` | `egg-orch consensus confirmed` |
