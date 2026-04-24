@@ -207,10 +207,30 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Defer anchor verbs to a third iteration — too much scope for iter 2; keep the REST-only story as-is\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Checkpoint coverage: which egg-checkpoint subcommands should be exposed as MCP tools? (egg-checkpoint has 6: list, show, browse, context, cost, search)",
+      "context": "Open contract question decision-3, registered by an agent during the refine phase.",
+      "options": [
+        "All 6 subcommands (list, show, browse, context, cost, search)",
+        "Core 3: list, show, search — the verbs agents most likely need on the hot path",
+        "Core 3 + context — adds cross-agent context summaries, useful for reviewers/overseer",
+        "Core 3 + cost — adds cost accounting, useful if checkpoints become a budget signal for agents",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T03:09:47.348834Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:10:06.375518Z",
-  "updated_at": "2026-04-24T03:09:46.532463Z",
+  "updated_at": "2026-04-24T03:09:47.362398Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -224,5 +244,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 16
+  "version": 17
 }
