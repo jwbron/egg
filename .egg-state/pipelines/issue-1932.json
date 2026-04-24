@@ -245,10 +245,29 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Yes: add `since` string parameter; host passes the most recent event ID from the prior call (prevents stuck-on-same-event races)\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Should the event-driven wait subscribe to the EventBus only, the message-type long-poll only, or both?",
+      "context": "Open contract question decision-5, registered by an agent during the refine phase.",
+      "options": [
+        "Both (recommended): EventBus for phase/decision/terminal events, message_store.get_messages for OVERSEER_ALERT/CONSENSUS_* — matches where each event actually lives",
+        "EventBus only: also emit OVERSEER_ALERT and CONSENSUS_* onto the EventBus so the wait endpoint subscribes to one source",
+        "Message-type long-poll only: also emit phase/decision/terminal events onto the message bus so there is one wait primitive",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T03:11:58.548934Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:08:18.054872Z",
-  "updated_at": "2026-04-24T03:11:55.227545Z",
+  "updated_at": "2026-04-24T03:11:58.590483Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -262,5 +281,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 20
+  "version": 21
 }
