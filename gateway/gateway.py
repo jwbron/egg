@@ -340,7 +340,7 @@ def _is_checkpoint_repo_for_request(owner: str, repo: str) -> bool:
     but the orchestrator passed ``EGG_CHECKPOINT_REPO``).
 
     Args:
-        owner: Repository owner (e.g. "jwbron")
+        owner: Repository owner (e.g. "my-org")
         repo: Repository name (e.g. "checkpoints")
 
     Returns:

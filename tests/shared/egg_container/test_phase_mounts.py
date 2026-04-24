@@ -292,7 +292,7 @@ class TestPhaseReadonlyMounts:
         for dirname in _IMPLEMENT_READONLY_DIRS:
             (tmp_path / ".egg-state" / dirname).mkdir(parents=True)
 
-        host_path = "/home/jwies/.egg-worktrees/some-repo"
+        host_path = "/home/user/.egg-worktrees/some-repo"
         repo_volumes = {"myrepo": host_path}
         local_volumes = {"myrepo": str(tmp_path)}
 

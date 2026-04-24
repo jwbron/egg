@@ -498,8 +498,8 @@ class TestHostToLocalVolumes:
 
     def test_translates_host_home_to_container_home(self):
         """HOST_HOME prefix is replaced with /home/egg."""
-        repo_volumes = {"repo": "/home/jwies/.egg-worktrees/repo"}
-        with patch.dict("os.environ", {"HOST_HOME": "/home/jwies"}):
+        repo_volumes = {"repo": "/home/user/.egg-worktrees/repo"}
+        with patch.dict("os.environ", {"HOST_HOME": "/home/user"}):
             result = _host_to_local_volumes(repo_volumes)
         assert result == {"repo": "/home/egg/.egg-worktrees/repo"}
 
@@ -519,18 +519,18 @@ class TestHostToLocalVolumes:
 
     def test_only_replaces_prefix(self):
         """Only the first occurrence of HOST_HOME at the start is replaced."""
-        repo_volumes = {"repo": "/home/jwies/repos/home/jwies/nested"}
-        with patch.dict("os.environ", {"HOST_HOME": "/home/jwies"}):
+        repo_volumes = {"repo": "/home/user/repos/home/user/nested"}
+        with patch.dict("os.environ", {"HOST_HOME": "/home/user"}):
             result = _host_to_local_volumes(repo_volumes)
-        assert result == {"repo": "/home/egg/repos/home/jwies/nested"}
+        assert result == {"repo": "/home/egg/repos/home/user/nested"}
 
     def test_multiple_repos(self):
         """All repos in the mapping are translated."""
         repo_volumes = {
-            "a": "/home/jwies/.egg-worktrees/a",
-            "b": "/home/jwies/.egg-worktrees/b",
+            "a": "/home/user/.egg-worktrees/a",
+            "b": "/home/user/.egg-worktrees/b",
         }
-        with patch.dict("os.environ", {"HOST_HOME": "/home/jwies"}):
+        with patch.dict("os.environ", {"HOST_HOME": "/home/user"}):
             result = _host_to_local_volumes(repo_volumes)
         assert result == {
             "a": "/home/egg/.egg-worktrees/a",
@@ -540,10 +540,10 @@ class TestHostToLocalVolumes:
     def test_non_matching_paths_unchanged(self):
         """Paths not starting with HOST_HOME are left unchanged."""
         repo_volumes = {
-            "a": "/home/jwies/.egg-worktrees/a",
+            "a": "/home/user/.egg-worktrees/a",
             "b": "/other/path/b",
         }
-        with patch.dict("os.environ", {"HOST_HOME": "/home/jwies"}):
+        with patch.dict("os.environ", {"HOST_HOME": "/home/user"}):
             result = _host_to_local_volumes(repo_volumes)
         assert result == {
             "a": "/home/egg/.egg-worktrees/a",
@@ -552,8 +552,8 @@ class TestHostToLocalVolumes:
 
     def test_trailing_slash_on_host_home(self):
         """HOST_HOME with trailing slash does not produce double slashes."""
-        repo_volumes = {"repo": "/home/jwies/.egg-worktrees/repo"}
-        with patch.dict("os.environ", {"HOST_HOME": "/home/jwies/"}):
+        repo_volumes = {"repo": "/home/user/.egg-worktrees/repo"}
+        with patch.dict("os.environ", {"HOST_HOME": "/home/user/"}):
             result = _host_to_local_volumes(repo_volumes)
         assert result == {"repo": "/home/egg/.egg-worktrees/repo"}
 
