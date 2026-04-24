@@ -5893,6 +5893,62 @@ def _persist_phase_brc_history(
         )
 
 
+def _build_pre_merge_obligations_section(pipeline_id: str) -> str:
+    """Render the "Pre-merge Obligations" section from active conditional ACKs.
+
+    Queries the live consensus tracker for conditions attached to current-
+    version ACKs (see ``ApprovalMatrix.get_pre_merge_conditions``). Returns
+    an empty string if the tracker is unavailable or has no conditions, so
+    callers can unconditionally append the result to the PR body.
+
+    The section exists to close the loophole where reviewers embedded
+    merge-time obligations ("human must git mv X Y before merging") in ACK
+    prose that the merger could skim past (#1998). Rendered as a visible
+    markdown section up-front on the PR so the obligation is in the
+    merger's line of sight.
+    """
+    try:
+        from peer_consensus import get_peer_consensus_tracker
+    except ImportError:
+        return ""
+    tracker = get_peer_consensus_tracker(pipeline_id)
+    if tracker is None:
+        return ""
+    try:
+        conditions = tracker.get_pre_merge_conditions()
+    except Exception as e:  # defensive — never block PR creation on this
+        logger.debug(
+            "Failed to read pre-merge conditions from tracker",
+            pipeline_id=pipeline_id,
+            error=str(e),
+        )
+        return ""
+    if not conditions:
+        return ""
+
+    lines = [
+        "## ⚠️ Pre-merge Obligations",
+        "",
+        "The reviewers below issued a **conditional ACK** — the work is "
+        "approved, but a human must perform the listed action before "
+        "merging. Do **not** merge this PR until every obligation is "
+        "complete.",
+        "",
+    ]
+    for c in conditions:
+        reviewer = c.get("reviewer", "unknown")
+        condition = str(c.get("condition", "")).strip()
+        if not condition:
+            continue
+        # Indent multi-line conditions under the bullet so they stay
+        # visually grouped in rendered markdown.
+        first, *rest = condition.splitlines()
+        lines.append(f"- **{reviewer}** — {first}")
+        for extra in rest:
+            lines.append(f"  {extra}")
+    return "\n".join(lines)
+
+
 def _build_brc_history_link_line(
     worktree_repo_path: Path,
     identifier: int | str | None,
@@ -6104,6 +6160,16 @@ def _build_pr_body(
         body_parts.append(pr_description)
     elif pipeline.issue_number:
         body_parts.append(f"Closes #{pipeline.issue_number}")
+
+    # Pre-merge obligations from conditional ACKs (issue #1998). Rendered
+    # high in the body so the merger sees them before skimming past the
+    # test plan. Conditions come from the consensus tracker — if the
+    # tracker is gone (orchestrator restart without reconstruction), the
+    # section is silently skipped and reviewers fall back to the planner's
+    # manual_steps below.
+    deferred_section = _build_pre_merge_obligations_section(pipeline.id)
+    if deferred_section:
+        body_parts.append(deferred_section)
 
     # Test plan section (always present — placeholder if missing)
     if pr_test_plan:
@@ -6949,6 +7015,24 @@ def _build_brc_preamble(
                 "   ### Non-blocking\n"
                 "   - **file.py:123** — Optional suggestions for improvement.\n"
                 '   "\n'
+                "   ```\n"
+                "\n"
+                "   **Conditional ACK** (issue #1998 — use when the work is "
+                "correct but requires a human action at merge time that agents "
+                "cannot perform themselves, e.g. a `git mv`, a secret "
+                "rotation, a config flip in another repo): add "
+                '`--pre-merge-condition "…"` to the ACK command. The '
+                "obligation is recorded on the approval matrix and rendered "
+                'as a "Pre-merge Obligations" section high up in the '
+                "auto-created PR body so the merger cannot skim past it. Do "
+                "NOT use this to smuggle blocking issues past the producer — "
+                "if the producer could fix it, NACK instead.\n"
+                "   Example:\n"
+                "   ```\n"
+                '   egg-orch consensus ack <role> --files-reviewed "f1" '
+                '--reason "Code is correct but …" '
+                '--pre-merge-condition "A human must `git mv legacy/x '
+                'new/x` before merging — agents cannot push renames through "\n'
                 "   ```\n"
                 "\n"
                 "   `--reason` must be ≥50 chars of substantive content. "

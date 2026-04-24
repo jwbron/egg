@@ -68,6 +68,16 @@ _ACK_SCHEMA: dict[str, Any] = {
             "items": {"type": "string"},
             "description": "Artifacts actually reviewed",
         },
+        "pre_merge_condition": {
+            "type": "string",
+            "description": (
+                "Optional conditional-ACK obligation (issue #1998). The work "
+                "is approved but the named action must be performed by a "
+                "human before merging (e.g. 'git mv old/path new/path'). "
+                "Surfaces as a Pre-merge Obligations section on the "
+                "auto-created PR. Leave empty for an unconditional ACK."
+            ),
+        },
         "pipeline_id": {"type": "string"},
         "role": {"type": "string"},
     },

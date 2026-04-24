@@ -1712,6 +1712,7 @@ def cmd_consensus_ack(args: argparse.Namespace) -> int:
         "producer_role": args.producer_role,
         "reason": args.reason,
         "files_reviewed": list(args.files_reviewed or []),
+        "pre_merge_condition": getattr(args, "pre_merge_condition", "") or "",
     }
     try:
         resp = _handlers.brc_ack(req)
@@ -1721,7 +1722,13 @@ def cmd_consensus_ack(args: argparse.Namespace) -> int:
     if args.json:
         print_json(resp.get("signal", {}))
         return 0
-    print(f"ACK sent by {role} for {args.producer_role}")
+    if req["pre_merge_condition"]:
+        print(
+            f"Conditional ACK sent by {role} for {args.producer_role} "
+            f"(obligation: {req['pre_merge_condition']})"
+        )
+    else:
+        print(f"ACK sent by {role} for {args.producer_role}")
     return 0
 
 
@@ -2402,6 +2409,17 @@ def create_parser() -> argparse.ArgumentParser:
         "--reason",
         required=True,
         help="Substantive rationale: what was read, what was checked, why the verdict follows",
+    )
+    cons_ack.add_argument(
+        "--pre-merge-condition",
+        dest="pre_merge_condition",
+        default="",
+        help=(
+            "Optional: mark this as a conditional ACK (#1998). The work is "
+            "approved but the named action must be performed by a human "
+            "before merging (e.g. 'git mv old/path new/path'). Surfaces as "
+            "a Pre-merge Obligations section on the auto-created PR."
+        ),
     )
     _add_json_flag(cons_ack)
     cons_ack.set_defaults(func=cmd_consensus_ack)
