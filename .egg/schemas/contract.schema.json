@@ -358,21 +358,22 @@
     },
     "taskGap": {
       "type": "object",
-      "required": ["id", "from_role", "description"],
+      "required": ["id", "from_role", "to_role", "description", "created_at"],
       "properties": {
         "id": {
           "type": "string",
-          "description": "Unique gap identifier",
-          "minLength": 1
+          "description": "Unique gap identifier of the form 'gap-<N>'",
+          "pattern": "^gap-[0-9]+$"
         },
         "from_role": {
           "type": "string",
-          "description": "Agent role that recorded the gap"
+          "description": "Agent role that recorded the gap",
+          "minLength": 1
         },
         "to_role": {
           "type": "string",
-          "description": "Target role (usually coder)",
-          "default": "coder"
+          "description": "Target role (usually 'coder')",
+          "minLength": 1
         },
         "description": {
           "type": "string",
@@ -382,7 +383,7 @@
         "created_at": {
           "type": "string",
           "description": "ISO-8601 timestamp when the gap was recorded",
-          "default": ""
+          "format": "date-time"
         },
         "resolved": {
           "type": "boolean",

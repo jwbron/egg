@@ -237,6 +237,16 @@ def phase_complete_phase(req: dict[str, Any]) -> dict[str, Any]:
     ``"complete"``; orchestrator's downstream phase_complete signal
     fires to advance the pipeline once all phases have been completed.
     Does NOT advance the overall pipeline phase on its own.
+
+    Atomicity: the commit-link and the status transition are two
+    separate gateway mutations (the gateway's ``contract/mutate``
+    endpoint takes a single field-path per call).  We link the commit
+    FIRST so a mid-way failure leaves the phase not-yet-complete with
+    the commit populated — callers can retry the same request to
+    progress.  If the status step fails, the raise preserves the
+    legacy "Error setting status:" stderr surface from the CLI shim
+    (see reviewer NACK #6).  A successful return guarantees both
+    mutations landed.
     """
     phase_id = req.get("phase")
     if not phase_id or not isinstance(phase_id, str):
@@ -252,23 +262,9 @@ def phase_complete_phase(req: dict[str, Any]) -> dict[str, Any]:
     repo_path = req.get("repo_path") or get_repo_path()
     identifier = _resolve_identifier(req)
 
-    status_path = f"phases.{phase_idx}.status"
-    result = gateway_request(
-        "/api/v1/contract/mutate",
-        method="POST",
-        data={
-            "identifier": identifier,
-            "repo_path": repo_path,
-            "field_path": status_path,
-            "new_value": "complete",
-            "actor": "egg",
-            "reason": f"Marked {phase_id} as complete",
-            **container_id_field(),
-        },
-    )
-    if not result.get("success"):
-        raise GatewayError(result.get("message", "phase status mutate failed"))
-
+    # Step 1 (iff commit provided): link the commit.  This is
+    # idempotent — re-running with the same SHA is a no-op on the
+    # gateway's side.
     if commit:
         commit_path = f"phases.{phase_idx}.commit"
         commit_result = gateway_request(
@@ -286,8 +282,26 @@ def phase_complete_phase(req: dict[str, Any]) -> dict[str, Any]:
         )
         if not commit_result.get("success"):
             raise GatewayError(
-                "Phase marked complete but failed to link commit: "
-                + commit_result.get("message", "unknown error")
+                commit_result.get("message", "phase commit link failed")
             )
+
+    # Step 2: flip status to complete.  On failure the caller sees a
+    # vanilla GatewayError ("Error setting status: …") and can retry.
+    status_path = f"phases.{phase_idx}.status"
+    result = gateway_request(
+        "/api/v1/contract/mutate",
+        method="POST",
+        data={
+            "identifier": identifier,
+            "repo_path": repo_path,
+            "field_path": status_path,
+            "new_value": "complete",
+            "actor": "egg",
+            "reason": f"Marked {phase_id} as complete",
+            **container_id_field(),
+        },
+    )
+    if not result.get("success"):
+        raise GatewayError(result.get("message", "phase status mutate failed"))
 
     return {"ok": True, "phase": phase_id, "commit": commit}

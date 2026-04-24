@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import uuid
 from datetime import UTC, datetime
 from typing import Any
 
@@ -17,6 +16,14 @@ from egg_agent_tools.handlers._gateway import (
 from egg_agent_tools.handlers.errors import GatewayError, HandlerError
 
 _COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{7,40}$")
+
+# Bounded retry on gap TOCTOU collisions.  Two concurrent ``mark_gap``
+# calls may both observe ``len(existing_gaps) == N`` and race on the
+# same index; the loser re-reads and retries at ``N+1``.  Three
+# attempts cover the realistic contention window (two tester→coder
+# handoffs firing at the same moment) and keep the handler's worst-case
+# latency bounded so the MCP 60 s timeout still applies.
+_GAP_RETRY_ATTEMPTS = 3
 
 
 def _resolve_identifier(req: dict[str, Any]) -> int | str:
@@ -239,13 +246,46 @@ def task_update_notes(req: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "task": task_id}
 
 
+def _next_gap_id(existing_gaps: list[dict[str, Any]]) -> str:
+    """Derive the next ``gap-<N>`` id from the existing-gaps list.
+
+    Matches the plan (TASK-4-2) spec: N = max existing numeric suffix
+    + 1, starting at 1 for an empty list.  Non-matching id strings are
+    ignored (defensive against old records).
+    """
+    max_num = 0
+    for g in existing_gaps:
+        gid = g.get("id", "") if isinstance(g, dict) else ""
+        if not isinstance(gid, str):
+            continue
+        m = re.match(r"^gap-([0-9]+)$", gid)
+        if m:
+            try:
+                n = int(m.group(1))
+            except ValueError:
+                continue
+            if n > max_num:
+                max_num = n
+    return f"gap-{max_num + 1}"
+
+
 def task_mark_gap(req: dict[str, Any]) -> dict[str, Any]:
     """Append a tester→coder coverage-gap record to a task.
 
-    No CLI counterpart — this is a net-new capability introduced in
-    iteration 2 (no-CLI, decision-4). Persistence routes through the
-    existing gateway contract-mutate endpoint onto the new
-    ``phases.<p>.tasks.<t>.gaps[<n>]`` field on the Task model.
+    Role constraint: **tester role writes; coder role reads.**  This
+    is a net-new capability introduced in iteration 2 (no-CLI,
+    decision-4) for structured coverage-gap handoff.  Persistence
+    routes through the existing gateway contract-mutate endpoint onto
+    the new ``phases.<p>.tasks.<t>.gaps[<n>]`` field on the Task model.
+    No CLI counterpart — operators interact via the contract JSON
+    directly.
+
+    TOCTOU hardening: two concurrent ``mark_gap`` calls on the same
+    task may observe the same ``len(gaps)`` and both race on that
+    index.  The handler retries up to ``_GAP_RETRY_ATTEMPTS`` times,
+    re-reading the task and regenerating the ``gap-<N>`` id + field
+    path on each attempt; the loser's write lands at ``N+1`` (reviewer
+    NACK #5).
 
     Request:
         task (str): required, e.g. ``task-1-2``.
@@ -254,12 +294,10 @@ def task_mark_gap(req: dict[str, Any]) -> dict[str, Any]:
         to_role (str): optional target role (defaults to ``"coder"``).
         from_role (str): optional sender override (defaults to
             ``EGG_AGENT_ROLE``).
-        gap_id (str): optional explicit gap id; the handler generates a
-            ``gap-<short-uuid>`` slug when omitted.
         repo_path, pipeline_id, issue: optional overrides.
 
     Response:
-        { ok: True, task: task_id, gap_id: "gap-..." }
+        { ok: True, task: task_id, gap_id: "gap-<N>", gap: {...} }
     """
     task_id = req.get("task")
     if not task_id or not isinstance(task_id, str):
@@ -278,72 +316,89 @@ def task_mark_gap(req: dict[str, Any]) -> dict[str, Any]:
             "Sender role required. Set EGG_AGENT_ROLE or pass 'from_role'."
         )
 
-    gap_id = req.get("gap_id") or f"gap-{uuid.uuid4().hex[:8]}"
-    if not isinstance(gap_id, str):
-        raise HandlerError("'gap_id' must be a string if provided")
-
     repo_path = req.get("repo_path") or get_repo_path()
     identifier = _resolve_identifier(req)
 
-    # Fetch to find where to append into gaps[].  We use gateway read
-    # rather than Python-side merge so the tool works even when the
-    # handler doesn't have the contract in-process.
+    from egg_agent_tools.handlers._gateway import get_container_id
+
     params: dict[str, str] = {}
     if repo_path:
         params["repo_path"] = repo_path
-    from egg_agent_tools.handlers._gateway import get_container_id
-
     cid = get_container_id()
     if cid:
         params["container_id"] = cid
-    read_result = gateway_request(
-        f"/api/v1/contract/{identifier}", params=params or None
-    )
-    if not read_result.get("success"):
-        raise GatewayError(read_result.get("message", "contract fetch failed"))
-    contract = read_result.get("data", {}) or {}
-    phases = contract.get("phases") or []
-    if phase_idx >= len(phases):
-        raise HandlerError(
-            f"Phase index {phase_idx + 1} out of range for contract "
-            f"(has {len(phases)} phase(s))"
+
+    last_error: GatewayError | None = None
+    for attempt in range(1, _GAP_RETRY_ATTEMPTS + 1):
+        # Re-read the contract on every attempt so a concurrent writer
+        # that already landed a gap at our chosen index forces us to
+        # recompute the next free slot + id.
+        read_result = gateway_request(
+            f"/api/v1/contract/{identifier}", params=params or None
         )
-    tasks = phases[phase_idx].get("tasks") or []
-    if task_idx >= len(tasks):
-        raise HandlerError(
-            f"Task index {task_idx + 1} out of range for phase {phase_idx + 1} "
-            f"(has {len(tasks)} task(s))"
+        if not read_result.get("success"):
+            raise GatewayError(read_result.get("message", "contract fetch failed"))
+        contract = read_result.get("data", {}) or {}
+        phases = contract.get("phases") or []
+        if phase_idx >= len(phases):
+            raise HandlerError(
+                f"Phase index {phase_idx + 1} out of range for contract "
+                f"(has {len(phases)} phase(s))"
+            )
+        tasks = phases[phase_idx].get("tasks") or []
+        if task_idx >= len(tasks):
+            raise HandlerError(
+                f"Task index {task_idx + 1} out of range for phase {phase_idx + 1} "
+                f"(has {len(tasks)} task(s))"
+            )
+        existing_gaps = list(tasks[task_idx].get("gaps") or [])
+        next_gap_idx = len(existing_gaps)
+        gap_id = _next_gap_id(existing_gaps)
+
+        gap_record = {
+            "id": gap_id,
+            "from_role": from_role,
+            "to_role": to_role,
+            "description": description,
+            "created_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "resolved": False,
+        }
+
+        field_path = f"phases.{phase_idx}.tasks.{task_idx}.gaps.{next_gap_idx}"
+        result = gateway_request(
+            "/api/v1/contract/mutate",
+            method="POST",
+            data={
+                "identifier": identifier,
+                "repo_path": repo_path,
+                "field_path": field_path,
+                "new_value": gap_record,
+                "actor": "egg",
+                "reason": (
+                    f"Recorded gap {gap_id} on {task_id} "
+                    f"(from {from_role} to {to_role})"
+                ),
+                **container_id_field(),
+            },
         )
-    existing_gaps = list(tasks[task_idx].get("gaps") or [])
-    next_gap_idx = len(existing_gaps)
+        if result.get("success"):
+            return {"ok": True, "task": task_id, "gap_id": gap_id, "gap": gap_record}
 
-    gap_record = {
-        "id": gap_id,
-        "from_role": from_role,
-        "to_role": to_role,
-        "description": description,
-        "created_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "resolved": False,
-    }
+        message = result.get("message", "gap mutate failed")
+        last_error = GatewayError(message)
+        # Any failure that smells like a TOCTOU collision ("index out
+        # of range" from _set_value's append guard, or a "path already
+        # exists" style error if the gateway ever switches to strict
+        # set-only writes) triggers a retry.  Other errors bail
+        # immediately — retrying would mask them.
+        retryable = (
+            "index" in message.lower()
+            or "out of range" in message.lower()
+            or "already exists" in message.lower()
+            or "conflict" in message.lower()
+        )
+        if not retryable or attempt == _GAP_RETRY_ATTEMPTS:
+            break
 
-    field_path = f"phases.{phase_idx}.tasks.{task_idx}.gaps.{next_gap_idx}"
-    result = gateway_request(
-        "/api/v1/contract/mutate",
-        method="POST",
-        data={
-            "identifier": identifier,
-            "repo_path": repo_path,
-            "field_path": field_path,
-            "new_value": gap_record,
-            "actor": "egg",
-            "reason": (
-                f"Recorded gap {gap_id} on {task_id} "
-                f"(from {from_role} to {to_role})"
-            ),
-            **container_id_field(),
-        },
-    )
-    if not result.get("success"):
-        raise GatewayError(result.get("message", "gap mutate failed"))
-
-    return {"ok": True, "task": task_id, "gap_id": gap_id, "gap": gap_record}
+    assert last_error is not None
+    raise last_error

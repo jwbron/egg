@@ -84,10 +84,6 @@ _MARK_GAP_SCHEMA: dict[str, Any] = {
             "type": "string",
             "description": "Sender role (defaults to EGG_AGENT_ROLE)",
         },
-        "gap_id": {
-            "type": "string",
-            "description": "Optional gap ID (auto-generated if omitted)",
-        },
         "issue": {"type": "integer"},
         "pipeline_id": {"type": "string"},
         "repo_path": {"type": "string"},
@@ -131,9 +127,10 @@ async def task_update_notes(args: dict[str, Any]) -> dict[str, Any]:
 
 @tool(
     "mark_gap",
-    "Record a tester→coder coverage-gap handoff on a task. State-machine "
-    "effect: appends a structured gap entry to the task's `gaps` list. "
-    "No CLI counterpart — this is a net-new capability (decision-4).",
+    "Record a tester→coder coverage-gap handoff on a task (tester role "
+    "writes; coder role reads). State-machine effect: appends a structured "
+    "gap entry (id: gap-<N>) to the task's `gaps` list. No CLI counterpart "
+    "— this is a net-new capability (decision-4).",
     _MARK_GAP_SCHEMA,
 )
 async def task_mark_gap(args: dict[str, Any]) -> dict[str, Any]:

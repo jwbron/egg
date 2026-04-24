@@ -206,8 +206,16 @@ def progress_query_status(req: dict[str, Any]) -> dict[str, Any]:
     tool so the overseer role (and any observer) can read pipeline
     state without shelling out.
 
+    Security: the caller may supply ``pipeline_id`` only if it
+    matches ``EGG_PIPELINE_ID`` exactly. A disagreeing override is
+    rejected with ``HandlerError`` (risk_analyst R2 + reviewer_code
+    NACK #2 — cross-pipeline-read hardening). When no env pipeline id
+    is set (e.g. operator shell use), the caller-supplied value is
+    accepted as a fallback.
+
     Request:
-        pipeline_id: optional override.
+        pipeline_id: optional; must match EGG_PIPELINE_ID when that
+            env var is set.
         include_raw (bool): if True, include the full raw status
             payload alongside the summary.
 
@@ -217,7 +225,18 @@ def progress_query_status(req: dict[str, Any]) -> dict[str, Any]:
 
     State-machine effect: none. Pure read.
     """
-    pid = _require_pipeline_id(req)
+    env_pid = get_pipeline_id()
+    caller_pid = req.get("pipeline_id")
+    if caller_pid and env_pid and caller_pid != env_pid:
+        raise HandlerError(
+            "Caller-supplied pipeline_id must match EGG_PIPELINE_ID; "
+            f"got {caller_pid!r} (env={env_pid!r})."
+        )
+    pid = env_pid or caller_pid
+    if not pid:
+        raise HandlerError(
+            "pipeline_id required. Set EGG_PIPELINE_ID or pass 'pipeline_id'."
+        )
     include_raw = bool(req.get("include_raw", False))
     result = orchestrator_request(f"/api/v1/pipelines/{pid}/status")
     if not result.get("success", True):

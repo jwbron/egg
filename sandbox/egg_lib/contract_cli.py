@@ -586,10 +586,15 @@ def cmd_complete_phase(args: argparse.Namespace) -> int:
 
     Delegates to :func:`egg_agent_tools.handlers.phase.phase_complete_phase`
     so the CLI and the ``mcp__phase__complete_phase`` MCP tool share a
-    handler (iter-2 drift gate). The stderr phrasing preserves the
-    legacy ``Error setting status:`` / ``Warning: Phase marked complete
-    but failed to link commit:`` messages so scripts that grep the
-    exit surface keep working.
+    handler (iter-2 drift gate).
+
+    Handler ordering changed in response to reviewer_code NACK #6: the
+    commit-link happens BEFORE the status flip, so a mid-way failure
+    leaves the phase not-complete-yet with the commit already
+    populated, and callers can retry the same request to progress.
+    The stderr phrasing "Error setting status:" is preserved from the
+    legacy CLI surface so scripts that grep the exit messages keep
+    working.
     """
     from egg_agent_tools.handlers import phase as _handlers
 
@@ -616,11 +621,13 @@ def cmd_complete_phase(args: argparse.Namespace) -> int:
     try:
         _handlers.phase_complete_phase(req)
     except GatewayError as err:
+        # The handler raises two distinct GatewayError shapes now: a
+        # "phase commit link failed" (when supplied) or a bare status
+        # error.  Both land here; the CLI maps all gateway failures to
+        # the legacy "Error setting status:" prefix so exit-grep
+        # scripts keep working.
         msg = err.message or str(err)
-        if msg.startswith("Phase marked complete but failed to link commit: "):
-            print(f"Warning: {msg}", file=sys.stderr)
-        else:
-            print(f"Error setting status: {msg}", file=sys.stderr)
+        print(f"Error setting status: {msg}", file=sys.stderr)
         return err.exit_code
     except HandlerError as err:
         print(f"Error: {err.message}", file=sys.stderr)

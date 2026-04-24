@@ -1,11 +1,11 @@
 """Checkpoint-namespace handlers (list, show, search).
 
-All three verbs operate on local git-ref state (the ``egg/checkpoints/v2``
-branch of the current repo or a configured external checkpoint repo) so
-there is no gateway endpoint to forward to — handlers call the helpers
-exported by :mod:`egg_contracts.checkpoint_cli`, which are the same
-helpers the shell CLI uses. Keeping the two code paths on one helper
-set is how the drift gate stays honest for the checkpoint namespace.
+Thin MCP shims over the public helpers exported from
+:mod:`egg_contracts.checkpoint_cli`
+(``collect_checkpoints`` / ``load_checkpoint`` / ``search_checkpoints``).
+Keeping the helpers in ``shared/`` and importing them here — not the
+other way around — preserves the shared→sandbox-only dependency
+direction (reviewer_code NACK #3 + decision-20).
 
 Pagination:
 - ``list`` and ``search`` accept an opaque ``cursor`` token plus a
@@ -72,180 +72,6 @@ def _resolve_repo_path(req: dict[str, Any]) -> str:
     return str(path)
 
 
-def collect_checkpoints(filters: dict[str, Any]) -> dict[str, Any]:
-    """Return every checkpoint summary matching the filter set.
-
-    Public (non-underscore) name so the CLI shim and the MCP handler
-    can both import it; decision-18. The CLI shim keeps argparse +
-    stdout shaping; this helper returns JSON-serialisable dicts.
-
-    Args:
-        filters: dict with any of ``repo_path``, ``checkpoint_repo``,
-            ``branch``, ``issue``, ``pr``, ``session``, ``trigger``,
-            ``status``, ``agent_type``, ``phase``, ``pipeline``,
-            ``repo``, ``limit`` (upstream cap applied before the
-            MCP-level page).
-
-    Returns:
-        ``{"checkpoints": [dict, ...], "composite_role": str|None,
-           "ref": str|None, "checkpoint_repo": str|None}`` — ``ref``
-        and ``checkpoints`` may be empty when no checkpoint branch
-        exists. ``composite_role`` is non-None when the caller asked
-        for a BRC composite reviewer role (``reviewer_code``,
-        ``reviewer_contract``, etc.).
-    """
-    from egg_contracts.checkpoint_cli import (
-        _decompose_composite_role,
-        ensure_checkpoint_ref,
-        load_checkpoint_from_ref,
-        load_index_from_ref,
-    )
-    from egg_contracts.checkpoint_loader import filter_checkpoints_v2
-
-    repo_path = filters.get("repo_path")
-    if not repo_path:
-        raise HandlerError("'repo_path' is required on collect_checkpoints")
-    checkpoint_repo = filters.get("checkpoint_repo")
-
-    ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
-    composite_role: str | None = None
-    if not ref:
-        return {
-            "checkpoints": [],
-            "composite_role": composite_role,
-            "ref": None,
-            "checkpoint_repo": checkpoint_repo,
-        }
-
-    index = load_index_from_ref(ref, repo_path)
-    if not index:
-        return {
-            "checkpoints": [],
-            "composite_role": composite_role,
-            "ref": ref,
-            "checkpoint_repo": checkpoint_repo,
-        }
-
-    agent_type_filter, composite_role = _decompose_composite_role(filters.get("agent_type"))
-
-    summaries = filter_checkpoints_v2(
-        index,
-        issue_number=filters.get("issue"),
-        pr_number=filters.get("pr"),
-        branch=filters.get("branch"),
-        session_id=filters.get("session"),
-        trigger_type=filters.get("trigger"),
-        session_status=filters.get("status"),
-        agent_type=agent_type_filter,
-        pipeline_phase=filters.get("phase"),
-        pipeline_id=filters.get("pipeline"),
-        repo=filters.get("repo"),
-        limit=filters.get("limit"),
-    )
-
-    if composite_role and summaries:
-        filtered = []
-        for s in summaries:
-            cp = load_checkpoint_from_ref(s.id, ref, repo_path)
-            if cp and cp.session and cp.session.agent_role == composite_role:
-                filtered.append(s)
-        summaries = filtered
-
-    return {
-        "checkpoints": [s.model_dump(mode="json") for s in summaries],
-        "composite_role": composite_role,
-        "ref": ref,
-        "checkpoint_repo": checkpoint_repo,
-    }
-
-
-def load_checkpoint(identifier: str, repo_path: str, checkpoint_repo: str | None) -> dict[str, Any] | None:
-    """Load a single checkpoint by ID or commit SHA.
-
-    Returns the ``model_dump``'d CheckpointV2 or ``None`` if not found.
-    """
-    from egg_contracts.checkpoint_cli import (
-        ensure_checkpoint_ref,
-        load_checkpoint_from_ref,
-        load_index_from_ref,
-    )
-
-    ref = ensure_checkpoint_ref(repo_path, checkpoint_repo=checkpoint_repo)
-    if not ref:
-        return None
-
-    cp = None
-    if identifier.startswith("ckpt-"):
-        cp = load_checkpoint_from_ref(identifier, ref, repo_path)
-    else:
-        index = load_index_from_ref(ref, repo_path)
-        if index:
-            checkpoint_id = index.get_by_commit(identifier)
-            if checkpoint_id:
-                cp = load_checkpoint_from_ref(checkpoint_id, ref, repo_path)
-
-    if cp is None:
-        return None
-    return cp.model_dump(mode="json")
-
-
-def search_checkpoints(query: str, filters: dict[str, Any]) -> dict[str, Any]:
-    """Search checkpoint transcripts for *query* across summaries matching *filters*.
-
-    Returns ``{"matches": [{"summary": {...}, "snippets": [...]}], ...}``.
-    """
-    from egg_contracts.checkpoint_cli import (
-        _search_checkpoint_transcript,
-        ensure_checkpoint_ref,
-        load_checkpoint_from_ref,
-    )
-
-    if not isinstance(query, str) or not query:
-        raise HandlerError("'query' is required")
-
-    collected = collect_checkpoints(filters)
-    summaries_dicts = collected["checkpoints"]
-    ref = collected["ref"]
-    checkpoint_repo = collected["checkpoint_repo"]
-    composite_role = collected["composite_role"]
-
-    if not ref or not summaries_dicts:
-        return {
-            "matches": [],
-            "composite_role": composite_role,
-            "ref": ref,
-            "checkpoint_repo": checkpoint_repo,
-            "query": query,
-        }
-
-    repo_path = filters.get("repo_path")
-    matches: list[dict[str, Any]] = []
-    for summary_dict in summaries_dicts:
-        cp = load_checkpoint_from_ref(summary_dict["id"], ref, repo_path)
-        if cp is None:
-            continue
-        if composite_role and not (
-            cp.session and cp.session.agent_role == composite_role
-        ):
-            continue
-        snippets = _search_checkpoint_transcript(cp, query)
-        if snippets:
-            matches.append({"summary": summary_dict, "snippets": snippets})
-
-    return {
-        "matches": matches,
-        "composite_role": composite_role,
-        "ref": ref,
-        "checkpoint_repo": checkpoint_repo,
-        "query": query,
-    }
-
-
-# --------------------------------------------------------------------
-# Handler entry points (MCP verbs)
-# --------------------------------------------------------------------
-
-
 def _build_filters(req: dict[str, Any]) -> dict[str, Any]:
     """Project the request dict to the subset of keys ``collect_checkpoints`` expects."""
     return {
@@ -286,6 +112,8 @@ def checkpoint_list(req: dict[str, Any]) -> dict[str, Any]:
         { ok: True, items: [...], next_cursor, total_available,
           ref: str|None }
     """
+    from egg_contracts.checkpoint_cli import collect_checkpoints
+
     limit = _coerce_limit(req.get("limit"), default=_DEFAULT_LIST_LIMIT)
     offset = _decode_cursor(req.get("cursor"))
     filters = _build_filters(req)
@@ -319,6 +147,8 @@ def checkpoint_show(req: dict[str, Any]) -> dict[str, Any]:
         { ok: True, checkpoint: {...} } — the fully-expanded
         CheckpointV2.
     """
+    from egg_contracts.checkpoint_cli import load_checkpoint
+
     identifier = req.get("identifier")
     if not identifier or not isinstance(identifier, str):
         raise HandlerError("'identifier' is required")
@@ -345,6 +175,8 @@ def checkpoint_search(req: dict[str, Any]) -> dict[str, Any]:
         { ok: True, items: [{"summary": {...}, "snippets": [...]}, ...],
           next_cursor, total_available, query }
     """
+    from egg_contracts.checkpoint_cli import search_checkpoints
+
     text = req.get("text") or req.get("query")
     if not text or not isinstance(text, str):
         raise HandlerError("'text' is required")

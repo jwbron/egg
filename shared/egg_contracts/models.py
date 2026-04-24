@@ -5,7 +5,7 @@ These models match the JSON schema defined in .egg/schemas/contract.schema.json
 and provide validation and type safety for contract operations.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -124,15 +124,20 @@ class TaskGap(BaseModel):
     """
 
     id: str = Field(
-        ..., min_length=1, description="Unique gap identifier (e.g. 'gap-<hex>')"
+        ...,
+        pattern=r"^gap-[0-9]+$",
+        description="Unique gap identifier of the form 'gap-<N>'",
     )
-    from_role: str = Field(..., description="Agent role that recorded the gap")
+    from_role: str = Field(
+        ..., min_length=1, description="Agent role that recorded the gap"
+    )
     to_role: str = Field(
-        default="coder", description="Target role (usually coder)"
+        ..., min_length=1, description="Target role (usually 'coder')"
     )
     description: str = Field(..., min_length=1, description="Gap description")
-    created_at: str = Field(
-        default="", description="ISO-8601 timestamp when the gap was recorded"
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(UTC),
+        description="When the gap was recorded (ISO-8601 UTC)",
     )
     resolved: bool = Field(default=False, description="Set True when the gap is addressed")
 

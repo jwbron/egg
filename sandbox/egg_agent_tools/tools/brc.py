@@ -129,10 +129,15 @@ _READ_PEER_ARTIFACT_SCHEMA: dict[str, Any] = {
         },
         "peer_role": {
             "type": "string",
-            "description": "Optional filter: only records whose from_role matches",
+            "pattern": "^[a-z0-9_-]+$",
+            "description": (
+                "Optional filter: only records whose from_role matches. "
+                "Must match [a-z0-9_-]."
+            ),
         },
         "producer_role": {
             "type": "string",
+            "pattern": "^[a-z0-9_-]+$",
             "description": "Alias of peer_role for consistency with other BRC verbs",
         },
         "message_type": {
@@ -151,11 +156,9 @@ _READ_PEER_ARTIFACT_SCHEMA: dict[str, Any] = {
             "type": "string",
             "description": "Opaque pagination token returned by a prior call",
         },
-        "issue": {"type": "integer"},
-        "pipeline_id": {"type": "string"},
-        "repo_path": {"type": "string"},
     },
     "required": ["phase"],
+    "additionalProperties": False,
 }
 
 
