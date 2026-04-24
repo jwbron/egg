@@ -63,6 +63,8 @@ local_repos:
     - /path/to/your-repo   # absolute path on host
 ```
 
+`make deploy` reads `local_repos.paths` and queries each repo's `origin` remote URL to auto-derive `EGG_HOST_REPO_MAP` (the JSON map the orchestrator uses for hostPath mounts). No manual editing of Kubernetes overlays is required. `envsubst` (from GNU gettext: `dnf install gettext` / `brew install gettext`) must be installed for `make deploy` to work.
+
 Setting `auth_mode: user` tells the gateway to use `GITHUB_USER_TOKEN` for git/gh operations, attributing commits and PRs to your personal GitHub account.
 
 ## 3. Build and deploy
