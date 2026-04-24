@@ -437,16 +437,16 @@
           "answer": ""
         }
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-24T19:59:30.938177Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-24T20:19:49.756818Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"2-5x cost multiplier on large PRs is acceptable for v1. No hard per-pipeline ceiling required. Note: the refine analysis overstates complexity — Option A is primarily a prompt change using the Claude Agent SDK's built-in subagent Task tool (see decision-10 resolution), so actual incremental cost is limited to the subagent fan-out itself, not new infrastructure.\", \"Q2\": \"5-10 min on large PRs is acceptable. Implement-phase BRC review is not latency-sensitive; correctness over speed.\", \"Q3\": \"Out of scope for v1. Re-evaluate after A + B ship and show real signal against regression cases.\", \"Q4\": \"Yes — below ~10 changed files OR ~500 LOC skips SDK-subagent delegation entirely, matching the decision-7 threshold. Same gate on both ends: under threshold = single reviewer_code pass, over threshold = fan out.\", \"Q5\": \"No — Option E (external static analyzer / concurrency linter integration) is explicitly NOT being reconsidered. The refine analysis evaluated it and the human direction in the issue body did not include it; this question is rhetorical.\", \"Q6\": \"Out of scope for this issue. The '^project$' classification question is part of the #1998 / #1964 discussion and should be resolved there, not here.\", \"Q7\": \"BRC-internal only for this issue. The plan phase should NOT co-scope shared/prompts/REVIEWER-SYNC.md-driven changes to action/build-review-prompt.sh or reusable-review.yml. REVIEWER-SYNC.md is itself the alignment contract; updating it (see Q9) keeps GHA/BRC aligned via the shared criteria document without this issue owning GHA-side code changes.\", \"Q8\": \"Not tracked. #1964 is the representative regression case. Plan phase should design regression testing around #1964's specific missed issues (the uncommitted wrapper script and the ^project$ information-disclosure bug) and accept that additional cases may surface post-ship.\", \"Q9\": \"Yes — extend shared/prompts/REVIEWER-SYNC.md to document the SDLC-only reviewer asymmetry. reviewer_security and reviewer_concurrency are BRC-only (no GHA counterpart); REVIEWER-SYNC should name them explicitly so future maintainers do not mistake the gap for a drift bug.\", \"Q10\": \"(a) Create new shared/prompts/security-review-criteria.md and shared/prompts/concurrency-review-criteria.md files. Parallels the existing structure; the REVIEWER-SYNC.md bookkeeping cost is small and explicit. Avoids the tighter coupling of shoving lens-specific content into a single shared criteria file. Follow the inline-fallback parity discipline already documented in REVIEWER-SYNC.md.\", \"Q11\": \"(c) Configurable per-pipeline with a sensible default of PARALLEL. Parallel subagent fan-out is the reason to build this — sequential defeats the latency benefit. Leave it configurable so cost-sensitive pipelines can opt into sequential. Default parallel.\", \"Q12\": \"Yes — add a regression-replay test. Run the new reviewer_code (with SDK subagent fan-out enabled) against a cached diff derived from PR #1964 and assert that BOTH previously-missed issues are flagged: (a) the referenced-but-uncommitted sandbox/scripts/jira wrapper, and (b) the /api/v1/jira/execute ^project$ information-disclosure bug. This test is the operational guardrail against the acceptance target regressing (see decision-9).\"}}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-24T19:45:30.059639Z",
-  "updated_at": "2026-04-24T20:19:27.524832Z",
+  "updated_at": "2026-04-24T20:19:49.783109Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -460,6 +460,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 32,
+  "version": 33,
   "jira_ticket": null
 }
