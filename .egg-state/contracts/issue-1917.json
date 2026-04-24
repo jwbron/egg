@@ -491,6 +491,206 @@
       "resolved_by": "human",
       "resolved_at": "2026-04-24T03:16:51.900069Z",
       "debounce_until": null
+    },
+    {
+      "id": "decision-15",
+      "question": "Peer namespace vs extending brc: should directed messaging (send_message, poll_messages, read_artifact) live under `mcp__peer__*` (new namespace, recommended) or `mcp__brc__*` alongside wait_for_event?",
+      "type": "hitl",
+      "phase": "plan",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "peer \u2014 new namespace; preserves BRC-vs-p2p distinction (Recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "brc \u2014 extend existing namespace; groups all messaging verbs together",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-16",
+      "question": "Overseer scope: ship mcp__overseer__query_status in iteration 2 or defer to iteration 3?",
+      "type": "hitl",
+      "phase": "plan",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Ship \u2014 minimal read-only view over GET /api/v1/pipelines/<pid>/status (Recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Defer \u2014 no immediate consumer; mark human-operator-only for now and file a follow-up issue",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Ship richer \u2014 include overseer recent-alerts list and per-phase respawn history",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-17",
+      "question": "task_mark_gap storage shape: append to task notes (recommended), first-class gaps[] field on the task, or directed peer message only?",
+      "type": "hitl",
+      "phase": "plan",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Append-to-notes via /api/v1/contract/mutate, prefixed [GAP from <role> @ <ts>] \u2014 no schema change (Recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "First-class gaps[] field on task \u2014 cleaner query surface but requires gateway + contract-schema migration",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Directed peer message only \u2014 no contract state; tester\u2192coder DM with convention-tagged subject",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-18",
+      "question": "Shipping shape: one PR covering all ~16 iteration-2 verbs, or split by namespace (5 PRs)?",
+      "type": "hitl",
+      "phase": "plan",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "One PR \u2014 follows iteration 1's shape; single coordinated release (Recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "5 PRs \u2014 one per namespace (peer, checkpoint, anchor, contract+task+phase, overseer); smaller review surfaces",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "2 PRs \u2014 one for CLI-refactor verbs, one for net-new verbs",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-19",
+      "question": "Anchor CLI parity: update docs to point at mcp__anchor__* tools (recommended \u2014 there's no egg-orch anchor CLI today despite docs referencing it), or ship a thin egg-orch anchor CLI wrapping the same handlers?",
+      "type": "hitl",
+      "phase": "plan",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Update docs only \u2014 point orchestrator-cli.md and anchor-recovery.md at mcp__anchor__*; file a follow-up issue if human-operator CLI becomes useful (Recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Ship egg-orch anchor CLI \u2014 extract into sandbox/egg_lib/orch_cli.py; humans get a CLI and existing docs stay truthful",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-20",
+      "question": "Checkpoint handler layering: put handler logic in shared/egg_contracts/checkpoint_handlers.py (avoids shared\u2192sandbox import) or accept cross-package import and keep handlers in sandbox/egg_agent_tools/handlers/checkpoint.py?",
+      "type": "hitl",
+      "phase": "plan",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "shared/egg_contracts/checkpoint_handlers.py + sandbox re-export \u2014 avoids layering violation (Recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "sandbox/egg_agent_tools/handlers/checkpoint.py \u2014 accept cross-boundary import; checkpoint_cli.py imports from sandbox",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Leave handler logic inside shared/egg_contracts/checkpoint_cli.py next to cmd_* functions; both CLI and MCP tool import cmd_* helpers directly",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-21",
+      "question": "Open feedback request feedback-1",
+      "type": "hitl",
+      "phase": null,
+      "options": [],
+      "resolved": true,
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Authoritative docs set for iter-2 updates: (1) docs/reference/agent-tools.md \u2014 tool inventory table + the '15 tools' claims on lines 25/39/41/126/293 need refreshing to reflect the post-iter-2 count; (2) docs/releases/agent-mcp-tools.md \u2014 append an iter-2 changelog entry; (3) sandbox/agent-config/rules/contract.md \u2014 add 'Prefer mcp__* over ...' entries for the new contract-surface verbs (show_contract, task.add_commit/update_notes, phase.complete_phase, sdlc.verify_criterion); (4) sandbox/agent-config/rules/orchestrator.md \u2014 rewrite lines 20-24 to retract the phantom `egg-orch anchor *` CLI references, now that anchor is deferred; (5) sandbox/egg_lib/data/hitl_editing_rules.md \u2014 add entries for any new HITL-adjacent verbs; (6) a new sandbox/agent-config/rules/checkpoint.md rule file if the `checkpoint` namespace lands. Plan phase should produce a per-doc diff enumeration as a documenter-role task.\", \"Q2\": \"Track the same metric iter 1 used (`mcp__* in first N turns`) against the new verbs, plus one specific negative check: zero `Bash egg-contract show` calls in a refine-phase reviewer checkpoint post-iter-2. Don't invent new per-phase metrics \u2014 consistency with iter-1's success signal is more valuable than perfect per-verb coverage. Checkpoint-browser manual review remains the fallback.\", \"Q3\": \"None identified beyond the capability audit at .egg-state/drafts/1765-analysis.md:317-335. Plan phase should verify against iter-1 burn-in checkpoints (any `Bash egg-*` calls from iter-1-enabled pipelines that do NOT correspond to a verb in this iter-2 scope indicate a missed audit entry). If plan finds new verbs, file them as a third-iteration sub-issue rather than expanding iter-2 scope.\", \"Q4\": \"Yes \u2014 publish an explicit human-operator-only list per AC1.b in docs/reference/agent-tools.md. Starting set from the analysis: egg-orch health/pipeline/container/gateway/env/decision (operator debug); egg-contract populate/validate/agent-{status,start,complete,fail,next} (orchestrator-driven, not agent-driven); egg-orch consensus withdraw/message status (rare debug). Each entry needs a one-line rationale. This closes the audit loop (AC1.b) and makes future drift auditable.\"}}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:17:36.263173Z",
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
@@ -1156,6 +1356,254 @@
         "debounce_until": null
       },
       "reason": "Created HITL decision: mcp__brc__send_message / mcp__brc__poll_messages t...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T03:29:45.243551Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.14",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-15",
+        "question": "Peer namespace vs extending brc: should directed messaging (send_message, poll_messages, read_artifact) live under `mcp__peer__*` (new namespace, recommended) or `mcp__brc__*` alongside wait_for_event?",
+        "type": "hitl",
+        "phase": "plan",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "peer \u2014 new namespace; preserves BRC-vs-p2p distinction (Recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "brc \u2014 extend existing namespace; groups all messaging verbs together",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Peer namespace vs extending brc: should directed m...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T03:29:45.276051Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.15",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-16",
+        "question": "Overseer scope: ship mcp__overseer__query_status in iteration 2 or defer to iteration 3?",
+        "type": "hitl",
+        "phase": "plan",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Ship \u2014 minimal read-only view over GET /api/v1/pipelines/<pid>/status (Recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Defer \u2014 no immediate consumer; mark human-operator-only for now and file a follow-up issue",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Ship richer \u2014 include overseer recent-alerts list and per-phase respawn history",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Overseer scope: ship mcp__overseer__query_status i...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T03:29:45.305789Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.16",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-17",
+        "question": "task_mark_gap storage shape: append to task notes (recommended), first-class gaps[] field on the task, or directed peer message only?",
+        "type": "hitl",
+        "phase": "plan",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Append-to-notes via /api/v1/contract/mutate, prefixed [GAP from <role> @ <ts>] \u2014 no schema change (Recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "First-class gaps[] field on task \u2014 cleaner query surface but requires gateway + contract-schema migration",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Directed peer message only \u2014 no contract state; tester\u2192coder DM with convention-tagged subject",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: task_mark_gap storage shape: append to task notes ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T03:29:45.346557Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.17",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-18",
+        "question": "Shipping shape: one PR covering all ~16 iteration-2 verbs, or split by namespace (5 PRs)?",
+        "type": "hitl",
+        "phase": "plan",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "One PR \u2014 follows iteration 1's shape; single coordinated release (Recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "5 PRs \u2014 one per namespace (peer, checkpoint, anchor, contract+task+phase, overseer); smaller review surfaces",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "2 PRs \u2014 one for CLI-refactor verbs, one for net-new verbs",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Shipping shape: one PR covering all ~16 iteration-...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T03:29:56.191734Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.18",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-19",
+        "question": "Anchor CLI parity: update docs to point at mcp__anchor__* tools (recommended \u2014 there's no egg-orch anchor CLI today despite docs referencing it), or ship a thin egg-orch anchor CLI wrapping the same handlers?",
+        "type": "hitl",
+        "phase": "plan",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Update docs only \u2014 point orchestrator-cli.md and anchor-recovery.md at mcp__anchor__*; file a follow-up issue if human-operator CLI becomes useful (Recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Ship egg-orch anchor CLI \u2014 extract into sandbox/egg_lib/orch_cli.py; humans get a CLI and existing docs stay truthful",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Anchor CLI parity: update docs to point at mcp__an...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T03:29:56.223535Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.19",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-20",
+        "question": "Checkpoint handler layering: put handler logic in shared/egg_contracts/checkpoint_handlers.py (avoids shared\u2192sandbox import) or accept cross-package import and keep handlers in sandbox/egg_agent_tools/handlers/checkpoint.py?",
+        "type": "hitl",
+        "phase": "plan",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "shared/egg_contracts/checkpoint_handlers.py + sandbox re-export \u2014 avoids layering violation (Recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "sandbox/egg_agent_tools/handlers/checkpoint.py \u2014 accept cross-boundary import; checkpoint_cli.py imports from sandbox",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Leave handler logic inside shared/egg_contracts/checkpoint_cli.py next to cmd_* functions; both CLI and MCP tool import cmd_* helpers directly",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Checkpoint handler layering: put handler logic in ...",
       "checkpoint_id": null
     }
   ],
