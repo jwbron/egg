@@ -558,6 +558,18 @@ class TestReconcileOrphanedPendingPhase:
         assert pipeline.status == PipelineStatus.FAILED
         assert "implement" in pipeline.error
 
+    def test_save_failure_does_not_increment_recovered(self):
+        """If save_pipeline raises, recovered count is not incremented."""
+        pipeline = _make_pipeline_with_unspawned_phase()
+        store = _make_store(pipeline)
+        store.save_pipeline.side_effect = Exception("disk full")
+        docker_client = _make_docker_client([])
+
+        result = reconcile_stale_containers(store, docker_client)
+
+        assert result == 0
+        store.save_pipeline.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # AWAITING_HUMAN reconciliation tests

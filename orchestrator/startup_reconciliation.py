@@ -137,6 +137,10 @@ def reconcile_stale_containers(store: object, docker_client: object) -> int:
         # spawn loop leaves the row PENDING with `started_at=null` and
         # nothing to resume it (#2009).  Mark FAILED so operators see
         # something actionable instead of an indefinitely frozen pipeline.
+        #
+        # Note: a PENDING phase with agents but no containers is intentionally
+        # left to the container loop below — if agents were created, some
+        # spawn work started even if containers weren't registered yet.
         if (
             phase_execution.status == PipelineStatus.PENDING
             and phase_execution.started_at is None
