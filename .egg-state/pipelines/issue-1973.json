@@ -494,16 +494,16 @@
           "answer": ""
         }
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-24T20:10:43.824031Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-24T20:12:38.962418Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"No hard target for v1. Instrument the implementation to log (a) selected test count, (b) total test count, (c) selection compute time, (d) pytest wall time. Set a concrete target in a follow-up issue after we have baseline data from real branches — guessing a number now would either be trivially met or artificially constrain the design.\", \"Q2\": \"Defer exact enumeration to plan phase. Default rule to start from: any change under `shared/tests/` triggers a full-suite fallback (it's a small tree; safer to be coarse). Plan phase should refine this by inspecting which `shared/tests/` files are actually consumed as cross-package fixtures vs. being self-contained tests.\", \"Q3\": \"Accept the listed set (any conftest.py change, Makefile, pyproject.toml, uv.lock, .github/workflows/test.yml, dynamic-import-touched files, unresolvable baseline, non-.py changes per decision-6). Add: `.python-version` (interpreter pin). Nothing listed looks like overreach.\", \"Q4\": \"Yes, canary mode. Every 10th invocation on a branch forces a full suite (cheap silent-miss insurance). Cadence and keying (per-branch counter) settle in plan phase.\", \"Q5\": \"Intersect by default: narrow to the selected set, then apply user's `-k`/path args within that set. Bypass narrowing only when the user passes explicit test file paths (e.g. `make test PYTEST_ARGS='gateway/tests/test_specific.py'`) — that's an unambiguous dev override.\", \"Q6\": \"Yes, `--why <test>` that prints the import chain from changed module → test. Debuggability beats terseness; agents will need this.\", \"Q7\": \"Explicit trigger identification. 'Falling back: Makefile changed' is far more useful than 'Falling back' when an agent wonders why its narrow change pulled in the full suite.\", \"Q8\": \"Yes, leave a follow-up issue open for pytest-testmon experimentation once we have real static-selection miss-rate data. Do not close the door on dynamic selection.\", \"Q9\": \"Last-writer-wins is acceptable. Sidecar is per-branch; parallel sandboxes on the same branch are rare; both shas represent green states so neither is incorrect. No coordination needed.\", \"Q10\": \"Stay full-suite-only for integration/e2e/security in this PR. Those targets are explicitly out of scope per the issue. If narrowing them is valuable, it's a follow-up issue.\", \"Q11\": \"Create `docs/guides/testing.md` as the canonical doc. Add a one-line summary to `make help` output. Add a pointer from `CONTRIBUTING.md` (one line + link to the guide). Matches the existing docs/guides/ convention.\", \"Q12\": \"Confirmed: never update LKG on a partial (changeset-aware) pass. With sidecar + auto-update gated on `make test-all`, this invariant holds naturally.\", \"Q13\": \"Read-only agent phases (refiner, reviewer_*) always fall back to the base-branch baseline. They don't run `make test-all`, so they have no LKG to update, and reading a stale cross-sandbox sidecar would be more confusing than useful. Simpler.\", \"Q14\": \"Absent sidecar = 'no LKG, use base branch.' No bootstrap ceremony. Every branch starts without an LKG and advances its own as `make test-all` passes.\", \"Q15\": \"Both: human-readable log line to stderr on every `make test` invocation, plus a JSON record at `.egg-state/selection/<sha>.json` for post-hoc analysis. Structured log is cheap and pays off whenever something looks wrong.\", \"Q16\": \"`<branch>` key is sufficient for v1. Parallel worktrees on the same branch are rare enough that last-writer-wins (Q9) handles it. If we see pathological churn later, revisit with worktree-path keying.\"}}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-24T19:39:48.417158Z",
-  "updated_at": "2026-04-24T20:12:27.069360Z",
+  "updated_at": "2026-04-24T20:12:38.979279Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -517,6 +517,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 37,
+  "version": 38,
   "jira_ticket": null
 }
