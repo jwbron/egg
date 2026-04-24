@@ -303,10 +303,55 @@
       "resolution": "{\"action\": \"select\", \"selected\": \"Filter out DECISION_RESOLVED events from the trigger set — wait only on decisions that still need input\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-9",
+      "question": "Open feedback request feedback-1",
+      "context": "Open contract feedback feedback-1, registered by an agent during the refine phase.",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [
+        {
+          "id": "Q1",
+          "question": "Are there host-side consumers of `get_status` besides the SDLC skill's Phase 3 / Phase S5 monitor loop that should also benefit from event-driven wake (e.g. babysit-pr, agent-diagnose, external tools)? If so, does that push us toward Option B (retrofit) instead of Option A (sibling tool)?",
+          "answer": ""
+        },
+        {
+          "id": "Q2",
+          "question": "What is the expected concurrency load? Specifically: how many host sessions per orchestrator in production, and does the current EGG_ORCH_WAITRESS_THREADS=16 budget accommodate one long-poll per host session on top of per-agent waits?",
+          "answer": ""
+        },
+        {
+          "id": "Q3",
+          "question": "Should `wait_for_status_change` also be available as an in-process SDK MCP tool (see PR #1920) as well as the streamable-HTTP MCP server, or only the latter?",
+          "answer": ""
+        },
+        {
+          "id": "Q4",
+          "question": "Is the 60-second liveness-floor constraint from the issue body literal (must guarantee a return at most every 60s of wall-clock time regardless of events) or aspirational (cap any single call at 25s and rely on loop composition to bound aggregate quiet time)?",
+          "answer": ""
+        },
+        {
+          "id": "Q5",
+          "question": "Should the new wait path emit its own metric (parallel to `egg_inflight_long_polls`) so operators can distinguish host-side waits from sandbox-side waits when investigating a saturated Waitress thread pool?",
+          "answer": ""
+        },
+        {
+          "id": "Q6",
+          "question": "Are there known upstream plans or timelines to raise the streamable-HTTP MCP client timeout (anthropics/claude-code#20335)? If it lifts within the next quarter, the 25s cap becomes moot and the design may want to accommodate that.",
+          "answer": ""
+        }
+      ],
+      "status": "pending",
+      "created_at": "2026-04-24T03:13:40.188052Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:08:18.054872Z",
-  "updated_at": "2026-04-24T03:13:39.586373Z",
+  "updated_at": "2026-04-24T03:13:40.202834Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -320,5 +365,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 26
+  "version": 27
 }
