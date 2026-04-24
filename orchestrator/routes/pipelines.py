@@ -5495,7 +5495,7 @@ def _pr_metadata_from_plan_draft(
     worktree_repo_path: Path,
     issue_number: int | None,
     pipeline_id: str,
-) -> tuple[str | None, str, str, str]:
+) -> tuple[str | None, str, str, str, list[str], str | None]:
     """Parse PR metadata from the plan draft on disk.
 
     Used as a fallback in ``_build_pr_body`` when ``contract.pr`` is not
@@ -5503,16 +5503,24 @@ def _pr_metadata_from_plan_draft(
     branch tip (see #1829). The plan draft itself is reliably on the
     branch even when the contract is not.
 
-    Returns ``(title, description, test_plan, manual_steps)``; ``title``
-    is ``None`` when the draft is missing, unparseable, or has no ``pr:``
-    block, signalling the caller to fall through to the next tier.
+    Returns ``(title, description, test_plan, manual_steps, warnings,
+    draft_rel_path)``. ``title`` is ``None`` when the draft is missing,
+    unparseable, or has no ``pr:`` block, signalling the caller to fall
+    through to the next tier. ``warnings`` is a list of
+    human-readable parse warning strings collected from ``parse_plan``
+    (empty when the parse was clean or the draft was absent); it is
+    surfaced in the PR body when the caller falls through to the stub
+    tier so reviewers can see what went wrong (see #1975).
+    ``draft_rel_path`` is the relative path to the draft that was
+    parsed, or ``None`` if no draft was attempted.
     """
+    warnings_out: list[str] = []
     draft_rel = _get_draft_path("plan", issue_number=issue_number, pipeline_id=pipeline_id)
     if not draft_rel:
-        return None, "", "", ""
+        return None, "", "", "", warnings_out, None
     plan_path = worktree_repo_path / draft_rel
     if not plan_path.exists():
-        return None, "", "", ""
+        return None, "", "", "", warnings_out, draft_rel
     try:
         from egg_contracts.plan_parser import parse_plan
 
@@ -5523,21 +5531,29 @@ def _pr_metadata_from_plan_draft(
             path=str(plan_path),
             error=str(e),
         )
-        return None, "", "", ""
+        warnings_out.append(f"parse_plan raised: {e}")
+        return None, "", "", "", warnings_out, draft_rel
+    for w in result.warnings:
+        msg = w.message
+        if w.context:
+            msg = f"{msg} ({w.context})"
+        warnings_out.append(msg)
     if not result.pr_title:
-        return None, "", "", ""
+        return None, "", "", "", warnings_out, draft_rel
     return (
         result.pr_title,
         result.pr_description or "",
         result.pr_test_plan or "",
         result.pr_manual_steps or "",
+        warnings_out,
+        draft_rel,
     )
 
 
 def _build_pr_body(
     pipeline: Pipeline,
     worktree_repo_path: Path,
-) -> tuple[str, str]:
+) -> tuple[str, str, bool]:
     """Build a PR title and body from contract state.
 
     Uses the planner-generated PR metadata from the contract when available,
@@ -5551,7 +5567,11 @@ def _build_pr_body(
         worktree_repo_path: Path to the worktree repo directory
 
     Returns:
-        Tuple of (title, body)
+        Tuple of (title, body, used_stub_fallback).  ``used_stub_fallback``
+        is True when neither the contract nor the plan draft produced a
+        PR title and the implementation dropped through to the issue
+        title / generic stub (see #1975).  Callers use this to mark the
+        PR as draft so reviewers notice the planner metadata is missing.
     """
     identifier = _pipeline_identifier(pipeline.issue_number, pipeline.id)
     pr_title: str | None = None
@@ -5559,6 +5579,9 @@ def _build_pr_body(
     pr_test_plan: str = ""
     pr_manual_steps: str = ""
     issue_title: str | None = None
+    plan_draft_warnings: list[str] = []
+    plan_draft_path: str | None = None
+    parsed_plan_draft: bool = False
 
     # Tier 1: load PR metadata from the contract (populated by the plan agent).
     # Contracts are keyed by pipeline_id after key unification (#1773).
@@ -5584,7 +5607,15 @@ def _build_pr_body(
     # metadata.  The draft is reliably on the branch even when the
     # contract write didn't land (#1829).
     if not pr_title:
-        draft_title, draft_desc, draft_test_plan, draft_manual_steps = _pr_metadata_from_plan_draft(
+        parsed_plan_draft = True
+        (
+            draft_title,
+            draft_desc,
+            draft_test_plan,
+            draft_manual_steps,
+            plan_draft_warnings,
+            plan_draft_path,
+        ) = _pr_metadata_from_plan_draft(
             worktree_repo_path,
             issue_number=pipeline.issue_number,
             pipeline_id=pipeline.id,
@@ -5596,11 +5627,38 @@ def _build_pr_body(
             pr_manual_steps = draft_manual_steps
 
     # Tier 3: issue title, then generic stub
+    used_stub_fallback = False
     if not pr_title:
+        used_stub_fallback = True
         pr_title = issue_title or f"Implementation for pipeline {pipeline.id}"
 
     # Assemble body
     body_parts: list[str] = []
+
+    # Fallback banner: when tier-3 fired, surface the failure loudly on
+    # the PR itself so reviewers don't silently merge a PR whose title is
+    # just "Issue #N" (see #1975). Parse warnings from the tier-2
+    # attempt (if any) are listed verbatim so the reader can see the
+    # specific yaml-tasks problem instead of only finding it in
+    # orchestrator logs.
+    if used_stub_fallback:
+        banner_lines = [
+            "> ⚠️ **Automated PR metadata fell back to the issue title.**",
+            "> The plan draft's `pr:` block was missing or could not be parsed,",
+            "> so this PR body is a stub. Opened as a draft to block merge.",
+        ]
+        if plan_draft_path:
+            banner_lines.append(f"> Draft: `{plan_draft_path}`")
+        if plan_draft_warnings:
+            banner_lines.append("> Parse warnings:")
+            for msg in plan_draft_warnings:
+                banner_lines.append(f"> - {msg}")
+        elif parsed_plan_draft and plan_draft_path:
+            banner_lines.append("> No `pr.title` found in the plan draft's yaml-tasks block.")
+        elif parsed_plan_draft and not plan_draft_path:
+            banner_lines.append("> No plan draft was found on disk.")
+        banner_lines.append("> Repair the plan draft and re-run `populate_contract` (see #1974).")
+        body_parts.append("\n".join(banner_lines))
 
     if pr_description:
         body_parts.append(pr_description)
@@ -5637,7 +5695,7 @@ def _build_pr_body(
 
     body = "\n\n".join(body_parts)
 
-    return pr_title, body
+    return pr_title, body, used_stub_fallback
 
 
 def _auto_create_pr(
@@ -5672,7 +5730,18 @@ def _auto_create_pr(
     if not base:
         base = get_default_branch(worktree_repo_path)
 
-    title, body = _build_pr_body(pipeline, worktree_repo_path)
+    title, body, used_stub_fallback = _build_pr_body(pipeline, worktree_repo_path)
+
+    # Force draft when PR metadata fell through to the generic stub
+    # (see #1975).  A draft PR is the loudest signal GitHub offers to
+    # stop a human from silently merging a planner-broken PR whose
+    # title is just "Issue #N".
+    draft = (gateway_mode == "private") or used_stub_fallback
+    if used_stub_fallback:
+        logger.warning(
+            "Auto PR opened as draft: planner metadata fallback used",
+            pipeline_id=pipeline.id,
+        )
 
     try:
         pr_url = spawner.gateway.create_pr(
@@ -5685,7 +5754,7 @@ def _auto_create_pr(
             issue_number=pipeline.issue_number,
             agent_role="orchestrator",
             mode=gateway_mode,
-            draft=(gateway_mode == "private"),
+            draft=draft,
         )
         return pr_url
     except Exception as e:

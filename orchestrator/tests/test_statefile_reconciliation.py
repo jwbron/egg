@@ -244,7 +244,7 @@ class TestEnsureStatefilesFallbackToPipelineModel:
         assert plan_path.read_text() == SAMPLE_PLAN
 
         # Verify contract has PR metadata from the plan
-        title, body = _build_pr_body(pipeline, tmp_path)
+        title, body, _ = _build_pr_body(pipeline, tmp_path)
         assert title == "Add retry logic to API client"
         assert "exponential backoff" in body
 
