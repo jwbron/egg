@@ -343,8 +343,8 @@ deserves its own review (see Q6). A separate, smaller PR is cleaner.
 
 ## Open Questions
 
-All questions below are **registered on the contract** (13 decisions +
-1 feedback request with 4 sub-questions = 17 open items for the human).
+All questions below are **registered on the contract** (14 decisions +
+1 feedback request with 4 sub-questions = 18 open items for the human).
 
 | ID | Question | Shape |
 |---|---|---|
@@ -361,10 +361,44 @@ All questions below are **registered on the contract** (13 decisions +
 | decision-11 | Rule-doc drift gate (two-way / one-way / skip) | multi-choice |
 | decision-12 | Tool-timeout contingencies (paginate / triplet / accept 60s) | multi-choice |
 | decision-13 | CLI-counterpart policy for no-CLI capabilities | multi-choice |
+| decision-14 | `mcp__brc__send_message`/`poll_messages` semantics vs future REQUEST/REPLY subsystem | multi-choice |
 | feedback-1 Q1 | Documenter/doc-updater scope — which docs need updates? | open-ended |
 | feedback-1 Q2 | Acceptance metric shape for iter 2 | open-ended |
 | feedback-1 Q3 | Any verbs iter 1 surfaced as unfinished that this analysis missed? | open-ended |
 | feedback-1 Q4 | Publish an explicit human-operator-only list (AC1.b)? | open-ended |
+
+### Plan-phase carry-over notes (from reviewer_refine non-blocking feedback)
+
+- **Option C split-trigger** (concretised): split to Option C if
+  decision-2 resolves to `opt-2` (add CLI first) OR decision-4 resolves
+  to `opt-1` (new endpoint + new contract field). Both require
+  pre-MCP orchestrator work that naturally fences off into PR-2b.
+- **Rule-doc phantom-anchor-CLI retraction**: if decision-2 resolves to
+  `opt-1` (REST-wrap with `cli_command=None`),
+  `sandbox/agent-config/rules/orchestrator.md:20-24` must be rewritten
+  to point at `mcp__anchor__*` and explicitly retract the
+  `egg-orch anchor init/update/show/validate/cleanup` references.
+- **Docs-refresh must-include** for `feedback-1 Q1`:
+  `docs/reference/agent-tools.md` lines 25, 39, 41, 126 (all "15 tools"
+  claims) and line 293 ("15 additional verbs" prose) all need
+  refreshing as iter 2 merges.
+- **`task_mark_gap` as potential sub-issue**: if decision-4 resolves to
+  `opt-1` or `opt-3`, plan phase should consider filing a dedicated
+  sub-issue so the endpoint/contract-field design work does not
+  silently block the iter-2 PR.
+- **P0 task decomposition hint**: `task_add_commit` and
+  `task_update_notes` share a handler shape (both write the `tasks[]`
+  entry on the contract) and can likely be one task in the task
+  planner's decomposition.
+- **Close-proximity completion verbs**: `mcp__task__complete`,
+  `mcp__phase__complete_phase`, and `mcp__task__add_commit` need tool
+  `description` fields that explicitly name their state-machine effect
+  (same spirit as #1944) so an agent picks correctly without
+  re-deriving the taxonomy.
+- **`mcp__sdlc__show_contract` payload shape**: live contracts can
+  accumulate to many KB; plan phase should consider optional
+  field-projection (`fields=["decisions","current_phase"]`) keeping
+  the full dump as an opt-in.
 
 ---
 
