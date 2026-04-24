@@ -223,10 +223,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-24T20:10:43.095276Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-24T20:12:06.322048Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Static reverse import-graph via `grimp` (maintained, Rust-backed, has `find_downstream_modules`; adds one dev dep) — recommended\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -503,7 +503,7 @@
     }
   ],
   "created_at": "2026-04-24T19:39:48.417158Z",
-  "updated_at": "2026-04-24T20:12:04.035909Z",
+  "updated_at": "2026-04-24T20:12:06.344678Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -517,6 +517,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 27,
+  "version": 28,
   "jira_ticket": null
 }
