@@ -201,16 +201,16 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-24T03:09:12.094509Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-24T03:09:46.517392Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Defer anchor verbs to a third iteration — too much scope for iter 2; keep the REST-only story as-is\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:10:06.375518Z",
-  "updated_at": "2026-04-24T03:09:12.108024Z",
+  "updated_at": "2026-04-24T03:09:46.532463Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -224,5 +224,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 15
+  "version": 16
 }
