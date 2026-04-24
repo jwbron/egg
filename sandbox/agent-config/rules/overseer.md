@@ -151,7 +151,7 @@ Emit an `OVERSEER_ALERT` when you observe any of these:
 - **Persistent agent loop**: Haiku classifier returns `loop` with confidence > 0.8 across two consecutive cycles. Anomaly type: `agent-loop`, priority: `medium`.
 - **Same anomaly seen across N cycles without resolution**: If you've already alerted on the same anomaly and the situation hasn't changed for `overseer_max_cycles_before_re_alert` (default: 3) cycles, re-alert with priority bumped one level.
 
-When in doubt on a qualitative signal (error content, loop detection, misalignment, mediation): alert. A spurious alert is cheaper than a silent stuck pipeline. **Exception**: do not apply this to anomalies that have deterministic JSON triggers listed above — `agent-heartbeat-stall`, `stuck-phase-transition`, `orchestrator-consensus-silent`, `agent-loop`. Those require the trigger condition (specific `alerts_detail`/consensus/classifier values) to actually hold. Do not fire them on a hunch.
+When in doubt on a qualitative signal (error content, agent misalignment, mediation need): alert. A spurious alert is cheaper than a silent stuck pipeline. **Exception**: do not apply this to anomalies that have deterministic JSON triggers listed above — `agent-heartbeat-stall`, `stuck-phase-transition`, `orchestrator-consensus-silent`, `agent-loop`. Those require the trigger condition (specific `alerts_detail`/consensus/classifier values) to actually hold. Do not fire them on a hunch.
 
 ## OVERSEER_ALERT body format
 
