@@ -397,11 +397,12 @@ deploy: k3s-secrets  ## Deploy egg to k3s
 	}
 	export KUBECONFIG=$${KUBECONFIG:-/etc/rancher/k3s/k3s.yaml} && \
 	export EGG_HOST_HOME="$${EGG_HOST_HOME:-$$HOME}" && \
-	export EGG_HOST_REPOS_DIR="$${EGG_HOST_REPOS_DIR:-$$EGG_HOST_HOME/khan}" && \
+	export EGG_HOST_REPO_MAP="$${EGG_HOST_REPO_MAP:-$$(scripts/build-host-repo-map.py)}" && \
 	echo "  EGG_HOST_HOME=$$EGG_HOST_HOME" && \
-	echo "  EGG_HOST_REPOS_DIR=$$EGG_HOST_REPOS_DIR" && \
+	echo "  EGG_HOST_REPO_MAP=$$EGG_HOST_REPO_MAP" && \
 	kubectl kustomize k8s/overlays/local/ | \
-		envsubst '$$EGG_HOST_HOME $$EGG_HOST_REPOS_DIR' | \
+		envsubst '$$EGG_HOST_HOME $$EGG_HOST_REPO_MAP' | \
+		sed -E "s|^(\s*value: )(\{.*\})$$|\1'\2'|" | \
 		sed -e "s|egg-orchestrator:latest|egg-orchestrator:$(EGG_IMAGE_TAG)|g" \
 		    -e "s|egg-gateway:latest|egg-gateway:$(EGG_IMAGE_TAG)|g" \
 		    -e "s|egg-sandbox:latest|egg-sandbox:$(EGG_IMAGE_TAG)|g" | \
