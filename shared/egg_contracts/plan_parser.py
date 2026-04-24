@@ -299,7 +299,9 @@ def parse_yaml_frontmatter(content: str) -> tuple[dict[str, Any] | None, str]:
         return None, content
 
 
-def parse_tasks_from_yaml(yaml_data: dict[str, Any]) -> list[ParsedTask]:
+def parse_tasks_from_yaml(
+    yaml_data: dict[str, Any],
+) -> tuple[list[ParsedTask], list[ParseWarning]]:
     """
     Parse tasks from YAML front matter (legacy flat task list format).
 
@@ -307,15 +309,17 @@ def parse_tasks_from_yaml(yaml_data: dict[str, Any]) -> list[ParsedTask]:
         yaml_data: Parsed YAML data
 
     Returns:
-        List of ParsedTask objects
+        Tuple of (list of ParsedTask objects, list of ParseWarning objects)
     """
     tasks = []
+    warnings: list[ParseWarning] = []
     task_list = yaml_data.get("tasks", [])
 
     for task_data in task_list:
         task_id = task_data.get("id", "")
         # Parse task ID: TASK-{phase}-{number}
-        match = re.match(r"TASK-(\d+)-(\d+)", task_id, re.IGNORECASE)
+        # Anchored to end-of-string — see #1988.
+        match = re.match(r"TASK-(\d+)-(\d+)\Z", task_id, re.IGNORECASE)
         if match:
             phase_num = int(match.group(1))
             task_num = int(match.group(2))
@@ -337,8 +341,16 @@ def parse_tasks_from_yaml(yaml_data: dict[str, Any]) -> list[ParsedTask]:
                     files_affected=files,
                 )
             )
+        else:
+            warnings.append(
+                ParseWarning(
+                    line_number=None,
+                    message=f"Task ID '{task_id}' doesn't match pattern TASK-N-N, skipping",
+                    context=f"Description: {task_data.get('description', 'none')}",
+                )
+            )
 
-    return tasks
+    return tasks, warnings
 
 
 def parse_phases_from_yaml(
@@ -495,7 +507,9 @@ def parse_phases_from_yaml(
                 files = []
 
             # Parse task ID: TASK-{phase}-{number}
-            id_match = re.match(r"TASK-(\d+)-(\d+)", str(task_id), re.IGNORECASE)
+            # Anchor to end-of-string so IDs like TASK-1-3A don't silently
+            # match as (1, 3) and collide with TASK-1-3B.  See #1988.
+            id_match = re.match(r"TASK-(\d+)-(\d+)\Z", str(task_id), re.IGNORECASE)
             if id_match:
                 task_phase = int(id_match.group(1))
                 task_num = int(id_match.group(2))
@@ -553,6 +567,22 @@ def parse_phases_from_yaml(
                     role=role,
                 )
             )
+
+        # Sanity check: flag duplicate contract ids within this phase so a
+        # silent collision can't ship (see #1988).  Task.id pattern accepts
+        # duplicates, so Pydantic won't catch this on its own.
+        seen_contract_ids: set[str] = set()
+        for pt in parsed_tasks:
+            contract_id = f"task-{pt.phase_number}-{pt.task_number}"
+            if contract_id in seen_contract_ids:
+                warnings.append(
+                    ParseWarning(
+                        line_number=None,
+                        message=f"Duplicate task id '{contract_id}' in phase {phase_num}",
+                        context=f"Source task ID: {pt.id}",
+                    )
+                )
+            seen_contract_ids.add(contract_id)
 
         phases.append(
             ParsedPhase(
@@ -850,7 +880,8 @@ def parse_plan(content: str) -> ParseResult:
         frontmatter_yaml, markdown_content = parse_yaml_frontmatter(content)
         if frontmatter_yaml and "tasks" in frontmatter_yaml:
             yaml_data = frontmatter_yaml
-            tasks = parse_tasks_from_yaml(frontmatter_yaml)
+            tasks, yaml_warnings = parse_tasks_from_yaml(frontmatter_yaml)
+            warnings.extend(yaml_warnings)
 
             # Parse phases from markdown
             phases = parse_phases_from_markdown(markdown_content)
