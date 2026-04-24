@@ -42,10 +42,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option B \u2014 full audit (~15 verbs across contract/checkpoint/peer/anchor/overseer/task-gap); one PR (Recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:09:12.079217Z",
       "debounce_until": null
     },
     {
@@ -75,10 +75,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Defer anchor verbs to a third iteration \u2014 too much scope for iter 2; keep the REST-only story as-is\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:09:47.330799Z",
       "debounce_until": null
     },
     {
@@ -113,10 +113,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Core 3: list, show, search \u2014 the verbs agents most likely need on the hot path\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:10:22.570677Z",
       "debounce_until": null
     },
     {
@@ -151,10 +151,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"No-CLI new capability (like brc_read_peer_artifact) \u2014 ship it MCP-only with cli_command=None; operators don't need it\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:10:57.855070Z",
       "debounce_until": null
     },
     {
@@ -184,10 +184,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Hybrid \u2014 add a new namespace only when the semantic group has >2 verbs (so: `checkpoint`, `anchor` likely yes; `overseer`/`peer` fold into existing namespaces)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:11:33.270244Z",
       "debounce_until": null
     },
     {
@@ -217,10 +217,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Separate follow-up PR after iter 2 \u2014 keep iter-2 scope focused on verb additions, not shape changes to existing tools\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:12:08.916678Z",
       "debounce_until": null
     },
     {
@@ -250,10 +250,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Gateway already enforces \u2014 handler just forwards; document the role requirement on the tool description so agents self-select\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:12:44.315317Z",
       "debounce_until": null
     },
     {
@@ -283,10 +283,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Local .egg-state/brc-history/*.json files \u2014 simplest; no new endpoint; matches where reviewers dig today\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:13:19.694085Z",
       "debounce_until": null
     },
     {
@@ -316,10 +316,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Keep the flag for iter-2 burn-in and remove in a third follow-up \u2014 same stepped rollout iter 1 used\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:13:55.055130Z",
       "debounce_until": null
     },
     {
@@ -349,10 +349,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Still defer \u2014 EGG_HARNESS=egg remains experimental; agents on that path keep shelling out\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:14:30.450434Z",
       "debounce_until": null
     },
     {
@@ -382,10 +382,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Add a CI test symmetric with SYSTEM_PROMPT_NUDGE drift: every `Prefer this over ...` entry in the rule docs must point at a registered tool, and every tool with a CLI counterpart must have a rule-doc entry (two-way)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:15:05.880162Z",
       "debounce_until": null
     },
     {
@@ -415,10 +415,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Paginate output by default \u2014 add `limit` / `cursor` params that keep any single call under 60s; agents page explicitly when needed\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:15:41.151727Z",
       "debounce_until": null
     },
     {
@@ -448,10 +448,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Allow cli_command=None but require a docstring rationale explaining why no CLI exists; document the pattern in agent-tools.md\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:16:16.579657Z",
       "debounce_until": null
     },
     {
@@ -486,10 +486,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Defer both verbs \u2014 agents already have mcp__brc__wait_for_event / wait_loop / send_heartbeat from iter 1 + #1897; directed send/poll wait for the REQUEST/REPLY subsystem\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-24T03:16:51.900069Z",
       "debounce_until": null
     }
   ],
@@ -1171,27 +1171,27 @@
       {
         "id": "Q1",
         "question": "Documenter/doc-updater scope: which docs need updates in iter 2? (Examples to consider: docs/reference/agent-tools.md tool inventory table; docs/releases/agent-mcp-tools.md changelog; sandbox/agent-config/rules/contract.md; sandbox/agent-config/rules/orchestrator.md; sandbox/egg_lib/data/hitl_editing_rules.md; any checkpoint/anchor/overseer rule files. Please list the authoritative set.)",
-        "answer": null
+        "answer": "Authoritative docs set for iter-2 updates: (1) docs/reference/agent-tools.md \u2014 tool inventory table + the '15 tools' claims on lines 25/39/41/126/293 need refreshing to reflect the post-iter-2 count; (2) docs/releases/agent-mcp-tools.md \u2014 append an iter-2 changelog entry; (3) sandbox/agent-config/rules/contract.md \u2014 add 'Prefer mcp__* over ...' entries for the new contract-surface verbs (show_contract, task.add_commit/update_notes, phase.complete_phase, sdlc.verify_criterion); (4) sandbox/agent-config/rules/orchestrator.md \u2014 rewrite lines 20-24 to retract the phantom `egg-orch anchor *` CLI references, now that anchor is deferred; (5) sandbox/egg_lib/data/hitl_editing_rules.md \u2014 add entries for any new HITL-adjacent verbs; (6) a new sandbox/agent-config/rules/checkpoint.md rule file if the `checkpoint` namespace lands. Plan phase should produce a per-doc diff enumeration as a documenter-role task."
       },
       {
         "id": "Q2",
         "question": "Acceptance metric shape: iter 1 tracked `mcp__* in first N turns` as the success metric. Should iter 2 track the same metric against the new verbs (e.g. `zero Bash egg-contract show in a refine-phase reviewer`), invent a new per-phase metric, or skip metrics and rely on checkpoint-browser manual review?",
-        "answer": null
+        "answer": "Track the same metric iter 1 used (`mcp__* in first N turns`) against the new verbs, plus one specific negative check: zero `Bash egg-contract show` calls in a refine-phase reviewer checkpoint post-iter-2. Don't invent new per-phase metrics \u2014 consistency with iter-1's success signal is more valuable than perfect per-verb coverage. Checkpoint-browser manual review remains the fallback."
       },
       {
         "id": "Q3",
         "question": "Any verbs iter 1 surfaced as unfinished that this analysis missed? If iteration 1's burn-in revealed additional audit verbs not captured in .egg-state/drafts/1765-analysis.md:317-335, please list them so iter 2's scope captures them.",
-        "answer": null
+        "answer": "None identified beyond the capability audit at .egg-state/drafts/1765-analysis.md:317-335. Plan phase should verify against iter-1 burn-in checkpoints (any `Bash egg-*` calls from iter-1-enabled pipelines that do NOT correspond to a verb in this iter-2 scope indicate a missed audit entry). If plan finds new verbs, file them as a third-iteration sub-issue rather than expanding iter-2 scope."
       },
       {
         "id": "Q4",
         "question": "Explicit human-operator-only list: should iter 2 publish a named list of CLIs/subcommands that are deliberately NOT wrapped (for example: egg-orch health/pipeline/container/gateway/env/decision; egg-contract populate/validate/agent-*; egg-orch consensus withdraw) \u2014 per AC1.b \u2014 or leave their absence unmentioned?",
-        "answer": null
+        "answer": "Yes \u2014 publish an explicit human-operator-only list per AC1.b in docs/reference/agent-tools.md. Starting set from the analysis: egg-orch health/pipeline/container/gateway/env/decision (operator debug); egg-contract populate/validate/agent-{status,start,complete,fail,next} (orchestrator-driven, not agent-driven); egg-orch consensus withdraw/message status (rare debug). Each entry needs a one-line rationale. This closes the audit loop (AC1.b) and makes future drift auditable."
       }
     ],
-    "submitted": false,
-    "submitted_by": null,
-    "submitted_at": null,
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-04-24T03:17:37.360205Z",
     "comment_id": null,
     "debounce_until": null
   },
