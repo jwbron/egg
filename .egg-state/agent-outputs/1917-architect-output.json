@@ -2,8 +2,8 @@
   "issue": 1917,
   "phase": "plan",
   "agent": "architect",
-  "title": "Ship iteration 2 of agent-facing MCP tools — 11 verbs, hybrid namespace strategy, reuses iter-1 mechanism verbatim",
-  "summary": "Architectural analysis for iteration 2 of the agent-facing MCP tool surface, aligned to the 14 refine-phase HITL resolutions in `.egg-state/contracts/issue-1917.json`. Scope is 11 verbs across 4 existing namespaces plus 1 new `checkpoint` namespace (hybrid strategy per decision-5): `mcp__sdlc__show_contract`, `mcp__sdlc__verify_criterion`, `mcp__task__add_commit`, `mcp__task__update_notes`, `mcp__task__mark_gap`, `mcp__phase__complete_phase`, `mcp__brc__read_peer_artifact`, `mcp__brc__overseer_alert`, `mcp__checkpoint__list`, `mcp__checkpoint__show`, `mcp__checkpoint__search`. Anchor (3 verbs) is deferred to iter 3 per decision-2; directed peer messaging (send/poll) is deferred per decision-14 pending the REQUEST/REPLY subsystem. This PR reuses the iter-1 mechanism verbatim (handler/@tool split, asyncio.to_thread, GatewayError discipline, cli_command-backed drift test, EGG_MCP_TOOLS kill switch) and adds a new two-way rule-doc drift gate per decision-11.",
+  "title": "Ship iteration 2 of agent-facing MCP tools — 12 verbs, hybrid namespace strategy, reuses iter-1 mechanism verbatim",
+  "summary": "Architectural analysis for iteration 2 of the agent-facing MCP tool surface, aligned to the 14 refine-phase HITL resolutions in `.egg-state/contracts/issue-1917.json`. Scope is 12 verbs across 4 existing namespaces plus 1 new `checkpoint` namespace (hybrid strategy per decision-5): `mcp__sdlc__show_contract`, `mcp__sdlc__verify_criterion`, `mcp__task__add_commit`, `mcp__task__update_notes`, `mcp__task__mark_gap`, `mcp__phase__complete_phase`, `mcp__phase__query_pipeline_status`, `mcp__brc__read_peer_artifact`, `mcp__brc__overseer_alert`, `mcp__checkpoint__list`, `mcp__checkpoint__show`, `mcp__checkpoint__search`. Anchor (3 verbs) is deferred to iter 3 per decision-2; directed peer messaging (send/poll) is deferred per decision-14 pending the REQUEST/REPLY subsystem. This PR reuses the iter-1 mechanism verbatim (handler/@tool split, asyncio.to_thread, GatewayError discipline, cli_command-backed drift test, EGG_MCP_TOOLS kill switch) and adds a new two-way rule-doc drift gate per decision-11. Rev 2: adds `mcp__phase__query_pipeline_status` (the audit's `overseer_query_status` slot, missed by rev 1 per reviewer_plan NACK); commits decision-20 to Option A (shared/ handler file) unconditionally; adds gateway-authz dependency + path-traversal + AC1.b docs-requirements sections.",
   "coordination_note": "This architect output is a supplementary architectural artifact alongside the task_planner's concrete plan at `.egg-state/drafts/1917-plan.md` (which already lists the 11 verbs, 6 phases, and yaml-tasks). The architect output focuses on the WHY (design rationale grounded in existing file/line citations, mechanism reuse, drift-gate extension) and the HOW-DETAILS (handler layering, schema strategy, pagination shape, error model) so implement-phase agents can reconcile architectural trade-offs without re-deriving them. Scope decisions 1–14 were resolved at the refine HITL gate; this output does not re-litigate them.",
 
   "iteration_1_context": {
@@ -20,8 +20,8 @@
         "task": ["complete"]
       },
       "grounding": [
-        "Registrations aggregated by `sandbox/egg_agent_tools/tools/__init__.py::_register_all()` (line 30-46)",
-        "Wired into the agent in `shared/egg_agent/client.py::run_agent_async` when `EGG_MCP_TOOLS` is not falsy",
+        "Registrations aggregated by `sandbox/egg_agent_tools/tools/__init__.py::_register_all()` (def at line 32, iterates per-namespace modules through line 46; verified against current HEAD)",
+        "Wired into the agent in `shared/egg_agent/client.py::run_agent_async` when `EGG_MCP_TOOLS` is not falsy (verified: line 223 reads the env var, lines 231-235 call `build_sandbox_mcp_server()` and merge into `options.mcp_servers`)",
         "Handlers under `sandbox/egg_agent_tools/handlers/{brc,message,phase,progress,sdlc,task}.py` raise `GatewayError`/`HandlerError`",
         "Drift gate: `tests/tools/test_mcp_cli_drift.py` asserts every tool with `cli_command` dispatches the same handler object as the CLI cmd_*",
         "Prompt nudge generated programmatically from `TOOL_NAMESPACES` in `sandbox/egg_agent_tools/server.py::_render_nudge()`; symmetric drift enforced by `test_server.py::test_prompt_nudge_drift`"
@@ -49,8 +49,8 @@
     ]
   },
 
-  "scope_11_verbs": {
-    "total": 11,
+  "scope_12_verbs": {
+    "total": 12,
     "by_phase_in_plan": {
       "phase_1_p0_closes_1955": [
         {"name": "mcp__sdlc__show_contract", "cli_counterpart": ["egg-contract", "show"], "handler_source": "sandbox/egg_lib/contract_cli.py::cmd_show (line 342)", "namespace_choice_rationale": "decision-5 hybrid — sdlc namespace already exists and show_contract is contract-level; adds only 1 verb to sdlc (still ≤4 total), no new namespace needed"},
@@ -60,8 +60,11 @@
         {"name": "mcp__sdlc__verify_criterion", "cli_counterpart": ["egg-contract", "verify-criterion"], "handler_source": "sandbox/egg_lib/contract_cli.py::cmd_verify_criterion (line 717)", "role_gating": "decision-7 — handler just forwards; gateway 403s non-REVIEWER callers; tool description names the role requirement"}
       ],
       "phase_2_p1_brc_extensions": [
-        {"name": "mcp__brc__read_peer_artifact", "cli_counterpart": null, "handler_source": "NEW handler reading `.egg-state/brc-history/<identifier>-<phase>.json` — file shape at orchestrator/routes/pipelines.py::_write_brc_history line 5125; reviewer dig-pattern today", "decision_8": "Local files, no new endpoint", "pagination": "limit default 50, cursor opaque (decision-12)", "rationale_docstring": "Required per decision-13 — the handler docstring explains why no CLI exists"},
-        {"name": "mcp__brc__overseer_alert", "cli_counterpart": ["egg-orch", "overseer", "alert"], "handler_source": "sandbox/egg_lib/orch_cli.py::cmd_overseer_alert (line 1390)", "namespace_choice_rationale": "decision-5 hybrid — overseer has only 1 verb in iter 2; folds into brc (broadcasts a typed message to the consensus channel) rather than warrant its own namespace"}
+        {"name": "mcp__brc__read_peer_artifact", "cli_counterpart": null, "handler_source": "NEW handler reading `.egg-state/brc-history/<identifier>-<phase>.json` — file shape at orchestrator/routes/pipelines.py::_write_brc_history line 5125; reviewer dig-pattern today", "decision_8": "Local files, no new endpoint", "pagination": "limit default 50, cursor opaque (decision-12)", "rationale_docstring": "Required per decision-13 — the handler docstring explains why no CLI exists", "security_requirement": "Path traversal hardening — handler MUST canonicalize the target filename via Path(...).resolve() and assert the resolved path starts with the canonical `.egg-state/brc-history/` directory. A pipeline_id argument containing `../` or an absolute path must raise HandlerError without touching the filesystem. This closes the R2 path-traversal risk flagged by risk_analyst (medium/medium)."},
+        {"name": "mcp__brc__overseer_alert", "cli_counterpart": ["egg-orch", "overseer", "alert"], "handler_source": "sandbox/egg_lib/orch_cli.py::cmd_overseer_alert (line 1390)", "namespace_choice_rationale": "decision-5 hybrid — overseer has only 1 write-verb in iter 2. Choosing brc over progress because: (a) cmd_overseer_alert posts a typed OVERSEER_ALERT message through the same /api/v1/pipelines/<id>/messages endpoint the BRC consensus verbs use (orch_cli.py:1390-1430); (b) OVERSEER_ALERT shows up alongside CONSENSUS_PROPOSE/ACK/NACK in the message bus, so co-locating the tool with brc matches the reviewer's mental model when grepping checkpoint logs; (c) `progress` namespace is about per-agent state emission (emit/heartbeat/signal_error) whereas overseer_alert is a pipeline-wide escalation broadcast — semantically closer to brc's broadcast shape than to progress's per-agent events. This keeps `progress` clean for agent-health telemetry."}
+      ],
+      "phase_2b_overseer_query_status_added_in_rev2": [
+        {"name": "mcp__phase__query_pipeline_status", "cli_counterpart": null, "handler_source": "NEW handler wrapping `sandbox/overseer_monitor.py::query_pipeline_status` (line 74) which GETs `/api/v1/pipelines/<pid>/status` and returns {status, current_phase, pending_decisions, pr_url, concurrent_data}", "audit_slot": "Addresses the capability audit's `overseer_query_status` item — missed by rev 1 of this output per reviewer_plan NACK, added in rev 2", "namespace_choice_rationale": "decision-5 hybrid — the verb is a pipeline-wide READ that complements `mcp__phase__get_context` (which returns role-local context). Under `phase` because it's a pipeline/phase status query, not a BRC protocol verb (wrong fit for brc) nor an agent-health event (wrong fit for progress). Adding to `phase` brings that namespace to 3 verbs (get_context, get_assigned_tasks, query_pipeline_status) which still stays under a reasonable ceiling and preserves the 'phase=context queries' semantic.", "cli_gap_rationale_docstring": "Required per decision-13 — no egg-orch CLI exposes this today; `sandbox/overseer_monitor.py` is called by the overseer-container loop itself, not by sandbox agents. The MCP tool gives sandbox agents first-class access."}
       ],
       "phase_3_p1_checkpoint_namespace": [
         {"name": "mcp__checkpoint__list", "cli_counterpart": ["egg-checkpoint", "list"], "handler_source": "shared/egg_contracts/checkpoint_cli.py::cmd_list (line 852) + _cmd_list_http (line 823)", "pagination": "limit default 100, cursor"},
@@ -77,7 +80,8 @@
       {"verb": "brc_send_message / brc_poll_messages (directed)", "reason": "Deferred per decision-14 pending REQUEST/REPLY subsystem", "action_in_this_pr": "None"},
       {"verb": "checkpoint_browse / checkpoint_context / checkpoint_cost", "reason": "Excluded per decision-3 — core 3 only", "action_in_this_pr": "None"},
       {"verb": "phase_get_context field promotion (active_peers/reviewer_peers/hitl_pending)", "reason": "Separate follow-up PR per decision-6 — iter 2 is verb additions, not shape changes to existing tools", "action_in_this_pr": "None"}
-    ]
+    ],
+    "note_overseer_query_status_moved_in_rev2": "The audit's `overseer_query_status` verb was absent from rev-1 of this output's out-of-scope list AND from the shipped list — an omission flagged by reviewer_plan NACK. Rev 2 ships it as `mcp__phase__query_pipeline_status` (see phase_2b_overseer_query_status_added_in_rev2 above) so it's now in scope, not out. AC1's trichotomy (shipped/documented-as-human-only/superseded) now holds for every audit verb."
   },
 
   "architecture_details": {
@@ -106,8 +110,12 @@
     },
     "handler_layering": {
       "problem": "checkpoint_cli.py lives in shared/egg_contracts/, not sandbox/. A naive sandbox/egg_agent_tools/handlers/checkpoint.py that imports from shared is fine, but the reverse (shared CLI importing from sandbox handlers) would be a layering violation.",
-      "recommendation": "Per iteration 1's TASK-1-3 pattern, extract pure handler logic into a shared-package module and have both the CLI (shared) and the MCP wrapper (sandbox) import it. For checkpoint: new `shared/egg_contracts/checkpoint_handlers.py` adjacent to `checkpoint_loader.py`. `shared/egg_contracts/checkpoint_cli.py::cmd_list/cmd_show/cmd_search` delegate to it; `sandbox/egg_agent_tools/handlers/checkpoint.py` is a thin re-export.",
-      "alternative_considered": "Keep the cmd_* functions themselves as the shared entry points and have the MCP handler invoke them directly. Works for small cases but mixes argparse.Namespace parsing with pure request→response logic; rejected on the same drift grounds iter 1 rejected it."
+      "decision": "Option A — new file `shared/egg_contracts/checkpoint_handlers.py` adjacent to `checkpoint_loader.py`. This closes decision-20 from this output unconditionally; implement-phase agents should NOT re-litigate this choice. (Decision recorded in the revised output rev 2 per reviewer_plan NACK.)",
+      "rationale": "Per iteration 1's TASK-1-3 pattern, extract pure handler logic into a shared-package module and have both the CLI (shared) and the MCP wrapper (sandbox) import it. `shared/egg_contracts/checkpoint_cli.py::cmd_list/cmd_show/cmd_search` delegate to it; `sandbox/egg_agent_tools/handlers/checkpoint.py` is a thin re-export (same shape iter 1 used for sdlc/brc handler splits).",
+      "alternatives_considered_and_rejected": [
+        "Option B — keep the cmd_* functions themselves as the shared entry points and have the MCP handler invoke them directly. Works for small cases but mixes argparse.Namespace parsing with pure request→response logic; rejected on the same drift grounds iter 1 rejected it.",
+        "Option C — accept a sandbox→shared+shared→sandbox cross-boundary import. Creates a circular package dependency at collection time; rejected on packaging cleanliness."
+      ]
     },
     "schema_strategy": {
       "cli_backed_verbs": "Use `derive_schema_from_argparse` by feeding the matching subparser. For example, `mcp__sdlc__show_contract` derives from the `show` subparser in `sandbox/egg_lib/contract_cli.py::create_parser` (line 1353). Per-tool overrides add richer descriptions where argparse help is terse.",
@@ -115,9 +123,31 @@
       "pagination_additions": "read_peer_artifact, checkpoint_list, checkpoint_search get `limit: int (default varies)` and `cursor: str | null` properties. No `required:` entry — both are optional. Handler return shape becomes `{items: [...], next_cursor: string | null}`."
     },
     "error_discipline": {
-      "handlers": "Always raise `GatewayError`/`HandlerError`; never `sys.exit`. For `read_peer_artifact`, a missing/malformed `.egg-state/brc-history/<id>-<phase>.json` file raises `HandlerError` (not a gateway error — it's local I/O). For `mark_gap`, a malformed gateway response raises `GatewayError` the same way iter-1 handlers do.",
+      "handlers": "Always raise `GatewayError`/`HandlerError`; never `sys.exit`. For `read_peer_artifact`, a missing/malformed `.egg-state/brc-history/<id>-<phase>.json` file raises `HandlerError` (not a gateway error — it's local I/O); a path-traversal attempt in the `pipeline_id` argument raises `HandlerError` before any filesystem access (see security_requirement in the verb entry). For `mark_gap`, a malformed gateway response raises `GatewayError` the same way iter-1 handlers do.",
       "wrappers": "Every new `@tool` wrapper calls `asyncio.to_thread(handler, req)` and catches exceptions via `invoke_handler` — no new boilerplate.",
       "cli_shims": "cmd_* functions in contract_cli.py/orch_cli.py/checkpoint_cli.py catch the same exceptions and render stderr + non-zero exit code for humans (iteration 1 TASK-1-3 pattern)."
+    },
+    "architectural_dependencies": {
+      "gateway_authz_required": {
+        "statement": "The iteration-2 design assumes the existing gateway already enforces role-based authorization on several /api/v1/contract/mutate field paths. Implement-phase agents MUST verify each assumption before the corresponding handler is wired, or surface a gateway-side authz patch in the same PR.",
+        "field_paths_and_expected_authz": [
+          {"tool": "mcp__sdlc__verify_criterion", "field_path": "phases.<p>.acceptance_criteria.<i>.verified (and any per-criterion verified flags nested inside the task)", "expected_behaviour": "Gateway 403s writes from any role other than REVIEWER. Implement-phase coder must grep gateway/policy.py for acceptance_criteria authz rules and confirm — this is R1 from risk_analyst's output (which rates verify_criterion's entire design conditional on this check passing).", "fallback_if_missing": "Extend gateway/policy.py to add the authz rule in this PR rather than rely on the handler — handler-side authz would violate iter-1's Option-D 'authz-by-construction' property"},
+          {"tool": "mcp__task__mark_gap", "field_path": "phases.<p>.tasks.<t>.gaps[<n>]", "expected_behaviour": "Gateway accepts writes from any agent role (tester writes, coder reads via mcp__sdlc__show_contract). No new authz rule required — the new field reuses existing contract-mutate authorization which allows any agent-role session to write tasks[] sub-fields.", "fallback_if_missing": "n/a"},
+          {"tool": "mcp__task__add_commit + mcp__task__update_notes + mcp__phase__complete_phase", "field_path": "phases.<p>.tasks.<t>.{commit,notes,status} + phases.<p>.status", "expected_behaviour": "Existing iter-1 / pre-iter-1 handlers already call these mutations successfully — no new authz surface. Just confirm the existing contract_cli.py::cmd_* tests still pass after refactor.", "fallback_if_missing": "n/a — iter-1 regression if broken"}
+        ],
+        "verification_task_for_implement_phase": "Before wiring the mcp__sdlc__verify_criterion handler, run a manual smoke test against a live pipeline: (a) call POST /api/v1/contract/mutate with field_path=acceptance_criteria.<i>.verified from a coder-role session; expected 403. (b) Same call from a reviewer-role session; expected 200. If (a) succeeds, file a gateway-side authz patch ticket and block the iter-2 PR until it lands."
+      }
+    },
+    "documentation_requirements": {
+      "agent_tools_md_structure": {
+        "source": "AC1.b of #1917 requires every deferred or human-operator-only verb to be 'explicitly documented as human-operator-only with rationale'. The plan draft's TASK-5-3 only mentions tool-count refresh and the cli_command=None pattern section, so the following subsections MUST be added to docs/reference/agent-tools.md in TASK-5-3 or an augmented task; flagging here so the task_planner or documenter explicitly scopes it.",
+        "required_subsections": [
+          {"heading": "Deferred verbs (tracked follow-ups)", "content": "Table listing: mcp__anchor__init/update/get (deferred per decision-2 to iteration 3); mcp__brc__send_message/poll_messages (deferred per decision-14 pending the REQUEST/REPLY subsystem); mcp__checkpoint__browse/context/cost (excluded per decision-3 — core 3 only). Each row: verb name, reason for deferral, follow-up issue placeholder."},
+          {"heading": "Human-operator-only verbs", "content": "Table listing explicitly out-of-agent-scope CLI verbs from the #1765 audit that are NOT shipped as MCP tools with rationale. Covers: egg-orch pipeline list/create/delete/status (would grant sandbox agents pipeline-admin rights; authz boundary); egg-orch container * (debugging); egg-orch decision list/create/resolve/status (the agent-facing decision surface is already covered by mcp__sdlc__register_open_question + check_hitl_answers; `resolve` is a human action); egg-orch push (routed through cli_push.py with gateway auto-filter; agents git push directly); egg-orch signal complete (lifecycle contract handled by entrypoint, not per-verb); egg-orch health / gateway health / gateway phase / gateway permissions (monitoring / ops surface); egg-contract agent-status/start/complete/fail/next (orchestrator-spawner / human pokes at agent-execution records — never called by a sandbox agent on itself)."},
+          {"heading": "Superseded-by-tool verbs", "content": "Table: egg-orch message wait/wait-loop/heartbeat (iter-1 shipped equivalents under mcp__brc__*); egg-contract show --json | python3 pipeline (replaced by mcp__sdlc__show_contract); egg-contract complete-task (iter-1 mcp__task__complete); egg-contract add-decision/add-feedback (iter-1 mcp__sdlc__*)."}
+        ],
+        "ac_wiring": "This section is what satisfies AC1.(b) of #1917. Without it, AC1 is not met even after the 12 verbs ship. Implement-phase agents should treat TASK-5-3 as requiring these three subsections, not just a tool-count refresh."
+      }
     },
     "drift_prevention": {
       "cli_drift": "`tests/tools/test_mcp_cli_drift.py` auto-picks up new ToolRegistrations from TOOL_REGISTRY. Every CLI-backed verb declares cli_command (tuple); read_peer_artifact and mark_gap declare cli_command=None. The test iterates and skips None entries (same as iter 1).",
@@ -169,32 +199,32 @@
       {"id": "decision-17", "question": "task_mark_gap storage shape (append-notes vs gaps[] field)", "status_after_review": "Partially addressed — decision-4 resolved cli_command=None; storage shape itself was not a refine-gate decision but the plan draft committed to tasks[].gaps[]. Reviewer can treat decision-17 as 'plan-phase engineering choice: gaps[] field per plan draft Phase 4' and close it."},
       {"id": "decision-18", "question": "Shipping shape: 1 PR vs 5", "status_after_review": "Moot — decision-1 resolved Option B 'one PR'. Reviewer can close decision-18 as 'superseded by decision-1'."},
       {"id": "decision-19", "question": "Anchor CLI parity", "status_after_review": "Moot — anchor is deferred entirely per decision-2. The phantom-CLI doc references stay as-is. Reviewer can close decision-19 as 'moot — anchor deferred to iter 3'."},
-      {"id": "decision-20", "question": "Checkpoint handler layering (shared/ vs sandbox/)", "status_after_review": "Legitimate engineering question not addressed at the refine gate. Architect recommends option A (shared/egg_contracts/checkpoint_handlers.py + sandbox re-export) per the 'iteration_1 TASK-1-3 single-handler pattern'. Reviewer can either resolve decision-20 here or note the recommendation and leave for implement phase."}
+      {"id": "decision-20", "question": "Checkpoint handler layering (shared/ vs sandbox/)", "status_after_review": "CLOSED by this architect output (rev 2): Option A — new shared/egg_contracts/checkpoint_handlers.py adjacent to checkpoint_loader.py. Both the shared CLI (checkpoint_cli.py::cmd_list/show/search) and the sandbox MCP wrapper (sandbox/egg_agent_tools/handlers/checkpoint.py) import from it. The architecture commits to this choice unconditionally; implement-phase agents should NOT re-litigate. Rationale: mirrors iteration-1 TASK-1-3 single-handler pattern; avoids circular sandbox↔shared imports; adds only one new file to the shared package. Reviewer can mark decision-20 resolved with option A when convenient."}
     ],
-    "recommended_reviewer_action": "Mark decisions 15/16/18/19 as superseded-or-moot so the plan-phase HITL pass isn't noisy; leave decision-17 and decision-20 as genuine engineering questions the reviewer can either resolve in review or defer to implement. None of these questions block this architect output from being ACKed."
+    "recommended_reviewer_action": "Mark decisions 15/16/18/19 as superseded-or-moot so the plan-phase HITL pass isn't noisy; decision-17 is subsumed by the task_planner plan draft's gaps[] field; decision-20 is closed unconditionally by this rev-2 output (Option A). None of the six registered decisions block this architect output from being ACKed."
   },
 
   "file_touchpoint_summary": {
     "created": [
       "sandbox/egg_agent_tools/handlers/checkpoint.py",
       "sandbox/egg_agent_tools/tools/checkpoint.py",
-      "shared/egg_contracts/checkpoint_handlers.py (if decision-20 picks option A)",
+      "shared/egg_contracts/checkpoint_handlers.py (decision-20 closed: Option A — this file is required, not conditional)",
       "tests/sandbox/egg_agent_tools/test_handlers_checkpoint.py",
       "tests/sandbox/egg_agent_tools/test_handlers_sdlc_extras.py (show_contract + verify_criterion)",
       "tests/sandbox/egg_agent_tools/test_handlers_brc_extras.py (read_peer_artifact + overseer_alert)",
       "tests/sandbox/egg_agent_tools/test_handlers_task_extras.py (add_commit + update_notes + mark_gap)",
-      "tests/sandbox/egg_agent_tools/test_handlers_phase_complete.py",
+      "tests/sandbox/egg_agent_tools/test_handlers_phase_extras.py (complete_phase + query_pipeline_status — the latter tests the overseer_monitor.query_pipeline_status pass-through with a mocked orchestrator API, and asserts path-agnostic error handling)",
       "tests/tools/test_rule_doc_drift.py (decision-11 two-way gate)"
     ],
     "modified": [
       "sandbox/egg_agent_tools/handlers/sdlc.py (add show_contract + verify_criterion)",
       "sandbox/egg_agent_tools/handlers/brc.py (add read_peer_artifact + overseer_alert)",
       "sandbox/egg_agent_tools/handlers/task.py (add add_commit, update_notes, mark_gap)",
-      "sandbox/egg_agent_tools/handlers/phase.py (add complete_phase)",
+      "sandbox/egg_agent_tools/handlers/phase.py (add complete_phase and query_pipeline_status — the latter wraps sandbox/overseer_monitor.py::query_pipeline_status)",
       "sandbox/egg_agent_tools/tools/sdlc.py (append registrations)",
       "sandbox/egg_agent_tools/tools/brc.py (append registrations; may coexist with tools/message.py registrations)",
       "sandbox/egg_agent_tools/tools/task.py (append registrations)",
-      "sandbox/egg_agent_tools/tools/phase.py (append registrations)",
+      "sandbox/egg_agent_tools/tools/phase.py (append registrations for complete_phase AND query_pipeline_status)",
       "sandbox/egg_agent_tools/tools/__init__.py (add checkpoint module to _register_all tuple + NAMESPACE_DESCRIPTIONS)",
       "sandbox/egg_lib/contract_cli.py (refactor cmd_show, cmd_add_commit, cmd_update_notes, cmd_verify_criterion, cmd_complete_phase to delegate to handlers)",
       "sandbox/egg_lib/orch_cli.py (refactor cmd_overseer_alert to delegate to handler)",
@@ -206,7 +236,8 @@
       "docs/reference/agent-tools.md (refresh: 18 → 29 tools; per-namespace listing update; cli_command=None rationale pattern section)",
       "tests/tools/test_mcp_cli_drift.py (no code changes; TOOL_REGISTRY delta picked up automatically)"
     ],
-    "total_estimated_files": 26
+    "total_estimated_files": 26,
+    "rev2_adjustments": "No net-new files from adding query_pipeline_status — extends the existing phase.py handler + tool modules; the test-file rename (test_handlers_phase_complete.py → test_handlers_phase_extras.py) covers both complete_phase and query_pipeline_status. File count holds at 26 despite 12 verbs."
   },
 
   "dependencies_and_ordering": {
@@ -216,11 +247,21 @@
   },
 
   "acceptance_criteria_mapping": {
-    "ac_1_every_verb_covered_or_documented": "The 11 verbs cover every remaining audit entry. Verbs that are NOT shipped (anchor trio, brc_send_message, brc_poll_messages) are documented in docs/reference/agent-tools.md as deferred with rationale (decision-2, decision-14). Verbs explicitly out-of-agent-scope (pipeline admin, container ops, decision resolve, push, signal complete, health ops, agent-execution writes) are listed as 'human-operator-only' in docs/reference/agent-tools.md — satisfying AC (b).",
+    "ac_1_every_verb_covered_or_documented": "The 12 verbs (including mcp__phase__query_pipeline_status added in rev 2 to cover the audit's `overseer_query_status` slot) cover every remaining audit entry. Verbs that are NOT shipped (anchor trio, brc_send_message, brc_poll_messages, checkpoint browse/context/cost) are documented in docs/reference/agent-tools.md as deferred with rationale (decision-2, decision-14, decision-3). Verbs explicitly out-of-agent-scope (pipeline admin, container ops, decision resolve, push, signal complete, health ops, agent-execution writes) are listed as 'human-operator-only' in docs/reference/agent-tools.md — satisfying AC (b). See `documentation_requirements.agent_tools_md_structure` for the authoritative subsection list TASK-5-3 must include; without those three subsections, AC1 is NOT met. Implement-phase agents must treat TASK-5-3 as 'tool-count refresh + cli_command=None pattern section + three new subsections' — the plan draft's current scoping is incomplete on this.",
     "ac_2_no_bash_shellout": "After merge, every agent-role verb on the hot path is reachable via an mcp__*__* tool. Burn-in verification is the manual step in the plan draft.",
     "ac_3_mechanism_reuse": "No new files in sandbox/egg_agent_tools/ beyond the checkpoint.py pair and no changes to shared/egg_agent/client.py wiring. The @tool/handler/drift-test stack is unchanged.",
     "ac_4_rule_doc_updates": "Phase 5 updates sandbox/agent-config/rules/*.md; the two-way drift gate (decision-11) ensures future tool additions cannot land without the rule-doc entry."
   },
 
-  "complexity_assessment": "medium-high. 11 verbs across 4 existing + 1 new namespace, one contract-schema change (tasks[].gaps[]), one new CI gate (rule-doc drift), and a two-package handler split (shared + sandbox) for checkpoint. Mechanically analogous to iteration 1 — no new architectural concepts. The non-trivial bits are (a) the contract schema validator must treat gaps as optional for backward compat, (b) the two-way rule-doc drift gate must not false-positive on near-miss prose, (c) the pagination defaults must be tuned enough to stay under 60 s on the worst-case real-world data the agents will hit. No new dependencies, no new services, no long-running processes, no new auth layers."
+  "complexity_assessment": "medium-high. 12 verbs across 4 existing + 1 new namespace, one contract-schema change (tasks[].gaps[]), one new CI gate (rule-doc drift), a two-package handler split (shared + sandbox) for checkpoint, and one gateway-authz verification step (verify_criterion field path). Mechanically analogous to iteration 1 — no new architectural concepts. The non-trivial bits are (a) the contract schema validator must treat gaps as optional for backward compat, (b) the two-way rule-doc drift gate must not false-positive on near-miss prose, (c) the pagination defaults must be tuned enough to stay under 60 s on the worst-case real-world data the agents will hit, (d) path-traversal hardening in read_peer_artifact, (e) the REVIEWER authz assumption for verify_criterion must be verified (or patched) in the same PR. No new dependencies, no new services, no long-running processes, no new auth layers.",
+  "rev2_changelog": [
+    "Rev 2: Added `mcp__phase__query_pipeline_status` (covers the audit's overseer_query_status slot; was silently dropped in rev 1). Scope is now 12 verbs, not 11.",
+    "Rev 2: Closed decision-20 unconditionally — Option A (new shared/egg_contracts/checkpoint_handlers.py + sandbox re-export). File-touchpoint no longer conditional.",
+    "Rev 2: Added `architectural_dependencies.gateway_authz_required` — names the field paths the design assumes the gateway already gates; gives implement-phase a verifiable prerequisite check for verify_criterion.",
+    "Rev 2: Added `documentation_requirements.agent_tools_md_structure` — names the three subsections TASK-5-3 must add to docs/reference/agent-tools.md to satisfy AC1.b.",
+    "Rev 2: Expanded `mcp__brc__overseer_alert` namespace-choice rationale (brc over progress, with three concrete justifications).",
+    "Rev 2: Added path-traversal requirement to `mcp__brc__read_peer_artifact` entry (security_requirement field) — addresses risk_analyst R2.",
+    "Rev 2: Fixed line citation drift for `_register_all` (line 32-46, not 30-46).",
+    "Rev 2: Verified `shared/egg_agent/client.py` EGG_MCP_TOOLS wiring (line 223 env read, 231-235 merge into options.mcp_servers)."
+  ]
 }
