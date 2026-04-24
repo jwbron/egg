@@ -242,10 +242,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-24T19:59:30.464175Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-24T20:10:55.932525Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Other: Out of scope for this issue. Conditional-ACK policy has already been handled in #1998 (merged).\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -446,7 +446,7 @@
     }
   ],
   "created_at": "2026-04-24T19:45:30.059639Z",
-  "updated_at": "2026-04-24T20:10:54.039358Z",
+  "updated_at": "2026-04-24T20:10:55.951479Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -460,6 +460,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 24,
+  "version": 25,
   "jira_ticket": null
 }
