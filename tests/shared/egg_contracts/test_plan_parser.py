@@ -1834,3 +1834,88 @@ phases:
         assert result.pr_title is None
         assert result.pr_description is None
         assert any("missing required 'title' field" in w.message for w in result.warnings)
+
+
+class TestYamlScalarQuotingRegression:
+    """Regression tests for #1974 — task_planner emitting unquoted YAML
+    scalars whose text contained ``: `` sequences, which PyYAML interpreted
+    as the start of a nested mapping and broke contract population.
+    """
+
+    # The exact fragment pattern that broke issue #1932's pipeline.
+    BROKEN_DESCRIPTION = (
+        "Add `sequence: int = 0` field to `Event` dataclass in "
+        "`orchestrator/events.py`. Populate from a new "
+        "`EventBus._sequence: int` counter."
+    )
+
+    def test_unquoted_scalar_with_colon_triggers_parse_warning(self):
+        """Plain-scalar description containing `` `code: type` `` raises a
+        YAML ScannerError inside ``parse_yaml_code_fence``, which records a
+        warning and forces the markdown fallback. This reproduces the silent
+        failure from #1932 — the ``pr:`` block is lost.
+        """
+        content = f"""# Plan
+
+```yaml
+# yaml-tasks
+pr:
+  title: "Fix sequencing"
+  description: |
+    Body.
+phases:
+  - id: 1
+    name: Implementation
+    tasks:
+      - id: TASK-1-1
+        description: {self.BROKEN_DESCRIPTION}
+        acceptance: Works
+```
+"""
+        result = parse_plan(content)
+        # The YAML fence parser records a scanner error warning and falls
+        # back to markdown — which recovers no ``pr:`` block.
+        assert any("Invalid YAML in yaml-tasks code fence" in w.message for w in result.warnings)
+        assert result.pr_title is None
+
+    def test_block_scalar_safely_carries_colon_content(self):
+        """With the description wrapped in a block scalar (``|-``), the same
+        text is preserved literally and parsing succeeds — pr_title is set
+        and the contract-populate path fires normally.
+        """
+        content = f"""# Plan
+
+```yaml
+# yaml-tasks
+pr:
+  title: "Fix sequencing"
+  description: |
+    Body.
+  test_plan: |
+    - Automated: unit test
+phases:
+  - id: 1
+    name: |-
+      Implementation
+    goal: |-
+      Add sequencing
+    tasks:
+      - id: TASK-1-1
+        description: |-
+          {self.BROKEN_DESCRIPTION}
+        acceptance: |-
+          Works
+```
+"""
+        result = parse_plan(content)
+        assert result.success, result.error
+        assert result.pr_title == "Fix sequencing"
+        assert len(result.phases) == 1
+        task = result.phases[0].tasks[0]
+        # Block scalar preserves backticks, colons, and inline code snippets.
+        assert "`sequence: int = 0`" in task.description
+        assert "`EventBus._sequence: int`" in task.description
+        # No YAML scanner warnings.
+        assert not any(
+            "Invalid YAML in yaml-tasks code fence" in w.message for w in result.warnings
+        )

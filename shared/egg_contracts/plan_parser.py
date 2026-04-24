@@ -23,18 +23,26 @@ Task ID Format:
     Example: TASK-1-1, TASK-2-3
 
 YAML Code Fence Format:
-    The structured appendix should be a YAML code block with the marker comment:
+    The structured appendix should be a YAML code block with the marker comment.
+    Use block scalars (``|-``) for ``name``, ``goal``, ``description``, and
+    ``acceptance`` — plain unquoted scalars break when the value contains a
+    ``: `` sequence (e.g. a backticked ``code: type`` snippet), because PyYAML
+    interprets it as a nested mapping and raises ``ScannerError``. See #1974.
 
     ```yaml
     # yaml-tasks
     phases:
       - id: 1
-        name: Setup
-        goal: Initialize the project
+        name: |-
+          Setup
+        goal: |-
+          Initialize the project
         tasks:
           - id: TASK-1-1
-            description: Create contract JSON schema
-            acceptance: Schema validates sample contracts
+            description: |-
+              Create contract JSON schema
+            acceptance: |-
+              Schema validates sample contracts
             files:
               - .egg/schemas/contract.schema.json
     ```

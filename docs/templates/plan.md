@@ -76,32 +76,49 @@ pr:
     Post-merge: [any required steps after merging, e.g. deployments]
 phases:
   - id: 1
-    name: [Phase Name]
-    goal: [What this phase achieves]
+    name: |-
+      [Phase Name]
+    goal: |-
+      [What this phase achieves]
     tasks:
       - id: TASK-1-1
-        description: [Task description]
-        acceptance: [Criteria for completion]
+        description: |-
+          [Task description — block scalars keep text with `code: type`
+          snippets, URLs, and other `: ` sequences safe from YAML parsing.]
+        acceptance: |-
+          [Criteria for completion]
         role: coder           # Optional: coder | tester | documenter
         files:
           - [path/to/file]
       - id: TASK-1-2
-        description: [Task description]
-        acceptance: [Criteria for completion]
+        description: |-
+          [Task description]
+        acceptance: |-
+          [Criteria for completion]
         role: tester
         files:
           - [path/to/test_file]
   - id: 2
-    name: [Phase Name]
-    goal: [What this phase achieves]
+    name: |-
+      [Phase Name]
+    goal: |-
+      [What this phase achieves]
     tasks:
       - id: TASK-2-1
-        description: [Task description]
-        acceptance: [Criteria for completion]
+        description: |-
+          [Task description]
+        acceptance: |-
+          [Criteria for completion]
         role: coder
         files:
           - [path/to/file]
 ```
+
+> **YAML safety**: Always use block scalars (`|-`) for `name`, `goal`,
+> `description`, and `acceptance`. Plain unquoted scalars break when the
+> text contains `` `code: type` `` snippets or other `: ` sequences —
+> PyYAML reads them as nested mappings and the parser silently drops back
+> to markdown fallback, losing the `pr:` block (see issue #1974).
 
 > **Role assignment**: The optional `role` field assigns a task to a specific execution agent
 > (`coder`, `tester`, or `documenter`). Assign roles based on which agent is permitted to modify

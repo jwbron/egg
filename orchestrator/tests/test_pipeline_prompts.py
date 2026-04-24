@@ -3067,6 +3067,41 @@ class TestTaskPlannerRoleRestrictions:
         assert "role: coder" in result
 
 
+class TestYamlTasksBlockScalars:
+    """Regression tests for #1974 — planner prompts must demonstrate block
+    scalars for prose fields so agents don't emit plain scalars that break
+    on ``: `` sequences (e.g. `` `code: type` `` snippets)."""
+
+    def test_task_planner_prompt_uses_block_scalars_for_prose_fields(self):
+        result = _build_agent_prompt(
+            role_value="task_planner",
+            phase="plan",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature",
+            issue_number=42,
+        )
+        assert "description: |-" in result
+        assert "acceptance: |-" in result
+        assert "name: |-" in result
+        assert "goal: |-" in result
+        assert "YAML safety" in result
+
+    def test_plan_phase_prompt_uses_block_scalars_for_prose_fields(self):
+        result = _build_phase_prompt(
+            phase="plan",
+            pipeline_id="pid-1",
+            pipeline_mode="issue",
+            prompt="# Feature",
+            issue_number=42,
+        )
+        assert "description: |-" in result
+        assert "acceptance: |-" in result
+        assert "name: |-" in result
+        assert "goal: |-" in result
+        assert "YAML safety" in result
+
+
 class TestReviewPromptBaseBranch:
     """Tests for base_branch parameter in _build_review_prompt (issue #1565)."""
 
