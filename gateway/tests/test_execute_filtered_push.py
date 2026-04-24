@@ -201,6 +201,7 @@ class TestSingleOwnCommitMixed:
             AttributedFile(path="src/main.py", commit_sha=sha, authored_by="coder"),
             AttributedFile(path="docs/README.md", commit_sha=sha, authored_by="coder"),
         ]
+        push = _PushStub()
         result = execute_filtered_push(
             exec_path=str(repo),
             push_role="coder",
@@ -208,7 +209,7 @@ class TestSingleOwnCommitMixed:
             attributed_commits=[sha],
             attributed_files=attributed_files,
             blocked_own_files={"docs/README.md"},
-            push_fn=_PushStub(),
+            push_fn=push,
             registry_register=_RegistryStub(),
             pipeline_id="issue-1882",
             repo="owner/repo",
@@ -221,6 +222,9 @@ class TestSingleOwnCommitMixed:
         new_sha = result.rewritten_commits[0]["new_sha"]
         assert new_sha != sha
         assert result.pushed_commits == [new_sha]
+        # push_fn must receive the rewritten tip SHA so callers can build
+        # a <sha>:refs/heads/<branch> refspec (#1994).
+        assert push.last_tip == new_sha
         # The marker is emitted as a proper git trailer so trailers
         # parse cleanly.
         new_message = _message(repo, new_sha)
@@ -513,6 +517,9 @@ class TestRollbackOnPushFailure:
         assert result.success is False
         assert result.error and "rejected" in result.error
         assert push.calls == 1
+        # push_fn must receive a valid rewritten SHA even on push failure.
+        assert push.last_tip is not None
+        assert push.last_tip != sha  # rewritten tip, not the original
         # Branch ref must be back at the original HEAD (via _rollback)
         assert _run(repo, "rev-parse", "refs/heads/egg/issue-1882") == sha
 

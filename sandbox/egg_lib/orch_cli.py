@@ -1502,10 +1502,14 @@ def _consensus_push() -> int:
     The implementation moved to ``egg_agent_tools.push`` in #1994 so the
     ``mcp__brc__propose`` tool can share it.  Kept here as a thin alias
     so existing CLI callers and unit tests keep working.
+
+    Returns only the exit code (discards error message) — the CLI
+    surfaces errors via stderr prints inside ``consensus_push()``.
     """
     from egg_agent_tools.push import consensus_push as _impl
 
-    return _impl()
+    rc, _err = _impl()
+    return rc
 
 
 def cmd_consensus_propose(args: argparse.Namespace) -> int:

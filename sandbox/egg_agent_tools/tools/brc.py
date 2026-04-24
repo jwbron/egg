@@ -192,13 +192,13 @@ async def brc_propose(args: dict[str, Any]) -> dict[str, Any]:
 
     def _push_then_propose(handler_args: dict[str, Any]) -> dict[str, Any]:
         if should_push:
-            rc = consensus_push()
+            rc, err = consensus_push()
             if rc != 0:
                 raise HandlerError(
-                    f"Push to origin failed (exit {rc}); CONSENSUS_PROPOSE not "
-                    "sent. Fix the push error first (see gateway logs), then "
-                    "retry mcp__brc__propose. Pass push=false only if you have "
-                    "already pushed through another route."
+                    f"Push to origin failed: {err or 'unknown error'}; "
+                    "CONSENSUS_PROPOSE not sent. Fix the push error first, "
+                    "then retry mcp__brc__propose. Pass push=false only if "
+                    "you have already pushed through another route."
                 )
         return handlers.brc_propose(handler_args)
 

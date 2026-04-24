@@ -236,7 +236,7 @@ class TestBrcProposePushStep:
 
         def _push():
             order.append("push")
-            return 0
+            return 0, None
 
         def _handler(req):
             order.append("handler")
@@ -261,7 +261,7 @@ class TestBrcProposePushStep:
 
         def _push():
             push_calls["n"] += 1
-            return 0
+            return 0, None
 
         def _handler(req):
             assert "push" not in req
@@ -284,7 +284,7 @@ class TestBrcProposePushStep:
         handler_calls = {"n": 0}
 
         def _push():
-            return 1  # non-zero = failure
+            return 1, "HTTP 403: branch ownership check failed"
 
         def _handler(req):
             handler_calls["n"] += 1
@@ -298,7 +298,10 @@ class TestBrcProposePushStep:
 
         assert handler_calls["n"] == 0
         assert resp["is_error"] is True
-        assert "Push to origin failed" in resp["content"][0]["text"]
+        error_text = resp["content"][0]["text"]
+        assert "Push to origin failed" in error_text
+        # The specific error reason must be surfaced (not just "see gateway logs")
+        assert "branch ownership check failed" in error_text
 
 
 class TestMessagePrimitiveWrappers:

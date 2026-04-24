@@ -27,7 +27,7 @@ import urllib.error
 import urllib.request
 
 
-def consensus_push() -> int:
+def consensus_push() -> tuple[int, str | None]:
     """Push code via the gateway with the ``consensus_push`` marker set.
 
     Calls the gateway push API directly (instead of ``git push``) so the
@@ -40,7 +40,9 @@ def consensus_push() -> int:
     enforcement does not apply in that path because the gateway isn't
     present to enforce it.
 
-    Returns 0 on success, 1 on failure.
+    Returns ``(0, None)`` on success or ``(1, error_message)`` on failure.
+    The error message includes the specific reason so MCP callers (where
+    stderr is not visible to the agent) can surface it in HandlerError.
     """
     # Late import to avoid any risk of circular import between the
     # ``egg_lib`` CLI layer and the ``egg_agent_tools`` MCP layer.
@@ -62,13 +64,15 @@ def consensus_push() -> int:
                 cwd=repo_path or None,
                 stderr=subprocess.STDOUT,
             )
-            return 0
+            return 0, None
         except subprocess.CalledProcessError as e:
-            print(f"Error: git push failed: {e.output.strip()}", file=sys.stderr)
-            return 1
+            msg = f"git push failed: {e.output.strip()}"
+            print(f"Error: {msg}", file=sys.stderr)
+            return 1, msg
         except FileNotFoundError:
-            print("Error: git not found", file=sys.stderr)
-            return 1
+            msg = "git not found"
+            print(f"Error: {msg}", file=sys.stderr)
+            return 1, msg
 
     try:
         branch = subprocess.check_output(
@@ -81,8 +85,9 @@ def consensus_push() -> int:
         branch = ""
 
     if not branch:
-        print("Error: could not determine current branch for push", file=sys.stderr)
-        return 1
+        msg = "could not determine current branch for push"
+        print(f"Error: {msg}", file=sys.stderr)
+        return 1, msg
 
     # Retarget to the assigned pipeline branch when on a per-agent work
     # branch (shared logic with ``cli_push``).
@@ -132,7 +137,7 @@ def consensus_push() -> int:
                 print(stdout)
             if stderr:
                 print(stderr, file=sys.stderr)
-            return 0
+            return 0, None
     except urllib.error.HTTPError as e:
         try:
             body = json.loads(e.read())
@@ -141,13 +146,14 @@ def consensus_push() -> int:
         except Exception:
             msg = f"HTTP {e.code}"
             details = {}
-        print(f"Error: git push failed: {msg}", file=sys.stderr)
-        if details:
-            print(f"Details: {json.dumps(details)}", file=sys.stderr)
-        return 1
+        detail_str = f" ({json.dumps(details)})" if details else ""
+        full_msg = f"git push failed: {msg}{detail_str}"
+        print(f"Error: {full_msg}", file=sys.stderr)
+        return 1, full_msg
     except urllib.error.URLError as e:
-        print(f"Error: gateway unreachable: {e.reason}", file=sys.stderr)
-        return 1
+        msg = f"gateway unreachable: {e.reason}"
+        print(f"Error: {msg}", file=sys.stderr)
+        return 1, msg
 
 
 __all__ = ["consensus_push"]

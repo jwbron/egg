@@ -1675,6 +1675,12 @@ def git_push() -> tuple[Response, int] | Response:
     push_args = ["push", "--no-verify"]
     if force:
         push_args.append("--force")
+    # NOTE: The non-filtered push path uses the original refspec (not a
+    # SHA-based refspec) because it never calls ``update-ref`` pre-push,
+    # so the directory-style ref collision that affects the filtered path
+    # (sibling worktree refs like ``refs/heads/<branch>/work``) does not
+    # apply here.  The filtered path in ``filtered_push.py`` pushes by
+    # SHA to avoid that collision — see #1994 for context.
     push_args.extend([push_target, refspec] if refspec else [push_target])
     # Clear any http.extraheader from .git/config to ensure the gateway's
     # credential helper (GIT_ASKPASS) is used. actions/checkout@v4 persists
