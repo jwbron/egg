@@ -162,16 +162,16 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-24T00:23:40.748633Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-24T03:09:19.533026Z",
+      "resolution": "{\"action\": \"approve\", \"context\": \"## Resolved Questions\\n\\n### Choice decisions\\n\\n**Which implementation option should we take?**\\nAnswer: Option A: new wait_for_status_change sibling MCP tool (recommended)\\n\\n**Which event set should trigger early return from the host-side wait?**\\nAnswer: Issue-as-written: OVERSEER_ALERT + DECISION_CREATED + terminal state + phase transition (PHASE_STARTED/COMPLETED) + consensus state change (CONSENSUS_CONFIRMED/NACK/RE_REVIEW)\\n\\n**Should the timeout payload (no-event-in-25s) be minimal or a full status envelope?**\\nAnswer: Minimal envelope: {changed: false, current_phase, status, phase_elapsed_seconds} — SKILL.md branches on `changed`\\n\\n**Should we expose a `since` / `since_event_id` cursor parameter?**\\nAnswer: Yes — add `since` string parameter; host passes the most recent event ID from the prior call to prevent stuck-on-same-event races\\n\\n**Should the event-driven wait be wired into the EventBus, message-type long-poll, or both?**\\nAnswer: Both — EventBus for phase/decision/terminal events, message_store.get_messages for OVERSEER_ALERT/CONSENSUS_*\\n\\n**Should the SDLC skill keep the 10-message recent_messages fetch on every poll, or only on the `changed: true` path?**\\nAnswer: Only on `changed: true` — timeout path reuses cached recent_messages from the prior wake\\n\\n**How should `provide_input` interaction with the wait loop be handled?**\\nAnswer: Filter out DECISION_RESOLVED events from the trigger set — wait only on decisions that still need input\\n\\n### Feedback\\n\\n**Are there host-side consumers of get_status besides the SDLC skill that should benefit?**\\nAnswer: SDLC skill only — keep Option A scoped. Other callers keep get_status.\\n\\n**Expected concurrency load and EGG_ORCH_WAITRESS_THREADS=16 budget?**\\nAnswer: Raise default or document cap in plan. Call out the budget risk explicitly.\\n\\n**Should wait_for_status_change be available over the Python SDK MCP tools surface (PR #1920) as well as streamable-HTTP?**\\nAnswer: Not sure / skip — defer to plan phase.\\n\\n**Is the 60s liveness-floor constraint literal or aspirational?**\\nAnswer: Not sure / skip — defer to plan phase.\\n\\n**Should the new wait path emit its own metric parallel to egg_inflight_long_polls?**\\nAnswer: Yes — add egg_inflight_host_waits metric so operators can distinguish host-side from sandbox-side waits.\\n\\n**Upstream plans to raise streamable-HTTP MCP client timeout (anthropics/claude-code#20335)?**\\nAnswer: Keep design flexible in case it lifts — parameterize the cap so raising it later is a one-line change.\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:08:18.054872Z",
-  "updated_at": "2026-04-24T00:23:40.814803Z",
+  "updated_at": "2026-04-24T03:09:19.557783Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -185,5 +185,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 11
+  "version": 12
 }
