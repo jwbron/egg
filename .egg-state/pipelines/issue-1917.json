@@ -619,10 +619,28 @@
       "resolution": "{\"action\": \"approve\"}",
       "phase": "plan",
       "content_changed": null
+    },
+    {
+      "id": "decision-18",
+      "question": "Peer namespace vs extending brc: should directed messaging (send_message, poll_messages, read_artifact) live under `mcp__peer__*` (new namespace, recommended) or `mcp__brc__*` alongside wait_for_event?",
+      "context": "Open contract question decision-15, registered by an agent during the plan phase.",
+      "options": [
+        "peer — new namespace; preserves BRC-vs-p2p distinction (Recommended)",
+        "brc — extend existing namespace; groups all messaging verbs together",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-24T03:57:22.387219Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "plan",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-24T00:10:06.375518Z",
-  "updated_at": "2026-04-24T03:57:18.391307Z",
+  "updated_at": "2026-04-24T03:57:22.407276Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -636,5 +654,5 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 52
+  "version": 53
 }
