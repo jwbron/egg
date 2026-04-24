@@ -31,11 +31,15 @@ import re
 import sys
 import threading
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 # Shared packages live under ../shared relative to this file.
 _shared_path = Path(__file__).parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
+
+if TYPE_CHECKING:
+    from egg_contracts import Contract
 
 logger = logging.getLogger("orchestrator.contract_store")
 
@@ -117,4 +121,57 @@ def resolve_pipeline_worktree(
                 )
             return candidate
 
+    return None
+
+
+def load_contract_from_branch(
+    identifier: int | str,
+    repo_path: Path,
+    branch: str,
+) -> Contract | None:
+    """Read the committed contract for *identifier* from *branch*.
+
+    Enables post-completion reads (PR review, contract audits) once
+    the shared pipeline worktree has been pruned. The on-branch file at
+    ``.egg-state/contracts/<pipeline_id>.json`` is authoritative after
+    the pipeline's final commit.
+
+    Tries ``origin/<branch>`` first — the remote ref survives local
+    cleanup and reflects the last pushed state — then falls back to
+    ``<branch>`` in case the main repo has a local ref but no origin
+    copy (e.g. pre-push crashes).
+
+    Returns ``None`` when neither ref yields the contract file.
+    Propagates ``ContractValidationError`` — a malformed contract is a
+    real failure, not a miss. ``repo_path`` should be the main repo
+    checkout (``StateStore.repo_path``), not a worktree path.
+    """
+    # Lazy import — egg_contracts sits in shared/ and is wired into
+    # sys.path above, but importing at module load would force every
+    # caller of contract_store to pull it in.
+    from egg_contracts import ContractNotFoundError
+    from egg_contracts import load_contract_from_branch as _load_from_branch
+
+    refs = []
+    if not branch.startswith("origin/"):
+        refs.append(f"origin/{branch}")
+    refs.append(branch)
+
+    last_error: ContractNotFoundError | None = None
+    for ref in refs:
+        try:
+            return _load_from_branch(identifier, repo_path, ref)
+        except ContractNotFoundError as exc:
+            last_error = exc
+            continue
+
+    logger.debug(
+        "Branch-read fallback failed",
+        extra={
+            "identifier": str(identifier),
+            "branch": branch,
+            "repo_path": str(repo_path),
+            "error": str(last_error) if last_error else None,
+        },
+    )
     return None

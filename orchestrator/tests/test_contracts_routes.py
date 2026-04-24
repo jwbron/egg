@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import contract_store
 import pytest
 from api import app
-from egg_contracts import create_contract
+from egg_contracts import Contract, create_contract
 
 
 @pytest.fixture
@@ -58,6 +60,7 @@ class TestGetContract:
         data = json.loads(response.data)
         assert data["success"] is True
         assert data["data"]["pipeline_id"] == pipeline_id
+        assert data["source"] == "worktree"
 
     def test_missing_pipeline_id_rejected(self, client, fake_worktree):
         pipeline_id, _ = fake_worktree
@@ -194,6 +197,170 @@ class TestValidateMutation:
             headers={"X-Egg-Role": "implementer"},
         )
         assert response.status_code == 400
+
+
+class TestBranchReadFallback:
+    """Covers the #1977 branch-read fallback path for finished pipelines.
+
+    Once a pipeline completes and its shared worktree is pruned, the
+    committed contract on the feature branch is the only remaining copy.
+    The GET paths fall back to ``git show <branch>:.egg-state/contracts/…``
+    via ``contract_store.load_contract_from_branch``.
+    """
+
+    PIPELINE_ID = "issue-1977"
+
+    def _fake_pipeline(self, tmp_path: Path, branch: str = "egg/issue-1977"):
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        store = SimpleNamespace(repo_path=repo_path)
+        pipeline = SimpleNamespace(branch=branch)
+        return store, pipeline
+
+    def _contract_json(self) -> str:
+        contract = Contract(pipeline_id=self.PIPELINE_ID)
+        return json.dumps(contract.model_dump(mode="json"), default=str)
+
+    def test_get_falls_back_to_branch_when_worktree_missing(self, client, tmp_path, monkeypatch):
+        # Force resolve_pipeline_worktree to miss.
+        monkeypatch.setattr(contract_store, "_WORKTREE_BASE_DIR", tmp_path / "nowhere")
+
+        store, pipeline = self._fake_pipeline(tmp_path)
+        mock_subproc = MagicMock()
+        mock_subproc.stdout = self._contract_json()
+
+        with (
+            patch(
+                "routes.get_state_store_for_pipeline",
+                return_value=(store, pipeline),
+            ),
+            patch("subprocess.run", return_value=mock_subproc) as run_mock,
+        ):
+            response = client.get(
+                f"/api/v1/contracts/{self.PIPELINE_ID}",
+                query_string={"pipeline_id": self.PIPELINE_ID},
+            )
+
+        assert response.status_code == 200, response.data
+        body = json.loads(response.data)
+        assert body["success"] is True
+        assert body["source"] == "branch"
+        assert body["data"]["pipeline_id"] == self.PIPELINE_ID
+        # Preferred ref is origin/<branch> — that's what a main-repo
+        # checkout sees after the worktree pushed the final commit.
+        assert run_mock.call_args_list[0].args[0] == [
+            "git",
+            "show",
+            "origin/egg/issue-1977:.egg-state/contracts/issue-1977.json",
+        ]
+
+    def test_get_prefers_worktree_when_both_are_available(self, client, tmp_path, monkeypatch):
+        """When the worktree exists, the branch fallback must not fire."""
+        pipeline_id = self.PIPELINE_ID
+        worktrees_base = tmp_path / "worktrees"
+        worktree = worktrees_base / pipeline_id / "egg"
+        worktree.mkdir(parents=True)
+        (worktree / ".git").mkdir()
+        monkeypatch.setattr(contract_store, "_WORKTREE_BASE_DIR", worktrees_base)
+        _seed_contract(worktree, pipeline_id)
+
+        with patch("subprocess.run") as run_mock:
+            response = client.get(
+                f"/api/v1/contracts/{pipeline_id}",
+                query_string={"pipeline_id": pipeline_id, "repo": "egg"},
+            )
+
+        assert response.status_code == 200
+        assert json.loads(response.data)["source"] == "worktree"
+        run_mock.assert_not_called()
+
+    def test_get_returns_404_when_worktree_and_branch_both_miss(
+        self, client, tmp_path, monkeypatch
+    ):
+        import subprocess
+
+        monkeypatch.setattr(contract_store, "_WORKTREE_BASE_DIR", tmp_path / "nowhere")
+        store, pipeline = self._fake_pipeline(tmp_path)
+
+        with (
+            patch(
+                "routes.get_state_store_for_pipeline",
+                return_value=(store, pipeline),
+            ),
+            patch(
+                "subprocess.run",
+                side_effect=subprocess.CalledProcessError(128, "git show"),
+            ),
+        ):
+            response = client.get(
+                f"/api/v1/contracts/{self.PIPELINE_ID}",
+                query_string={"pipeline_id": self.PIPELINE_ID},
+            )
+
+        assert response.status_code == 404
+        body = json.loads(response.data)
+        assert body["success"] is False
+        assert "worktree not found" in body["message"].lower()
+
+    def test_get_returns_404_when_pipeline_record_missing(self, client, tmp_path, monkeypatch):
+        from state_store import PipelineNotFoundError
+
+        monkeypatch.setattr(contract_store, "_WORKTREE_BASE_DIR", tmp_path / "nowhere")
+
+        with (
+            patch(
+                "routes.get_state_store_for_pipeline",
+                side_effect=PipelineNotFoundError("nope"),
+            ),
+            patch("subprocess.run") as run_mock,
+        ):
+            response = client.get(
+                f"/api/v1/contracts/{self.PIPELINE_ID}",
+                query_string={"pipeline_id": self.PIPELINE_ID},
+            )
+
+        assert response.status_code == 404
+        # We should not shell out to git when the pipeline record is missing.
+        run_mock.assert_not_called()
+
+    def test_exists_falls_back_to_branch(self, client, tmp_path, monkeypatch):
+        monkeypatch.setattr(contract_store, "_WORKTREE_BASE_DIR", tmp_path / "nowhere")
+
+        store, pipeline = self._fake_pipeline(tmp_path)
+        mock_subproc = MagicMock()
+        mock_subproc.stdout = self._contract_json()
+
+        with (
+            patch(
+                "routes.get_state_store_for_pipeline",
+                return_value=(store, pipeline),
+            ),
+            patch("subprocess.run", return_value=mock_subproc),
+        ):
+            response = client.get(
+                f"/api/v1/contracts/{self.PIPELINE_ID}/exists",
+                query_string={"pipeline_id": self.PIPELINE_ID},
+            )
+
+        assert response.status_code == 200
+        body = json.loads(response.data)
+        assert body["data"] == {"exists": True}
+        assert body["source"] == "branch"
+
+    def test_mutate_still_404_when_worktree_missing(self, client, tmp_path, monkeypatch):
+        """Mutations must not use the branch fallback — writes require a live worktree."""
+        monkeypatch.setattr(contract_store, "_WORKTREE_BASE_DIR", tmp_path / "nowhere")
+
+        response = client.post(
+            f"/api/v1/contracts/{self.PIPELINE_ID}/mutate",
+            json={
+                "pipeline_id": self.PIPELINE_ID,
+                "field_path": "phases",
+                "new_value": [],
+            },
+            headers={"X-Egg-Role": "implementer"},
+        )
+        assert response.status_code == 404
 
 
 class TestResolvePipelineWorktree:
