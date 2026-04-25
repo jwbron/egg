@@ -37,6 +37,11 @@ dev = [
     "types-waitress>=3.0",
     "fakeredis>=2.21.0",
     "starlette>=0.36.0,<1.0.0",
+    # Reverse-import-graph builder for changeset-aware test selection
+    # (scripts/select_tests.py). v3.14 introduced a Rust-backed graph
+    # builder that is meaningfully faster on this monorepo (~770 source
+    # files); do NOT loosen the floor below 3.14 without benchmarking.
+    "grimp>=3.14,<4.0",
 ]
 
 [project.scripts]
@@ -134,6 +139,12 @@ module = ["kubernetes", "kubernetes.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
+# grimp ships no type stubs; it's a dev-time dependency for the
+# changeset-aware test selector (scripts/select_tests.py).
+module = ["grimp", "grimp.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
 module = [
     "repo_config",
     "repo_config.*",
@@ -180,6 +191,15 @@ exclude_lines = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "gateway/tests", "orchestrator/tests", "shared/tests"]
+# consider_namespace_packages lets pytest discover shared/tests,
+# gateway/tests, and orchestrator/tests as namespace subpackages
+# without ImportPathMismatchError when conftest.py exists in both
+# tests/ and a sibling namespace test root. We deliberately do NOT
+# enable --import-mode=importlib: scripts/select_tests.py monorepo
+# tests build a real grimp graph that requires the default prepend
+# mode (importlib mode triggers grimp.NotATopLevelModule for the
+# gateway.tests / orchestrator.tests subpackages).
+consider_namespace_packages = true
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"

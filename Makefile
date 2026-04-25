@@ -28,7 +28,7 @@ EGG_IMAGE_TAG := $(shell git describe --always --dirty 2>/dev/null || echo lates
 .PHONY: help \
         setup deps venv install-linters check-linters \
         lint lint-python lint-shell lint-yaml lint-docker lint-actions lint-custom \
-        test security \
+        test test-all test-record-good security \
         test-integration test-e2e test-security smoketest-long-poll \
         lint-fix lint-python-fix lint-shell-fix lint-yaml-fix \
         build \
@@ -48,7 +48,9 @@ help:
 	@echo ""
 	@echo "CI checks (same commands run in GitHub Actions):"
 	@echo "  make lint               - Run all linters"
-	@echo "  make test               - Run all tests"
+	@echo "  make test               - Run unit tests narrowed to the changeset (issue #1973)"
+	@echo "  make test-all           - Run full unit-test suite + record LKG on green"
+	@echo "  make test-record-good   - Manually record HEAD as Last-Known-Good baseline"
 	@echo "  make security           - Run security scan"
 	@echo ""
 	@echo "Individual lint targets:"
@@ -248,10 +250,99 @@ lint-custom:
 		exit 1; \
 	fi
 
+## Changeset-aware narrow default (issue #1973).
+## `make test` invokes scripts/select_tests.py to compute the
+## transitive reverse-import closure of files touched since the
+## per-branch Last-Known-Good (LKG) commit (or base branch when no
+## LKG sidecar exists), and runs pytest on only that subset.  Any
+## sign of static-analysis fog (conftest / Makefile / pyproject /
+## uv.lock / workflow / shared/tests / non-.py / gateway/*.py /
+## dynamic-import / unresolvable-baseline / LKG-not-ancestor /
+## canary every-10th invocation) widens to the full suite with an
+## explicit trigger string on stderr.  See docs/guides/testing.md
+## and scripts/select_tests.py for the full design.
+##
+## CI runs `make test-all` (below) to keep the 80% coverage gate
+## enforced; narrowing is a local-inner-loop optimisation only.
+##
+## After pytest returns, this target invokes
+## `select_tests.py --patch-selection-json` to append `pytest_ms`
+## to the existing `.egg-state/selection/<head>.json` record so
+## the JSON envelope captures both compute_ms and pytest_ms in
+## one place.  LKG sidecar is NEVER updated by `make test` (Q12);
+## only `make test-all` records LKG on green.
 test: export PYTHONPATH := shared:gateway:orchestrator
 test: venv
-	@echo "==> Running unit tests..."
-	$(PYTEST) tests/ gateway/tests/ orchestrator/tests/ shared/tests/ -v -m "not functional" $(PYTEST_ARGS)
+	@echo "==> Running narrowed unit tests (changeset-aware; see docs/guides/testing.md)..."
+	@selected_file=$$(mktemp); \
+	PYTEST_ARGS_RAW="$(PYTEST_ARGS)" \
+		$(PYTHON) scripts/select_tests.py >"$$selected_file"; \
+	selector_rc=$$?; \
+	if [ "$$selector_rc" -ne 0 ]; then \
+		echo "select-tests: selector exited $$selector_rc; running full suite as fallback"; \
+		printf '%s\n' tests gateway/tests orchestrator/tests shared/tests >"$$selected_file"; \
+	fi; \
+	bypass=0; \
+	if [ ! -s "$$selected_file" ]; then \
+		head_sha_check=$$(git rev-parse HEAD 2>/dev/null || echo unknown); \
+		json_path=".egg-state/selection/$$head_sha_check.json"; \
+		if [ -f "$$json_path" ] && grep -q '"mode": "bypass"' "$$json_path" 2>/dev/null; then \
+			bypass=1; \
+		fi; \
+		if [ "$$bypass" = "0" ]; then \
+			echo "select-tests: no tests selected"; \
+			rm -f "$$selected_file"; \
+			exit 0; \
+		fi; \
+	fi; \
+	head_sha=$$(git rev-parse HEAD 2>/dev/null || echo unknown); \
+	t0=$$(date +%s%N); \
+	if [ "$$bypass" = "1" ]; then \
+		$(PYTEST) -v -m "not functional" $(PYTEST_ARGS); \
+	else \
+		$(PYTEST) $$(cat "$$selected_file") -v -m "not functional" $(PYTEST_ARGS); \
+	fi; \
+	pytest_rc=$$?; \
+	t1=$$(date +%s%N); \
+	rm -f "$$selected_file"; \
+	pytest_ms=$$(( (t1 - t0) / 1000000 )); \
+	$(PYTHON) scripts/select_tests.py --patch-selection-json --head "$$head_sha" --pytest-ms "$$pytest_ms" || true; \
+	exit $$pytest_rc
+
+## Full-suite escape hatch (issue #1973).  Runs the historical
+## `pytest tests/ gateway/tests/ orchestrator/tests/ shared/tests/`
+## command unconditionally — no narrowing, no fallback evaluation.
+## On green exit, atomically writes the LKG sidecar at
+## `.egg-state/last-known-good/<branch>.sha` so the next
+## `make test` can narrow against it.  On red exit, the sidecar
+## is NOT updated (Q12) — partial / failing test runs cannot
+## become a future LKG baseline.
+##
+## CI uses this target to keep the 80% coverage gate enforced
+## unchanged (decision-d2).  Local developers can run it any time
+## to refresh their LKG without remembering the script invocation.
+test-all: export PYTHONPATH := shared:gateway:orchestrator
+test-all: venv  ## Run the full unit-test suite + record LKG on green
+	@echo "==> Running full unit-test suite (issue #1973: this updates LKG on green)..."
+	@$(PYTEST) tests/ gateway/tests/ orchestrator/tests/ shared/tests/ -v -m "not functional" $(PYTEST_ARGS); \
+	pytest_rc=$$?; \
+	if [ "$$pytest_rc" -eq 0 ]; then \
+		$(PYTHON) scripts/select_tests.py --record-good \
+			|| echo "select-tests: --record-good failed; LKG not updated"; \
+	else \
+		echo "select-tests: pytest failed; LKG not updated"; \
+	fi; \
+	exit $$pytest_rc
+
+## Manually record the current HEAD as a Last-Known-Good baseline
+## (issue #1973).  Use this when you know the suite passed but
+## didn't run via `make test-all` (e.g., ran a subset that you
+## know is exhaustive for your branch).  Validates the sha against
+## the object DB and against ancestor-of-HEAD; refuses on bad
+## input.
+test-record-good:
+	@echo "==> Recording HEAD as Last-Known-Good baseline (issue #1973)..."
+	@$(PYTHON) scripts/select_tests.py --record-good
 
 smoketest-long-poll: export PYTHONPATH := shared:gateway:orchestrator
 smoketest-long-poll: venv  ## Smoke-test the long-poll / event-driven wait infrastructure

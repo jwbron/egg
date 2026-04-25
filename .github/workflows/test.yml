@@ -34,7 +34,7 @@ jobs:
 
       - name: Run unit tests
         run: |
-          make test PYTEST_ARGS="--cov=gateway --cov=shared --cov=sandbox --cov-report=term-missing --cov-fail-under=80"
+          make test-all PYTEST_ARGS="--cov=gateway --cov=shared --cov=sandbox --cov-report=term-missing --cov-fail-under=80"
 
   security:
     name: Security Scan
