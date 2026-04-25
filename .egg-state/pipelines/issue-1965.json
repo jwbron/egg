@@ -222,10 +222,28 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-5",
+      "question": "When `reviewer_code` fans out into N subagents, how does each subagent see its slice of the diff?",
+      "context": "Open contract question decision-4, registered by an agent during the refine phase.",
+      "options": [
+        "Subagent re-runs `git diff` itself and filters by path glob to its assigned partition (parent passes only the partition spec).",
+        "Parent reviewer pre-slices the diff and passes the relevant patch fragment to each subagent in its prompt (parent does the partitioning work).",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T17:00:54.493881Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T16:38:48.058271Z",
-  "updated_at": "2026-04-25T17:00:54.440293Z",
+  "updated_at": "2026-04-25T17:00:54.519241Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -239,6 +257,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 15,
+  "version": 16,
   "jira_ticket": null
 }
