@@ -206,10 +206,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Should this pipeline also address related overseer bugs (#1722 stale AGENT_FAILED misdiagnosis, #1727 early-exit respawn), or leave them to their own pipelines?",
+      "context": "Open contract question decision-3, registered by an agent during the refine phase.",
+      "options": [
+        "Leave them in their own pipelines — link as context only",
+        "Absorb #1722 into this pipeline (it is a p1 false-positive case)",
+        "Absorb both #1722 and #1727 into this pipeline",
+        "Absorb only #1727",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T17:52:16.936344Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T17:05:44.416677Z",
-  "updated_at": "2026-04-25T17:52:16.898271Z",
+  "updated_at": "2026-04-25T17:52:16.961002Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -223,6 +243,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 14,
+  "version": 15,
   "jira_ticket": null
 }
