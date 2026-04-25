@@ -280,14 +280,31 @@ def load_extra_packages_manifest(
         return [], []
 
 
-def run_build_commands(build_commands: list[dict[str, Any]]) -> None:
+def run_build_commands(
+    build_commands: list[dict[str, Any]],
+    repo_deps_base: Path = Path("/tmp/repo-deps"),
+) -> None:
     """Execute build commands for each repo during Docker image build.
 
-    Each repo's commands run in its watch files directory at /tmp/repo-deps/<repo-name>.
-    Commands run as root (same as the rest of docker-setup.py).
+    Each repo's commands run in its watch files directory at
+    `<repo_deps_base>/<repo-name>`. Commands run as root (same as the rest of
+    docker-setup.py).
+
+    Failure modes that abort the build (vs. earlier warn-and-continue behavior,
+    which silently produced broken images — see #2087):
+
+    - The repo's watch_files directory is missing (build manifest declared
+      commands but `_copy_repo_watch_files` produced no source for them).
+    - A command exits non-zero, or raises an exception (e.g. binary not found).
 
     Args:
         build_commands: List of dicts from get_build_commands()
+        repo_deps_base: Base path for repo build contexts (default: /tmp/repo-deps).
+            Mirrors persist_build_dirs's parameter so tests can use tmp_path
+            instead of touching the real /tmp/repo-deps tree.
+
+    Raises:
+        RuntimeError: When any of the failure modes above occurs.
     """
     if not build_commands:
         return
@@ -299,16 +316,16 @@ def run_build_commands(build_commands: list[dict[str, Any]]) -> None:
         commands = entry["commands"]
         # Sanitize repo name for directory path (owner/repo -> owner--repo)
         repo_dir_name = repo.replace("/", "--")
-        work_dir = Path("/tmp/repo-deps") / repo_dir_name
+        work_dir = repo_deps_base / repo_dir_name
 
         print(f"\n--- Build commands for {repo} ---")
 
         if not work_dir.exists():
-            print(
-                f"  Warning: Watch files directory {work_dir} does not exist, "
-                f"running commands in /tmp"
+            raise RuntimeError(
+                f"build_commands: watch files directory {work_dir} does not exist "
+                f"for {repo}; check watch_files config and that "
+                f"_copy_repo_watch_files ran"
             )
-            work_dir = Path("/tmp")
 
         for cmd in commands:
             print(f"  Running: {cmd}")
@@ -321,14 +338,19 @@ def run_build_commands(build_commands: list[dict[str, Any]]) -> None:
                     check=False,
                     capture_output=False,
                 )
-                if result.returncode != 0:
-                    print(f"  Warning: Command exited with code {result.returncode}: {cmd}")
             except Exception as e:
-                print(f"  Warning: Command failed: {cmd}: {e}")
+                raise RuntimeError(
+                    f"build_commands: command for {repo} raised an exception: {cmd!r}: {e}"
+                ) from e
+            if result.returncode != 0:
+                raise RuntimeError(
+                    f"build_commands: command for {repo} exited with code "
+                    f"{result.returncode}: {cmd!r}"
+                )
 
     print("\n=== Build commands complete ===")
 
-    persist_build_dirs(build_commands)
+    persist_build_dirs(build_commands, repo_deps_base=repo_deps_base)
 
 
 def persist_build_dirs(
@@ -362,7 +384,10 @@ def persist_build_dirs(
         for rel_dir in persist_dirs:
             src_dir = work_dir / rel_dir
 
-            # Defense-in-depth: validate path stays within work_dir
+            # Defense-in-depth: validate path stays within work_dir.
+            # Path traversal is rejected (not raised) so that a malformed config
+            # entry can't crash an otherwise valid build — but the legitimate
+            # absent-after-build case below IS raised (see #2087).
             try:
                 src_dir.resolve().relative_to(work_dir.resolve())
             except ValueError:
@@ -370,8 +395,12 @@ def persist_build_dirs(
                 continue
 
             if not src_dir.is_dir():
-                print(f"  Warning: persist_dirs: {rel_dir} does not exist after build, skipping")
-                continue
+                raise RuntimeError(
+                    f"persist_dirs: {repo!r} declared persist_dir {rel_dir!r} but "
+                    f"it does not exist at {src_dir} after build commands ran. "
+                    f"Either the build commands failed silently, or the watch_files "
+                    f"context is missing inputs the commands need."
+                )
 
             dest_dir = dest_base / rel_dir
             dest_dir.parent.mkdir(parents=True, exist_ok=True)
@@ -417,11 +446,12 @@ def persist_build_dirs(
 
             src_dir = resolved
             if not src_dir.is_dir():
-                print(
-                    f"  Warning: persist_system_dirs: {abs_dir} does not exist "
-                    f"after build ({repo}), skipping"
+                raise RuntimeError(
+                    f"persist_system_dirs: {repo!r} declared {abs_dir!r} but it "
+                    f"does not exist at {src_dir} after build commands ran. "
+                    f"Either the build commands failed silently, or they did "
+                    f"not produce that path."
                 )
-                continue
 
             # Store under __egg_system_dirs__/<abs_path> so it can be restored to the same location
             # Strip leading / for the destination path

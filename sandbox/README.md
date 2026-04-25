@@ -206,6 +206,8 @@ Per-repo `build_commands` in `repositories.yaml` allow project-specific dependen
 
 > **Note:** `persist_dirs` and `persist_system_dirs` are not included in `compute_build_hash()`. Changing only these fields won't trigger an automatic rebuild — add or modify a `watch_files` entry or use `egg --rebuild`.
 
+> **Fail-fast contract (since #2087):** A non-zero exit from any command, a missing watch-files directory, or a `persist_dirs` / `persist_system_dirs` entry that doesn't exist after the commands run all abort the image build. Earlier behavior printed a warning and continued, which silently produced empty prebuilt-deps trees. Path-traversal rejection stays warn-and-skip (security control, not misconfiguration).
+
 **Config propagation:** During Docker builds, `repositories.yaml` is not available in the build context. Both `build_commands` and `extra_packages` are propagated via a `manifest.json` file that `create_dockerfile()` writes into `repo-deps/`. The `docker-setup.py` script reads this manifest as a fallback when `repositories.yaml` is not found.
 
 See [Configuration README](../config/README.md#per-repo-build-commands-dependency-caching) for configuration details.
