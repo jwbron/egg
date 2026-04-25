@@ -135,8 +135,11 @@ class TestRestartAgentContainer:
             mode="public",
         )
 
-        # K8s restart calls remove_container (via remove_agent_job)
-        mock_docker_client.remove_container.assert_called()
+        # K8s restart calls delete_job directly (#2070): remove_agent_job
+        # would route both the k8s and gateway calls through one identifier,
+        # but k8s wants the prefixed form and the gateway session is keyed
+        # by the unprefixed form.
+        mock_docker_client.delete_job.assert_called()
 
     def test_restart_spawns_new_container(self, spawner, mock_docker_client, mock_gateway_client):
         """Restart should create a new Job."""
