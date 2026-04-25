@@ -15,8 +15,6 @@ import threading
 import time
 from pathlib import Path
 
-import pytest
-
 # Add orchestrator to path so bare imports resolve.
 _orchestrator_path = Path(__file__).parent.parent
 if str(_orchestrator_path) not in sys.path:
@@ -28,12 +26,8 @@ from heartbeat import (  # noqa: E402
     reset_heartbeat_coordinator,
 )
 
-
-@pytest.fixture(autouse=True)
-def _reset_singleton():
-    reset_heartbeat_coordinator()
-    yield
-    reset_heartbeat_coordinator()
+# Singleton reset between tests is handled by ``_reset_heartbeat_coordinator``
+# in ``conftest.py`` (autouse-scoped to all orchestrator tests).
 
 
 class TestShouldFanOutGatewaySession:
@@ -61,9 +55,16 @@ class TestShouldFanOutGatewaySession:
         assert coord.should_fan_out_gateway_session("p1", "coder", 30.0) is True
 
     def test_first_call_fires_and_records(self):
-        """First call for a given key always returns True (last==0.0)."""
+        """First call fires AND records the new timestamp.
+
+        The recording side-effect is verified directly: a second call
+        inside the cooldown window can only return False if the first
+        call wrote ``_last_fan_out[(p1, coder)]``.
+        """
         coord = HeartbeatCoordinator()
         assert coord.should_fan_out_gateway_session("p1", "coder", 30.0) is True
+        # Recording side-effect: second call within the window is suppressed.
+        assert coord.should_fan_out_gateway_session("p1", "coder", 30.0) is False
 
     def test_second_call_within_cooldown_suppressed(self):
         """A second call inside the cooldown window returns False."""
@@ -75,10 +76,13 @@ class TestShouldFanOutGatewaySession:
     def test_call_after_cooldown_fires(self):
         """Once the window elapses, the next call fires again."""
         coord = HeartbeatCoordinator()
-        # 50ms cooldown so the test stays fast.
+        # 50ms cooldown + 200ms sleep — 150ms headroom keeps the test
+        # robust against GC pauses or noisy CI scheduling. ``time.sleep``
+        # is a guaranteed lower bound, so the cooldown is always elapsed
+        # by the time the third assertion runs.
         assert coord.should_fan_out_gateway_session("p1", "coder", 0.05) is True
         assert coord.should_fan_out_gateway_session("p1", "coder", 0.05) is False
-        time.sleep(0.07)
+        time.sleep(0.2)
         assert coord.should_fan_out_gateway_session("p1", "coder", 0.05) is True
 
     def test_different_roles_throttled_independently(self):
@@ -99,14 +103,18 @@ class TestShouldFanOutGatewaySession:
         assert coord.should_fan_out_gateway_session("p2", "coder", 30.0) is False
 
     def test_suppressed_call_does_not_advance_recorded_timestamp(self):
-        """Hot-looping must not push the cooldown forward indefinitely."""
+        """Hot-looping must not push the cooldown forward indefinitely.
+
+        Uses a 50ms cooldown + 200ms sleep — 150ms headroom keeps the
+        ``time.time()`` reads robust against scheduling jitter on CI.
+        """
         coord = HeartbeatCoordinator()
         assert coord.should_fan_out_gateway_session("p1", "coder", 0.05) is True
         # Hammer the coordinator inside the window — every call returns
         # False, but the recorded timestamp stays at the initial fire.
         for _ in range(10):
             assert coord.should_fan_out_gateway_session("p1", "coder", 0.05) is False
-        time.sleep(0.07)
+        time.sleep(0.2)
         # Still fires once the original window elapses, which proves the
         # suppressed calls didn't reset the clock.
         assert coord.should_fan_out_gateway_session("p1", "coder", 0.05) is True

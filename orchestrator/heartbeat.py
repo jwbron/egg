@@ -126,6 +126,14 @@ class HeartbeatCoordinator:
         recording) if the caller should skip the fan-out this round.
         Any non-positive ``min_interval_seconds`` (``<= 0``) disables
         throttling — every call returns ``True`` without recording.
+
+        Callers must pass a finite real number. ``float('nan')`` falls
+        through both branches (``nan <= 0`` and ``now - last < nan`` are
+        both False), which would silently behave as "always record,
+        never suppress" — not a meaningful state.  The realistic call
+        site (``_GATEWAY_FANOUT_MIN_INTERVAL_SECONDS = 30.0``) is a
+        module constant, but if a future env-var-driven knob lands
+        (#2076 NB5) it should sanitize NaN/inf at parse time.
         """
         if min_interval_seconds <= 0:
             return True
