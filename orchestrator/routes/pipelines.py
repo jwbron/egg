@@ -3394,8 +3394,11 @@ def _get_reviewer_scope_preamble(reviewer_type: str, phase: str) -> str:
             "patterns where a handler in one file accepts traffic that a "
             "validator in another file was supposed to reject.\n\n"
             "**Analysis format:** Provide a finding-by-finding lens report. "
-            "If the diff has no security concerns, a brief approval is "
-            "acceptable — verbose reports without findings are not required."
+            "If the diff has no security concerns, a concise approval is "
+            "acceptable — verbose reports without findings are not required, "
+            "but the BRC bus enforces a minimum content length on ACK / "
+            "NACK bodies, so write at least a sentence or two summarizing "
+            'what you checked (not a single-word "LGTM").'
         )
     elif reviewer_type == "concurrency":
         return (
@@ -3408,8 +3411,11 @@ def _get_reviewer_scope_preamble(reviewer_type: str, phase: str) -> str:
             "BRC-protocol invariants (send→wait ordering, cursor "
             "threading per #1925, heartbeat-stall windows per #2012).\n\n"
             "**Analysis format:** Provide a finding-by-finding lens report. "
-            "If the diff has no concurrency concerns, a brief approval is "
-            "acceptable — verbose reports without findings are not required."
+            "If the diff has no concurrency concerns, a concise approval is "
+            "acceptable — verbose reports without findings are not required, "
+            "but the BRC bus enforces a minimum content length on ACK / "
+            "NACK bodies, so write at least a sentence or two summarizing "
+            'what you checked (not a single-word "LGTM").'
         )
     else:
         raise ValueError(f"Unknown reviewer type: {reviewer_type}")
@@ -4533,11 +4539,18 @@ def _build_review_prompt(
                 "prohibition verbatim to each subagent in its prompt."
             )
             lines.append("")
-            # Mandatory cross-partition consistency pass — runs in ALL paths
-            # (above-threshold fan-out, below-threshold solo, empty-tasks
-            # fallback, mcp-unavailable fallback). Lifted out of the numbered
-            # fan-out steps per reviewer_code feedback so it cannot be
-            # short-circuited when the reviewer takes a single-pass branch.
+            # Mandatory cross-partition consistency pass — runs in ALL
+            # fan-out paths within this gated block (above-threshold fan-out,
+            # below-threshold solo, empty-tasks fallback, mcp-unavailable
+            # fallback). NOTE: this whole section is gated by
+            # ``phase == "implement" and not is_delta_review`` above, so
+            # delta reviews (cycle > 1) do not get this pass — the
+            # delta-only `git log A..HEAD` command is small by construction
+            # and the parent's cross-partition pass would contradict the
+            # delta-only directive. Lifted out of the numbered fan-out
+            # steps per reviewer_code feedback so it cannot be
+            # short-circuited when the reviewer takes a single-pass branch
+            # of the fan-out flow.
             lines.append("## Mandatory Cross-Partition Consistency Pass\n")
             lines.append(
                 "Regardless of whether you fan out or review solo (and "
@@ -8566,18 +8579,31 @@ def _build_agent_prompt(
         _reviewer_code_parallel = True
         if reviewer_type == "code" and phase == "implement" and repo_path:
             try:
-                from egg_contracts.loader import load_contract
+                from egg_contracts.loader import (
+                    ContractNotFoundError,
+                    ContractValidationError,
+                    load_contract,
+                )
                 from egg_contracts.models import (
                     get_reviewer_code_parallel as _get_reviewer_code_parallel,
                 )
 
                 _contract = load_contract(pipeline_id, Path(repo_path))
                 _reviewer_code_parallel = _get_reviewer_code_parallel(_contract)
-            except (ImportError, FileNotFoundError, ValueError) as _knob_err:
-                # Narrow catch: missing loader module, missing contract file,
-                # or contract schema validation failure. Surface in logs so
-                # genuine issues are observable, but never let prompt
-                # construction fail — fall back to the parallel default.
+            except (
+                ImportError,
+                ContractNotFoundError,
+                ContractValidationError,
+            ) as _knob_err:
+                # Narrow catch: missing loader module, missing contract file
+                # (babysit_pr / contractless flows), or contract schema
+                # validation failure. ``load_contract`` raises its own
+                # ``ContractNotFoundError`` / ``ContractValidationError``
+                # (Exception subclasses, not ``FileNotFoundError`` /
+                # ``ValueError``), so they must be named explicitly here.
+                # Surface in logs so genuine issues are observable, but
+                # never let prompt construction fail — fall back to the
+                # parallel default.
                 logger.warning(
                     "Failed to resolve reviewer_code_parallel knob; falling back to True. error=%s",
                     _knob_err,
