@@ -956,7 +956,7 @@ The health monitor is aware of BRC protocol state and **suppresses stall alerts 
 
 Once both conditions expire (all producers have proposed AND the grace period has elapsed), normal heartbeat/progress monitoring resumes.
 
-**Post-ACK confirmation timeout:** In the opposite direction, the health monitor also detects **producers stuck after being fully ACKed**. If all reviewers have ACKed a producer's proposal but the producer hasn't sent `CONSENSUS_CONFIRMED` within `orchestrator_post_ack_confirmation_timeout_seconds` (default 180s / 3 minutes), the health monitor sends a direct `OVERSEER_ALERT` to the stuck producer instructing it to call `mcp__brc__confirm`, then escalates to overseer/HITL — regardless of whether the producer is still sending heartbeats. This catches the failure mode where a producer enters a tight heartbeat loop without ever confirming.
+**Post-ACK confirmation timeout:** In the opposite direction, the health monitor also detects **producers stuck after being fully ACKed**. If all reviewers have ACKed a producer's proposal but the producer hasn't sent `CONSENSUS_CONFIRMED` within `orchestrator_post_ack_confirmation_timeout_seconds` (default 180s / 3 minutes), the health monitor sends a direct `OVERSEER_ALERT` to the stuck producer instructing it to call `mcp__brc__confirm`, and also escalates to overseer/HITL — regardless of whether the producer is still sending heartbeats. This catches the failure mode where a producer enters a tight heartbeat loop without ever confirming.
 
 See [Pipeline Health Monitoring](pipeline-health-monitoring.md#post-propose-grace-period-for-reviewers) for implementation details and configuration.
 

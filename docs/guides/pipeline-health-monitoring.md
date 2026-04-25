@@ -207,7 +207,7 @@ The health monitor now adds a **post-ACK confirmation timeout** via `check_brc_p
 2. It queries `PeerConsensusTracker.get_fully_acked_producers()` to find producers where all reviewers have ACKed but the producer hasn't yet confirmed
 3. For each such producer, it records a first-seen timestamp in `_fully_acked_first_seen`
 4. If `time.time() - first_seen > orchestrator_post_ack_confirmation_timeout_seconds` and the agent hasn't already been escalated (via `brc_progress_escalated` flag on `AgentState`), it creates an escalation with `alert_type: "brc_confirmation_timeout"` and fires registered callbacks
-5. The `_send_brc_confirmation_nudge` callback sends an `OVERSEER_ALERT` directly to the stuck producer (bypassing `MESSAGE_SENT` tracking to avoid rate-limit side-effects). The message body tells the producer to call `mcp__brc__confirm` and explains how to handle `status='pending_acks'` guard failures.
+5. The `_send_brc_confirmation_nudge` callback sends an `OVERSEER_ALERT` directly to the stuck producer (bypassing `MESSAGE_SENT` tracking to avoid rate-limit and heartbeat-tracking side-effects). The message body tells the producer to call `mcp__brc__confirm` and explains how to handle `status='pending_acks'` guard failures.
 6. When a producer confirms or is no longer in the fully-acked set, tracking is cleaned up
 
 **Why 3 minutes?** The time between receiving an ACK and sending `CONFIRMED` should be near-instantaneous (just reading the ACK message and calling `egg-orch consensus confirmed`). A 3-minute timeout is generous enough to accommodate network delays and slow poll cycles, but catches agents stuck in heartbeat loops far faster than the previous detection mechanisms (~10 minutes via `IncompleteConsensusStallCheck`).
