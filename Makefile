@@ -26,7 +26,7 @@ PYTHON := $(if $(wildcard $(VENV_BIN)/python),$(VENV_BIN)/python,python3)
 EGG_IMAGE_TAG := $(shell git describe --always --dirty 2>/dev/null || echo latest)
 
 .PHONY: help \
-        setup deps venv install-linters check-linters \
+        setup deps venv sync-venv-if-uv install-linters check-linters \
         lint lint-python lint-shell lint-yaml lint-docker lint-actions lint-custom \
         test test-all test-record-good security \
         test-integration test-e2e test-security smoketest-long-poll \
@@ -114,6 +114,14 @@ venv:
 	fi
 	@echo "==> Syncing venv..."
 	@uv sync --extra dev
+
+# Sync the venv if uv is on PATH; no-op otherwise.
+# The sandbox container pre-installs pytest/ruff/mypy globally (see
+# sandbox/Dockerfile) and does not ship uv, so test targets that depend
+# on this stay green there. Dev machines and CI both have uv and get
+# the same `uv sync` behavior as the strict `venv` target. Issue #2065.
+sync-venv-if-uv:
+	@if command -v uv >/dev/null 2>&1; then $(MAKE) venv; fi
 
 # Install all linting tools
 install-linters: venv
@@ -272,7 +280,7 @@ lint-custom:
 ## one place.  LKG sidecar is NEVER updated by `make test` (Q12);
 ## only `make test-all` records LKG on green.
 test: export PYTHONPATH := shared:gateway:orchestrator
-test: venv
+test: sync-venv-if-uv
 	@echo "==> Running narrowed unit tests (changeset-aware; see docs/guides/testing.md)..."
 	@selected_file=$$(mktemp); \
 	PYTEST_ARGS_RAW="$(PYTEST_ARGS)" \
@@ -322,7 +330,7 @@ test: venv
 ## unchanged (decision-d2).  Local developers can run it any time
 ## to refresh their LKG without remembering the script invocation.
 test-all: export PYTHONPATH := shared:gateway:orchestrator
-test-all: venv  ## Run the full unit-test suite + record LKG on green
+test-all: sync-venv-if-uv  ## Run the full unit-test suite + record LKG on green
 	@echo "==> Running full unit-test suite (issue #1973: this updates LKG on green)..."
 	@$(PYTEST) tests/ gateway/tests/ orchestrator/tests/ shared/tests/ -v -m "not functional" $(PYTEST_ARGS); \
 	pytest_rc=$$?; \
