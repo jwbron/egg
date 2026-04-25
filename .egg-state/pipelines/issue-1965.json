@@ -360,7 +360,7 @@
           "container_info": null,
           "started_at": "2026-04-25T17:52:05.681440Z",
           "completed_at": "2026-04-25T18:41:11.025502Z",
-          "commit": null,
+          "commit": "da4507e6eb17a443fa9624c089f2b597b86263b9",
           "outputs": {},
           "error": null,
           "retry_count": 0,
@@ -373,7 +373,7 @@
           "container_info": null,
           "started_at": "2026-04-25T17:52:05.681449Z",
           "completed_at": "2026-04-25T18:41:11.025502Z",
-          "commit": null,
+          "commit": "ee66ae6a34db93ef1ea978e5edeaf3392a8064f2",
           "outputs": {},
           "error": null,
           "retry_count": 0,
@@ -386,7 +386,7 @@
           "container_info": null,
           "started_at": "2026-04-25T17:52:05.681453Z",
           "completed_at": "2026-04-25T18:41:11.025502Z",
-          "commit": null,
+          "commit": "3e78fe5e6298762851486f51449afb3183b02d0f",
           "outputs": {},
           "error": null,
           "retry_count": 0,
@@ -601,7 +601,7 @@
     }
   ],
   "created_at": "2026-04-25T16:38:48.058271Z",
-  "updated_at": "2026-04-25T18:41:11.026070Z",
+  "updated_at": "2026-04-25T18:41:30.344033Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -615,6 +615,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 43,
+  "version": 44,
   "jira_ticket": null
 }
