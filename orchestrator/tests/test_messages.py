@@ -18,6 +18,7 @@ _orchestrator_path = Path(__file__).parent.parent
 if str(_orchestrator_path) not in sys.path:
     sys.path.insert(0, str(_orchestrator_path))
 
+from heartbeat import reset_heartbeat_coordinator
 from message_store import Message, MessageStore, MessageType, reset_message_store
 from routes.messages import messages_bp
 from state_store import InvalidPipelineIdError
@@ -40,10 +41,18 @@ def client(app):
 
 @pytest.fixture(autouse=True)
 def _reset_store():
-    """Reset message store singleton between tests."""
+    """Reset message store + heartbeat coordinator singletons between tests.
+
+    The heartbeat coordinator carries per-(pipeline, role) dedup,
+    rate-limit, and gateway-fan-out throttle state. Without resetting
+    it, tests that share role names can observe contaminated state
+    (e.g. a throttle window patched in one test leaking into the next).
+    """
     reset_message_store()
+    reset_heartbeat_coordinator()
     yield
     reset_message_store()
+    reset_heartbeat_coordinator()
 
 
 def _make_pipeline_mock():

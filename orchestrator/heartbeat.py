@@ -124,7 +124,8 @@ class HeartbeatCoordinator:
         ``min_interval_seconds`` have passed since the previous fan-out
         for this ``(pipeline_id, role)``; returns ``False`` (without
         recording) if the caller should skip the fan-out this round.
-        ``min_interval_seconds == 0`` disables throttling.
+        Any non-positive ``min_interval_seconds`` (``<= 0``) disables
+        throttling — every call returns ``True`` without recording.
         """
         if min_interval_seconds <= 0:
             return True
