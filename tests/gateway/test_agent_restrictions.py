@@ -25,39 +25,19 @@ from agent_restrictions import (
 
 
 class TestAgentRoleConsistency:
-    """Verify gateway AgentRole matches shared library AgentRole."""
+    """Tripwire: gateway AgentRole must be the canonical egg_contracts enum.
 
-    def test_role_values_match_shared_library(self):
-        """Gateway AgentRole values must match egg_contracts.agent_roles.AgentRole.
+    Issue #2066: replaced the per-package AgentRole duplicate with a
+    re-export so a new role added in egg_contracts is automatically
+    visible to the gateway. The identity assertion below catches anyone
+    re-introducing a parallel class or enum in egg_restrictions or the
+    gateway.
+    """
 
-        This test prevents subtle bugs from enum value drift between the two modules.
-        """
+    def test_gateway_agent_role_is_canonical(self):
         from egg_contracts.agent_roles import AgentRole as SharedAgentRole
 
-        # Verify all shared library roles exist in gateway with same values
-        for shared_role in SharedAgentRole:
-            assert hasattr(AgentRole, shared_role.name), (
-                f"Gateway AgentRole missing role: {shared_role.name}"
-            )
-            gateway_value = getattr(AgentRole, shared_role.name)
-            assert gateway_value == shared_role.value, (
-                f"Role value mismatch for {shared_role.name}: "
-                f"gateway={gateway_value}, shared={shared_role.value}"
-            )
-
-    def test_all_gateway_roles_in_shared_library(self):
-        """All gateway roles must exist in the shared library."""
-        from egg_contracts.agent_roles import AgentRole as SharedAgentRole
-
-        gateway_roles = {
-            AgentRole.CODER,
-            AgentRole.TESTER,
-            AgentRole.DOCUMENTER,
-        }
-        shared_values = {r.value for r in SharedAgentRole}
-
-        for role in gateway_roles:
-            assert role in shared_values, f"Gateway role '{role}' not found in shared library"
+        assert AgentRole is SharedAgentRole
 
 
 class TestPathTraversalPrevention:
