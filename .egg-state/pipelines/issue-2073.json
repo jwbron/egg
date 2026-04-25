@@ -53,8 +53,88 @@
       "started_at": "2026-04-25T23:09:36.697391Z",
       "work_started_at": "2026-04-25T23:09:38.458921Z",
       "completed_at": null,
-      "containers": [],
-      "agents": [],
+      "containers": [
+        {
+          "container_id": "c25cacbd-6a5d-4824-8efa-4dab7a1fb544",
+          "container_name": "egg-sandbox-egg-agent-issue-2073-reviewer-refine",
+          "status": "running",
+          "started_at": "2026-04-25T23:09:42.190885Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_refine",
+          "session_token": null,
+          "pod_name": null,
+          "namespace": "egg-agents",
+          "job_name": "egg-sandbox-egg-agent-issue-2073-reviewer-refine"
+        },
+        {
+          "container_id": "ff10a272-16d2-48f0-a019-f351741ee6cc",
+          "container_name": "egg-sandbox-egg-agent-issue-2073-reviewer-agent-design",
+          "status": "running",
+          "started_at": "2026-04-25T23:09:42.190902Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "reviewer_agent_design",
+          "session_token": null,
+          "pod_name": null,
+          "namespace": "egg-agents",
+          "job_name": "egg-sandbox-egg-agent-issue-2073-reviewer-agent-design"
+        },
+        {
+          "container_id": "00dc5c1b-8156-4e6f-9bc3-3877097804e1",
+          "container_name": "egg-sandbox-egg-agent-issue-2073-refiner",
+          "status": "running",
+          "started_at": "2026-04-25T23:09:42.190909Z",
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": "refiner",
+          "session_token": null,
+          "pod_name": null,
+          "namespace": "egg-agents",
+          "job_name": "egg-sandbox-egg-agent-issue-2073-refiner"
+        }
+      ],
+      "agents": [
+        {
+          "role": "reviewer_refine",
+          "status": "running",
+          "container_id": "c25cacbd-6a5d-4824-8efa-4dab7a1fb544",
+          "container_info": null,
+          "started_at": "2026-04-25T23:09:42.190897Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "reviewer_agent_design",
+          "status": "running",
+          "container_id": "ff10a272-16d2-48f0-a019-f351741ee6cc",
+          "container_info": null,
+          "started_at": "2026-04-25T23:09:42.190907Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "refiner",
+          "status": "running",
+          "container_id": "00dc5c1b-8156-4e6f-9bc3-3877097804e1",
+          "container_info": null,
+          "started_at": "2026-04-25T23:09:42.190912Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
+          "retry_count": 0,
+          "conflicts": []
+        }
+      ],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
       "cycle_timings": [
@@ -73,7 +153,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-25T23:09:30.400320Z",
-  "updated_at": "2026-04-25T23:09:38.460750Z",
+  "updated_at": "2026-04-25T23:09:42.190980Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -87,6 +167,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 6,
+  "version": 7,
   "jira_ticket": null
 }
