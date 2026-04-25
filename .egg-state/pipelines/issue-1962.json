@@ -266,10 +266,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-7",
+      "question": "Dedup state storage: where does the overseer remember issues it has already filed?",
+      "context": "Open contract question decision-6, registered by an agent during the refine phase.",
+      "options": [
+        "In-process only — each phase's overseer starts fresh; rely on GitHub search each time",
+        "Persisted to .egg-state/oversight/filed-issues.json so respawns/new phases remember",
+        "Persisted via orchestrator REST endpoint (central store); overseer asks 'have I filed this?' before filing",
+        "Hybrid — persist locally AND verify via GitHub search before filing",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T17:52:17.116687Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T17:05:44.416677Z",
-  "updated_at": "2026-04-25T17:52:17.084335Z",
+  "updated_at": "2026-04-25T17:52:17.138854Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -283,6 +303,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 17,
+  "version": 18,
   "jira_ticket": null
 }
