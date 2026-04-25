@@ -278,10 +278,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-25T23:29:20.984299Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-25T23:33:51.740502Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Both: a new `egg validate-config` CLI subcommand AND extend the existing `mcp__egg__validate_config` MCP tool (Recommended) — covers humans and agents in one change. Note: today's `validate_config` MCP tool validates *pipeline* configs, so this requires renaming or namespacing.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -495,7 +495,7 @@
     }
   ],
   "created_at": "2026-04-25T23:09:30.400320Z",
-  "updated_at": "2026-04-25T23:33:46.181703Z",
+  "updated_at": "2026-04-25T23:33:51.761426Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -509,6 +509,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 32,
+  "version": 33,
   "jira_ticket": null
 }
