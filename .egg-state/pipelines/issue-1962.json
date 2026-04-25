@@ -246,10 +246,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Auto-issue dedup scope: when the overseer considers filing, what window should it search to avoid duplicates?",
+      "context": "Open contract question decision-5, registered by an agent during the refine phase.",
+      "options": [
+        "Per pipeline — dedup only against this pipeline's prior filings",
+        "Per repo — search all open overseer-filed issues across the repo by anomaly label",
+        "Global — search across all open issues, including human-filed ones, by label + title fuzzy match",
+        "No dedup — file every time; accept some duplication risk",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T17:52:17.060624Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T17:05:44.416677Z",
-  "updated_at": "2026-04-25T17:52:17.020174Z",
+  "updated_at": "2026-04-25T17:52:17.084335Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -263,6 +283,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 16,
+  "version": 17,
   "jira_ticket": null
 }
