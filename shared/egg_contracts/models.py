@@ -362,11 +362,11 @@ def get_reviewer_code_parallel(contract: Any) -> bool:
     implement_cfg = None
     try:
         implement_cfg = phase_configs.get(PipelinePhase.IMPLEMENT)
-    except AttributeError:
+    except (AttributeError, TypeError):
         # Not a mapping — try the string form for resilient duck typing.
         try:
-            implement_cfg = phase_configs.get("implement")  # type: ignore[union-attr]
-        except Exception:  # pragma: no cover — defensive
+            implement_cfg = phase_configs.get("implement")
+        except (AttributeError, TypeError):  # pragma: no cover — defensive
             return True
     if implement_cfg is None:
         return True
