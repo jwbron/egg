@@ -3241,6 +3241,73 @@ def _get_plan_review_criteria() -> str:
     )
 
 
+def _get_security_review_criteria(repo_path: str | None = None) -> str:
+    """Return security-lens review criteria (issue #1965).
+
+    The shared file inherits from ``code-review-criteria.md`` and adds
+    lens-specific rules (cross-file allowlist mismatches,
+    handler-vs-validator path mismatches, info-disclosure / authz bypass,
+    uncommitted-artifact mismatches, secret leakage, OWASP cross-file
+    patterns). Falls back to a short inline placeholder when the shared
+    file isn't available.
+    """
+    content = _read_shared_criteria(
+        "security-review-criteria.md",
+        user_override="security-review-rules.md",
+        repo_path=repo_path,
+    )
+    if content is not None:
+        return content
+    logger.warning("Shared security-review-criteria.md not found, using inline fallback")
+    return (
+        "Inherits from `code-review-criteria.md`; only lens-specific rules "
+        "below override or extend it.\n\n"
+        "### Security lens (focus areas)\n"
+        "- **Cross-file allowlist mismatch** — handler in one file references "
+        "a check defined / extended in a different file (the PR #1964 "
+        "`^project$` pattern).\n"
+        "- **Handler-vs-validator path mismatch** — verify the validator's "
+        "regex / allowlist actually covers every code path the handler "
+        "reaches.\n"
+        "- Information-disclosure and authorization-bypass patterns at "
+        "trust boundaries.\n"
+        "- Uncommitted-artifact / Dockerfile-symlink mismatches (the PR "
+        "#1964 `sandbox/scripts/jira` pattern).\n"
+        "- Secret leakage via logs, error text, environment dumps, or "
+        "version-controlled config.\n"
+        "- OWASP top-10 patterns spanning more than one changed file.\n"
+    )
+
+
+def _get_concurrency_review_criteria(repo_path: str | None = None) -> str:
+    """Return concurrency-lens review criteria (issue #1965).
+
+    The shared file inherits from ``code-review-criteria.md`` and adds
+    lens-specific rules (race conditions, deadlocks, shared-state
+    mutation, async-context leakage, retry storms, resource-cleanup
+    ordering, BRC-protocol invariants).
+    """
+    content = _read_shared_criteria(
+        "concurrency-review-criteria.md",
+        user_override="concurrency-review-rules.md",
+        repo_path=repo_path,
+    )
+    if content is not None:
+        return content
+    logger.warning("Shared concurrency-review-criteria.md not found, using inline fallback")
+    return (
+        "Inherits from `code-review-criteria.md`; only lens-specific rules "
+        "below override or extend it.\n\n"
+        "### Concurrency lens (focus areas)\n"
+        "- Race conditions and deadlocks.\n"
+        "- Shared-state mutation without proper synchronization.\n"
+        "- Async-context leakage and retry-storm patterns.\n"
+        "- Resource-cleanup ordering bugs.\n"
+        "- BRC-protocol invariants (send→wait ordering, cursor threading "
+        "per #1925, heartbeat-stall windows per #2012).\n"
+    )
+
+
 def _get_review_criteria_for_type(
     reviewer_type: str, phase: str, repo_path: str | None = None
 ) -> str:
@@ -3255,6 +3322,10 @@ def _get_review_criteria_for_type(
         return _get_refine_review_criteria()
     elif reviewer_type == "plan":
         return _get_plan_review_criteria()
+    elif reviewer_type == "security":
+        return _get_security_review_criteria(repo_path=repo_path)
+    elif reviewer_type == "concurrency":
+        return _get_concurrency_review_criteria(repo_path=repo_path)
     else:
         raise ValueError(f"Unknown reviewer type: {reviewer_type}")
 
@@ -3308,6 +3379,43 @@ def _get_reviewer_scope_preamble(reviewer_type: str, phase: str) -> str:
             "**Analysis format:** Provide section-by-section evaluation of the plan — "
             "assess task decomposition, acceptance criteria quality, dependency ordering, "
             "and risk coverage."
+        )
+    elif reviewer_type == "security":
+        return (
+            "This is an ADVISORY **security-lens review** (issue #1965). "
+            "Focus ONLY on the security lens; defer code quality, performance, "
+            "and non-security findings to `reviewer_code`.\n\n"
+            "**Lens scope:** cross-file allowlist mismatches, "
+            "handler-vs-validator path mismatches, information-disclosure / "
+            "authorization-bypass patterns at trust boundaries, "
+            "uncommitted-artifact / Dockerfile-symlink mismatches, secret "
+            "leakage, and OWASP top-10 patterns that span more than one "
+            "changed file. Be especially alert to allowlist-mismatch "
+            "patterns where a handler in one file accepts traffic that a "
+            "validator in another file was supposed to reject.\n\n"
+            "**Analysis format:** Provide a finding-by-finding lens report. "
+            "If the diff has no security concerns, a concise approval is "
+            "acceptable — verbose reports without findings are not required, "
+            "but the BRC bus enforces a minimum content length on ACK / "
+            "NACK bodies, so write at least a sentence or two summarizing "
+            'what you checked (not a single-word "LGTM").'
+        )
+    elif reviewer_type == "concurrency":
+        return (
+            "This is an ADVISORY **concurrency-lens review** (issue #1965). "
+            "Focus ONLY on the concurrency lens; defer code quality, "
+            "performance, and non-concurrency findings to `reviewer_code`.\n\n"
+            "**Lens scope:** race conditions, deadlocks, shared-state "
+            "mutation without synchronization, async-context leakage, "
+            "retry-storm patterns, resource-cleanup ordering bugs, and "
+            "BRC-protocol invariants (send→wait ordering, cursor "
+            "threading per #1925, heartbeat-stall windows per #2012).\n\n"
+            "**Analysis format:** Provide a finding-by-finding lens report. "
+            "If the diff has no concurrency concerns, a concise approval is "
+            "acceptable — verbose reports without findings are not required, "
+            "but the BRC bus enforces a minimum content length on ACK / "
+            "NACK bodies, so write at least a sentence or two summarizing "
+            'what you checked (not a single-word "LGTM").'
         )
     else:
         raise ValueError(f"Unknown reviewer type: {reviewer_type}")
@@ -4226,12 +4334,22 @@ def _build_review_prompt(
     last_reviewed_commit: str | None = None,
     base_branch: str | None = None,
     concurrent: bool = False,
+    reviewer_code_parallel: bool = True,
 ) -> str:
     """Build a review prompt for the reviewer agent.
 
     In sequential mode, tells the reviewer to write a typed verdict JSON
     file to .egg-state/reviews/.  In concurrent (BRC) mode, the reviewer's
     ACK/NACK reason IS the review output — no verdict file is written.
+
+    The ``reviewer_code_parallel`` flag (issue #1965) controls whether the
+    code reviewer's subagent fan-out spawns partitions in parallel
+    (default ``True``) or sequentially. The flag is honoured only when
+    ``reviewer_type == "code"`` and ``phase == "implement"`` — other
+    reviewer types and phases are unaffected. Callers without a contract
+    (e.g. unit tests) can leave the flag at its default; see
+    :func:`shared.egg_contracts.models.get_reviewer_code_parallel` for
+    the production accessor.
     """
     draft_path = _get_draft_path(phase, issue_number=issue_number, pipeline_id=pipeline_id)
 
@@ -4322,6 +4440,144 @@ def _build_review_prompt(
             "a few problems. You are the last line of defense before code reaches "
             "production."
         )
+
+        # Subagent Fan-Out Strategy (issue #1965).
+        # Restricted to ``reviewer_type == "code"`` AND ``phase == "implement"``
+        # so future reuse on other phases / reviewers does not silently
+        # inherit the block.  Delta reviews (cycle > 1 with a known
+        # last-reviewed commit) skip the fan-out section: the delta-only
+        # `git log A..HEAD --not origin/<base> -p` command is small by
+        # construction and the parent's cross-partition pass would
+        # contradict the delta-only directive above.
+        if phase == "implement" and not is_delta_review:
+            _parallel_word = "in parallel" if reviewer_code_parallel else "sequentially"
+            lines.append("")
+            lines.append("## Subagent Fan-Out Strategy\n")
+            lines.append(
+                "On large diffs, fan out into Claude Agent SDK `Task` subagents "
+                "so every changed file is read carefully. Follow these rules — "
+                "they exist because PR #1964 shipped two cross-file mismatches "
+                "(`sandbox/scripts/jira` symlink, `^project$` allowlist bypass) "
+                "that the single-pass reviewer missed.\n"
+            )
+            lines.append(
+                "1. **Measure first.** Run "
+                f"`git diff --numstat {_base_ref}...HEAD` and capture "
+                "`(files_changed, loc_added + loc_removed)`. Emit a "
+                "`mcp__brc__send_heartbeat` (state=WORKING) with body "
+                '"fan-out: enabled (files=X, loc=Y, partitions=N)" or '
+                '"fan-out: skipped (files=X, loc=Y)" — the gate decision '
+                "MUST be observable in the heartbeat log so silent "
+                "always-solo / always-fan-out drift is visible in telemetry."
+            )
+            lines.append(
+                "2. **Threshold gate (OR).** Fan out when "
+                "`files_changed > 10` OR `(loc_added + loc_removed) > 500`. "
+                "Below the threshold, review the diff yourself in a single "
+                'pass — emit the "fan-out: skipped" heartbeat and continue '
+                "with the rest of this prompt. **The Mandatory "
+                "Cross-Partition Consistency Pass below still runs** — you "
+                "are reviewing the full diff anyway."
+            )
+            lines.append(
+                "3. **Above the threshold, partition by implement-phase task.** "
+                "Call `mcp__sdlc__show_contract` and self-extract "
+                "`phases.implement.tasks[]`. Each task's `files_affected` "
+                "list becomes a partition spec (a list of path globs). "
+                "(Older plans may surface the legacy key `files` instead of "
+                "`files_affected`; tolerate both.) If a task has an empty "
+                "`files_affected` list, treat that task as covering the full "
+                "diff and either group it with an adjacent task whose globs "
+                "are populated, or fall back to single-pass review per the "
+                "Fallbacks rule."
+            )
+            lines.append(
+                "4. **Fallbacks.** If the `mcp__sdlc__show_contract` call "
+                'FAILS or is unreachable, emit a "fan-out: aborted (mcp '
+                'unavailable)" heartbeat (state=WORKING) and fall back to '
+                "single-pass review. If the implement-phase task list is "
+                "EMPTY (custom-phase invocation, contractless `babysit_pr`), "
+                'emit "fan-out: skipped (no implement tasks)" and fall back '
+                "to single-pass review. Do NOT attempt to invent partitions. "
+                "**The Mandatory Cross-Partition Consistency Pass below "
+                "still runs in both fallback paths.**"
+            )
+            lines.append(
+                "5. **Cap at 6 subagents.** Never spawn more than 6 subagents "
+                "per fan-out (capped at 6). If the partition list exceeds "
+                "6 entries, group adjacent tasks (by file-path-prefix "
+                "proximity) into combined partitions to stay at or below "
+                "the cap. Each subagent receives ONLY: its partition spec "
+                "(file globs), the reviewer-code criteria above, the diff "
+                "command, an explicit recursion ban, and the timeout below."
+            )
+            lines.append(
+                "6. **Per-subagent wall-clock cap: 5 minutes (300 seconds).** "
+                "Each subagent re-runs `git diff` itself, filters its slice "
+                "by path glob, reads only its partition, and returns a "
+                "structured finding list to you. If a subagent exceeds the "
+                "5-minute / 300-second cap, treat the partition as a NACK "
+                'with reason "subagent timeout" and propagate the NACK to '
+                "the overall verdict."
+            )
+            lines.append(
+                "7. **Aggregate and emit.** You (the parent reviewer) emit "
+                "the single ACK / NACK that covers ALL partitions plus the "
+                "cross-partition pass. Subagents do NOT emit ACK / NACK on "
+                "their own — they return findings to you and you decide."
+            )
+            lines.append(
+                "8. **Parallelism.** Spawn the subagents "
+                f"**{_parallel_word}** "
+                "(per the resolved per-pipeline knob "
+                "`phase_configs.implement.reviewer_code.parallel`)."
+            )
+            lines.append(
+                "9. **No recursion.** subagents must NOT spawn their own "
+                "subagents. Recursive fan-out is forbidden — it produces "
+                "untraceable cost and timeout cascades. State the "
+                "prohibition verbatim to each subagent in its prompt."
+            )
+            lines.append("")
+            # Mandatory cross-partition consistency pass — runs in ALL
+            # fan-out paths within this gated block (above-threshold fan-out,
+            # below-threshold solo, empty-tasks fallback, mcp-unavailable
+            # fallback). NOTE: this whole section is gated by
+            # ``phase == "implement" and not is_delta_review`` above, so
+            # delta reviews (cycle > 1) do not get this pass — the
+            # delta-only `git log A..HEAD` command is small by construction
+            # and the parent's cross-partition pass would contradict the
+            # delta-only directive. Lifted out of the numbered fan-out
+            # steps per reviewer_code feedback so it cannot be
+            # short-circuited when the reviewer takes a single-pass branch
+            # of the fan-out flow.
+            lines.append("## Mandatory Cross-Partition Consistency Pass\n")
+            lines.append(
+                "Regardless of whether you fan out or review solo (and "
+                "regardless of whether the partition fetch hit either "
+                "fallback), BEFORE you emit the final verdict, read the "
+                f"full diff (`git diff {_base_ref}...HEAD`) yourself and "
+                "run a cross-partition consistency pass focused on the "
+                "cross-file invariants no single-partition subagent could "
+                "catch. **This pass is mandatory** — small diffs and "
+                "fallback paths are not exempt; the failure modes the issue "
+                "was filed to fix are cross-file mismatches and a small PR "
+                "with the same shape would otherwise slip through."
+            )
+            lines.append(
+                "At minimum, check: handler ↔ allowlist consistency "
+                "(the PR #1964 `^project$` pattern — a handler in one "
+                "file references an allowlist defined or extended in "
+                "another file); route ↔ schema consistency; "
+                "fixture ↔ Dockerfile / symlink reference consistency (the "
+                "PR #1964 `sandbox/scripts/jira` pattern); import-graph "
+                "cycles introduced by the diff; and any pattern where a "
+                "check exists in one file but the call site in another "
+                "file is unguarded. Merge cross-partition findings into "
+                "the aggregated findings (whether from subagents or your "
+                "own solo review) before emitting the verdict."
+            )
+            lines.append("")
     elif draft_path:
         # Expanded procedural steps for draft-based (non-code) reviewers
         lines.append("2. Read the draft thoroughly — do not skim")
@@ -8315,6 +8571,44 @@ def _build_agent_prompt(
     elif role_value.startswith("reviewer_"):
         # Delegate to the detailed review prompt with criteria and verdict format
         reviewer_type = role_value.replace("reviewer_", "", 1).replace("_", "-")
+        # Resolve the per-pipeline reviewer_code parallelism knob (issue #1965).
+        # The accessor handles every fall-through case (no contract, no
+        # phase_configs, no implement key, no reviewer_code field) and returns
+        # ``True`` as the default. Pre-importing here keeps the call site
+        # free of conditional contract loading when this branch isn't taken.
+        _reviewer_code_parallel = True
+        if reviewer_type == "code" and phase == "implement" and repo_path:
+            try:
+                from egg_contracts.loader import (
+                    ContractNotFoundError,
+                    ContractValidationError,
+                    load_contract,
+                )
+                from egg_contracts.models import (
+                    get_reviewer_code_parallel as _get_reviewer_code_parallel,
+                )
+
+                _contract = load_contract(pipeline_id, Path(repo_path))
+                _reviewer_code_parallel = _get_reviewer_code_parallel(_contract)
+            except (
+                ImportError,
+                ContractNotFoundError,
+                ContractValidationError,
+            ) as _knob_err:
+                # Narrow catch: missing loader module, missing contract file
+                # (babysit_pr / contractless flows), or contract schema
+                # validation failure. ``load_contract`` raises its own
+                # ``ContractNotFoundError`` / ``ContractValidationError``
+                # (Exception subclasses, not ``FileNotFoundError`` /
+                # ``ValueError``), so they must be named explicitly here.
+                # Surface in logs so genuine issues are observable, but
+                # never let prompt construction fail — fall back to the
+                # parallel default.
+                logger.warning(
+                    "Failed to resolve reviewer_code_parallel knob; falling back to True. error=%s",
+                    _knob_err,
+                )
+                _reviewer_code_parallel = True
         review_prompt = _build_review_prompt(
             phase=phase,
             pipeline_id=pipeline_id,
@@ -8326,6 +8620,7 @@ def _build_agent_prompt(
             repo_path=repo_path,
             base_branch=base_branch,
             concurrent=concurrent,
+            reviewer_code_parallel=_reviewer_code_parallel,
         )
         if concurrent:
             review_prompt += "\n" + _build_brc_preamble(

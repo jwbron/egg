@@ -176,6 +176,8 @@ AGENT_GH_RESTRICTIONS: dict[str, AgentGHRestriction] = {
         AgentRole.REVIEWER_AGENT_DESIGN,
         AgentRole.REVIEWER_REFINE,
         AgentRole.REVIEWER_PLAN,
+        AgentRole.REVIEWER_SECURITY,
+        AgentRole.REVIEWER_CONCURRENCY,
         AgentRole.AUTOFIXER,
         AgentRole.CONFLICT_RESOLVER,
         AgentRole.INSPECTOR,

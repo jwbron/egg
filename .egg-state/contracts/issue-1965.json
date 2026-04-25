@@ -1,0 +1,517 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1965,
+    "title": "Issue #1965",
+    "url": "https://github.com/jwbron/egg/issues/1965"
+  },
+  "pipeline_id": "issue-1965",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Pitfall 2 \u2014 How should `reviewer_code` learn the diff size to gate subagent fan-out (~10 files / ~500 LOC threshold)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Option 2A: Orchestrator-side numstat plumbing \u2014 run `git diff --numstat` at prompt-build time and thread (files_changed, loc) into the scope preamble; orchestrator decides, reviewer obeys.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Option 2B: Reviewer self-gates \u2014 put the threshold rule in the prompt text and have the reviewer run `git diff --numstat` itself, choosing fan-out vs solo review based on what it sees.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option 2B: Reviewer self-gates \u2014 put the threshold rule in the prompt text and have the reviewer run `git diff --numstat` itself, choosing fan-out vs solo review based on what it sees.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T17:02:25.629318Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Pitfall 3 \u2014 How should `reviewer_code` see the implement-phase task list for partition strategy?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Option 3A: Orchestrator-side contract loader \u2014 add a contract parameter (or pipeline_id load) to `_build_review_prompt()`, extract `phases.implement.tasks[]`, and embed the partition list in the prompt; fallback skips fan-out when tasks are empty.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Option 3B: Reviewer self-fetches \u2014 instruct the reviewer to call `mcp__sdlc__show_contract` and self-extract `phases.implement.tasks[]`; fallback skips fan-out when the list is empty.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option 3B: Reviewer self-fetches \u2014 instruct the reviewer to call `mcp__sdlc__show_contract` and self-extract `phases.implement.tasks[]`; fallback skips fan-out when the list is empty.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T17:02:25.652766Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "How should the fan-out threshold \"~10 changed files / ~500 LOC\" be composed?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "OR: trigger fan-out when EITHER files > 10 OR LOC > 500.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "AND: trigger fan-out only when BOTH files > 10 AND LOC > 500.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"OR: trigger fan-out when EITHER files > 10 OR LOC > 500.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T17:02:30.700419Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "When `reviewer_code` fans out into N subagents, how does each subagent see its slice of the diff?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Subagent re-runs `git diff` itself and filters by path glob to its assigned partition (parent passes only the partition spec).",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Parent reviewer pre-slices the diff and passes the relevant patch fragment to each subagent in its prompt (parent does the partitioning work).",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Subagent re-runs `git diff` itself and filters by path glob to its assigned partition (parent passes only the partition spec).\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T17:02:35.742180Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Should `security-review-criteria.md` and `concurrency-review-criteria.md` be standalone or inherit from `code-review-criteria.md`?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Inherit: each new file opens with an explicit 'Inherits from `code-review-criteria.md`; only lens-specific rules below override or extend it' header.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Standalone: each new file is fully self-contained with no cross-link, treating each lens as an independent criteria surface.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Inherit: each new file opens with an explicit 'Inherits from `code-review-criteria.md`; only lens-specific rules below override or extend it' header.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T17:03:51.354255Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Where should the per-pipeline subagent-parallelism knob live (default parallel, override per pipeline)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Environment variable read by the orchestrator at prompt-build time (e.g., `EGG_REVIEWER_SUBAGENT_PARALLEL=true|false`).",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "`phase_configs.implement.reviewer_code.parallel` field on the contract.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Top-level setting in `settings.json` / orchestrator config.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "CLI flag on `egg-orch pipeline create` plumbed through to the contract.",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"`phase_configs.implement.reviewer_code.parallel` field on the contract.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T17:03:56.422740Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-7",
+      "question": "How should the PR #1964 regression-replay test execute in CI?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Both modes: CI-unconditional prompt-text asserts (verifies prompt builder includes the subagent block above threshold and skips it below) PLUS opt-in live-LLM replay gated by `RUN_REVIEWER_REPLAY=1`.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Prompt-asserts only: deterministic, fast, no LLM cost; ship the live-LLM mode later if needed.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Live-LLM only: gated by `RUN_REVIEWER_REPLAY=1`; tests the actual reviewer behavior end-to-end but skipped in normal CI.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Both modes: CI-unconditional prompt-text asserts (verifies prompt builder includes the subagent block above threshold and skips it below) PLUS opt-in live-LLM replay gated by `RUN_REVIEWER_REPLAY=1`.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T17:04:01.465083Z",
+      "debounce_until": null
+    }
+  ],
+  "workflow_owner": null,
+  "audit_log": [
+    {
+      "timestamp": "2026-04-25T16:44:03.348226Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-1",
+        "question": "Pitfall 2 \u2014 How should `reviewer_code` learn the diff size to gate subagent fan-out (~10 files / ~500 LOC threshold)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Option 2A: Orchestrator-side numstat plumbing \u2014 run `git diff --numstat` at prompt-build time and thread (files_changed, loc) into the scope preamble; orchestrator decides, reviewer obeys.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Option 2B: Reviewer self-gates \u2014 put the threshold rule in the prompt text and have the reviewer run `git diff --numstat` itself, choosing fan-out vs solo review based on what it sees.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Pitfall 2 \u2014 How should `reviewer_code` learn the d...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T16:44:03.380668Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-2",
+        "question": "Pitfall 3 \u2014 How should `reviewer_code` see the implement-phase task list for partition strategy?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Option 3A: Orchestrator-side contract loader \u2014 add a contract parameter (or pipeline_id load) to `_build_review_prompt()`, extract `phases.implement.tasks[]`, and embed the partition list in the prompt; fallback skips fan-out when tasks are empty.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Option 3B: Reviewer self-fetches \u2014 instruct the reviewer to call `mcp__sdlc__show_contract` and self-extract `phases.implement.tasks[]`; fallback skips fan-out when the list is empty.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Pitfall 3 \u2014 How should `reviewer_code` see the imp...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T16:44:03.411465Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-3",
+        "question": "How should the fan-out threshold \"~10 changed files / ~500 LOC\" be composed?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "OR: trigger fan-out when EITHER files > 10 OR LOC > 500.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "AND: trigger fan-out only when BOTH files > 10 AND LOC > 500.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should the fan-out threshold \"~10 changed file...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T16:44:03.447018Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-4",
+        "question": "When `reviewer_code` fans out into N subagents, how does each subagent see its slice of the diff?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Subagent re-runs `git diff` itself and filters by path glob to its assigned partition (parent passes only the partition spec).",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Parent reviewer pre-slices the diff and passes the relevant patch fragment to each subagent in its prompt (parent does the partitioning work).",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: When `reviewer_code` fans out into N subagents, ho...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T16:44:03.472540Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-5",
+        "question": "Should `security-review-criteria.md` and `concurrency-review-criteria.md` be standalone or inherit from `code-review-criteria.md`?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Inherit: each new file opens with an explicit 'Inherits from `code-review-criteria.md`; only lens-specific rules below override or extend it' header.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Standalone: each new file is fully self-contained with no cross-link, treating each lens as an independent criteria surface.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should `security-review-criteria.md` and `concurre...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T16:44:03.496511Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-6",
+        "question": "Where should the per-pipeline subagent-parallelism knob live (default parallel, override per pipeline)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Environment variable read by the orchestrator at prompt-build time (e.g., `EGG_REVIEWER_SUBAGENT_PARALLEL=true|false`).",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "`phase_configs.implement.reviewer_code.parallel` field on the contract.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Top-level setting in `settings.json` / orchestrator config.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "CLI flag on `egg-orch pipeline create` plumbed through to the contract.",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Where should the per-pipeline subagent-parallelism...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T16:44:03.524033Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-7",
+        "question": "How should the PR #1964 regression-replay test execute in CI?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Both modes: CI-unconditional prompt-text asserts (verifies prompt builder includes the subagent block above threshold and skips it below) PLUS opt-in live-LLM replay gated by `RUN_REVIEWER_REPLAY=1`.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Prompt-asserts only: deterministic, fast, no LLM cost; ship the live-LLM mode later if needed.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Live-LLM only: gated by `RUN_REVIEWER_REPLAY=1`; tests the actual reviewer behavior end-to-end but skipped in normal CI.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should the PR #1964 regression-replay test exe...",
+      "checkpoint_id": null
+    }
+  ],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": null,
+  "phase_configs": null,
+  "agent_executions": []
+}

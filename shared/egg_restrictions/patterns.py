@@ -494,6 +494,20 @@ REVIEWER_PLAN_PATTERNS = AgentFilePattern(
     blocked_patterns=_REVIEWER_BLOCKED,
 )
 
+REVIEWER_SECURITY_PATTERNS = AgentFilePattern(
+    role=AgentRole.REVIEWER_SECURITY,
+    description="Security lens reviewer agent: reviews and agent-outputs only",
+    allowed_patterns=_REVIEWER_ALLOWED,
+    blocked_patterns=_REVIEWER_BLOCKED,
+)
+
+REVIEWER_CONCURRENCY_PATTERNS = AgentFilePattern(
+    role=AgentRole.REVIEWER_CONCURRENCY,
+    description="Concurrency lens reviewer agent: reviews and agent-outputs only",
+    allowed_patterns=_REVIEWER_ALLOWED,
+    blocked_patterns=_REVIEWER_BLOCKED,
+)
+
 # Overseer agent pattern
 # The overseer monitors pipeline health but cannot modify source, test, doc,
 # or config files. It can only write to .egg-state/oversight/ for structured logs.
@@ -686,6 +700,8 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.REFINER: REFINER_PATTERNS,
     AgentRole.REVIEWER_REFINE: REVIEWER_REFINE_PATTERNS,
     AgentRole.REVIEWER_PLAN: REVIEWER_PLAN_PATTERNS,
+    AgentRole.REVIEWER_SECURITY: REVIEWER_SECURITY_PATTERNS,
+    AgentRole.REVIEWER_CONCURRENCY: REVIEWER_CONCURRENCY_PATTERNS,
     AgentRole.OVERSEER: OVERSEER_PATTERNS,
     AgentRole.AUTOFIXER: AUTOFIXER_PATTERNS,
     AgentRole.CONFLICT_RESOLVER: CONFLICT_RESOLVER_PATTERNS,

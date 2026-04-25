@@ -638,10 +638,12 @@ class TestAgentRole:
         assert AgentRole.REVIEWER_AGENT_DESIGN in roles
         assert AgentRole.REVIEWER_REFINE in roles
         assert AgentRole.REVIEWER_PLAN in roles
+        assert AgentRole.REVIEWER_SECURITY in roles
+        assert AgentRole.REVIEWER_CONCURRENCY in roles
         assert AgentRole.OVERSEER in roles
         assert AgentRole.AUTOFIXER in roles
         assert AgentRole.CONFLICT_RESOLVER in roles
-        assert len(roles) == 16
+        assert len(roles) == 18
 
 
 class TestBackwardCompatibility:

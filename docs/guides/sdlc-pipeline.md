@@ -941,13 +941,22 @@ Contracts can override phase defaults via the `phase_configs` field:
         }
       ],
       "max_review_cycles": 5,
-      "human_review_mechanism": "PR_REVIEW"
+      "human_review_mechanism": "PR_REVIEW",
+      "reviewer_code": {
+        "parallel": true
+      }
     }
   }
 }
 ```
 
 When `phase_configs.{phase}.checks` is specified, it completely replaces the default checks for that phase.
+
+The `reviewer_code` object exposes a single knob:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `parallel` | bool | `true` | Fan out `reviewer_code` subagents in parallel. Set `false` to force sequential review for cost or quota reasons. |
 
 ### Writing Custom Checks
 
@@ -1197,7 +1206,7 @@ egg-contract add-feedback --question "What is the expected request volume?" --qu
 ## Concurrent Execution Mode
 
 Concurrent execution mode enables all agents (coder, tester, documenter, reviewer_code,
-reviewer_contract) to run simultaneously during the implement phase,
+reviewer_contract, reviewer_security, reviewer_concurrency) to run simultaneously during the implement phase,
 collaborating via a polling-based message bus hosted by the orchestrator.
 
 ### Configuration

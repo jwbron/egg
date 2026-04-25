@@ -53,7 +53,8 @@ class AgentRole(StrEnum):
     Execution roles: CODER, TESTER, DOCUMENTER
     Analysis roles: ARCHITECT, TASK_PLANNER, RISK_ANALYST, REFINER
     Review roles: REVIEWER_CODE, REVIEWER_CONTRACT,
-                  REVIEWER_AGENT_DESIGN, REVIEWER_REFINE, REVIEWER_PLAN
+                  REVIEWER_AGENT_DESIGN, REVIEWER_REFINE, REVIEWER_PLAN,
+                  REVIEWER_SECURITY, REVIEWER_CONCURRENCY
     Utility roles: AUTOFIXER, CONFLICT_RESOLVER
     Interface roles: OVERSEER
     """
@@ -73,6 +74,8 @@ class AgentRole(StrEnum):
     REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
     REVIEWER_REFINE = "reviewer_refine"
     REVIEWER_PLAN = "reviewer_plan"
+    REVIEWER_SECURITY = "reviewer_security"
+    REVIEWER_CONCURRENCY = "reviewer_concurrency"
     # Utility roles (cross-cutting support)
     AUTOFIXER = "autofixer"
     CONFLICT_RESOLVER = "conflict_resolver"
@@ -617,6 +620,54 @@ REVIEWER_PLAN_ROLE = AgentRoleDefinition(
     requires_inputs=["task_breakdown", "risk_assessment"],
 )
 
+REVIEWER_SECURITY_ROLE = AgentRoleDefinition(
+    role=AgentRole.REVIEWER_SECURITY,
+    description="ADVISORY security-lens reviewer for the implement phase",
+    category=AgentCategory.REVIEW,
+    responsibilities=[
+        "Detect cross-file allowlist mismatches",
+        "Flag handler-vs-validator path mismatches",
+        "Identify information-disclosure and authorization-bypass patterns",
+        "Spot uncommitted-artifact / Dockerfile-symlink mismatches",
+        "Catch secret leakage via logs, error text, or environment dumps",
+        "Surface OWASP top-10 patterns spanning more than one changed file",
+    ],
+    dependencies=[AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
+    file_access=FileAccessPattern(
+        allowed_read=[],
+        allowed_write=[
+            ".egg-state/reviews/",
+            ".egg-state/agent-outputs/",
+        ],
+        blocked_write=_REVIEWER_BLOCKED_WRITE,
+    ),
+    produces_outputs=["review_verdict"],
+    requires_inputs=[],
+)
+
+REVIEWER_CONCURRENCY_ROLE = AgentRoleDefinition(
+    role=AgentRole.REVIEWER_CONCURRENCY,
+    description="ADVISORY concurrency-lens reviewer for the implement phase",
+    category=AgentCategory.REVIEW,
+    responsibilities=[
+        "Identify race conditions and deadlocks",
+        "Flag shared-state mutation and async-context leakage",
+        "Detect retry-storm patterns and resource-cleanup ordering bugs",
+        "Verify BRC-protocol invariants (send→wait, cursor threading, heartbeats)",
+    ],
+    dependencies=[AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
+    file_access=FileAccessPattern(
+        allowed_read=[],
+        allowed_write=[
+            ".egg-state/reviews/",
+            ".egg-state/agent-outputs/",
+        ],
+        blocked_write=_REVIEWER_BLOCKED_WRITE,
+    ),
+    produces_outputs=["review_verdict"],
+    requires_inputs=[],
+)
+
 
 # Overseer role — monitors pipeline health, classifies anomalies, escalates issues
 OVERSEER_ROLE = AgentRoleDefinition(
@@ -826,6 +877,8 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     AgentRole.REVIEWER_AGENT_DESIGN: REVIEWER_AGENT_DESIGN_ROLE,
     AgentRole.REVIEWER_REFINE: REVIEWER_REFINE_ROLE,
     AgentRole.REVIEWER_PLAN: REVIEWER_PLAN_ROLE,
+    AgentRole.REVIEWER_SECURITY: REVIEWER_SECURITY_ROLE,
+    AgentRole.REVIEWER_CONCURRENCY: REVIEWER_CONCURRENCY_ROLE,
     # Utility roles
     AgentRole.AUTOFIXER: AUTOFIXER_ROLE,
     AgentRole.CONFLICT_RESOLVER: CONFLICT_RESOLVER_ROLE,
@@ -862,6 +915,8 @@ AGENT_ROLE_TO_CONTRACT_ROLE: dict[AgentRole, Role] = {
     AgentRole.REVIEWER_AGENT_DESIGN: Role.REVIEWER,
     AgentRole.REVIEWER_REFINE: Role.REVIEWER,
     AgentRole.REVIEWER_PLAN: Role.REVIEWER,
+    AgentRole.REVIEWER_SECURITY: Role.REVIEWER,
+    AgentRole.REVIEWER_CONCURRENCY: Role.REVIEWER,
     # Utility: apply code fixes, share implementer privileges
     AgentRole.AUTOFIXER: Role.IMPLEMENTER,
     AgentRole.CONFLICT_RESOLVER: Role.IMPLEMENTER,
@@ -1027,6 +1082,8 @@ _PHASE_REVIEWERS: dict[str, list[AgentRole]] = {
     "implement": [
         AgentRole.REVIEWER_CODE,
         AgentRole.REVIEWER_CONTRACT,
+        AgentRole.REVIEWER_SECURITY,
+        AgentRole.REVIEWER_CONCURRENCY,
     ],
     "plan": [
         AgentRole.REVIEWER_PLAN,
