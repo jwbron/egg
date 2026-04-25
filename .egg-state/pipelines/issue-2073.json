@@ -206,10 +206,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-4",
+      "question": "How should the unified `persist:` list classify entries?",
+      "context": "Open contract question decision-3, registered by an agent during the refine phase.",
+      "options": [
+        "By leading slash — entry starting with `/` is absolute (system dir), otherwise repo-relative (Recommended; matches the issue proposal). Simple rule, easy to teach.",
+        "Explicit per-entry tag (e.g. `- {path: /usr/local/bin, scope: system}`) — verbose but unambiguous",
+        "Keep two separate lists, just rename them `persist_repo:` and `persist_system:` — less migration risk, but doesn't simplify",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T23:29:20.741565Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T23:09:30.400320Z",
-  "updated_at": "2026-04-25T23:29:20.685774Z",
+  "updated_at": "2026-04-25T23:29:20.769478Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -223,6 +242,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 14,
+  "version": 15,
   "jira_ticket": null
 }
