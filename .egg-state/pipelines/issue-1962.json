@@ -541,10 +541,31 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-21",
+      "question": "Prompt contract: what exactly does the executor (Haiku) hand the advisor (Opus) when it invokes? This affects token cost AND advisor accuracy.",
+      "context": "Open contract question decision-20, registered by an agent during the refine phase.",
+      "options": [
+        "Raw cycle output: the full JSON line from `overseer_monitor.py --once` plus container logs snapshot",
+        "Classification result only: just the Haiku verdict (type, confidence, reasoning)",
+        "Distilled summary: classification + last N progress events + active health alerts + last K log lines",
+        "Native `advisor_20260301` shared-context (Anthropic auto-routes; no manual construction — only viable if Option A on `decision-23`)",
+        "Defer to plan phase (spec depends on Option A vs B on `decision-23`)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T17:52:18.014229Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T17:05:44.416677Z",
-  "updated_at": "2026-04-25T17:52:17.981802Z",
+  "updated_at": "2026-04-25T17:52:18.032757Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -558,6 +579,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 31,
+  "version": 32,
   "jira_ticket": null
 }
