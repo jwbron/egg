@@ -562,10 +562,11 @@ def _send_brc_confirmation_nudge(
     body = (
         f"You are PROPOSED and fully ACKed but have not confirmed in "
         f"{elapsed}s. Call `mcp__brc__confirm` now. If it returns "
-        "status='pending_acks', the response's ``blocking`` field lists "
-        "the prerequisite events to wait on (CONSENSUS_PROPOSE from "
-        "missing producers, CONSENSUS_ACK from your reviewers, or "
-        "CONSENSUS_RE_REVIEW) — wait on those instead, then retry confirm."
+        "`status='pending_acks'`, read `message` for the guard reason and "
+        "wait on the prerequisite events instead: `CONSENSUS_PROPOSE` if a "
+        "producer hasn't proposed (`zero_proposal_producers`), "
+        "`CONSENSUS_ACK` / `CONSENSUS_RE_REVIEW` if a reviewer's ACK is "
+        "stale or unresolved. Then retry confirm."
     )
 
     try:
