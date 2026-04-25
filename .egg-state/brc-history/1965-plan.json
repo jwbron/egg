@@ -1965,5 +1965,290 @@
     },
     "timestamp": "2026-04-25T17:29:23.436261+00:00",
     "phase": "plan"
+  },
+  {
+    "id": "b30a7941-3846-4f",
+    "pipeline_id": "issue-1965",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT,CONSENSUS_NACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T17:29:25.644334+00:00"
+    },
+    "timestamp": "2026-04-25T17:29:25.685983+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "40418a0f-37fe-40",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T17:29:28.042946+00:00"
+    },
+    "timestamp": "2026-04-25T17:29:28.102456+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "bdde6955-2e0e-49",
+    "pipeline_id": "issue-1965",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: IDLE",
+    "body": "Plan v2 ACKed by reviewer_plan; consensus confirmed. Staying alive for any CONSENSUS_RE_REVIEW or OVERSEER_ALERT until the orchestrator stops the container.",
+    "metadata": {
+      "state": "IDLE"
+    },
+    "timestamp": "2026-04-25T17:29:36.675268+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d0b38907-75f8-48",
+    "pipeline_id": "issue-1965",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T17:29:36.683253+00:00"
+    },
+    "timestamp": "2026-04-25T17:29:36.713626+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a5a38783-2a3d-4d",
+    "pipeline_id": "issue-1965",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T17:29:36.741450+00:00"
+    },
+    "timestamp": "2026-04-25T17:29:36.834272+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "30587c64-343f-4e",
+    "pipeline_id": "issue-1965",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-25T17:29:36.850726+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3549b9be-66d1-44",
+    "pipeline_id": "issue-1965",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T17:29:41.862347+00:00"
+    },
+    "timestamp": "2026-04-25T17:29:41.956117+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7c7a80cf-5bf0-4a",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Cycle 28 \u2014 PLAN PHASE BRC COMPLETE. All 4 agents confirmed (architect, task_planner, risk_analyst, reviewer_plan). Pipeline now awaiting_human on decision-9: human plan review/approval gate. 5-phase implement plan ready. Monitoring for human resolution.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T17:31:08.052564+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2024942b-74aa-45",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Cycle 29 \u2014 status awaiting_human, 0 alerts. Pipeline holding at decision-9 (plan approval gate). No change. Continuing to poll for human resolution.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T17:32:24.043373+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cade5e32-afbe-48",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Cycle 30 \u2014 awaiting_human, 0 alerts. decision-9 still pending (~4min). Pipeline stable. Polling for human plan approval.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T17:33:35.746835+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0201bf19-dfc1-4d",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Cycle 31 \u2014 awaiting_human ~6min on decision-9. 0 alerts. Stable. Continuing to poll.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T17:35:19.654132+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9e1d0666-3aff-4a",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Cycle 32 \u2014 awaiting_human ~7.5min on decision-9. 0 alerts. Stable hold. Polling continues.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T17:37:01.893518+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6a9b2575-1992-45",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Cycle 33 \u2014 awaiting_human ~9min on decision-9. HITL check confirmed: decision-9 not yet resolved. 0 alerts. Stable. Continuing to poll.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T17:38:48.932059+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ea242f63-1965-42",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Cycle 34 \u2014 awaiting_human ~11min on decision-9. 0 alerts. No change. Polling continues at 90s intervals.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T17:40:28.910862+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "39827fe6-66a5-46",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Cycle 35 \u2014 awaiting_human ~12.5min on decision-9. 0 alerts. No change. Continuing to poll.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T17:42:09.910685+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b26be079-b3cb-41",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Cycle 36 \u2014 awaiting_human ~14min on decision-9. 0 alerts. Stable. Continuing to poll.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T17:43:51.398371+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "aa97c3cf-bab8-48",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Cycle 37 \u2014 awaiting_human ~16min on decision-9. 0 alerts. Stable. Polling continues.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T17:45:34.538908+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d6eb3cbf-0ea6-4f",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Cycle 38 \u2014 awaiting_human ~17.5min on decision-9. 0 alerts. Stable. Polling continues.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T17:47:16.658480+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1aaf64c3-c883-41",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Cycle 39 \u2014 awaiting_human ~19min on decision-9. 0 alerts. Stable. Continuing to poll.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T17:48:59.143682+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "68ce4175-e5f5-46",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Cycle 40 \u2014 awaiting_human ~21min on decision-9. 0 alerts. Stable. Continuing to poll.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T17:50:41.589955+00:00",
+    "phase": "plan"
   }
 ]

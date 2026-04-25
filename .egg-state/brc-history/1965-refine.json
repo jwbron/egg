@@ -594,5 +594,217 @@
     },
     "timestamp": "2026-04-25T16:49:41.685115+00:00",
     "phase": "refine"
+  },
+  {
+    "id": "ae3d047d-1927-4d",
+    "pipeline_id": "issue-1965",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:49:46.837463+00:00"
+    },
+    "timestamp": "2026-04-25T16:49:46.868920+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "195668f1-9bf8-4d",
+    "pipeline_id": "issue-1965",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-25T16:49:46.925625+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "663a054b-2ba6-46",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:49:48.666599+00:00"
+    },
+    "timestamp": "2026-04-25T16:49:48.736553+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "1a475fed-90bf-4d",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-25T16:49:48.807901+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "1773d0c9-cc7f-43",
+    "pipeline_id": "issue-1965",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:49:51.860397+00:00"
+    },
+    "timestamp": "2026-04-25T16:49:51.916960+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "6278cce5-2bcc-4b",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:49:53.241664+00:00"
+    },
+    "timestamp": "2026-04-25T16:49:53.273602+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "0e476254-5ef5-4d",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-heartbeat-stall [low]",
+    "body": "Refine BRC completed \u2014 3 false-positive progress_stall alerts for agents now correctly idle\n\nDetail:\nPipeline issue-1965 refine phase BRC reached full consensus at 16:49:35. All 3 agents (refiner, reviewer_agent_design, reviewer_refine) are now CONFIRMED and idle. The monitoring system is firing 3 progress_stall warnings (refiner: 120s, reviewer_agent_design: 617s, reviewer_refine: 601s) \u2014 these are false positives. The agents are in legitimate wait-loop/idle states, not stalled. The progress events bus does not observe BRC wait-loop events, causing spurious stall alerts whenever agents correctly block on CONSENSUS_* messages. No corrective action needed for the alerts. The pipeline is now in awaiting_human pending resolution of 7 HITL decisions (decision-1 through decision-7) registered at commit 6143ad3af before the plan phase can begin.\n\nRecommended action:\nResolve the 7 pending HITL decisions (decision-1 through decision-7) in the contract for pipeline issue-1965 to unblock the plan phase. Consider raising the progress_stall threshold or excluding agents in WAITING_FOR_EVENT state from stall detection to eliminate future false positives.",
+    "metadata": {},
+    "timestamp": "2026-04-25T16:51:00.852567+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "043ae4d6-d144-48",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Overseer active \u2014 polling pipeline issue-1965 at 60s intervals while awaiting human HITL resolution of 7 decisions (decision-1..decision-7). BRC complete, all agents quiesced normally.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T16:53:44.952994+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "06f7314e-0a44-43",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Overseer standing by \u2014 pipeline awaiting_human, 7 HITL decisions pending. No new events.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T16:55:01.219630+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "5198a7fe-0096-4c",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Overseer standing by \u2014 awaiting_human, 7 HITL decisions unresolved. Polling at 60s.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T16:56:19.306040+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "2bcfdf5d-178d-46",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Overseer standing by \u2014 awaiting_human ~8min. 7 HITL decisions still unresolved. No new pipeline events.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T16:57:39.149574+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "a1117d91-b5bd-4d",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Overseer standing by \u2014 awaiting_human ~9min. No change.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T16:58:55.086907+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "429ad8d7-4538-4b",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Overseer standing by \u2014 awaiting_human ~10min. 7 HITL unresolved. System stable.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T17:00:13.401809+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "af37c4f5-e3cd-44",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Overseer standing by \u2014 awaiting_human ~11min. No change. 7 HITL pending.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T17:01:31.174826+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "e287e518-431c-47",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Overseer standing by \u2014 awaiting_human ~12min. Stable hold. 7 HITL pending.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T17:02:47.363439+00:00",
+    "phase": "refine"
   }
 ]

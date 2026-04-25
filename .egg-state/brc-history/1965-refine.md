@@ -1,6 +1,6 @@
 # BRC Consensus History — refine phase
 
-Generated: 2026-04-25T16:49:41Z
+Generated: 2026-04-25T17:02:47Z
 Pipeline: issue-1965
 
 ### [2026-04-25T16:39:38Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_ON_ROLE
@@ -703,4 +703,177 @@ phase: refine
 metadata:
   state: WAITING_FOR_EVENT
   since: '2026-04-25T16:49:41.483083+00:00'
+````
+
+### [2026-04-25T16:49:46Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: ae3d047d-1927-4d
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-25T16:49:46.837463+00:00'
+````
+
+### [2026-04-25T16:49:46Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 195668f1-9bf8-4d
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-04-25T16:49:48Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 663a054b-2ba6-46
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-25T16:49:48.666599+00:00'
+````
+
+### [2026-04-25T16:49:48Z] reviewer_refine (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: 1a475fed-90bf-4d
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-04-25T16:49:51Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: 1773d0c9-cc7f-43
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-25T16:49:51.860397+00:00'
+````
+
+### [2026-04-25T16:49:53Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: 6278cce5-2bcc-4b
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-25T16:49:53.241664+00:00'
+````
+
+### [2026-04-25T16:51:00Z] overseer (OVERSEER_ALERT): agent-heartbeat-stall [low]
+
+Refine BRC completed — 3 false-positive progress_stall alerts for agents now correctly idle
+
+Detail:
+Pipeline issue-1965 refine phase BRC reached full consensus at 16:49:35. All 3 agents (refiner, reviewer_agent_design, reviewer_refine) are now CONFIRMED and idle. The monitoring system is firing 3 progress_stall warnings (refiner: 120s, reviewer_agent_design: 617s, reviewer_refine: 601s) — these are false positives. The agents are in legitimate wait-loop/idle states, not stalled. The progress events bus does not observe BRC wait-loop events, causing spurious stall alerts whenever agents correctly block on CONSENSUS_* messages. No corrective action needed for the alerts. The pipeline is now in awaiting_human pending resolution of 7 HITL decisions (decision-1 through decision-7) registered at commit 6143ad3af before the plan phase can begin.
+
+Recommended action:
+Resolve the 7 pending HITL decisions (decision-1 through decision-7) in the contract for pipeline issue-1965 to unblock the plan phase. Consider raising the progress_stall threshold or excluding agents in WAITING_FOR_EVENT state from stall detection to eliminate future false positives.
+
+````yaml
+id: 0e476254-5ef5-4d
+phase: refine
+````
+
+### [2026-04-25T16:53:44Z] overseer (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+Overseer active — polling pipeline issue-1965 at 60s intervals while awaiting human HITL resolution of 7 decisions (decision-1..decision-7). BRC complete, all agents quiesced normally.
+
+````yaml
+id: 043ae4d6-d144-48
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-04-25T16:55:01Z] overseer (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+Overseer standing by — pipeline awaiting_human, 7 HITL decisions pending. No new events.
+
+````yaml
+id: 06f7314e-0a44-43
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-04-25T16:56:19Z] overseer (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+Overseer standing by — awaiting_human, 7 HITL decisions unresolved. Polling at 60s.
+
+````yaml
+id: 5198a7fe-0096-4c
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-04-25T16:57:39Z] overseer (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+Overseer standing by — awaiting_human ~8min. 7 HITL decisions still unresolved. No new pipeline events.
+
+````yaml
+id: 2bcfdf5d-178d-46
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-04-25T16:58:55Z] overseer (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+Overseer standing by — awaiting_human ~9min. No change.
+
+````yaml
+id: a1117d91-b5bd-4d
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-04-25T17:00:13Z] overseer (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+Overseer standing by — awaiting_human ~10min. 7 HITL unresolved. System stable.
+
+````yaml
+id: 429ad8d7-4538-4b
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-04-25T17:01:31Z] overseer (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+Overseer standing by — awaiting_human ~11min. No change. 7 HITL pending.
+
+````yaml
+id: af37c4f5-e3cd-44
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+````
+
+### [2026-04-25T17:02:47Z] overseer (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+Overseer standing by — awaiting_human ~12min. Stable hold. 7 HITL pending.
+
+````yaml
+id: e287e518-431c-47
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
 ````
