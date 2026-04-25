@@ -225,10 +225,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-5",
+      "question": "What should the deprecation policy be for the legacy schema (`persist_dirs`/`persist_system_dirs`/explicit `watch_files`)?",
+      "context": "Open contract question decision-4, registered by an agent during the refine phase.",
+      "options": [
+        "Accept both legacy and new schemas indefinitely — no migration pressure, dual code paths kept forever",
+        "Accept both, emit a one-line warning when legacy keys are used (Recommended) — nudge migration without breaking anyone",
+        "Accept both for two releases, then hard-deprecate — forces cleanup but creates a hard cutover",
+        "Hard-deprecate immediately and ship `egg config migrate` — cleanest schema but biggest disruption",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T23:29:20.824122Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T23:09:30.400320Z",
-  "updated_at": "2026-04-25T23:29:20.769478Z",
+  "updated_at": "2026-04-25T23:29:20.850683Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -242,6 +262,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 15,
+  "version": 16,
   "jira_ticket": null
 }
