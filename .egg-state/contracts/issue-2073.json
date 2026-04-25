@@ -9,15 +9,1262 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "phases": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Where should the repo-defaults config file live in a target repo?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": ".egg/repositories.yaml (Recommended \u2014 matches existing repo-side .egg/ schemas dir and leaves room for future repo-scoped egg artifacts)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "egg.yaml at the repo root (visible in `ls`, easy to mention in docs, but adds top-level clutter)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": ".egg.yaml at the repo root (compromise: hidden but single-file, discoverable via `ls -a`)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Should we ship all four changes (schema simplification, layered config, onboard skill, validator) together as one feature, or sequence them as independent PRs?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Sequence as separate PRs in dependency order (Recommended) \u2014 schema+validator first, then layered loader, then skill. Smaller PRs, rollbackable.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "One coordinated feature \u2014 all four together with shared tests/docs. Single migration story but larger blast radius.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Two phases: (a) schema-simplification + validator together, (b) layered config + skill together \u2014 two PRs instead of three or four",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "How should the unified `persist:` list classify entries?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "By leading slash \u2014 entry starting with `/` is absolute (system dir), otherwise repo-relative (Recommended; matches the issue proposal). Simple rule, easy to teach.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Explicit per-entry tag (e.g. `- {path: /usr/local/bin, scope: system}`) \u2014 verbose but unambiguous",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Keep two separate lists, just rename them `persist_repo:` and `persist_system:` \u2014 less migration risk, but doesn't simplify",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "What should the deprecation policy be for the legacy schema (`persist_dirs`/`persist_system_dirs`/explicit `watch_files`)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Accept both legacy and new schemas indefinitely \u2014 no migration pressure, dual code paths kept forever",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Accept both, emit a one-line warning when legacy keys are used (Recommended) \u2014 nudge migration without breaking anyone",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Accept both for two releases, then hard-deprecate \u2014 forces cleanup but creates a hard cutover",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Hard-deprecate immediately and ship `egg config migrate` \u2014 cleanest schema but biggest disruption",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Where should the centralized merge loader live (the single import point that returns a merged repo+user view)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "New module `shared/egg_config/repos.py`, imported by `config/repo_config.py` and `sandbox/egg_lib/docker.py` (Recommended) \u2014 keeps the existing `config/repo_config.py` API but moves the read+merge into a shared package both runtimes already depend on.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Add the merge inside `config/repo_config.py::_load_config` and have sandbox import from `config/`. Simpler diff, but `sandbox/egg_lib` doesn't currently import from `config/`, which crosses the runtime boundary.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Brand-new top-level package `egg_repo_config/` separate from both \u2014 cleanest separation but adds a new package surface.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "How should the validator be exposed to users?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Both: a new `egg validate-config` CLI subcommand AND extend the existing `mcp__egg__validate_config` MCP tool (Recommended) \u2014 covers humans and agents in one change. Note: today's `validate_config` MCP tool validates *pipeline* configs, so this requires renaming or namespacing.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Add new CLI command only (`egg validate-config`) \u2014 simple, no MCP-tool name collision to resolve",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Add new MCP tool only (`mcp__egg__validate_repo_config`) \u2014 fits the agent workflow but humans still have no CLI",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Reuse `scripts/validate-config.py` and extend it to also validate `repositories.yaml` \u2014 minimal new surface area",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-7",
+      "question": "How should the onboarding logic be delivered?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "A new `/onboard-repo <path>` skill (under `skills/onboard-repo/SKILL.md`) (Recommended) \u2014 consistent with existing `/egg-setup`, `/sdlc`, etc. AskUserQuestion-driven so the human confirms detection.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "A new `egg onboard <repo-path>` CLI subcommand \u2014 scriptable, headless. No interactive confirmation step.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Both \u2014 skill is the conversational on-ramp, CLI is the underlying detector. Skill calls CLI for the analysis pass.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Extend existing `/egg-setup --update repos` instead of new skill \u2014 fewer entry points but conflates whole-system setup with single-repo onboarding.",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-8",
+      "question": "When the onboard skill cannot write to the target repo (e.g. agent has no permission, or user runs it against a read-only checkout), what should it do?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Print the YAML to stdout and offer to append it to `~/.config/egg/repositories.yaml` instead (Recommended) \u2014 matches the issue proposal; user keeps onboarding even when checkin is blocked",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Always write to `~/.config/egg/repositories.yaml` regardless \u2014 simpler but defeats the layered model",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Always write to `<repo>/.egg/repositories.yaml` \u2014 fail loudly when permissions are missing, force the user to fix them",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Write to a tmp path and print instructions for the user to copy it where they want \u2014 most flexible, least automated",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-9",
+      "question": "What policy should we adopt for list-merge semantics on layered fields (`checks`, `persist`, `watch_files`, `extra_packages.apt`/`dnf`, `local_repos.paths`)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Replace by default; ship without an `extends:` keyword for now (Recommended) \u2014 matches the issue proposal's preference. Simplest to teach. Revisit if duplication shows up across the fleet.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Replace by default; ship `extends: true` (or `+` prefix) opt-in for additive merging from day one \u2014 future-proofs but adds surface to the schema before we know if it's needed",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Append-merge by default \u2014 most ergonomic for additive cases (e.g. user wants to add an extra check on top of repo defaults) but the most surprising and the issue explicitly cautions against it",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Pick per-field defaults: `extra_packages.*` and `local_repos.paths` append; `checks`, `persist`, `watch_files` replace \u2014 most ergonomic but most rules to memorize",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-10",
+      "question": "When the user file lacks the per-repo block but the repo file is present (and operator-scoped fields like `writable_repos` still need to be set), should the loader implicitly trust repo-defaults or require the operator to opt in?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Loader auto-discovers `<repo>/.egg/repositories.yaml` when the operator runs egg against a checkout (Recommended) \u2014 matches the issue proposal's silent-skip-if-absent design. No opt-in friction for the common case.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Operator must explicitly list the repo in `repo_settings:` (or set a `use_repo_defaults: true` flag) before the repo file is read \u2014 explicit but defeats the zero-config win",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Loader reads repo file by default but only for repos in `local_repos.paths` (i.e. those the operator has already vouched for) \u2014 middle ground",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-11",
+      "question": "Should the validator be strict (errors fail the load) or advisory (warnings logged, load succeeds)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Two tiers \u2014 errors block (e.g. malformed YAML, missing required key, persist of denied path) and warnings advise (e.g. `make` target not found in Makefile heuristic) (Recommended). Matches existing validator patterns in `shared/egg_config/`.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "All errors \u2014 hard-fail the load on any flagged issue. Safest but breaks users on heuristic false positives.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "All warnings \u2014 log everything, never block. Lenient but undermines the 'catch at write-time' goal.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Strict at config-write time (`egg validate-config`), advisory at load time. Best of both \u2014 user gets blocked when explicitly validating, agents/runtime see warnings.",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-12",
+      "question": "Should we ship a one-shot migration helper alongside this work?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes \u2014 ship `egg config migrate` that rewrites legacy `persist_dirs`+`persist_system_dirs` into the unified `persist:` list and offers to extract per-repo blocks into `<repo>/.egg/repositories.yaml` (Recommended) \u2014 lowers the upgrade cost",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "No \u2014 deprecation warnings only; users hand-migrate. Issue lists migrate tool as out-of-scope; honoring that scope keeps PR boundaries tight",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Yes but ship as a follow-up after the core changes land",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Just provide a doc page with sed-able snippets users can run \u2014 zero new code, but more friction",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-13",
+      "question": "Should we adopt schema versioning (`version: 1`) on the new files from day one?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes on both files (user file + repo file) (Recommended) \u2014 cheap insurance now; loader gracefully degrades for newer schema versions. Issue's open-question list leans this way.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Yes only on the new repo-file (`<repo>/.egg/repositories.yaml`); leave user file unversioned. The repo file is the one committed to source control and most exposed to schema churn.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "No \u2014 don't add a version key now; revisit if/when we make a breaking change. Avoids paying the cost preemptively.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Adopt a different versioning scheme (e.g. `apiVersion: egg.config/v1` Kubernetes-style, or semver string) \u2014 more verbose but more conventional",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-14",
+      "question": "Should the onboarding skill detect Rust/Java/Ruby projects, or stick to the languages already used in egg-instrumented repos?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Ship detection for Python (uv/pip), Node (npm/pnpm/yarn), and Go only (Recommended) \u2014 these match the example file's documented patterns and the egg fleet today. Add Rust/Java/Ruby in a follow-up when there's a real consumer.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Ship the full set listed in the issue (Python, Node, Go, Rust, Java, Ruby, mixed) up front \u2014 future-proofs but more code to maintain without confirmed users",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Ship only what the egg repo itself uses (Python uv) and document how to extend the detector \u2014 minimal but the most fragile if even a webapp gets onboarded",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-04-25T23:13:59.372006Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-1",
+        "question": "Where should the repo-defaults config file live in a target repo?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": ".egg/repositories.yaml (Recommended \u2014 matches existing repo-side .egg/ schemas dir and leaves room for future repo-scoped egg artifacts)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "egg.yaml at the repo root (visible in `ls`, easy to mention in docs, but adds top-level clutter)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": ".egg.yaml at the repo root (compromise: hidden but single-file, discoverable via `ls -a`)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Where should the repo-defaults config file live in...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T23:14:04.147448Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-2",
+        "question": "Should we ship all four changes (schema simplification, layered config, onboard skill, validator) together as one feature, or sequence them as independent PRs?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Sequence as separate PRs in dependency order (Recommended) \u2014 schema+validator first, then layered loader, then skill. Smaller PRs, rollbackable.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "One coordinated feature \u2014 all four together with shared tests/docs. Single migration story but larger blast radius.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Two phases: (a) schema-simplification + validator together, (b) layered config + skill together \u2014 two PRs instead of three or four",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should we ship all four changes (schema simplifica...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T23:14:12.550874Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-3",
+        "question": "How should the unified `persist:` list classify entries?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "By leading slash \u2014 entry starting with `/` is absolute (system dir), otherwise repo-relative (Recommended; matches the issue proposal). Simple rule, easy to teach.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Explicit per-entry tag (e.g. `- {path: /usr/local/bin, scope: system}`) \u2014 verbose but unambiguous",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Keep two separate lists, just rename them `persist_repo:` and `persist_system:` \u2014 less migration risk, but doesn't simplify",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should the unified `persist:` list classify en...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T23:14:18.469234Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-4",
+        "question": "What should the deprecation policy be for the legacy schema (`persist_dirs`/`persist_system_dirs`/explicit `watch_files`)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Accept both legacy and new schemas indefinitely \u2014 no migration pressure, dual code paths kept forever",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Accept both, emit a one-line warning when legacy keys are used (Recommended) \u2014 nudge migration without breaking anyone",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Accept both for two releases, then hard-deprecate \u2014 forces cleanup but creates a hard cutover",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Hard-deprecate immediately and ship `egg config migrate` \u2014 cleanest schema but biggest disruption",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: What should the deprecation policy be for the lega...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T23:14:25.674865Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-5",
+        "question": "Where should the centralized merge loader live (the single import point that returns a merged repo+user view)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "New module `shared/egg_config/repos.py`, imported by `config/repo_config.py` and `sandbox/egg_lib/docker.py` (Recommended) \u2014 keeps the existing `config/repo_config.py` API but moves the read+merge into a shared package both runtimes already depend on.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Add the merge inside `config/repo_config.py::_load_config` and have sandbox import from `config/`. Simpler diff, but `sandbox/egg_lib` doesn't currently import from `config/`, which crosses the runtime boundary.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Brand-new top-level package `egg_repo_config/` separate from both \u2014 cleanest separation but adds a new package surface.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Where should the centralized merge loader live (th...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T23:14:33.650799Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-6",
+        "question": "How should the validator be exposed to users?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Both: a new `egg validate-config` CLI subcommand AND extend the existing `mcp__egg__validate_config` MCP tool (Recommended) \u2014 covers humans and agents in one change. Note: today's `validate_config` MCP tool validates *pipeline* configs, so this requires renaming or namespacing.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Add new CLI command only (`egg validate-config`) \u2014 simple, no MCP-tool name collision to resolve",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Add new MCP tool only (`mcp__egg__validate_repo_config`) \u2014 fits the agent workflow but humans still have no CLI",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Reuse `scripts/validate-config.py` and extend it to also validate `repositories.yaml` \u2014 minimal new surface area",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should the validator be exposed to users?",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T23:14:40.761979Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-7",
+        "question": "How should the onboarding logic be delivered?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "A new `/onboard-repo <path>` skill (under `skills/onboard-repo/SKILL.md`) (Recommended) \u2014 consistent with existing `/egg-setup`, `/sdlc`, etc. AskUserQuestion-driven so the human confirms detection.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "A new `egg onboard <repo-path>` CLI subcommand \u2014 scriptable, headless. No interactive confirmation step.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Both \u2014 skill is the conversational on-ramp, CLI is the underlying detector. Skill calls CLI for the analysis pass.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Extend existing `/egg-setup --update repos` instead of new skill \u2014 fewer entry points but conflates whole-system setup with single-repo onboarding.",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: How should the onboarding logic be delivered?",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T23:14:47.128065Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.7",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-8",
+        "question": "When the onboard skill cannot write to the target repo (e.g. agent has no permission, or user runs it against a read-only checkout), what should it do?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Print the YAML to stdout and offer to append it to `~/.config/egg/repositories.yaml` instead (Recommended) \u2014 matches the issue proposal; user keeps onboarding even when checkin is blocked",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Always write to `~/.config/egg/repositories.yaml` regardless \u2014 simpler but defeats the layered model",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Always write to `<repo>/.egg/repositories.yaml` \u2014 fail loudly when permissions are missing, force the user to fix them",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Write to a tmp path and print instructions for the user to copy it where they want \u2014 most flexible, least automated",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: When the onboard skill cannot write to the target ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T23:15:01.605567Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.8",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-9",
+        "question": "What policy should we adopt for list-merge semantics on layered fields (`checks`, `persist`, `watch_files`, `extra_packages.apt`/`dnf`, `local_repos.paths`)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Replace by default; ship without an `extends:` keyword for now (Recommended) \u2014 matches the issue proposal's preference. Simplest to teach. Revisit if duplication shows up across the fleet.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Replace by default; ship `extends: true` (or `+` prefix) opt-in for additive merging from day one \u2014 future-proofs but adds surface to the schema before we know if it's needed",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Append-merge by default \u2014 most ergonomic for additive cases (e.g. user wants to add an extra check on top of repo defaults) but the most surprising and the issue explicitly cautions against it",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Pick per-field defaults: `extra_packages.*` and `local_repos.paths` append; `checks`, `persist`, `watch_files` replace \u2014 most ergonomic but most rules to memorize",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: What policy should we adopt for list-merge semanti...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T23:15:08.285698Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.9",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-10",
+        "question": "When the user file lacks the per-repo block but the repo file is present (and operator-scoped fields like `writable_repos` still need to be set), should the loader implicitly trust repo-defaults or require the operator to opt in?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Loader auto-discovers `<repo>/.egg/repositories.yaml` when the operator runs egg against a checkout (Recommended) \u2014 matches the issue proposal's silent-skip-if-absent design. No opt-in friction for the common case.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Operator must explicitly list the repo in `repo_settings:` (or set a `use_repo_defaults: true` flag) before the repo file is read \u2014 explicit but defeats the zero-config win",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Loader reads repo file by default but only for repos in `local_repos.paths` (i.e. those the operator has already vouched for) \u2014 middle ground",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: When the user file lacks the per-repo block but th...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T23:15:15.874205Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.10",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-11",
+        "question": "Should the validator be strict (errors fail the load) or advisory (warnings logged, load succeeds)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Two tiers \u2014 errors block (e.g. malformed YAML, missing required key, persist of denied path) and warnings advise (e.g. `make` target not found in Makefile heuristic) (Recommended). Matches existing validator patterns in `shared/egg_config/`.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "All errors \u2014 hard-fail the load on any flagged issue. Safest but breaks users on heuristic false positives.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "All warnings \u2014 log everything, never block. Lenient but undermines the 'catch at write-time' goal.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Strict at config-write time (`egg validate-config`), advisory at load time. Best of both \u2014 user gets blocked when explicitly validating, agents/runtime see warnings.",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the validator be strict (errors fail the lo...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T23:15:23.079305Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.11",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-12",
+        "question": "Should we ship a one-shot migration helper alongside this work?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Yes \u2014 ship `egg config migrate` that rewrites legacy `persist_dirs`+`persist_system_dirs` into the unified `persist:` list and offers to extract per-repo blocks into `<repo>/.egg/repositories.yaml` (Recommended) \u2014 lowers the upgrade cost",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "No \u2014 deprecation warnings only; users hand-migrate. Issue lists migrate tool as out-of-scope; honoring that scope keeps PR boundaries tight",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Yes but ship as a follow-up after the core changes land",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Just provide a doc page with sed-able snippets users can run \u2014 zero new code, but more friction",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should we ship a one-shot migration helper alongsi...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T23:15:31.724851Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.12",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-13",
+        "question": "Should we adopt schema versioning (`version: 1`) on the new files from day one?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Yes on both files (user file + repo file) (Recommended) \u2014 cheap insurance now; loader gracefully degrades for newer schema versions. Issue's open-question list leans this way.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Yes only on the new repo-file (`<repo>/.egg/repositories.yaml`); leave user file unversioned. The repo file is the one committed to source control and most exposed to schema churn.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "No \u2014 don't add a version key now; revisit if/when we make a breaking change. Avoids paying the cost preemptively.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Adopt a different versioning scheme (e.g. `apiVersion: egg.config/v1` Kubernetes-style, or semver string) \u2014 more verbose but more conventional",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should we adopt schema versioning (`version: 1`) o...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T23:15:38.926339Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.13",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-14",
+        "question": "Should the onboarding skill detect Rust/Java/Ruby projects, or stick to the languages already used in egg-instrumented repos?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Ship detection for Python (uv/pip), Node (npm/pnpm/yarn), and Go only (Recommended) \u2014 these match the example file's documented patterns and the egg fleet today. Add Rust/Java/Ruby in a follow-up when there's a real consumer.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Ship the full set listed in the issue (Python, Node, Go, Rust, Java, Ruby, mixed) up front \u2014 future-proofs but more code to maintain without confirmed users",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Ship only what the egg repo itself uses (Python uv) and document how to extend the detector \u2014 minimal but the most fragile if even a webapp gets onboarded",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should the onboarding skill detect Rust/Java/Ruby ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T23:15:58.114484Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "What's the upgrade-friction tolerance for existing operators? Concretely: if the schema changes, are you OK with a one-time `egg config migrate` step, or should the loader silently accept the legacy schema indefinitely with no nudge?",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Are there any existing repos already onboarded that would need their per-repo block extracted into `<repo>/.egg/repositories.yaml` as part of the rollout? If yes, please list them so the migration helper (if approved in decision-12) covers them and acceptance tests exercise the layered path on real config.",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "What's the priority ranking among the four pieces if we have to drop or defer one? In particular, is the validator considered nice-to-have given that #2090 already hardens the build-time fail-loud path, or is write-time validation the highest-value piece?",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "The issue's 'Out of scope' list includes a repo template library (`extends:` from a built-in catalog of `python-uv`, `node-pnpm`, etc.). The proposal lands repo-defaults committed to each repo, which makes templates more attractive. Should the plan phase reserve a hook (e.g. `template:` field, or a stable schema for shared blocks) so a follow-up can land templates without another schema migration?",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "Are there validation checks beyond the ones listed in the issue (build_commands without matching persist, persist without producible source, missing Makefile target, manifest/build-cmd mismatch, missing local_repos paths, dangling writable_repos, unreachable checkpoint_repo, repo-file with operator-scoped keys) that you want surfaced? Examples worth considering: `auth_mode: user` without `GITHUB_USER_TOKEN` configured; persist of an empty directory; commands that exec curl/wget in private mode where network is locked down.",
+            "answer": null
+          },
+          {
+            "id": "Q6",
+            "question": "Should the onboard skill's heuristic detection always require human confirmation (e.g. AskUserQuestion to confirm each detected build_command), or auto-write when confidence is high (single lockfile, single Makefile target match)?",
+            "answer": null
+          },
+          {
+            "id": "Q7",
+            "question": "Are there any repos in your fleet that already deviate from the simple `lint`/`test` Makefile convention (e.g. multi-stage checks, `bazel test //...`, gradle wrappers, etc.) that the auto-detected `checks` block needs to handle?",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 7 question(s)",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
   "pr": null,
-  "feedback": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "What's the upgrade-friction tolerance for existing operators? Concretely: if the schema changes, are you OK with a one-time `egg config migrate` step, or should the loader silently accept the legacy schema indefinitely with no nudge?",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "Are there any existing repos already onboarded that would need their per-repo block extracted into `<repo>/.egg/repositories.yaml` as part of the rollout? If yes, please list them so the migration helper (if approved in decision-12) covers them and acceptance tests exercise the layered path on real config.",
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "question": "What's the priority ranking among the four pieces if we have to drop or defer one? In particular, is the validator considered nice-to-have given that #2090 already hardens the build-time fail-loud path, or is write-time validation the highest-value piece?",
+        "answer": null
+      },
+      {
+        "id": "Q4",
+        "question": "The issue's 'Out of scope' list includes a repo template library (`extends:` from a built-in catalog of `python-uv`, `node-pnpm`, etc.). The proposal lands repo-defaults committed to each repo, which makes templates more attractive. Should the plan phase reserve a hook (e.g. `template:` field, or a stable schema for shared blocks) so a follow-up can land templates without another schema migration?",
+        "answer": null
+      },
+      {
+        "id": "Q5",
+        "question": "Are there validation checks beyond the ones listed in the issue (build_commands without matching persist, persist without producible source, missing Makefile target, manifest/build-cmd mismatch, missing local_repos paths, dangling writable_repos, unreachable checkpoint_repo, repo-file with operator-scoped keys) that you want surfaced? Examples worth considering: `auth_mode: user` without `GITHUB_USER_TOKEN` configured; persist of an empty directory; commands that exec curl/wget in private mode where network is locked down.",
+        "answer": null
+      },
+      {
+        "id": "Q6",
+        "question": "Should the onboard skill's heuristic detection always require human confirmation (e.g. AskUserQuestion to confirm each detected build_command), or auto-write when confidence is high (single lockfile, single Makefile target match)?",
+        "answer": null
+      },
+      {
+        "id": "Q7",
+        "question": "Are there any repos in your fleet that already deviate from the simple `lint`/`test` Makefile convention (e.g. multi-stage checks, `bazel test //...`, gradle wrappers, etc.) that the auto-detected `checks` block needs to handle?",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
   "phase_configs": null,
   "agent_executions": []
 }
