@@ -37,10 +37,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \".egg/repositories.yaml (Recommended \u2014 matches existing repo-side .egg/ schemas dir and leaves room for future repo-scoped egg artifacts)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T23:32:09.425385Z",
       "debounce_until": null
     },
     {
@@ -70,10 +70,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"One coordinated feature \u2014 all four together with shared tests/docs. Single migration story but larger blast radius.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T23:32:09.477396Z",
       "debounce_until": null
     },
     {
@@ -103,10 +103,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"By leading slash \u2014 entry starting with `/` is absolute (system dir), otherwise repo-relative (Recommended; matches the issue proposal). Simple rule, easy to teach.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T23:32:09.504332Z",
       "debounce_until": null
     },
     {
@@ -141,10 +141,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Hard-deprecate immediately, no migration tool \u2014 drop legacy `persist_dirs`/`persist_system_dirs`/explicit `watch_files` support outright. Cleanest schema; users update their config by hand.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T23:32:09.526207Z",
       "debounce_until": null
     },
     {
@@ -174,10 +174,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"New module `shared/egg_config/repos.py`, imported by `config/repo_config.py` and `sandbox/egg_lib/docker.py` (Recommended) \u2014 keeps the existing `config/repo_config.py` API but moves the read+merge into a shared package both runtimes already depend on.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T23:33:50.849910Z",
       "debounce_until": null
     },
     {
@@ -212,10 +212,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Both: a new `egg validate-config` CLI subcommand AND extend the existing `mcp__egg__validate_config` MCP tool (Recommended) \u2014 covers humans and agents in one change. Note: today's `validate_config` MCP tool validates *pipeline* configs, so this requires renaming or namespacing.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T23:33:55.905502Z",
       "debounce_until": null
     },
     {
@@ -250,10 +250,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"A new `/onboard-repo <path>` skill (under `skills/onboard-repo/SKILL.md`) (Recommended) \u2014 consistent with existing `/egg-setup`, `/sdlc`, etc. AskUserQuestion-driven so the human confirms detection.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T23:33:55.941656Z",
       "debounce_until": null
     },
     {
@@ -288,10 +288,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Print the YAML to stdout and offer to append it to `~/.config/egg/repositories.yaml` instead (Recommended) \u2014 matches the issue proposal; user keeps onboarding even when checkin is blocked\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T23:33:55.973573Z",
       "debounce_until": null
     },
     {
@@ -326,10 +326,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Replace by default; ship without an `extends:` keyword for now (Recommended) \u2014 matches the issue proposal's preference. Simplest to teach. Revisit if duplication shows up across the fleet.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T23:35:27.209600Z",
       "debounce_until": null
     },
     {
@@ -359,10 +359,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Loader auto-discovers `<repo>/.egg/repositories.yaml` when the operator runs egg against a checkout (Recommended) \u2014 matches the issue proposal's silent-skip-if-absent design. No opt-in friction for the common case.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T23:35:27.231656Z",
       "debounce_until": null
     },
     {
@@ -397,10 +397,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Two tiers \u2014 errors block (e.g. malformed YAML, missing required key, persist of denied path) and warnings advise (e.g. `make` target not found in Makefile heuristic) (Recommended). Matches existing validator patterns in `shared/egg_config/`.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T23:35:32.275546Z",
       "debounce_until": null
     },
     {
@@ -435,10 +435,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"No \u2014 deprecation warnings only; users hand-migrate. Issue lists migrate tool as out-of-scope; honoring that scope keeps PR boundaries tight\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T23:35:32.301537Z",
       "debounce_until": null
     },
     {
@@ -473,10 +473,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Yes on both files (user file + repo file) (Recommended) \u2014 cheap insurance now; loader gracefully degrades for newer schema versions. Issue's open-question list leans this way.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T23:36:28.180647Z",
       "debounce_until": null
     },
     {
@@ -506,10 +506,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Ship detection for Python (uv/pip), Node (npm/pnpm/yarn), and Go only (Recommended) \u2014 these match the example file's documented patterns and the egg fleet today. Add Rust/Java/Ruby in a follow-up when there's a real consumer.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T23:36:28.223668Z",
       "debounce_until": null
     }
   ],
@@ -1226,42 +1226,42 @@
       {
         "id": "Q1",
         "question": "What's the upgrade-friction tolerance for existing operators? Concretely: if the schema changes, are you OK with a one-time `egg config migrate` step, or should the loader silently accept the legacy schema indefinitely with no nudge?",
-        "answer": null
+        "answer": "Hard cutover OK \u2014 no migration tool. Users hand-update their config when upgrading; matches the hard-deprecate choice from decision-5."
       },
       {
         "id": "Q2",
         "question": "Are there any existing repos already onboarded that would need their per-repo block extracted into `<repo>/.egg/repositories.yaml` as part of the rollout? If yes, please list them so the migration helper (if approved in decision-12) covers them and acceptance tests exercise the layered path on real config.",
-        "answer": null
+        "answer": "Just the egg repo itself. egg/.egg/repositories.yaml is the canonical one to migrate as part of this rollout."
       },
       {
         "id": "Q3",
         "question": "What's the priority ranking among the four pieces if we have to drop or defer one? In particular, is the validator considered nice-to-have given that #2090 already hardens the build-time fail-loud path, or is write-time validation the highest-value piece?",
-        "answer": null
+        "answer": "All four pieces are required \u2014 they reinforce each other and should ship together (matches decision-3 'one coordinated feature'). Don't drop any."
       },
       {
         "id": "Q4",
         "question": "The issue's 'Out of scope' list includes a repo template library (`extends:` from a built-in catalog of `python-uv`, `node-pnpm`, etc.). The proposal lands repo-defaults committed to each repo, which makes templates more attractive. Should the plan phase reserve a hook (e.g. `template:` field, or a stable schema for shared blocks) so a follow-up can land templates without another schema migration?",
-        "answer": null
+        "answer": "Yes \u2014 reserve a `template:` field in the schema so a follow-up template-library PR can land without another schema migration."
       },
       {
         "id": "Q5",
         "question": "Are there validation checks beyond the ones listed in the issue (build_commands without matching persist, persist without producible source, missing Makefile target, manifest/build-cmd mismatch, missing local_repos paths, dangling writable_repos, unreachable checkpoint_repo, repo-file with operator-scoped keys) that you want surfaced? Examples worth considering: `auth_mode: user` without `GITHUB_USER_TOKEN` configured; persist of an empty directory; commands that exec curl/wget in private mode where network is locked down.",
-        "answer": null
+        "answer": "Add all examples mentioned: `auth_mode: user` without `GITHUB_USER_TOKEN` configured; persist of an empty directory; commands that exec curl/wget in private mode where network is locked down. Plus the issue's original list (build_commands without matching persist, persist without producible source, missing Makefile target, manifest/build-cmd mismatch, missing local_repos paths, dangling writable_repos, unreachable checkpoint_repo, repo-file with operator-scoped keys)."
       },
       {
         "id": "Q6",
         "question": "Should the onboard skill's heuristic detection always require human confirmation (e.g. AskUserQuestion to confirm each detected build_command), or auto-write when confidence is high (single lockfile, single Makefile target match)?",
-        "answer": null
+        "answer": "Always require human confirmation via AskUserQuestion per detected build_command \u2014 safest, matches the /sdlc HITL pattern, and aligns with the goal of catching misconfig at write-time rather than baking it in."
       },
       {
         "id": "Q7",
         "question": "Are there any repos in your fleet that already deviate from the simple `lint`/`test` Makefile convention (e.g. multi-stage checks, `bazel test //...`, gradle wrappers, etc.) that the auto-detected `checks` block needs to handle?",
-        "answer": null
+        "answer": "Don't know yet \u2014 design the detector for extensibility (plug-in escape hatch) so quirky repos like bazel/gradle/multi-stage checks can be slotted in without rewriting the heuristic."
       }
     ],
-    "submitted": false,
-    "submitted_by": null,
-    "submitted_at": null,
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-04-25T23:42:47.641655Z",
     "comment_id": null,
     "debounce_until": null
   },
