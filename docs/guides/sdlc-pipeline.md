@@ -743,7 +743,7 @@ The orchestrator pushes worktree state (including `.egg-state/` files) to the re
 3. **Before PR creation** — Pushes BRC history re-writes and any pending statefiles. This is a safety net for cases where post-phase pushes (point 2) failed silently. Push outcomes are logged at INFO level with the number of local commits ahead of remote (see [PR-Phase State File Troubleshooting](#pr-phase-state-file-troubleshooting))
 4. **On pipeline failure** — Best-effort failsafe push to preserve in-progress work
 
-All pushes use `GatewayClient.push_worktree_branch()`, which registers a temporary session token, pushes the branch, and cleans up the session. On non-fast-forward rejection, it automatically performs a `git fetch` + `git rebase` in the worktree and retries the push once before giving up. The call returns a `PushResult` dataclass (truthy on success) whose `category` and `detail` fields describe the underlying git error — so contract-init failures surface an operator-actionable message like `"non_fast_forward: ! [rejected] ... (fetch first)"` instead of the historical opaque `"push_worktree_branch returned False"`.
+All pushes use `GatewayClient.push_worktree_branch()`, which authenticates directly with the launcher secret (orchestrator-trusted) rather than registering a temporary session token. This bypasses the agent-targeted pipeline-push enforcement so the orchestrator's programmatic pushes are never blocked by #2028-style pipeline-session guards. On non-fast-forward rejection, it automatically performs a `git fetch` + `git rebase` in the worktree and retries the push once before giving up. The call returns a `PushResult` dataclass (truthy on success) whose `category` and `detail` fields describe the underlying git error — so contract-init failures surface an operator-actionable message like `"non_fast_forward: ! [rejected] ... (fetch first)"` instead of the historical opaque `"push_worktree_branch returned False"`.
 
 **Contract init push (point 1) is required**: If it fails after one retry, the pipeline is marked `FAILED` and aborted. Agents must not start before the contract is on the remote — otherwise their diffs would include `.egg-state/` files outside their allowed file boundaries. Post-phase and failsafe pushes (points 2–3) log warnings but do not block pipeline progress.
 
@@ -757,7 +757,7 @@ When a pipeline phase fails (container exit code non-zero), the orchestrator:
 
 1. **Sets pipeline status to FAILED**: Marks the phase and pipeline as failed during phase execution
 2. **Emits failure event**: Sends `pipeline.failed` event to terminate SSE streams
-3. **Best-effort push**: Attempts to push the worktree branch to remote as a backup (using a temporary session token)
+3. **Best-effort push**: Attempts to push the worktree branch to remote as a backup (using the launcher secret for orchestrator-trusted auth)
 4. **Preserves worktree**: Skips cleanup in the `finally` block so in-progress work is not lost
 
 **Restart behavior**:
