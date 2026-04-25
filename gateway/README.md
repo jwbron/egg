@@ -98,16 +98,19 @@ The gateway enforces file-level access restrictions to prevent certain roles fro
 
 ### Branch Lock (Pipeline Sessions)
 
-Pipeline sessions are locked to their assigned worktree branch. The gateway blocks `git checkout` (branch-switching) and `git switch` operations to prevent agents from moving off their assigned branch, which would break deterministic post-agent commit/push.
+Pipeline sessions are locked to their assigned worktree branch. The gateway blocks `git checkout` (branch-switching), `git switch`, and off-lineage `git reset` operations to prevent agents from moving off their assigned branch, which would break deterministic post-agent commit/push.
 
 **How it works:**
 - When a session is created with a `pipeline_id`, the worktree branch is recorded as `assigned_branch` on the `Session` object
 - On every `git checkout`/`git switch` invocation, `is_branch_switch()` in `git_client.py` determines whether the command targets a branch (blocked) or files (allowed)
 - File-level checkout (`git checkout -- file.txt`, `git checkout HEAD -- path/`) is always allowed
 - Branch-creating flags (`-b`, `-B`, `--orphan`) and `git switch` (any form) are blocked
+- On every `git reset <ref>` invocation (any mode), `extract_reset_target_ref()` in `git_client.py` extracts the target ref; the gateway then runs `git merge-base --is-ancestor <ref> HEAD` and blocks the reset if `<ref>` is not an ancestor of HEAD on the assigned branch. Path-mode resets (`git reset HEAD -- file`) are not affected (HEAD does not move)
+- Fails closed: if the ancestry check cannot run (timeout, OS error), the reset is blocked
 
-**Error message:**
+**Error messages:**
 - `Branch switching is not allowed in pipeline sessions. You are locked to branch '<branch>'.` (HTTP 403)
+- `Off-lineage 'git reset' is not allowed in pipeline sessions. Target ref '<ref>' is not an ancestor of HEAD on your assigned branch '<branch>'. To incorporate new commits from the remote, use 'git rebase origin/<branch>' instead.` (HTTP 403)
 
 ### Push-Target Enforcement (Pipeline Sessions)
 
