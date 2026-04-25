@@ -1,677 +1,522 @@
-# Analysis: Improve overseer escalation/issue opening behavior
+# Analysis: Improve overseer escalation/issue opening behavior (advisor-strategy framing)
 
 > Issue: #1962 | Phase: refine
 
 ## Problem Statement
 
 The overseer agent is "pretty good" at escalating to humans via
-`OVERSEER_ALERT`, but the issue author flags three related gaps:
+`OVERSEER_ALERT`, but the issue author flags three coupled gaps:
 
-1. **Escalation reliability** — the overseer may not always escalate
+1. **Escalation reliability** — the deployed agent-side overseer
+   (`sandbox/agent-config/rules/overseer.md`) does not always escalate
    when it should. Tightening *"when appropriate"* is part of the ask.
 2. **Autonomous issue filing** — when the overseer observes a real egg
-   bug (not just a flaky agent), it should open a GitHub issue
-   automatically so the bug is tracked. Today the agent-side overseer
-   rules in `sandbox/agent-config/rules/overseer.md:179` explicitly
-   say *"you do not file issues yourself"*, so this behavior is
-   forbidden by policy even though the underlying plumbing exists.
-3. **Host → overseer migration** — the `/sdlc` skill currently does a
-   lot of mid-pipeline debugging (stall detection, agent nudging,
-   `get_container_logs` on demand, NACK escalation, 60-min long-run
-   rescue). The issue's desired end state is that the host session
-   *"does nothing other than report what's going on in the pipeline
-   based on events sent to it (after #1932) and manage HITL
-   decisions"*. All investigative and nudge logic should migrate into
-   the overseer.
+   bug (not just a flaky agent), it should file a GitHub issue
+   automatically. Today the agent-side overseer rules at
+   `sandbox/agent-config/rules/overseer.md:206` explicitly forbid it
+   (*"the human will file it -- you do not file issues yourself"*),
+   so this behavior is policy-blocked even though the underlying
+   plumbing exists in dead code at `orchestrator/overseer/issue_filer.py`.
+3. **Host → overseer migration** — `/sdlc` (`skills/sdlc/SKILL.md`)
+   currently does mid-pipeline debugging (stall detection, agent
+   nudging, NACK escalation, 60-min long-run rescue, etc.). The issue's
+   desired end state is that the host *"does nothing other than report
+   what's going on in the pipeline based on events sent to it (after
+   #1932) and manage HITL decisions"*. All investigative and nudge
+   logic should migrate into the overseer.
 
-The author also mentions a *possible* future capability: letting the
-overseer launch sub-agents to investigate asynchronously. This is
-called out in the issue as speculative (*"one thing we might want to
-support"*), so it belongs in a follow-up rather than this pipeline's
-required scope.
+The issue body also mentions overseer-launched investigator sub-agents
+as a *speculative* future capability; this is tracked in #2000 and is
+explicitly out of scope here.
+
+### Pre-refine framing (must read)
+
+A `/sdlc` triage on 2026-04-24 reframed this issue under the
+[**advisor strategy**](https://claude.com/blog/the-advisor-strategy)
+(Anthropic launched it on 2026-04-09): keep a small/fast model as the
+**executor** that drives the loop, and call a heavier-tier model as
+the **advisor** only when the executor flags a candidate. The
+existing overseer architecture maps onto this naturally:
+
+- **Haiku tier** (executor): `model="haiku"`, `max_turns=1` — runs
+  every cycle, classifies anomalies (stall / error / loop /
+  alignment). Already deployed at `sandbox/agent-config/rules/overseer.md:87-93`.
+- **Sonnet/Opus tier** (advisor): runs only when Haiku says "this
+  might be an alert" — decides escalation level, alert composition,
+  and (new) issue-filing. Already partly deployed at
+  `sandbox/agent-config/rules/overseer.md:95-102`.
+
+The advisor lens turns the auto-issue question into *"Opus, should
+this Haiku-flagged anomaly become a GitHub issue?"* with `max_uses` +
+the existing `overseer_max_cycles_before_re_alert` bounding cost.
+
+The pre-refine notes also locked in these resolved preferences (carry
+forward as constraints, no longer open questions):
+
+| Topic | Resolved value | Source |
+|---|---|---|
+| Pipeline scope | All three threads in this pipeline (escalation tuning + auto-issue + host migration) | pre-refine notes; supersedes old `decision-1` (Option A) and old `decision-11` (host migration in scope) |
+| Auto-filing policy | Advisor-gated per-anomaly rubric (Opus only on Haiku flag) | pre-refine notes; matches old `decision-4` opt-3 |
+| Labels | Existing `agent:overseer` + matching `p0`/`p1`/`p2`/`p3` priority label. **No new labels** (no `egg:diagnostic`, `pipeline-health`, `overseer-alert`, `overseer-opened`) | pre-refine notes; supersedes all options of old `decision-7` |
+| Dedup window | Per-repo: search open issues by `agent:overseer` label + anomaly-type signature before filing | pre-refine notes; matches old `decision-5` opt-2 |
+| Sub-agent launching | Out of scope; tracked in #2000 | pre-refine notes; matches old `decision-2` opt-1 |
+| Related-bugs scope | #1722 / #1727 stay in their own pipelines, link as context | pre-refine notes; matches old `decision-3` opt-1 |
+
+The advisor framing is the **starting point**, not a mandate — if a
+better architecture surfaces, swap it in. The resolved preferences
+above hold regardless.
 
 ## Current Behavior
 
 ### Two coexisting overseer implementations
 
-The codebase already contains **two** things named "overseer", and this
-is central to the problem space:
+The codebase contains **two** things named "overseer":
 
-1. **Sandbox LLM overseer (deployed)**
-   - Spawned per-phase by `orchestrator/routes/pipelines.py:10935-10964`
-     calling `spawn_overseer_container` in
-     `orchestrator/kubernetes_spawner.py:1182-1254`.
-   - Runs inside a sandbox container as a Claude Code agent using the
-     prompt at `kubernetes_spawner.py:1220-1234` and the rules at
-     `sandbox/agent-config/rules/overseer.md`.
-   - Polls by repeatedly running
+1. **Sandbox LLM overseer (deployed, in production today)**
+   - Spawned per phase by `orchestrator/routes/pipelines.py` →
+     `spawn_overseer_container` (`orchestrator/kubernetes_spawner.py`).
+   - Runs as a Claude Code agent inside a sandbox container with the
+     prompt rules at `sandbox/agent-config/rules/overseer.md`.
+   - Polls by repeatedly invoking
      `python3 /opt/egg-runtime/sandbox/overseer_monitor.py --once`
-     (see `sandbox/overseer_monitor.py:143-189`).
-   - Escalates via `egg-orch overseer alert` (CLI wrapper defined in
-     `sandbox/bin/egg-orch:2629+`).
-   - **Cannot file GitHub issues today.** The rules explicitly forbid
-     it (`overseer.md:179`).
+     (`sandbox/overseer_monitor.py`, 314 LOC).
+   - Escalates **only** via `egg-orch overseer alert` (CLI wrapper).
+   - **Cannot file GitHub issues** — explicitly forbidden at
+     `overseer.md:206`.
+   - Already implements a Haiku-classify / Sonnet-decide split
+     described in the rule doc (`overseer.md:83-102`).
+   - Phase-scoped lifetime: `overseer.md:5` — fresh instance per
+     phase, no accumulated state.
 
-2. **Orchestrator-side `OverseerMonitor` class (not deployed to
-   pipelines)**
-   - `orchestrator/overseer/monitor.py` (2005 LOC) with supporting
-     `classifier.py`, `decision_maker.py`, `issue_filer.py`,
-     `self_monitor.py`.
-   - `decide_corrective_action` in `decision_maker.py:99-155` defines
-     a ladder: `nudge` → `redirect` → `restart_agent` → `hitl` →
-     `restart_phase` → `issue` → `slack`.
-   - The `issue` branch of `_execute_action`
-     (`orchestrator/overseer/monitor.py:620-629`) calls
-     `file_diagnostic_issue` (`orchestrator/overseer/issue_filer.py`),
-     which invokes `gh issue create` with a structured
-     `## Pipeline Diagnostic:` body and labels
-     `["egg:diagnostic", "pipeline-health"]`.
-   - A grep for callers confirms `OverseerMonitor(` and
-     `file_diagnostic_issue(` are referenced **only in
-     `orchestrator/tests/`** — there is no production instantiation.
-   - The labels `egg:diagnostic` and `pipeline-health` do not exist in
-     `gh label list --repo jwbron/egg`.
-   - Documentation in `docs/guides/pipeline-health-monitoring.md:409-442`
-     already describes "Autonomous Issue Filing", including the
-     structured template and an `overseer-alert` label convention —
-     but the running overseer doesn't use any of it.
+2. **Orchestrator-side `OverseerMonitor` class (dead code in
+   production)**
+   - `orchestrator/overseer/monitor.py` (2005 LOC) plus
+     `classifier.py` (341 LOC), `decision_maker.py` (249 LOC),
+     `issue_filer.py` (204 LOC), `self_monitor.py`.
+   - `decide_corrective_action`
+     (`orchestrator/overseer/decision_maker.py:99-155`) defines a
+     ladder: `nudge → redirect → restart_agent → hitl → restart_phase
+     → issue → slack`.
+   - The `issue` action calls `file_diagnostic_issue`
+     (`orchestrator/overseer/issue_filer.py:111-204`), which runs
+     `gh issue create` with labels `["egg:diagnostic", "pipeline-health"]`
+     and a `## Pipeline Diagnostic:` template
+     (`issue_filer.py:86-107`).
+   - A grep for `OverseerMonitor(` and `file_diagnostic_issue(` shows
+     references **only in `orchestrator/tests/`** — no production
+     instantiation.
+   - Labels `egg:diagnostic` / `pipeline-health` do **not** exist in
+     the repo (`gh label list --repo jwbron/egg`); the only relevant
+     label that does exist is `agent:overseer`. Priorities `p0`–`p3`
+     also exist.
 
-In other words: the *infrastructure* for autonomous issue filing was
-built for an overseer architecture that was later superseded by the
-LLM-agent design. The new design never picked the capability back up.
+The infrastructure for autonomous issue filing was built for an
+overseer architecture that was later superseded by the LLM-agent
+design. The new design never wired up the capability.
 
-### Escalation path today
+### Today's escalation surface
 
-The deployed overseer's entire remediation vocabulary is
-`OVERSEER_ALERT`. Rules at `overseer.md:116-127, 140-153` enumerate:
+The deployed overseer's only remediation verb is
+`OVERSEER_ALERT`. Triggers enumerated at `overseer.md:171-180`:
 
-- Stuck phase transition (BRC confirmed, no advance in ~60s)
-- Orchestrator silent on consensus
-- Repeated 401 from orchestrator endpoints
-- Heartbeat stall on an active agent
-- Persistent agent loop (Haiku classifier confidence > 0.8, two
-  consecutive cycles)
-- Same anomaly across N cycles without resolution (escalate priority)
+- `stuck-phase-transition` (BRC confirmed but no advance in ~60s)
+- `orchestrator-consensus-silent`
+- `unauthorized-overseer-action` (repeated 401)
+- `agent-heartbeat-stall` (gated on Tier-1 health alert per #2012)
+- `agent-loop` (Haiku confidence >0.8 across two consecutive cycles)
+- Re-alert on same anomaly across `overseer_max_cycles_before_re_alert`
+  (default: 3) cycles, priority bumped one level
 
-Peripheral allowed actions: send a low-stakes peer STATUS message for
-clarification, resolve its own health alerts, hand off to a mediator.
-Nothing else — and explicitly **not** phase advancement, consensus
-mutation, decision creation, or container spawn.
+Allowed peripheral actions (`overseer.md:130-140`): low-stakes peer
+STATUS message for clarification; resolve own health alerts; hand off
+to mediator. Forbidden: phase advancement, decision creation,
+consensus mutation, container spawn, **issue filing**.
 
-### Host-side logic that would migrate
+### Host-side `/sdlc` logic that thread-3 would migrate
 
-`skills/sdlc/SKILL.md` today owns (sections cited inline):
+`skills/sdlc/SKILL.md` (cited inline by section/line):
 
-- **Phase-based stall detection** (3 min) — `SKILL.md:489-494`
-- **Silent-agent detection** (10 min in `running_agents`, zero
-  messages) — `SKILL.md:496-508`
-- **NACK escalation** (3 min unresolved) — `SKILL.md:531-553`
-- **Post-nudge escalation** (3 min after a nudge) — `SKILL.md:555-566`
-- **Long-running phase detection** (60 min, implement phase) —
-  `SKILL.md:572-596`
-- **Stuck pipeline rescue** (open draft PR, cancel, retry) —
-  `SKILL.md:598-639`
-- **Check-agent-logs** and **nudge-agent** side flows on user choice —
-  multiple spots including `SKILL.md:527-552` and the Phase S5
-  short-flow copies at `SKILL.md:1359-1383`
-  (stall detection + NACK handling).
-- State tracking for `{role: {phase, phase_entered_at, nudged_at,
-  first_seen_at, has_any_messages}}` — `SKILL.md:568-570`.
+- **Per-role phase-stall detection**: 3 min (`SKILL.md:489-494`)
+- **Silent-agent detection**: 10 min in `running_agents` with zero
+  messages (`SKILL.md:496-508`)
+- **NACK escalation**: 3 min unresolved (`SKILL.md:531-553`)
+- **Post-nudge escalation**: 3 min after a nudge
+  (`SKILL.md:555-566`)
+- **Long-running phase detection**: 60 min implement-phase
+  (`SKILL.md:572-596`)
+- **Stuck pipeline rescue**: open draft PR / cancel / retry
+  (`SKILL.md:598-639`)
+- **AskUserQuestion side flows** ("Check agent logs" / "Nudge agent" /
+  "Restart pipeline") — multiple call sites
+- **In-memory state map**:
+  `{role: {phase, phase_entered_at, nudged_at, first_seen_at, has_any_messages}}`
+  (`SKILL.md:568-570`)
+- Phase-5 short-flow copies (`SKILL.md:1359-1383`) duplicate stall +
+  NACK detection
 
-After #1971 (merged — `wait_for_status_change`), the host can wake
-event-driven on `OVERSEER_ALERT` / `PHASE_STARTED` /
-`PHASE_COMPLETED` / `DECISION_CREATED` / `PIPELINE_*` / `CONSENSUS_*`.
-The plumbing required for the "host is a pure reporter" end state is
-therefore in place.
+After **#1932 closed** (server-side event plumbing via #1919) and
+**#1971 merged** (host-side `wait_for_status_change` MCP tool), the
+host can already wake event-driven on `OVERSEER_ALERT` /
+`PHASE_STARTED` / `PHASE_COMPLETED` / `DECISION_CREATED` /
+`PIPELINE_*` / `CONSENSUS_*`. The plumbing required for "host is a
+pure reporter" is therefore in place — what remains is *moving the
+detection logic*.
 
-### Existing related infrastructure that partially overlaps
+### Existing related infrastructure that overlaps
 
-- **Tier-1 deterministic tripwires** already run inside the
-  orchestrator (`orchestrator/health_monitor.py`) — heartbeat
-  timeouts, container exits, repeated errors, progress stalls. Their
-  output becomes health-alerts that the overseer classifier picks up.
-- **Tier-2 classifier/decision-maker** definitions exist in
-  `orchestrator/overseer/{classifier,decision_maker}.py` — Haiku
-  classify, Sonnet decide — but live inside the unused orchestrator
-  overseer class. Some of this logic would need to move into the
-  agent-side overseer (prompted) or be called by it.
+- **Tier-1 deterministic tripwires** in
+  `orchestrator/health_monitor.py` (heartbeat timeouts, container
+  exits, repeated errors, progress stalls). Their output becomes
+  health alerts the agent-side overseer reads through
+  `query_health_alerts`. The recent #2012 fix gated
+  `agent-heartbeat-stall` on a corresponding Tier-1 alert — the
+  pattern of *"only escalate when Tier-1 has already tripped"* is
+  load-bearing for the auto-issue policy too.
+- **Tier-2 classifier / decision-maker** exists in
+  `orchestrator/overseer/{classifier,decision_maker}.py` but lives
+  inside the dead `OverseerMonitor` class. Some of this prompt logic
+  is candidate for migration into agent-side prompts.
 - **`egg-orch overseer alert`** — the dedicated CLI for
-  `OVERSEER_ALERT` emission. No corresponding
-  `egg-orch overseer file-issue` today.
-- **GitHub label inventory** — `agent:overseer` exists;
-  `egg:diagnostic`, `pipeline-health`, `overseer-alert`,
-  `overseer-opened` do not.
+  `OVERSEER_ALERT` emission (`sandbox/bin/egg-orch:2629+`). No
+  corresponding `egg-orch overseer file-issue` today.
+- **`OVERSEER_PATTERNS`** in `shared/egg_restrictions/patterns.py:522-545`
+  — file-boundary policy: only `.egg-state/oversight/` and
+  `.egg-state/agent-outputs/` writeable.
 
-### Interaction with other open issues
+### Existing config knobs (`orchestrator/models.py:343-389`)
 
-Several in-flight issues touch this area and should inform scope:
+```
+overseer_enabled: bool = True
+overseer_poll_interval_seconds: int = 30
+overseer_max_redirects_before_escalation: int = 2
+overseer_decision_maker_model: str = "sonnet"   # ← advisor model lever
+overseer_max_turns: int                         # SDK turn cap
+overseer_max_respawns: int
+overseer_rerun_min_work_seconds: int = 60
+overseer_hitl_propagation_timeout_seconds: int = 300
+```
 
-- **#1932** — "Event-driven wake for SDLC skill's monitor loop
-  (host-side)". **Closed** (the issue the refine-phase notes cite as
-  *"based on events sent to it (after #1932)"*). The server-side
-  plumbing shipped via #1919 and the host-side plumbing via #1971 —
-  both prerequisites for a host-is-a-pure-reporter end state are
-  therefore in place.
-- **#1971** — event-driven host wait (`wait_for_status_change` MCP
-  tool). **Merged.** Dependency cleared.
-- **#1806** (p2) — "Investigate overlap between overseer agent and
-  proposed `deployment-diagnose` / `agent-diagnose` skills". Directly
-  relevant to auto-issue filing policy (what qualifies as an
-  "anomaly worth an issue" vs. a "skill invocation").
-- **#1786** (p2) — "Per-role PATH restriction for sandbox agents".
-  Whatever new CLI/MCP verb the overseer uses to file issues must fit
-  the role-restriction model.
-- **#1902** (p3) — "Overseer file-boundary policy". Today
-  `OVERSEER_PATTERNS` in `shared/egg_restrictions/patterns.py` is
-  oversight-only. Any code change that has the overseer spawning
-  sub-agents or writing to new artifact paths interacts with this.
-- **#1722** (p1) — "Overseer misdiagnoses deadlock after phase
-  restart due to stale AGENT_FAILED messages". A false-positive case
-  that is directly relevant to tightening *"when appropriate"*.
-- **#1727** (p3) — "Overseer exits with code 0 early in fresh
-  pipeline". Another false-positive class.
+Plus the rule-doc-level cost knob: `max_llm_cost_per_hour` ($5.00
+default per `overseer.md:214`).
+
+### Anthropic advisor tool — capability check
+
+The advisor strategy launched 2026-04-09 as a beta API feature:
+
+- Beta header: `anthropic-beta: advisor-tool-2026-03-01`
+- Tool type: `advisor_20260301`
+- Executor: Haiku 4.5 or Sonnet 4.6; advisor: Opus 4.6
+- `max_uses` parameter caps consultations per request
+- Anthropic publishes BrowseComp results: Haiku + Opus advisor scored
+  41.2% vs. Haiku-solo 19.7%, at 85% lower per-task cost than Sonnet
+  solo
+
+Sandbox agents call models via `egg_agent.client.run_agent_async`
+(`shared/egg_agent/client.py:65-203`), which delegates to
+`claude-agent-sdk`'s `query()`. **It is unverified whether the
+currently-vendored `claude-agent-sdk` exposes the
+`advisor_20260301` tool type or the `max_uses` parameter.** This
+matters for option selection in the recommended approach below — see
+**Option A** vs. **Option B** below.
+
+### Interaction with other in-flight issues
+
+- **#1932** — closed; event-driven host wait shipped via #1919.
+- **#1971** — merged; `wait_for_status_change` MCP tool lives.
+- **#1806** (p2) — overseer vs. `deployment-diagnose` /
+  `agent-diagnose` skills overlap. Auto-issue policy here will
+  influence its scope.
+- **#1786** (p2) — per-role PATH restriction. Any new
+  `egg-orch overseer file-issue` verb (or MCP tool) needs gateway
+  policy aligned with this.
+- **#1902** (p3) — overseer file-boundary policy. If dedup state is
+  persisted to `.egg-state/oversight/`, `OVERSEER_PATTERNS` already
+  allows it; if a new prefix is needed, expand the allowlist.
+- **#1722** (p1) — overseer misdiagnoses deadlock after phase
+  restart due to stale `AGENT_FAILED`. False-positive case directly
+  relevant to escalation tuning.
+- **#1727** (p3) — overseer exits with code 0 early in fresh
+  pipeline. Another false-positive class.
+- **#2000** — overseer-launched investigator sub-agents (deferred,
+  blocked on this issue).
+- **#2012** — recent fix that gated `agent-heartbeat-stall` on
+  Tier-1 signal. The "gate the heavy decision on a deterministic
+  signal first" pattern is a precedent for the advisor gate here.
 
 ## Constraints
 
-- **Scope-of-action constraint.** Per `overseer.md:11-28` and #1786,
-  the overseer cannot perform pipeline-lifecycle mutations. A new
-  "file issue" action sits at the edge of this boundary: it writes to
-  GitHub, not to the pipeline, so it's not strictly
-  pipeline-mutating. But dedup / race conditions between the overseer
-  and a human filing the same issue need a clear policy.
-- **Phase-scoped lifetime.** The overseer is spawned per-phase and
-  torn down at phase completion/advance/failure
-  (`sandbox/agent-config/rules/overseer.md:5`). Any state the overseer
-  needs to persist across phases (e.g., "I already filed issue #X for
-  this anomaly") must live outside the sandbox container.
-- **File-boundary policy.** `OVERSEER_PATTERNS` only allows writes to
-  `.egg-state/oversight/` and `.egg-state/agent-outputs/`
-  (#1902). Any new logs or issue-filing state must fit inside those
-  prefixes.
-- **Gateway & authentication.** The overseer calls `gh` via the
-  gateway, which enforces credential and command policy. Issue
-  creation is already allowed in other roles (refiner creates
-  decisions, coder creates PRs), but the gateway needs an explicit
-  policy for the overseer role if it's going to call `gh issue
-  create`.
-- **Duplicate-issue avoidance.** No existing dedup mechanism. A
-  phase-scoped overseer that re-evaluates the same anomaly each cycle
-  will file multiple issues unless dedup is explicit (e.g., search
-  open issues by `overseer-opened` + anomaly type + pipeline id
-  before filing; or persist filed-issue state in
-  `.egg-state/oversight/filed-issues.json`).
-- **LLM cost budget.** The overseer already has
-  `max_llm_cost_per_hour` (default $5/hr per `overseer.md:183-189`).
-  Any new classification work (e.g., "is this an egg bug or a flake")
-  must fit inside that envelope.
-- **Human-trust constraint.** Auto-filing issues that turn out to be
-  noise creates toil (human has to close/triage). Conservative policy
-  bias is important: when in doubt, alert but don't file.
-- **Inversion of control with `/sdlc`.** Migrating stall/NACK/log
-  logic into the overseer means the *host* stops deciding "check the
-  agent logs" — the overseer has to do it proactively and include its
-  findings in `OVERSEER_ALERT`. This changes the alert payload shape
-  and the host's surfacing logic.
+- **Scope-of-action.** The overseer cannot mutate pipeline lifecycle
+  state (`overseer.md:11-28`). A new "file issue" action sits at the
+  edge of this boundary: it writes to GitHub, not to the pipeline,
+  but dedup / race conditions between the overseer and a human filing
+  the same issue need a clear policy.
+- **Phase-scoped lifetime.** Each phase gets a fresh overseer
+  (`overseer.md:5`); any cross-phase memory ("I already filed issue
+  #X for this anomaly") must live outside the sandbox container.
+  This makes per-pipeline / per-repo dedup search the only viable
+  primary mechanism.
+- **File-boundary policy.** `OVERSEER_PATTERNS`
+  (`shared/egg_restrictions/patterns.py:522-545`) only allows writes
+  to `.egg-state/oversight/` and `.egg-state/agent-outputs/`.
+- **Gateway policy.** The overseer calls `gh` via the gateway
+  (`gateway/`). `gh issue create` is allowed for refiners (decisions)
+  and coders (PRs), but the overseer role currently has no policy for
+  it. The gateway needs an explicit allow rule + label injection +
+  rate limit before this ships.
+- **Cost budget.** `max_llm_cost_per_hour=$5.00` default
+  (`overseer.md:214`). Adding an advisor (Opus) call must fit inside
+  this envelope, with explicit `max_uses` per phase / per pipeline.
+- **Human-trust.** Auto-filing noise creates triage toil. Bias must
+  be conservative: when in doubt, alert but don't file.
+- **Inversion of control with `/sdlc`.** Migrating
+  stall/NACK/log/long-run logic into the overseer means the host
+  stops *deciding* "check the agent logs" — the overseer must do it
+  proactively and put the findings in `OVERSEER_ALERT --detail`.
+  This changes alert payload shape and `/sdlc`'s surfacing logic.
+- **Carry-over preferences (locked).** See the table in
+  *Pre-refine framing* — scope, labels, dedup window, sub-agent
+  scope, related-bugs scope, advisor-gated policy are all already
+  resolved.
+- **SDK capability uncertainty.** Whether the vendored
+  `claude-agent-sdk` exposes the `advisor_20260301` tool natively is
+  unverified. If it doesn't, the executor → advisor handoff has to be
+  implemented as two separate `run_agent_async` calls (Haiku
+  classify, then Sonnet/Opus decide on Haiku's flag) rather than via
+  the native advisor tool. This is a plan-phase implementation
+  detail but it changes effort sizing.
+- **Recent calibration.** PR #2011 (Fix #2010) just calibrated the
+  overseer prompt for refine-phase false positives, and PR #2016
+  (Fix #2012) gated `agent-heartbeat-stall` on Tier-1 signal. The
+  changes here must layer on top of those, not regress them.
 
 ## Options Considered
 
-The scope-split question is the biggest fork, so each option below
-packages a different answer to it. All options assume #1971 has
-landed (which it has).
+The advisor framing is the starting point. The fork is *how to
+implement the executor → advisor handoff* and *how aggressively to
+ship the host migration*.
 
-### Option A: One pipeline covering all three threads (escalation tuning + auto-issue filing + host migration)
+### Option A: Native advisor tool (if SDK supports it)
 
-**Approach**: Treat the issue as a single, tightly-scoped overseer
-refactor. In one pipeline:
-
-1. Wire the existing `file_diagnostic_issue` plumbing into the
-   *agent-side* overseer via a new `egg-orch overseer file-issue` CLI
-   verb and corresponding MCP tool.
-2. Update `overseer.md` rules: replace *"you do not file issues
-   yourself"* with an `overseer_may_file_issue` policy (criteria to
-   be chosen by the human — see Open Questions).
-3. Add dedup: search existing open issues by anomaly-type label
-   before filing; persist a filed-issues cache in
-   `.egg-state/oversight/`.
-4. Create labels `egg:diagnostic`, `overseer-opened`,
-   `pipeline-health` (or whichever naming wins — see Open Questions).
-5. Move host-side logic from `/sdlc` into the overseer:
-   - Stall detection → move the per-role phase timing, silent-agent
-     tracking, NACK-age tracking from `SKILL.md:489-570` into
-     equivalent overseer checks.
-   - Nudge-agent → overseer sends peer STATUS messages instead of the
-     host doing it.
-   - Log-check → overseer fetches `get_container_logs` proactively
-     when classifying, and attaches findings to `--detail`.
-   - Long-running phase detection + stuck pipeline rescue → surface
-     via `OVERSEER_ALERT` with clear `--recommend` guidance so the
-     host's only job is to surface the alert and offer the choice.
-6. Update `/sdlc` skill: delete the moved detection logic, keep only
-   alert-surfacing, HITL handling, and Phase-5 failure rescue.
+**Approach**: Use the Anthropic beta `advisor_20260301` tool inside
+a single `run_agent_async` call. Haiku 4.5 drives the cycle; the
+advisor (Opus 4.6) is invoked by the executor when it needs deeper
+reasoning. Set `max_uses` to bound the budget. Auto-issue filing is
+gated on the advisor's verdict via a tool-call result the executor
+acts on.
 
 **Pros**:
-- Single coherent story — lands escalation, auto-issue, and host
-  migration together.
-- Keeps documentation and rollout consistent.
-- Auto-issue policy gets validated by the same pipeline that migrates
-  the stall logic, reducing risk of mismatched behavior.
+- Single API request — Anthropic handles context routing; no extra
+  round trips.
+- Shared context: advisor sees everything the executor sees, no
+  manual prompt construction.
+- Anthropic-published cost data: Haiku + Opus-advisor is 85% cheaper
+  per task than Sonnet solo on BrowseComp.
+- Idiomatic per Anthropic's launch guidance.
 
 **Cons**:
-- Large surface area. Likely touches `sandbox/agent-config/rules/
-  overseer.md`, `sandbox/overseer_monitor.py`, the orchestrator-side
-  overseer Python files, `sandbox/bin/egg-orch`, `skills/sdlc/SKILL.md`,
-  `shared/egg_restrictions/patterns.py`, gateway policy, label
-  creation, docs.
-- Harder to review safely in BRC — a single implement phase would
-  have cross-cutting concerns that a reviewer must hold in head at
-  once.
-- Longer time-to-first-value: users don't see the auto-issue benefit
-  until the host migration is also done.
+- Requires the vendored `claude-agent-sdk` to support
+  `advisor_20260301` and `max_uses`. **Unverified** — needs a
+  capability spike in plan phase.
+- Beta API; behavior may shift.
+- Couples the overseer to a specific Anthropic-hosted feature; if
+  Anthropic deprecates, we're back to manual two-call orchestration.
+- Less fine-grained control over *when* the advisor is invoked
+  (executor decides) — the gate must be in the executor's prompt,
+  not in our Python.
 
-### Option B: Split into two pipelines — (escalation tuning + auto-issue) now, host migration later
+### Option B: Two-call advisor pattern (always works)
 
-**Approach**: First pipeline lands:
-
-1. Escalation-trigger tightening (see Open Questions for policy).
-2. Auto-issue filing: wire `file_diagnostic_issue` into the
-   agent-side overseer, add CLI verb, add dedup, flip `overseer.md`
-   policy, create labels.
-3. Do **not** migrate stall/NACK/log/long-run logic from the host.
-
-Follow-up pipeline (separate issue) migrates `/sdlc` host logic into
-the overseer.
+**Approach**: Keep the existing structure where the overseer rule
+doc tells the agent to "call Haiku to classify, then call Sonnet to
+decide". For auto-issue filing, the Sonnet decision call is the
+advisor: it answers *"is this anomaly worth a GitHub issue right
+now?"*. The model knob already exists
+(`overseer_decision_maker_model`); add `overseer_advisor_model`
+(default Opus 4.6) and `overseer_advisor_max_uses_per_phase` (e.g.,
+default 3) for the issue-filing gate. The two calls are separate
+`run_agent_async` invocations; we control the prompt contract
+explicitly.
 
 **Pros**:
-- Smaller, easier-to-review diff for each pipeline.
-- Auto-issue benefit ships faster.
-- Each pipeline has a single clear story: "teach overseer to file
-  issues" vs. "move host babysitting into overseer".
-- Each pipeline's reviewer set can be scoped tighter.
+- Zero new SDK dependency — works with what we have today.
+- Fully explicit prompt contract: we choose what Haiku hands to
+  Opus (raw cycle output, classification only, or a distilled
+  summary).
+- Easy to budget: `max_uses` is enforced in our Python, not in
+  Anthropic's API.
+- Easy to feature-flag and shadow-test.
 
 **Cons**:
-- The host keeps its current behavior a while longer — the original
-  end-state ("host does nothing other than report") isn't reached
-  until the follow-up lands.
-- Risk that the follow-up gets deprioritized, leaving the two-layer
-  architecture permanently.
+- Two sequential network round-trips per advisor invocation.
+- Context duplication: the advisor prompt has to be constructed
+  manually — risk of token waste vs. the native tool's shared-context
+  routing.
+- We re-implement what the advisor tool offers natively.
 
-### Option C: Three separate pipelines — one thread per pipeline
+### Option C: Hybrid — try Option A, fall back to Option B
 
-**Approach**:
-
-1. Pipeline 1: escalation tuning only (tighten triggers, fix
-   #1722-style false positives, improve rule doc guidance).
-2. Pipeline 2: auto-issue filing.
-3. Pipeline 3: host → overseer migration.
+**Approach**: Plan-phase capability spike on the SDK. If
+`advisor_20260301` is supported, ship Option A; otherwise ship
+Option B. The advisor gate (Haiku flag → heavy decision) is the same
+contract either way; only the implementation differs.
 
 **Pros**:
-- Smallest review surface per PR.
-- Each thread can have distinct success criteria and reviewer sets.
-- Escalation tuning and auto-issue can release independently.
+- De-risks the SDK uncertainty without locking the design.
+- Same observable behavior either way; the choice is a wiring
+  detail.
 
 **Cons**:
-- Coordination cost across three pipelines. Decisions made in
-  pipeline 1 (what does "same anomaly" dedup look like) directly
-  affect pipeline 2 (what does "file issue" dedup look like) — so
-  they'll either repeat work or wait on each other.
-- Three sets of contracts / reviews / plan docs to maintain.
-- Minor overlap: the agent-side overseer prompt is touched by all
-  three, leading to rebase friction.
+- Plan phase has a larger spike to absorb.
+- Maintenance: we'd need to keep both code paths working if the SDK
+  acquires support mid-flight or loses it.
 
-### Option D: Narrow this pipeline to just auto-issue filing; handle the other threads as follow-ups
+### Option D: Don't use the advisor framing — flip
+`overseer_decision_maker_model` to Opus globally
 
-**Approach**: This pipeline delivers only:
-
-1. A new `egg-orch overseer file-issue` verb + policy in rules.
-2. Dedup logic.
-3. Label creation.
-4. The minimum rule-doc change: replace the forbidding language with
-   "file issues when <policy criteria>, dedup before filing".
-
-Escalation tuning and host migration become separate issues/pipelines.
+**Approach**: Skip the gate entirely. Make every Sonnet-tier call an
+Opus call by default.
 
 **Pros**:
-- Smallest scope; fastest ship.
-- Clear, testable contract: overseer can file issues; it files them
-  when the policy says to; it dedups.
+- Trivial to implement (one config default change).
+- No new architecture.
 
 **Cons**:
-- Doesn't address thread 1 ("overseer doesn't always escalate") —
-  that problem is what the human pointed at *first* in the issue.
-- Doesn't address the "host does nothing but report" end state.
-- The issue as written asks for three things; picking only one feels
-  like half an answer.
+- Runs Opus on every cycle (cost regression — pre-refine notes
+  flagged this is the framing the advisor strategy was meant to
+  *avoid*).
+- Doesn't address the "when to file an issue" question — that gate
+  is what the advisor framing exists to provide.
+- Doesn't match the explicit pre-refine recommendation.
 
 ## Recommended Approach
 
-**Recommendation: Option B — escalation tuning + auto-issue filing in
-this pipeline, host migration as a follow-up.**
+**Recommendation: Option C (hybrid) — capability-spike the SDK in
+the plan phase, then ship Option A (native advisor tool) if
+supported, otherwise ship Option B (two-call pattern).** The
+*observable* contract is identical:
 
-Rationale:
+- Haiku 4.5 (already deployed) classifies every cycle with
+  `max_turns=1`.
+- On Haiku flag, invoke Opus 4.6 advisor with the classification
+  result + a compact context bundle. Bound by `max_uses` per phase.
+- Advisor returns one of: *"alert at priority X with body Y"*,
+  *"file GitHub issue with template Z"*, or *"keep watching, here's
+  why"*.
+- Auto-issue filing is gated on a `decision: "file"` verdict from
+  the advisor.
+- Dedup: before filing, search open issues with `agent:overseer` +
+  matching anomaly-type signature; skip if a live match exists.
+- Labels: only `agent:overseer` + matching `p0`/`p1`/`p2`/`p3`.
+- Issue body: extend the existing `## Pipeline Diagnostic:` template
+  at `orchestrator/overseer/issue_filer.py:86-107` with explicit
+  links (pipeline ID, phase, branch, commit SHA, parent
+  `OVERSEER_ALERT` message ID) — the dead-code template is the
+  closest existing artifact and should be revived rather than
+  redesigned.
+- Host migration (thread 3): in scope per pre-refine notes —
+  migrate stall / silent-agent / NACK / long-running-phase / stuck-
+  pipeline-rescue / AskUserQuestion-side-flow / state-map logic out
+  of `skills/sdlc/SKILL.md` into the overseer. `/sdlc` keeps:
+  surfacing alerts, HITL handling, Phase-5 final-handoff rescue
+  prompts.
 
-- Threads 1 and 2 (escalation tuning + auto-issue) share the same
-  decision-maker: *when is an anomaly worth surfacing, and at what
-  level?* Both need clear policy on "severe/persistent enough" and on
-  dedup. Doing them together means one consistent policy is
-  articulated once, rather than tuning triggers and then re-visiting
-  them when auto-issue lands.
-- Thread 3 (host migration) is structurally different. It's a
-  refactor-style change: move existing logic across a process
-  boundary with minimal behavior change. It can be validated
-  independently by running existing `/sdlc` regression flows and
-  comparing behavior before/after. It also has a different risk
-  profile — bugs in the host migration produce *fewer* alerts
-  (silent failure); bugs in auto-issue produce *more* issues (noisy
-  failure). Different mitigations are appropriate, which is easier in
-  a dedicated pipeline.
-- The infrastructure for auto-issue filing already exists in dead
-  code (`orchestrator/overseer/issue_filer.py`). Rewiring it is
-  cheaper than rebuilding. This is a strong argument for doing
-  threads 1+2 now while the wiring is still visible.
-- `/sdlc` already works. Deferring the migration is a safe
-  incremental posture — we don't regress a working host flow while we
-  untangle the overseer's alert and issue policy.
-- The speculative sub-agent-launching capability can be a separate
-  follow-up issue (it's explicitly optional in the ticket).
+Rationale for the hybrid:
 
-The plan and implement phases of *this* pipeline would be sized
-around (a) policy + rule-doc changes, (b) CLI/MCP verb, (c) dedup
-implementation, (d) label creation, (e) tightening existing escalation
-triggers based on #1722-style false positives and the Open Questions
-below. A follow-up issue would carry the `/sdlc` migration.
+- The SDK uncertainty is the only remaining technical risk. A spike
+  in plan phase is cheap and decisively de-risks the choice.
+- Option A is structurally cleaner if available — Anthropic's own
+  cost data (Haiku + Opus advisor) is the strongest argument that
+  this is the right shape for *"classify cheap, decide expensive
+  only on demand"*.
+- Option B is a known-good fallback. We already have the two-tier
+  prompt structure deployed; Option B is incremental.
+- Option D was explicitly considered and rejected by the pre-refine
+  notes for cost reasons.
+
+For the plan / implement phases (sized for sequencing only — not
+prescribed here):
+
+- **Plan phase deliverables:** SDK capability check; advisor budget
+  knobs; `egg-orch overseer file-issue` (or MCP tool) surface;
+  dedup spec; gateway policy spec; rule-doc rewrite outline; host-
+  migration sequencing (single PR vs. layered); regression-test
+  plan.
+- **Implement phase deliverables:** wire the chosen advisor pattern;
+  rule-doc edits to `overseer.md` (lift the issue-filing prohibition,
+  add advisor + dedup rules); wire `file_diagnostic_issue` (or its
+  CLI/MCP equivalent) into the agent-side path; gateway allow-rule;
+  GitHub label work (none — pre-refine resolved); host migration in
+  `skills/sdlc/SKILL.md`; tests across `orchestrator/tests/`,
+  `gateway/tests/`, `integration_tests/`, `sandbox/tests/`.
 
 ## Open Questions
 
-Every question below is registered on the SDLC contract (verified
-via `mcp__sdlc__show_contract`): 16 `hitl` choice decisions
-(`decision-1` … `decision-16`) plus one open-ended feedback bundle
-`feedback-1` with seven questions (`Q1` … `Q7`). Each decision is
-reproduced inline with its registered options; the checkbox syntax
-matches the contract-gateway's markdown format. The "(Recommended)"
-suffix on an option reflects the refiner's preference surfaced in
-the **Recommended Approach** section above.
-
-**Note on refine vs. plan scope:** reviewer_refine's feedback
-correctly flags that several decisions (notably decision-12,
-decision-13, decision-14, decision-16, and feedback-1 Q5 / Q6 / Q7)
-are planning-phase concerns. They are registered here so the contract
-carries the full question set into plan; the human may leave them
-unanswered at the refine gate and the planner will re-surface them
-once scope (decision-1) is known.
-
-### Scope & pipeline structure
-
-<!-- egg-hitl-decision id=decision-1 -->
-
-**Scope split: how should the three threads in this issue
-(escalation tuning, auto-issue filing, host→overseer migration) be
-packaged?**
-
-- [ ] Option B (recommended) — one pipeline for escalation tuning + auto-issue filing; host migration as a follow-up issue
-- [ ] Option A — single pipeline covering all three threads
-- [ ] Option C — three separate pipelines, one per thread
-- [ ] Option D — narrow this pipeline to auto-issue filing only; both other threads become follow-ups
-- [ ] Other (explain in reply)
-
----
-
-<!-- egg-hitl-decision id=decision-2 -->
-
-**Sub-agent launching by the overseer (the speculative capability in
-the issue body): in scope for this pipeline or deferred?**
-
-- [ ] Deferred — file a follow-up issue, out of scope here (Recommended — the issue body marks it as speculative)
-- [ ] In scope — design a sub-agent-launch capability in this pipeline
-- [ ] Other (explain in reply)
-
----
-
-<!-- egg-hitl-decision id=decision-3 -->
-
-**Should this pipeline also address related overseer bugs (#1722 stale
-AGENT_FAILED misdiagnosis, #1727 early-exit respawn), or leave them to
-their own pipelines?**
-
-- [ ] Leave them in their own pipelines — link as context only
-- [ ] Absorb #1722 into this pipeline (it is a p1 false-positive case)
-- [ ] Absorb both #1722 and #1727 into this pipeline
-- [ ] Absorb only #1727
-- [ ] Other (explain in reply)
-
-### Auto-issue filing policy
-
-<!-- egg-hitl-decision id=decision-4 -->
-
-**Auto-issue filing policy: what qualifies for the overseer to
-auto-file a GitHub issue?**
-
-Design note: the "Sonnet-gated" option means the overseer agent
-applies Sonnet-tier reasoning *in its existing polling loop* to
-decide whether to file — not a separate orchestrator-side classifier
-service. Implementing it as a separate service would re-introduce
-the non-agent decision pipeline this pipeline is trying to simplify
-(see decision-9 opt-4 caveat).
-
-- [ ] Persistent / systemic only — same anomaly across N cycles AND clear orchestrator/agent-code bug signals
-- [ ] All priority=high OVERSEER_ALERTs with dedup on anomaly type within pipeline
-- [ ] Sonnet-gated per-anomaly rubric — LLM decides case-by-case (in-loop; see design note above)
-- [ ] Hybrid — systemic criteria as the floor, Sonnet gate above it
-- [ ] Other (explain in reply)
-
----
-
-<!-- egg-hitl-decision id=decision-5 -->
-
-**Auto-issue dedup scope: when the overseer considers filing, what
-window should it search to avoid duplicates?**
-
-- [ ] Per pipeline — dedup only against this pipeline's prior filings
-- [ ] Per repo — search all open overseer-filed issues across the repo by anomaly label
-- [ ] Global — search across all open issues, including human-filed ones, by label + title fuzzy match
-- [ ] No dedup — file every time; accept some duplication risk
-- [ ] Other (explain in reply)
-
----
-
-<!-- egg-hitl-decision id=decision-6 -->
-
-**Dedup state storage: where does the overseer remember issues it has
-already filed?**
-
-- [ ] In-process only — each phase's overseer starts fresh; rely on GitHub search each time
-- [ ] Persisted to `.egg-state/oversight/filed-issues.json` so respawns/new phases remember
-- [ ] Persisted via orchestrator REST endpoint (central store); overseer asks "have I filed this?" before filing
-- [ ] Hybrid — persist locally AND verify via GitHub search before filing
-- [ ] Other (explain in reply)
-
----
-
-<!-- egg-hitl-decision id=decision-7 -->
-
-**Label convention for overseer-filed issues: which label set should
-we standardize on?**
-
-- [ ] Use existing dead-code convention: `egg:diagnostic` + `pipeline-health` + anomaly-type label
-- [ ] Use docs convention: `overseer-alert` + category label (e.g., `stall`, `repeated-error`)
-- [ ] Use pre-refine-notes convention: `overseer-opened` + anomaly-type label + pipeline-id link in body
-- [ ] New naming — propose in 'Other' (explain in reply)
-- [ ] Other (explain in reply)
-
----
-
-<!-- egg-hitl-decision id=decision-8 -->
-
-**Issue body template: keep the existing `## Pipeline Diagnostic: …`
-template at `orchestrator/overseer/issue_filer.py:86-107`, or
-redesign?**
-
-- [ ] Keep existing template (pipeline + phase + agent + timeline + classification + actions + logs + remediation)
-- [ ] Extend the existing template with explicit links (pipeline ID, phase, branch, commit SHA, parent-alert message ID) (Recommended — minimal change that improves triage)
-- [ ] Redesign — draft a new template in the plan phase
-- [ ] Other (explain in reply)
-
----
-
-<!-- egg-hitl-decision id=decision-9 -->
-
-**Who actually runs `gh issue create` for an overseer-filed issue?**
-
-Design note: option 4 ("reuse the dead-code `file_diagnostic_issue`
-path by instantiating `OverseerMonitor` in production") is **not
-recommended** — it would re-introduce an orchestrator-side
-classifier + decision_maker pipeline that duplicates judgment the
-LLM overseer already makes, reversing the agent-mode direction of
-the current architecture. Kept as an option for completeness, but
-the hybrid (opt-3) is the agent-mode-friendly middle ground.
-
-- [ ] Agent-side overseer runs it in its sandbox via a new `egg-orch overseer file-issue` CLI verb (Recommended if going live directly; simplest surface)
-- [ ] Orchestrator-side — new REST endpoint; server runs `gh` with its own credentials; overseer POSTs payload
-- [ ] Hybrid — overseer composes body, orchestrator files it; orchestrator enforces central rate-limit / dedup policy (Recommended if going the feature-flag route — central policy enforcement is easier here)
-- [ ] Reuse the existing dead-code `file_diagnostic_issue` path by instantiating OverseerMonitor in production — **not recommended** (see design note above)
-- [ ] Other (explain in reply)
-
----
-
-<!-- egg-hitl-decision id=decision-10 -->
-
-**Rollout mode for auto-issue filing: should it start in shadow mode
-or go live directly?**
-
-- [ ] Shadow mode first — overseer composes issue body but raises a HITL decision "should I file this?"; human approves; flip to live after a trial period
-- [ ] Live directly — ship with dedup + per-pipeline cap; iterate on policy via actual issues filed
-- [ ] Feature flag — ship live but gated by config `overseer_auto_file_issues` (default off) for a release (Recommended — easy revert path while validating policy)
-- [ ] Other (explain in reply)
-
----
-
-<!-- egg-hitl-decision id=decision-15 -->
-
-**Coordination with #1902 (overseer file-boundary policy): should
-this pipeline expand `OVERSEER_PATTERNS` to allow writes under
-`.egg-state/oversight/` for filed-issue dedup state?**
-
-- [ ] Yes — expand OVERSEER_PATTERNS allowlist to include the chosen dedup state file
-- [ ] No — use an orchestrator-side store instead; overseer never writes dedup state locally
-- [ ] Defer — decide during plan phase based on the chosen dedup-storage option (decision-6) (Recommended — this decision is downstream of decision-6)
-- [ ] Other (explain in reply)
-
-(Also relevant to the "Interaction with existing issues" theme — this
-is the sole instance of decision-15.)
-
-### Escalation tuning (thread 1)
-
-Open-ended questions (no discrete options) are bundled in
-`feedback-1 Q1 … Q7`. The full text of each question is in the
-feedback comment created on the issue; refiner-paraphrased headlines
-for this theme:
-
-- `feedback-1 Q1` — which specific escalation triggers need
-  tightening (false-positive / false-negative patterns — e.g., #1722
-  stale `AGENT_FAILED`, legitimate long test runs mis-classified as
-  stalls, 401 patterns that should / shouldn't escalate).
-- `feedback-1 Q2` — baseline threshold review (~60 s
-  stuck-transition, 0.8 loop-detection confidence, 3 cycles before
-  re-alert).
-
-### Host → overseer migration (thread 3)
-
-<!-- egg-hitl-decision id=decision-11 -->
-
-**If thread 3 is in scope (decision-1 ≠ Option B and ≠ Option D),
-should the migration be full or partial?**
-
-Dependency: this decision is only meaningful if `decision-1`
-resolves to Option A or Option C. If `decision-1` = Option B
-(recommended) or Option D, treat this as automatically answered
-"Yes — defer" and proceed.
-
-- [ ] Yes — file a follow-up issue; keep this pipeline scoped to escalation tuning + auto-issue filing (Recommended — consistent with Option B on decision-1)
-- [ ] No — migrate host logic in this pipeline
-- [ ] Partial — migrate only stall/NACK detection; leave long-running-phase + stuck-pipeline-rescue with /sdlc
-- [ ] Other (explain in reply)
-
----
-
-<!-- egg-hitl-decision id=decision-12 -->
-
-**/sdlc wall-clock thresholds (3 min stall, 10 min silent agent, 60
-min long-running phase): when / if they migrate to the overseer,
-should the thresholds change?** *(Plan-phase candidate — may be left
-unanswered at the refine gate.)*
-
-- [ ] Keep identical — same numeric thresholds, just moved across the process boundary
-- [ ] Make configurable per-pipeline via PipelineConfig (default to current values) (Recommended — matches the existing `overseer_*` config pattern in `orchestrator/models.py:343-379`)
-- [ ] Revise numbers as part of migration — human to specify in plan phase
-- [ ] Defer until the migration pipeline
-- [ ] Other (explain in reply)
-
----
-
-<!-- egg-hitl-decision id=decision-16 -->
-
-**If host→overseer migration is in scope (decision-11 = No or
-Partial), where does the cross-cycle agent-timing state live
-(currently /sdlc's in-memory map of `{role: {phase,
-phase_entered_at, nudged_at, first_seen_at, has_any_messages}}`)?**
-*(Plan-phase candidate — only relevant if thread 3 is in scope.)*
-
-- [ ] In the overseer only — phase-scoped, lost on phase transition / overseer respawn
-- [ ] In the orchestrator's health_monitor — persistent across phases / respawns
-- [ ] In `.egg-state/oversight/agent-timing.json` — persistent, phase-scoped, overseer-owned
-- [ ] N/A — thread 3 deferred per decision-11
-- [ ] Other (explain in reply)
-
-Also see open-ended `feedback-1 Q5` — what must stay in `/sdlc` if
-thread 3 is in scope (e.g., which `AskUserQuestion` options).
-
-### Interaction with existing issues
-
-<!-- egg-hitl-decision id=decision-13 -->
-
-**Coordination with #1806 (overseer vs. `deployment-diagnose` /
-`agent-diagnose` skills overlap)?** *(Plan-phase candidate — the
-auto-issue policy chosen here will influence this.)*
-
-- [ ] Proceed independently — let #1806 adapt to whatever auto-issue policy lands here (Recommended — decouple scope)
-- [ ] Coordinate — resolve the overlap question in #1806 first (or as a blocking decision) before finalizing auto-issue scope
-- [ ] Absorb part of #1806 into this pipeline — pick a consolidation stance now
-- [ ] Other (explain in reply)
-
----
-
-<!-- egg-hitl-decision id=decision-14 -->
-
-**Coordination with #1786 (per-role PATH restriction): should this
-pipeline also bake in overseer PATH restrictions for any new
-`egg-orch overseer file-issue` verb?** *(Plan-phase candidate.)*
-
-- [ ] No — wait for #1786 to ship on its own; use server-side gateway enforcement only
-- [ ] Yes — pre-allocate a role-specific PATH entry as part of this pipeline
-- [ ] Add a gateway allowlist rule now, defer PATH restructuring to #1786 (Recommended — gateway enforcement is belt-and-suspenders against bad prompt changes)
-- [ ] Other (explain in reply)
-
-### Open-ended feedback (`feedback-1`)
-
-Seven open-ended questions are bundled in `feedback-1`. The human
-edits the feedback comment directly; no per-question markers are
-needed inline. Refiner-paraphrased headlines:
-
-- `Q1` — specific escalation-trigger false positives / negatives
-  needing tightening (includes #1722 patterns).
-- `Q2` — baseline threshold review (60 s / 0.8 / 3 cycles).
-- `Q3` — per-pipeline cap on auto-filed issues (e.g., 1 / phase).
-- `Q4` — gateway policy constraints for `gh issue create` from the
-  overseer role (label injection, size limits, rate-limit, allowed
-  repos). *Note: this is partially a code-research question — if
-  the human leaves it blank, the plan phase should answer it from
-  the `gateway/` and `shared/egg_restrictions/patterns.py`
-  inspection.*
-- `Q5` — if thread 3 is in scope, what must stay in `/sdlc` (which
-  `AskUserQuestion` options, etc.).
-- `Q6` — success criteria / observable signals for "overseer
-  escalating well".
-- `Q7` — any additional constraints (GitHub App vs. `gh` CLI,
-  approvers, notification routing).
+**Note on existing contract decisions.** The contract carried over
+16 `decision-N` items and 7 `feedback-1.QN` items from the prior
+refine attempt on this issue. Several are now resolved by the pre-
+refine notes (see *Pre-refine framing* table above). Of the
+carry-overs, these remain genuinely open:
+
+| Existing item | Status under the advisor framing |
+|---|---|
+| `decision-1` (scope split) | **Resolved by pre-refine** — Option A (all three threads). Human can check opt-2. |
+| `decision-2` (sub-agent launching) | **Resolved by pre-refine** — Deferred (opt-1). |
+| `decision-3` (related bugs #1722/#1727) | **Resolved by pre-refine** — Leave in their own pipelines (opt-1). |
+| `decision-4` (auto-issue filing policy) | **Resolved by pre-refine** — Advisor-gated per-anomaly rubric (opt-3). |
+| `decision-5` (dedup scope) | **Resolved by pre-refine** — Per repo (opt-2). |
+| `decision-6` (dedup state storage) | **Open** — still a real choice. |
+| `decision-7` (label convention) | **Resolved by pre-refine** — None of the listed options match; answer is "Other: existing `agent:overseer` + priority labels". A confirming new decision (`decision-17` below) is registered. |
+| `decision-8` (issue body template) | **Open** — recommendation is opt-2 (extend existing). |
+| `decision-9` (who runs `gh issue create`) | **Open** — still a real choice. |
+| `decision-10` (rollout mode) | **Open** — folded into `decision-22` below for clarity, but the existing decision is also valid. |
+| `decision-11` (defer host migration) | **Resolved by pre-refine** — No (host migration is in scope), opt-2. |
+| `decision-12` (`/sdlc` thresholds in migration) | **Open (plan-phase)** |
+| `decision-13` (#1806 coordination) | **Open (plan-phase)** |
+| `decision-14` (#1786 coordination) | **Open (plan-phase)** |
+| `decision-15` (#1902 `OVERSEER_PATTERNS`) | **Open (plan-phase)** |
+| `decision-16` (host-migration timing-state location) | **Open (plan-phase)** |
+| `feedback-1` (Q1–Q7) | **Open** — still useful; Q1/Q2 directly inform the advisor gate. |
+
+The new advisor-strategy items below have been registered as
+`decision-17` … `decision-22` via `mcp__sdlc__register_open_question`.
+
+### New decisions (advisor-strategy framing)
+
+- **`decision-17`** — Confirm the resolved label preference (no new
+  labels; use `agent:overseer` + priority).
+- **`decision-18`** — Advisor trigger calibration: what gates an
+  Opus-tier invocation?
+- **`decision-19`** — Advisor budget: `max_uses` per phase / per
+  pipeline / per day.
+- **`decision-20`** — Prompt contract: what does Haiku hand the
+  advisor?
+- **`decision-21`** — Auto-issue gate placement: does the advisor
+  decide *file Y/N* directly, or emit a recommendation that the
+  existing `OVERSEER_ALERT` carries (and the human gates)?
+- **`decision-22`** — Host-migration sequencing inside this
+  pipeline.
+- **`decision-23`** — Native `advisor_20260301` tool vs. two-call
+  pattern (Option A vs. Option B vs. Option C above).
+
+The full text of each new decision matches the registered options on
+the contract; the human resolves them via the standard checkbox
+markdown.
+
+### Why these are the load-bearing ones
+
+The pre-refine notes flagged six "actually-open questions under the
+advisor framing": *advisor calibration, budget, prompt contract,
+gate placement, rollout, host-migration sequencing.* Those map to
+`decision-18`, `decision-19`, `decision-20`, `decision-21`,
+`decision-10` (existing) + `decision-22`, and `decision-22` /
+`decision-11` (existing, resolved). `decision-23` is added
+because the SDK-capability question shapes implementation
+(Option A vs. B above) and is the one piece of new technical
+uncertainty the advisor framing introduces. `decision-17` is a
+sanity-check: the contract still has `decision-7` with three options
+that are *all* wrong per pre-refine; rather than relying on the
+human to pick "Other", a confirming decision makes the resolved
+preference explicit.
 
 ---
 
@@ -681,50 +526,72 @@ needed inline. Refiner-paraphrased headlines:
 
 **Complexity: high.**
 
-Even under the recommended scope (Option B — escalation tuning +
-auto-issue in this pipeline, host migration deferred), the change is
-cross-cutting:
+Even with the advisor framing reducing architectural ambiguity, the
+in-scope surface (all three threads, per pre-refine) is large:
 
-- Agent-side overseer rules (`sandbox/agent-config/rules/overseer.md`)
-- Agent-side monitor script (`sandbox/overseer_monitor.py`) if new
-  data needs to flow
-- New CLI verb in `sandbox/bin/egg-orch` (or orchestrator route)
+- Agent-side rule rewrite (`sandbox/agent-config/rules/overseer.md`,
+  ~250 lines today; includes lifting the issue-filing prohibition
+  and adding advisor / dedup / migrated-from-host trigger rules)
+- Agent-side monitor script
+  (`sandbox/overseer_monitor.py`, 314 LOC) if new data needs to
+  flow (e.g., proactive `get_container_logs` queries)
+- New CLI verb `egg-orch overseer file-issue` in
+  `sandbox/bin/egg-orch` — or a corresponding MCP tool, depending on
+  decision-9
 - Dead-code revival + wiring of `orchestrator/overseer/issue_filer.py`
-- Possible MCP tool addition
+  (template extension per decision-8)
+- Possible new orchestrator REST endpoint (decision-9 opt-2/opt-3)
 - Gateway policy for `gh issue create` from overseer role
-- File-boundary changes (`shared/egg_restrictions/patterns.py`) for
-  oversight state
-- GitHub label creation
-- Documentation updates across `docs/guides/pipeline-health-monitoring.md`,
-  `docs/reference/agent-roles.md`, `docs/architecture/orchestrator.md`,
-  `sandbox/agent-config/rules/overseer.md`
-- Rule-doc drift gate (merged recently in #1981) will need alignment
+  (`gateway/agent_restrictions.py`, gateway tests)
+- File-boundary tweak in `shared/egg_restrictions/patterns.py` if
+  dedup state lives on disk (decision-15)
+- Config additions in `orchestrator/models.py`
+  (`overseer_advisor_model`, `overseer_advisor_max_uses_per_phase`,
+  possibly `overseer_auto_file_issues` flag for rollout)
+- **Host migration** in `skills/sdlc/SKILL.md` — moving stall /
+  silent-agent / NACK / long-run / rescue logic out of the host;
+  this is the single biggest LOC item
+- Documentation updates across
+  `docs/guides/pipeline-health-monitoring.md`,
+  `docs/reference/agent-roles.md`,
+  `docs/architecture/orchestrator.md`, plus the rule-doc itself
 
-**Tests / regression risk.** Several existing test suites will need
-updating or extension — flagged here so planners size for them:
+**Tests / regression risk** (sized so the planner can plan for them):
 
-- `orchestrator/tests/test_overseer_monitor.py` — exercises the dead-code
-  `OverseerMonitor` + its `_execute_action` `"issue"` branch. If we
-  revive that path (decision-9 opt-4) these tests become load-bearing;
-  if we don't, they may need pruning or marking as reference-only to
-  avoid drift.
+- `orchestrator/tests/test_overseer_monitor.py` — exercises the dead-
+  code `OverseerMonitor`. If decision-9 keeps that path dead, these
+  tests need pruning or marking reference-only to avoid drift.
 - `orchestrator/tests/test_overseer_issue_filer.py` — directly tests
-  the dead-code `file_diagnostic_issue` builder; template changes
-  (decision-8) land here.
+  the dead-code `_build_issue_body`. Template changes (decision-8)
+  land here.
 - `orchestrator/tests/test_overseer_alert_isolation.py`,
-  `test_overseer_hitl_integration.py`, `test_two_tier_integration.py`,
-  `test_infra_error_escalation.py` — all reference
-  `OverseerMonitor`. Policy changes that alter the action vocabulary
-  (e.g., adding a `file-issue` verb to the agent-side overseer CLI)
-  need complementary agent-side test coverage that doesn't exist yet.
-- `integration_tests/` — no existing end-to-end coverage of
-  auto-issue filing (there is no production caller). A new
-  integration test simulating "overseer observes anomaly → files
-  issue → verifies dedup" is a likely deliverable.
-- `gateway/` tests — if `gh issue create` is newly allowed for the
-  overseer role (decision-14), gateway policy tests need an added
-  allow case and a matching deny case for non-overseer roles.
+  `test_overseer_hitl_integration.py`,
+  `test_two_tier_integration.py`,
+  `test_infra_error_escalation.py` — all reference `OverseerMonitor`
+  and need updating for any policy changes that alter the action
+  vocabulary.
+- `gateway/tests/` — new allow case for overseer-role `gh issue
+  create`; matching deny case for non-overseer roles.
+- `sandbox/tests/` — new agent-side coverage for the
+  `egg-orch overseer file-issue` verb (or MCP tool).
+- `integration_tests/` — no end-to-end coverage of auto-issue
+  filing today (no production caller). A new integration test
+  ("overseer observes anomaly → advisor approves → file → verify
+  dedup on next cycle") is a likely deliverable.
+- `/sdlc` skill regression — the existing thresholds (3 min stall,
+  10 min silent agent, 60 min long-run) have a long history of
+  calibration; the migration must preserve current behavior at first
+  (decision-12 opt-1 or opt-2) and let the human revisit numbers
+  after.
 
-If the human picks Option A (one pipeline for all three threads), the
-complexity scales up further — `skills/sdlc/SKILL.md` restructuring is
-its own large surface. Complexity remains **high** either way.
+**Parallelism for the implement phase.** Three reasonable parallel
+tracks emerge: (a) agent-side rule + advisor wiring + auto-issue
+plumbing, (b) gateway + config + dedup state, (c) host migration.
+Tracks (a) and (c) touch the rule doc; serialize the rule edits or
+plan a merge.
+
+The complexity stays at **high** under either Option A or Option B
+(the SDK choice is a wiring detail, not a scope change). It would
+**not** be reduced by deferring host migration — the auto-issue +
+escalation tuning portion alone is already cross-cutting, and the
+pre-refine notes lock host migration in scope.
