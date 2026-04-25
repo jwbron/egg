@@ -622,10 +622,60 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-25",
+      "question": "Open feedback request feedback-1",
+      "context": "Open contract feedback feedback-1, registered by an agent during the refine phase.",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [
+        {
+          "id": "Q1",
+          "question": "Which specific escalation triggers in the overseer today (`sandbox/agent-config/rules/overseer.md:142-153`) need tightening? Please list the concrete false-positive / false-negative patterns you want fixed (e.g., #1722-style stale AGENT_FAILED, long legitimate test runs flagged as stalls, specific 401 patterns that should/shouldn't escalate, etc.).",
+          "answer": ""
+        },
+        {
+          "id": "Q2",
+          "question": "Baseline thresholds in `overseer.md` — are any of these values wrong: ~60s for `stuck-phase-transition`, Haiku loop-detection confidence >0.8 across 2 consecutive cycles for `agent-loop`, `overseer_max_cycles_before_re_alert=3`? If so, what should they be and why?",
+          "answer": ""
+        },
+        {
+          "id": "Q3",
+          "question": "Per-pipeline cap on auto-filed issues — is there a maximum (e.g., 1 per phase, 3 per pipeline) beyond which the overseer should stop filing and escalate via HITL instead? If yes, what cap?",
+          "answer": ""
+        },
+        {
+          "id": "Q4",
+          "question": "Gateway policy for `gh issue create` from the overseer role — what constraints should the gateway enforce (required labels auto-injected, title/body size limits, rate-limit, allowed repos only, etc.)?",
+          "answer": ""
+        },
+        {
+          "id": "Q5",
+          "question": "If thread 3 (host→overseer migration) ends up in scope, what must stay in `/sdlc`? The issue says 'report what's going on' and 'manage HITL decisions' — does that include user-facing `AskUserQuestion` options like 'Check agent logs' / 'Nudge agent' / 'Restart pipeline', or do those become overseer-initiated with the host only displaying a passive dashboard + HITL prompts?",
+          "answer": ""
+        },
+        {
+          "id": "Q6",
+          "question": "Success criteria for 'the overseer is now escalating well' — what metric or observable signal counts? E.g., zero repeat same-anomaly alerts per pipeline, >X% of OVERSEER_ALERTs acknowledged by human, auto-filed issues accepted (not closed as invalid) at >Y rate, something else?",
+          "answer": ""
+        },
+        {
+          "id": "Q7",
+          "question": "Any additional constraints or preferences not covered by the decisions above (e.g., GitHub App vs. `gh` CLI for filing, required approvers for auto-filed issues, notification routing beyond Slack, etc.)?",
+          "answer": ""
+        }
+      ],
+      "status": "pending",
+      "created_at": "2026-04-25T17:52:18.264492Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T17:05:44.416677Z",
-  "updated_at": "2026-04-25T17:52:18.223456Z",
+  "updated_at": "2026-04-25T17:52:18.283517Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -639,6 +689,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 35,
+  "version": 36,
   "jira_ticket": null
 }
