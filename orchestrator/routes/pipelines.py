@@ -1473,6 +1473,14 @@ def create_pipeline() -> tuple[Response, int]:
         # Contract creation is deferred to _run_pipeline so it writes
         # into the per-pipeline worktree instead of the main repo.
 
+        # When state_store replaces a terminal pipeline with the same id
+        # (state_store.create_pipeline:850), the in-memory consensus
+        # tracker / message-store entries for the prior run survive. Same
+        # for Redis-backed message-store entries across orchestrator
+        # restarts. Clear here so the new run starts with empty consensus
+        # state regardless of how the prior run ended (#2053).
+        _clear_pipeline_runtime_state(pipeline.id, reason="pipeline_create")
+
         logger.info(
             "Pipeline created",
             pipeline_id=pipeline.id,
@@ -1518,6 +1526,78 @@ def create_pipeline() -> tuple[Response, int]:
         return make_error_response(
             f"Failed to create pipeline: {msg[:500]}",
             status_code=500,
+        )
+
+
+def _clear_pipeline_runtime_state(pipeline_id: str, *, reason: str) -> None:
+    """Evict per-pipeline runtime state that is keyed by pipeline_id alone.
+
+    The peer-consensus tracker, the legacy consensus evaluator, and the
+    inter-agent message store are all keyed by pipeline_id. Without a
+    matching ``run_epoch`` namespace, a fresh pipeline that reuses an id
+    from a prior terminal run (same branch, e.g. ``issue-1965``) will
+    inherit the prior run's CONFIRMED consensus and message history. The
+    leak surfaces in ``wait_for_status_change``'s Path-B envelope, which
+    would report ``concurrent.consensus.is_complete: true`` for a
+    pipeline that has not spawned any agents yet (#2053).
+
+    Called when a pipeline transitions to a terminal status, when its
+    state file is deleted, and immediately after a fresh pipeline is
+    created (covers paths that bypass PATCH/DELETE — auto-FAILED, and
+    Redis-backed message-store entries that survived an orchestrator
+    restart between cancel and resubmit).
+    """
+    try:
+        try:
+            from peer_consensus import remove_peer_consensus_tracker
+        except ImportError:
+            from ..peer_consensus import (  # type: ignore[no-redef]
+                remove_peer_consensus_tracker,
+            )
+        remove_peer_consensus_tracker(pipeline_id)
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.warning(
+            "Failed to clear peer consensus tracker",
+            pipeline_id=pipeline_id,
+            reason=reason,
+            error=str(e),
+        )
+
+    try:
+        try:
+            from consensus import get_consensus_evaluator
+        except ImportError:
+            from ..consensus import get_consensus_evaluator  # type: ignore[no-redef]
+        get_consensus_evaluator().clear(pipeline_id)
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.warning(
+            "Failed to clear legacy consensus state",
+            pipeline_id=pipeline_id,
+            reason=reason,
+            error=str(e),
+        )
+
+    # Reconstruct-from-messages would otherwise replay the prior run's
+    # CONSENSUS_* messages and rebuild a CONFIRMED tracker, defeating the
+    # tracker eviction above.
+    try:
+        try:
+            from message_store import get_message_store
+        except ImportError:
+            from ..message_store import get_message_store  # type: ignore[no-redef]
+        get_message_store().clear(pipeline_id)
+    except ImportError:
+        pass
+    except Exception as e:
+        logger.warning(
+            "Failed to clear message store",
+            pipeline_id=pipeline_id,
+            reason=reason,
+            error=str(e),
         )
 
 
@@ -1687,6 +1767,12 @@ def update_pipeline(pipeline_id: str) -> tuple[Response, int]:
             )
             cleanup_thread.start()
 
+            # Evict per-pipeline runtime state (consensus tracker, legacy
+            # consensus evaluator, message store) so a future pipeline
+            # that reuses this id (same branch) does not inherit this
+            # run's CONFIRMED consensus or message history (#2053).
+            _clear_pipeline_runtime_state(pipeline_id, reason=f"pipeline_{pipeline.status.value}")
+
         logger.info("Pipeline updated", pipeline_id=pipeline_id)
 
         response_data = {"pipeline": pipeline.model_dump(mode="json")}
@@ -1832,17 +1918,10 @@ def delete_pipeline(pipeline_id: str) -> tuple[Response, int]:
                 error=str(e),
             )
 
-        # Clean up Redis message store keys (stream + counters)
-        try:
-            from message_store import get_message_store
-
-            get_message_store().clear(pipeline_id)
-        except Exception as e:
-            logger.warning(
-                "Failed to clear message store for deleted pipeline",
-                pipeline_id=pipeline_id,
-                error=str(e),
-            )
+        # Clean up the message store stream/counters AND the in-memory
+        # consensus tracker / legacy evaluator so a fresh pipeline that
+        # later reuses this id starts with empty consensus state (#2053).
+        _clear_pipeline_runtime_state(pipeline_id, reason="pipeline_delete")
 
         store.delete_pipeline(pipeline_id)
 
