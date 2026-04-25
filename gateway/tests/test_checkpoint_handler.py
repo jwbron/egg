@@ -642,6 +642,155 @@ class TestStoreCheckpointV2GitOps:
         assert branch_delete_calls[0][2].get("check") is False
 
 
+class TestStoreCheckpointV2Concurrency:
+    """Tests for per-repo serialization of store_checkpoint_v2 (issue #2069)."""
+
+    def _make_checkpoint(self):
+        from egg_contracts.checkpoints import (
+            CheckpointV2,
+            SessionMetadata,
+            TriggerType,
+        )
+
+        now = datetime.now(UTC)
+        return CheckpointV2(
+            id="ckpt-a1b2c3d4e5f67890",
+            trigger_type=TriggerType.COMMIT,
+            session_id="test-container",
+            commit_sha="abc123def456789012345678901234567890abcd",
+            session=SessionMetadata(session_id="test-container", started_at=now),
+            created_at=now,
+            session_started_at=now,
+        )
+
+    def test_worktree_prune_called_in_cleanup(self):
+        """Cleanup runs `git worktree prune` to drop stale worktree entries."""
+        import checkpoint_handler
+
+        handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
+
+        git_calls = []
+
+        def track_run_git(cwd, args, **kwargs):
+            git_calls.append((cwd, args, kwargs))
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+        handler._branch_exists = MagicMock(return_value=True)
+
+        try:
+            handler.store_checkpoint_v2(self._make_checkpoint(), "/fake/repo")
+        except Exception:
+            pass
+
+        prune_calls = [c for c in git_calls if c[1][:2] == ["worktree", "prune"]]
+        assert len(prune_calls) == 1, "Expected exactly one `worktree prune` call"
+        assert prune_calls[0][0] == "/fake/repo"
+        assert prune_calls[0][2].get("check") is False
+
+    def test_concurrent_stores_on_same_repo_serialized(self):
+        """Two threads storing into the same (repo, target) run sequentially."""
+        import threading
+        import time
+
+        import checkpoint_handler
+
+        # Reset the per-repo lock dict so this test is isolated.
+        checkpoint_handler._repo_locks.clear()
+
+        handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
+
+        in_flight = 0
+        max_in_flight = 0
+        observe_lock = threading.Lock()
+
+        def track_run_git(cwd, args, **kwargs):
+            nonlocal in_flight, max_in_flight
+            with observe_lock:
+                in_flight += 1
+                max_in_flight = max(max_in_flight, in_flight)
+            time.sleep(0.05)
+            with observe_lock:
+                in_flight -= 1
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+        handler._branch_exists = MagicMock(return_value=True)
+
+        def run_store():
+            try:
+                handler.store_checkpoint_v2(
+                    self._make_checkpoint(),
+                    "/fake/repo",
+                    checkpoint_repo="owner/repo-checkpoints",
+                )
+            except Exception:
+                pass
+
+        threads = [threading.Thread(target=run_store) for _ in range(3)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        # If serialization works, only one thread is ever inside _run_git
+        # at a time for the same (repo_path, target) key.
+        assert max_in_flight == 1, f"Expected serialized git calls, saw {max_in_flight} concurrent"
+
+    def test_concurrent_stores_on_different_repos_not_serialized(self):
+        """Different (repo, target) keys take different locks and run in parallel."""
+        import threading
+        import time
+
+        import checkpoint_handler
+
+        checkpoint_handler._repo_locks.clear()
+
+        handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
+
+        in_flight = 0
+        max_in_flight = 0
+        observe_lock = threading.Lock()
+        barrier = threading.Barrier(2)
+
+        def track_run_git(cwd, args, **kwargs):
+            nonlocal in_flight, max_in_flight
+            with observe_lock:
+                in_flight += 1
+                max_in_flight = max(max_in_flight, in_flight)
+            # Synchronize so both threads are guaranteed to overlap if
+            # the locks are independent.
+            try:
+                barrier.wait(timeout=2.0)
+            except threading.BrokenBarrierError:
+                pass
+            time.sleep(0.05)
+            with observe_lock:
+                in_flight -= 1
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+        handler._branch_exists = MagicMock(return_value=True)
+
+        def run_store(repo_path):
+            try:
+                handler.store_checkpoint_v2(self._make_checkpoint(), repo_path)
+            except Exception:
+                pass
+
+        t1 = threading.Thread(target=run_store, args=("/fake/repo-a",))
+        t2 = threading.Thread(target=run_store, args=("/fake/repo-b",))
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        assert max_in_flight >= 2, (
+            "Expected concurrent execution across different repos, "
+            f"saw max_in_flight={max_in_flight}"
+        )
+
+
 class TestStoreCheckpointV2RemoteTarget:
     """Tests for store_checkpoint_v2 remote URL resolution (issue #1767).
 

@@ -879,9 +879,15 @@ class CheckpointHandler:
             return False
 
         target = _resolve_checkpoint_target(checkpoint_repo, remote, repo_path)
+        repo_lock = _get_repo_lock(repo_path, target)
 
         try:
-            with tempfile.TemporaryDirectory(prefix="checkpoint_") as temp_dir:
+            with (
+                repo_lock,
+                tempfile.TemporaryDirectory(
+                    prefix="checkpoint_", ignore_cleanup_errors=True
+                ) as temp_dir,
+            ):
                 temp_path = Path(temp_dir)
 
                 branch_exists = self._branch_exists(
@@ -1062,6 +1068,13 @@ class CheckpointHandler:
                     self._run_git(
                         repo_path,
                         ["worktree", "remove", "--force", str(temp_path)],
+                        check=False,
+                    )
+                    # Drop any stale .git/worktrees/<basename> entry so a
+                    # failed remove doesn't leak across attempts.
+                    self._run_git(
+                        repo_path,
+                        ["worktree", "prune"],
                         check=False,
                     )
 
@@ -1299,6 +1312,23 @@ class CheckpointHandler:
 # Global checkpoint handler instance
 _checkpoint_handler: CheckpointHandler | None = None
 _handler_lock = threading.Lock()
+
+# Per-(repo_path, target) locks serializing concurrent checkpoint stores.
+# Concurrent threads operating on the same source repo race on
+# .git/worktrees state and ref locks, producing 'worktree add' failures
+# and stale worktree directories. See #2069.
+_repo_locks: dict[tuple[str, str], threading.Lock] = {}
+_repo_locks_guard = threading.Lock()
+
+
+def _get_repo_lock(repo_path: str, target: str) -> threading.Lock:
+    key = (repo_path, target)
+    with _repo_locks_guard:
+        lock = _repo_locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _repo_locks[key] = lock
+        return lock
 
 
 def get_checkpoint_handler(github_token: str | None = None) -> CheckpointHandler:
