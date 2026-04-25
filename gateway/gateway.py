@@ -605,6 +605,55 @@ def require_launcher_auth(f: F) -> F:  # noqa: UP047
     return decorated  # type: ignore[return-value]
 
 
+def require_session_or_launcher_auth(f: F) -> F:  # noqa: UP047
+    """Endpoint accepts either a session token or the launcher secret.
+
+    When the Authorization bearer matches the launcher secret, the request
+    is treated as orchestrator-originated: ``g.session`` is left ``None``
+    and ``g.auth_actor`` is set to ``"launcher"``.  Otherwise the request
+    falls through to ``require_session_auth`` (sandbox/agent path), which
+    sets ``g.session`` and ``g.auth_actor = "session"``.
+
+    The trust split is grounded in the launcher secret already used by
+    ``/api/v1/sessions/create`` and other privileged endpoints — only the
+    orchestrator holds it (mounted at ``/secrets/launcher-secret``), so a
+    request that authenticates with it is by definition not coming from
+    a sandboxed agent.
+
+    Used by ``/api/v1/git/push`` so the orchestrator can run its own
+    failsafe pushes (contract init, state-sync, completion) without the
+    register-session/push/delete ceremony, and without tripping the
+    pipeline-push block (#2028) intended for agents.
+    """
+
+    @functools.wraps(f)
+    def decorated(*args: Any, **kwargs: Any) -> Any:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            try:
+                launcher_secret = get_launcher_secret()
+            except LauncherSecretNotConfiguredError:
+                launcher_secret = ""
+            if launcher_secret and secrets.compare_digest(auth_header[7:], launcher_secret):
+                g.session = None
+                g.session_mode = None
+                g.session_phase = None
+                g.auth_actor = "launcher"
+                return f(*args, **kwargs)
+
+        # Fall through to session-token validation.  The session decorator
+        # sets g.session/g.session_mode/g.session_phase on success and
+        # returns 401 on failure.
+        @require_session_auth
+        def _wrapped(*a: Any, **kw: Any) -> Any:
+            g.auth_actor = "session"
+            return f(*a, **kw)
+
+        return _wrapped(*args, **kwargs)
+
+    return decorated  # type: ignore[return-value]
+
+
 def make_response(
     success: bool,
     message: str,
@@ -870,7 +919,7 @@ def config_reload() -> Response:
 
 
 @app.route("/api/v1/git/push", methods=["POST"])
-@require_session_auth
+@require_session_or_launcher_auth
 def git_push() -> tuple[Response, int] | Response:
     """
     Handle git push requests.
@@ -951,6 +1000,27 @@ def git_push() -> tuple[Response, int] | Response:
     # Get session mode from request context (set by @require_session_auth decorator)
     session_mode = getattr(g, "session_mode", None)
     session_phase = getattr(g, "session_phase", None)
+
+    # Orchestrator-authenticated push (launcher secret).  The orchestrator
+    # has a different trust boundary than sandboxed agents — its pushes are
+    # programmatic (contract init, state-sync, completion) and bypass the
+    # session-derived enforcement (pipeline-push block, push-target check,
+    # role/phase file restrictions) that exists to sandbox agent commits.
+    # session_mode comes from the request body since there is no session.
+    is_orchestrator_push = getattr(g, "auth_actor", None) == "launcher"
+    if is_orchestrator_push:
+        session_mode = data.get("mode") or session_mode
+        audit_log(
+            "push_orchestrator_authenticated",
+            "git_push",
+            success=True,
+            details={
+                "repo_path": repo_path,
+                "remote": remote,
+                "refspec": refspec,
+                "reason": "Push authenticated with launcher secret — orchestrator-trusted",
+            },
+        )
 
     # Infrastructure branch bypass: pushes to infrastructure branches always succeed
     # regardless of session mode or phase (checkpoints and pipeline state can be

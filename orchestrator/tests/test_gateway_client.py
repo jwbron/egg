@@ -966,33 +966,34 @@ class TestPushWorktreeBranch:
         assert result.category == "gateway_unreachable"
         assert result.detail
 
-    def test_push_worktree_branch_cleans_up_session(self, gateway_client, mock_gateway_server):
-        """Test that temp session is cleaned up after push."""
-        with patch.object(gateway_client, "delete_session") as mock_delete:
-            gateway_client.push_worktree_branch(
-                pipeline_id="issue-42",
-                repo_path="/some/path",
-                branch="egg/issue-42",
-            )
-            # Session should be cleaned up
-            mock_delete.assert_called_once_with("test-token-12345")
+    def test_push_worktree_branch_uses_launcher_auth(self, gateway_client, mock_gateway_server):
+        """Push authenticates with the launcher secret, not a session token.
 
-    def test_push_worktree_branch_registers_session_with_branch(
-        self, gateway_client, mock_gateway_server
-    ):
-        """Test that register_session is called with branch so gateway assigns correct branch."""
-        with patch.object(
-            gateway_client, "register_session", wraps=gateway_client.register_session
-        ) as mock_reg:
+        The orchestrator's failsafe push is on the privileged side of the
+        trust boundary — same secret used by ``/api/v1/sessions/create``.
+        It should NOT register a temp session and should NOT pass a
+        per-session bearer token (#2051).
+        """
+        with (
+            patch.object(
+                gateway_client, "register_session", wraps=gateway_client.register_session
+            ) as mock_reg,
+            patch.object(gateway_client, "delete_session") as mock_delete,
+            patch.object(
+                gateway_client, "_make_request", wraps=gateway_client._make_request
+            ) as mock_req,
+        ):
             gateway_client.push_worktree_branch(
                 pipeline_id="issue-42",
                 repo_path="/some/path",
                 branch="egg/issue-42",
             )
-            mock_reg.assert_called_once()
-            call_kwargs = mock_reg.call_args
-            registered_branch = call_kwargs.kwargs["branch"]
-            assert registered_branch == "egg/issue-42"
+            mock_reg.assert_not_called()
+            mock_delete.assert_not_called()
+            push_calls = [c for c in mock_req.call_args_list if c.args[0] == "/api/v1/git/push"]
+            assert len(push_calls) == 1
+            assert push_calls[0].kwargs.get("use_launcher_auth") is True
+            assert push_calls[0].kwargs.get("bearer_token") is None
 
     def test_push_worktree_branch_uses_head_refspec(self, gateway_client, mock_gateway_server):
         """Test that push uses HEAD:refs/heads/<branch> refspec format.
@@ -1014,6 +1015,9 @@ class TestPushWorktreeBranch:
             assert len(push_calls) == 1
             push_data = push_calls[0].kwargs["data"]
             assert push_data["refspec"] == "HEAD:refs/heads/egg/issue-42"
+            # Mode is forwarded so the gateway can apply private-repo policy
+            # without a session record to read it from.
+            assert push_data.get("mode") == "public"
 
     def test_push_worktree_branch_classifies_gateway_push_rejection(self, gateway_client):
         """When the gateway push endpoint returns 500 with git stderr in
@@ -1275,14 +1279,18 @@ class TestSelfIpResolution:
         assert client.self_ip == "127.0.0.1"
 
     def test_temp_sessions_use_self_ip(self, gateway_client, mock_gateway_server):
-        """Test that temporary sessions register with self_ip, not 127.0.0.1."""
+        """Test that temporary sessions register with self_ip, not 127.0.0.1.
+
+        ``push_worktree_branch`` no longer registers a session (#2051 — it
+        uses launcher auth directly), so this exercises a temp-session
+        path that still does: ``fetch_worktree_branch``.
+        """
         with patch.object(
             gateway_client, "register_session", wraps=gateway_client.register_session
         ) as mock_reg:
-            gateway_client.push_worktree_branch(
+            gateway_client.fetch_worktree_branch(
                 pipeline_id="issue-42",
                 repo_path="/some/path",
-                branch="egg/issue-42",
             )
             mock_reg.assert_called_once()
             call_kwargs = mock_reg.call_args
