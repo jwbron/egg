@@ -189,7 +189,10 @@ class HealthMonitor:
             self._agents.pop(agent_id, None)
             self._last_heartbeat.pop(agent_id, None)
             self._fully_acked_first_seen.pop(agent_id, None)
-            # _active_alerts is a deque; rebuild without entries for this agent.
+            # _active_alerts is a bounded deque (maxlen=200).  Filter in
+            # place via clear()+extend to preserve the bound — rebinding to
+            # ``deque(kept)`` would silently drop the maxlen and let the
+            # buffer grow unboundedly.
             kept = [a for a in self._active_alerts if a.get("agent_id") != agent_id]
             self._active_alerts.clear()
             self._active_alerts.extend(kept)

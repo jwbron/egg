@@ -2288,7 +2288,9 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
         try:
             from health_monitor import get_health_monitor
         except ImportError:
-            from ..health_monitor import get_health_monitor  # noqa: F401
+            from ..health_monitor import (
+                get_health_monitor,  # type: ignore[import-not-found]
+            )
         _hm = get_health_monitor()
         if _hm is not None:
             _hm.reset_agent(agent_role)
@@ -2315,6 +2317,14 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                 # Update or add agent execution entry
                 from models import AgentExecution  # type: ignore
 
+                # Refresh ``started_at`` to the new container's spawn time so
+                # ``_get_concurrent_status`` reports an ``elapsed_seconds``
+                # anchored on the live container.  Without this the field
+                # carries the original spawn timestamp and the overseer's
+                # phase_minimum_working_window suppression on the
+                # ``agent-heartbeat-stall`` trigger is structurally dead on
+                # the ``restart_agent`` path (issue #2084).
+                respawn_started_at = datetime.now(UTC)
                 found = False
                 for agent in fresh_phase_exec.agents:
                     if hasattr(agent, "role") and (
@@ -2323,6 +2333,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                     ):
                         agent.container_id = spawned.container_info.container_id
                         agent.status = AgentExecutionStatus.RUNNING
+                        agent.started_at = respawn_started_at
                         found = True
                         break
                 if not found:
@@ -2331,6 +2342,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                             role=role,
                             container_id=spawned.container_info.container_id,
                             status=AgentExecutionStatus.RUNNING,
+                            started_at=respawn_started_at,
                         )
                     )
 
@@ -2590,7 +2602,9 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
         try:
             from health_monitor import get_health_monitor
         except ImportError:
-            from ..health_monitor import get_health_monitor  # noqa: F401
+            from ..health_monitor import (
+                get_health_monitor,  # type: ignore[import-not-found]
+            )
         _hm = get_health_monitor()
         if _hm is not None:
             for role in agent_roles:
