@@ -126,6 +126,9 @@ class PeerConsensusTracker:
         # Highest proposal version for which a producer has already received a
         # "ready to confirm" nudge.  A new proposal bumps the version and
         # naturally re-arms the nudge — see _collect_newly_ready_producers.
+        # In-memory only by design: an orchestrator restart re-nudges any
+        # still-ready producer on the next ACK/PROPOSE, which is harmless
+        # because handle_confirmed is idempotent under check_confirm_guard.
         self._nudged_versions: dict[str, int] = {}
 
     @property
@@ -142,20 +145,17 @@ class PeerConsensusTracker:
             if self.graph.is_reviewer(role):
                 self._reviewer_phases[role] = ConsensusPhase.WORKING
 
-    def is_ready_to_confirm(self, role: str) -> bool:
-        """Return True if ``role`` would currently pass ``check_confirm_guard``.
+    def release_nudge(self, role: str, version: int) -> None:
+        """Roll back a nudge memo entry recorded by ``_collect_newly_ready_producers``.
 
-        Single source of truth for the "this agent can call confirm now"
-        question.  Used by the orchestrator nudge path so the readiness signal
-        cannot drift from the actual confirm precondition (#2078).
+        Call this when the caller failed to actually emit the STATUS message
+        for ``(role, version)`` so the producer can be re-nudged the next
+        time consensus state changes.  No-op if the memo has already been
+        advanced past ``version`` by a later proposal.
         """
         with self._lock:
-            return check_confirm_guard(
-                role,
-                self.graph,
-                self.matrix,
-                self._confirmed,
-            ).allowed
+            if self._nudged_versions.get(role) == version:
+                del self._nudged_versions[role]
 
     def _collect_newly_ready_producers(self) -> list[dict[str, Any]]:
         """Return producers that newly became ready-to-confirm.

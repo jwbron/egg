@@ -905,6 +905,7 @@ def _emit_ready_to_confirm_nudges(
     pipeline_id: str,
     phase: str,
     newly_ready: list[dict[str, Any]],
+    tracker: Any = None,
 ) -> None:
     """Emit a STATUS to each producer that newly became ready to confirm.
 
@@ -913,6 +914,11 @@ def _emit_ready_to_confirm_nudges(
     closes the gap where a documenter (advisory-only) was nudged the moment
     its single ADVISORY ACK arrived, even though the global zero-proposal
     guard still rejected confirm (#2078).
+
+    If ``add_message`` raises for a given producer and a ``tracker`` is
+    supplied, the per-version memo entry is rolled back so the producer
+    can be re-nudged on the next state change.  Other producers in the
+    batch are still attempted.
     """
     if not newly_ready:
         return
@@ -922,22 +928,34 @@ def _emit_ready_to_confirm_nudges(
     for entry in newly_ready:
         producer = entry["role"]
         version = entry["version"]
-        store.add_message(
-            Message(
-                pipeline_id=pipeline_id,
-                from_role="orchestrator",
-                to_role=producer,
-                message_type=MessageType.STATUS,
-                subject="Ready to confirm — all confirm preconditions satisfied",
-                body=(
-                    f"Your proposal (version {version}) has been ACKed and all "
-                    f"global confirm preconditions are met. Run "
-                    f"`egg-orch consensus confirmed` to confirm."
-                ),
-                phase=phase,
-                metadata={"ready_to_confirm": True, "version": version},
+        try:
+            store.add_message(
+                Message(
+                    pipeline_id=pipeline_id,
+                    from_role="orchestrator",
+                    to_role=producer,
+                    message_type=MessageType.STATUS,
+                    subject="Ready to confirm — all confirm preconditions satisfied",
+                    body=(
+                        f"Your proposal (version {version}) is ready to confirm — "
+                        f"all blocking reviews are clear and global confirm "
+                        f"preconditions are met. Run "
+                        f"`egg-orch consensus confirmed` to confirm."
+                    ),
+                    phase=phase,
+                    metadata={"ready_to_confirm": True, "version": version},
+                )
             )
-        )
+        except Exception as exc:
+            if tracker is not None:
+                tracker.release_nudge(producer, version)
+            logger.error(
+                "Failed to emit ready-to-confirm nudge",
+                pipeline_id=pipeline_id,
+                role=producer,
+                version=version,
+                error=str(exc),
+            )
 
 
 def handle_consensus_propose_signal(
@@ -1067,7 +1085,7 @@ def handle_consensus_propose_signal(
 
         # A new proposal can unblock the global zero-proposal guard for
         # producers that were previously fully ACKed but unable to confirm.
-        _emit_ready_to_confirm_nudges(pipeline_id, phase, result.get("newly_ready", []))
+        _emit_ready_to_confirm_nudges(pipeline_id, phase, result.get("newly_ready", []), tracker)
 
         return make_success_response(
             f"Proposal recorded for {agent_role}",
@@ -1151,7 +1169,7 @@ def handle_consensus_ack_signal(
         # critical-reviewer ACK predicate.  Replaces the prior ``fully_acked``
         # gate which fired before global guards (e.g. zero-proposal) cleared
         # and could mislead an advisory-only producer like documenter (#2078).
-        _emit_ready_to_confirm_nudges(pipeline_id, phase, result.get("newly_ready", []))
+        _emit_ready_to_confirm_nudges(pipeline_id, phase, result.get("newly_ready", []), tracker)
 
         return make_success_response(
             f"ACK recorded: {reviewer_role} -> {producer_role}",
@@ -1772,6 +1790,17 @@ def handle_consensus_producer_push_signal(
                         },
                     )
                 )
+
+            # Auto re-propose runs the same propose path that surfaces
+            # newly-ready producers; emit nudges for symmetry with the
+            # explicit propose/re-propose handlers.  Today no peer's
+            # readiness depends on this producer's version bump (the
+            # producer themselves cannot be newly ready since their own
+            # ACKs were just invalidated), but skipping the call would
+            # silently regress if a future guard depends on peer versions.
+            _emit_ready_to_confirm_nudges(
+                pipeline_id, phase, result.get("newly_ready", []), tracker
+            )
 
         return make_success_response(
             f"Producer push processed for {agent_role}",

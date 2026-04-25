@@ -3039,8 +3039,8 @@ class TestReadyToConfirmNudge:
     zero-proposal guard.  An advisory-only producer like ``documenter``
     received the nudge after a single ADVISORY ACK and was misled into
     calling ``consensus confirmed`` while peer producers had not yet
-    proposed.  ``is_ready_to_confirm`` and the per-handler readiness sweep
-    delegate to ``check_confirm_guard`` so the signal cannot drift.
+    proposed.  The per-handler readiness sweep now delegates to
+    ``check_confirm_guard`` so the signal cannot drift.
     """
 
     def _register_default_implement(self) -> PeerConsensusTracker:
@@ -3077,7 +3077,6 @@ class TestReadyToConfirmNudge:
         assert ack_result["newly_ready"] == [], (
             "documenter must not be nudged while coder/tester have proposal_version == 0"
         )
-        assert t.is_ready_to_confirm("documenter") is False
 
         # handle_confirmed agrees: still pending_acks under the global guard.
         confirm_result = t.handle_confirmed("documenter")
@@ -3100,7 +3099,6 @@ class TestReadyToConfirmNudge:
         ready_roles = {e["role"]: e["version"] for e in tester_result["newly_ready"]}
         assert "documenter" in ready_roles
         assert ready_roles["documenter"] == 1
-        assert t.is_ready_to_confirm("documenter") is True
 
     def test_no_duplicate_nudge_within_same_version(self):
         """Once a producer has been surfaced as newly_ready, subsequent
@@ -3136,17 +3134,19 @@ class TestReadyToConfirmNudge:
         t.register_agent("reviewer_code")
 
         # v1: propose, ACK — nudge fires.
-        self._propose(t, "coder", artifacts=["a.py"])
+        self._propose(t, "coder", artifacts=["a.py"], commit="abc123")
         ack_v1 = t.handle_ack("reviewer_code", "coder", {"artifact_references": ["a.py"]})
         v1_ready = [e for e in ack_v1["newly_ready"] if e["role"] == "coder"]
         assert v1_ready and v1_ready[0]["version"] == 1
 
         # NACK + re-propose to v2 invalidates the ACK, dropping coder out of
-        # ready.  Re-propose alone must NOT re-nudge.
+        # ready.  Re-propose alone must NOT re-nudge.  Use a distinct commit
+        # SHA so the test mirrors a real auto-repropose, which short-circuits
+        # on unchanged SHA (peer_consensus.py:771-773).
         t.handle_nack("reviewer_code", "coder", {"artifact_references": ["a.py"], "reason": "bug"})
         repropose_result = t.handle_re_propose(
             "coder",
-            {"summary": "v2", "artifacts": ["a.py"], "commit_sha": "abc123"},
+            {"summary": "v2", "artifacts": ["a.py"], "commit_sha": "def456"},
             changed_artifacts=["a.py"],
         )
         assert all(e["role"] != "coder" for e in repropose_result["newly_ready"])
