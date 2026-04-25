@@ -888,6 +888,39 @@
       "resolved_by": "human",
       "resolved_at": "2026-04-25T20:59:25.809457Z",
       "debounce_until": null
+    },
+    {
+      "id": "decision-26",
+      "question": "Coder needs guidance on the new shared package's name (issue #1962, blocker raised by reviewer_contract).\n\nThe plan's TASK-1-5 acceptance reads `from shared.overseer.advisor import consult_advisor` (and similar for the other modules). The implementer placed the package at `shared/egg_overseer/` and imports as `egg_overseer.*` because the existing convention is `egg_*` (matches `egg_orchestrator`, `egg_health`, `egg_agent`, etc.) and because at runtime `/opt/egg-runtime/shared/` is on PYTHONPATH (not its parent), so `from shared.overseer.*` would not resolve in the sandbox.\n\nThe reviewer_contract NACK correctly notes that downstream tasks (TASK-7-3, TASK-7-8, TASK-5-1, TASK-8-1) reference the planner's `shared.overseer.*` import path verbatim and will not match the implementation as-is.\n\nThree options:\n1. Keep `shared/egg_overseer/` (current implementation), amend the plan/downstream tasks to use `egg_overseer.*` import paths. This matches existing codebase convention.\n2. Rename to `shared/overseer/` AND add `shared/__init__.py` to make `shared` a real package, AND update the runtime PYTHONPATH wiring so `from shared.overseer.*` works in the sandbox container.\n3. Keep `shared/egg_overseer/` with no plan amendment; treat the planner's `shared.overseer.*` paths as a typo and have the documenter/tester translate at write time.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Keep shared/egg_overseer/ (recommended) \u2014 amend plan to use egg_overseer.* import paths",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Rename to shared/overseer/ + add shared/__init__.py + update PYTHONPATH",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Keep shared/egg_overseer/ with no amendment; downstream agents translate at write time",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
@@ -2020,6 +2053,49 @@
         "debounce_until": null
       },
       "reason": "Created HITL decision: Native `advisor_20260301` tool vs. two-call patter...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T21:47:47.378488Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.25",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-26",
+        "question": "Coder needs guidance on the new shared package's name (issue #1962, blocker raised by reviewer_contract).\n\nThe plan's TASK-1-5 acceptance reads `from shared.overseer.advisor import consult_advisor` (and similar for the other modules). The implementer placed the package at `shared/egg_overseer/` and imports as `egg_overseer.*` because the existing convention is `egg_*` (matches `egg_orchestrator`, `egg_health`, `egg_agent`, etc.) and because at runtime `/opt/egg-runtime/shared/` is on PYTHONPATH (not its parent), so `from shared.overseer.*` would not resolve in the sandbox.\n\nThe reviewer_contract NACK correctly notes that downstream tasks (TASK-7-3, TASK-7-8, TASK-5-1, TASK-8-1) reference the planner's `shared.overseer.*` import path verbatim and will not match the implementation as-is.\n\nThree options:\n1. Keep `shared/egg_overseer/` (current implementation), amend the plan/downstream tasks to use `egg_overseer.*` import paths. This matches existing codebase convention.\n2. Rename to `shared/overseer/` AND add `shared/__init__.py` to make `shared` a real package, AND update the runtime PYTHONPATH wiring so `from shared.overseer.*` works in the sandbox container.\n3. Keep `shared/egg_overseer/` with no plan amendment; treat the planner's `shared.overseer.*` paths as a typo and have the documenter/tester translate at write time.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Keep shared/egg_overseer/ (recommended) \u2014 amend plan to use egg_overseer.* import paths",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Rename to shared/overseer/ + add shared/__init__.py + update PYTHONPATH",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Keep shared/egg_overseer/ with no amendment; downstream agents translate at write time",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Coder needs guidance on the new shared package's n...",
       "checkpoint_id": null
     }
   ],
