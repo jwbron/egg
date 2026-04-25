@@ -233,6 +233,36 @@ class KubernetesSpawner:
     DEFAULT_SANDBOX_IMAGE = os.environ.get("EGG_SANDBOX_IMAGE", "egg:latest")
     JOB_NAME_FORMAT = "egg-agent-{pipeline_id}-{role}"
 
+    @classmethod
+    def _build_k8s_job_names(
+        cls,
+        pipeline_id: str,
+        agent_role: AgentRole,
+    ) -> tuple[str, str]:
+        """Build the two identifiers an agent Job is known by.
+
+        Returns a ``(job_name, actual_k8s_job_name)`` pair where:
+
+        - ``job_name`` is the unprefixed identifier used as the gateway
+          session ``container_id`` and in labels (e.g.
+          ``egg-agent-issue-1962-task-planner``).
+        - ``actual_k8s_job_name`` is the real k8s Job name after
+          ``KubernetesClient`` prepends ``JOB_PREFIX`` during
+          ``create_container`` (e.g.
+          ``egg-sandbox-egg-agent-issue-1962-task-planner``).
+
+        Underscores in ``agent_role.value`` (``task_planner``,
+        ``reviewer_refine``, …) are converted to hyphens because k8s
+        resource names are RFC-1123 labels and reject underscores.
+        """
+        job_name = cls.JOB_NAME_FORMAT.format(
+            pipeline_id=pipeline_id,
+            role=agent_role.value.replace("_", "-"),
+        )
+        if job_name.startswith(KubernetesClient.JOB_PREFIX):
+            return job_name, job_name
+        return job_name, f"{KubernetesClient.JOB_PREFIX}{job_name}"
+
     def __init__(
         self,
         k8s_client: KubernetesClient | None = None,
@@ -367,21 +397,9 @@ class KubernetesSpawner:
         Raises:
             KubernetesSpawnError: If spawning fails
         """
-        job_name = self.JOB_NAME_FORMAT.format(
-            pipeline_id=pipeline_id,
-            # k8s names are RFC-1123 labels: no underscores allowed.
-            # Role enum values like "reviewer_refine" need hyphenation.
-            role=agent_role.value.replace("_", "-"),
-        )
+        job_name, actual_k8s_job_name = self._build_k8s_job_names(pipeline_id, agent_role)
 
         # Clean up any existing Job with the same name.
-        # create_container() prepends JOB_PREFIX, so derive the actual k8s
-        # Job name that would have been created in a previous spawn.
-        actual_k8s_job_name = (
-            job_name
-            if job_name.startswith(KubernetesClient.JOB_PREFIX)
-            else f"{KubernetesClient.JOB_PREFIX}{job_name}"
-        )
         try:
             self.k8s.delete_job(actual_k8s_job_name, self._namespace)
             logger.info(
@@ -1014,10 +1032,11 @@ class KubernetesSpawner:
             # Increment count before spawn so failed attempts burn a restart budget slot
             self._restart_counts[restart_key] = current_count + 1
 
-            job_name = self.JOB_NAME_FORMAT.format(
-                pipeline_id=pipeline_id,
-                role=agent_role.value,
-            )
+            # ``job_name`` matches the gateway session container_id used at
+            # spawn time (hyphenated, no JOB_PREFIX); ``actual_k8s_job_name``
+            # is the real k8s Job name. Using the wrong form for either side
+            # broke restart for every role with an underscore — see #2070.
+            job_name, actual_k8s_job_name = self._build_k8s_job_names(pipeline_id, agent_role)
 
             logger.info(
                 "Restarting agent Job",
@@ -1028,12 +1047,28 @@ class KubernetesSpawner:
                 reason=reason,
             )
 
-            # Delete the existing Job (best effort)
+            # Delete the existing Job (best effort) and clean up the
+            # gateway session.  We can't go through ``remove_agent_job``
+            # here because it would route both the k8s and gateway calls
+            # through the same identifier, but k8s wants the prefixed form
+            # and the gateway session is keyed by the unprefixed form.
             try:
-                self.remove_agent_job(job_name, force=True, cleanup_session=True)
+                self.k8s.delete_job(
+                    actual_k8s_job_name,
+                    self._namespace,
+                    propagation_policy="Foreground",
+                )
             except (PodNotFoundError, JobOperationError) as e:
                 logger.info(
                     "No existing Job found during restart (already removed)",
+                    job_name=actual_k8s_job_name,
+                    error=str(e),
+                )
+            try:
+                self.gateway.delete_session_by_container(job_name)
+            except GatewayError as e:
+                logger.warning(
+                    "Failed to clean up gateway session during restart",
                     job_name=job_name,
                     error=str(e),
                 )

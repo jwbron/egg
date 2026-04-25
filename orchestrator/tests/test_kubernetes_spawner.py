@@ -889,13 +889,13 @@ class TestRestartAgentJob:
             )
 
     def test_restart_removes_existing(self, spawner, mock_k8s_client):
-        """Restart removes the existing Job before respawning."""
+        """Restart deletes the existing Job before respawning."""
         spawner.restart_agent_job(
             pipeline_id="pipe-1",
             agent_role=AgentRole.CODER,
             repos=["owner/repo"],
         )
-        mock_k8s_client.remove_container.assert_called()
+        mock_k8s_client.delete_job.assert_called()
 
     def test_restart_preserves_worktree(self, spawner, mock_k8s_client):
         """Restart calls spawn_agent_job with preserve_worktree_on_failure=True."""
@@ -906,6 +906,53 @@ class TestRestartAgentJob:
             repos=["owner/repo"],
         )
         assert spawner.get_restart_count("pipe-1", "coder") == 1
+
+    @pytest.mark.parametrize(
+        "role",
+        [
+            AgentRole.TASK_PLANNER,
+            AgentRole.RISK_ANALYST,
+            AgentRole.REVIEWER_CODE,
+            AgentRole.REVIEWER_CONTRACT,
+            AgentRole.REVIEWER_AGENT_DESIGN,
+            AgentRole.REVIEWER_REFINE,
+            AgentRole.REVIEWER_PLAN,
+            AgentRole.CONFLICT_RESOLVER,
+        ],
+    )
+    def test_restart_underscore_roles_use_hyphenated_k8s_name(
+        self, spawner, mock_k8s_client, mock_gateway, role
+    ):
+        """Restart must convert underscored roles to hyphenated k8s names (#2070).
+
+        K8s resource names are RFC-1123 labels and reject underscores, so a
+        role like ``task_planner`` must become ``task-planner`` in the Job
+        name. Independently, the call site must pass the prefixed
+        ``egg-sandbox-`` name to ``delete_job`` (the actual k8s name) and
+        the unprefixed name to ``delete_session_by_container`` (which is
+        what the gateway session was registered under).
+        """
+        spawner.restart_agent_job(
+            pipeline_id="issue-1962",
+            agent_role=role,
+            repos=["owner/repo"],
+        )
+
+        hyphen_role = role.value.replace("_", "-")
+        unprefixed = f"egg-agent-issue-1962-{hyphen_role}"
+        prefixed = f"egg-sandbox-{unprefixed}"
+
+        # k8s deletion uses the prefixed Job name.
+        delete_call = mock_k8s_client.delete_job.call_args_list[0]
+        assert delete_call.args[0] == prefixed
+        # No raw underscore must reach the k8s API call.
+        assert "_" not in delete_call.args[0]
+
+        # Gateway session cleanup uses the unprefixed name (matches what
+        # spawn_agent_job registered with).
+        gw_call = mock_gateway.delete_session_by_container.call_args_list[0]
+        assert gw_call.args[0] == unprefixed
+        assert "_" not in gw_call.args[0]
 
 
 # ---------------------------------------------------------------------------
