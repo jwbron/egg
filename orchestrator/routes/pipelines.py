@@ -520,12 +520,18 @@ def _send_brc_confirmation_nudge(
     it directly to the stuck producer rather than relying on the
     overseer agent's discretion.
 
-    Uses ``OVERSEER_ALERT`` (not ``STATUS`` or ``NUDGE``) because the
-    producer's post-confirm wait_loop filter is
-    ``CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT`` — only
-    those types wake the wait.  The subject calls out that the alert
-    originated from the orchestrator's deterministic detector rather
-    than the overseer agent.
+    Uses ``OVERSEER_ALERT`` (not ``STATUS`` or ``NUDGE``) because it is
+    the only message type that appears in **both** the producer's
+    pre-confirm wait_loop filter
+    (``CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT``)
+    and post-confirm wait_loop filter
+    (``CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT``), so it
+    wakes the producer regardless of which wait they are blocked on.
+    A wedged producer is in the ``fully_acked but not confirmed`` set,
+    which means they are most likely blocked on the pre-confirm wait.
+    The subject calls out that the alert originated from the
+    orchestrator's deterministic detector rather than the overseer
+    agent.
 
     Returns True when a message was posted, False otherwise (wrong
     alert type, missing fields, message store unavailable, send error).
@@ -537,29 +543,38 @@ def _send_brc_confirmation_nudge(
     if not producer:
         return False
 
-    elapsed = escalation.get("elapsed_seconds", 0)
+    elapsed = escalation.get("elapsed_seconds")
+    # check_brc_progress always populates elapsed_seconds; treat
+    # missing or non-positive values as a malformed escalation rather
+    # than rendering "have not confirmed in 0s" in the body.
+    if elapsed is None or elapsed <= 0:
+        return False
 
     store_fn = _get_message_store()
     if store_fn is None:
         return False
 
-    try:
-        from message_store import Message, MessageType
-    except ImportError:
-        return False
+    # _get_message_store already verified the package is importable;
+    # Message/MessageType live in the same module so a defensive
+    # try/except here would only add per-call import overhead.
+    from message_store import Message, MessageType
 
     body = (
         f"You are PROPOSED and fully ACKed but have not confirmed in "
         f"{elapsed}s. Call `mcp__brc__confirm` now. If it returns "
-        "status='pending_acks' (e.g., another producer hasn't proposed "
-        "yet, or the global zero-proposal guard is blocking you), wait "
-        "on the prerequisite events instead — CONSENSUS_PROPOSE from "
+        "status='pending_acks', the response's ``blocking`` field lists "
+        "the prerequisite events to wait on (CONSENSUS_PROPOSE from "
         "missing producers, CONSENSUS_ACK from your reviewers, or "
-        "CONSENSUS_RE_REVIEW — then retry confirm."
+        "CONSENSUS_RE_REVIEW) — wait on those instead, then retry confirm."
     )
 
     try:
         msg_store = store_fn()
+        # Bypass the POST /messages/send route on purpose: this is an
+        # orchestrator-internal nudge, and we do not want HealthMonitor's
+        # MESSAGE_SENT handler (rate-limit + HEARTBEAT tracking) to see it.
+        # Future audit/observability subscribers should be aware this path
+        # does not emit EventType.MESSAGE_SENT.
         msg_store.add_message(
             Message(
                 pipeline_id=pipeline_id,
