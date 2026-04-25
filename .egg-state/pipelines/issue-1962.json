@@ -152,128 +152,15 @@
     },
     "plan": {
       "phase": "plan",
-      "status": "running",
-      "started_at": "2026-04-25T18:20:09.253960Z",
-      "work_started_at": "2026-04-25T18:20:10.120884Z",
+      "status": "pending",
+      "started_at": null,
+      "work_started_at": null,
       "completed_at": null,
-      "containers": [
-        {
-          "container_id": "21b6e609-060c-44df-ae00-46b015607aea",
-          "container_name": "egg-sandbox-egg-agent-issue-1962-architect",
-          "status": "running",
-          "started_at": "2026-04-25T18:20:12.687017Z",
-          "exited_at": null,
-          "exit_code": null,
-          "agent_role": "architect",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-1962-architect"
-        },
-        {
-          "container_id": "9a066fd2-7d7b-4a1a-ad0c-adbf1f243193",
-          "container_name": "egg-sandbox-egg-agent-issue-1962-task-planner",
-          "status": "running",
-          "started_at": "2026-04-25T18:20:12.687035Z",
-          "exited_at": null,
-          "exit_code": null,
-          "agent_role": "task_planner",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-1962-task-planner"
-        },
-        {
-          "container_id": "bcfc8276-fa00-4efd-b399-e583ac0a429e",
-          "container_name": "egg-sandbox-egg-agent-issue-1962-reviewer-plan",
-          "status": "running",
-          "started_at": "2026-04-25T18:20:12.687040Z",
-          "exited_at": null,
-          "exit_code": null,
-          "agent_role": "reviewer_plan",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-1962-reviewer-plan"
-        },
-        {
-          "container_id": "7a166f05-a2cd-4443-b518-279e2f642435",
-          "container_name": "egg-sandbox-egg-agent-issue-1962-risk-analyst",
-          "status": "running",
-          "started_at": "2026-04-25T18:20:12.687044Z",
-          "exited_at": null,
-          "exit_code": null,
-          "agent_role": "risk_analyst",
-          "session_token": null,
-          "pod_name": null,
-          "namespace": "egg-agents",
-          "job_name": "egg-sandbox-egg-agent-issue-1962-risk-analyst"
-        }
-      ],
-      "agents": [
-        {
-          "role": "architect",
-          "status": "running",
-          "container_id": "21b6e609-060c-44df-ae00-46b015607aea",
-          "container_info": null,
-          "started_at": "2026-04-25T18:20:12.687029Z",
-          "completed_at": null,
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "task_planner",
-          "status": "running",
-          "container_id": "9a066fd2-7d7b-4a1a-ad0c-adbf1f243193",
-          "container_info": null,
-          "started_at": "2026-04-25T18:20:12.687038Z",
-          "completed_at": null,
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "reviewer_plan",
-          "status": "running",
-          "container_id": "bcfc8276-fa00-4efd-b399-e583ac0a429e",
-          "container_info": null,
-          "started_at": "2026-04-25T18:20:12.687042Z",
-          "completed_at": null,
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": []
-        },
-        {
-          "role": "risk_analyst",
-          "status": "running",
-          "container_id": "7a166f05-a2cd-4443-b518-279e2f642435",
-          "container_info": null,
-          "started_at": "2026-04-25T18:20:12.687060Z",
-          "completed_at": null,
-          "commit": null,
-          "outputs": {},
-          "error": null,
-          "retry_count": 0,
-          "conflicts": []
-        }
-      ],
+      "containers": [],
+      "agents": [],
       "review_cycles": 0,
       "hitl_review_cycles": 0,
-      "cycle_timings": [
-        {
-          "cycle": 0,
-          "started_at": "2026-04-25T18:20:10.120884Z",
-          "completed_at": null,
-          "commit_sha": "0fb598f2fe045166e61d8e7e1e4c27c8605ed6b2"
-        }
-      ],
+      "cycle_timings": [],
       "artifacts": {},
       "error": null,
       "hitl_feedback": null,
@@ -804,7 +691,7 @@
     }
   ],
   "created_at": "2026-04-25T17:05:44.416677Z",
-  "updated_at": "2026-04-25T18:20:12.687138Z",
+  "updated_at": "2026-04-25T20:20:44.059393Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -817,7 +704,7 @@
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
-  "run_epoch": null,
-  "version": 65,
+  "run_epoch": "2026-04-25T20:20:44.058220Z",
+  "version": 66,
   "jira_ticket": null
 }
