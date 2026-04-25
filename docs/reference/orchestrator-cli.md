@@ -314,8 +314,8 @@ egg-orch consensus propose --summary "Implemented feature X with JWT validation 
   --artifacts src/feature.py --files-changed src/feature.py --tests-run tests/test_feature.py \
   --tasks task-1-1 task-1-2 --commit-sha $(git rev-parse HEAD)
 
-# Producer: push and propose atomically (required in concurrent mode, suppresses auto re-propose)
-# Sets consensus_push marker so the gateway allows the push through concurrent-mode enforcement
+# Producer: push and propose atomically (required for all pipeline sessions, suppresses auto re-propose)
+# Sets consensus_push marker so the gateway allows the push through pipeline-session enforcement
 egg-orch consensus propose --push --summary "Implemented feature X with JWT validation and session management. All contract tasks satisfied." \
   --artifacts src/feature.py --files-changed src/feature.py --tests-run tests/test_feature.py \
   --tasks task-1-1 task-1-2 --commit-sha $(git rev-parse HEAD)
