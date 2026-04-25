@@ -1104,6 +1104,9 @@ The `analysis` and `plan` fields are also accepted by the `submit_task` MCP tool
 
 - `.egg-state/drafts/{prefix}-plan.md` → pipeline plan (parsed to populate the contract)
 - `.egg-state/drafts/{prefix}-analysis.md` → pipeline analysis
+- `.egg-state/contracts/{identifier}.json` → SDLC contract including resolved HITL decisions (rebind to new pipeline ID before writing)
+
+The contract pull is best-effort: if the source branch has no contract, or if it fails validation, the orchestrator falls back to creating a fresh contract. This preserves HITL decisions (database selection, API style, config choices, etc.) resolved in the prior run so they are not lost on resubmission.
 
 Prefix resolution order for exact-path lookup:
 
