@@ -281,10 +281,12 @@ The orchestrator coordinates specialized agent roles across pipeline phases. Eac
 | **Coder** | Write code, create commits, push branches |
 | **Tester** | Find gaps in implementation, write and run tests, run linters/type checkers, apply auto-fixes |
 | **Documenter** | Update docs and READMEs |
-| **Reviewer (Code)** | Security, correctness, code quality, testing, documentation |
+| **Reviewer (Code)** | Security, correctness, code quality, testing, documentation. On large diffs (~10 changed files OR ~500 LOC) self-gates and partitions the change set across Claude Agent SDK `Task` subagents along the implement-phase task list ([#1965](https://github.com/jwbron/egg/issues/1965)); see [Concurrent Execution: Implement-phase `reviewer_code` Subagent Fan-Out](../guides/concurrent-execution.md#implement-phase-reviewer_code-subagent-fan-out). |
 | **Reviewer (Contract)** | Verify acceptance criteria met, task completion status |
+| **Reviewer (Security)** _(ADVISORY)_ | Security-lens review focused on cross-file allowlist mismatches, handler-vs-validator path mismatches, uncommitted-artifact / Dockerfile-symlink mismatches, secret leakage, and cross-file OWASP top-10 patterns. Criteria: [`shared/prompts/security-review-criteria.md`](../../shared/prompts/security-review-criteria.md). NACKs are recorded but do not deadlock consensus until [#1997](https://github.com/jwbron/egg/issues/1997)'s severity-tagged NACK signalling lands. |
+| **Reviewer (Concurrency)** _(ADVISORY)_ | Concurrency-lens review focused on race conditions, deadlocks, shared-state mutation, retry storms, resource-cleanup ordering, and BRC-protocol invariants. Criteria: [`shared/prompts/concurrency-review-criteria.md`](../../shared/prompts/concurrency-review-criteria.md). Same ADVISORY semantics as Reviewer (Security). |
 
-**Execution model**: All implement phase agents run concurrently via the BRC consensus protocol. Agents communicate via the orchestrator message bus and reach phase completion through peer consensus.
+**Execution model**: All implement phase agents run concurrently via the BRC consensus protocol. Agents communicate via the orchestrator message bus and reach phase completion through peer consensus. The two ADVISORY lens reviewers run alongside the critical reviewers on the same change set; promotion from ADVISORY to CRITICAL is gated on [#1997](https://github.com/jwbron/egg/issues/1997).
 
 ### Prompt Context Scoping
 
