@@ -955,21 +955,25 @@ class TestRuntimeStateLeakageOnBranchReuse:
     @patch("routes.pipelines.get_gateway_client")
     @patch("routes.pipelines.get_state_store")
     @patch("routes.pipelines.get_repo_path")
-    def test_post_clears_real_state_left_by_prior_failed_run(
+    def test_post_clears_real_runtime_state(
         self, mock_repo_path, mock_get_store, mock_gw_client, client
     ):
-        """POST evicts real Redis/in-memory state from a prior auto-FAILED run.
+        """POST evicts real Redis/in-memory state at the route level.
 
-        This is the integration variant of ``test_create_clears_runtime_state``
-        that exercises the explicit motivation for the POST-site clear:
-        auto-FAILED paths (restart_agent spawn failure,
-        _fail_pipeline_for_pr_creation_failure) write status=FAILED
+        Integration variant of ``test_create_clears_runtime_state`` that
+        exercises the real ``_clear_pipeline_runtime_state`` helper (no
+        mock) through the route handler. Seeds the three backends
+        (``PeerConsensusTracker``, the legacy evaluator, the message
+        store), POSTs a fresh pipeline with the same id, and asserts
+        every backend is empty afterwards.
+
+        This is the route-level safety net for the POST-site clear's
+        primary motivation: auto-FAILED paths (restart_agent spawn
+        failure, _handle_pr_creation_failure) write status=FAILED
         directly via ``store.update_pipeline`` / ``store.save_pipeline``,
-        bypassing PATCH and therefore bypassing the PATCH-site clear. The
-        POST clear is the only safety net for those paths. Seeds real
-        backend state (no mocked ``_clear_pipeline_runtime_state``), POSTs
-        a fresh pipeline with the same id, and asserts every backend is
-        empty afterwards.
+        bypassing PATCH and therefore bypassing the PATCH-site clear.
+        The seeding here represents the residual state such a path would
+        leave behind, not a literal auto-FAILED prior pipeline.
         """
         from consensus import ReadinessState, get_consensus_evaluator
         from message_store import Message, get_message_store

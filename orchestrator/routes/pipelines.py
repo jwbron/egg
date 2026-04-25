@@ -1482,7 +1482,7 @@ def create_pipeline() -> tuple[Response, int]:
         #
         # This is the *primary* eviction site for auto-FAILED prior runs,
         # not just a defensive backstop: paths like restart_agent spawn
-        # failure and _fail_pipeline_for_pr_creation_failure call
+        # failure and _handle_pr_creation_failure call
         # store.update_pipeline / store.save_pipeline directly (bypassing
         # PATCH), so the PATCH-site clear never fires for them. Without
         # this POST-site clear, those auto-FAILED pipelines would leak
