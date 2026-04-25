@@ -1898,8 +1898,11 @@ class TestHeartbeatRoute:
         *after* dedup, so an agent stuck in ``WORKING`` through a long
         compute (e.g. a slow ``make test``) would emit identical
         heartbeats that were dropped before refreshing the session.  The
-        fan-out now runs above dedup so every well-formed heartbeat
-        counts as gateway-session liveness.
+        fan-out now runs *between* dedup and rate-limit (see
+        ``routes/messages.py``): the dedup early-return invokes it so
+        unchanged-state heartbeats still count as gateway-session
+        liveness, while rate-limited heartbeats do not amplify into the
+        gateway.
         """
         with app.test_request_context():
             mock_gw_client = MagicMock()

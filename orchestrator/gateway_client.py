@@ -596,9 +596,16 @@ class GatewayClient:
             )
             return result.get("success", False)
         except GatewayError as e:
+            # Log the full container_id (not a secret — already shows up
+            # in k8s `get pods` output) so the failing pipeline+role is
+            # identifiable from #2068's exact failure mode.  The sibling
+            # ``delete_session_by_container`` truncates to 12 chars
+            # (``egg-agent-is`` for realistic ids), which loses both
+            # pipeline and role; reviewer NB4 on #2076 flagged that as
+            # un-debuggable here even if it's pre-existing there.
             logger.warning(
                 "Failed to heartbeat session by container",
-                container_id=container_id[:12] if len(container_id) >= 12 else container_id,
+                container_id=container_id,
                 error=str(e),
             )
             return False
