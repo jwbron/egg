@@ -2667,9 +2667,7 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
             cfg = getattr(pipeline, "config", None)
             if cfg is not None:
                 data["config"] = {
-                    "overseer_advisor_model": getattr(
-                        cfg, "overseer_advisor_model", None
-                    ),
+                    "overseer_advisor_model": getattr(cfg, "overseer_advisor_model", None),
                     "overseer_auto_file_issues_mode": getattr(
                         cfg, "overseer_auto_file_issues_mode", None
                     ),

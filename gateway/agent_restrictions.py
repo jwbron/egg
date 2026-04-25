@@ -313,8 +313,7 @@ def check_overseer_gh_issue_create(
         return OverseerGhCheckResult(
             allowed=False,
             reason=(
-                f"title exceeds {OVERSEER_FILE_ISSUE_TITLE_MAX_CHARS} chars "
-                f"(got {len(title)})"
+                f"title exceeds {OVERSEER_FILE_ISSUE_TITLE_MAX_CHARS} chars (got {len(title)})"
             ),
         )
 
@@ -323,8 +322,7 @@ def check_overseer_gh_issue_create(
         return OverseerGhCheckResult(
             allowed=False,
             reason=(
-                f"body exceeds {OVERSEER_FILE_ISSUE_BODY_MAX_BYTES} bytes "
-                f"(got {len(body_bytes)})"
+                f"body exceeds {OVERSEER_FILE_ISSUE_BODY_MAX_BYTES} bytes (got {len(body_bytes)})"
             ),
         )
 
@@ -355,8 +353,7 @@ def check_overseer_gh_issue_create(
     bad_agent_labels = [
         label
         for label in labels
-        if label.lower().startswith("agent:")
-        and label.lower() != OVERSEER_REQUIRED_LABEL
+        if label.lower().startswith("agent:") and label.lower() != OVERSEER_REQUIRED_LABEL
     ]
     if bad_agent_labels:
         return OverseerGhCheckResult(
@@ -387,7 +384,7 @@ def check_overseer_gh_issue_create(
     )
 
 
-__all__ = list(__all__) + [  # type: ignore[name-defined]
+__all__ = list(__all__) + [
     "OVERSEER_FILE_ISSUE_TITLE_MAX_CHARS",
     "OVERSEER_FILE_ISSUE_BODY_MAX_BYTES",
     "OVERSEER_REQUIRED_LABEL",

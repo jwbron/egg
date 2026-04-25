@@ -65,9 +65,7 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
         "[REDACTED:slack-webhook]",
     ),
     (
-        re.compile(
-            r"\b(?:GITHUB_TOKEN|GH_TOKEN|ANTHROPIC_API_KEY)\s*=\s*\S+"
-        ),
+        re.compile(r"\b(?:GITHUB_TOKEN|GH_TOKEN|ANTHROPIC_API_KEY)\s*=\s*\S+"),
         "[REDACTED:env-export]",
     ),
 ]
@@ -78,8 +76,7 @@ _PATTERNS: list[tuple[re.Pattern[str], str]] = [
 # pattern source colocated avoids drift between the scrubber and the
 # defense-in-depth gateway check.
 SECRET_PATTERN_KINDS: list[tuple[re.Pattern[str], str]] = [
-    (compiled, marker.removeprefix("[REDACTED:").rstrip("]"))
-    for compiled, marker in _PATTERNS
+    (compiled, marker.removeprefix("[REDACTED:").rstrip("]")) for compiled, marker in _PATTERNS
 ]
 
 

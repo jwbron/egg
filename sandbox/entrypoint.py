@@ -591,9 +591,7 @@ def setup_environment(config: Config) -> None:
     # pipeline filing an issue against the wrong repo is worse than a
     # hard abort here. Skipped for the local CLI flow which doesn't
     # run the overseer.
-    if "EGG_PIPELINE_REPO" not in os.environ and os.environ.get(
-        "EGG_AGENT_ROLE"
-    ) in {"overseer"}:
+    if "EGG_PIPELINE_REPO" not in os.environ and os.environ.get("EGG_AGENT_ROLE") in {"overseer"}:
         # Structured stderr line so operators can grep for the symptom.
         # We don't have access to the structured Logger here (setup_environment
         # runs before logger is wired through), so write straight to stderr.

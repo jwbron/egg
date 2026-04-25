@@ -65,8 +65,7 @@ CONSULT_ADVISOR_TOOL: dict[str, Any] = {
             "classification": {
                 "type": "object",
                 "description": (
-                    "Haiku's classification output (anomaly_type, "
-                    "confidence, reasoning)."
+                    "Haiku's classification output (anomaly_type, confidence, reasoning)."
                 ),
             },
             "health_alerts": {
@@ -117,8 +116,7 @@ async def handle_consult_advisor(
         return {
             "ok": False,
             "error": (
-                f"consult_advisor: only the 'overseer' role may call this "
-                f"tool (got role={role!r})"
+                f"consult_advisor: only the 'overseer' role may call this tool (got role={role!r})"
             ),
         }
 

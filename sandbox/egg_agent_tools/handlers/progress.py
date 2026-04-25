@@ -246,8 +246,7 @@ def progress_overseer_alert(req: dict[str, Any]) -> dict[str, Any]:
         encoded = _json.dumps(recommendation_payload).encode("utf-8")
         if len(encoded) > _MAX_RECOMMENDATION_PAYLOAD_BYTES:
             raise HandlerError(
-                f"'recommendation_payload' exceeds "
-                f"{_MAX_RECOMMENDATION_PAYLOAD_BYTES} bytes"
+                f"'recommendation_payload' exceeds {_MAX_RECOMMENDATION_PAYLOAD_BYTES} bytes"
             )
         data["recommendation_payload"] = recommendation_payload
         data["schema_version"] = _OVERSEER_ALERT_SCHEMA_VERSION

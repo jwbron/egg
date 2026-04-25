@@ -74,17 +74,12 @@ class AdvisorVerdict(BaseModel):
         if self.decision == "file_issue":
             if not self.issue_title or not self.issue_body:
                 raise ValueError(
-                    "AdvisorVerdict: decision='file_issue' requires both "
-                    "issue_title and issue_body"
+                    "AdvisorVerdict: decision='file_issue' requires both issue_title and issue_body"
                 )
             if not self.priority:
-                raise ValueError(
-                    "AdvisorVerdict: decision='file_issue' requires a priority"
-                )
+                raise ValueError("AdvisorVerdict: decision='file_issue' requires a priority")
         if self.decision == "alert" and not self.alert_summary:
-            raise ValueError(
-                "AdvisorVerdict: decision='alert' requires alert_summary"
-            )
+            raise ValueError("AdvisorVerdict: decision='alert' requires alert_summary")
         return self
 
 
@@ -167,11 +162,7 @@ async def consult_advisor(
         AdvisorParseError: if the SDK response does not parse to a
             valid AdvisorVerdict.
     """
-    model = (
-        config.overseer_advisor_model
-        if config is not None
-        else "claude-opus-4-6"
-    )
+    model = config.overseer_advisor_model if config is not None else "claude-opus-4-6"
     prompt = _build_prompt(
         classification=classification,
         health_alerts=health_alerts,

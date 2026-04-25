@@ -112,9 +112,7 @@ def _ensure_parent(path: str | os.PathLike[str]) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
 
 
-def append_filed_issue(
-    path: str | os.PathLike[str], record: FiledIssueRecord
-) -> None:
+def append_filed_issue(path: str | os.PathLike[str], record: FiledIssueRecord) -> None:
     """Append one ``FiledIssueRecord`` to ``path``.
 
     Writes the header line on first creation. Each record line is
@@ -178,9 +176,7 @@ def load_filed_issues(
                 f"load_filed_issues: header line is not valid JSON: {first!r}"
             ) from exc
         if header.get("_kind") != "header":
-            raise ValueError(
-                f"load_filed_issues: header line missing _kind=header: {header!r}"
-            )
+            raise ValueError(f"load_filed_issues: header line missing _kind=header: {header!r}")
         if header.get("schema_version") != 1:
             raise ValueError(
                 f"load_filed_issues: unknown schema_version "
@@ -236,9 +232,7 @@ def _file_lock(path: Path) -> Iterator[None]:
         os.close(fd)
 
 
-def load_agent_timing(
-    path: str | os.PathLike[str], *, pipeline_id: str = ""
-) -> AgentTimingState:
+def load_agent_timing(path: str | os.PathLike[str], *, pipeline_id: str = "") -> AgentTimingState:
     """Load ``agent-timing.json`` (returns a fresh state if missing).
 
     Acquires the flock for the read step so concurrent writers cannot
@@ -263,9 +257,7 @@ def load_agent_timing(
     return AgentTimingState.model_validate(payload)
 
 
-def save_agent_timing(
-    state: AgentTimingState, path: str | os.PathLike[str]
-) -> None:
+def save_agent_timing(state: AgentTimingState, path: str | os.PathLike[str]) -> None:
     """Persist ``state`` to ``path`` atomically via tempfile + rename.
 
     Acquires the flock for the read-modify-write critical section even
@@ -328,9 +320,7 @@ def compute_anomaly_signature(
         16-character hex string (the leading 16 hex digits of SHA-1).
     """
     sorted_tier1 = sorted(tier1_alert_types)
-    payload = "|".join(
-        [anomaly_type, agent_role, repo, ",".join(sorted_tier1)]
-    )
+    payload = "|".join([anomaly_type, agent_role, repo, ",".join(sorted_tier1)])
     digest = hashlib.sha1(payload.encode("utf-8"), usedforsecurity=False).hexdigest()
     return digest[:16]
 

@@ -1573,7 +1573,7 @@ def cmd_overseer_file_issue(args: argparse.Namespace) -> int:
         anomaly_signature=args.anomaly_signature,
     )
     if existing is not None:
-        result = {
+        result: dict[str, Any] = {
             "issue_number": existing,
             "filed": False,
             "dedup_match": existing,
@@ -1582,8 +1582,7 @@ def cmd_overseer_file_issue(args: argparse.Namespace) -> int:
             print_json(result)
         else:
             print(
-                f"Existing issue #{existing} already covers this anomaly; "
-                f"skipping gh issue create."
+                f"Existing issue #{existing} already covers this anomaly; skipping gh issue create."
             )
         # Structured log line for metrics.
         import logging as _logging
@@ -1623,7 +1622,7 @@ def cmd_overseer_file_issue(args: argparse.Namespace) -> int:
     ]
 
     if args.dry_run:
-        result = {
+        dry_result: dict[str, Any] = {
             "issue_number": None,
             "filed": False,
             "dedup_match": None,
@@ -1632,7 +1631,7 @@ def cmd_overseer_file_issue(args: argparse.Namespace) -> int:
             "title": title,
             "body_bytes": len(body_bytes),
         }
-        print_json(result)
+        print_json(dry_result)
         return 0
 
     import subprocess as _subprocess
@@ -1682,9 +1681,7 @@ def cmd_overseer_file_issue(args: argparse.Namespace) -> int:
                 pipeline_id=os.environ.get("EGG_PIPELINE_ID", ""),
                 phase=os.environ.get("EGG_PHASE", ""),
                 filed_at=datetime.now(UTC),
-                parent_alert_message_id=getattr(
-                    args, "parent_alert_message_id", None
-                ),
+                parent_alert_message_id=getattr(args, "parent_alert_message_id", None),
                 hitl_outcome="filed",
             ),
         )
@@ -1715,13 +1712,13 @@ def cmd_overseer_file_issue(args: argparse.Namespace) -> int:
         },
     )
 
-    result = {
+    filed_result: dict[str, Any] = {
         "issue_number": issue_number,
         "filed": True,
         "dedup_match": None,
     }
     if args.json:
-        print_json(result)
+        print_json(filed_result)
     else:
         print(f"Filed issue #{issue_number} ({args.anomaly_type}, {args.priority})")
     return 0

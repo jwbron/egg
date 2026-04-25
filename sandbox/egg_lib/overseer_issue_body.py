@@ -21,6 +21,7 @@ import os
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from egg_overseer.issue_template import TEMPLATE_LITERAL
 from egg_overseer.scrubbing import scrub_secrets
@@ -32,9 +33,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_FILED_ISSUES_PATH = ".egg-state/oversight/filed-issues.jsonl"
 
 
-def compose_issue_title(
-    *, anomaly_type: str, agent_role: str, anomaly_signature: str
-) -> str:
+def compose_issue_title(*, anomaly_type: str, agent_role: str, anomaly_signature: str) -> str:
     """Compose the issue title with the 8-char signature embedded.
 
     Format: ``[Pipeline Diagnostic] {anomaly_type} - {agent_role} [{sig8}]``.
@@ -69,10 +68,10 @@ def compose_issue_body(
     branch: str,
     commit_sha: str,
     parent_alert_message_id: str,
-    classification: dict | None = None,
+    classification: dict[str, Any] | None = None,
     recent_log_lines: list[str] | None = None,
-    health_alerts: list[dict] | None = None,
-    timeline: list[dict] | None = None,
+    health_alerts: list[dict[str, Any]] | None = None,
+    timeline: list[dict[str, Any]] | None = None,
     actions_taken: list[str] | None = None,
     suggested_remediation: str | None = None,
     repo: str | None = None,
@@ -108,8 +107,7 @@ def compose_issue_body(
 
     if timeline:
         timeline_lines = "\n".join(
-            f"- `{entry.get('timestamp', '?')}`: {entry.get('event', '?')}"
-            for entry in timeline
+            f"- `{entry.get('timestamp', '?')}`: {entry.get('event', '?')}" for entry in timeline
         )
     else:
         timeline_lines = "- No timeline events recorded"
@@ -128,9 +126,7 @@ def compose_issue_body(
     else:
         actions_lines = "- No corrective actions taken yet"
 
-    remediation = suggested_remediation or (
-        "Investigate the agent logs and pipeline state"
-    )
+    remediation = suggested_remediation or ("Investigate the agent logs and pipeline state")
 
     container_logs_section = ""
     if recent_log_lines:
@@ -148,9 +144,7 @@ def compose_issue_body(
         alerts_block = "\n".join(
             f"- `{a.get('type', '?')}`: {a.get('detail', '')}" for a in health_alerts
         )
-        actions_lines = (
-            f"{actions_lines}\n\n#### Active Tier-1 health alerts\n{alerts_block}"
-        )
+        actions_lines = f"{actions_lines}\n\n#### Active Tier-1 health alerts\n{alerts_block}"
 
     body = TEMPLATE_LITERAL.format(
         anomaly_type=anomaly_type,
@@ -260,9 +254,7 @@ def find_existing_issue(
             timeout=30,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
-        logger.warning(
-            "find_existing_issue: gh fallback failed: %s", exc
-        )
+        logger.warning("find_existing_issue: gh fallback failed: %s", exc)
         return None
     if proc.returncode != 0:
         logger.warning(

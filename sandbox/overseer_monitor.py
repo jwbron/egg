@@ -180,7 +180,7 @@ def _suppress(
     if last is None:
         return False
     delta = (now - last).total_seconds()
-    return delta < (_SUPPRESSION_FACTOR * threshold_seconds)
+    return bool(delta < (_SUPPRESSION_FACTOR * threshold_seconds))
 
 
 def run_migrated_detectors(
@@ -295,27 +295,17 @@ def run_migrated_detectors(
         entry.has_any_messages = True
         entry.last_alerted_at = entry.last_alerted_at  # idempotent
 
-    stall_threshold = _config_int(
-        config_subset, "overseer_agent_stall_seconds", 180
-    )
-    silent_threshold = _config_int(
-        config_subset, "overseer_silent_agent_threshold_seconds", 600
-    )
-    nack_threshold = _config_int(
-        config_subset, "overseer_nack_unresolved_seconds", 180
-    )
-    long_run_threshold = _config_int(
-        config_subset, "overseer_long_running_phase_seconds", 3600
-    )
+    stall_threshold = _config_int(config_subset, "overseer_agent_stall_seconds", 180)
+    silent_threshold = _config_int(config_subset, "overseer_silent_agent_threshold_seconds", 600)
+    nack_threshold = _config_int(config_subset, "overseer_nack_unresolved_seconds", 180)
+    long_run_threshold = _config_int(config_subset, "overseer_long_running_phase_seconds", 3600)
 
     alerts: list[dict[str, Any]] = []
 
     for role_name, entry in list(state.entries.items()):
         # detect_agent_stall — phase_entered_at older than threshold.
         elapsed = (now - entry.phase_entered_at).total_seconds()
-        if elapsed > stall_threshold and not _suppress(
-            entry, "agent-stall", stall_threshold, now
-        ):
+        if elapsed > stall_threshold and not _suppress(entry, "agent-stall", stall_threshold, now):
             alerts.append(
                 {
                     "anomaly": "agent-stall",
@@ -390,9 +380,7 @@ def run_migrated_detectors(
                     "anomaly": "agent-nack-unresolved",
                     "priority": "high",
                     "role": nack_role,
-                    "summary": (
-                        f"NACK from {nack_role} unresolved for {int(elapsed_n)}s"
-                    ),
+                    "summary": (f"NACK from {nack_role} unresolved for {int(elapsed_n)}s"),
                     "detail": (
                         f"NACK timestamp {ts}; threshold {nack_threshold}s. "
                         f"Producer should re-propose or the human should rule."
@@ -429,9 +417,7 @@ def run_migrated_detectors(
                         first_seen_at=phase_started,
                     ),
                 )
-                if not _suppress(
-                    synth, "phase-long-running", long_run_threshold, now
-                ):
+                if not _suppress(synth, "phase-long-running", long_run_threshold, now):
                     alerts.append(
                         {
                             "anomaly": "phase-long-running",
@@ -442,10 +428,7 @@ def run_migrated_detectors(
                                 f"{int(elapsed_p)}s "
                                 f"(> {long_run_threshold}s threshold)"
                             ),
-                            "detail": (
-                                f"earliest phase_entered_at "
-                                f"{phase_started.isoformat()}."
-                            ),
+                            "detail": (f"earliest phase_entered_at {phase_started.isoformat()}."),
                             "calibration_only": calibration_only,
                         }
                     )
