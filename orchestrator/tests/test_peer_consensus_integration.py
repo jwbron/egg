@@ -3077,9 +3077,10 @@ class TestIsProducerPendingConfirm:
         # Advisory ACK still required for reviewer to satisfy "must have
         # reviewed" guard, even though it doesn't gate is_fully_acked.
         t.handle_ack("reviewer_code", "documenter", {"artifact_references": ["d.md"]})
-        # Reviewer must confirm before producers can confirm cleanly
-        result = t.handle_confirmed("reviewer_code")
-        assert result["status"] in ("confirmed", "partially_confirmed")
+        # documenter's confirm doesn't depend on the reviewer having
+        # confirmed first — check_confirm_guard only gates on
+        # global_zero_proposal + producer_not_fully_acked. We jump
+        # straight to the producer's own confirm.
         result = t.handle_confirmed("documenter")
         assert result["status"] == "confirmed"
         assert not t.is_producer_pending_confirm("documenter")

@@ -384,15 +384,19 @@ def _check_producer_pending_confirm_guard(
     blocking = _PRODUCER_PENDING_CONFIRM_REJECTED_FOR_TYPES.intersection(wait_for_types)
     if not blocking:
         return None
+    # The guard intentionally ignores ``from_role`` — even a wait
+    # narrowly scoped to a peer's per-agent CONSENSUS_CONFIRMED is
+    # still part of a chain that requires this producer's own confirm
+    # to fire first. No documented producer pattern waits this way
+    # while in WORKING/PROPOSED, so the over-rejection is harmless;
+    # any future cross-producer sync that wants to bypass it should
+    # update both this guard and the wait_loop client contract.
     try:
         from peer_consensus import get_peer_consensus_tracker
-    except ImportError:  # pragma: no cover - import-shim parity with other routes
-        try:
-            from ..peer_consensus import (  # type: ignore[no-redef,import-not-found]
-                get_peer_consensus_tracker,
-            )
-        except ImportError:
-            return None
+    except ImportError:
+        get_peer_consensus_tracker = None  # type: ignore[assignment]
+    if not get_peer_consensus_tracker:
+        return None
     tracker = get_peer_consensus_tracker(pipeline_id)
     if tracker is None:
         return None

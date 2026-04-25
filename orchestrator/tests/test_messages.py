@@ -1706,6 +1706,45 @@ class TestProducerPendingConfirmGuard:
                 resp = self._wait(client, role="documenter")
                 assert resp.status_code == 200
 
+    def test_dual_role_tester_in_proposed_blocked(self, client, app, implement_tracker):
+        """Dual-role tester (producer + implicit reviewer surface in some
+        graphs) is still blocked by the guard while in PROPOSED — its
+        producer phase has not yet transitioned to CONFIRMED, so the
+        deadlock condition still holds. Locks the helper's contract for
+        the tester-specific case."""
+        implement_tracker.handle_propose(
+            "tester",
+            {
+                "summary": (
+                    "Added integration tests covering the new fan-out "
+                    "thresholds, partition boundaries, and parent "
+                    "cross-partition consistency invariants."
+                ),
+                "artifacts": ["orchestrator/tests/test_fan_out.py"],
+                "commit_sha": "abc1234",
+            },
+        )
+        with app.test_request_context():
+            with (
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=implement_tracker,
+                ),
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = self._wait(client, role="tester")
+                assert resp.status_code == 400
+                msg = json.loads(resp.data)["message"]
+                assert "tester" in msg
+                assert "CONSENSUS_CONFIRMED" in msg
+                assert "#2064" in msg
+
     def test_reviewer_only_role_passes(self, client, app, implement_tracker):
         """Reviewer-only roles may wait on CONSENSUS_CONFIRMED at any
         time — they have no producer-side confirm of their own to
