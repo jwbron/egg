@@ -225,9 +225,9 @@ When `POST /api/v1/git/push` encounters files outside the pushing role's allowed
 
 | Own-file state | Pulled commits in range | Outcome | Response fields |
 |----------------|-------------------------|---------|-----------------|
-| All allowed | None | Plain push | `pushed_commits`, `pulled_commits: []` |
-| All allowed | Some | Plain push; pulled commits exempt | `pushed_commits`, `pulled_commits: [{sha, author_role}]` |
-| Any own-file blocked | Any | **Rejected** `403 restricted_path_modified` | `role`, `blocked_paths`, `recommended_action`, `doc_ref` |
+| All allowed | None | Plain push | `pushed_files`, `pulled_commits: []` |
+| All allowed | Some | Plain push; pulled commits exempt | `pushed_files`, `pulled_commits: [{sha, author_role}]` |
+| Any own-file blocked | Any | **Rejected** `403 restricted_path_modified` | `role`, `blocked_paths`, `recommended_action`, `doc_ref`, `pulled_commits`, `attribution_fallback` |
 
 Phase / anchor / protected-file / branch-ownership / private-mode / concurrent-mode checks also return `403`.
 

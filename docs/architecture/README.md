@@ -187,7 +187,7 @@ The SDLC pipeline orchestrates agent-based development with structurally enforce
 
 - [Custom Harness](custom-harness.md) - Multi-provider agent runtime with owned context management
 - [Git Isolation](git-isolation.md) - Worktree isolation via gateway
-- [Gateway Auto-Filter](gateway-auto-filter.md) - Per-commit push rewriter and commit-authorship registry for cross-role pushes
+- [Gateway Auto-Filter](gateway-auto-filter.md) - Restricted-path rejection on push and the commit-authorship registry that backs attribution
 - [Credential Injection](credential-injection.md) - Zero-credential sandbox with API key proxy
 - [Network Isolation](network-isolation.md) - Public/private network modes
 - [SDLC Pipeline](sdlc-pipeline.md) - Structurally enforced agent checkpoints

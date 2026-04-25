@@ -129,5 +129,5 @@ The gateway's commit-authorship client calls the orchestrator's `/api/v1/commit-
 ## Related documents
 
 - [Git Isolation Architecture](git-isolation.md) — parent document covering the gateway's policy-enforcement model.
-- [Agent Development Guide: Push Filtering](../guides/agent-development.md#push-filtering-and-cross-role-pushes) — operational view for agent authors.
+- [Agent Development Guide: Push Enforcement](../guides/agent-development.md#push-enforcement-and-cross-role-pushes) — operational view for agent authors.
 - [`sandbox/agent-config/rules/push-recovery.md`](../../sandbox/agent-config/rules/push-recovery.md) — runtime rule surfaced to sandboxed agents.
