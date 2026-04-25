@@ -168,10 +168,29 @@
       "resolution": "{\"action\": \"approve\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Where should the repo-defaults config file live in a target repo?",
+      "context": "Open contract question decision-1, registered by an agent during the refine phase.",
+      "options": [
+        ".egg/repositories.yaml (Recommended — matches existing repo-side .egg/ schemas dir and leaves room for future repo-scoped egg artifacts)",
+        "egg.yaml at the repo root (visible in `ls`, easy to mention in docs, but adds top-level clutter)",
+        ".egg.yaml at the repo root (compromise: hidden but single-file, discoverable via `ls -a`)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T23:29:20.586407Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T23:09:30.400320Z",
-  "updated_at": "2026-04-25T23:29:18.598495Z",
+  "updated_at": "2026-04-25T23:29:20.609944Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -185,6 +204,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 12,
+  "version": 13,
   "jira_ticket": null
 }
