@@ -1493,7 +1493,7 @@ Agents emit structured progress via `egg-orch progress emit --step <text> --stat
 When Tier 1 escalates an anomaly (and `overseer_enabled` is true in PipelineConfig), the overseer uses a two-model approach:
 
 1. **Haiku classifier** — fast, cheap classification: `stuck`, `legitimate_work`, `recoverable`, `fatal`, `loop_detected`, `off_track`
-2. **Sonnet/Opus decision maker** — deeper analysis producing actions: `redirect` (send corrective message), `file_issue` (create GitHub issue with `overseer-alert` label), `escalate_hitl` (create HITL decision), or `no_action`
+2. **Sonnet/Opus decision maker** — deeper analysis producing actions: `redirect` (send corrective message), `file_issue` (create GitHub issue with `agent:overseer` label plus the matching priority label `p0`/`p1`/`p2`/`p3` per issue [#1962](https://github.com/jwbron/egg/issues/1962)), `escalate_hitl` (create HITL decision), or `no_action`
 
 ### Escalation Ladder
 

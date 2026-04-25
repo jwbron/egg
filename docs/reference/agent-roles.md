@@ -334,7 +334,7 @@ each surface so reviewers know to keep them in sync.
 
 **File access**:
 - Allowed writes: `.egg-state/oversight/` (structured oversight logs, dedup state, per-agent timing). The two state files are owned by the overseer:
-  - `.egg-state/oversight/filed-issues.jsonl` — append-only JSON Lines record of recommended/filed/skipped issue filings (intra-phase dedup fast path; cross-phase fallback uses `gh issue list --search "{anomaly_signature[:8]}"`).
+  - `.egg-state/oversight/filed-issues.jsonl` — append-only JSON Lines record of recommended/filed/skipped issue filings (intra-phase dedup fast path; cross-phase fallback uses `gh issue list --search "{anomaly_signature[:8]}"`). Schema at `egg_overseer.state.FiledIssueRecord`; helpers `load_filed_issues` / `append_filed_issue` (header-on-first-create).
   - `.egg-state/oversight/agent-timing.json` — per-agent phase-entered timestamps and per-anomaly suppression state migrated from `/sdlc`'s in-memory map. Schemas at `egg_overseer.state.AgentTimingState` / `AgentTimingEntry`; read/modify/write is `fcntl.LOCK_EX`-guarded by `.egg-state/oversight/agent-timing.lock`. Helpers `load_agent_timing` / `save_agent_timing` (atomic tmp+rename) and `load_filed_issues` / `append_filed_issue` (header-on-first-create) live in the same module.
 - Blocked: All source code, tests, docs, configs, contracts, drafts, reviews
 
@@ -344,7 +344,7 @@ each surface so reviewers know to keep them in sync.
 **Access**:
 - Orchestrator APIs: pipeline status, container logs, progress queries, health alerts, message bus
 - Orchestrator MCP tool: `mcp__overseer__consult_advisor` (auth-gated to overseer role; tool registration at `orchestrator/mcp/tools/overseer_advisor.py` — `CONSULT_ADVISOR_TOOL` schema + `handle_consult_advisor` handler — forwards to `egg_overseer.advisor.consult_advisor()`)
-- GitHub API: `gh issue create` for diagnostic issue filing — gateway-mediated and constrained to `--repo $EGG_PIPELINE_REPO`, `agent:overseer` + priority labels (auto-injected if missing), title ≤ 120 chars, body ≤ 50 KB, no secret patterns (defense-in-depth scan)
+- GitHub API: `gh issue create` for diagnostic issue filing — gateway-mediated. Guardrails are codified in `gateway.agent_restrictions.check_overseer_gh_issue_create`: overseer-role-only, `--repo` must equal `$EGG_PIPELINE_REPO`, `agent:overseer` + priority labels auto-injected if missing, title ≤ 120 chars, body ≤ 50 KB, defense-in-depth secret scan via `egg_overseer.scrubbing.find_secret_kinds`. (As of issue [#1962](https://github.com/jwbron/egg/issues/1962) the function is defined and unit-tested; final wiring into the live `gh` request path is part of the same PR — verify on the merged commit before relying on the gateway-side enforcement.)
 - `egg-orch message send` to redirect individual agents
 - `egg-orch overseer alert` to broadcast `OVERSEER_ALERT` notifications to the human operator (always uses `message_type=OVERSEER_ALERT` and `to_role=all`)
 - `egg-orch overseer file-issue` to file a GitHub issue once a HITL approval has resolved the recommendation. Required flags: `--anomaly-type`, `--priority` (`p0|p1|p2|p3`), `--agent-role`, `--anomaly-signature` (16-hex), `--issue-title-file`, `--issue-body-file`. Optional: `--parent-alert-message-id`, `--dry-run`. The verb runs `find_existing_issue(...)` first and skips `gh` if a dedup match is found.
