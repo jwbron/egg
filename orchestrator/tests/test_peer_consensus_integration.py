@@ -3074,9 +3074,6 @@ class TestIsProducerPendingConfirm:
             {"summary": "y" * 60, "artifacts": ["d.md"], "commit_sha": "def5678"},
         )
         t.handle_ack("reviewer_code", "coder", {"artifact_references": ["a.py"]})
-        # Advisory ACK still required for reviewer to satisfy "must have
-        # reviewed" guard, even though it doesn't gate is_fully_acked.
-        t.handle_ack("reviewer_code", "documenter", {"artifact_references": ["d.md"]})
         # documenter's confirm doesn't depend on the reviewer having
         # confirmed first — check_confirm_guard only gates on
         # global_zero_proposal + producer_not_fully_acked. We jump

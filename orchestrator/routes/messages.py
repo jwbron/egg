@@ -376,6 +376,14 @@ def _check_producer_pending_confirm_guard(
     detector bail the pipeline out minutes later, we surface the bug
     immediately with an actionable error.
 
+    The guard intentionally ignores the route's ``from`` filter — even
+    a wait narrowly scoped to a peer's per-agent ``CONSENSUS_CONFIRMED``
+    is still part of a chain that requires this producer's own confirm
+    to fire first. No documented producer pattern waits this way while
+    in ``WORKING``/``PROPOSED``, so the over-rejection is harmless; any
+    future cross-producer sync that wants to bypass it should update
+    both this guard and the wait_loop client contract.
+
     Returns ``None`` when the wait should proceed; otherwise an error
     response tuple ready to return from the route.
     """
@@ -384,13 +392,6 @@ def _check_producer_pending_confirm_guard(
     blocking = _PRODUCER_PENDING_CONFIRM_REJECTED_FOR_TYPES.intersection(wait_for_types)
     if not blocking:
         return None
-    # The guard intentionally ignores ``from_role`` — even a wait
-    # narrowly scoped to a peer's per-agent CONSENSUS_CONFIRMED is
-    # still part of a chain that requires this producer's own confirm
-    # to fire first. No documented producer pattern waits this way
-    # while in WORKING/PROPOSED, so the over-rejection is harmless;
-    # any future cross-producer sync that wants to bypass it should
-    # update both this guard and the wait_loop client contract.
     try:
         from peer_consensus import get_peer_consensus_tracker
     except ImportError:

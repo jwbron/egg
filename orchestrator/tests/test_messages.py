@@ -1577,6 +1577,11 @@ class TestProducerPendingConfirmGuard:
                 ReviewEdge("reviewer_code", "tester", ReviewCriticality.CRITICAL),
                 ReviewEdge("reviewer_code", "documenter", ReviewCriticality.ADVISORY),
                 ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
+                # tester reviews coder in the default implement graph; this
+                # edge makes tester genuinely dual-role (producer + reviewer)
+                # so test_dual_role_tester_in_proposed_blocked locks the
+                # dual-role contract, not just the tester-as-producer case.
+                ReviewEdge("tester", "coder", ReviewCriticality.CRITICAL),
             ]
         )
         tracker = PeerConsensusTracker("test-pipeline", graph, cooldown_seconds=0)
@@ -1707,11 +1712,12 @@ class TestProducerPendingConfirmGuard:
                 assert resp.status_code == 200
 
     def test_dual_role_tester_in_proposed_blocked(self, client, app, implement_tracker):
-        """Dual-role tester (producer + implicit reviewer surface in some
-        graphs) is still blocked by the guard while in PROPOSED — its
-        producer phase has not yet transitioned to CONFIRMED, so the
-        deadlock condition still holds. Locks the helper's contract for
-        the tester-specific case."""
+        """Dual-role tester (producer of its own artifacts + reviewer of
+        coder, per the implement graph) is still blocked by the guard
+        while in PROPOSED — its producer phase has not yet transitioned
+        to CONFIRMED, so the deadlock condition still holds even though
+        the agent also has a reviewer phase. Locks the helper's contract
+        for the dual-role case."""
         implement_tracker.handle_propose(
             "tester",
             {
