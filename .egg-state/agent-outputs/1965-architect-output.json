@@ -91,15 +91,18 @@
       },
       {
         "id": "C5",
-        "name": "Subagent fan-out block inside reviewer_code prompt",
+        "name": "Subagent fan-out block inside reviewer_code prompt (with parent cross-partition pass)",
         "files": ["orchestrator/routes/pipelines.py"],
         "responsibilities": [
-          "Inside _build_review_prompt() under the existing if reviewer_type == 'code' branch, append a self-gated subagent fan-out instruction block that tells the reviewer to: (1) run git diff --numstat <base>...HEAD; (2) compute (files_changed, loc); (3) IF files_changed > 10 OR loc > 500 (decision-3 OR composition), call mcp__sdlc__show_contract and self-extract phases.implement.tasks[]; (4) partition the changed files by logical subsystem inferred from the task list, with one Task subagent per partition; (5) each Task subagent re-runs git diff <base>...HEAD itself and filters by path glob to its assigned partition (decision-4 — parent passes only the partition spec, not patch fragments); (6) each Task subagent reviews its partition against code-review-criteria.md and reports findings; (7) parent reviewer aggregates findings into a single ACK/NACK reason. Parallel vs sequential subagent dispatch obeys the contract field reviewer_code.parallel (passed in via prompt builder) — default parallel.",
-          "Provide an explicit fallback path: if implement-phase tasks are empty (e.g. custom-phase invocation), skip fan-out and review yourself end-to-end (decision-3B fallback).",
-          "Provide a 'log the gate decision' instruction telling the reviewer to emit a STATUS message (egg-orch message send --to all --type STATUS) recording 'Subagent fan-out: enabled (N partitions, M files, L LOC)' or '...skipped (below threshold)' so we can grep telemetry.",
+          "Inside _build_review_prompt() under the existing if reviewer_type == 'code' branch, append a self-gated subagent fan-out instruction block that tells the reviewer to: (1) run git diff --numstat <base>...HEAD; (2) compute (files_changed, loc); (3) IF files_changed > 10 OR loc > 500 (decision-3 OR composition), call mcp__sdlc__show_contract and self-extract phases.implement.tasks[]; (4) partition the changed files by logical subsystem inferred from the task list — with a soft cap of ≤6 subagents (when implement-phase tasks exceed 6, group adjacent / related tasks into combined partitions until the count falls to ≤6); (5) dispatch one Task subagent per partition (parallel by default per the contract's reviewer_code.parallel knob); (6) each Task subagent re-runs git diff <base>...HEAD -- <path-globs-for-its-partition> itself and reviews the slice against code-review-criteria.md, reporting findings as a structured list; each subagent caps its own wall-clock budget at ~5 minutes and emits an mcp__brc__send_heartbeat or mcp__progress__emit at start/end so the parent can detect stalls.",
+          "**(7) MANDATORY PARENT CROSS-PARTITION PASS** — after subagents return, the parent reviewer (still in the reviewer_code session) MUST run `git diff <base>...HEAD` itself (full unfiltered diff) and perform a cross-file invariants pass focused on the failure modes that PR #1964 actually exhibited: (a) handler ↔ allowlist consistency (does each route handler validate against the project/path allowlist its extractor advertises?); (b) route ↔ schema consistency (do request/response shapes match across files?); (c) fixture ↔ Dockerfile/runtime reference consistency (does every script/symlink/binary referenced by Dockerfile, compose files, or systemd units exist as a committed file in the diff or repo?); (d) any other cross-file invariants the lens reviewers (reviewer_security, reviewer_concurrency) flagged via their ADVISORY edges. The parent emits findings from this pass alongside the aggregated subagent findings in the final ACK/NACK reason. This step is REQUIRED by issue #1965's primary acceptance criterion (\"anything blocking should be caught and fixed inside the pipeline\"); without it, partition-spanning cross-file bugs (the exact PR #1964 ^project$ failure mode) slip through because day-1 reviewer_security/reviewer_concurrency are ADVISORY and cannot block consensus.",
+          "(8) Parent aggregates subagent findings + cross-partition-pass findings into a single ACK/NACK reason.",
+          "Provide an explicit fallback path: if implement-phase tasks are empty (e.g. custom-phase invocation), skip fan-out and review yourself end-to-end (decision-3B fallback). The mandatory parent cross-partition pass still runs (since you are the parent reviewing the full diff anyway).",
+          "MCP unavailability contingency for decision-2 (3B): if mcp__sdlc__show_contract is unreachable from the parent's session at fan-out time, the parent emits an mcp__progress__emit warning and falls back to skipping fan-out (review yourself end-to-end with the cross-partition pass). If MCP is reachable from the parent but unreachable from a Task subagent (e.g. the SDK does not propagate MCP server access into subagents — a load-bearing decision-10 assumption flagged in R-9 below), the parent fetches the partition spec via mcp__sdlc__show_contract once and inlines the partition list in each subagent prompt. Implementation should land a thin probe + fallback (one boolean check at fan-out time) so the implementation does not have to redesign mid-coding.",
+          "Provide a 'log the gate decision' instruction telling the reviewer to use mcp__brc__send_heartbeat (state=WORKING) or mcp__progress__emit (step='reviewer_code.fan_out', state='working', detail='...') recording 'Subagent fan-out: enabled (N partitions, M files, L LOC)' or '...skipped (below threshold)' or '...skipped (empty implement-phase tasks)'. Prefer the structured progress/heartbeat surfaces over `egg-orch message send --type STATUS` because they are easier to grep historically and are persisted on the orchestrator's progress bus.",
           "Pull the parallelism knob via a new optional argument on _build_review_prompt() and on _build_phase_prompt() (reviewer_code_parallel: bool = True), defaulted from get_effective_phase_config(contract, IMPLEMENT).reviewer_code.parallel. Thread it from the call site at L8318 where the contract is in scope (or fall back to True if the contract is None / phase_configs absent)."
         ],
-        "rationale": "Pure prompt change for the reviewer's behaviour (decision-2B + decision-3B + decision-4). The parallelism flag is the ONLY orchestrator-side wiring needed and lives entirely on the contract via existing PhaseConfig override semantics. No diff plumbing in Python (Option 2A rejected); no contract loader in Python (Option 3A rejected); no patch-fragment slicing in the parent (decision-4 keeps the parent's job small)."
+        "rationale": "Pure prompt change for the reviewer's behaviour (decision-2B + decision-3B + decision-4). The mandatory parent cross-partition pass (step 7) closes the cross-file blind spot that motivated issue #1965 in the first place — without it, the architecture would reproduce the PR #1964 failure mode by construction. The parallelism flag is the ONLY orchestrator-side wiring needed and lives entirely on the contract via existing PhaseConfig override semantics. No diff plumbing in Python (Option 2A rejected); no contract loader in Python (Option 3A rejected); no patch-fragment slicing in the parent (decision-4 keeps the parent's job small for fan-out itself, while step 7 deliberately re-fetches the full diff in the parent for cross-cutting invariants). Soft cap of ≤6 subagents and 5-minute per-subagent budget bound the fan-out blast radius (mitigates risk-2/risk-7/risk-16). MCP-unavailability contingency makes decision-10's load-bearing assumption falsifiable at fan-out time rather than mid-implementation."
       },
       {
         "id": "C6",
@@ -130,13 +133,13 @@
         "id": "C8",
         "name": "Regression-replay test for PR #1964",
         "files": [
-          "integration_tests/sdlc/fixtures/1964-diff.patch",
+          "integration_tests/sdlc/fixtures/pr_1964_diff.py",
           "integration_tests/sdlc/test_reviewer_1964_regression.py"
         ],
         "responsibilities": [
-          "Create the fixture 1964-diff.patch by capturing git diff origin/main...PR-#1964-merge-commit (committed as a static text file).",
-          "Test mode 1 — CI-unconditional prompt asserts: build the reviewer_code prompt for a synthetic state where get_diff_metrics returns (12 files, 800 LOC); assert the rendered prompt contains the subagent-fan-out block. Repeat for (3 files, 50 LOC) and assert the block is NOT present (decision-7 — both modes; this is the prompt-text half).",
-          "Test mode 2 — opt-in live-LLM: gated by RUN_REVIEWER_REPLAY=1 environment variable; uses the real Anthropic SDK client to drive a reviewer_code session against the fixture; asserts the reviewer's ACK/NACK reason text contains references to BOTH the uncommitted sandbox/scripts/jira issue AND the ^project$ allowlist-bypass issue.",
+          "Store the fixture as a Python module exporting a string constant (PR_1964_DIFF: str = '''...''') in integration_tests/sdlc/fixtures/pr_1964_diff.py — NOT as a `.patch` file. Rationale: TESTER_ROLE.file_access in shared/egg_contracts/agent_roles.py:243-298 only allows-write **/*.py / yaml / json / toml / source extensions; a push that adds a `.patch` file from the tester role is rejected by the gateway. The Python-string approach round-trips through the same gateway constraints used everywhere else in the test suite.",
+          "Test mode 1 — CI-unconditional prompt asserts: build the reviewer_code prompt for a synthetic state where get_diff_metrics returns (12 files, 800 LOC); assert the rendered prompt contains the subagent-fan-out block AND the parent cross-partition-pass markers (per the C5 step-7 amendment). Repeat for (3 files, 50 LOC) and assert the fan-out block is NOT present, but the cross-partition-pass section is still present (the parent always reads the full diff for cross-cutting invariants — this is decoupled from threshold gating).",
+          "Test mode 2 — opt-in live-LLM: gated by RUN_REVIEWER_REPLAY=1 environment variable; uses the real Anthropic SDK client to drive a reviewer_code session against PR_1964_DIFF; asserts the reviewer's ACK/NACK reason text contains references to BOTH the uncommitted sandbox/scripts/jira issue AND the ^project$ allowlist-bypass issue. The latter directly exercises the C5 step-7 cross-partition pass.",
           "Add a fixture loader and a small helper for the reviewer_code prompt builder that feeds a stubbed contract with implement-phase tasks (so the partition path runs)."
         ],
         "rationale": "Decision-7 selected 'both modes'. CI-unconditional prompt asserts give regression-protection without LLM cost (catches accidental removal of the fan-out block); the opt-in live-LLM mode is the genuine end-to-end exercise but stays out of the default CI cost path."
@@ -148,6 +151,7 @@
         "responsibilities": [
           "Add a unit test asserting the existing one-liner at pipelines.py:8317 maps reviewer_security → 'security' and reviewer_concurrency → 'concurrency' (Pitfall 1).",
           "Add a unit test asserting that a reviewer_security ACK with empty attestation passes validate_attestation (Pitfall 4 — confirms the no-model path works).",
+          "Add a complementary NEGATIVE unit test asserting that a reviewer_security ACK with NON-empty attestation raises a clear ValueError naming the unregistered role, so an accidental day-1 attestation payload from a future agent fails fast instead of silently round-tripping (covers risk_analyst risk-5 / accidental-payload deadlock).",
           "Add unit tests for new criteria loaders, the new scope preamble branches, and the new PhaseConfig.reviewer_code merge semantics."
         ],
         "rationale": "Verification rather than invention; ensures the no-redundant-mapping and no-attestation-models invariants stay protected against future drift."
@@ -275,7 +279,7 @@
     {
       "id": "R-2",
       "description": "Subagent fan-out cost (2-5× on large PRs per feedback-1) could escalate if subagents themselves trigger nested Task calls or run for unbounded turns.",
-      "mitigation": "Prompt instruction caps per-subagent turns; partition list size bounded by implement-phase tasks (typically 3-8). Add a guardrail comment that subagents do not nest Task calls."
+      "mitigation": "C5 caps subagent count at ≤6 (implement-phase tasks > 6 are grouped). Each subagent has a ~5-minute wall-clock budget enforced by prompt-side guidance. Subagents are explicitly instructed not to nest Task calls. Total cost stays inside feedback-1's 2-5× envelope on large PRs."
     },
     {
       "id": "R-3",
@@ -305,7 +309,17 @@
     {
       "id": "R-8",
       "description": "Subagent diff-glob filtering (decision-4) may miss cross-file findings that span partition boundaries (e.g., a route handler in partition A whose allowlist extractor lives in partition B — the exact PR #1964 ^project$ failure mode).",
-      "mitigation": "Mitigated by the parent reviewer running its own end-to-end final pass after subagents complete, and by reviewer_security's lens-specific instruction to scan for handler-vs-validator allowlist mismatches across files. The regression-replay test asserts both PR #1964 issues are flagged; if R-8 manifests in practice, escalate to a follow-up issue (parent-side cross-partition pass)."
+      "mitigation": "C5 step-7 makes the parent cross-partition pass MANDATORY (no longer escalated to a follow-up issue) — the parent reviewer reads the full unfiltered diff and explicitly checks handler ↔ allowlist consistency, route ↔ schema consistency, and fixture ↔ Dockerfile reference consistency before issuing ACK/NACK. The regression-replay test (mode 2) asserts both PR #1964 cross-partition issues are flagged. reviewer_security's lens-specific criteria additionally call this out, providing a second (ADVISORY) layer of detection."
+    },
+    {
+      "id": "R-9",
+      "description": "Decision-10 (Task subagent tool from the Claude Agent SDK) is a load-bearing assumption that has not been stress-tested in this repo. If MCP server access does not propagate into Task subagents, decision-2 (3B reviewer self-fetch via mcp__sdlc__show_contract) collapses for subagents.",
+      "mitigation": "C5 specifies a probe + fallback: parent fetches the partition spec via mcp__sdlc__show_contract once and inlines it in subagent prompts when MCP is unreachable from a subagent. If MCP is also unreachable from the parent, fan-out is skipped entirely (the parent reviews end-to-end with the cross-partition pass). The implementation lands the probe as a single boolean check at fan-out time, so the fallback kicks in deterministically rather than mid-coding. risk_analyst should treat decision-10 viability as a smoke-spike candidate during the implement phase's first task; if the spike fails, fall back to Option 3A (orchestrator-side contract loader) is documented."
+    },
+    {
+      "id": "R-10",
+      "description": "Without an upper bound, fan-out could spawn dozens of subagents on contracts with many implement-phase tasks (e.g., 30+ tasks); BRC heartbeat starvation under blocking subagents could delay the consensus loop and trip overseer alerts.",
+      "mitigation": "C5 sets a soft cap of ≤6 subagents (related tasks are grouped above the cap). Each subagent emits an mcp__brc__send_heartbeat at start/end so the parent and orchestrator can detect stalls. Per-subagent 5-minute wall-clock budget bounds the worst-case latency."
     }
   ],
   "tasks_handed_to_task_planner": {
@@ -348,10 +362,10 @@
       },
       {
         "id": "task-6",
-        "title": "Add subagent fan-out block to reviewer_code prompt in _build_review_prompt(), threading reviewer_code_parallel from the call site",
+        "title": "Add subagent fan-out block + MANDATORY parent cross-partition pass to reviewer_code prompt in _build_review_prompt(), threading reviewer_code_parallel from the call site",
         "files": ["orchestrator/routes/pipelines.py"],
         "depends_on": ["task-5"],
-        "ac_outline": "Reviewer_code prompt contains a self-gated threshold check (OR composition), an mcp__sdlc__show_contract self-fetch with empty-tasks fallback, a partition-by-task-list instruction with path-glob diff slicing, a parallel-vs-sequential dispatch directive, and a STATUS-message log instruction."
+        "ac_outline": "Reviewer_code prompt contains: (a) a self-gated threshold check (OR composition); (b) an mcp__sdlc__show_contract self-fetch with empty-tasks fallback and an MCP-unavailability contingency that inlines the partition list from the parent when subagents cannot reach MCP; (c) a partition-by-task-list instruction with path-glob diff slicing and a soft cap of ≤6 subagents (with grouping when implement-phase tasks > 6); (d) a per-subagent 5-minute wall-clock budget and start/end heartbeats via mcp__brc__send_heartbeat or mcp__progress__emit; (e) a parallel-vs-sequential dispatch directive driven by reviewer_code_parallel; (f) a 'gate decision logged via mcp__progress__emit' instruction (preferred over `egg-orch message send --type STATUS`); (g) a MANDATORY 'Parent Cross-Partition Pass' section instructing the parent — after subagents return — to read the full unfiltered diff and check handler ↔ allowlist consistency, route ↔ schema consistency, and fixture ↔ Dockerfile reference consistency. The cross-partition-pass section MUST be present in the rendered prompt regardless of threshold (i.e., even when fan-out is skipped, the parent does the same cross-cutting pass against the full diff). Unit-tested in task-9, regression-tested in task-8."
       },
       {
         "id": "task-7",
@@ -362,10 +376,10 @@
       },
       {
         "id": "task-8",
-        "title": "Add fixture integration_tests/sdlc/fixtures/1964-diff.patch + test_reviewer_1964_regression.py with two test modes",
-        "files": ["integration_tests/sdlc/fixtures/1964-diff.patch", "integration_tests/sdlc/test_reviewer_1964_regression.py"],
+        "title": "Add fixture integration_tests/sdlc/fixtures/pr_1964_diff.py (Python string constant) + test_reviewer_1964_regression.py with two test modes",
+        "files": ["integration_tests/sdlc/fixtures/pr_1964_diff.py", "integration_tests/sdlc/test_reviewer_1964_regression.py"],
         "depends_on": ["task-6"],
-        "ac_outline": "Fixture committed; CI-unconditional prompt-text assert mode passes; opt-in RUN_REVIEWER_REPLAY=1 mode skipped by default but runs and passes when invoked manually."
+        "ac_outline": "Fixture committed as a Python module exporting PR_1964_DIFF: str (NOT as a `.patch` file — TESTER_ROLE.allowed_write does not include **/*.patch and the gateway will reject it). CI-unconditional prompt-text assert mode passes — both the subagent fan-out block AND the mandatory parent cross-partition-pass markers must appear in the rendered prompt for (12 files, 800 LOC); cross-partition-pass markers must still appear for (3 files, 50 LOC) even though the fan-out block is absent. Opt-in RUN_REVIEWER_REPLAY=1 mode is skipped by default; when invoked manually, the live reviewer's ACK/NACK reason text references BOTH the uncommitted sandbox/scripts/jira issue AND the ^project$ allowlist-bypass issue."
       },
       {
         "id": "task-9",
@@ -402,8 +416,8 @@
       "validate_attestation: a ReviewPayload with role='reviewer_security' and empty attestation passes (no model registered → returns instance unchanged) (Pitfall 4 verification)."
     ],
     "integration": [
-      "test_reviewer_1964_regression.py mode 1: build prompt with stubbed (12 files, 800 LOC) → prompt contains subagent fan-out block; with (3 files, 50 LOC) → block absent.",
-      "test_reviewer_1964_regression.py mode 2 (RUN_REVIEWER_REPLAY=1): live LLM session reviews the 1964-diff.patch fixture and produces a NACK reason that mentions both the uncommitted sandbox/scripts/jira issue and the ^project$ allowlist-bypass issue.",
+      "test_reviewer_1964_regression.py mode 1: build prompt with stubbed (12 files, 800 LOC) → prompt contains subagent fan-out block AND parent cross-partition-pass markers; with (3 files, 50 LOC) → fan-out block absent but cross-partition-pass markers still present (the parent always reads the full diff for cross-cutting invariants regardless of threshold).",
+      "test_reviewer_1964_regression.py mode 2 (RUN_REVIEWER_REPLAY=1): live LLM session reviews the PR_1964_DIFF Python-string fixture and produces a NACK reason that mentions both the uncommitted sandbox/scripts/jira issue (caught by partition-spanning fixture↔Dockerfile reference check) AND the ^project$ allowlist-bypass issue (caught by handler↔allowlist consistency check in the parent cross-partition pass).",
       "test_role_enforcement.py: ensure reviewer_security/reviewer_concurrency are accepted by validate_roles_for_custom_phase('implement', ...)."
     ],
     "out_of_scope_for_v1": [
@@ -412,7 +426,7 @@
   },
   "open_questions_after_refine": "All seven refine-phase open questions were resolved by the human (decisions 1-7 on the contract). No new architecture-level open questions introduced by this analysis.",
   "complexity_assessment": {
-    "rating": "medium",
-    "rationale": "Touches ~10 files (2 enum entries, 4 review-graph edges, 2 new criteria docs + 2 inline fallbacks, 2 prompt builder branches, 1 prompt-text fan-out block, 1 PhaseConfig field + 1 phase_defaults merge, 1 REVIEWER-SYNC.md update, 1 fixture, 1 regression test file, 2 doc updates). Each change is mechanical and follows an existing pattern (REVIEWER_REFINE / REVIEWER_AGENT_DESIGN templates). No new subsystems, no schema migrations, no orchestrator routing changes, no MCP verb additions. The subagent fan-out is purely a prompt change leveraging the existing Task tool from the Claude Agent SDK. The single non-trivial design choice — whether to plumb diff metrics / contract through Python or self-gate in the prompt — has been resolved (Options 2B + 3B)."
+    "rating": "medium (with one load-bearing assumption to validate early)",
+    "rationale": "Touches ~10 files (2 enum entries, 4 review-graph edges, 2 new criteria docs + 2 inline fallbacks, 2 prompt builder branches, 1 prompt-text fan-out block + parent cross-partition-pass section, 1 PhaseConfig field + 1 phase_defaults merge, 1 REVIEWER-SYNC.md update, 1 Python-string fixture, 1 regression test file, 2 doc updates). Each change is mechanical and follows an existing pattern (REVIEWER_REFINE / REVIEWER_AGENT_DESIGN templates). No new subsystems, no schema migrations, no orchestrator routing changes, no MCP verb additions. The subagent fan-out is purely a prompt change leveraging the existing Task tool from the Claude Agent SDK. The single non-trivial design choice — whether to plumb diff metrics / contract through Python or self-gate in the prompt — has been resolved (Options 2B + 3B). The one load-bearing assumption that warrants an early smoke spike during implement-phase task-6 is decision-10 (Task subagents inherit MCP server access from the parent — see R-9). C5 specifies a probe + fallback (parent inlines the partition spec when subagents cannot reach MCP) so that if the spike fails, the implementation does not have to redesign — it falls back to a prompt-only contingency. This keeps complexity at 'medium' rather than 'high'."
   }
 }
