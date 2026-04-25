@@ -334,8 +334,16 @@ class TestMessageWaitLoopHeartbeat:
         """Return (emitted_list, fake_emit) for use in tests."""
         emitted: list[dict] = []
 
-        def fake_emit(pipeline_id, role, state, body):
-            emitted.append({"pipeline_id": pipeline_id, "role": role, "state": state, "body": body})
+        def fake_emit(pipeline_id, role, state, body, since=None):
+            emitted.append(
+                {
+                    "pipeline_id": pipeline_id,
+                    "role": role,
+                    "state": state,
+                    "body": body,
+                    "since": since,
+                }
+            )
 
         return emitted, fake_emit
 
@@ -368,6 +376,9 @@ class TestMessageWaitLoopHeartbeat:
         assert entry["pipeline_id"] == "p"
         assert "CONSENSUS_ACK" in entry["body"]
         assert "reviewer_code" in entry["body"]
+        # ``since`` carries the wait entry time so the overseer can
+        # render "waiting since X" without parsing log timestamps.
+        assert entry["since"] is not None
 
     def test_emits_final_working_heartbeat_even_on_safety_cap(self):
         emitted, fake_emit = self._capture_emit()
@@ -431,7 +442,7 @@ class TestMessageWaitLoopHeartbeat:
                     "role": "coder",
                     "for_types": ["X"],
                     "_emit_heartbeat": (
-                        lambda pid, role, state, body: None
+                        lambda pid, role, state, body, since=None: None
                     ),  # no-op (production default swallows errors)
                     "_heartbeat_interval": 0,
                     "_sleep": sleeps.append,
@@ -458,6 +469,60 @@ class TestMessageWaitLoopHeartbeat:
         ):
             message._default_emit_wait_loop_heartbeat("p", "coder", "WAITING_FOR_EVENT", "hi")
         # No exception raised — test passes by reaching this line.
+
+    def test_default_emitter_forwards_since_in_payload(self):
+        """``since`` (when supplied) must be threaded into the heartbeat
+        body so the overseer can render "waiting since X" without parsing
+        log timestamps. Reviewer suggestion on PR #2041."""
+        with patch("egg_agent_tools.handlers.message.orchestrator_request") as req:
+            message._default_emit_wait_loop_heartbeat(
+                "p", "coder", "WAITING_FOR_EVENT", "hi", "2026-04-24T12:00:00+00:00"
+            )
+        assert req.call_count == 1
+        sent_body = req.call_args.kwargs["data"]
+        assert sent_body["since"] == "2026-04-24T12:00:00+00:00"
+        assert sent_body["state"] == "WAITING_FOR_EVENT"
+
+    def test_default_emitter_omits_since_when_not_provided(self):
+        """``since`` is optional — when callers don't supply it (e.g. the
+        WORKING exit beat), the field stays out of the payload."""
+        with patch("egg_agent_tools.handlers.message.orchestrator_request") as req:
+            message._default_emit_wait_loop_heartbeat("p", "coder", "WORKING", "exited")
+        assert req.call_count == 1
+        assert "since" not in req.call_args.kwargs["data"]
+
+    def test_since_is_captured_once_and_shared_across_ticks(self):
+        """``since`` is the wait *entry* time, captured once before the
+        loop. Every WAITING_FOR_EVENT beat must carry the same value so
+        the overseer reads it as a monotonically aging "waiting since"
+        rather than a clock that resets every interval."""
+        import time
+
+        emitted, fake_emit = self._capture_emit()
+
+        def slow_wait(_req):
+            time.sleep(0.15)
+            return {"ok": True, "matched": True, "messages": [{"id": "m"}]}
+
+        with patch(
+            "egg_agent_tools.handlers.message.message_wait",
+            side_effect=slow_wait,
+        ):
+            message.message_wait_loop(
+                {
+                    "pipeline_id": "p",
+                    "role": "coder",
+                    "for_types": ["X"],
+                    "_emit_heartbeat": fake_emit,
+                    "_heartbeat_interval": 0.05,
+                }
+            )
+        waiting_sinces = {e["since"] for e in emitted if e["state"] == "WAITING_FOR_EVENT"}
+        assert len(waiting_sinces) == 1, (
+            f"WAITING_FOR_EVENT beats must share one ``since``; got {waiting_sinces}"
+        )
+        # And the captured value must be a real timestamp string, not None.
+        assert next(iter(waiting_sinces)) is not None
 
     def test_periodic_tick_fires_during_blocking_wait(self):
         """Uses a tiny interval and a synthetic slow ``message_wait`` to

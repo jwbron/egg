@@ -101,6 +101,15 @@ def _track_long_poll_end() -> None:
             pass
 
 
+# Heartbeat states that bypass the ``(state, waiting_on)`` dedup filter
+# in the heartbeat route. ``WAITING_FOR_EVENT`` (issue #2036) is a
+# liveness keep-alive emitted by ``mcp__brc__wait_loop`` while it's
+# blocked — periodic identical beats are exactly the signal the
+# overseer's stall detector consumes, so dedup must not collapse them.
+# Rate-limit (20/min per role) still applies.
+_DEDUP_EXEMPT_HEARTBEAT_STATES: frozenset[str] = frozenset({"WAITING_FOR_EVENT"})
+
+
 messages_bp = Blueprint("messages", __name__, url_prefix="/api/v1/pipelines")
 
 
@@ -503,14 +512,10 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
     coordinator = get_heartbeat_coordinator()
 
     # Dedup first — duplicates are no-ops and should not consume rate
-    # budget (review NB1, issue #1897).
-    #
-    # ``WAITING_FOR_EVENT`` (issue #2036) is a liveness keep-alive emitted
-    # by ``mcp__brc__wait_loop`` while it's blocked. Periodic identical
-    # beats are exactly what the overseer's stall detector consumes to
-    # decide an agent is alive — so this state skips dedup. The rate limit
-    # still caps the bus traffic at 20/min per role.
-    if state != "WAITING_FOR_EVENT" and coordinator.is_duplicate(
+    # budget (review NB1, issue #1897). States in
+    # ``_DEDUP_EXEMPT_HEARTBEAT_STATES`` skip this check; see the
+    # constant's docstring for the rationale.
+    if state not in _DEDUP_EXEMPT_HEARTBEAT_STATES and coordinator.is_duplicate(
         pipeline_id, from_role, state, waiting_on
     ):
         return _make_success(

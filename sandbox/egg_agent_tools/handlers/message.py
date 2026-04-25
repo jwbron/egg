@@ -15,6 +15,7 @@ structured dict directly and classify ``matched``/``ok`` themselves.
 
 from __future__ import annotations
 
+import datetime as _datetime
 import threading
 import time as _time
 from collections.abc import Callable
@@ -153,6 +154,7 @@ def _default_emit_wait_loop_heartbeat(
     role: str | None,
     state: str,
     body: str,
+    since: str | None = None,
 ) -> None:
     """Emit a single liveness heartbeat from ``message_wait_loop``.
 
@@ -173,6 +175,8 @@ def _default_emit_wait_loop_heartbeat(
         "state": state,
         "body": body,
     }
+    if since:
+        payload["since"] = since
     try:
         orchestrator_request(
             f"/api/v1/pipelines/{pipeline_id}/heartbeat",
@@ -268,9 +272,7 @@ def message_wait_loop(req: dict[str, Any]) -> dict[str, Any]:
     role_hb = _role_or_env(req)
     for_types_hb = _coerce_for_types(req)
     from_role_hb = req.get("from_role") or req.get("from")
-    emit_hb: Callable[[str | None, str | None, str, str], None] = req.get(
-        "_emit_heartbeat", _default_emit_wait_loop_heartbeat
-    )
+    emit_hb: Callable[..., None] = req.get("_emit_heartbeat", _default_emit_wait_loop_heartbeat)
     hb_interval = float(req.get("_heartbeat_interval", _WAIT_LOOP_HEARTBEAT_INTERVAL_SECS))
     start_hb: Callable[[Callable[[], None], float], Callable[[], None]] = req.get(
         "_start_heartbeat", _start_wait_loop_heartbeat
@@ -279,9 +281,14 @@ def message_wait_loop(req: dict[str, Any]) -> dict[str, Any]:
     waiting_body = "wait_loop blocked on " + ",".join(for_types_hb)
     if from_role_hb:
         waiting_body += f" from={from_role_hb}"
+    # Captured once so every WAITING_FOR_EVENT beat carries the same
+    # ``since``: the overseer (and humans tailing the bus) can read it
+    # as a monotonically aging "waiting since" rather than a clock that
+    # resets every interval. Reviewer suggestion on PR #2041.
+    wait_since = _datetime.datetime.now(_datetime.UTC).isoformat()
 
     def _tick() -> None:
-        emit_hb(pipeline_id_hb, role_hb, "WAITING_FOR_EVENT", waiting_body)
+        emit_hb(pipeline_id_hb, role_hb, "WAITING_FOR_EVENT", waiting_body, wait_since)
 
     stop_hb = start_hb(_tick, hb_interval)
 
