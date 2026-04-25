@@ -154,6 +154,54 @@ class TestGetConcurrentStatusUnit:
         assert result["agents"][1]["role"] == "tester"
         assert result["agents"][1]["status"] == "completed"
 
+    def test_agents_include_container_id_and_elapsed_seconds(self):
+        """Issue #2084: each running agent entry carries ``container_id``,
+        ``started_at`` and a server-computed ``elapsed_seconds`` so the
+        sandboxed overseer can anchor stall-duration math on the live
+        container instead of message-bus history."""
+        from datetime import UTC, datetime, timedelta
+
+        pipeline = _make_concurrent_pipeline()
+
+        mock_phase_exec = MagicMock()
+        mock_agent = MagicMock(spec=["role", "status", "container_id", "started_at"])
+        mock_agent.role = "coder"
+        mock_agent.status.value = "running"
+        mock_agent.container_id = "f98c4fe6abcdef"
+        mock_agent.started_at = datetime.now(UTC) - timedelta(seconds=152)
+        mock_phase_exec.agents = [mock_agent]
+
+        pipeline.phases["implement"] = mock_phase_exec
+
+        result = _get_concurrent_status(pipeline)
+
+        assert "agents" in result
+        agent_entry = result["agents"][0]
+        assert agent_entry["role"] == "coder"
+        assert agent_entry["container_id"] == "f98c4fe6abcdef"
+        assert "started_at" in agent_entry
+        assert 150 <= agent_entry["elapsed_seconds"] <= 160
+
+    def test_agent_without_started_at_omits_elapsed_seconds(self):
+        """Agents that haven't started yet (no ``started_at``) must not
+        gain a fabricated ``elapsed_seconds`` field."""
+        pipeline = _make_concurrent_pipeline()
+
+        mock_phase_exec = MagicMock()
+        mock_agent = MagicMock(spec=["role", "status"])
+        mock_agent.role = "tester"
+        mock_agent.status.value = "pending"
+        mock_phase_exec.agents = [mock_agent]
+
+        pipeline.phases["implement"] = mock_phase_exec
+
+        result = _get_concurrent_status(pipeline)
+
+        agent_entry = result["agents"][0]
+        assert "elapsed_seconds" not in agent_entry
+        assert "started_at" not in agent_entry
+        assert "container_id" not in agent_entry
+
     def test_agents_without_role_attribute(self):
         """Should use str() fallback when agent has no role attribute."""
         pipeline = _make_concurrent_pipeline()
