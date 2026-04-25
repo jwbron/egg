@@ -213,47 +213,34 @@ Pattern evaluation order:
 
 `block_exempt_patterns` carve out narrow exceptions from blocked patterns. For example, `**/*.md` is blocked for coders (documentation), but `.md` files in `sandbox/agent-config/` and `skills/` are functional code and exempted. Exempt paths must also appear in `allowed_patterns` — the exemption only bypasses the block check, it does not grant write access on its own.
 
-## Push Filtering and Cross-Role Pushes
+## Push Enforcement and Cross-Role Pushes
 
-The gateway auto-filters disallowed files on push ([#1882](https://github.com/jwbron/egg/issues/1882), reviving the design from [#1470](https://github.com/jwbron/egg/issues/1470)). Agents no longer see `403 Push denied` for agent-role file-restriction violations; instead the gateway rewrites the unpushed range to drop blocked files, preserves any cross-role commits that were pulled in, and reports what it did in the response body.
+As of [#2039](https://github.com/jwbron/egg/issues/2039), the gateway rejects any push whose own-authored files include a path outside the pushing role's allowed patterns. The handler attributes each commit in the unpushed range via the commit-authorship registry, partitions files into own-authored vs pulled-from-other-role, and checks the pushing role's write permissions against only the own-authored set.
 
-See [Gateway Auto-Filter Architecture](../architecture/gateway-auto-filter.md) for the full design, including the commit-authorship registry that makes attribution deterministic.
+See [Gateway Auto-Filter Architecture](../architecture/gateway-auto-filter.md) for the historical auto-filter design and the commit-authorship registry that still backs attribution.
 
 ### Push outcomes
 
-When `POST /api/v1/git/push` encounters files outside the pushing role's allowed patterns, it picks one of four outcomes based on per-commit authorship:
+When `POST /api/v1/git/push` encounters files outside the pushing role's allowed patterns:
 
 | Own-file state | Pulled commits in range | Outcome | Response fields |
 |----------------|-------------------------|---------|-----------------|
-| All allowed | None | Plain push (today's path) | `pushed_commits`, `pulled_commits: []` |
+| All allowed | None | Plain push | `pushed_commits`, `pulled_commits: []` |
 | All allowed | Some | Plain push; pulled commits exempt | `pushed_commits`, `pulled_commits: [{sha, author_role}]` |
-| Mixed allowed + blocked | Any | Per-commit rewrite (auto-filter) | `filtered: true`, `excluded_files`, `pushed_files`, `pushed_commits` (new SHAs), `pulled_commits` |
-| All own-files blocked | Any | Short-circuit, no ref update | `filtered: true`, `nothing_to_push: true`, `excluded_files`, `pulled_commits` |
+| Any own-file blocked | Any | **Rejected** `403 restricted_path_modified` | `role`, `blocked_paths`, `recommended_action`, `doc_ref` |
 
-Phase / anchor / protected-file / branch-ownership / private-mode / concurrent-mode checks keep their `403` behavior — only agent-role file restrictions auto-filter.
+Phase / anchor / protected-file / branch-ownership / private-mode / concurrent-mode checks also return `403`.
 
-### Per-commit rewrite
+### Recovery from `403 restricted_path_modified`
 
-On a mixed push, the gateway walks the unpushed range in topological order using `git commit-tree` / `git update-ref`:
-
-- **Pulled cross-role commits** (authored by another known role, per the registry) pass through **bitwise-unchanged** — tree, author, committer, message, trailers preserved. Parents are re-targeted only if an earlier commit in the walk was rewritten.
-- **Own-role commits** with blocked paths are rewritten: blocked blobs are removed from the tree, a new tree is written, and a new commit is created with an `Auto-Filtered: true` git trailer appended to the original message (original author and date preserved). Own-commits whose filtered tree is empty are **dropped** and their children re-parented onto the previous new SHA.
-- **Unregistered commits** (no authorship entry for the SHA) are treated as own-authored per the fail-closed invariant — the registry cannot be suppressed to bypass restrictions.
-
-After a successful filtered push, the local `HEAD` is fast-forwarded to match `origin/<branch>` via `git read-tree --reset -u`, and the blocked files are **re-staged as uncommitted changes** so a peer role can pick them up without re-authoring from scratch.
-
-On any error during the walk or push, `HEAD` and the index are restored to the pre-rewrite state — the push is atomic from the agent's perspective.
+Drop the offending edits and re-propose with `--pre-merge-condition` per the conditional-ACK pattern ([#1998](https://github.com/jwbron/egg/issues/1998)). Pulled cross-role commits (attributed to another role via the registry) never block the push.
 
 ### Kill switch and audit
 
-- `EGG_AGENT_RESTRICTIONS_ENFORCE=false` short-circuits the rewrite path. The gateway falls back to warn-only log + plain push, but the **response schema stays the same**: success bodies carry `filtered: false`, `excluded_files: []`, `pushed_files`, and `pulled_commits` so downstream tooling does not need to branch on whether enforcement is on. No registry lookup happens in this mode; `pulled_commits` comes from the attribution pass, which still runs for observability even when enforcement is off.
-- Audit events are emitted for each outcome: `push_auto_filtered` (mixed rewrite), `push_all_blocked_no_op` (nothing_to_push), and `push_authorship_unregistered_fallback` (at least one commit had `authored_by=None` and was treated as own-authored). Each carries the role, excluded files, the `pulled_commits` list with `{sha, author_role}`, and the `rewritten_commits` SHA mapping when applicable. `push_all_blocked_no_op` additionally carries `attribution_fallback: bool` — `true` means the handler could not compute a commit walk and chose the fail-closed short-circuit rather than the normal all-blocked path.
+- `EGG_AGENT_RESTRICTIONS_ENFORCE=false` falls back to warn-only plain push.
+- The audit event `push_denied_restricted_path_modified` fires on every rejection; `attribution_fallback: true` indicates the commit walk was unavailable and every file was treated as own-authored.
 
-### What got removed
-
-The client-side workaround `egg-orch push --scope-filter` is gone — the gateway handles every case it was built for, including the cross-role pulled-commit edge case that `--scope-filter` would have corrupted by squashing pulled history. The `EGG_AGENT_FILE_PATTERNS` env-var injection (`orchestrator/concurrent_executor.py`) and its consumer (`sandbox/egg_lib/cli_push.py::_filter_files`) were removed in the same PR.
-
-Agents should just `git push` / `egg-orch push` and read the response body. See `sandbox/agent-config/rules/push-recovery.md` for the runtime rule set.
+The client-side `--scope-filter` flag was removed in [#1882](https://github.com/jwbron/egg/issues/1882). See `sandbox/agent-config/rules/push-recovery.md` for the runtime rule set.
 
 ## Handoff Data
 
