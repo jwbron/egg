@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from git_client import (
     BLOCKED_GIT_FLAGS,
     GIT_ALLOWED_COMMANDS,
+    extract_reset_target_ref,
     get_changed_files_in_push,
     is_branch_switching_checkout,
     is_branch_switching_operation,
@@ -1317,6 +1318,68 @@ class TestIsBranchSwitchingOperation:
         assert not is_branch_switching_operation("commit", ["-m", "msg"])
         assert not is_branch_switching_operation("restore", ["--staged", "file.txt"])
         assert not is_branch_switching_operation("log", ["--oneline"])
+
+
+class TestExtractResetTargetRef:
+    """Tests for extract_reset_target_ref().
+
+    The function returns the target ref for a `git reset` invocation that
+    would move HEAD, or None for forms that wouldn't (no positional ref,
+    `--` separator present, or `<commit> <pathspec>` path-mode).
+    """
+
+    def test_no_args_returns_none(self):
+        """Bare `git reset` resets HEAD to itself — no target ref."""
+        assert extract_reset_target_ref([]) is None
+
+    def test_mode_flag_only_returns_none(self):
+        """`git reset --hard` (no ref) resets working tree to HEAD."""
+        assert extract_reset_target_ref(["--hard"]) is None
+        assert extract_reset_target_ref(["--soft"]) is None
+        assert extract_reset_target_ref(["--mixed"]) is None
+
+    def test_quiet_flag_only_returns_none(self):
+        """Quiet flag without a ref still has no target."""
+        assert extract_reset_target_ref(["--quiet"]) is None
+        assert extract_reset_target_ref(["-q"]) is None
+
+    def test_hard_with_ref_returns_ref(self):
+        """`git reset --hard <ref>` returns the ref."""
+        assert extract_reset_target_ref(["--hard", "abc123"]) == "abc123"
+        assert extract_reset_target_ref(["--hard", "main"]) == "main"
+        assert extract_reset_target_ref(["--hard", "origin/main"]) == "origin/main"
+
+    def test_soft_with_ref_returns_ref(self):
+        """Soft and mixed resets also return the target — they too move HEAD."""
+        assert extract_reset_target_ref(["--soft", "HEAD~1"]) == "HEAD~1"
+        assert extract_reset_target_ref(["--mixed", "abc123"]) == "abc123"
+
+    def test_no_mode_flag_with_ref_returns_ref(self):
+        """`git reset <ref>` (default mixed) returns the ref."""
+        assert extract_reset_target_ref(["abc123"]) == "abc123"
+        assert extract_reset_target_ref(["HEAD"]) == "HEAD"
+
+    def test_flag_order_does_not_matter(self):
+        """Mode flag can come before or after the ref."""
+        assert extract_reset_target_ref(["abc123", "--hard"]) == "abc123"
+        assert extract_reset_target_ref(["--quiet", "--hard", "main"]) == "main"
+
+    def test_double_dash_separator_returns_none(self):
+        """`git reset -- <paths>` is path-mode; HEAD does not move."""
+        assert extract_reset_target_ref(["--", "file.txt"]) is None
+        assert extract_reset_target_ref(["--hard", "--", "file.txt"]) is None
+
+    def test_commit_with_paths_returns_none(self):
+        """`git reset <commit> -- <paths>` is path-mode."""
+        assert extract_reset_target_ref(["abc123", "--", "file.txt"]) is None
+
+    def test_two_positional_without_dashdash_returns_none(self):
+        """`git reset <commit> <pathspec>` (no `--`) is path-mode in git's grammar."""
+        # Two positional args with no `--` separator — git treats the second
+        # (and subsequent) as pathspecs and does not move HEAD. Returning None
+        # keeps the gateway's ancestry check from firing on a non-HEAD-moving
+        # invocation.
+        assert extract_reset_target_ref(["abc123", "file.txt"]) is None
 
 
 if __name__ == "__main__":

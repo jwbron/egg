@@ -1845,6 +1845,39 @@ def is_branch_switch(operation: str, args: list[str]) -> bool:
     return False
 
 
+def extract_reset_target_ref(args: list[str]) -> str | None:
+    """Return the target commit ref for a ``git reset`` that would move HEAD.
+
+    ``git reset`` has two distinct forms:
+    * ``git reset [<mode>] [<commit>]`` — moves HEAD (and optionally index/
+      worktree, depending on mode) to ``<commit>``.
+    * ``git reset [<commit>] -- <pathspec>...`` or
+      ``git reset <commit> <pathspec>...`` — index-only reset for the listed
+      paths; HEAD does not move.
+
+    Only the first form is relevant to the pipeline branch-lock: it can land
+    HEAD on a commit that is not on the assigned-branch lineage. This helper
+    returns the target ref for that form and ``None`` otherwise (so the caller
+    can skip the ancestry check entirely for path-mode resets).
+
+    The returned ref is purely syntactic — the caller is responsible for
+    resolving it (e.g., via ``git merge-base --is-ancestor``) to decide
+    whether the reset is on-lineage.
+
+    Args:
+        args: The validated/normalized argument list for ``git reset``.
+
+    Returns:
+        The target ref string if the invocation would move HEAD, else ``None``.
+    """
+    if "--" in args:
+        return None
+    positional = [arg for arg in args if not arg.startswith("-")]
+    if len(positional) != 1:
+        return None
+    return positional[0]
+
+
 def get_token_for_repo(repo: str) -> tuple[str | None, str, str]:
     """
     Get the authentication token for a repository.

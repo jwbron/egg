@@ -222,6 +222,201 @@ class TestBranchSwitchBlocking:
             assert response.status_code != 403
 
 
+class TestOffLineageResetBlocking:
+    """Tests for off-lineage `git reset` blocking in git_execute (issue #2089).
+
+    `git reset <ref>` (any mode) moves HEAD; if <ref> is not an ancestor of
+    HEAD on the assigned branch, the agent's commits are silently dropped —
+    the same effect as a branch switch. The checkout/switch lock does not
+    catch this, so we add a dedicated ancestry check.
+    """
+
+    @pytest.fixture
+    def auth_with_branch(self):
+        session = _make_session_with_branch("egg/c1/work", phase="implement")
+        return _setup_auth(session)
+
+    @pytest.fixture
+    def auth_without_branch(self):
+        session = _make_session_with_branch(None)
+        return _setup_auth(session)
+
+    def test_reset_hard_off_lineage_blocked(self, client, auth_with_branch):
+        """`git reset --hard <off-branch-ref>` is blocked with 403."""
+        headers, mock_result, mock_policy, current_sm = auth_with_branch
+
+        with (
+            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy),
+            patch.object(gateway, "audit_log"),
+            patch.object(gateway, "validate_repo_path", return_value=(True, "")),
+            patch.object(gateway, "map_container_path_to_worktree", return_value="/worktree/path"),
+            patch("gateway.subprocess.run") as mock_run,
+        ):
+            # merge-base --is-ancestor returns 1 → not an ancestor → blocked
+            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="")
+            response = client.post(
+                "/api/v1/git/execute",
+                json={
+                    "repo_path": "/home/egg/repos/myrepo",
+                    "operation": "reset",
+                    "args": ["--hard", "origin/other-branch"],
+                },
+                headers=headers,
+            )
+            assert response.status_code == 403
+            data = json.loads(response.data)
+            message = data.get("message", "")
+            assert "Off-lineage" in message
+            assert "origin/other-branch" in message
+            assert "egg/c1/work" in message
+
+    def test_reset_soft_off_lineage_blocked(self, client, auth_with_branch):
+        """`git reset --soft <off-branch-ref>` is also blocked — soft/mixed move HEAD too."""
+        headers, mock_result, mock_policy, current_sm = auth_with_branch
+
+        with (
+            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy),
+            patch.object(gateway, "audit_log"),
+            patch.object(gateway, "validate_repo_path", return_value=(True, "")),
+            patch.object(gateway, "map_container_path_to_worktree", return_value="/worktree/path"),
+            patch("gateway.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="")
+            response = client.post(
+                "/api/v1/git/execute",
+                json={
+                    "repo_path": "/home/egg/repos/myrepo",
+                    "operation": "reset",
+                    "args": ["--soft", "origin/other-branch"],
+                },
+                headers=headers,
+            )
+            assert response.status_code == 403
+
+    def test_reset_hard_ancestor_allowed(self, client, auth_with_branch):
+        """`git reset --hard <ancestor-sha>` on the assigned branch is allowed."""
+        headers, mock_result, mock_policy, current_sm = auth_with_branch
+
+        with (
+            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy),
+            patch.object(gateway, "audit_log"),
+            patch.object(gateway, "validate_repo_path", return_value=(True, "")),
+            patch.object(gateway, "map_container_path_to_worktree", return_value="/worktree/path"),
+            patch("gateway.subprocess.run") as mock_run,
+        ):
+            # First call: merge-base --is-ancestor returns 0 → ancestor → allowed
+            # Subsequent calls: actual reset execution
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            response = client.post(
+                "/api/v1/git/execute",
+                json={
+                    "repo_path": "/home/egg/repos/myrepo",
+                    "operation": "reset",
+                    "args": ["--hard", "abc123"],
+                },
+                headers=headers,
+            )
+            assert response.status_code != 403
+
+    def test_reset_no_ref_allowed(self, client, auth_with_branch):
+        """`git reset --hard` (no ref) doesn't move HEAD → no ancestry check."""
+        headers, mock_result, mock_policy, current_sm = auth_with_branch
+
+        with (
+            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy),
+            patch.object(gateway, "audit_log"),
+            patch.object(gateway, "validate_repo_path", return_value=(True, "")),
+            patch.object(gateway, "map_container_path_to_worktree", return_value="/worktree/path"),
+            patch("gateway.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            response = client.post(
+                "/api/v1/git/execute",
+                json={
+                    "repo_path": "/home/egg/repos/myrepo",
+                    "operation": "reset",
+                    "args": ["--hard"],
+                },
+                headers=headers,
+            )
+            assert response.status_code != 403
+
+    def test_reset_path_mode_allowed(self, client, auth_with_branch):
+        """`git reset -- <paths>` is path-mode; HEAD does not move."""
+        headers, mock_result, mock_policy, current_sm = auth_with_branch
+
+        with (
+            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy),
+            patch.object(gateway, "audit_log"),
+            patch.object(gateway, "validate_repo_path", return_value=(True, "")),
+            patch.object(gateway, "map_container_path_to_worktree", return_value="/worktree/path"),
+            patch("gateway.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            response = client.post(
+                "/api/v1/git/execute",
+                json={
+                    "repo_path": "/home/egg/repos/myrepo",
+                    "operation": "reset",
+                    "args": ["--", "file.txt"],
+                },
+                headers=headers,
+            )
+            assert response.status_code != 403
+
+    def test_reset_subprocess_failure_fails_closed(self, client, auth_with_branch):
+        """If merge-base subprocess raises, treat as off-lineage and block."""
+        headers, mock_result, mock_policy, current_sm = auth_with_branch
+
+        with (
+            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy),
+            patch.object(gateway, "audit_log"),
+            patch.object(gateway, "validate_repo_path", return_value=(True, "")),
+            patch.object(gateway, "map_container_path_to_worktree", return_value="/worktree/path"),
+            patch("gateway.subprocess.run", side_effect=OSError("git not found")),
+        ):
+            response = client.post(
+                "/api/v1/git/execute",
+                json={
+                    "repo_path": "/home/egg/repos/myrepo",
+                    "operation": "reset",
+                    "args": ["--hard", "abc123"],
+                },
+                headers=headers,
+            )
+            assert response.status_code == 403
+
+    def test_reset_no_assigned_branch_allowed(self, client, auth_without_branch):
+        """Sessions without assigned_branch are unrestricted (interactive mode)."""
+        headers, mock_result, mock_policy, current_sm = auth_without_branch
+
+        with (
+            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy),
+            patch.object(gateway, "audit_log"),
+            patch.object(gateway, "validate_repo_path", return_value=(True, "")),
+            patch.object(gateway, "map_container_path_to_worktree", return_value="/worktree/path"),
+            patch("gateway.subprocess.run") as mock_run,
+        ):
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            response = client.post(
+                "/api/v1/git/execute",
+                json={
+                    "repo_path": "/home/egg/repos/myrepo",
+                    "operation": "reset",
+                    "args": ["--hard", "origin/other-branch"],
+                },
+                headers=headers,
+            )
+            assert response.status_code != 403
+
+
 class TestCommitTimePhaseValidation:
     """Tests for commit-time staged file validation in git_execute."""
 
