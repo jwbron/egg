@@ -382,3 +382,50 @@ class TestAttributionFallbackAuditLog:
         assert all(ev.get("attribution_fallback") is False for ev in reject_events), (
             f"Expected attribution_fallback=False for real all-blocked push, got {reject_events!r}"
         )
+
+    def test_unregistered_fallback_audit_uses_blocked_paths_key(self, client):
+        """The ``push_authorship_unregistered_fallback`` event must report
+        the blocked file set under the ``blocked_paths`` key (renamed from
+        ``excluded_files`` in #2043 to align with the
+        ``push_denied_restricted_path_modified`` shape).  Locks the rename
+        in so a typo or revert in ``gateway.py`` would fail loudly."""
+        session = _make_session("coder")
+        files = ["docs/guide.md"]
+        # Empty attribution → unregistered_files == own_files, fires the
+        # ``push_authorship_unregistered_fallback`` audit event.
+        attributed = AttributedPushRange(files=[], commits=[], attribution={})
+
+        audit_calls = []
+
+        def fake_audit(event_type, action, success=True, details=None, **kwargs):
+            audit_calls.append((event_type, success, dict(details or {})))
+
+        with contextlib.ExitStack() as _stack:
+            for _p in _patches_for(session, files, attributed):
+                _stack.enter_context(_p)
+            _stack.enter_context(patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}))
+            _stack.enter_context(patch.object(gateway, "audit_log", side_effect=fake_audit))
+
+            response = _do_push(client)
+
+        assert response.status_code == 403
+
+        unregistered_events = [
+            details
+            for (event_type, _success, details) in audit_calls
+            if event_type == "push_authorship_unregistered_fallback"
+        ]
+        assert unregistered_events, (
+            f"Expected at least one push_authorship_unregistered_fallback audit event, "
+            f"got {audit_calls!r}"
+        )
+        for ev in unregistered_events:
+            assert "blocked_paths" in ev, (
+                f"Expected 'blocked_paths' key in unregistered fallback audit event, "
+                f"got keys {sorted(ev.keys())!r}"
+            )
+            assert "excluded_files" not in ev, (
+                f"Legacy 'excluded_files' key must not appear in unregistered "
+                f"fallback audit event, got {ev!r}"
+            )
+            assert "docs/guide.md" in ev["blocked_paths"]
