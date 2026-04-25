@@ -640,9 +640,7 @@ class TestOrchestratorLauncherAuthPush:
         with patch.object(
             gateway,
             "get_launcher_secret",
-            side_effect=gateway.LauncherSecretNotConfiguredError(
-                "Launcher secret not configured"
-            ),
+            side_effect=gateway.LauncherSecretNotConfiguredError("Launcher secret not configured"),
         ):
             response = client.post(
                 "/api/v1/git/push",
