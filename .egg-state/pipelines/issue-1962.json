@@ -812,16 +812,16 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-25T20:57:07.731473Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-25T20:59:25.809457Z",
+      "resolution": "{\"action\": \"approve\", \"context\": \"Approved as-is. Note for record: TASK-1-2's `overseer_advisor_model: str = \\\"claude-opus-4-6\\\"` is a pinned snapshot, not the alias `\\\"opus\\\"` the operator preference calls for; this was an artifact of the reviewer_plan NACK recommending the resolved snapshot rather than the alias. Codebase-wide de-pin audit is tracked in #2081 and will catch this on the broader sweep.\"}",
       "phase": "plan",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-25T17:05:44.416677Z",
-  "updated_at": "2026-04-25T20:57:07.781335Z",
+  "updated_at": "2026-04-25T20:59:25.842961Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -835,6 +835,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-25T20:20:44.058220Z",
-  "version": 77,
+  "version": 78,
   "jira_ticket": null
 }
