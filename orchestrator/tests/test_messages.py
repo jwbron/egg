@@ -1552,6 +1552,252 @@ class TestWaitEndpoint:
                 assert elapsed < 5  # would be 999s without clamp
 
 
+class TestProducerPendingConfirmGuard:
+    """Reject ``wait --for CONSENSUS_CONFIRMED`` from producers in
+    WORKING/PROPOSED state (#2064).
+
+    A producer's own confirm is part of what generates the global
+    CONSENSUS_CONFIRMED signal — waiting on it before having confirmed
+    is a circular dependency that would deadlock until the overseer's
+    heartbeat-stall detector intervened minutes later. The guard turns
+    that silent deadlock into an immediate, actionable 400.
+    """
+
+    @pytest.fixture
+    def implement_tracker(self):
+        """Build a tracker matching the implement-phase shape that
+        triggered #2064: documenter as producer with one ADVISORY
+        reviewer, plus coder/tester/reviewers."""
+        from peer_consensus import PeerConsensusTracker
+        from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
+
+        graph = ReviewGraph(
+            [
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_code", "tester", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_code", "documenter", ReviewCriticality.ADVISORY),
+                ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
+            ]
+        )
+        tracker = PeerConsensusTracker("test-pipeline", graph, cooldown_seconds=0)
+        for role in ("coder", "tester", "documenter", "reviewer_code", "reviewer_contract"):
+            tracker.register_agent(role)
+        return tracker
+
+    def _wait(self, client, *, role: str, for_types: list[str] | None = None):
+        types = for_types or ["CONSENSUS_CONFIRMED"]
+        qs = "&".join(f"for={t}" for t in types) + f"&role={role}&timeout=1"
+        return client.get(f"/api/v1/pipelines/test-pipeline/messages/wait?{qs}")
+
+    def test_producer_in_working_blocked_on_consensus_confirmed(
+        self, client, app, implement_tracker
+    ):
+        """Producer in WORKING (never proposed) cannot wait on
+        CONSENSUS_CONFIRMED — it must propose and confirm first."""
+        with app.test_request_context():
+            with (
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=implement_tracker,
+                ),
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = self._wait(client, role="documenter")
+                assert resp.status_code == 400
+                msg = json.loads(resp.data)["message"]
+                assert "documenter" in msg
+                assert "CONSENSUS_CONFIRMED" in msg
+                assert "mcp__brc__confirm" in msg
+                assert "#2064" in msg
+
+    def test_producer_in_proposed_blocked_on_consensus_confirmed(
+        self, client, app, implement_tracker
+    ):
+        """Reproduces the issue-1965 documenter case: PROPOSED but
+        not CONFIRMED, attempting to STAY ALIVE on CONSENSUS_CONFIRMED."""
+        implement_tracker.handle_propose(
+            "documenter",
+            {
+                "summary": "Wrote docs for the new fan-out feature, covering "
+                "thresholds, partitioning, parent cross-partition consistency, "
+                "and the parallelism config knob.",
+                "artifacts": ["docs/guides/concurrent-execution.md"],
+                "commit_sha": "abc1234",
+            },
+        )
+        with app.test_request_context():
+            with (
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=implement_tracker,
+                ),
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = self._wait(
+                    client,
+                    role="documenter",
+                    for_types=["CONSENSUS_CONFIRMED", "CONSENSUS_RE_REVIEW", "OVERSEER_ALERT"],
+                )
+                assert resp.status_code == 400
+                msg = json.loads(resp.data)["message"]
+                assert "pending_acks" in msg
+
+    def test_producer_in_confirmed_passes(self, client, app, implement_tracker):
+        """A producer that has actually confirmed may legitimately wait
+        on CONSENSUS_CONFIRMED — that's the post-confirm STAY ALIVE
+        pattern the producer-lifecycle prompt prescribes."""
+        # Set up: every producer proposes, every reviewer ACKs the
+        # critical edges, then documenter (advisory-only) confirms.
+        for producer in ("coder", "tester", "documenter"):
+            implement_tracker.handle_propose(
+                producer,
+                {
+                    "summary": (
+                        f"Stub proposal from {producer} so the global guard "
+                        "passes — every producer must propose before any "
+                        "agent can confirm consensus."
+                    ),
+                    "artifacts": [f"path/{producer}.py"],
+                    "commit_sha": "abc1234",
+                },
+            )
+        for producer in ("coder", "tester"):
+            implement_tracker.handle_ack(
+                "reviewer_code",
+                producer,
+                {"artifact_references": [f"path/{producer}.py"]},
+            )
+        implement_tracker.handle_ack(
+            "reviewer_contract",
+            "coder",
+            {"artifact_references": ["path/coder.py"]},
+        )
+        # documenter's only reviewer is advisory, so it's already fully ACKed
+        result = implement_tracker.handle_confirmed("documenter")
+        assert result["status"] == "confirmed"
+
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=MessageStore()),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=implement_tracker,
+                ),
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = self._wait(client, role="documenter")
+                assert resp.status_code == 200
+
+    def test_reviewer_only_role_passes(self, client, app, implement_tracker):
+        """Reviewer-only roles may wait on CONSENSUS_CONFIRMED at any
+        time — they have no producer-side confirm of their own to
+        block consensus on."""
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=MessageStore()),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=implement_tracker,
+                ),
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = self._wait(client, role="reviewer_contract")
+                assert resp.status_code == 200
+
+    def test_other_for_types_pass_for_unconfirmed_producer(self, client, app, implement_tracker):
+        """Producers in WORKING/PROPOSED can still wait on the events
+        they legitimately need — CONSENSUS_ACK from reviewers,
+        CONSENSUS_PROPOSE from peers, OVERSEER_ALERT, etc."""
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=MessageStore()),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=implement_tracker,
+                ),
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = self._wait(
+                    client,
+                    role="documenter",
+                    for_types=["CONSENSUS_ACK", "CONSENSUS_NACK", "OVERSEER_ALERT"],
+                )
+                assert resp.status_code == 200
+
+    def test_no_tracker_passes(self, client, app):
+        """When no consensus tracker is registered (e.g. test fixtures,
+        non-BRC pipelines, post-orchestrator-restart before reconstruction),
+        the guard short-circuits rather than wedging the wait endpoint."""
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=MessageStore()),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+                patch("peer_consensus.get_peer_consensus_tracker", return_value=None),
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = self._wait(client, role="documenter")
+                assert resp.status_code == 200
+
+    def test_no_role_passes(self, client, app, implement_tracker):
+        """Calls without a role parameter (e.g. broadcast snapshots) cannot
+        be evaluated by the guard and must pass through."""
+        with app.test_request_context():
+            with (
+                patch("routes.messages.get_message_store", return_value=MessageStore()),
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+                patch(
+                    "peer_consensus.get_peer_consensus_tracker",
+                    return_value=implement_tracker,
+                ),
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.get(
+                    "/api/v1/pipelines/test-pipeline/messages/wait"
+                    "?for=CONSENSUS_CONFIRMED&timeout=1"
+                )
+                assert resp.status_code == 200
+
+
 class TestEnvCapConfig:
     """`EGG_MESSAGE_POLL_MAX_WAIT` plumbing (issue #1897)."""
 

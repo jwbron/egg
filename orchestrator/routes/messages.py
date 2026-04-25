@@ -353,6 +353,64 @@ def _apply_delphi_filter(
     return filtered_messages
 
 
+# Message types that are produced *as a side effect* of a producer's
+# own confirm reaching global consensus. A producer in WORKING/PROPOSED
+# that waits on these would be waiting on itself — its own confirm is
+# part of what generates the signal — and would deadlock until the
+# overseer's stall detector intervened (#2064).
+_PRODUCER_PENDING_CONFIRM_REJECTED_FOR_TYPES: frozenset[str] = frozenset({"CONSENSUS_CONFIRMED"})
+
+
+def _check_producer_pending_confirm_guard(
+    pipeline_id: str,
+    role: str | None,
+    wait_for_types: list[str],
+) -> tuple[Response, int] | None:
+    """Reject ``wait`` calls where a non-confirmed producer waits on
+    ``CONSENSUS_CONFIRMED``.
+
+    A producer's own ``mcp__brc__confirm`` is part of what generates
+    the global ``CONSENSUS_CONFIRMED`` signal, so a producer in
+    ``WORKING`` or ``PROPOSED`` that blocks on it would wait on
+    itself (#2064). Rather than letting the overseer's heartbeat-stall
+    detector bail the pipeline out minutes later, we surface the bug
+    immediately with an actionable error.
+
+    Returns ``None`` when the wait should proceed; otherwise an error
+    response tuple ready to return from the route.
+    """
+    if not role:
+        return None
+    blocking = _PRODUCER_PENDING_CONFIRM_REJECTED_FOR_TYPES.intersection(wait_for_types)
+    if not blocking:
+        return None
+    try:
+        from peer_consensus import get_peer_consensus_tracker
+    except ImportError:  # pragma: no cover - import-shim parity with other routes
+        try:
+            from ..peer_consensus import (  # type: ignore[no-redef,import-not-found]
+                get_peer_consensus_tracker,
+            )
+        except ImportError:
+            return None
+    tracker = get_peer_consensus_tracker(pipeline_id)
+    if tracker is None:
+        return None
+    if not tracker.is_producer_pending_confirm(role):
+        return None
+    sorted_blocking = sorted(blocking)
+    return _make_error(
+        f"Producer '{role}' cannot wait on {sorted_blocking} before its own "
+        "consensus_confirmed has succeeded — its own confirm is part of "
+        "what generates that signal, so the wait would deadlock (#2064). "
+        "Call mcp__brc__confirm first; if it returns status='pending_acks' "
+        "(e.g. another producer hasn't proposed yet, or your reviewers "
+        "haven't ACKed), wait on the prerequisite events instead — "
+        "CONSENSUS_PROPOSE from missing producers, CONSENSUS_ACK from "
+        "your reviewers, or CONSENSUS_RE_REVIEW — then retry confirm."
+    )
+
+
 @messages_bp.route("/<pipeline_id>/messages/wait", methods=["GET"])
 def wait_messages(pipeline_id: str) -> tuple[Response, int]:
     """Block on a typed message event.
@@ -404,6 +462,10 @@ def wait_messages(pipeline_id: str) -> tuple[Response, int]:
         # A wait endpoint with no timeout is a bug.  Force at least 1 second
         # so the caller actually observes blocking semantics.
         timeout = 1
+
+    guard_response = _check_producer_pending_confirm_guard(pipeline_id, role, wait_for_types)
+    if guard_response is not None:
+        return guard_response
 
     message_store = get_message_store()
 

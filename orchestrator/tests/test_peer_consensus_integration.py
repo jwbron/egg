@@ -3029,3 +3029,66 @@ class TestGetFullyAckedProducers:
 
         result = t.get_fully_acked_producers()
         assert "coder" in result, "Advisory reviewer ACK should not be required"
+
+
+class TestIsProducerPendingConfirm:
+    """Backs the wait_loop guard added in #2064 — every producer state
+    machine transition is exercised so the guard's input never lies."""
+
+    def _build_tracker(self):
+        graph = ReviewGraph(
+            [
+                ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_code", "documenter", ReviewCriticality.ADVISORY),
+            ]
+        )
+        t = PeerConsensusTracker("test", graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("documenter")
+        t.register_agent("reviewer_code")
+        return t
+
+    def test_producer_in_working_is_pending(self):
+        t = self._build_tracker()
+        assert t.is_producer_pending_confirm("coder")
+        assert t.is_producer_pending_confirm("documenter")
+
+    def test_producer_in_proposed_is_pending(self):
+        t = self._build_tracker()
+        t.handle_propose(
+            "coder",
+            {"summary": "x" * 60, "artifacts": ["a.py"], "commit_sha": "abc1234"},
+        )
+        assert t.is_producer_pending_confirm("coder")
+
+    def test_producer_in_confirmed_is_not_pending(self):
+        t = self._build_tracker()
+        # documenter has only an advisory reviewer, so confirm only
+        # needs every producer to have proposed (the global guard).
+        t.handle_propose(
+            "coder",
+            {"summary": "x" * 60, "artifacts": ["a.py"], "commit_sha": "abc1234"},
+        )
+        t.handle_propose(
+            "documenter",
+            {"summary": "y" * 60, "artifacts": ["d.md"], "commit_sha": "def5678"},
+        )
+        t.handle_ack("reviewer_code", "coder", {"artifact_references": ["a.py"]})
+        # Advisory ACK still required for reviewer to satisfy "must have
+        # reviewed" guard, even though it doesn't gate is_fully_acked.
+        t.handle_ack("reviewer_code", "documenter", {"artifact_references": ["d.md"]})
+        # Reviewer must confirm before producers can confirm cleanly
+        result = t.handle_confirmed("reviewer_code")
+        assert result["status"] in ("confirmed", "partially_confirmed")
+        result = t.handle_confirmed("documenter")
+        assert result["status"] == "confirmed"
+        assert not t.is_producer_pending_confirm("documenter")
+
+    def test_reviewer_only_role_is_not_pending(self):
+        t = self._build_tracker()
+        # reviewer_code is only a reviewer here, never a producer
+        assert not t.is_producer_pending_confirm("reviewer_code")
+
+    def test_unknown_role_is_not_pending(self):
+        t = self._build_tracker()
+        assert not t.is_producer_pending_confirm("not_a_real_role")

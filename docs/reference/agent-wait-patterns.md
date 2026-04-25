@@ -159,6 +159,46 @@ respondent. Messages like this are bus noise.
 - `HANDOFF` — "I need you to act on this artifact"
 - `STATUS` / `PROGRESS` — informational, no reply expected
 
+### Anti-pattern 5 — Producer waits on `CONSENSUS_CONFIRMED` before its own confirm has succeeded (#2064)
+
+```bash
+# ❌ DO NOT DO THIS — happens when a producer treats the post-confirm
+# STAY ALIVE wait_loop as the recovery path for a `pending_acks` confirm.
+egg-orch consensus propose ...
+egg-orch consensus confirmed              # returns status='pending_acks'
+                                          # because another producer
+                                          # hasn't proposed yet
+egg-orch message wait-loop \
+  --for CONSENSUS_CONFIRMED \             # ← circular: own confirm
+  --for CONSENSUS_RE_REVIEW \             #   is part of what generates
+  --for OVERSEER_ALERT --timeout 60       #   this signal globally
+```
+
+**Why it's wrong:** the global `CONSENSUS_CONFIRMED` signal only fires
+when **every** agent — including this producer — has confirmed. Waiting
+on it before the producer's own confirm has been accepted by the
+tracker is a self-deadlock. Observed in pipeline `issue-1965`: the
+documenter sat in this wait for ~36 minutes, woken only by the
+overseer's `agent-heartbeat-stall` band-aid.
+
+The orchestrator's `/messages/wait` endpoint now rejects this pattern
+with **HTTP 400** when the caller's role is in producer state
+`WORKING` or `PROPOSED` and the wait includes `CONSENSUS_CONFIRMED` —
+the wrapper surfaces this as exit code 3 (permanent error). Read the
+error: it tells you what to wait for instead.
+
+**Fix:** the post-confirm STAY ALIVE wait is only legitimate **after**
+your own confirm has succeeded (status `confirmed`, not `pending_acks`).
+For a `pending_acks` recovery loop:
+
+- **Global zero-proposal** (another producer hasn't proposed): wait on
+  `CONSENSUS_PROPOSE` (and `OVERSEER_ALERT`), then re-issue
+  `egg-orch consensus confirmed`.
+- **Your reviewers haven't ACKed yet**: wait on `CONSENSUS_ACK,CONSENSUS_NACK`
+  per the producer-lifecycle Step 4 idiom, then re-issue confirm when
+  the orchestrator's directed STATUS nudge ("ready to confirm")
+  arrives.
+
 ## 3. Exit-Code Contract for `egg-orch message wait`
 
 `egg-orch message wait` returns a deterministic exit code so the wrapper
