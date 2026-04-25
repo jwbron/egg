@@ -809,21 +809,29 @@ class TestHeartbeatByContainer:
         assert manager.heartbeat_session_by_container("not-a-real-container") is False
 
     def test_heartbeat_extends_ttl(self, manager):
-        """Heartbeat also extends expires_at (mirrors validate_session behaviour)."""
+        """Heartbeat advances expires_at to ``now + ttl`` (mirrors validate_session)."""
         _token, session = manager.register_session(
             container_id="egg-agent-pipeline-1-coder",
             container_ip="172.18.0.5",
             mode="private",
         )
-        original_expiry = session.expires_at
-        # Wind the wall forward via last_seen so extend_ttl moves expires_at.
-        session.last_seen = datetime.now(UTC) - timedelta(minutes=30)
-        session.expires_at = session.last_seen + timedelta(hours=24)
+        # Backdate both ``last_seen`` and ``expires_at`` 30 minutes into
+        # the past.  ``extend_ttl`` should pull ``expires_at`` forward to
+        # roughly ``now + 24h`` — strictly greater than the backdated
+        # value of ``now + 23.5h``.
+        backdated_last_seen = datetime.now(UTC) - timedelta(minutes=30)
+        session.last_seen = backdated_last_seen
+        session.expires_at = backdated_last_seen + timedelta(hours=24)
+        backdated_expiry = session.expires_at
 
         manager.heartbeat_session_by_container("egg-agent-pipeline-1-coder")
         refreshed_session = manager.get_session_by_container("egg-agent-pipeline-1-coder")
         assert refreshed_session is not None
-        assert refreshed_session.expires_at > original_expiry - timedelta(seconds=1)
+        # Strict ``>`` proves the heartbeat moved ``expires_at`` forward;
+        # 23.9h floor proves it landed near ``now + 24h`` rather than
+        # being a no-op.
+        assert refreshed_session.expires_at > backdated_expiry
+        assert refreshed_session.expires_at > datetime.now(UTC) + timedelta(hours=23, minutes=54)
 
     def test_heartbeat_ignores_expired_session(self, manager):
         """Already-expired sessions are not silently revived."""

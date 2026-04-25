@@ -511,6 +511,16 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
 
     coordinator = get_heartbeat_coordinator()
 
+    # Refresh the agent's gateway session liveness (#2068).  Runs *above*
+    # the dedup gate so that an agent stuck in a single state for a long
+    # time (e.g. ``WORKING`` through a slow ``make test``) still keeps
+    # its gateway session alive — every well-formed heartbeat counts as
+    # liveness, regardless of whether it changes BRC state.  Best-effort:
+    # the gateway may be unreachable (tests, dev runs without a gateway)
+    # and a missing session is a 404; never fail the heartbeat on this
+    # path.
+    _refresh_gateway_session(pipeline_id, from_role)
+
     # Dedup first — duplicates are no-ops and should not consume rate
     # budget (review NB1, issue #1897). States in
     # ``_DEDUP_EXEMPT_HEARTBEAT_STATES`` skip this check; see the
@@ -583,15 +593,6 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
         },
     )
 
-    # Refresh the agent's gateway session liveness (#2068).  An agent in
-    # ``WAITING_FOR_EVENT`` makes no gateway requests for the duration of
-    # a BRC review cycle, so without this fan-out the gateway's idle
-    # pruner evicts the session after ~60 min and the next git/gh op
-    # fails with 401.  Best-effort: the gateway may not be reachable
-    # (tests, dev runs without a gateway) and a missing session is a
-    # 404; never fail the heartbeat on this path.
-    _refresh_gateway_session(pipeline_id, from_role)
-
     return _make_success(
         "HEARTBEAT stored",
         data={"message": msg.to_dict(), "deduped": False},
@@ -599,7 +600,17 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
 
 
 def _refresh_gateway_session(pipeline_id: str, from_role: str) -> None:
-    """Best-effort POST to the gateway so the BRC heartbeat counts as session liveness."""
+    """Best-effort POST to the gateway so the BRC heartbeat counts as session liveness.
+
+    Trust model: ``from_role`` is taken at face value from the request
+    body and is **not** correlated against the calling container's
+    session.  This matches the existing message-bus trust model — any
+    agent in any container can already post messages claiming to be
+    another role — but with this fan-out a misbehaving agent can keep
+    a sibling's gateway session alive past the idle timeout.  Tracked
+    as a follow-up; spoofing here doesn't grant any new capability,
+    only extends an existing session's lifetime.
+    """
     try:
         try:
             from gateway_client import get_gateway_client

@@ -1891,6 +1891,53 @@ class TestHeartbeatRoute:
                 )
                 assert resp.status_code == 200
 
+    def test_heartbeat_fan_out_fires_on_deduped_state(self, client, app):
+        """Deduped heartbeats still refresh the gateway session.
+
+        Reviewer NB3 (#2068): the original fix only ran the fan-out
+        *after* dedup, so an agent stuck in ``WORKING`` through a long
+        compute (e.g. a slow ``make test``) would emit identical
+        heartbeats that were dropped before refreshing the session.  The
+        fan-out now runs above dedup so every well-formed heartbeat
+        counts as gateway-session liveness.
+        """
+        with app.test_request_context():
+            mock_gw_client = MagicMock()
+            with (
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+                patch(
+                    "gateway_client.get_gateway_client",
+                    return_value=mock_gw_client,
+                ),
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                # First WORKING heartbeat — recorded, not deduped.
+                resp1 = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={
+                        "from_role": "fanout-dedup-role",
+                        "state": "WORKING",
+                    },
+                )
+                assert resp1.status_code == 200
+                # Second identical heartbeat — dedup gate should drop it.
+                resp2 = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={
+                        "from_role": "fanout-dedup-role",
+                        "state": "WORKING",
+                    },
+                )
+                assert resp2.status_code == 200
+                assert json.loads(resp2.data)["data"]["deduped"] is True
+                # Both calls fan out — that's the bug fix.
+                assert mock_gw_client.heartbeat_session_by_container.call_count == 2
+
 
 class TestWaitTimeoutFloorRegression:
     """Plan non-blocking: ``timeout <= 0`` is silently coerced to 1s

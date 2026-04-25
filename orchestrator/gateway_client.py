@@ -595,7 +595,12 @@ class GatewayClient:
                 use_launcher_auth=True,
             )
             return result.get("success", False)
-        except GatewayError:
+        except GatewayError as e:
+            logger.warning(
+                "Failed to heartbeat session by container",
+                container_id=container_id[:12] if len(container_id) >= 12 else container_id,
+                error=str(e),
+            )
             return False
 
     def create_worktrees(

@@ -951,6 +951,15 @@ class SessionManager:
         after ``DEFAULT_SESSION_IDLE_TIMEOUT_MINUTES`` even though the
         agent is still working — see #2068.
 
+        Mirrors ``validate_session``'s in-flight pattern: the TTL extend
+        is in-memory only.  We do **not** ``_save_to_disk()`` here — at
+        ~1 fan-out per agent every 60s a per-call atomic file write
+        would dominate gateway disk I/O for no benefit (worst-case loss
+        on a gateway crash is the session ages out and is re-registered
+        on the next gateway op, which is the same recovery path
+        ``validate_session`` already relies on).  Disk persistence
+        happens at lifecycle events (registration, deletion, expiry).
+
         Args:
             container_id: Container ID whose session to refresh.
 
@@ -962,7 +971,6 @@ class SessionManager:
             for session in self._sessions.values():
                 if session.container_id == container_id and not session.is_expired():
                     session.extend_ttl(self._ttl_hours)
-                    self._save_to_disk()
                     return True
         return False
 
