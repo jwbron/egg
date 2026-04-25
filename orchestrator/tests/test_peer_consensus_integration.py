@@ -822,6 +822,8 @@ class TestScaledReEvaluation:
             "documenter",
             "reviewer_code",
             "reviewer_contract",
+            "reviewer_security",
+            "reviewer_concurrency",
         ]:
             t.handle_confirmed(role)
 

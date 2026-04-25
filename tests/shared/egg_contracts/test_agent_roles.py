@@ -394,7 +394,9 @@ class TestGetRolesByCategory:
         assert "reviewer_agent_design" in role_values
         assert "reviewer_refine" in role_values
         assert "reviewer_plan" in role_values
-        assert len(roles) == 5
+        assert "reviewer_security" in role_values
+        assert "reviewer_concurrency" in role_values
+        assert len(roles) == 7
 
     def test_utility_roles(self):
         from egg_contracts.agent_roles import get_roles_by_category
