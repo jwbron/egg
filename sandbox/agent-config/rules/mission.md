@@ -63,7 +63,7 @@ gh pr create --head egg/<description> --title "Brief description" --body "..." -
 - **Push before long-running operations** — test suites, sub-agent spawns, or anything that could consume remaining turns.
 - **For multi-phase plans**: commit and push after completing each phase before starting the next. Never batch all phases into a single final commit.
 - **Update the contract as you go**: after each commit, mark the task done with `egg-contract complete-task --task <id> --commit <sha>`. After completing all tasks in a phase, mark the phase done with `egg-contract complete-phase --phase <id> --commit <sha>`.
-- **In concurrent/BRC mode**: direct `git push` is **blocked by the gateway**. Commit locally, then call `mcp__brc__propose` — it pushes your commits to origin via the gateway and sends `CONSENSUS_PROPOSE` in one step (push is on by default; pass `push=false` only if you have already pushed through another route). Fallback CLI: `egg-orch consensus propose --push`. Do not improvise refspec variants of `git push` when it fails — the gateway's error message will point you at the right tool.
+- **In any pipeline session**: direct `git push` is **blocked by the gateway**. Commit locally, then call `mcp__brc__propose` — it pushes your commits to origin via the gateway and sends `CONSENSUS_PROPOSE` in one step (push is on by default; pass `push=false` only if you have already pushed through another route). Fallback CLI: `egg-orch consensus propose --push`. Do not improvise refspec variants of `git push` when it fails — the gateway's error message will point you at the right tool.
 
 **If push/PR fails**: Notify user via Slack with branch name, repo, and summary.
 

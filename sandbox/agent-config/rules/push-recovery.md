@@ -8,7 +8,7 @@ The gateway inspects every commit in the unpushed range, partitions files by aut
 
 - **All your own files are in scope.** Plain push. Nothing to do.
 - **Any of your own files are out of scope.** The gateway rejects the push with HTTP 403 and a structured error body (see below). No commits land on origin; your local worktree is untouched.
-- **Other restrictions** (phase gate, anchor scope, protected file, branch ownership, private mode, concurrent mode). These also return 403 — different error codes, same shape.
+- **Other restrictions** (phase gate, anchor scope, protected file, branch ownership, private mode, pipeline session). These also return 403 — different error codes, same shape.
 
 Pulled commits authored by other roles in the same push range are **not** filtered against your patterns; only your own commits are checked.
 

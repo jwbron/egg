@@ -38,7 +38,7 @@ The gateway sidecar is the **trusted** component that holds credentials and vali
 
 | Operation | Policy | Check |
 |-----------|--------|-------|
-| `git push` | Branch ownership + Phase filter + Concurrent-mode consensus | Branch has open PR authored by egg, OR branch starts with `egg-` or `egg/`, AND operation is allowed in current phase, AND in concurrent mode push must come through consensus protocol (`consensus_push` marker) |
+| `git push` | Branch ownership + Phase filter + Pipeline-push consensus | Branch has open PR authored by egg, OR branch starts with `egg-` or `egg/`, AND operation is allowed in current phase, AND in pipeline sessions push must come through consensus protocol (`consensus_push` marker) |
 | `gh pr create` | Phase filter + mode policy | Operation is allowed in current phase (typically only in 'pr' phase)<br>In user mode, PR is forced to draft<br>Blocked in reviewer mode |
 | `gh pr comment` | Allowed on any PR | PR must exist and be accessible |
 | `gh pr merge` | **BLOCKED** | No merge endpoint - human must merge via GitHub UI |
@@ -94,7 +94,7 @@ The gateway enforces file-level access restrictions to prevent certain roles fro
 - `Push denied: Role 'X' cannot modify: <files>. <reason>` (HTTP 403) — Phase / contract / protected-file violation (non-agent-role restrictions)
 - `Push denied: Could not verify file changes for security check: <error>` (HTTP 500) — Detection failure
 
-**Agent-role restrictions auto-filter on push.** As of [#1882](https://github.com/jwbron/egg/issues/1882), the push handler no longer returns `403` for *agent-role* file-restriction violations. Instead, the gateway attributes each commit in the unpushed range via the commit-authorship registry and dispatches one of four outcomes — plain push, per-commit rewrite with `Auto-Filtered: true` trailer on own commits, `nothing_to_push: true` when every own file is blocked, or (with the kill switch set) warn-only plain push. Pulled cross-role commits pass through bitwise-unchanged. Phase / contract / protected-file / branch-ownership / private-mode / concurrent-mode checks keep their `403` behavior — only agent-role file restrictions auto-filter. See [Gateway Auto-Filter Architecture](../docs/architecture/gateway-auto-filter.md) for the full design.
+**Agent-role restrictions auto-filter on push.** As of [#1882](https://github.com/jwbron/egg/issues/1882), the push handler no longer returns `403` for *agent-role* file-restriction violations. Instead, the gateway attributes each commit in the unpushed range via the commit-authorship registry and dispatches one of four outcomes — plain push, per-commit rewrite with `Auto-Filtered: true` trailer on own commits, `nothing_to_push: true` when every own file is blocked, or (with the kill switch set) warn-only plain push. Pulled cross-role commits pass through bitwise-unchanged. Phase / contract / protected-file / branch-ownership / private-mode / pipeline-push checks keep their `403` behavior — only agent-role file restrictions auto-filter. See [Gateway Auto-Filter Architecture](../docs/architecture/gateway-auto-filter.md) for the full design.
 
 ### Branch Lock (Pipeline Sessions)
 
@@ -126,38 +126,37 @@ Pipeline sessions must push only to their assigned branch. This prevents agents 
 **Error message:**
 - `Pipeline sessions must push to their assigned branch '<assigned>'. Got '<attempted>'.` (HTTP 403)
 
-### Concurrent-Mode Push Enforcement (BRC Sessions)
+### Pipeline Push Enforcement (BRC Sessions)
 
-In concurrent/BRC mode (`EGG_CONCURRENT_MODE=true`), the gateway blocks direct `git push` operations from pipeline agents. All pushes must go through the BRC consensus protocol via `egg-orch consensus propose --push`, which bundles the push with a proposal so that all changes are peer-reviewed before landing on the branch.
+For every pipeline session, the gateway blocks direct `git push` operations. All pushes must go through the BRC consensus protocol via `mcp__brc__propose` (or the fallback CLI `egg-orch consensus propose --push`), which bundles the push with a proposal so all changes are peer-reviewed before landing on the branch. All SDLC producer phases (`refine`, `plan`, `implement`) are BRC phases ([`Pipeline.concurrent_phases`](../orchestrator/models.py)), so the enforcement is universal — there is no longer a "non-concurrent pipeline" path that allowed direct push ([#2028](https://github.com/jwbron/egg/issues/2028)).
 
 **How it works:**
-- After push-target enforcement and before branch ownership checks, the gateway checks whether the push originates from the consensus protocol
-- The check activates when all of the following are true: `EGG_CONCURRENT_MODE=true` (environment variable), the session has a `pipeline_id`, and the push is not an infrastructure push (checkpoints, pipeline state)
-- When `egg-orch consensus propose --push` runs, it calls the gateway's `/api/v1/git/push` endpoint directly (bypassing the git wrapper) with `"consensus_push": true` in the JSON payload
+- The gateway checks pipeline-push enforcement BEFORE push-target enforcement so a pipeline agent on a per-role work branch sees the actionable "use mcp__brc__propose" error first, instead of a misleading wrong-branch error from the target check
+- The check activates whenever the session has a `pipeline_id` and the push is not an infrastructure push (checkpoints, pipeline state). It no longer requires `EGG_CONCURRENT_MODE=true`
+- When `mcp__brc__propose` (or `egg-orch consensus propose --push`) runs, it calls the gateway's `/api/v1/git/push` endpoint directly (bypassing the git wrapper) with `"consensus_push": true` in the JSON payload
 - Pushes without the `consensus_push` marker are rejected with HTTP 403
 
-**Why this matters:** Without this enforcement, agents can bypass the BRC review protocol by calling `git push` directly — changes land on the branch without peer review, breaking the "all changes must be reviewed" invariant. This was observed in pipeline #1570 v17, where the coder agent pushed 7 incremental commits without ever entering BRC consensus. The auto-repropose mechanism (#1666/#1667) provides a safety net, but gateway-level enforcement makes the invariant structural rather than relying on agent compliance.
+**Why this matters:** Without this enforcement, agents can bypass the BRC review protocol by calling `git push` directly — changes land on the branch without peer review, breaking the "all changes must be reviewed" invariant. This was observed in pipeline #1570 v17, where the coder agent pushed 7 incremental commits without ever entering BRC consensus. Earlier versions of this check were gated on `EGG_CONCURRENT_MODE=true`, which left a gap: a pipeline session that didn't have that env var still hit a three-layer error cascade when it tried to push (sandbox wrapper → push-target validator → filtered-push fast-forward), thrashing the agent through wrong push variants ([#2028](https://github.com/jwbron/egg/issues/2028)). Gateway-level enforcement of the unconditional rule makes the invariant structural and gives a single, unambiguous error.
 
 **Marker flow:**
 ```
-egg-orch consensus propose --push
+mcp__brc__propose  (or  egg-orch consensus propose --push)
   └─→ calls gateway push API directly (bypasses git wrapper)
        └─→ includes "consensus_push": true in JSON payload
             └─→ gateway: allows push (marker present)
 
 Fallback (no GATEWAY_URL, e.g. local dev):
-  └─→ plain git push (no concurrent-mode enforcement)
+  └─→ plain git push (no pipeline-push enforcement)
 ```
 
-**Killswitch:** Set `CONCURRENT_PUSH_ENFORCEMENT=false` to disable (for emergency bypass). Follows the same pattern as `PUSH_TARGET_ENFORCEMENT`.
+**Killswitch:** Set `PIPELINE_PUSH_ENFORCEMENT=false` to disable (for emergency bypass). The legacy `CONCURRENT_PUSH_ENFORCEMENT=false` still works as an alias.
 
 **Error message:**
-- `Direct push blocked in concurrent mode. Use: egg-orch consensus propose --push` (HTTP 403)
+- `Direct git push is blocked for pipeline sessions. Publish your artifact via the mcp__brc__propose tool (which pushes to origin and sends CONSENSUS_PROPOSE in one step). Fallback CLI: \`egg-orch consensus propose --push\`.` (HTTP 403)
 
 **Exempt scenarios:**
-- Infrastructure pushes (checkpoint branches, pipeline state branches) — already exempted before this check
-- Non-concurrent pipelines (`EGG_CONCURRENT_MODE` not set or not `"true"`)
-- Sessions without a `pipeline_id` (interactive/local sessions)
+- Infrastructure pushes (checkpoint branches, pipeline state branches) — exempted before this check via `is_infrastructure_push`
+- Non-pipeline sessions (no `pipeline_id`) — interactive/local sessions are unaffected
 
 **Pipeline-aware push error messages:** When a push is rejected due to phase file restrictions (e.g., branch history contains files from prior phases), pipeline sessions receive a targeted error message directing the agent to signal the error via `egg-orch signal error` rather than attempting workarounds. Non-pipeline sessions continue to see the original generic hint about creating a clean branch.
 
@@ -518,7 +517,7 @@ gateway/
 │   ├── test_transcript_buffer.py
 │   ├── test_phase_worktree.py
 │   ├── test_assigned_branch.py  # Push-target enforcement and branch lock tests
-│   ├── test_concurrent_push_block.py  # Concurrent-mode push enforcement tests
+│   ├── test_pipeline_push_block.py  # Pipeline-push enforcement tests
 │   ├── integration_test.sh
 │   └── README-integration.md
 └── README.md               # This file
@@ -565,7 +564,7 @@ Both methods clear all in-memory config caches so the next access re-reads from 
 
 9. **Push-target enforcement**: Pipeline agents must push to their assigned branch only. When a push to the assigned branch fails (e.g., due to phase file restrictions from branch history contamination), agents must signal an error rather than improvise a new branch name. This prevents commits from landing on unexpected branches where the pipeline cannot find them.
 
-10. **Concurrent-mode push enforcement**: In BRC mode, direct `git push` is blocked — agents must use `egg-orch consensus propose --push`. This makes the "all changes must be reviewed" invariant structural rather than relying on agent compliance. A `consensus_push` marker flows from the orch CLI directly to the gateway API (bypassing the git wrapper), distinguishing protocol-originated pushes from direct pushes. A `CONCURRENT_PUSH_ENFORCEMENT` killswitch follows the same pattern as `PUSH_TARGET_ENFORCEMENT` for emergency bypass.
+10. **Pipeline push enforcement**: For every pipeline session, direct `git push` is blocked — agents must use `mcp__brc__propose` (or the fallback CLI `egg-orch consensus propose --push`). This makes the "all changes must be reviewed" invariant structural rather than relying on agent compliance, and applies regardless of `EGG_CONCURRENT_MODE` since all SDLC producer phases are BRC phases ([#2028](https://github.com/jwbron/egg/issues/2028)). A `consensus_push` marker flows from the propose tool directly to the gateway API (bypassing the git wrapper), distinguishing protocol-originated pushes from direct pushes. A `PIPELINE_PUSH_ENFORCEMENT` killswitch (legacy alias: `CONCURRENT_PUSH_ENFORCEMENT`) follows the same pattern as `PUSH_TARGET_ENFORCEMENT` for emergency bypass.
 
 11. **Upstream stream-reset resilience (Anthropic proxy)**: `proxy_anthropic_messages()` applies two asymmetric mitigations for `httpx.ReadError` / `httpx.RemoteProtocolError` on long-running SSE responses. A *pre-stream* retry (bounded to one attempt, gated on the first chunk not yet having been yielded downstream) transparently re-issues the upstream request when the reset lands before any downstream byte. A *mid-stream* synthetic SSE `event: error` frame is emitted when the reset lands after bytes have already flowed, because Anthropic exposes no resume tokens and mid-stream retry would risk double-charging and interleaving divergent generations. Full details in [credential-injection.md](../docs/architecture/credential-injection.md#upstream-stream-resilience). Distinct from gateway-pod-restart handling (#1883) and turn-1 consensus-wrapper retry (#1873).
 
