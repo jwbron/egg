@@ -1183,13 +1183,12 @@ def git_push() -> tuple[Response, int] | Response:
                 },
             )
 
-    # Agent-role file restrictions (#1882 gateway auto-filter).
+    # Agent-role file restrictions (#2039 restricted-path rejection).
     # The gateway partitions the push range into own-authored vs
     # pulled-from-other-role files via the commit-authorship registry,
     # checks the pushing role's write permissions against only the
-    # own-authored set, and either pushes unchanged (all allowed),
-    # rewrites the range per-commit (mixed), or returns
-    # nothing_to_push=true (all blocked).
+    # own-authored set, and either pushes unchanged (all allowed)
+    # or rejects with 403 restricted_path_modified (any blocked).
     #
     # EGG_AGENT_RESTRICTIONS_ENFORCE=false short-circuits the filter
     # (warn-only, same as the old 403 path).
