@@ -511,23 +511,23 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
 
     coordinator = get_heartbeat_coordinator()
 
-    # Refresh the agent's gateway session liveness (#2068).  Runs *above*
-    # the dedup gate so that an agent stuck in a single state for a long
-    # time (e.g. ``WORKING`` through a slow ``make test``) still keeps
-    # its gateway session alive — every well-formed heartbeat counts as
-    # liveness, regardless of whether it changes BRC state.  Best-effort:
-    # the gateway may be unreachable (tests, dev runs without a gateway)
-    # and a missing session is a 404; never fail the heartbeat on this
-    # path.
-    _refresh_gateway_session(pipeline_id, from_role)
-
     # Dedup first — duplicates are no-ops and should not consume rate
     # budget (review NB1, issue #1897). States in
     # ``_DEDUP_EXEMPT_HEARTBEAT_STATES`` skip this check; see the
     # constant's docstring for the rationale.
+    #
+    # Note: the gateway-session fan-out below runs *after* dedup but
+    # *before* rate-limit.  Dedup'd heartbeats still fan out so an agent
+    # stuck in a single state (e.g. ``WORKING`` through a slow
+    # ``make test``) keeps its gateway session alive even when its BRC
+    # state hasn't changed.  Rate-limited heartbeats do not fan out: by
+    # definition the agent already got plenty of refreshes in the last
+    # minute, and a hot-looping agent shouldn't amplify into the
+    # gateway.
     if state not in _DEDUP_EXEMPT_HEARTBEAT_STATES and coordinator.is_duplicate(
         pipeline_id, from_role, state, waiting_on
     ):
+        _refresh_gateway_session(pipeline_id, from_role)
         return _make_success(
             "HEARTBEAT deduped (unchanged state)",
             data={"deduped": True},
@@ -558,6 +558,14 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
         )
         resp.headers["Retry-After"] = str(retry_after)
         return resp, 429
+
+    # Refresh the agent's gateway session liveness (#2068).  Runs after
+    # dedup and rate-limit gates: every accepted-or-deduped heartbeat
+    # fans out (dedup'd path above), but rate-limited ones do not.
+    # Best-effort: the gateway may be unreachable (tests, dev runs
+    # without a gateway) and a missing session is a 404; never fail the
+    # heartbeat on this path.
+    _refresh_gateway_session(pipeline_id, from_role)
 
     # Emit as a normal HEARTBEAT message on the bus so downstream
     # consumers (HealthMonitor, overseer, UI) see it.
@@ -602,6 +610,16 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
 def _refresh_gateway_session(pipeline_id: str, from_role: str) -> None:
     """Best-effort POST to the gateway so the BRC heartbeat counts as session liveness.
 
+    Container-id normalization: k8s names are RFC-1123 labels (no
+    underscores), so ``kubernetes_spawner.JOB_NAME_FORMAT`` is filled
+    with ``agent_role.value.replace("_", "-")``.  ``from_role`` arrives
+    from ``EGG_AGENT_ROLE`` which is the underscore form, so we mirror
+    the same normalization here — otherwise roles like
+    ``reviewer_refine`` build a container_id that never matches the
+    registered session and the gateway returns 404.  See
+    ``orchestrator/kubernetes_spawner.py:370-375`` for the reference
+    pattern.
+
     Trust model: ``from_role`` is taken at face value from the request
     body and is **not** correlated against the calling container's
     session.  This matches the existing message-bus trust model — any
@@ -619,7 +637,11 @@ def _refresh_gateway_session(pipeline_id: str, from_role: str) -> None:
                 get_gateway_client,  # type: ignore[no-redef,import-not-found]
             )
 
-        container_id = f"egg-agent-{pipeline_id}-{from_role}"
+        # Mirror kubernetes_spawner.JOB_NAME_FORMAT's role normalization
+        # — k8s labels disallow underscores, so the registered
+        # container_id uses hyphens.
+        normalized_role = from_role.replace("_", "-")
+        container_id = f"egg-agent-{pipeline_id}-{normalized_role}"
         get_gateway_client().heartbeat_session_by_container(container_id)
     except Exception as exc:  # pragma: no cover - logging only
         logger.warning(

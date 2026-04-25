@@ -1938,6 +1938,59 @@ class TestHeartbeatRoute:
                 # Both calls fan out — that's the bug fix.
                 assert mock_gw_client.heartbeat_session_by_container.call_count == 2
 
+    @pytest.mark.parametrize(
+        "from_role,expected_container_id",
+        [
+            ("reviewer_refine", "egg-agent-test-pipeline-reviewer-refine"),
+            ("reviewer_code", "egg-agent-test-pipeline-reviewer-code"),
+            ("reviewer_agent_design", "egg-agent-test-pipeline-reviewer-agent-design"),
+            ("task_planner", "egg-agent-test-pipeline-task-planner"),
+            ("conflict_resolver", "egg-agent-test-pipeline-conflict-resolver"),
+            ("coder", "egg-agent-test-pipeline-coder"),
+        ],
+    )
+    def test_heartbeat_fan_out_normalizes_underscores_to_hyphens(
+        self, client, app, from_role, expected_container_id
+    ):
+        """Fan-out container_id must mirror kubernetes_spawner's role hyphenation.
+
+        Reviewer blocker (#2068 follow-up): k8s names are RFC-1123
+        labels (no underscores), so ``kubernetes_spawner.JOB_NAME_FORMAT``
+        is filled with ``role.replace("_", "-")``.  ``from_role`` arrives
+        from ``EGG_AGENT_ROLE`` which is the underscore form, so the
+        fan-out must apply the same normalization — otherwise reviewer
+        roles like ``reviewer_refine`` build a container_id that never
+        matches the registered session and the gateway returns 404,
+        making the fan-out a silent no-op for exactly the BRC reviewer
+        roles that #2068 most acutely affects.
+        """
+        with app.test_request_context():
+            mock_gw_client = MagicMock()
+            with (
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+                patch(
+                    "gateway_client.get_gateway_client",
+                    return_value=mock_gw_client,
+                ),
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={
+                        "from_role": from_role,
+                        "state": "WAITING_FOR_EVENT",
+                    },
+                )
+                assert resp.status_code == 200
+                mock_gw_client.heartbeat_session_by_container.assert_called_once_with(
+                    expected_container_id
+                )
+
 
 class TestWaitTimeoutFloorRegression:
     """Plan non-blocking: ``timeout <= 0`` is silently coerced to 1s

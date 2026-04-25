@@ -809,7 +809,19 @@ class TestHeartbeatByContainer:
         assert manager.heartbeat_session_by_container("not-a-real-container") is False
 
     def test_heartbeat_extends_ttl(self, manager):
-        """Heartbeat advances expires_at to ``now + ttl`` (mirrors validate_session)."""
+        """Heartbeat advances expires_at to ``now + ttl`` (mirrors validate_session).
+
+        The 23h54m floor (rather than e.g. 23h59m) is a deliberate 6-minute
+        slack to absorb test-execution jitter between ``register_session``
+        and the post-heartbeat ``datetime.now(UTC)`` call: a stalled
+        runner could in principle take a few seconds between the two,
+        and the assertion only needs to prove ``extend_ttl`` actually
+        fired (not that the clock was perfectly still).  The strict
+        ``>`` against ``backdated_expiry`` (``now + 23.5h``) is what
+        proves the heartbeat moved the deadline forward — the 23h54m
+        floor is the *upper-bound* sanity check that it landed near
+        ``now + 24h`` rather than being clamped lower.
+        """
         _token, session = manager.register_session(
             container_id="egg-agent-pipeline-1-coder",
             container_ip="172.18.0.5",
@@ -828,8 +840,8 @@ class TestHeartbeatByContainer:
         refreshed_session = manager.get_session_by_container("egg-agent-pipeline-1-coder")
         assert refreshed_session is not None
         # Strict ``>`` proves the heartbeat moved ``expires_at`` forward;
-        # 23.9h floor proves it landed near ``now + 24h`` rather than
-        # being a no-op.
+        # 23h54m floor proves it landed near ``now + 24h`` (sanity check
+        # — see docstring for the 6-minute slack rationale).
         assert refreshed_session.expires_at > backdated_expiry
         assert refreshed_session.expires_at > datetime.now(UTC) + timedelta(hours=23, minutes=54)
 
