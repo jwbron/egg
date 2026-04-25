@@ -1106,7 +1106,9 @@ The `analysis` and `plan` fields are also accepted by the `submit_task` MCP tool
 - `.egg-state/drafts/{prefix}-analysis.md` → pipeline analysis
 - `.egg-state/contracts/{identifier}.json` → SDLC contract including resolved HITL decisions (rebind to new pipeline ID before writing)
 
-The contract pull is best-effort: if the source branch has no contract, or if it fails validation, the orchestrator falls back to creating a fresh contract. This preserves HITL decisions (database selection, API style, config choices, etc.) resolved in the prior run so they are not lost on resubmission.
+The contract pull is best-effort: if the source branch contract is missing, invalid, or unreachable, the orchestrator falls back to creating a fresh contract. This preserves HITL decisions (database selection, API style, config choices, etc.) resolved in the prior run so they are not lost on resubmission.
+
+Unlike the plan/analysis drafts above, the contract `{identifier}` is **not** subject to the prefix-resolution fallback below. The helper canonicalizes `issue_number` to `issue-<N>` when present, falling back to `pipeline_id` only when `issue_number` is None — qualifier-keyed contracts (e.g. `issue-123-v3.json`) are not tried.
 
 Prefix resolution order for exact-path lookup:
 
