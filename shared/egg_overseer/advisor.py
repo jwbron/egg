@@ -191,15 +191,20 @@ async def consult_advisor(
             ) from exc
 
         async def _default_runner(p: str, m: str) -> str:
+            # SDK kwarg is `system_prompt`, not `system`. Returning
+            # `result.stdout` gives the assistant's text body for the
+            # single-turn call; `str(result)` would give the
+            # AgentResult repr and fail JSON parsing downstream.
+            # Optional code-fence stripping happens after the runner
+            # returns (handles both this runner and test runners).
             result = await run_agent_async(
                 prompt=p,
                 model=m,
-                system=_PROMPT_SYSTEM,
+                system_prompt=_PROMPT_SYSTEM,
                 max_turns=1,
             )
-            # ``run_agent_async`` returns the assistant's text content
-            # for the single-turn call.
-            return result if isinstance(result, str) else str(result)
+            stdout_attr = getattr(result, "stdout", None)
+            return stdout_attr if isinstance(stdout_attr, str) else str(result)
 
         runner = _default_runner
     else:
@@ -207,8 +212,21 @@ async def consult_advisor(
 
     raw = await runner(prompt, model)
 
+    # Strip optional ``` ```json fences the model occasionally wraps
+    # the JSON in (defensive — the prompt instructs against fences but
+    # real outputs still slip them in). Applied here so it covers both
+    # the default runner and caller-supplied test runners.
+    cleaned = (raw or "").strip()
+    if cleaned.startswith("```"):
+        lines = cleaned.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        cleaned = "\n".join(lines).strip()
+
     try:
-        payload = json.loads(raw)
+        payload = json.loads(cleaned)
     except json.JSONDecodeError as exc:
         raise AdvisorParseError(
             f"consult_advisor: SDK response is not valid JSON: {raw!r}"

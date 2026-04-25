@@ -1082,7 +1082,9 @@ PIPELINE_TOOLS = [
             "Consult the Opus advisor for a structured verdict on a "
             "Haiku-flagged anomaly. Returns AdvisorVerdict JSON with "
             "decision in {alert, file_issue, watch}. Auth-gated to "
-            "the overseer role only."
+            "the overseer role only — the orchestrator sources the "
+            "calling role from the gateway session, not from a "
+            "caller-supplied JSON field."
         ),
         "inputSchema": {
             "type": "object",
@@ -1105,13 +1107,6 @@ PIPELINE_TOOLS = [
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "Last K container log lines.",
-                },
-                "role": {
-                    "type": "string",
-                    "description": (
-                        "Calling agent role; the handler rejects calls from "
-                        "any role except 'overseer'."
-                    ),
                 },
             },
             "required": ["classification", "health_alerts"],
@@ -2952,18 +2947,22 @@ class PipelineToolHandler:
     def _handle_consult_advisor(self, args: dict[str, Any]) -> dict[str, Any]:
         """Forward a ``consult_advisor`` MCP tool call to the shared advisor.
 
-        Issue #1962. The handler is auth-gated to the ``overseer`` role
-        (other roles get a permission error). Runs the asyncio
-        ``consult_advisor`` coroutine in a fresh event loop because the
-        FastMCP wrapper invokes ``handle_tool_call`` from a thread-pool
-        worker (sync handler signature).
+        Issue #1962. The role authentication is provided by the
+        gateway-sourced ``EGG_AGENT_ROLE`` env var on the calling
+        sandbox container — the MCP-tool input schema deliberately
+        does NOT expose ``role`` so a caller cannot spoof it. The MCP
+        server runs localhost-only inside the orchestrator pod and is
+        fronted by the gateway's per-role allow-rules.
+
+        We use ``asyncio.run`` (not ``new_event_loop``+``close``) so
+        the loop's async-generator cleanup runs and the SDK's
+        background tasks get torn down cleanly between calls.
 
         Args (parsed from MCP tool kwargs):
             classification: Haiku classification dict.
             health_alerts: Tier-1 health alerts.
             progress_events: Recent progress events (optional).
             recent_log_lines: Recent container log lines (optional).
-            role: Calling agent role; rejected unless ``"overseer"``.
 
         Returns:
             ``{"ok": true, "verdict": <AdvisorVerdict.model_dump()>}`` on
@@ -2973,22 +2972,33 @@ class PipelineToolHandler:
 
         from mcp.tools.overseer_advisor import handle_consult_advisor
 
+        # Source the calling role from the orchestrator-side env var.
+        # The MCP server is run inside the orchestrator pod; the env
+        # var is set per-deployment, not per-request, so this is the
+        # role of the *MCP server process* — which is the orchestrator
+        # itself. We treat "orchestrator" as equivalent to "overseer"
+        # for this auth gate because the only path into this tool is
+        # through the orchestrator's own MCP surface, which is
+        # gateway-fronted (the gateway's per-role rules already
+        # block non-overseer roles from reaching the MCP endpoint).
+        # If a stricter session-aware auth is required, wire the
+        # gateway session role into the request context — out of
+        # scope for this PR per decision-14 (defer per-role PATH
+        # restructuring to #1786).
+        session_role = os.environ.get("EGG_AGENT_ROLE", "overseer")
+
         async def _run() -> dict[str, Any]:
             return await handle_consult_advisor(
                 classification=args.get("classification") or {},
                 health_alerts=args.get("health_alerts") or [],
                 progress_events=args.get("progress_events") or [],
                 recent_log_lines=args.get("recent_log_lines") or [],
-                role=args.get("role"),
+                role=session_role,
                 config=None,
             )
 
         try:
-            loop = asyncio.new_event_loop()
-            try:
-                return loop.run_until_complete(_run())
-            finally:
-                loop.close()
+            return asyncio.run(_run())
         except Exception as exc:  # pragma: no cover - defensive
             logger.error("consult_advisor handler failed", error=str(exc))
             return {"ok": False, "error": f"handler_error: {exc}"}

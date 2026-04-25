@@ -36,6 +36,40 @@ logger = logging.getLogger(__name__)
 DIAGNOSTIC_LABELS = ["egg:diagnostic", "pipeline-health"]
 
 
+# Pre-#1962 canonical body literal — preserved verbatim for the
+# byte-equality regression test (TASK-7-1) that the planner specified
+# at "the literal at orchestrator/overseer/issue_filer.py:86-107".
+# The runtime code path now uses TEMPLATE_LITERAL.format(...) below;
+# this constant is the historical anchor against which the regression
+# test asserts the canonical bytes have not drifted. The canonical
+# template extends this with a Pipeline Links sub-block per
+# decision-8 opt-2 — see egg_overseer.issue_template.TEMPLATE_LITERAL
+# for the live template, and tests for byte-equality of this prefix
+# against the live template's leading region.
+LEGACY_BODY_LITERAL: str = """## Pipeline Diagnostic: {anomaly_type}
+
+**Pipeline**: `{pipeline_id}`
+**Phase**: `{phase}`
+**Agent**: `{agent_role}`
+**Detected**: `{timestamp}`
+
+### Anomaly
+{anomaly_description}
+
+### Timeline
+{timeline_lines}
+
+### Classification
+{classification_lines}
+
+### Actions Taken
+{actions_lines}
+{container_logs_section}
+### Suggested Remediation
+- {remediation}
+"""
+
+
 def _build_issue_body(
     pipeline_id: str,
     agent_role: str,

@@ -348,6 +348,26 @@ def check_overseer_gh_issue_create(
             secret_kinds=tuple(sorted(kinds)),
         )
 
+    # Reject `agent:*` labels other than `agent:overseer` so a buggy
+    # caller cannot sneak `agent:fake` in alongside the auto-injected
+    # `agent:overseer` (reviewer_code blocker against the prior
+    # version's permissive auto-inject).
+    bad_agent_labels = [
+        label
+        for label in labels
+        if label.lower().startswith("agent:")
+        and label.lower() != OVERSEER_REQUIRED_LABEL
+    ]
+    if bad_agent_labels:
+        return OverseerGhCheckResult(
+            allowed=False,
+            reason=(
+                f"non-overseer agent label(s) rejected; only "
+                f"{OVERSEER_REQUIRED_LABEL!r} is allowed on overseer-filed "
+                f"issues: {bad_agent_labels}"
+            ),
+        )
+
     # Auto-inject required labels if the caller forgot. Lower-case both
     # sides so the comparison is case-insensitive.
     have_lower = {label.lower() for label in labels}

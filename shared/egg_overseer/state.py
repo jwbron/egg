@@ -121,19 +121,26 @@ def append_filed_issue(
     ``record.model_dump_json()``. Calls ``fsync`` so the record is
     durable before the function returns.
 
+    Concurrency: acquires ``fcntl.LOCK_EX`` via the same
+    ``agent-timing.lock`` sentinel used by ``save_agent_timing``
+    so concurrent overseer respawns don't interleave records (POSIX
+    only guarantees atomic writes ≤ ``PIPE_BUF`` bytes; record JSON
+    can exceed that).
+
     Args:
         path: Filesystem path to ``filed-issues.jsonl``.
         record: Record to append.
     """
     p = Path(path)
     _ensure_parent(p)
-    write_header = not p.exists()
-    with open(p, "a", encoding="utf-8") as f:
-        if write_header:
-            f.write(_HEADER_LINE + "\n")
-        f.write(record.model_dump_json() + "\n")
-        f.flush()
-        os.fsync(f.fileno())
+    with _file_lock(p):
+        write_header = not p.exists()
+        with open(p, "a", encoding="utf-8") as f:
+            if write_header:
+                f.write(_HEADER_LINE + "\n")
+            f.write(record.model_dump_json() + "\n")
+            f.flush()
+            os.fsync(f.fileno())
 
 
 def load_filed_issues(

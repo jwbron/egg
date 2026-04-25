@@ -241,10 +241,33 @@ def run_migrated_detectors(
             load_agent_timing,
             save_agent_timing,
         )
-    except ImportError:
-        # Shared package not on path (lightweight unit tests); fall
-        # through with no alerts rather than crashing the cycle.
-        return []
+    except ImportError as exc:
+        # Production: a missing egg_overseer package is a packaging
+        # bug — the sandbox image build skipped copying
+        # shared/egg_overseer/ into the runtime. Silently returning []
+        # would mask the problem (zero overseer alerts forever, no
+        # operator-visible signal); fail loud instead.
+        # Only swallow when EGG_OVERSEER_TEST_MODE=1 (lightweight
+        # unit tests that mock the cycle).
+        if os.environ.get("EGG_OVERSEER_TEST_MODE") == "1":
+            return []
+        # Emit a structured stderr line operators can grep for, then
+        # re-raise so the cycle visibly fails (the monitor wrapper
+        # logs it).
+        print(
+            json.dumps(
+                {
+                    "_overseer_error": "egg_overseer_packaging_missing",
+                    "error": str(exc),
+                    "fix": (
+                        "Sandbox image build skipped shared/egg_overseer/. "
+                        "Rebuild with the package included."
+                    ),
+                }
+            ),
+            file=sys.stderr,
+        )
+        raise
 
     timing_path = _agent_timing_path()
     state = load_agent_timing(timing_path, pipeline_id=pipeline_id)
@@ -382,8 +405,16 @@ def run_migrated_detectors(
     # detect_phase_long_running — implement phase elapsed beyond long_run.
     if phase_name == "implement":
         # Find the producer entry's phase_entered_at as a proxy for
-        # phase start; fallback to min over all entries.
-        starts = [e.phase_entered_at for e in state.entries.values()]
+        # phase start. Filter to entries belonging to the current
+        # phase so an entry left over from a prior phase doesn't
+        # make the current phase appear "long-running" within
+        # milliseconds of starting (reviewer_code blocker: state.entries
+        # is not cleared on phase transition).
+        starts = [
+            e.phase_entered_at
+            for k, e in state.entries.items()
+            if e.phase == phase_name and not k.startswith("_")
+        ]
         if starts:
             phase_started = min(starts)
             elapsed_p = (now - phase_started).total_seconds()
@@ -527,76 +558,38 @@ def run_once(
 HAIKU_CONFIDENCE_THRESHOLD = 0.8
 
 
-def maybe_consult_advisor(
+def should_consult_advisor(
     classification: dict[str, Any],
     cycle_report: dict[str, Any],
-    *,
-    base_url: str | None = None,
-    pipeline_id: str | None = None,
-    role: str = "overseer",
-) -> dict[str, Any] | None:
-    """Apply the Tier-1 intersection gate and call the advisor MCP tool.
+) -> bool:
+    """Return True when the Tier-1 intersection gate is open.
 
-    This is the load-bearing wiring per the #1962 plan TASK-4-2:
-    Haiku flag (``classification.confidence ≥ 0.8``) AND Tier-1 alert
-    present in the cycle report → invoke
-    ``mcp__overseer__consult_advisor`` (registered in
-    ``orchestrator/mcp_tools.py``). Returns the advisor verdict dict
-    when the call is made; ``None`` when the gate did not trip.
+    Pure predicate (no side effects). Used by the overseer agent to
+    decide whether to invoke the ``mcp__overseer__consult_advisor``
+    MCP tool through its own MCP client surface — the actual tool
+    invocation happens at the agent layer via the SDK's MCP client,
+    NOT via a REST endpoint (the orchestrator's MCP server is
+    exposed only over the FastMCP streamable-HTTP transport at
+    ``/mcp``; there is no ``/api/v1/mcp/tools/...`` REST surface).
+
+    Issue #1962 TASK-4-2 gate spec:
+        confidence ≥ HAIKU_CONFIDENCE_THRESHOLD (0.8)
+        AND any Tier-1 health alert present.
 
     Args:
-        classification: Haiku's classification dict (must include
-            ``confidence`` ∈ [0,1]).
+        classification: Haiku's classification dict; must contain a
+            numeric ``confidence`` field.
         cycle_report: Output of ``run_once``; we read
-            ``advisor_gate.tier1_alerts_present`` and the alert types.
-        base_url: Orchestrator base URL.
-        pipeline_id: Pipeline id; defaults to ``EGG_PIPELINE_ID``.
-        role: Calling role (kept for symmetry with the MCP handler's
-            auth gate; ``overseer`` is the only allowed value).
+            ``advisor_gate.tier1_alerts_present``.
 
     Returns:
-        Advisor verdict dict on tool success, ``None`` if the gate
-        did not trip, or ``{"ok": False, ...}`` on tool failure.
+        True when both halves of the gate are satisfied; False
+        otherwise.
     """
     confidence = float(classification.get("confidence") or 0.0)
     advisor_gate = cycle_report.get("advisor_gate", {})
     tier1 = bool(advisor_gate.get("tier1_alerts_present"))
-    if confidence < HAIKU_CONFIDENCE_THRESHOLD:
-        return None
-    if not tier1:
-        return None
-
-    if base_url is None:
-        base_url = get_orchestrator_url()
-    if pipeline_id is None:
-        pipeline_id = get_pipeline_id_from_env()
-
-    payload = {
-        "tool": "consult_advisor",
-        "arguments": {
-            "classification": classification,
-            "health_alerts": cycle_report.get("alerts_detail", []),
-            "progress_events": [],
-            "recent_log_lines": [],
-            "role": role,
-        },
-    }
-    # The MCP tool is exposed via the orchestrator's MCP server; the
-    # sandbox calls it through the same MCP client path the agent
-    # uses. Here we POST to the MCP-tool dispatch endpoint as a
-    # fallback when the in-process MCP client isn't available — the
-    # Python-side equivalent is documented in the plan.
-    try:
-        result = api_request(
-            base_url,
-            "/api/v1/mcp/tools/consult_advisor",
-            method="POST",
-            data=payload,
-            timeout=60,
-        )
-        return result if isinstance(result, dict) else {"ok": False, "error": "bad_response"}
-    except Exception as exc:
-        return {"ok": False, "error": f"call_failed: {exc}"}
+    return confidence >= HAIKU_CONFIDENCE_THRESHOLD and tier1
 
 
 def run_monitor(

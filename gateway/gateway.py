@@ -3648,48 +3648,94 @@ def gh_execute() -> tuple[Response, int] | Response:
         # Parse the relevant flags from the gh argv. We accept both
         # --title-file/--body-file (the new CLI verb's preferred path)
         # and --title/--body (the historical form) so old callers do
-        # not break.
+        # not break. Each known flag MUST be followed by a value that
+        # does not start with '-' (otherwise a malformed argv like
+        # `--repo --label foo` would consume `--label` as the repo
+        # value and walk past every subsequent flag — reviewer_code
+        # blocker against the original loop's order-dependence).
         repo_arg: str | None = None
         title_text: str = ""
         body_text: str = ""
         labels: list[str] = []
+        _OVERSEER_VALUE_FLAGS = {
+            "--repo",
+            "--label",
+            "--title",
+            "--title-file",
+            "--body",
+            "--body-file",
+        }
+
+        def _value_for(flag: str, idx: int):
+            """Return (value, error_response) for a known --flag at args[idx]."""
+            if idx + 1 >= len(args):
+                return None, make_error(
+                    f"Flag {flag!r} requires a value (end of argv)",
+                    status_code=400,
+                    details={"command": gh_command_str},
+                )
+            val = args[idx + 1]
+            if val.startswith("-"):
+                return None, make_error(
+                    f"Flag {flag!r} requires a value (got another flag {val!r})",
+                    status_code=400,
+                    details={"command": gh_command_str},
+                )
+            return val, None
+
         i = 2
         while i < len(args):
             tok = args[i]
-            if tok == "--repo" and i + 1 < len(args):
-                repo_arg = args[i + 1]
+            if tok in _OVERSEER_VALUE_FLAGS:
+                val, err = _value_for(tok, i)
+                if err is not None:
+                    return err
+                if tok == "--repo":
+                    repo_arg = val
+                elif tok == "--label":
+                    labels.append(val or "")
+                elif tok == "--title":
+                    title_text = val or ""
+                elif tok == "--title-file":
+                    try:
+                        with open(val or "", encoding="utf-8", errors="strict") as _f:
+                            title_text = _f.read().strip()
+                    except UnicodeDecodeError as _exc:
+                        return make_error(
+                            f"--title-file {val!r} contains invalid UTF-8: {_exc}",
+                            status_code=400,
+                            details={"command": gh_command_str},
+                        )
+                    except OSError as _exc:
+                        return make_error(
+                            f"Cannot read --title-file {val!r}: {_exc}",
+                            status_code=400,
+                            details={"command": gh_command_str},
+                        )
+                elif tok == "--body":
+                    body_text = val or ""
+                elif tok == "--body-file":
+                    try:
+                        # errors="strict" so invalid UTF-8 in the body
+                        # is rejected loudly (reviewer_code blocker:
+                        # silent corruption could swap a leaked-secret
+                        # byte sequence past the regex check).
+                        with open(val or "", encoding="utf-8", errors="strict") as _f:
+                            body_text = _f.read()
+                    except UnicodeDecodeError as _exc:
+                        return make_error(
+                            f"--body-file {val!r} contains invalid UTF-8: {_exc}",
+                            status_code=400,
+                            details={"command": gh_command_str},
+                        )
+                    except OSError as _exc:
+                        return make_error(
+                            f"Cannot read --body-file {val!r}: {_exc}",
+                            status_code=400,
+                            details={"command": gh_command_str},
+                        )
                 i += 2
-            elif tok == "--label" and i + 1 < len(args):
-                labels.append(args[i + 1])
-                i += 2
-            elif tok == "--title" and i + 1 < len(args):
-                title_text = args[i + 1]
-                i += 2
-            elif tok == "--title-file" and i + 1 < len(args):
-                try:
-                    with open(args[i + 1], encoding="utf-8") as _f:
-                        title_text = _f.read().strip()
-                except OSError as _exc:
-                    return make_error(
-                        f"Cannot read --title-file {args[i + 1]!r}: {_exc}",
-                        status_code=400,
-                        details={"command": gh_command_str},
-                    )
-                i += 2
-            elif tok == "--body" and i + 1 < len(args):
-                body_text = args[i + 1]
-                i += 2
-            elif tok == "--body-file" and i + 1 < len(args):
-                try:
-                    with open(args[i + 1], encoding="utf-8") as _f:
-                        body_text = _f.read()
-                except OSError as _exc:
-                    return make_error(
-                        f"Cannot read --body-file {args[i + 1]!r}: {_exc}",
-                        status_code=400,
-                        details={"command": gh_command_str},
-                    )
-                i += 2
+                continue
             else:
                 i += 1
 
