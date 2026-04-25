@@ -304,10 +304,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-9",
+      "question": "When the onboard skill cannot write to the target repo (e.g. agent has no permission, or user runs it against a read-only checkout), what should it do?",
+      "context": "Open contract question decision-8, registered by an agent during the refine phase.",
+      "options": [
+        "Print the YAML to stdout and offer to append it to `~/.config/egg/repositories.yaml` instead (Recommended) — matches the issue proposal; user keeps onboarding even when checkin is blocked",
+        "Always write to `~/.config/egg/repositories.yaml` regardless — simpler but defeats the layered model",
+        "Always write to `<repo>/.egg/repositories.yaml` — fail loudly when permissions are missing, force the user to fix them",
+        "Write to a tmp path and print instructions for the user to copy it where they want — most flexible, least automated",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T23:29:21.155896Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T23:09:30.400320Z",
-  "updated_at": "2026-04-25T23:29:21.102583Z",
+  "updated_at": "2026-04-25T23:29:21.181608Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -321,6 +341,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 19,
+  "version": 20,
   "jira_ticket": null
 }
