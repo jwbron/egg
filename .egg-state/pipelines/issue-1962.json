@@ -562,10 +562,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-22",
+      "question": "Auto-issue gate placement: where does the final \"file an issue Y/N\" decision live?",
+      "context": "Open contract question decision-21, registered by an agent during the refine phase.",
+      "options": [
+        "Advisor decides directly: Opus returns `file=true|false`; overseer files immediately if true (subject to dedup + budget)",
+        "Advisor recommends: Opus returns `recommendation=file_issue` inside an `OVERSEER_ALERT`; the existing alert flow surfaces it; the human gates the actual filing",
+        "Advisor decides for a subset (e.g., systemic / repeated anomalies); for novel anomalies, the advisor recommends only and the human gates",
+        "Defer to plan phase — ties together with rollout (decision-10/decision-22)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T17:52:18.079865Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T17:05:44.416677Z",
-  "updated_at": "2026-04-25T17:52:18.032757Z",
+  "updated_at": "2026-04-25T17:52:18.098766Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -579,6 +599,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 32,
+  "version": 33,
   "jira_ticket": null
 }
