@@ -32,8 +32,8 @@ Use `get_roles_by_category(AgentCategory.REVIEW)` to dynamically query roles by 
 | `documenter` | Execution | Implement | Yes (with `tester`) | coder |
 | `reviewer_code` | Review | Implement | Yes (with `reviewer_contract`, `reviewer_security`, `reviewer_concurrency`) | coder, tester |
 | `reviewer_contract` | Review | Implement | Yes (with `reviewer_code`, `reviewer_security`, `reviewer_concurrency`) | coder, tester |
-| `reviewer_security` | Review | Implement | Yes (advisory) | coder, tester |
-| `reviewer_concurrency` | Review | Implement | Yes (advisory) | coder, tester |
+| `reviewer_security` | Review | Implement | Yes (with `reviewer_code`, `reviewer_contract`, `reviewer_concurrency`) | coder, tester |
+| `reviewer_concurrency` | Review | Implement | Yes (with `reviewer_code`, `reviewer_contract`, `reviewer_security`) | coder, tester |
 | `autofixer` | Utility | Any | Yes | — |
 | `conflict_resolver` | Utility | Any | Yes | — |
 | `inspector` | Interface | Any | — | — (health checks) |
@@ -240,7 +240,7 @@ each surface so reviewers know to keep them in sync.
 - Allowed writes: `.egg-state/reviews/`, `.egg-state/agent-outputs/`
 - Blocked: All source, docs, tests, contracts, drafts
 
-**Subagent fan-out**: On large diffs (`files_changed > 10` OR `loc > 500`), `reviewer_code` fans out into Claude Agent SDK subagents — one per implement-phase task partition (capped at 6). Each subagent reviews its slice; the parent aggregates findings and emits the single ACK/NACK. A mandatory cross-partition consistency pass runs regardless of whether fan-out fires. Fan-out can be forced sequential via `phase_configs.implement.reviewer_code.parallel = false` (default: `true`).
+**Subagent fan-out**: On large diffs (`files_changed > 10` OR `loc_added + loc_removed > 500`), `reviewer_code` fans out into Claude Agent SDK subagents — one per implement-phase task partition (capped at 6, with a 5-minute / 300-second per-subagent wall-clock timeout that NACKs the partition on overrun). Each subagent reviews its slice; the parent aggregates findings and emits the single ACK/NACK. A mandatory cross-partition consistency pass runs regardless of whether fan-out fires. Fan-out can be forced sequential via `phase_configs.implement.reviewer_code.parallel = false` (default: `true`).
 
 **Outputs**:
 - `.egg-state/reviews/{identifier}-implement-reviewer_code-review.json` — Verdict file
