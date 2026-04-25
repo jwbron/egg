@@ -3125,6 +3125,82 @@ class TestReadyToConfirmNudge:
         second = t.handle_ack("reviewer_advisory", "coder", {"artifact_references": ["a.py"]})
         assert all(e["role"] != "coder" for e in second["newly_ready"])
 
+    def test_pending_acks_rejection_re_arms_nudge_for_producer(self):
+        """#2100: a producer that already received a "ready to confirm"
+        nudge but then hits a ``pending_acks`` rejection (e.g. self-confirms
+        before the global zero-proposal guard clears) must have its nudge
+        memo dropped, so the laggard's later proposal re-emits the STATUS.
+
+        Without this, the producer sits in ``message_wait_loop`` forever:
+        the original nudge already fired at version 1, and the post-propose
+        sweep would skip the producer because the memo says it has already
+        been nudged at v1.  The agent only recovers after an overseer alert
+        prompts a manual re-confirm.
+        """
+        graph = ReviewGraph(
+            [
+                ReviewEdge("reviewer_x", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_x", "tester", ReviewCriticality.CRITICAL),
+            ]
+        )
+        t = PeerConsensusTracker("test-2100", graph, cooldown_seconds=0)
+        for role in ("coder", "tester", "reviewer_x"):
+            t.register_agent(role)
+
+        # coder proposes and gets fully ACKed at v1.
+        self._propose(t, "coder", artifacts=["a.py"])
+        t.handle_ack("reviewer_x", "coder", {"artifact_references": ["a.py"]})
+
+        # Simulate a prior "ready to confirm" nudge for coder at v1.
+        # In current code paths this can be reached by replay during
+        # tracker reconstruction, by legacy pipelines that pre-date the
+        # #2078 nudge gating, or by an agent that self-confirms based on
+        # direct ACK observation rather than the STATUS message.
+        t._nudged_versions["coder"] = 1
+
+        # coder eagerly confirms — the global zero-proposal guard rejects
+        # because tester has proposal_version == 0.
+        confirm_result = t.handle_confirmed("coder")
+        assert confirm_result["status"] == "pending_acks"
+
+        # The memo for coder must be dropped so the next sweep can re-emit.
+        assert "coder" not in t._nudged_versions, (
+            "pending_acks rejection must re-arm the nudge for the producer (#2100)"
+        )
+
+        # tester proposes — global guard now clears, coder re-surfaces.
+        tester_result = self._propose(t, "tester", artifacts=["t.py"], commit="def5678")
+        ready_roles = {e["role"]: e["version"] for e in tester_result["newly_ready"]}
+        assert "coder" in ready_roles, (
+            "coder must be re-surfaced once the laggard proposes; "
+            "without this the wait_loop never wakes (#2100)"
+        )
+        assert ready_roles["coder"] == 1
+
+    def test_pending_acks_rejection_no_op_for_reviewer_only_role(self):
+        """The re-arm helper is gated on ``is_producer`` — invoking it for
+        a reviewer-only rejection must not touch unrelated producer memos."""
+        graph = ReviewGraph([ReviewEdge("reviewer_x", "coder", ReviewCriticality.CRITICAL)])
+        t = PeerConsensusTracker("test-2100-reviewer", graph, cooldown_seconds=0)
+        for role in ("coder", "reviewer_x"):
+            t.register_agent(role)
+
+        # Pre-populate a memo for coder that must NOT be touched when a
+        # different role hits a pending_acks rejection.
+        t._nudged_versions["coder"] = 1
+
+        # reviewer_x tries to confirm without having reviewed coder —
+        # raises ValueError (must_have_reviewed). The re-arm helper still
+        # runs first and must be a no-op for this reviewer-only role.
+        try:
+            t.handle_confirmed("reviewer_x")
+        except ValueError:
+            pass  # expected: must_have_reviewed raises
+
+        assert t._nudged_versions.get("coder") == 1, (
+            "reviewer rejection must not corrupt unrelated producer memos"
+        )
+
     def test_re_propose_re_arms_nudge(self):
         """A new proposal version re-arms the nudge so the producer is
         surfaced again once its new ACKs land."""

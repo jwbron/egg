@@ -157,6 +157,24 @@ class PeerConsensusTracker:
             if self._nudged_versions.get(role) == version:
                 del self._nudged_versions[role]
 
+    def _rearm_nudge_after_pending_acks(self, role: str) -> None:
+        """Drop the nudge memo so a re-nudge fires when the guard finally clears.
+
+        A producer that already received a "ready to confirm" STATUS will
+        have an entry in ``_nudged_versions`` at its current proposal
+        version.  If that producer then calls ``confirm`` and the guard
+        rejects with ``pending_acks`` (peer hasn't proposed, reviewer hasn't
+        ACKed, etc.), the laggard's later state change re-runs
+        ``_collect_newly_ready_producers`` — but the memo would suppress
+        the re-emit at the same version, leaving the producer asleep in
+        ``message_wait_loop`` indefinitely (#2100).  Dropping the memo here
+        re-arms the nudge; the next sweep only emits if
+        ``check_confirm_guard`` actually passes, so this can't fire
+        prematurely.
+        """
+        if self.graph.is_producer(role):
+            self._nudged_versions.pop(role, None)
+
     def _collect_newly_ready_producers(self) -> list[dict[str, Any]]:
         """Return producers that newly became ready-to-confirm.
 
@@ -542,6 +560,12 @@ class PeerConsensusTracker:
 
             if not guard.allowed:
                 guard_type = guard.details.get("guard", "unknown")
+
+                # Re-arm the "ready to confirm" nudge for this producer so
+                # the laggard's later proposal/ACK wakes it up via the
+                # normal _collect_newly_ready_producers sweep (#2100).
+                # No-op for reviewer-only roles.
+                self._rearm_nudge_after_pending_acks(agent_role)
 
                 # Global zero-proposal guard (#1648): any producer has
                 # never proposed — blocks all agents from confirming.
