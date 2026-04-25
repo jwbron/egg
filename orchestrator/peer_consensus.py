@@ -1290,6 +1290,21 @@ class PeerConsensusTracker:
         """Alias for evaluate() -- compatibility with ConsensusEvaluator."""
         return self.evaluate()
 
+    def is_producer_pending_confirm(self, role: str) -> bool:
+        """True if ``role`` is a producer that has not yet reached CONFIRMED.
+
+        Used by the ``/messages/wait`` endpoint to reject incoherent
+        ``wait_loop --for CONSENSUS_CONFIRMED`` calls from producers
+        whose own confirm hasn't succeeded — their confirm is part of
+        what generates global consensus, so the wait would deadlock
+        (#2064). Reviewer-only roles return False (they may legitimately
+        wait on other agents' confirms).
+        """
+        with self._lock:
+            if not self.graph.is_producer(role):
+                return False
+            return self._producer_phases.get(role) != ConsensusPhase.CONFIRMED
+
     def are_all_producers_working(self, reviewer: str) -> bool:
         """Check if all upstream producers for a reviewer are still in WORKING phase.
 

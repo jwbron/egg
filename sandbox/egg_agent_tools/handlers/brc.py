@@ -227,6 +227,12 @@ def brc_confirm(req: dict[str, Any]) -> dict[str, Any]:
         pipeline_id, role: overrides.
 
     Response carries:
+        ok: True only when the producer transitioned to CONFIRMED.
+            False for "pending_acks" — the orchestrator received the
+            request but rejected the transition (e.g.
+            ``producer_not_fully_acked``, ``global_zero_proposal``,
+            ``stale_acks``). Inspect ``status`` and ``message`` to pick
+            corrective action.
         status: "confirmed"|"pending_acks"
         consensus_reached: bool (only for status=="confirmed")
     """
@@ -243,7 +249,7 @@ def brc_confirm(req: dict[str, Any]) -> dict[str, Any]:
     body = result.get("data", {})
     pending = body.get("status") == "pending_acks"
     return {
-        "ok": True,
+        "ok": not pending,
         "role": role,
         "status": "pending_acks" if pending else "confirmed",
         "consensus_reached": bool(body.get("consensus_reached", False)),

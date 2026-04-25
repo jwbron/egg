@@ -199,6 +199,7 @@ class TestBrcConfirm:
             },
         ):
             resp = brc.brc_confirm({"pipeline_id": "p", "role": "coder"})
+        assert resp["ok"] is True
         assert resp["status"] == "confirmed"
         assert resp["consensus_reached"] is True
 
@@ -211,6 +212,7 @@ class TestBrcConfirm:
             },
         ):
             resp = brc.brc_confirm({"pipeline_id": "p", "role": "coder"})
+        assert resp["ok"] is False
         assert resp["status"] == "pending_acks"
         assert resp["consensus_reached"] is False
 

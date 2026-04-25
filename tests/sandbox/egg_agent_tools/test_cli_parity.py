@@ -324,7 +324,7 @@ class TestCmdConsensusConfirmedParity:
         pre-refactor CLI so scripts can distinguish 'waiting' from
         'confirmed')."""
         fake = {
-            "ok": True,
+            "ok": False,
             "status": "pending_acks",
             "consensus_reached": False,
             "role": "coder",
