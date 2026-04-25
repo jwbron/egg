@@ -423,10 +423,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-15",
+      "question": "Should the onboarding skill detect Rust/Java/Ruby projects, or stick to the languages already used in egg-instrumented repos?",
+      "context": "Open contract question decision-14, registered by an agent during the refine phase.",
+      "options": [
+        "Ship detection for Python (uv/pip), Node (npm/pnpm/yarn), and Go only (Recommended) — these match the example file's documented patterns and the egg fleet today. Add Rust/Java/Ruby in a follow-up when there's a real consumer.",
+        "Ship the full set listed in the issue (Python, Node, Go, Rust, Java, Ruby, mixed) up front — future-proofs but more code to maintain without confirmed users",
+        "Ship only what the egg repo itself uses (Python uv) and document how to extend the detector — minimal but the most fragile if even a webapp gets onboarded",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T23:29:21.962479Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T23:09:30.400320Z",
-  "updated_at": "2026-04-25T23:29:21.913475Z",
+  "updated_at": "2026-04-25T23:29:21.986342Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -440,6 +459,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 25,
+  "version": 26,
   "jira_ticket": null
 }
