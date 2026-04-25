@@ -1417,3 +1417,223 @@ class TestSourceBranchEdgeCases:
 
         assert result is True
         assert pipeline.plan == plan_content
+
+
+# ---------------------------------------------------------------------------
+# 6. _pull_contract_from_source_branch (#2035)
+# ---------------------------------------------------------------------------
+
+
+class TestPullContractFromSourceBranch:
+    """Test that _pull_contract_from_source_branch carries over resolved
+    HITL decisions from ``origin/<source_branch>`` instead of letting
+    ``_run_pipeline`` overwrite them with a fresh zero-state contract.
+    """
+
+    def _make_contract(self, pipeline_id="issue-1570", decisions=None, phases=None):
+        """Build a Contract with the given decisions/phases preserved."""
+        from egg_contracts.models import Contract, IssueInfo
+
+        issue_number = None
+        if pipeline_id.startswith("issue-"):
+            try:
+                issue_number = int(pipeline_id.split("-")[1])
+            except (IndexError, ValueError):
+                pass
+
+        return Contract(
+            issue=IssueInfo(number=issue_number, title="t", url="") if issue_number else None,
+            pipeline_id=pipeline_id,
+            decisions=decisions or [],
+            phases=phases or [],
+        )
+
+    def test_pulls_contract_with_resolved_decisions(self, tmp_path):
+        """Contract with resolved HITL decisions should be loaded and saved."""
+        from egg_contracts.models import Decision, DecisionType
+        from routes.pipelines import _pull_contract_from_source_branch
+
+        source_contract = self._make_contract(
+            pipeline_id="issue-1570",
+            decisions=[
+                Decision(
+                    id="decision-1",
+                    question="Which DB driver?",
+                    type=DecisionType.HITL,
+                    options=[],
+                    resolved=True,
+                    resolution="asyncpg",
+                    resolved_by="human",
+                )
+            ],
+        )
+
+        saved = {}
+
+        def fake_load(identifier, repo_path, branch=None):
+            assert identifier == 1570
+            assert branch == "origin/egg/issue-1570-v3"
+            return source_contract
+
+        def fake_save(contract, repo_root):
+            saved["contract"] = contract
+            saved["repo_root"] = repo_root
+            return repo_root / "contract.json"
+
+        with (
+            patch("subprocess.run") as mock_subprocess,
+            patch("egg_contracts.loader.load_contract_from_branch", side_effect=fake_load),
+            patch("egg_contracts.loader.save_contract", side_effect=fake_save),
+        ):
+            mock_subprocess.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+            result = _pull_contract_from_source_branch(
+                repo_path=tmp_path,
+                source_branch="egg/issue-1570-v3",
+                issue_number=1570,
+                pipeline_id="issue-1570",
+            )
+
+        assert result is True
+        assert "contract" in saved
+        # The pulled contract's decisions must survive the save.
+        assert len(saved["contract"].decisions) == 1
+        assert saved["contract"].decisions[0].resolved is True
+        assert saved["contract"].decisions[0].resolution == "asyncpg"
+
+    def test_rebinds_pipeline_id_when_forking(self, tmp_path):
+        """When forking (source pipeline_id != new pipeline_id), save under the NEW id."""
+        from routes.pipelines import _pull_contract_from_source_branch
+
+        source_contract = self._make_contract(pipeline_id="issue-1570")
+
+        saved = {}
+
+        def fake_load(identifier, repo_path, branch=None):
+            assert identifier == 1570
+            return source_contract
+
+        with (
+            patch("subprocess.run") as mock_subprocess,
+            patch(
+                "egg_contracts.loader.load_contract_from_branch",
+                side_effect=fake_load,
+            ),
+            patch("egg_contracts.loader.save_contract") as mock_save,
+        ):
+            mock_subprocess.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+            mock_save.side_effect = lambda c, r: saved.setdefault("contract", c)
+            result = _pull_contract_from_source_branch(
+                repo_path=tmp_path,
+                source_branch="egg/issue-1570",
+                issue_number=1570,
+                pipeline_id="issue-1570-v2",
+            )
+
+        assert result is True
+        # Saved contract must have been rebound to the new pipeline_id so
+        # save_contract writes under the canonical key for the new pipeline.
+        assert saved["contract"].pipeline_id == "issue-1570-v2"
+
+    def test_returns_false_when_no_contract_on_branch(self, tmp_path):
+        """Missing contract on source branch should yield False (not raise)."""
+        from egg_contracts.loader import ContractNotFoundError
+        from routes.pipelines import _pull_contract_from_source_branch
+
+        with (
+            patch("subprocess.run") as mock_subprocess,
+            patch(
+                "egg_contracts.loader.load_contract_from_branch",
+                side_effect=ContractNotFoundError(1570, tmp_path / "missing.json"),
+            ),
+        ):
+            mock_subprocess.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+            result = _pull_contract_from_source_branch(
+                repo_path=tmp_path,
+                source_branch="egg/issue-1570-v3",
+                issue_number=1570,
+                pipeline_id="issue-1570",
+            )
+
+        assert result is False
+
+    def test_returns_false_on_invalid_contract(self, tmp_path):
+        """Invalid contract on source branch should yield False (best-effort)."""
+        from egg_contracts.loader import ContractValidationError
+        from routes.pipelines import _pull_contract_from_source_branch
+
+        with (
+            patch("subprocess.run") as mock_subprocess,
+            patch(
+                "egg_contracts.loader.load_contract_from_branch",
+                side_effect=ContractValidationError(1570, ["Invalid JSON: x"]),
+            ),
+        ):
+            mock_subprocess.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+            result = _pull_contract_from_source_branch(
+                repo_path=tmp_path,
+                source_branch="egg/issue-1570-v3",
+                issue_number=1570,
+                pipeline_id="issue-1570",
+            )
+
+        assert result is False
+
+    def test_uses_gateway_fetch_when_spawner_present(self, tmp_path):
+        """When spawner is provided, fetch must go through the gateway (credentialed)."""
+        from routes.pipelines import _pull_contract_from_source_branch
+
+        mock_spawner = MagicMock()
+        mock_spawner.gateway.fetch_branch = MagicMock()
+
+        with (
+            patch(
+                "egg_contracts.loader.load_contract_from_branch",
+                return_value=self._make_contract(),
+            ),
+            patch("egg_contracts.loader.save_contract"),
+        ):
+            _pull_contract_from_source_branch(
+                repo_path=tmp_path,
+                source_branch="egg/issue-1570-v3",
+                issue_number=1570,
+                pipeline_id="issue-1570",
+                spawner=mock_spawner,
+                gateway_mode="private",
+            )
+
+        mock_spawner.gateway.fetch_branch.assert_called_once()
+        call_kwargs = mock_spawner.gateway.fetch_branch.call_args.kwargs
+        assert call_kwargs["args"] == ["egg/issue-1570-v3"]
+        assert call_kwargs["mode"] == "private"
+
+    def test_falls_back_to_pipeline_id_when_no_issue_number(self, tmp_path):
+        """When issue_number is None, identifier should fall back to pipeline_id."""
+        from routes.pipelines import _pull_contract_from_source_branch
+
+        source_contract = self._make_contract(pipeline_id="run-abc123")
+
+        def fake_load(identifier, repo_path, branch=None):
+            assert identifier == "run-abc123"
+            return source_contract
+
+        saved = {}
+
+        with (
+            patch("subprocess.run") as mock_subprocess,
+            patch(
+                "egg_contracts.loader.load_contract_from_branch",
+                side_effect=fake_load,
+            ),
+            patch("egg_contracts.loader.save_contract") as mock_save,
+        ):
+            mock_subprocess.return_value = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+            mock_save.side_effect = lambda c, r: saved.setdefault("contract", c)
+            result = _pull_contract_from_source_branch(
+                repo_path=tmp_path,
+                source_branch="egg/run-abc123",
+                issue_number=None,
+                pipeline_id="run-abc123",
+            )
+
+        assert result is True
+        assert saved["contract"].pipeline_id == "run-abc123"
