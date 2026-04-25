@@ -306,10 +306,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-9",
+      "question": "Issue body template: keep the existing `## Pipeline Diagnostic: ...` template at orchestrator/overseer/issue_filer.py:86-107, or redesign?",
+      "context": "Open contract question decision-8, registered by an agent during the refine phase.",
+      "options": [
+        "Keep existing template (pipeline + phase + agent + timeline + classification + actions + logs + remediation)",
+        "Extend the existing template with explicit links (pipeline ID, phase, branch, commit SHA, parent-alert message ID)",
+        "Redesign — draft a new template in the plan phase",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T17:52:17.345579Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T17:05:44.416677Z",
-  "updated_at": "2026-04-25T17:52:17.312557Z",
+  "updated_at": "2026-04-25T17:52:17.371222Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -323,6 +342,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 19,
+  "version": 20,
   "jira_ticket": null
 }
