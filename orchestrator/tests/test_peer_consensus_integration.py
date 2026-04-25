@@ -3029,3 +3029,133 @@ class TestGetFullyAckedProducers:
 
         result = t.get_fully_acked_producers()
         assert "coder" in result, "Advisory reviewer ACK should not be required"
+
+
+class TestReadyToConfirmNudge:
+    """Regression coverage for #2078.
+
+    The orchestrator's "ready to confirm" nudge used to fire on
+    ``is_fully_acked`` (critical-reviewer ACK only) and ignored the global
+    zero-proposal guard.  An advisory-only producer like ``documenter``
+    received the nudge after a single ADVISORY ACK and was misled into
+    calling ``consensus confirmed`` while peer producers had not yet
+    proposed.  ``is_ready_to_confirm`` and the per-handler readiness sweep
+    delegate to ``check_confirm_guard`` so the signal cannot drift.
+    """
+
+    def _register_default_implement(self) -> PeerConsensusTracker:
+        graph = get_default_implement_graph()
+        t = PeerConsensusTracker("test-nudge", graph, cooldown_seconds=0)
+        for role in graph.all_roles():
+            t.register_agent(role)
+        return t
+
+    def _propose(
+        self, t: PeerConsensusTracker, role: str, *, artifacts: list[str], commit: str = "abc123"
+    ) -> dict:
+        return t.handle_propose(
+            role,
+            {"summary": f"{role} proposal", "artifacts": artifacts, "commit_sha": commit},
+        )
+
+    def test_documenter_advisory_ack_does_not_nudge_before_global_clears(self):
+        """Reproducer for #2078: ACK on advisory-only producer must not
+        nudge while the global zero-proposal guard still blocks confirm."""
+        t = self._register_default_implement()
+
+        # Documenter proposes; coder and tester have not yet.
+        propose_result = self._propose(t, "documenter", artifacts=["docs/README.md"])
+        # No producer is ready yet — coder/tester are zero-proposal.
+        assert propose_result["newly_ready"] == []
+
+        # The single ADVISORY ACK fully ACKs documenter at the
+        # critical-reviewer level, but the global guard still blocks confirm.
+        ack_result = t.handle_ack(
+            "reviewer_code", "documenter", {"artifact_references": ["docs/README.md"]}
+        )
+        assert ack_result["fully_acked"] is True
+        assert ack_result["newly_ready"] == [], (
+            "documenter must not be nudged while coder/tester have proposal_version == 0"
+        )
+        assert t.is_ready_to_confirm("documenter") is False
+
+        # handle_confirmed agrees: still pending_acks under the global guard.
+        confirm_result = t.handle_confirmed("documenter")
+        assert confirm_result["status"] == "pending_acks"
+
+    def test_documenter_nudged_when_peers_finally_propose(self):
+        """Once coder and tester propose, the next propose handler sweep
+        surfaces documenter as newly ready — without needing a new ACK."""
+        t = self._register_default_implement()
+
+        self._propose(t, "documenter", artifacts=["docs/README.md"])
+        t.handle_ack("reviewer_code", "documenter", {"artifact_references": ["docs/README.md"]})
+
+        # Coder proposes — tester still missing, so global guard still blocks.
+        coder_result = self._propose(t, "coder", artifacts=["src/main.py"])
+        assert all(e["role"] != "documenter" for e in coder_result["newly_ready"])
+
+        # Tester proposes — global guard now clears, documenter is ready.
+        tester_result = self._propose(t, "tester", artifacts=["tests/test_main.py"])
+        ready_roles = {e["role"]: e["version"] for e in tester_result["newly_ready"]}
+        assert "documenter" in ready_roles
+        assert ready_roles["documenter"] == 1
+        assert t.is_ready_to_confirm("documenter") is True
+
+    def test_no_duplicate_nudge_within_same_version(self):
+        """Once a producer has been surfaced as newly_ready, subsequent
+        state changes at the same proposal version do not re-emit it."""
+        graph = ReviewGraph(
+            [
+                ReviewEdge("reviewer_critical", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_advisory", "coder", ReviewCriticality.ADVISORY),
+            ]
+        )
+        t = PeerConsensusTracker("test-dedup", graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("reviewer_critical")
+        t.register_agent("reviewer_advisory")
+
+        self._propose(t, "coder", artifacts=["a.py"])
+
+        # Critical ACK flips coder to ready — first nudge.
+        first = t.handle_ack("reviewer_critical", "coder", {"artifact_references": ["a.py"]})
+        first_ready = [e for e in first["newly_ready"] if e["role"] == "coder"]
+        assert first_ready and first_ready[0]["version"] == 1
+
+        # Advisory ACK at the same version arrives later — must not re-nudge.
+        second = t.handle_ack("reviewer_advisory", "coder", {"artifact_references": ["a.py"]})
+        assert all(e["role"] != "coder" for e in second["newly_ready"])
+
+    def test_re_propose_re_arms_nudge(self):
+        """A new proposal version re-arms the nudge so the producer is
+        surfaced again once its new ACKs land."""
+        graph = ReviewGraph([ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL)])
+        t = PeerConsensusTracker("test-rearm", graph, cooldown_seconds=0)
+        t.register_agent("coder")
+        t.register_agent("reviewer_code")
+
+        # v1: propose, ACK — nudge fires.
+        self._propose(t, "coder", artifacts=["a.py"])
+        ack_v1 = t.handle_ack("reviewer_code", "coder", {"artifact_references": ["a.py"]})
+        v1_ready = [e for e in ack_v1["newly_ready"] if e["role"] == "coder"]
+        assert v1_ready and v1_ready[0]["version"] == 1
+
+        # NACK + re-propose to v2 invalidates the ACK, dropping coder out of
+        # ready.  Re-propose alone must NOT re-nudge.
+        t.handle_nack("reviewer_code", "coder", {"artifact_references": ["a.py"], "reason": "bug"})
+        repropose_result = t.handle_re_propose(
+            "coder",
+            {"summary": "v2", "artifacts": ["a.py"], "commit_sha": "abc123"},
+            changed_artifacts=["a.py"],
+        )
+        assert all(e["role"] != "coder" for e in repropose_result["newly_ready"])
+
+        # New ACK at v2 — nudge re-fires for the new version.
+        ack_v2 = t.handle_ack(
+            "reviewer_code",
+            "coder",
+            {"artifact_references": ["a.py"], "ack_version": 2},
+        )
+        v2_ready = [e for e in ack_v2["newly_ready"] if e["role"] == "coder"]
+        assert v2_ready and v2_ready[0]["version"] == 2

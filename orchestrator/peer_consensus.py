@@ -123,6 +123,10 @@ class PeerConsensusTracker:
         # auto-repropose).  Used by check_auto_repropose to suppress redundant
         # auto-reproposals when a push arrives shortly after an explicit proposal.
         self._last_explicit_propose_timestamp: dict[str, datetime] = {}
+        # Highest proposal version for which a producer has already received a
+        # "ready to confirm" nudge.  A new proposal bumps the version and
+        # naturally re-arms the nudge — see _collect_newly_ready_producers.
+        self._nudged_versions: dict[str, int] = {}
 
     @property
     def confirmed_roles(self) -> frozenset[str]:
@@ -137,6 +141,45 @@ class PeerConsensusTracker:
                 self._producer_phases[role] = ConsensusPhase.WORKING
             if self.graph.is_reviewer(role):
                 self._reviewer_phases[role] = ConsensusPhase.WORKING
+
+    def is_ready_to_confirm(self, role: str) -> bool:
+        """Return True if ``role`` would currently pass ``check_confirm_guard``.
+
+        Single source of truth for the "this agent can call confirm now"
+        question.  Used by the orchestrator nudge path so the readiness signal
+        cannot drift from the actual confirm precondition (#2078).
+        """
+        with self._lock:
+            return check_confirm_guard(
+                role,
+                self.graph,
+                self.matrix,
+                self._confirmed,
+            ).allowed
+
+    def _collect_newly_ready_producers(self) -> list[dict[str, Any]]:
+        """Return producers that newly became ready-to-confirm.
+
+        Caller MUST hold ``self._lock``.  Iterates all producers, checks
+        ``check_confirm_guard``, and returns any producer whose current
+        proposal version is higher than the last version we nudged for.  The
+        memo (``_nudged_versions``) is updated in place — each emitted nudge
+        is recorded so we don't spam.  Re-proposing bumps the version and
+        re-arms the nudge naturally.
+        """
+        newly_ready: list[dict[str, Any]] = []
+        for role in self.graph.all_roles():
+            if not self.graph.is_producer(role):
+                continue
+            guard = check_confirm_guard(role, self.graph, self.matrix, self._confirmed)
+            if not guard.allowed:
+                continue
+            version = self.matrix.get_proposal_version(role)
+            if version <= self._nudged_versions.get(role, 0):
+                continue
+            self._nudged_versions[role] = version
+            newly_ready.append({"role": role, "version": version})
+        return newly_ready
 
     def _run_invariant_checks(self, action: str) -> None:
         """Run invariant checks after a state mutation (if enabled).
@@ -257,6 +300,7 @@ class PeerConsensusTracker:
             "commit_sha": proposal.commit_sha,
             "reviewers": self.graph.reviewers_for(agent_role),
             "stale_reviewers": stale_reviewers,
+            "newly_ready": self._collect_newly_ready_producers(),
         }
 
     def handle_ack(
@@ -338,6 +382,7 @@ class PeerConsensusTracker:
                 "status": "acked",
                 "fully_acked": fully_acked,
                 "version": ack_version,
+                "newly_ready": self._collect_newly_ready_producers(),
             }
             if normalized_condition:
                 result["pre_merge_condition"] = normalized_condition

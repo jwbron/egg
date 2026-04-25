@@ -901,6 +901,45 @@ def _resolve_pipeline_phase(pipeline_id: str, repo_path: Path) -> str:
         return "implement"
 
 
+def _emit_ready_to_confirm_nudges(
+    pipeline_id: str,
+    phase: str,
+    newly_ready: list[dict[str, Any]],
+) -> None:
+    """Emit a STATUS to each producer that newly became ready to confirm.
+
+    The tracker returns producers whose ``check_confirm_guard`` now passes —
+    not just those that are fully ACKed by their critical reviewers.  This
+    closes the gap where a documenter (advisory-only) was nudged the moment
+    its single ADVISORY ACK arrived, even though the global zero-proposal
+    guard still rejected confirm (#2078).
+    """
+    if not newly_ready:
+        return
+    from message_store import Message, MessageType, get_message_store
+
+    store = get_message_store()
+    for entry in newly_ready:
+        producer = entry["role"]
+        version = entry["version"]
+        store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role="orchestrator",
+                to_role=producer,
+                message_type=MessageType.STATUS,
+                subject="Ready to confirm — all confirm preconditions satisfied",
+                body=(
+                    f"Your proposal (version {version}) has been ACKed and all "
+                    f"global confirm preconditions are met. Run "
+                    f"`egg-orch consensus confirmed` to confirm."
+                ),
+                phase=phase,
+                metadata={"ready_to_confirm": True, "version": version},
+            )
+        )
+
+
 def handle_consensus_propose_signal(
     pipeline_id: str,
     data: dict[str, Any],
@@ -1026,6 +1065,10 @@ def handle_consensus_propose_signal(
                 )
             )
 
+        # A new proposal can unblock the global zero-proposal guard for
+        # producers that were previously fully ACKed but unable to confirm.
+        _emit_ready_to_confirm_nudges(pipeline_id, phase, result.get("newly_ready", []))
+
         return make_success_response(
             f"Proposal recorded for {agent_role}",
             data=result,
@@ -1103,21 +1146,12 @@ def handle_consensus_ack_signal(
             )
         )
 
-        # Notify the producer when all reviewers have ACKed so it can confirm
-        if result.get("fully_acked"):
-            store.add_message(
-                Message(
-                    pipeline_id=pipeline_id,
-                    from_role="orchestrator",
-                    to_role=producer_role,
-                    message_type=MessageType.STATUS,
-                    subject="All reviewers have ACKed — ready to confirm",
-                    body=f"All assigned reviewers have ACKed your proposal (version {result.get('version')}). "
-                    "Run `egg-orch consensus confirmed` to confirm.",
-                    phase=phase,
-                    metadata={"fully_acked": True, "version": result.get("version")},
-                )
-            )
+        # Nudge any producer that the tracker says is now ready to confirm —
+        # i.e. ``check_confirm_guard`` actually passes, not just the
+        # critical-reviewer ACK predicate.  Replaces the prior ``fully_acked``
+        # gate which fired before global guards (e.g. zero-proposal) cleared
+        # and could mislead an advisory-only producer like documenter (#2078).
+        _emit_ready_to_confirm_nudges(pipeline_id, phase, result.get("newly_ready", []))
 
         return make_success_response(
             f"ACK recorded: {reviewer_role} -> {producer_role}",
