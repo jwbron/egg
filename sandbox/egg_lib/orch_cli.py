@@ -1539,7 +1539,8 @@ def cmd_overseer_file_issue(args: argparse.Namespace) -> int:
     except OSError as exc:
         print(f"Error: cannot read --issue-body-file: {exc}", file=sys.stderr)
         return 2
-    body = body_bytes.decode("utf-8", errors="replace")
+    # Body itself is passed to gh via --body-file (no need to decode here);
+    # the byte length is what we cap on.
 
     if len(title) > _OVERSEER_TITLE_MAX_CHARS:
         print(

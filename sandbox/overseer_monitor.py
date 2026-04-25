@@ -222,7 +222,6 @@ def run_migrated_detectors(
     try:
         from egg_overseer.state import (
             AgentTimingEntry,
-            AgentTimingState,
             load_agent_timing,
             save_agent_timing,
         )

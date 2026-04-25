@@ -36,7 +36,7 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, model_validator  # noqa: TC002
 
 from egg_overseer.scrubbing import scrub_secrets
 
@@ -70,7 +70,7 @@ class AdvisorVerdict(BaseModel):
     reasoning: str
 
     @model_validator(mode="after")
-    def _check_file_issue_payload(self) -> "AdvisorVerdict":
+    def _check_file_issue_payload(self) -> AdvisorVerdict:
         if self.decision == "file_issue":
             if not self.issue_title or not self.issue_body:
                 raise ValueError(
@@ -141,7 +141,7 @@ async def consult_advisor(
     health_alerts: list[dict[str, Any]],
     progress_events: list[dict[str, Any]],
     recent_log_lines: list[str],
-    config: "PipelineConfig | None" = None,
+    config: PipelineConfig | None = None,
     _agent_runner: Any = None,
 ) -> AdvisorVerdict:
     """Issue the advisor call and return the structured verdict.
