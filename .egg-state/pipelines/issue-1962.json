@@ -499,10 +499,31 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-19",
+      "question": "Advisor trigger calibration: what signal(s) should gate invocation of the heavy-tier (Opus) advisor inside the overseer's existing Haiku-classify loop? (The advisor strategy bounds cost by only calling Opus when Haiku flags a candidate.)",
+      "context": "Open contract question decision-18, registered by an agent during the refine phase.",
+      "options": [
+        "Haiku confidence > threshold (e.g., 0.8) on any anomaly classification",
+        "Specific anomaly types only (e.g., agent-loop, persistent-error, stuck-phase-transition) regardless of confidence",
+        "N consecutive cycles with the same Haiku flag (e.g., 2 of 2) — matches existing `agent-loop` precedent",
+        "Intersection: Haiku confidence > threshold AND Tier-1 health alert present (matches the #2012 gate pattern)",
+        "Defer to plan phase (spike calibration data first)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T17:52:17.905836Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T17:05:44.416677Z",
-  "updated_at": "2026-04-25T17:52:17.868875Z",
+  "updated_at": "2026-04-25T17:52:17.923552Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -516,6 +537,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 29,
+  "version": 30,
   "jira_ticket": null
 }
