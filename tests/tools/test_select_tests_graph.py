@@ -24,6 +24,7 @@ skip cleanly when it's missing.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -63,13 +64,38 @@ def _layout_repo(root: Path, files: dict[str, str]) -> None:
 
 
 def _build_synthetic_graph(root: Path, packages: tuple[str, ...]):  # noqa: ANN201
-    """Build a grimp graph against a synthetic mini-repo at ``root``."""
+    """Build a grimp graph against a synthetic mini-repo at ``root``.
+
+    Temporarily inserts ``root`` into ``sys.path`` so grimp's
+    ``importlib.util.find_spec()`` resolves the synthetic packages,
+    and evicts any already-cached modules whose names collide with the
+    synthetic packages (e.g. ``tests`` imported by pytest itself).
+    """
     cwd = os.getcwd()
+    root_str = str(root)
+    # Save and evict any cached modules that would shadow our synthetic
+    # packages — grimp uses importlib which checks sys.modules first.
+    saved_modules: dict[str, object] = {}
+    for pkg in packages:
+        keys = [k for k in sys.modules if k == pkg or k.startswith(pkg + ".")]
+        for k in keys:
+            saved_modules[k] = sys.modules.pop(k)
     try:
-        os.chdir(str(root))
+        os.chdir(root_str)
+        sys.path.insert(0, root_str)
         return grimp.build_graph(*packages, include_external_packages=False)
     finally:
         os.chdir(cwd)
+        try:
+            sys.path.remove(root_str)
+        except ValueError:
+            pass
+        # Evict synthetic modules and restore originals.
+        for pkg in packages:
+            for k in list(sys.modules):
+                if k == pkg or k.startswith(pkg + "."):
+                    del sys.modules[k]
+        sys.modules.update(saved_modules)
 
 
 # ----------------------------------------------------------------------
@@ -239,8 +265,7 @@ def test_reverse_closure_mixes_init_and_leaf_strategies(tmp_path: Path) -> None:
     )
     closure = selector.reverse_closure(
         bundle,
-        ["mypkg", "mypkg.leaf"],
-        ["mypkg/__init__.py", "mypkg/leaf.py"],
+        [("mypkg", "mypkg/__init__.py"), ("mypkg.leaf", "mypkg/leaf.py")],
     )
     assert "tests.test_leaf" in closure
     assert "tests.test_pkg" in closure
@@ -269,8 +294,7 @@ def test_reverse_closure_leaf_only_does_not_pull_pkg_consumers(tmp_path: Path) -
     )
     closure = selector.reverse_closure(
         bundle,
-        ["mypkg.leaf"],
-        ["mypkg/leaf.py"],
+        [("mypkg.leaf", "mypkg/leaf.py")],
     )
     assert "tests.test_leaf" in closure
     # test_pkg imports `mypkg` (the __init__), NOT `mypkg.leaf`, so it

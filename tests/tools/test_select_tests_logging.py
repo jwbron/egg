@@ -259,7 +259,7 @@ def test_full_suite_line_uses_explicit_trigger(trigger: str) -> None:
     line = f"select-tests: full suite 356 tests (trigger={trigger})"
     assert _FULL_LINE_RE.match(line), f"line doesn't match regex: {line!r}"
     # Sanity: trigger string itself doesn't contain "fallback" as a generic word.
-    assert "fallback" not in trigger.lower() or "fallback" in trigger.lower(), trigger
+    assert "fallback" not in trigger.lower(), f"trigger contains generic 'fallback': {trigger}"
 
 
 # ----------------------------------------------------------------------

@@ -22,7 +22,12 @@ def real_git(monkeypatch: pytest.MonkeyPatch) -> None:
     ``resolve_baseline``).  Without the patch, the selector's bare
     ``git`` invocations are intercepted by the sandbox gateway and
     fail with ``ERROR: git init is not supported``.
+
+    Also clears ``EGG_AGENT_ROLE`` so that sandbox-inherited values
+    don't cause ``record_good()`` to short-circuit as read-only.
+    Tests that need a specific role re-set it via ``monkeypatch.setenv``.
     """
+    monkeypatch.delenv("EGG_AGENT_ROLE", raising=False)
     patched_run_git(monkeypatch)
 
 

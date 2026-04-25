@@ -13,7 +13,6 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
-from importlib.machinery import SourceFileLoader
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -41,17 +40,20 @@ def load_selector() -> ModuleType:
     """Load scripts/select_tests.py as a Python module.
 
     The selector is shipped as a script under ``scripts/`` rather than a
-    package, so we need ``SourceFileLoader`` to import it.  We register
+    package, so we need ``importlib.util`` to import it.  We register
     the module under the name ``select_tests`` in sys.modules so repeat
     calls in the same process return the same instance (matters for
     ``isinstance`` checks and module-level state).
     """
+    import importlib.util
     import sys
 
     if "select_tests" in sys.modules:
         return sys.modules["select_tests"]
-    loader = SourceFileLoader("select_tests", str(SELECTOR_PATH))
-    module = loader.load_module()
+    spec = importlib.util.spec_from_file_location("select_tests", str(SELECTOR_PATH))
+    module = importlib.util.module_from_spec(spec)
+    sys.modules["select_tests"] = module
+    spec.loader.exec_module(module)
     return module
 
 

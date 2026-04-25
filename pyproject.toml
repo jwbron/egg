@@ -191,6 +191,11 @@ exclude_lines = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "gateway/tests", "orchestrator/tests", "shared/tests"]
+# importlib mode with consider_namespace_packages avoids
+# ImportPathMismatchError when shared/tests/ (namespace subpackage)
+# and tests/ (top-level package) both contain conftest.py.
+import_mode = "importlib"
+consider_namespace_packages = true
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
