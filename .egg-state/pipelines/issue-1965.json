@@ -168,10 +168,28 @@
       "resolution": "{\"action\": \"approve\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Pitfall 2 — How should `reviewer_code` learn the diff size to gate subagent fan-out (~10 files / ~500 LOC threshold)?",
+      "context": "Open contract question decision-1, registered by an agent during the refine phase.",
+      "options": [
+        "Option 2A: Orchestrator-side numstat plumbing — run `git diff --numstat` at prompt-build time and thread (files_changed, loc) into the scope preamble; orchestrator decides, reviewer obeys.",
+        "Option 2B: Reviewer self-gates — put the threshold rule in the prompt text and have the reviewer run `git diff --numstat` itself, choosing fan-out vs solo review based on what it sees.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T17:00:54.263479Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T16:38:48.058271Z",
-  "updated_at": "2026-04-25T17:00:52.970099Z",
+  "updated_at": "2026-04-25T17:00:54.287747Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -185,6 +203,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 12,
+  "version": 13,
   "jira_ticket": null
 }
