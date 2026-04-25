@@ -1,0 +1,46 @@
+[
+  {
+    "id": "393990e5-0e49-45",
+    "pipeline_id": "issue-1962",
+    "from_role": "tester",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_RE_REVIEW,CONSENSUS_PROPOSE,OVERSEER_ALERT,CONSENSUS_CONFIRMED",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T22:19:27.352205+00:00"
+    },
+    "timestamp": "2026-04-25T22:19:27.447926+00:00",
+    "phase": "pr"
+  },
+  {
+    "id": "eb9a1fe3-6d60-49",
+    "pipeline_id": "issue-1962",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: IDLE",
+    "body": "documenter CONFIRMED + full BRC consensus reached (consensus_reached=true at coder confirm). Staying alive on wait_loop for CONSENSUS_RE_REVIEW or orchestrator stop signal.",
+    "metadata": {
+      "state": "IDLE"
+    },
+    "timestamp": "2026-04-25T22:19:29.614700+00:00",
+    "phase": "pr"
+  },
+  {
+    "id": "e5b39175-47e7-44",
+    "pipeline_id": "issue-1962",
+    "from_role": "documenter",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_RE_REVIEW,CONSENSUS_NACK,CONSENSUS_CONFIRMED,OVERSEER_ALERT,CONSENSUS_PROPOSE,CONSENSUS_ACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T22:19:29.623045+00:00"
+    },
+    "timestamp": "2026-04-25T22:19:29.679929+00:00",
+    "phase": "pr"
+  }
+]
