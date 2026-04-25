@@ -324,10 +324,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-10",
+      "question": "What policy should we adopt for list-merge semantics on layered fields (`checks`, `persist`, `watch_files`, `extra_packages.apt`/`dnf`, `local_repos.paths`)?",
+      "context": "Open contract question decision-9, registered by an agent during the refine phase.",
+      "options": [
+        "Replace by default; ship without an `extends:` keyword for now (Recommended) — matches the issue proposal's preference. Simplest to teach. Revisit if duplication shows up across the fleet.",
+        "Replace by default; ship `extends: true` (or `+` prefix) opt-in for additive merging from day one — future-proofs but adds surface to the schema before we know if it's needed",
+        "Append-merge by default — most ergonomic for additive cases (e.g. user wants to add an extra check on top of repo defaults) but the most surprising and the issue explicitly cautions against it",
+        "Pick per-field defaults: `extra_packages.*` and `local_repos.paths` append; `checks`, `persist`, `watch_files` replace — most ergonomic but most rules to memorize",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T23:29:21.218671Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T23:09:30.400320Z",
-  "updated_at": "2026-04-25T23:29:21.181608Z",
+  "updated_at": "2026-04-25T23:29:21.241311Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -341,6 +361,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 20,
+  "version": 21,
   "jira_ticket": null
 }
