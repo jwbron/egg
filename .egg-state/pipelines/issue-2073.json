@@ -258,10 +258,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-25T23:29:20.902743Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-25T23:33:46.158356Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"New module `shared/egg_config/repos.py`, imported by `config/repo_config.py` and `sandbox/egg_lib/docker.py` (Recommended) — keeps the existing `config/repo_config.py` API but moves the read+merge into a shared package both runtimes already depend on.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -495,7 +495,7 @@
     }
   ],
   "created_at": "2026-04-25T23:09:30.400320Z",
-  "updated_at": "2026-04-25T23:32:07.532710Z",
+  "updated_at": "2026-04-25T23:33:46.181703Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -509,6 +509,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 31,
+  "version": 32,
   "jira_ticket": null
 }
