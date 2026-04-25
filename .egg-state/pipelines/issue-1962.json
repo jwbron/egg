@@ -666,16 +666,16 @@
           "answer": ""
         }
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-25T17:52:18.264492Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-25T18:20:03.101060Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Concrete false-positive classes to tighten: (a) `agent-heartbeat-stall` fires during legitimate file-reading/research time — observed during this very pipeline at 3.5min into refine while refiner was actively reading source files; (b) `stuck-phase-transition` reads stale contract state from a prior cancelled run and misdiagnoses — observed when the alert claimed 'reviewer silent for 5+min' AFTER the reviewer had already sent a substantive NACK; (c) #1722-style stale `AGENT_FAILED` after phase restart misdiagnosed as deadlock; (d) #1727-style early-exit respawn in fresh pipeline. The Tier-1 intersection gate chosen in decision-19 directly addresses (a) and (b) by requiring a Tier-1 health alert before invoking Opus; (c) and (d) stay in their own pipelines and link as calibration context.\", \"Q2\": \"60s for `stuck-phase-transition` is too tight for refine — legitimate refiner work on a complex multi-thread issue can take 5–10+ minutes (this pipeline's refine ran 22m total, with one PROPOSED→re-review cycle taking ~5m on its own). Recommended: bump the default to ~180s and/or make the threshold per-phase configurable via PipelineConfig. The `agent-loop` Haiku confidence > 0.8 across 2 consecutive cycles is reasonable; leave it. `overseer_max_cycles_before_re_alert=3` is reasonable; leave it.\", \"Q3\": \"No cap on auto-filed issues. Dedup (decision-6: per-repo search by `agent:overseer` + anomaly-type signature) is sufficient. Don't add a per-pipeline / per-phase numeric cap; it would create another tunable that drifts out of calibration over time.\", \"Q4\": \"Gateway policy for `gh issue create` from the overseer role: (a) auto-inject required labels (`agent:overseer` + matching priority label) so the overseer cannot omit them; (b) size limits — title ≤120 chars, body ≤50 KB; (d) allowed repos = the pipeline's own repo only (no cross-repo filing). NO rate-limit — drop (c). Dedup + the shadow-mode rollout (decision-11) are the rate-limiting controls.\", \"Q5\": \"/sdlc becomes a thin reporter when host→overseer migration is in scope. /sdlc keeps: (a) surfacing alerts as a passive dashboard, (b) HITL decision handling (`pending_decisions` surfacing), (c) Phase-5 final-handoff prompts. The AskUserQuestion side flows currently in `/sdlc` ('Check agent logs', 'Nudge agent', 'Restart pipeline') become overseer-initiated: the overseer does the diagnostic work and surfaces findings in `OVERSEER_ALERT.detail`, which /sdlc displays. Stall / silent-agent / NACK / long-run / stuck-pipeline-rescue detection logic and the in-memory `{role: {phase, phase_entered_at, …}}` state map all move into the overseer.\", \"Q6\": \"Success criteria — a small basket of observable signals: (a) zero repeat same-anomaly alerts per pipeline (dedup works correctly); (b) ≥70% of `OVERSEER_ALERT` messages acknowledged or actioned by the human (not dismissed as noise); (c) of human-approved auto-file recommendations, ≥70% are accepted (not closed as invalid); (d) net reduction in /sdlc HITL prompts per pipeline since the side-flow prompts move out.\", \"Q7\": \"Two additional constraints to bake into the plan: (a) use `gh` CLI via the gateway (not a GitHub App) — matches existing patterns; the gateway already mediates `gh` for refiners and coders, so the overseer role just needs a parallel allow-rule. (b) For the shadow-mode rollout chosen in decision-11, the human's 'should I file this issue?' approval surfaces in /sdlc via the existing `pending_decisions` flow — don't invent a new HITL channel. The advisor returns `recommendation=file_issue` (decision-22), the overseer wraps it in an OVERSEER_ALERT, and the alert flow + a follow-up HITL decision is the path; the existing `provide_input` plumbing handles the rest.\"}}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-25T17:05:44.416677Z",
-  "updated_at": "2026-04-25T18:15:22.786340Z",
+  "updated_at": "2026-04-25T18:20:03.125809Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -689,6 +689,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 59,
+  "version": 60,
   "jira_ticket": null
 }
