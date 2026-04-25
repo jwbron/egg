@@ -952,6 +952,99 @@ class TestRuntimeStateLeakageOnBranchReuse:
             assert mock_clear.call_args.args[0] == "issue-1965"
             assert mock_clear.call_args.kwargs["reason"] == "pipeline_create"
 
+    @patch("routes.pipelines.get_gateway_client")
+    @patch("routes.pipelines.get_state_store")
+    @patch("routes.pipelines.get_repo_path")
+    def test_post_clears_real_state_left_by_prior_failed_run(
+        self, mock_repo_path, mock_get_store, mock_gw_client, client
+    ):
+        """POST evicts real Redis/in-memory state from a prior auto-FAILED run.
+
+        This is the integration variant of ``test_create_clears_runtime_state``
+        that exercises the explicit motivation for the POST-site clear:
+        auto-FAILED paths (restart_agent spawn failure,
+        _fail_pipeline_for_pr_creation_failure) write status=FAILED
+        directly via ``store.update_pipeline`` / ``store.save_pipeline``,
+        bypassing PATCH and therefore bypassing the PATCH-site clear. The
+        POST clear is the only safety net for those paths. Seeds real
+        backend state (no mocked ``_clear_pipeline_runtime_state``), POSTs
+        a fresh pipeline with the same id, and asserts every backend is
+        empty afterwards.
+        """
+        from consensus import ReadinessState, get_consensus_evaluator
+        from message_store import Message, get_message_store
+        from peer_consensus import (
+            create_peer_consensus_tracker,
+            get_peer_consensus_tracker,
+            remove_peer_consensus_tracker,
+        )
+        from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
+
+        pipeline_id = "issue-1965"
+
+        # Defensive: clear any leftover state from a prior test run
+        remove_peer_consensus_tracker(pipeline_id)
+        get_consensus_evaluator().clear(pipeline_id)
+        get_message_store().clear(pipeline_id)
+
+        # Seed state as if a prior run had reached CONFIRMED and then
+        # been auto-FAILED via store.update_pipeline (bypassing PATCH).
+        graph = ReviewGraph(
+            edges=[
+                ReviewEdge(
+                    reviewer_role="reviewer_refine",
+                    producer_role="refiner",
+                    criticality=ReviewCriticality.CRITICAL,
+                )
+            ]
+        )
+        create_peer_consensus_tracker(pipeline_id, graph)
+        evaluator = get_consensus_evaluator()
+        evaluator.register_agent(pipeline_id, "refiner")
+        evaluator.update_readiness(pipeline_id, "refiner", ReadinessState.READY)
+        msg_store = get_message_store()
+        msg_store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role="refiner",
+                to_role="all",
+                message_type="PROGRESS",
+                body="prior-run-leak",
+            )
+        )
+
+        # Sanity: prior-run state is present
+        assert get_peer_consensus_tracker(pipeline_id) is not None
+        assert evaluator.get_state(pipeline_id)["agents"]
+        assert msg_store.get_status(pipeline_id)["total"] == 1
+
+        mock_repo_path.return_value = Path("/home/egg/repos/webapp")
+        mock_store = MagicMock()
+        mock_pipeline = MagicMock()
+        mock_pipeline.id = pipeline_id
+        mock_pipeline.model_dump.return_value = {"id": pipeline_id}
+        mock_store.create_pipeline.return_value = mock_pipeline
+        mock_get_store.return_value = mock_store
+        mock_gw = MagicMock()
+        mock_gw.ls_remote_branch.return_value = False
+        mock_gw_client.return_value = mock_gw
+
+        # No patch of _clear_pipeline_runtime_state — exercise the real helper
+        response = client.post(
+            "/api/v1/pipelines",
+            json={
+                "issue_number": 1965,
+                "repo": "Khan/webapp",
+                "branch": "egg/issue-1965",
+            },
+        )
+        assert response.status_code == 200
+
+        # All three backends must be evicted by the POST-site clear
+        assert get_peer_consensus_tracker(pipeline_id) is None
+        assert evaluator.get_state(pipeline_id)["agents"] == {}
+        assert msg_store.get_status(pipeline_id)["total"] == 0
+
     def test_clear_runtime_state_evicts_real_consensus_and_messages(self):
         """End-to-end: helper actually clears tracker, evaluator, and messages.
 

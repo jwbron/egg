@@ -1479,6 +1479,15 @@ def create_pipeline() -> tuple[Response, int]:
         # for Redis-backed message-store entries across orchestrator
         # restarts. Clear here so the new run starts with empty consensus
         # state regardless of how the prior run ended (#2053).
+        #
+        # This is the *primary* eviction site for auto-FAILED prior runs,
+        # not just a defensive backstop: paths like restart_agent spawn
+        # failure and _fail_pipeline_for_pr_creation_failure call
+        # store.update_pipeline / store.save_pipeline directly (bypassing
+        # PATCH), so the PATCH-site clear never fires for them. Without
+        # this POST-site clear, those auto-FAILED pipelines would leak
+        # consensus + message-store state into the next run that reuses
+        # the id.
         _clear_pipeline_runtime_state(pipeline.id, reason="pipeline_create")
 
         logger.info(
