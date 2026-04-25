@@ -94,7 +94,7 @@ The gateway enforces file-level access restrictions to prevent certain roles fro
 - `Push denied: Role 'X' cannot modify: <files>. <reason>` (HTTP 403) — Phase / contract / protected-file violation (non-agent-role restrictions)
 - `Push denied: Could not verify file changes for security check: <error>` (HTTP 500) — Detection failure
 
-**Agent-role restrictions auto-filter on push.** As of [#1882](https://github.com/jwbron/egg/issues/1882), the push handler no longer returns `403` for *agent-role* file-restriction violations. Instead, the gateway attributes each commit in the unpushed range via the commit-authorship registry and dispatches one of four outcomes — plain push, per-commit rewrite with `Auto-Filtered: true` trailer on own commits, `nothing_to_push: true` when every own file is blocked, or (with the kill switch set) warn-only plain push. Pulled cross-role commits pass through bitwise-unchanged. Phase / contract / protected-file / branch-ownership / private-mode / pipeline-push checks keep their `403` behavior — only agent-role file restrictions auto-filter. See [Gateway Auto-Filter Architecture](../docs/architecture/gateway-auto-filter.md) for the full design.
+**Agent-role restrictions reject on push.** As of [#2039](https://github.com/jwbron/egg/issues/2039), the gateway rejects any push whose diff modifies a path the pushing role cannot write. The handler attributes each commit in the unpushed range via the commit-authorship registry, partitions files into own-authored vs pulled-from-other-role, and checks the pushing role's write permissions against only the own-authored set. If any own-authored file is blocked, the push is rejected with `403 restricted_path_modified` carrying `role`, `blocked_paths`, `recommended_action`, and `doc_ref` — the agent's recovery is to drop the edits and re-propose with `--pre-merge-condition` per the conditional-ACK pattern ([#1998](https://github.com/jwbron/egg/issues/1998)). The `EGG_AGENT_RESTRICTIONS_ENFORCE=false` kill switch falls back to warn-only plain push. Pulled cross-role commits never block the push; phase / contract / protected-file / branch-ownership / private-mode / pipeline-push checks keep their existing `403` behavior. This replaced the silent-strip auto-filter from [#1882](https://github.com/jwbron/egg/issues/1882), which produced destructive deletions on the shared branch with no actionable signal to the agent. See [Gateway Auto-Filter Architecture](../docs/architecture/gateway-auto-filter.md) for the historical design and the commit-authorship registry that still backs attribution.
 
 ### Branch Lock (Pipeline Sessions)
 
@@ -477,10 +477,9 @@ gateway/
 ├── rate_limiter.py         # Rate limiting
 ├── config_validator.py     # Configuration validation
 ├── error_messages.py       # Error message formatting
-├── agent_restrictions.py   # Agent role-based file access restrictions (patterns for all 15+ roles, plus partition_files_by_role helper for the push auto-filter)
+├── agent_restrictions.py   # Agent role-based file access restrictions (patterns for all 15+ roles, plus partition_files_by_role helper for the push restricted-path check)
 ├── commit_observer.py      # Inline observer for /api/v1/git/execute — registers every new commit SHA with the orchestrator commit-authorship registry (#1882)
 ├── commit_registry_client.py  # Shared-secret HTTP client for the orchestrator /api/v1/commit-authorship/{register,lookup} routes
-├── filtered_push.py        # Per-commit rewriter for the push auto-filter — git commit-tree / update-ref walk, pulled-commit pass-through, own-commit blocked-path stripping (#1882)
 ├── checkpoint_handler.py   # Session checkpoint handling
 ├── transcript_buffer.py    # Transcript buffering for agent sessions
 ├── Dockerfile              # Gateway container image

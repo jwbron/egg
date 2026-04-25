@@ -9,10 +9,10 @@ that points the agent at the conditional-ACK / ``--pre-merge-condition``
 recovery pattern (#1998).
 
 These tests pin the new behavior end-to-end through the Flask test
-client.  Lower-level unit tests for the now-disabled ``_filter_tree``
-arm live in ``test_filtered_push_helpers.py``.
+client.
 """
 
+import contextlib
 import json
 import os
 import sys
@@ -176,44 +176,29 @@ class TestRejectsModifyToRestrictedPath:
         session = _make_session("coder")
         attributed = _attributed([(_FAKE_SHA, [".github/workflows/test.yml"], "coder")])
         patches = _push_patches(session, attributed, [".github/workflows/test.yml"])
-        with (
-            patches[0],
-            patches[1],
-            patches[2],
-            patches[3],
-            patches[4],
-            patches[5],
-            patches[6],
-            patches[7],
-        ):
-            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
-                response = _do_push(client)
-                _assert_restricted_path_modified(response, "coder", [".github/workflows/test.yml"])
+        with contextlib.ExitStack() as stack:
+            for p in patches:
+                stack.enter_context(p)
+            stack.enter_context(patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}))
+            response = _do_push(client)
+        _assert_restricted_path_modified(response, "coder", [".github/workflows/test.yml"])
 
     def test_recommended_action_points_at_pre_merge_condition(self, client):
         """The 403 body must mention the supported recovery pattern (#1998)."""
         session = _make_session("coder")
         attributed = _attributed([(_FAKE_SHA, ["docs/x.md"], "coder")])
         patches = _push_patches(session, attributed, ["docs/x.md"])
-        with (
-            patches[0],
-            patches[1],
-            patches[2],
-            patches[3],
-            patches[4],
-            patches[5],
-            patches[6],
-            patches[7],
-        ):
-            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
-                response = _do_push(client)
-                body = json.loads(response.data)
-                action = (body.get("data") or {}).get("recommended_action", "")
-                # Must point the agent at the supported pattern, not just say "denied".
-                assert (
-                    "pre-merge-condition" in action.lower()
-                    or "pre_merge_condition" in action.lower()
-                ), body
+        with contextlib.ExitStack() as stack:
+            for p in patches:
+                stack.enter_context(p)
+            stack.enter_context(patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}))
+            response = _do_push(client)
+        body = json.loads(response.data)
+        action = (body.get("data") or {}).get("recommended_action", "")
+        # Must point the agent at the supported pattern, not just say "denied".
+        assert "pre-merge-condition" in action.lower() or "pre_merge_condition" in action.lower(), (
+            body
+        )
 
 
 class TestRejectsRevertOfStrippedPath:
@@ -227,19 +212,12 @@ class TestRejectsRevertOfStrippedPath:
         # Single commit attempting to "restore" .github/workflows/test.yml.
         attributed = _attributed([(_FAKE_SHA_2, [".github/workflows/test.yml"], "coder")])
         patches = _push_patches(session, attributed, [".github/workflows/test.yml"])
-        with (
-            patches[0],
-            patches[1],
-            patches[2],
-            patches[3],
-            patches[4],
-            patches[5],
-            patches[6],
-            patches[7],
-        ):
-            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
-                response = _do_push(client)
-                _assert_restricted_path_modified(response, "coder", [".github/workflows/test.yml"])
+        with contextlib.ExitStack() as stack:
+            for p in patches:
+                stack.enter_context(p)
+            stack.enter_context(patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}))
+            response = _do_push(client)
+        _assert_restricted_path_modified(response, "coder", [".github/workflows/test.yml"])
 
 
 class TestMixedCommitAllOrNothing:
@@ -253,25 +231,18 @@ class TestMixedCommitAllOrNothing:
             [(_FAKE_SHA, ["src/main.py", ".github/workflows/test.yml"], "coder")]
         )
         patches = _push_patches(session, attributed, ["src/main.py", ".github/workflows/test.yml"])
-        with (
-            patches[0],
-            patches[1],
-            patches[2],
-            patches[3],
-            patches[4],
-            patches[5],
-            patches[6],
-            patches[7],
-        ):
-            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
-                response = _do_push(client)
-                _assert_restricted_path_modified(response, "coder", [".github/workflows/test.yml"])
-                # The allowed path must NOT appear in pushed_files or any
-                # success-flavored field — the entire push is rejected.
-                body = json.loads(response.data)
-                data = body.get("data") or {}
-                assert "pushed_files" not in data or not data.get("pushed_files"), body
-                assert "pushed_commits" not in data or not data.get("pushed_commits"), body
+        with contextlib.ExitStack() as stack:
+            for p in patches:
+                stack.enter_context(p)
+            stack.enter_context(patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}))
+            response = _do_push(client)
+        _assert_restricted_path_modified(response, "coder", [".github/workflows/test.yml"])
+        # The allowed path must NOT appear in pushed_files or any
+        # success-flavored field — the entire push is rejected.
+        body = json.loads(response.data)
+        data = body.get("data") or {}
+        assert "pushed_files" not in data or not data.get("pushed_files"), body
+        assert "pushed_commits" not in data or not data.get("pushed_commits"), body
 
     def test_mixed_across_separate_commits_rejected(self, client):
         """Two commits in the push range — one all-allowed, one
@@ -284,19 +255,12 @@ class TestMixedCommitAllOrNothing:
             ]
         )
         patches = _push_patches(session, attributed, ["src/main.py", ".github/workflows/test.yml"])
-        with (
-            patches[0],
-            patches[1],
-            patches[2],
-            patches[3],
-            patches[4],
-            patches[5],
-            patches[6],
-            patches[7],
-        ):
-            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
-                response = _do_push(client)
-                _assert_restricted_path_modified(response, "coder", [".github/workflows/test.yml"])
+        with contextlib.ExitStack() as stack:
+            for p in patches:
+                stack.enter_context(p)
+            stack.enter_context(patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}))
+            response = _do_push(client)
+        _assert_restricted_path_modified(response, "coder", [".github/workflows/test.yml"])
 
 
 class TestAllBlockedPushRejected:
@@ -308,23 +272,16 @@ class TestAllBlockedPushRejected:
         session = _make_session("coder")
         attributed = _attributed([(_FAKE_SHA, ["docs/x.md"], "coder")])
         patches = _push_patches(session, attributed, ["docs/x.md"])
-        with (
-            patches[0],
-            patches[1],
-            patches[2],
-            patches[3],
-            patches[4],
-            patches[5],
-            patches[6],
-            patches[7],
-        ):
-            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
-                response = _do_push(client)
-                _assert_restricted_path_modified(response, "coder", ["docs/x.md"])
-                # No nothing_to_push=true success.
-                body = json.loads(response.data)
-                assert body["success"] is False, body
-                assert (body.get("data") or {}).get("nothing_to_push") is not True, body
+        with contextlib.ExitStack() as stack:
+            for p in patches:
+                stack.enter_context(p)
+            stack.enter_context(patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}))
+            response = _do_push(client)
+        _assert_restricted_path_modified(response, "coder", ["docs/x.md"])
+        # No nothing_to_push=true success.
+        body = json.loads(response.data)
+        assert body["success"] is False, body
+        assert (body.get("data") or {}).get("nothing_to_push") is not True, body
 
 
 class TestWarnOnlyModeStillBypasses:
@@ -335,19 +292,12 @@ class TestWarnOnlyModeStillBypasses:
         session = _make_session("coder")
         attributed = _attributed([(_FAKE_SHA, ["docs/x.md"], "coder")])
         patches = _push_patches(session, attributed, ["docs/x.md"])
-        with (
-            patches[0],
-            patches[1],
-            patches[2],
-            patches[3],
-            patches[4],
-            patches[5],
-            patches[6],
-            patches[7],
-        ):
-            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "false"}):
-                response = _do_push(client)
-                assert response.status_code == 200, response.data
+        with contextlib.ExitStack() as stack:
+            for p in patches:
+                stack.enter_context(p)
+            stack.enter_context(patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "false"}))
+            response = _do_push(client)
+        assert response.status_code == 200, response.data
 
 
 class TestNoRoleSkipsCheck:
@@ -359,16 +309,9 @@ class TestNoRoleSkipsCheck:
         session.agent_role = None
         attributed = _attributed([(_FAKE_SHA, ["docs/x.md"], "coder")])
         patches = _push_patches(session, attributed, ["docs/x.md"])
-        with (
-            patches[0],
-            patches[1],
-            patches[2],
-            patches[3],
-            patches[4],
-            patches[5],
-            patches[6],
-            patches[7],
-        ):
-            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
-                response = _do_push(client)
-                assert response.status_code == 200, response.data
+        with contextlib.ExitStack() as stack:
+            for p in patches:
+                stack.enter_context(p)
+            stack.enter_context(patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}))
+            response = _do_push(client)
+        assert response.status_code == 200, response.data

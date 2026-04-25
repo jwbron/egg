@@ -53,7 +53,6 @@ gateway/
 ├── private_repo_policy.py  # Private/public repo access
 ├── phase_filter.py         # Phase-based operation filtering, file restrictions
 ├── agent_restrictions.py   # Agent role-based file access enforcement
-├── filtered_push.py        # Per-commit auto-filter: rewrites own commits to remove blocked paths; passes cross-role pulled commits bitwise-unchanged
 ├── commit_observer.py      # Gateway-inline commit observer: registers new SHAs with the authorship registry after each git-execute call
 ├── commit_registry_client.py # HTTP client for the orchestrator's commit-authorship registry (register + lookup_bulk)
 ├── phase_transition.py     # Phase transition validation

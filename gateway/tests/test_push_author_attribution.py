@@ -221,14 +221,9 @@ def test_scenario_3_own_only_mixed_rejected(client):
         attribution={_OWN_SHA: "coder"},
     )
 
-    import filtered_push
-
-    mock_execute = MagicMock()
-
     with contextlib.ExitStack() as _stack:
         for _p in _patches_for(session, files, attributed):
             _stack.enter_context(_p)
-        _stack.enter_context(patch.object(filtered_push, "execute_filtered_push", mock_execute))
         _stack.enter_context(patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}))
         response = _do_push(client)
         assert response.status_code == 403
@@ -237,8 +232,6 @@ def test_scenario_3_own_only_mixed_rejected(client):
         assert "docs/guide.md" in body["blocked_paths"]
         # The allowed path must not appear in any pushed-files-style field.
         assert "src/main.py" not in body.get("blocked_paths", [])
-        # Rewriter is not invoked under #2039.
-        mock_execute.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -326,14 +319,9 @@ def test_scenario_6_own_blocked_with_pulled_rejected(client):
         commits=[_OWN_SHA, _PULLED_SHA],
         attribution={_OWN_SHA: "coder", _PULLED_SHA: "tester"},
     )
-    import filtered_push
-
-    mock_execute = MagicMock()
-
     with contextlib.ExitStack() as _stack:
         for _p in _patches_for(session, files, attributed):
             _stack.enter_context(_p)
-        _stack.enter_context(patch.object(filtered_push, "execute_filtered_push", mock_execute))
         _stack.enter_context(patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}))
         response = _do_push(client)
         assert response.status_code == 403
@@ -342,7 +330,6 @@ def test_scenario_6_own_blocked_with_pulled_rejected(client):
         assert "docs/guide.md" in body["blocked_paths"]
         # Pulled commits are still surfaced for observability.
         assert any(p["sha"] == _PULLED_SHA for p in body.get("pulled_commits", []))
-        mock_execute.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

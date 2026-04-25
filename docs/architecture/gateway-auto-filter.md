@@ -1,6 +1,8 @@
 # Gateway Auto-Filter and Commit-Authorship Registry
 
-> Landed in [#1882](https://github.com/jwbron/egg/issues/1882). Revives the unmerged design from [#1470](https://github.com/jwbron/egg/issues/1470) and extends it to handle mixed-role pushes.
+> **Note:** [#2039](https://github.com/jwbron/egg/issues/2039) replaced the silent-strip auto-filter described below with a structured `403 restricted_path_modified` rejection. The gateway no longer rewrites pushes to remove blocked paths; it now rejects the push and points the agent at the conditional-ACK recovery pattern ([#1998](https://github.com/jwbron/egg/issues/1998)). The **commit-authorship registry** remains the source of truth for per-commit attribution and continues to back the rejection's own-vs-pulled partition. The "Push handler dispatch" and "Per-commit rewrite algorithm" sections below describe the historical #1882 design — they are preserved for context but the rewrite path and its support code (`gateway/filtered_push.py`) have been removed. The current behavior is summarized in the [gateway README "File-Level Access Restrictions"](../../gateway/README.md#file-level-access-restrictions) section.
+
+> Originally landed in [#1882](https://github.com/jwbron/egg/issues/1882). Revived the unmerged design from [#1470](https://github.com/jwbron/egg/issues/1470) and extended it to handle mixed-role pushes.
 
 ## Problem
 
@@ -115,10 +117,9 @@ No database migration. The state store creates the `commit-authorship/` subdirec
 
 ## Monitoring
 
-Watch the gateway audit log for 24 h post-deploy:
+> **Updated for #2039.** The `push_auto_filtered` and `push_all_blocked_no_op` audit events no longer fire — they were tied to the silent-strip and all-blocked short-circuit arms that the rejection model replaced. The current events are:
 
-- `push_auto_filtered` — expected whenever an agent accidentally stages a blocked file. Should track roughly with the pre-#1882 403 rate.
-- `push_all_blocked_no_op` — rare; typically means an agent picked up work that belonged to a different role. Inspect the event's `attribution_fallback` boolean: `false` is the normal all-blocked case; `true` means the handler could not compute a commit walk and fell back to the attribution-unavailable short-circuit — a sustained spike there is worth investigating (mocked tests leaking into production, or `git rev-list` disagreeing with the handler's view of the unpushed range).
+- `push_denied_restricted_path_modified` — fires whenever a push is rejected because the diff modifies a path the role cannot write. Inspect the event's `attribution_fallback` boolean: `false` is the normal blocked case (registry attribution was available); `true` means the handler could not compute a commit walk and fell back to the attribution-unavailable rejection — a sustained spike there is worth investigating (mocked tests leaking into production, or `git rev-list` disagreeing with the handler's view of the unpushed range).
 - `push_authorship_unregistered_fallback` — a steady trickle is normal (long-running sessions that predate deploy). A **sustained spike** after the deploy suggests the git-execute observer is missing some commit-creating subcommand; investigate which subcommand is being missed.
 
 ## Deployment prerequisites

@@ -1306,7 +1306,7 @@ def git_push() -> tuple[Response, int] | Response:
                     "branch": branch,
                     "role": session_role,
                     "unregistered_files": unregistered_files,
-                    "excluded_files": blocked_own,
+                    "blocked_paths": blocked_own,
                     "pulled_commits": pulled_commits_summary,
                 },
             )
