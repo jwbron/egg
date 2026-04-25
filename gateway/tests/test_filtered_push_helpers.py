@@ -1,10 +1,11 @@
-"""Pure-Python helper tests for gateway/filtered_push.py (#1882).
+"""Pure-Python helper tests for gateway/filtered_push.py.
 
 These cover the internal helpers that don't need a real git repo — the
-trailer-safe message composer and the parent translator.  The main
-``execute_filtered_push`` end-to-end tests (which need a live git repo
-via ``git init``) live in ``test_execute_filtered_push.py``; those are
-skipped in the gateway-protected sandbox where ``git init`` is blocked.
+trailer-safe message composer and the parent translator.  The
+``execute_filtered_push`` walker is no longer called from the gateway
+under #2039 (the gateway now rejects blocked-path pushes up-front
+rather than rewriting them), so its end-to-end tests have been removed;
+these helpers remain for defense-in-depth and future use.
 """
 
 from __future__ import annotations

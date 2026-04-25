@@ -1,27 +1,28 @@
-"""Eight-scenario end-to-end tests for the #1882 auto-filter push handler.
+"""End-to-end push handler scenarios.
 
 Each test drives ``POST /api/v1/git/push`` with a mocked attribution
-range and verifies the response shape + audit-log event type.  The
-scenarios are the ones the refine-phase analysis defined (see
-``.egg-state/drafts/1882-analysis.md``):
+range and verifies the response shape + audit-log event type.
+
+Post-#2039 scenarios:
 
 1. Own-only, all allowed         → plain push (filtered=False).
-2. Own-only, all blocked         → 200 nothing_to_push=True.
-3. Own-only, mixed               → 200 filtered=True (when the rewrite
-                                    succeeds; we bypass the rewrite via
-                                    the all-blocked shortcut here to
-                                    avoid real git).
+2. Own-only, all blocked         → 403 ``restricted_path_modified``.
+3. Own-only, mixed               → 403 ``restricted_path_modified``
+                                    (rewriter is no longer invoked).
 4. Mixed own/pulled, all allowed → plain push + pulled_commits.
 5. Mixed own/pulled, pulled-would-be-blocked-for-pusher → pulled files
    are exempt; plain push.
-6. Mixed own/pulled, own-blocked → filtered-push rewrite.
-7. Unregistered commits          → fail-closed, treat as own-authored.
+6. Mixed own/pulled, own-blocked → 403 ``restricted_path_modified``
+                                    (pulled commits do not rescue an
+                                    own commit that touches a
+                                    restricted path).
+7. Unregistered commits          → fail-closed, treat as own-authored
+                                    (403 if any blocked).
 8. EGG_AGENT_RESTRICTIONS_ENFORCE=false → warn-only passthrough.
+9. Attribution-lookup exception  → 403 (fail-closed).
 
-These tests use the same extensive mocking scaffold as
-``test_agent_restrictions_enforce.py`` — for scenarios 3 and 6 the
-real ``execute_filtered_push`` requires a live git repo, so we either
-skip or replace it with a stub FilteredPushResult.
+These tests share the mocking scaffold with
+``test_agent_restrictions_enforce.py``.
 """
 
 from __future__ import annotations
@@ -178,7 +179,7 @@ def test_scenario_1_own_only_all_allowed(client):
 
 
 # ---------------------------------------------------------------------------
-# Scenario 2: own-only, all blocked → 200 nothing_to_push=True.
+# Scenario 2: own-only, all blocked → 403 restricted_path_modified.
 # ---------------------------------------------------------------------------
 
 
@@ -195,22 +196,20 @@ def test_scenario_2_own_only_all_blocked(client):
             _stack.enter_context(_p)
         _stack.enter_context(patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}))
         response = _do_push(client)
-        assert response.status_code == 200
+        assert response.status_code == 403
         body = _body(response)
-        assert body["filtered"] is True
-        assert body["nothing_to_push"] is True
-        assert body["excluded_files"] == files
-        assert body["pushed_files"] == []
-        assert body["pushed_commits"] == []
+        assert body["error"] == "restricted_path_modified"
+        assert body["role"] == "coder"
+        assert body["blocked_paths"] == files
 
 
 # ---------------------------------------------------------------------------
-# Scenario 3: own-only mixed → auto-filter rewrite (stubbed).
+# Scenario 3: own-only mixed → 403 (no rewrite, gateway rejects up-front).
 # ---------------------------------------------------------------------------
 
 
-def test_scenario_3_own_only_mixed_triggers_rewrite(client, monkeypatch):
-    """Mixed allowed+blocked own files → execute_filtered_push is called."""
+def test_scenario_3_own_only_mixed_rejected(client):
+    """Mixed allowed+blocked own files → 403; rewriter is not invoked (#2039)."""
     session = _make_session("coder")
     files = ["src/main.py", "docs/guide.md"]
     attributed = AttributedPushRange(
@@ -222,35 +221,24 @@ def test_scenario_3_own_only_mixed_triggers_rewrite(client, monkeypatch):
         attribution={_OWN_SHA: "coder"},
     )
 
-    # Stub execute_filtered_push to avoid real git operations.
-    from filtered_push import FilteredPushResult
-
-    fake_result = FilteredPushResult(
-        success=True,
-        new_tip="d" * 40,
-        excluded_files=["docs/guide.md"],
-        pushed_files=["src/main.py"],
-        pushed_commits=["e" * 40],
-        rewritten_commits=[{"original_sha": _OWN_SHA, "new_sha": "e" * 40}],
-        pulled_commits=[],
-    )
     import filtered_push
+
+    mock_execute = MagicMock()
 
     with contextlib.ExitStack() as _stack:
         for _p in _patches_for(session, files, attributed):
             _stack.enter_context(_p)
-        _stack.enter_context(
-            patch.object(filtered_push, "execute_filtered_push", return_value=fake_result)
-        )
+        _stack.enter_context(patch.object(filtered_push, "execute_filtered_push", mock_execute))
         _stack.enter_context(patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}))
         response = _do_push(client)
-        assert response.status_code == 200
+        assert response.status_code == 403
         body = _body(response)
-        assert body["filtered"] is True
-        assert body["nothing_to_push"] is False
-        assert body["excluded_files"] == ["docs/guide.md"]
-        assert body["pushed_files"] == ["src/main.py"]
-        assert body["pushed_commits"] == ["e" * 40]
+        assert body["error"] == "restricted_path_modified"
+        assert "docs/guide.md" in body["blocked_paths"]
+        # The allowed path must not appear in any pushed-files-style field.
+        assert "src/main.py" not in body.get("blocked_paths", [])
+        # Rewriter is not invoked under #2039.
+        mock_execute.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -317,12 +305,16 @@ def test_scenario_5_pulled_files_would_be_blocked_but_exempt(client):
 
 
 # ---------------------------------------------------------------------------
-# Scenario 6: mixed own/pulled, own has blocked files → rewrite pulled verbatim.
+# Scenario 6: mixed own/pulled, own has blocked files → 403.
 # ---------------------------------------------------------------------------
 
 
-def test_scenario_6_own_blocked_with_pulled_preserved(client, monkeypatch):
-    """Coder's own commit has blocked docs + pulled tester commit present."""
+def test_scenario_6_own_blocked_with_pulled_rejected(client):
+    """Coder's own commit has blocked docs + pulled tester commit → 403.
+
+    Pulled commits do not rescue an own commit that touches a restricted
+    path; the gateway rejects the whole push (#2039).
+    """
     session = _make_session("coder")
     files = ["src/main.py", "docs/guide.md", "tests/test_main.py"]
     attributed = AttributedPushRange(
@@ -334,36 +326,23 @@ def test_scenario_6_own_blocked_with_pulled_preserved(client, monkeypatch):
         commits=[_OWN_SHA, _PULLED_SHA],
         attribution={_OWN_SHA: "coder", _PULLED_SHA: "tester"},
     )
-    from filtered_push import FilteredPushResult
-
-    # The rewrite is expected to filter out docs/guide.md from the own
-    # commit and preserve the pulled commit verbatim.
-    fake_result = FilteredPushResult(
-        success=True,
-        new_tip="e" * 40,
-        excluded_files=["docs/guide.md"],
-        pushed_files=["src/main.py", "tests/test_main.py"],
-        pushed_commits=["f" * 40, _PULLED_SHA],
-        rewritten_commits=[{"original_sha": _OWN_SHA, "new_sha": "f" * 40}],
-        pulled_commits=[{"sha": _PULLED_SHA, "author_role": "tester", "rewritten_sha": None}],
-    )
     import filtered_push
+
+    mock_execute = MagicMock()
 
     with contextlib.ExitStack() as _stack:
         for _p in _patches_for(session, files, attributed):
             _stack.enter_context(_p)
-        _stack.enter_context(
-            patch.object(filtered_push, "execute_filtered_push", return_value=fake_result)
-        )
+        _stack.enter_context(patch.object(filtered_push, "execute_filtered_push", mock_execute))
         _stack.enter_context(patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}))
         response = _do_push(client)
-        assert response.status_code == 200
+        assert response.status_code == 403
         body = _body(response)
-        assert body["filtered"] is True
-        assert body["excluded_files"] == ["docs/guide.md"]
-        # Pulled commit still surfaced on pulled_commits for
-        # observability parity.
-        assert any(p["sha"] == _PULLED_SHA for p in body["pulled_commits"])
+        assert body["error"] == "restricted_path_modified"
+        assert "docs/guide.md" in body["blocked_paths"]
+        # Pulled commits are still surfaced for observability.
+        assert any(p["sha"] == _PULLED_SHA for p in body.get("pulled_commits", []))
+        mock_execute.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -372,7 +351,7 @@ def test_scenario_6_own_blocked_with_pulled_preserved(client, monkeypatch):
 
 
 def test_scenario_7_unregistered_commits_fail_closed(client):
-    """An unregistered commit in the range flows through as own (blocked → nothing_to_push)."""
+    """An unregistered commit in the range flows through as own (blocked → 403)."""
     session = _make_session("coder")
     files = ["docs/guide.md"]  # blocked for coder
     attributed = AttributedPushRange(
@@ -387,11 +366,11 @@ def test_scenario_7_unregistered_commits_fail_closed(client):
             _stack.enter_context(_p)
         _stack.enter_context(patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}))
         response = _do_push(client)
-        assert response.status_code == 200
+        assert response.status_code == 403
         body = _body(response)
         # Unregistered → treated as own-authored; coder can't push docs.
-        assert body["nothing_to_push"] is True
-        assert body["excluded_files"] == files
+        assert body["error"] == "restricted_path_modified"
+        assert body["blocked_paths"] == files
 
 
 # ---------------------------------------------------------------------------
@@ -442,7 +421,7 @@ class TestResponseSchemaInvariants:
             body = _body(_do_push(client))
             assert "pulled_commits" in body
 
-    def test_all_blocked_response_carries_pulled_commits_key(self, client):
+    def test_blocked_response_carries_pulled_commits_key(self, client):
         session = _make_session("coder")
         files = ["docs/guide.md"]
         attributed = AttributedPushRange(
@@ -454,9 +433,11 @@ class TestResponseSchemaInvariants:
             for _p in _patches_for(session, files, attributed):
                 _stack.enter_context(_p)
             _stack.enter_context(patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}))
-            body = _body(_do_push(client))
+            response = _do_push(client)
+            assert response.status_code == 403
+            body = _body(response)
             assert "pulled_commits" in body
-            assert body["nothing_to_push"] is True
+            assert body["error"] == "restricted_path_modified"
 
 
 # ---------------------------------------------------------------------------
@@ -466,8 +447,8 @@ class TestResponseSchemaInvariants:
 
 def test_scenario_9_attribution_lookup_exception_fails_closed(client):
     """When get_attributed_changed_files_in_push raises, the push handler
-    catches the exception and fails closed (attribution_fallback=True)
-    rather than crashing with a 500."""
+    catches the exception and fails closed (attribution_fallback=True →
+    403) rather than crashing with a 500 or silently dropping content."""
     session = _make_session("coder")
     files = ["docs/guide.md"]  # blocked for coder
     # The attributed_range is unused because the side_effect raises first,
@@ -490,13 +471,12 @@ def test_scenario_9_attribution_lookup_exception_fails_closed(client):
         )
         _stack.enter_context(patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}))
         response = _do_push(client)
-        # Should NOT be a 500; the handler catches the exception and
-        # falls back to treating all files as own-authored.
-        assert response.status_code == 200
+        # Should NOT be a 500; the handler catches the exception, falls
+        # back to treating all files as own-authored, then rejects the
+        # blocked path with the standard 403 (#2039).
+        assert response.status_code == 403
         body = _body(response)
-        assert body["nothing_to_push"] is True
-        assert body["excluded_files"] == files
-        assert body["filtered"] is True
-        assert body["pushed_files"] == []
-        assert body["pushed_commits"] == []
+        assert body["error"] == "restricted_path_modified"
+        assert body["blocked_paths"] == files
+        assert body.get("attribution_fallback") is True
         assert "pulled_commits" in body

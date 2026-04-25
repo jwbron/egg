@@ -256,9 +256,10 @@ class ConcurrentPhaseExecutor:
 
         # EGG_AGENT_FILE_PATTERNS was injected here historically so
         # sandbox/egg_lib/cli_push.py could implement its own
-        # --scope-filter fallback.  The gateway now auto-filters
-        # disallowed files on push (#1882), so the env var has no
-        # consumer and is no longer emitted.
+        # --scope-filter fallback.  The gateway enforces role
+        # restrictions on push (#2039 — restricted-path-modified
+        # rejection), so the env var has no consumer and is no longer
+        # emitted.
 
         return env
 

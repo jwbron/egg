@@ -3,12 +3,17 @@
 These tests lock in the invariants the NACK fix commit established so
 the specific bugs the reviewer caught cannot silently return.
 
+Note: #2039 replaced the silent-strip + nothing_to_push arms with a
+structured 403 ``restricted_path_modified``.  Items 1 and 5 below were
+ported to assert the new rejection shape; items 2–4 are unaffected
+because they test helpers that are still part of the gateway module.
+
 Covered:
 
-1. Security hole in mixed-rewrite fallback.
+1. Security hole in mixed-rewrite fallback (now: 403 reject path).
    When ``get_attributed_changed_files_in_push`` returns empty / errored
    but the partition discovers blocked own files, the handler MUST
-   return nothing_to_push=true and MUST NOT call
+   return 403 ``restricted_path_modified`` and MUST NOT call
    ``execute_filtered_push`` — which would walk an empty commit list
    and push HEAD verbatim, leaking the blocked files through.
 
@@ -29,7 +34,7 @@ Covered:
    ``filtered=false`` / ``pulled_commits`` / ``excluded_files`` fields
    so downstream tooling sees the consistent schema #1882 promised.
 
-5. audit-log ``attribution_fallback`` flag presence on the all-blocked
+5. audit-log ``attribution_fallback`` flag presence on the rejection
    path when attribution was unavailable — so operators can tell the
    fail-closed short-circuit fired.
 """
@@ -181,14 +186,16 @@ class TestAttributionFallbackSecurityHole:
 
     If ``get_attributed_changed_files_in_push`` returns an empty range
     (error flag set or zero commits) but the pusher has blocked files,
-    the original bug routed the flow into ``execute_filtered_push``
+    the original #1882 bug routed the flow into ``execute_filtered_push``
     with an empty commit list — which returned success and pushed
-    HEAD verbatim, leaking blocked files to origin.  The fix treats
-    attribution_fallback as unconditionally nothing_to_push=true.
+    HEAD verbatim, leaking blocked files to origin.  Under #2039 the
+    fix is the same shape (rewriter not invoked) but the response is
+    now a 403 ``restricted_path_modified`` instead of a 200
+    nothing_to_push=true.
     """
 
-    def test_empty_commits_with_blocked_files_returns_nothing_to_push(self, client):
-        """empty commits + blocked files → nothing_to_push=true, no rewrite."""
+    def test_empty_commits_with_blocked_files_rejected(self, client):
+        """empty commits + blocked files → 403, no rewrite."""
         session = _make_session("coder")
         files = ["docs/guide.md"]  # coder cannot write docs
         # attribution_range has empty commits (the original bug path).
@@ -203,18 +210,17 @@ class TestAttributionFallbackSecurityHole:
 
             response = _do_push(client)
 
-        assert response.status_code == 200
+        assert response.status_code == 403, response.data
         body = _body(response)
-        assert body["nothing_to_push"] is True
-        assert body["filtered"] is True
-        assert body["excluded_files"] == files
-        assert body["pushed_files"] == []
-        assert body["pushed_commits"] == []
+        assert body["error"] == "restricted_path_modified"
+        assert body["role"] == "coder"
+        assert "docs/guide.md" in body["blocked_paths"]
+        assert body.get("attribution_fallback") is True
         # Core invariant: the rewriter was not invoked for an empty range.
         mock_execute.assert_not_called()
 
-    def test_error_attribution_with_blocked_files_returns_nothing_to_push(self, client):
-        """attribution error + blocked files → nothing_to_push=true, no rewrite."""
+    def test_error_attribution_with_blocked_files_rejected(self, client):
+        """attribution error + blocked files → 403, no rewrite."""
         session = _make_session("coder")
         files = ["docs/api.md", "README.md"]
         attributed = AttributedPushRange(
@@ -233,13 +239,10 @@ class TestAttributionFallbackSecurityHole:
 
             response = _do_push(client)
 
-        assert response.status_code == 200
+        assert response.status_code == 403, response.data
         body = _body(response)
-        assert body["nothing_to_push"] is True
-        assert body["filtered"] is True
-        # Unordered check: both docs files are in the excluded list.
-        assert set(body["excluded_files"]) == set(files)
-        assert body["pushed_files"] == []
+        assert body["error"] == "restricted_path_modified"
+        assert set(body["blocked_paths"]) == set(files)
         mock_execute.assert_not_called()
 
     def test_empty_attribution_with_allowed_files_is_plain_push(self, client):
@@ -443,10 +446,10 @@ class TestWarnOnlyObservabilityParity:
 
 
 class TestAttributionFallbackAuditLog:
-    """The ``push_all_blocked_no_op`` audit event must carry the
-    ``attribution_fallback`` flag so operators can tell whether the
-    fail-closed branch fired for a legitimate all-blocked push or
-    because attribution was unavailable."""
+    """The ``push_denied_restricted_path_modified`` audit event must
+    carry the ``attribution_fallback`` flag so operators can tell whether
+    the rejection fired for a legitimate restricted-path push or because
+    attribution was unavailable (#2039)."""
 
     def test_audit_log_includes_attribution_fallback_true(self, client):
         session = _make_session("coder")
@@ -467,20 +470,20 @@ class TestAttributionFallbackAuditLog:
 
             response = _do_push(client)
 
-        assert response.status_code == 200
+        assert response.status_code == 403
 
-        no_op_events = [
+        reject_events = [
             details
             for (event_type, _success, details) in audit_calls
-            if event_type == "push_all_blocked_no_op"
+            if event_type == "push_denied_restricted_path_modified"
         ]
-        assert no_op_events, (
-            f"Expected at least one push_all_blocked_no_op audit event, got {audit_calls!r}"
+        assert reject_events, (
+            f"Expected at least one push_denied_restricted_path_modified audit event, "
+            f"got {audit_calls!r}"
         )
-        # Exactly one such event per push; it must carry the flag.
-        assert any(ev.get("attribution_fallback") is True for ev in no_op_events), (
-            f"Expected attribution_fallback=True in push_all_blocked_no_op "
-            f"event details, got {no_op_events!r}"
+        assert any(ev.get("attribution_fallback") is True for ev in reject_events), (
+            f"Expected attribution_fallback=True in push_denied_restricted_path_modified "
+            f"event details, got {reject_events!r}"
         )
 
     def test_audit_log_attribution_fallback_false_for_real_all_blocked(self, client):
@@ -506,13 +509,13 @@ class TestAttributionFallbackAuditLog:
 
             response = _do_push(client)
 
-        assert response.status_code == 200
-        no_op_events = [
+        assert response.status_code == 403
+        reject_events = [
             details
             for (event_type, _success, details) in audit_calls
-            if event_type == "push_all_blocked_no_op"
+            if event_type == "push_denied_restricted_path_modified"
         ]
-        assert no_op_events
-        assert all(ev.get("attribution_fallback") is False for ev in no_op_events), (
-            f"Expected attribution_fallback=False for real all-blocked push, got {no_op_events!r}"
+        assert reject_events
+        assert all(ev.get("attribution_fallback") is False for ev in reject_events), (
+            f"Expected attribution_fallback=False for real all-blocked push, got {reject_events!r}"
         )

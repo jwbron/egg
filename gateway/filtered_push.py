@@ -177,46 +177,28 @@ def _is_ancestor(exec_path: str, sha: str, tip_sha: str) -> bool:
 def _filter_tree(
     exec_path: str, base_tree: str, blocked_paths: list[str]
 ) -> tuple[str | None, str | None]:
-    """Produce a new tree equal to ``base_tree`` minus ``blocked_paths``.
+    """Return ``base_tree`` unchanged.
 
-    Uses a temp index so the caller's index is untouched.  Returns
-    ``(new_tree_sha, error)``.  A returned tree may equal ``base_tree``
-    if none of the blocked paths existed in it — the caller treats that
-    as the commit needing no rewrite.
+    Historically this stripped ``blocked_paths`` from the tree to support
+    #1882's silent rewrite semantics.  #2039 removed the rewrite path —
+    the gateway now rejects pushes that touch restricted paths instead
+    of producing destructive deletions.  Any caller still passing a
+    non-empty ``blocked_paths`` is a regression: the gateway-level
+    rejection should have fired first.  We log loudly and fail closed
+    rather than silently strip.
     """
-    if not blocked_paths:
-        return base_tree, None
-
-    index_fd = None
-    index_path = None
-    try:
-        import tempfile
-
-        index_fd, index_path = tempfile.mkstemp(suffix=".idx", dir=exec_path)
-        os.close(index_fd)
-        index_fd = None
-        env = dict(os.environ)
-        env["GIT_INDEX_FILE"] = index_path
-
-        r = _git(exec_path, "read-tree", base_tree, env=env)
-        if r.returncode != 0:
-            return None, f"read-tree failed: {(r.stderr or '').strip()}"
-
-        # Remove each blocked path (ignore "not in index" errors — only
-        # some commits may have touched a given path).
-        for p in blocked_paths:
-            _git(exec_path, "update-index", "--force-remove", "--", p, env=env)
-
-        wt = _git(exec_path, "write-tree", env=env)
-        if wt.returncode != 0:
-            return None, f"write-tree failed: {(wt.stderr or '').strip()}"
-        return (wt.stdout or "").strip() or None, None
-    finally:
-        if index_path and os.path.exists(index_path):
-            try:
-                os.unlink(index_path)
-            except OSError:
-                pass
+    if blocked_paths:
+        logger.error(
+            "filter_tree_called_with_blocked_paths",
+            blocked_paths=sorted(set(blocked_paths)),
+            note=(
+                "Gateway-level rejection for restricted-path modify (#2039) "
+                "should have intercepted before reaching the rewrite path. "
+                "Failing closed."
+            ),
+        )
+        return None, "filter_tree blocked-paths arm is disabled (see #2039)"
+    return base_tree, None
 
 
 def _commit_tree(
