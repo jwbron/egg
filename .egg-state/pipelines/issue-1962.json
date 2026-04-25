@@ -383,10 +383,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-13",
+      "question": "/sdlc wall-clock thresholds (3 min stall, 10 min silent agent, 60 min long-running phase): when / if they migrate to the overseer, should the thresholds change?",
+      "context": "Open contract question decision-12, registered by an agent during the refine phase.",
+      "options": [
+        "Keep identical — same numeric thresholds, just moved across the process boundary",
+        "Make configurable per-pipeline via PipelineConfig (default to current values)",
+        "Revise numbers as part of migration — human to specify in plan phase",
+        "Defer until the migration pipeline",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T17:52:17.566731Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T17:05:44.416677Z",
-  "updated_at": "2026-04-25T17:52:17.532359Z",
+  "updated_at": "2026-04-25T17:52:17.585973Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -400,6 +420,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 23,
+  "version": 24,
   "jira_ticket": null
 }
