@@ -222,6 +222,27 @@ def _skip_worktree_disk_check(monkeypatch):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _reset_heartbeat_coordinator():
+    """Reset the heartbeat coordinator singleton between every orchestrator test.
+
+    The coordinator carries per-(pipeline, role) dedup, rate-limit, and
+    gateway-fan-out throttle state. Without resetting it, tests that
+    share role names can observe contaminated state across files. As
+    new coordinator surfaces are added, this single fixture covers them
+    all — see #2076 NB4 (the throttle was the third axis after dedup
+    and rate-limit, and the fixture had drifted across two test files).
+    """
+    try:
+        from heartbeat import reset_heartbeat_coordinator
+    except ImportError:
+        yield
+        return
+    reset_heartbeat_coordinator()
+    yield
+    reset_heartbeat_coordinator()
+
+
 @pytest.fixture
 def lifecycle_secret() -> str:
     """The shared test bearer token. Useful for building explicit headers."""

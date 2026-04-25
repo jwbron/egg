@@ -42,6 +42,8 @@ class HeartbeatCoordinator:
         self._windows: dict[tuple[str, str], deque[float]] = {}
         # (pipeline_id, role) -> last-seen (state, waiting_on)
         self._last_state: dict[tuple[str, str], tuple[str, str]] = {}
+        # (pipeline_id, role) -> last gateway-session fan-out epoch-seconds
+        self._last_fan_out: dict[tuple[str, str], float] = {}
 
     def check_rate_limit(
         self,
@@ -102,6 +104,48 @@ class HeartbeatCoordinator:
         with self._lock:
             self._last_state[key] = (state, waiting_on or "")
 
+    def should_fan_out_gateway_session(
+        self,
+        pipeline_id: str,
+        role: str,
+        min_interval_seconds: float,
+    ) -> bool:
+        """Throttle gateway-session fan-outs (issue #2076 NB2).
+
+        The HEARTBEAT route fans out a gateway-session refresh both on
+        the dedup early-return path and after the rate-limit gate.  The
+        dedup path bypasses the per-role rate limiter (by design — see
+        ``check_rate_limit``'s NB1 from #1897), so a misbehaving agent
+        hot-looping with identical state can amplify into the gateway
+        without burning rate budget.  This per-role cooldown caps that
+        amplification independently of the heartbeat-acceptance rate.
+
+        Returns ``True`` and records the new timestamp if at least
+        ``min_interval_seconds`` have passed since the previous fan-out
+        for this ``(pipeline_id, role)``; returns ``False`` (without
+        recording) if the caller should skip the fan-out this round.
+        Any non-positive ``min_interval_seconds`` (``<= 0``) disables
+        throttling — every call returns ``True`` without recording.
+
+        Callers must pass a finite real number. ``float('nan')`` falls
+        through both branches (``nan <= 0`` and ``now - last < nan`` are
+        both False), which would silently behave as "always record,
+        never suppress" — not a meaningful state.  The realistic call
+        site (``_GATEWAY_FANOUT_MIN_INTERVAL_SECONDS = 30.0``) is a
+        module constant, but if a future env-var-driven knob lands
+        (#2076 NB5) it should sanitize NaN/inf at parse time.
+        """
+        if min_interval_seconds <= 0:
+            return True
+        key = (pipeline_id, role)
+        now = time.time()
+        with self._lock:
+            last = self._last_fan_out.get(key, 0.0)
+            if now - last < min_interval_seconds:
+                return False
+            self._last_fan_out[key] = now
+        return True
+
     def clear(self, pipeline_id: str) -> None:
         """Drop all state for a pipeline (on phase transition)."""
         with self._lock:
@@ -111,6 +155,9 @@ class HeartbeatCoordinator:
             for key in list(self._last_state):
                 if key[0] == pipeline_id:
                     del self._last_state[key]
+            for key in list(self._last_fan_out):
+                if key[0] == pipeline_id:
+                    del self._last_fan_out[key]
 
 
 _coordinator: HeartbeatCoordinator | None = None

@@ -5598,6 +5598,33 @@ def session_delete_by_container(container_id: str) -> tuple[Response, int] | Res
     return make_success("Session deleted")
 
 
+@app.route("/api/v1/sessions/by-container/<container_id>/heartbeat", methods=["POST"])
+@require_launcher_auth
+def session_heartbeat_by_container(container_id: str) -> tuple[Response, int] | Response:
+    """
+    Refresh a session's idle timer by container ID (orchestrator-only path).
+
+    Used by the orchestrator to keep agent sessions alive while their
+    container is heartbeating on the BRC bus but not making gateway
+    requests — without this, the idle pruner evicts the session after
+    EGG_SESSION_IDLE_TIMEOUT_MINUTES even though the agent is still
+    working (see #2068).
+
+    Auth: Bearer {launcher_secret}
+
+    Returns 404 if no session exists for the container.  No per-session
+    rate limit because the launcher secret already gates access — only
+    the orchestrator can call this.
+    """
+    session_manager = get_session_manager()
+    refreshed = session_manager.heartbeat_session_by_container(container_id)
+
+    if not refreshed:
+        return make_error("Session not found for container", status_code=404)
+
+    return make_success("Heartbeat recorded")
+
+
 @app.route("/api/v1/sessions/<session_token>", methods=["GET"])
 @require_launcher_auth
 def session_get(session_token: str) -> tuple[Response, int] | Response:

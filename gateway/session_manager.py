@@ -941,6 +941,39 @@ class SessionManager:
 
         return False, None
 
+    def heartbeat_session_by_container(self, container_id: str) -> bool:
+        """Refresh a session's ``last_seen`` (and TTL) by container ID.
+
+        Used by the orchestrator to keep gateway sessions alive while an
+        agent is heartbeating through the BRC bus but not making gateway
+        requests (e.g. a producer in ``WAITING_FOR_EVENT`` during a long
+        review cycle).  Without this, the idle pruner evicts the session
+        after ``DEFAULT_SESSION_IDLE_TIMEOUT_MINUTES`` even though the
+        agent is still working — see #2068.
+
+        Mirrors ``validate_session``'s in-flight pattern: the TTL extend
+        is in-memory only.  We do **not** ``_save_to_disk()`` here — at
+        ~1 fan-out per agent every 60s a per-call atomic file write
+        would dominate gateway disk I/O for no benefit (worst-case loss
+        on a gateway crash is the session ages out and is re-registered
+        on the next gateway op, which is the same recovery path
+        ``validate_session`` already relies on).  Disk persistence
+        happens at lifecycle events (registration, deletion, expiry).
+
+        Args:
+            container_id: Container ID whose session to refresh.
+
+        Returns:
+            True if a matching, non-expired session was refreshed; False
+            if no session exists for the container.
+        """
+        with self._lock:
+            for session in self._sessions.values():
+                if session.container_id == container_id and not session.is_expired():
+                    session.extend_ttl(self._ttl_hours)
+                    return True
+        return False
+
     def prune_expired_sessions(self) -> int:
         """
         Remove all expired sessions.

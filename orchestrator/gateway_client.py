@@ -573,6 +573,43 @@ class GatewayClient:
             )
             return False
 
+    def heartbeat_session_by_container(self, container_id: str) -> bool:
+        """Refresh a session's idle timer by container ID.
+
+        Requires launcher secret authentication.  Used to keep gateway
+        sessions alive while an agent is heartbeating on the BRC bus but
+        not making gateway requests — see #2068.
+
+        Args:
+            container_id: Container ID whose session to refresh.
+
+        Returns:
+            True if the session was refreshed; False if there is no
+            matching session or the gateway request failed.  Best-effort
+            — callers should not fail on a False return.
+        """
+        try:
+            result = self._make_request(
+                f"/api/v1/sessions/by-container/{quote(container_id, safe='')}/heartbeat",
+                method="POST",
+                use_launcher_auth=True,
+            )
+            return result.get("success", False)
+        except GatewayError as e:
+            # Log the full container_id (not a secret — already shows up
+            # in k8s `get pods` output) so the failing pipeline+role is
+            # identifiable from #2068's exact failure mode.  The sibling
+            # ``delete_session_by_container`` truncates to 12 chars
+            # (``egg-agent-is`` for realistic ids), which loses both
+            # pipeline and role; reviewer NB4 on #2076 flagged that as
+            # un-debuggable here even if it's pre-existing there.
+            logger.warning(
+                "Failed to heartbeat session by container",
+                container_id=container_id,
+                error=str(e),
+            )
+            return False
+
     def create_worktrees(
         self,
         container_id: str,
