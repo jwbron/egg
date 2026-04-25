@@ -1179,13 +1179,12 @@ def git_push() -> tuple[Response, int] | Response:
                 },
             )
 
-    # Agent-role file restrictions (#1882 gateway auto-filter).
+    # Agent-role file restrictions (#2039 restricted-path rejection).
     # The gateway partitions the push range into own-authored vs
     # pulled-from-other-role files via the commit-authorship registry,
     # checks the pushing role's write permissions against only the
-    # own-authored set, and either pushes unchanged (all allowed),
-    # rewrites the range per-commit (mixed), or returns
-    # nothing_to_push=true (all blocked).
+    # own-authored set, and either pushes unchanged (all allowed)
+    # or rejects with 403 restricted_path_modified (any blocked).
     #
     # EGG_AGENT_RESTRICTIONS_ENFORCE=false short-circuits the filter
     # (warn-only, same as the old 403 path).
@@ -1260,19 +1259,15 @@ def git_push() -> tuple[Response, int] | Response:
         # caller mocked only the legacy file-detection path, or git
         # rev-list returned zero commits but there are staged-but-not-
         # pushed changes we can't walk with commit-tree), we FAIL
-        # CLOSED on the rewrite path.  Treat every file in
-        # ``changed_files`` as own-authored and unregistered; if any
-        # file is blocked, return 200 nothing_to_push=true with the
-        # blocked set surfaced as excluded_files — *without* calling
-        # ``execute_filtered_push`` (it would walk an empty commit
-        # list and push HEAD unchanged, leaking blocked files).
+        # CLOSED.  Treat every file in ``changed_files`` as own-authored
+        # and unregistered; if any file is blocked the push is rejected
+        # by the restricted-path arm below (#2039).
         attribution_fallback = bool(attributed_push.error or not attributed_push.commits)
         if attribution_fallback:
             own_files: list[str] = list(dict.fromkeys(changed_files))
             pulled_files: list[str] = []
             unregistered_files: list[str] = list(own_files)
             attributed_commits_list: list[str] = []
-            attributed_files_list: list[Any] = []
         else:
             # Split files by author role (pushing role's own vs pulled).
             own_files = []
@@ -1291,7 +1286,6 @@ def git_push() -> tuple[Response, int] | Response:
             own_files = list(dict.fromkeys(own_files))
             pulled_files = list(dict.fromkeys(pulled_files))
             attributed_commits_list = list(attributed_push.commits)
-            attributed_files_list = list(attributed_push.files)
 
         # Build the pulled_commits list for the response + audit log.
         pulled_commits_summary: list[dict[str, Any]] = []
@@ -1312,192 +1306,55 @@ def git_push() -> tuple[Response, int] | Response:
                     "branch": branch,
                     "role": session_role,
                     "unregistered_files": unregistered_files,
-                    "excluded_files": blocked_own,
+                    "blocked_paths": blocked_own,
                     "pulled_commits": pulled_commits_summary,
                 },
             )
 
         if blocked_own and enforce:
-            # Decide between "all blocked" (nothing to push) and mixed rewrite.
-            # IMPORTANT: when we have no commit range to walk
-            # (attribution_fallback), treat the whole push as blocked
-            # and do NOT invoke execute_filtered_push — it would walk
-            # an empty commit list and push HEAD unchanged, leaking
-            # blocked files through.  This preserves the fail-closed
-            # invariant when attribution is unavailable (#1882 review).
-            if (not allowed_own and not pulled_files) or attribution_fallback:
-                audit_log(
-                    "push_all_blocked_no_op",
-                    "git_push",
-                    success=True,
-                    details={
-                        "repo": repo,
-                        "branch": branch,
-                        "role": session_role,
-                        "excluded_files": blocked_own,
-                        "pulled_commits": pulled_commits_summary,
-                        "attribution_fallback": attribution_fallback,
-                    },
-                )
-                return make_success(
-                    (
-                        "Push skipped: attribution unavailable and out-of-scope "
-                        "files detected (fail-closed)."
-                        if attribution_fallback
-                        else "Push skipped: every own-authored file is out of scope for this role"
-                    ),
-                    {
-                        "repo": repo,
-                        "branch": branch,
-                        "filtered": True,
-                        "nothing_to_push": True,
-                        "excluded_files": blocked_own,
-                        "pushed_files": [],
-                        "pushed_commits": [],
-                        "pulled_commits": pulled_commits_summary,
-                        "auth_mode": get_auth_mode(repo),
-                    },
-                )
-
-            # Mixed: execute the per-commit rewrite via the filtered-push
-            # helper. It performs the push itself (through a callback so
-            # the caller controls credentials and refspec) and returns a
-            # structured result.
-            _fp_mod = _load_sibling_gateway_module("filtered_push")
-            execute_filtered_push = (
-                getattr(_fp_mod, "execute_filtered_push", None) if _fp_mod else None
-            )
-            if execute_filtered_push is None:
-                audit_log(
-                    "push_denied_auto_filter_failed",
-                    "git_push",
-                    success=False,
-                    details={
-                        "repo": repo,
-                        "branch": branch,
-                        "role": session_role,
-                        "error": "filtered_push module unavailable",
-                    },
-                )
-                return make_error(
-                    "Push denied: auto-filter module unavailable.",
-                    status_code=500,
-                )
-
-            def _inner_push(tip_sha: str) -> tuple[bool, str | None]:
-                token_str, auth_mode, token_error = get_token_for_repo(repo)
-                if not token_str:
-                    return False, token_error
-                push_target = get_authenticated_remote_target(remote, remote_url)
-                push_args = ["push", "--no-verify"]
-                if force:
-                    push_args.append("--force")
-                # Push by SHA so we don't depend on a local
-                # refs/heads/<branch> — sibling worktrees may hold a
-                # directory-style ref (e.g. refs/heads/<branch>/work)
-                # that blocks creating the leaf ref.  See #1994.
-                push_refspec = f"{tip_sha}:refs/heads/{branch}"
-                push_args.extend([push_target, push_refspec])
-                cmd_inner = git_cmd("-c", "http.extraheader=", *push_args)
-                credential_helper_path_inner = None
-                try:
-                    credential_helper_path_inner, env_inner = create_credential_helper(
-                        token_str, os.environ.copy()
-                    )
-                    r = subprocess.run(
-                        cmd_inner,
-                        cwd=exec_path,
-                        capture_output=True,
-                        text=True,
-                        timeout=120,
-                        env=env_inner,
-                        check=False,
-                    )
-                    if r.returncode != 0:
-                        return False, (r.stderr or r.stdout or "").strip()
-                    return True, None
-                finally:
-                    if credential_helper_path_inner is not None:
-                        cleanup_credential_helper(credential_helper_path_inner)
-
-            def _register(**kwargs: Any) -> bool:
-                _crc_mod = _load_sibling_gateway_module("commit_registry_client")
-                get_client = getattr(_crc_mod, "get_client", None) if _crc_mod else None
-                if get_client is None:
-                    return False
-                try:
-                    return bool(get_client().register(**kwargs))
-                except Exception:
-                    return False
-
-            pipeline_id_for_filter = None
-            session_obj = getattr(g, "session", None)
-            if session_obj is not None:
-                pipeline_id_for_filter = getattr(session_obj, "pipeline_id", None)
-
-            blocked_set = set(blocked_own)
-            filter_result = execute_filtered_push(
-                exec_path,
-                push_role=session_role,
-                branch=branch,
-                attributed_commits=attributed_commits_list,
-                attributed_files=attributed_files_list,
-                blocked_own_files=blocked_set,
-                push_fn=_inner_push,
-                registry_register=_register,
-                pipeline_id=pipeline_id_for_filter,
-                repo=repo,
-            )
-            if not filter_result.success:
-                audit_log(
-                    "push_denied_auto_filter_failed",
-                    "git_push",
-                    success=False,
-                    details={
-                        "repo": repo,
-                        "branch": branch,
-                        "role": session_role,
-                        "error": filter_result.error,
-                    },
-                )
-                return make_error(
-                    f"Push denied: auto-filter failed ({filter_result.error}).",
-                    status_code=500,
-                    details={
-                        "role": session_role,
-                        "error": filter_result.error,
-                    },
-                )
-
+            # #2039: reject any push whose diff modifies a path the
+            # pushing role cannot write.  The previous behavior — silent
+            # tree rewrite (mixed) or silent ``nothing_to_push=true``
+            # (all-blocked) — produced destructive deletions on the
+            # shared branch and gave the agent no actionable signal.
+            # Reject loudly with a structured 403 that points at the
+            # supported recovery pattern (#1998 conditional ACK with
+            # ``--pre-merge-condition``).
+            sorted_blocked = sorted(set(blocked_own))
             audit_log(
-                "push_auto_filtered",
+                "push_denied_restricted_path_modified",
                 "git_push",
-                success=True,
+                success=False,
                 details={
                     "repo": repo,
                     "branch": branch,
                     "role": session_role,
-                    "excluded_files": filter_result.excluded_files,
-                    "pushed_files": filter_result.pushed_files,
-                    "pushed_commits": filter_result.pushed_commits,
-                    "dropped_commits": filter_result.dropped_commits,
+                    "blocked_paths": sorted_blocked,
                     "pulled_commits": pulled_commits_summary,
-                    "rewritten_commits": filter_result.rewritten_commits,
+                    "attribution_fallback": attribution_fallback,
                 },
             )
-            return make_success(
-                "Push successful with auto-filter",
-                {
-                    "repo": repo,
-                    "branch": branch,
-                    "filtered": True,
-                    "nothing_to_push": False,
-                    "excluded_files": filter_result.excluded_files,
-                    "pushed_files": filter_result.pushed_files,
-                    "pushed_commits": filter_result.pushed_commits,
+            recommended_action = (
+                "Drop the edits to the listed paths and re-propose with "
+                "--pre-merge-condition flagging a manual change for the "
+                "human reviewer (see issue #1998 for the conditional-ACK "
+                "pattern)."
+            )
+            return make_error(
+                (
+                    f"Push denied: role '{session_role}' cannot modify restricted "
+                    f"paths: {', '.join(sorted_blocked)}. "
+                    f"{recommended_action}"
+                ),
+                status_code=403,
+                details={
+                    "error": "restricted_path_modified",
+                    "role": session_role,
+                    "blocked_paths": sorted_blocked,
+                    "recommended_action": recommended_action,
+                    "doc_ref": "#1998",
                     "pulled_commits": pulled_commits_summary,
-                    "rewritten_commits": filter_result.rewritten_commits,
-                    "auth_mode": get_auth_mode(repo),
+                    "attribution_fallback": attribution_fallback,
                 },
             )
         elif blocked_own and not enforce:
@@ -1671,12 +1528,10 @@ def git_push() -> tuple[Response, int] | Response:
     push_args = ["push", "--no-verify"]
     if force:
         push_args.append("--force")
-    # NOTE: The non-filtered push path uses the original refspec (not a
-    # SHA-based refspec) because it never calls ``update-ref`` pre-push,
-    # so the directory-style ref collision that affects the filtered path
-    # (sibling worktree refs like ``refs/heads/<branch>/work``) does not
-    # apply here.  The filtered path in ``filtered_push.py`` pushes by
-    # SHA to avoid that collision — see #1994 for context.
+    # NOTE: The push uses the original refspec (not a SHA-based refspec)
+    # because it never calls ``update-ref`` pre-push, so the directory-
+    # style ref collision (sibling worktree refs like
+    # ``refs/heads/<branch>/work``) does not apply here.  See #1994.
     push_args.extend([push_target, refspec] if refspec else [push_target])
     # Clear any http.extraheader from .git/config to ensure the gateway's
     # credential helper (GIT_ASKPASS) is used. actions/checkout@v4 persists

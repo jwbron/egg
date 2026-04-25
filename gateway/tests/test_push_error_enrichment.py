@@ -1,22 +1,19 @@
-"""Tests for the 200-response schema of the post-#1882 gateway push handler.
+"""Tests for the gateway push handler response schema (post-#2039).
 
-Historical note: this file replaces the earlier suite that asserted the
-403 error-enrichment shape from #1527 (``blocked_files`` /
-``allowed_patterns`` / ``remediation`` fields on push denials).  #1882
-auto-filters instead of rejecting, so the 403 enrichment contract is
-gone — the relevant contract is now on the 200 responses described in
-``docs/architecture/gateway-auto-filter.md``:
+Historical: #1527 returned 403 with enrichment fields on push denials;
+#1882 replaced that with silent auto-filter rewrites + 200 responses
+(``filtered``, ``excluded_files``, etc.); #2039 reverted the silent
+behavior and now returns a structured 403 ``restricted_path_modified``
+when any own-authored file is blocked.
 
-- ``filtered``: ``true`` when the gateway rewrote or short-circuited
-  the push, ``false`` on a plain push.
-- ``excluded_files``: paths the pushing role cannot write (stripped
-  from the rewritten range or surfaced on the short-circuit).
-- ``pushed_files``: paths actually written to origin.
-- ``pushed_commits``: SHAs of commits actually on origin.
-- ``pulled_commits``: ``[{sha, author_role}, ...]`` for cross-role
-  commits in the pushed range (always present; empty list when none).
-- ``nothing_to_push``: ``true`` on the all-blocked short-circuit;
-  ``false`` otherwise.
+The current contract:
+
+- All-allowed push: 200, ``filtered=false``, ``pulled_commits`` present.
+- Any blocked own file (enforce mode): 403 with
+  ``error=restricted_path_modified``, ``role``, ``blocked_paths``,
+  ``recommended_action``.  See test_filtered_push_blocked_modify.py
+  for the 403 contract; this file covers the all-allowed plain-push
+  schema.
 
 These tests are the canonical contract for the response shape the
 sandbox clients rely on.
@@ -159,14 +156,16 @@ def _body(response) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# All-blocked short-circuit (nothing_to_push=true)
+# Restricted-path-modified rejection (#2039)
 # ---------------------------------------------------------------------------
 
 
-class TestAllBlockedResponse:
-    """When every own-authored file is blocked, return 200 nothing_to_push."""
+class TestRestrictedPathRejection:
+    """When any own-authored file is blocked, return 403 with the
+    ``restricted_path_modified`` structured body.  Replaces the prior
+    nothing_to_push=true success arm."""
 
-    def test_response_includes_filtered_true(self, client):
+    def test_response_status_is_403(self, client):
         session = _make_session("coder")
         files = ["docs/guide.md", "docs/another.md"]
         patches = _push_context(session, files)
@@ -182,29 +181,11 @@ class TestAllBlockedResponse:
         ):
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
-                assert response.status_code == 200
+                assert response.status_code == 403
                 body = _body(response)
-                assert body["filtered"] is True
+                assert body["error"] == "restricted_path_modified"
 
-    def test_response_includes_nothing_to_push_true(self, client):
-        session = _make_session("coder")
-        patches = _push_context(session, ["docs/guide.md"])
-        with (
-            patches[0],
-            patches[1],
-            patches[2],
-            patches[3],
-            patches[4],
-            patches[5],
-            patches[6],
-            patches[7],
-        ):
-            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
-                response = _do_push(client)
-                body = _body(response)
-                assert body["nothing_to_push"] is True
-
-    def test_response_includes_excluded_files(self, client):
+    def test_response_includes_blocked_paths(self, client):
         session = _make_session("coder")
         files = ["docs/guide.md", "docs/api.md"]
         patches = _push_context(session, files)
@@ -221,10 +202,9 @@ class TestAllBlockedResponse:
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
                 body = _body(response)
-                assert sorted(body["excluded_files"]) == sorted(files)
+                assert sorted(body["blocked_paths"]) == sorted(files)
 
-    def test_response_includes_empty_pushed_files(self, client):
-        """All-blocked short-circuit never pushes anything to origin."""
+    def test_response_includes_role_and_recommended_action(self, client):
         session = _make_session("coder")
         patches = _push_context(session, ["docs/guide.md"])
         with (
@@ -240,27 +220,9 @@ class TestAllBlockedResponse:
             with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
                 response = _do_push(client)
                 body = _body(response)
-                assert body["pushed_files"] == []
-                assert body["pushed_commits"] == []
-
-    def test_response_includes_empty_pulled_commits_when_no_cross_role_commits(self, client):
-        """With only own commits, pulled_commits is an empty list."""
-        session = _make_session("coder")
-        patches = _push_context(session, ["docs/guide.md"])
-        with (
-            patches[0],
-            patches[1],
-            patches[2],
-            patches[3],
-            patches[4],
-            patches[5],
-            patches[6],
-            patches[7],
-        ):
-            with patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}):
-                response = _do_push(client)
-                body = _body(response)
-                assert body["pulled_commits"] == []
+                assert body["role"] == "coder"
+                assert body["recommended_action"]
+                assert "pre-merge-condition" in body["recommended_action"].lower()
 
 
 # ---------------------------------------------------------------------------

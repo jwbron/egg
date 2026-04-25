@@ -1,57 +1,55 @@
 # Push Filtering
 
-Your role has an allowed-file pattern set. The gateway enforces it on every push and auto-filters out-of-scope files for you — you do **not** need to run a special recovery command.
+Your role has an allowed-file pattern set. The gateway enforces it on every push: pushes that modify a path your role cannot write are **rejected** with HTTP 403.
 
 ## What happens on `git push` / `egg-orch push`
 
-The gateway inspects every commit in the unpushed range, partitions files by authorship (see below), and applies one of four outcomes:
+The gateway inspects every commit in the unpushed range, partitions files by authorship, and applies one of three outcomes:
 
 - **All your own files are in scope.** Plain push. Nothing to do.
-- **Your files mix allowed and blocked.** The gateway rewrites the unpushed range using `git commit-tree` / `git update-ref`:
-  - Blocked files are dropped from your commits; the commit message gets an `Auto-Filtered: true` git trailer.
-  - Commits that become empty after filtering are dropped entirely.
-  - Commits authored by other roles (pulled via merge/rebase) pass through **bitwise-unchanged**.
-  - After the push, your local `HEAD` is fast-forwarded to match origin, and the blocked files are **re-staged as uncommitted changes** in your worktree so another role can pick them up.
-- **All your own files are blocked.** Response returns `200 nothing_to_push: true` with the excluded file list. No ref update, no remote push. Your worktree is untouched. Re-author the work under the correct role (or coordinate via the message bus).
-- **Other restrictions** (phase gate, anchor scope, protected file, branch ownership, private mode, pipeline session). These still return `403`. The auto-filter is only for agent-role file restrictions.
+- **Any of your own files are out of scope.** The gateway rejects the push with HTTP 403 and a structured error body (see below). No commits land on origin; your local worktree is untouched.
+- **Other restrictions** (phase gate, anchor scope, protected file, branch ownership, private mode, pipeline session). These also return 403 — different error codes, same shape.
 
-## Response body fields
+Pulled commits authored by other roles in the same push range are **not** filtered against your patterns; only your own commits are checked.
 
-Every `200` from `/api/v1/git/push` now includes:
+## Response body for `restricted_path_modified`
 
-- `pushed_commits` — SHAs actually pushed to the remote (post-rewrite, if any).
-- `pulled_commits` — `[{sha, author_role}, ...]` listing any commits in the range attributed to a role other than yours. Empty list when the push was own-only.
+When the gateway rejects a push because your commits modify a restricted path, the body contains:
 
-When the gateway rewrote or short-circuited the push, the response also includes:
+```json
+{
+  "error": "restricted_path_modified",
+  "role": "<your-role>",
+  "blocked_paths": ["<path>", ...],
+  "recommended_action": "Drop the edits to the listed paths and re-propose with --pre-merge-condition flagging a manual change for the human reviewer (see issue #1998 for the conditional-ACK pattern).",
+  "doc_ref": "#1998",
+  "pulled_commits": [{"sha": "...", "author_role": "..."}, ...],
+  "attribution_fallback": false
+}
+```
 
-- `filtered: true`
-- `excluded_files` — the files it removed.
-- `pushed_files` — the files that actually made it through.
-- `nothing_to_push: true` — set when all your own files were blocked.
+## Recovering from `restricted_path_modified`
 
-## Reading the result in an agent loop
+The supported recovery is the **conditional-ACK pattern** from #1998:
 
-Typical pattern after a push:
+1. Drop or revert your edits to the listed `blocked_paths` (e.g. `git checkout origin/main -- <path>` or `git rebase -i` to drop the commit).
+2. Re-propose the work as a partial change. In your `mcp__brc__propose` payload, attach a `--pre-merge-condition` describing the manual edit a human reviewer must make to the restricted file before merge. The reviewer's conditional-ACK records the obligation on the PR body.
+3. Push again with the offending edit dropped.
 
-1. Check `response.filtered`. If absent or `false`, nothing special happened.
-2. If `nothing_to_push: true`, your commits were all out of scope. Inspect `excluded_files`, decide whether to hand the work off to another role via the message bus, or drop/relocate the files before re-attempting.
-3. If `filtered: true` without `nothing_to_push`, your push succeeded with some files excluded. The blocked files are now staged (uncommitted) in your worktree — if you need them gone, `git restore --staged <file>` and `git checkout -- <file>`. If a peer role should commit them, leave them in place and send a HANDOFF via `egg-orch message send`.
-4. `pulled_commits` is informational. It tells you which SHAs in the push were authored by other roles and passed through unchanged.
+Do **not** try to "restore" the file with a follow-up commit on the same branch — that commit will also be rejected for the same reason. The only path past the restriction is to drop the edit and document the required manual change for the reviewer.
 
 ## Unregistered commits and fail-closed
 
-The gateway reads each commit's author role from a commit-authorship registry maintained by the orchestrator. Commits that have no registry entry are treated as your own — the registry cannot be suppressed to bypass restrictions. If your push surfaces `push_authorship_unregistered_fallback` in the audit trail, it means at least one commit in the range has no registry record and was checked against your role's patterns.
-
-There is a stricter case: if the gateway cannot compute a commit walk at all (attribution lookup errored, or there is no walkable commit range for staged changes), it refuses to invoke the rewriter and short-circuits to `200 nothing_to_push: true` for every blocked file. The audit event is `push_all_blocked_no_op` with `attribution_fallback: true`, and the success message reads `Push skipped: attribution unavailable and out-of-scope files detected (fail-closed).` If you hit this, retry the push once; if it persists, escalate — something is wrong with the observer or the unpushed-range computation.
+The gateway reads each commit's author role from a commit-authorship registry maintained by the orchestrator. Commits that have no registry entry are treated as your own. If the gateway cannot compute attribution at all (registry error, no walkable commit range), the rejection body has `"attribution_fallback": true`. Retry the push once; if it persists, escalate — something is wrong with the observer or the unpushed-range computation.
 
 ## Kill switch
 
-If `EGG_AGENT_RESTRICTIONS_ENFORCE=false` is set, the gateway logs a WARNING and plain-pushes (no rewrite, no filtering). The response still carries `filtered: false`, `excluded_files: []`, `pushed_files`, and `pulled_commits` so your post-push logic can use the same schema in either mode. This is an operator emergency switch, not something you should normally see.
+If `EGG_AGENT_RESTRICTIONS_ENFORCE=false` is set, the gateway logs a WARNING and plain-pushes (no enforcement). This is an operator emergency switch; you should not normally see it.
 
 ## Preventing surprises
 
 Before committing, verify your changes are in scope:
 
-- See the **File Boundaries** section of your system prompt for your role's allowed/blocked patterns. The orchestrator injects them into the prompt; the former `EGG_AGENT_FILE_PATTERNS` env var was removed in [#1882](https://github.com/jwbron/egg/issues/1882).
+- See the **File Boundaries** section of your system prompt for your role's allowed/blocked patterns.
 - `git diff --name-only` before `git commit` to review paths.
-- If you need to modify out-of-scope files, send a HANDOFF to the correct role via `egg-orch message send --to <role> --type HANDOFF`.
+- If your task requires modifying an out-of-scope file, plan for the conditional-ACK pattern from the start: do not edit the restricted file; instead, capture the required edit in the `--pre-merge-condition` payload of your proposal, or send a HANDOFF to the role that owns the file via `egg-orch message send --to <role> --type HANDOFF`.

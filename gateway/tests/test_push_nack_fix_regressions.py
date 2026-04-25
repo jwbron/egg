@@ -1,27 +1,17 @@
-"""Regression tests for the five reviewer_code NACK fixes (commit ef291f3f9).
+"""Regression tests for #1882 NACK invariants ported to #2039 rejection model.
 
-These tests lock in the invariants the NACK fix commit established so
-the specific bugs the reviewer caught cannot silently return.
+Items 1 and 5 below were ported to assert the new ``restricted_path_modified``
+rejection shape after #2039 removed the silent-strip + nothing_to_push arms;
+the original NACK items 2 and 3 (binary-safe restage + actual-content staging)
+described helpers in ``filtered_push.py`` that have been deleted along with the
+rewrite path, so those tests went away with the dead code.
 
 Covered:
 
-1. Security hole in mixed-rewrite fallback.
+1. Security hole in mixed-rewrite fallback (now: 403 reject path).
    When ``get_attributed_changed_files_in_push`` returns empty / errored
    but the partition discovers blocked own files, the handler MUST
-   return nothing_to_push=true and MUST NOT call
-   ``execute_filtered_push`` — which would walk an empty commit list
-   and push HEAD verbatim, leaking the blocked files through.
-
-2. Binary-safe restage in ``filtered_push._restage_blocked_files``.
-   ``git show`` on a potentially-binary blob must go through
-   ``_git_raw`` (bytes) — not ``_git`` (text=True) — so PNG / PDF /
-   compiled-artefact content is not silently corrupted by UTF-8
-   decoding.
-
-3. Actual content staging in ``_restage_blocked_files``.
-   The function must ``git add`` the path (no ``--intent-to-add``) so
-   the index genuinely contains the content and a subsequent
-   ``git commit`` picks it up without another add.
+   return 403 ``restricted_path_modified``.
 
 4. Warn-only observability parity.
    When ``EGG_AGENT_RESTRICTIONS_ENFORCE=false`` and blocked own files
@@ -29,7 +19,7 @@ Covered:
    ``filtered=false`` / ``pulled_commits`` / ``excluded_files`` fields
    so downstream tooling sees the consistent schema #1882 promised.
 
-5. audit-log ``attribution_fallback`` flag presence on the all-blocked
+5. audit-log ``attribution_fallback`` flag presence on the rejection
    path when attribution was unavailable — so operators can tell the
    fail-closed short-circuit fired.
 """
@@ -39,7 +29,6 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import subprocess
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -52,7 +41,6 @@ _gateway_path = Path(__file__).parent.parent
 if str(_gateway_path) not in sys.path:
     sys.path.insert(0, str(_gateway_path))
 
-import filtered_push
 import git_client
 import pytest
 import session_manager
@@ -172,23 +160,24 @@ def _body(response) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# NACK item 1: attribution_fallback must not call execute_filtered_push
+# NACK item 1: attribution_fallback rejects with 403 (#2039)
 # ---------------------------------------------------------------------------
 
 
 class TestAttributionFallbackSecurityHole:
-    """Empty-attribution fallback must NOT invoke the rewriter.
+    """Empty-attribution fallback must reject with 403, not silently succeed.
 
     If ``get_attributed_changed_files_in_push`` returns an empty range
     (error flag set or zero commits) but the pusher has blocked files,
-    the original bug routed the flow into ``execute_filtered_push``
-    with an empty commit list — which returned success and pushed
-    HEAD verbatim, leaking blocked files to origin.  The fix treats
-    attribution_fallback as unconditionally nothing_to_push=true.
+    the original #1882 bug routed the flow into the rewriter with an
+    empty commit list — which returned success and pushed HEAD
+    verbatim, leaking blocked files to origin.  Under #2039 the handler
+    rejects with 403 ``restricted_path_modified`` and never reaches the
+    rewrite path (which has been removed entirely).
     """
 
-    def test_empty_commits_with_blocked_files_returns_nothing_to_push(self, client):
-        """empty commits + blocked files → nothing_to_push=true, no rewrite."""
+    def test_empty_commits_with_blocked_files_rejected(self, client):
+        """empty commits + blocked files → 403."""
         session = _make_session("coder")
         files = ["docs/guide.md"]  # coder cannot write docs
         # attribution_range has empty commits (the original bug path).
@@ -197,24 +186,19 @@ class TestAttributionFallbackSecurityHole:
         with contextlib.ExitStack() as _stack:
             for _p in _patches_for(session, files, attributed):
                 _stack.enter_context(_p)
-            mock_execute = MagicMock()
-            _stack.enter_context(patch.object(filtered_push, "execute_filtered_push", mock_execute))
             _stack.enter_context(patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}))
 
             response = _do_push(client)
 
-        assert response.status_code == 200
+        assert response.status_code == 403, response.data
         body = _body(response)
-        assert body["nothing_to_push"] is True
-        assert body["filtered"] is True
-        assert body["excluded_files"] == files
-        assert body["pushed_files"] == []
-        assert body["pushed_commits"] == []
-        # Core invariant: the rewriter was not invoked for an empty range.
-        mock_execute.assert_not_called()
+        assert body["error"] == "restricted_path_modified"
+        assert body["role"] == "coder"
+        assert "docs/guide.md" in body["blocked_paths"]
+        assert body.get("attribution_fallback") is True
 
-    def test_error_attribution_with_blocked_files_returns_nothing_to_push(self, client):
-        """attribution error + blocked files → nothing_to_push=true, no rewrite."""
+    def test_error_attribution_with_blocked_files_rejected(self, client):
+        """attribution error + blocked files → 403."""
         session = _make_session("coder")
         files = ["docs/api.md", "README.md"]
         attributed = AttributedPushRange(
@@ -227,23 +211,17 @@ class TestAttributionFallbackSecurityHole:
         with contextlib.ExitStack() as _stack:
             for _p in _patches_for(session, files, attributed):
                 _stack.enter_context(_p)
-            mock_execute = MagicMock()
-            _stack.enter_context(patch.object(filtered_push, "execute_filtered_push", mock_execute))
             _stack.enter_context(patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}))
 
             response = _do_push(client)
 
-        assert response.status_code == 200
+        assert response.status_code == 403, response.data
         body = _body(response)
-        assert body["nothing_to_push"] is True
-        assert body["filtered"] is True
-        # Unordered check: both docs files are in the excluded list.
-        assert set(body["excluded_files"]) == set(files)
-        assert body["pushed_files"] == []
-        mock_execute.assert_not_called()
+        assert body["error"] == "restricted_path_modified"
+        assert set(body["blocked_paths"]) == set(files)
 
     def test_empty_attribution_with_allowed_files_is_plain_push(self, client):
-        """Empty attribution + ALL allowed files → rewrite is never called either."""
+        """Empty attribution + ALL allowed files → plain push."""
         session = _make_session("coder")
         files = ["src/main.py"]  # coder can write src
         attributed = AttributedPushRange(files=[], commits=[], attribution={})
@@ -251,8 +229,6 @@ class TestAttributionFallbackSecurityHole:
         with contextlib.ExitStack() as _stack:
             for _p in _patches_for(session, files, attributed):
                 _stack.enter_context(_p)
-            mock_execute = MagicMock()
-            _stack.enter_context(patch.object(filtered_push, "execute_filtered_push", mock_execute))
             _stack.enter_context(patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}))
             response = _do_push(client)
 
@@ -261,116 +237,6 @@ class TestAttributionFallbackSecurityHole:
         # No blocked own files → plain push, filtered=false.
         assert body["filtered"] is False
         assert body.get("nothing_to_push") is False
-        mock_execute.assert_not_called()
-
-
-# ---------------------------------------------------------------------------
-# NACK item 2: _restage_blocked_files — binary-safe
-# ---------------------------------------------------------------------------
-
-
-class TestBinarySafeRestage:
-    """``git show`` on blocked blobs must emit raw bytes, never decoded text.
-
-    The original bug used ``_git(..., text=True)`` on the blob contents
-    so any byte outside UTF-8 was corrupted.  The fix introduces
-    ``_git_raw`` which uses ``subprocess.run(..., capture_output=True)``
-    WITHOUT ``text=True``, so ``stdout`` is raw ``bytes``.  We patch
-    ``subprocess.run`` directly and verify (a) the call is made
-    without ``text=True`` and (b) the bytes are written verbatim.
-    """
-
-    def test_restage_writes_non_utf8_bytes_verbatim(self, tmp_path):
-        """Non-UTF-8 PNG-header bytes reach the file untouched."""
-        repo = tmp_path / "repo"
-        repo.mkdir()
-
-        # PNG magic header — contains 0x89 which is not a valid UTF-8
-        # start byte.  If the code path accidentally decodes this as
-        # text the bytes will be replaced / raise / re-encoded.
-        png_magic = b"\x89PNG\r\n\x1a\n" + bytes(range(256))
-
-        def fake_run(cmd, *args, **kwargs):
-            result = MagicMock(spec=subprocess.CompletedProcess)
-            result.returncode = 0
-            result.stderr = b""
-            # Distinguish the ``git show`` call (should be raw bytes)
-            # from the final ``git add`` call (text=True is fine).
-            if "show" in cmd:
-                # When the call is raw, kwargs should NOT include
-                # text=True.
-                assert kwargs.get("text") is not True, (
-                    "_git_raw must not pass text=True to subprocess.run "
-                    "— binary blobs would be decoded and corrupted."
-                )
-                result.stdout = png_magic  # bytes
-            else:
-                # The post-show ``git add`` goes through _git (text=True
-                # is expected there; its stdout is empty for `add`).
-                result.stdout = ""
-            return result
-
-        target_path = repo / "assets" / "logo.png"
-        with patch("subprocess.run", side_effect=fake_run):
-            filtered_push._restage_blocked_files(str(repo), ["assets/logo.png"], "deadbeef" * 5)
-
-        # File must exist with the exact bytes we supplied.
-        assert target_path.exists()
-        assert target_path.read_bytes() == png_magic
-
-    def test_git_raw_does_not_pass_text_true(self, tmp_path):
-        """``_git_raw`` returns CompletedProcess[bytes]."""
-
-        def fake_run(cmd, *args, **kwargs):
-            # Core contract: no text=True.
-            assert kwargs.get("text") is not True
-            result = MagicMock()
-            result.returncode = 0
-            result.stdout = b"\x00\x01\x02\x03"
-            result.stderr = b""
-            return result
-
-        with patch("subprocess.run", side_effect=fake_run):
-            result = filtered_push._git_raw(str(tmp_path), "show", "HEAD:foo")
-        assert result.returncode == 0
-        assert isinstance(result.stdout, bytes)
-        assert result.stdout == b"\x00\x01\x02\x03"
-
-
-# ---------------------------------------------------------------------------
-# NACK item 3: restage must actually stage content (git add, not intent-to-add)
-# ---------------------------------------------------------------------------
-
-
-class TestRestageActuallyStages:
-    """``_restage_blocked_files`` must ``git add`` the path — NOT
-    ``git add --intent-to-add`` which only records the filename and
-    leaves the index contentless so the next role's ``git commit``
-    produces an empty diff."""
-
-    def test_no_intent_to_add_flag_passed(self, tmp_path):
-        calls: list[list] = []
-
-        def fake_run(cmd, *args, **kwargs):
-            calls.append(list(cmd))
-            result = MagicMock()
-            result.returncode = 0
-            result.stderr = b"" if kwargs.get("text") is not True else ""
-            result.stdout = b"hello" if "show" in cmd else ""
-            return result
-
-        with patch("subprocess.run", side_effect=fake_run):
-            filtered_push._restage_blocked_files(str(tmp_path), ["blocked.py"], "cafef00d" * 5)
-
-        add_calls = [c for c in calls if "add" in c]
-        assert add_calls, "expected at least one git add invocation"
-        for call in add_calls:
-            assert "--intent-to-add" not in call, (
-                "git add must not use --intent-to-add — the index "
-                "needs actual blob content, not a bare filename."
-            )
-            # Sanity: the target path should be in the invocation.
-            assert "blocked.py" in call
 
 
 # ---------------------------------------------------------------------------
@@ -443,10 +309,10 @@ class TestWarnOnlyObservabilityParity:
 
 
 class TestAttributionFallbackAuditLog:
-    """The ``push_all_blocked_no_op`` audit event must carry the
-    ``attribution_fallback`` flag so operators can tell whether the
-    fail-closed branch fired for a legitimate all-blocked push or
-    because attribution was unavailable."""
+    """The ``push_denied_restricted_path_modified`` audit event must
+    carry the ``attribution_fallback`` flag so operators can tell whether
+    the rejection fired for a legitimate restricted-path push or because
+    attribution was unavailable (#2039)."""
 
     def test_audit_log_includes_attribution_fallback_true(self, client):
         session = _make_session("coder")
@@ -467,20 +333,20 @@ class TestAttributionFallbackAuditLog:
 
             response = _do_push(client)
 
-        assert response.status_code == 200
+        assert response.status_code == 403
 
-        no_op_events = [
+        reject_events = [
             details
             for (event_type, _success, details) in audit_calls
-            if event_type == "push_all_blocked_no_op"
+            if event_type == "push_denied_restricted_path_modified"
         ]
-        assert no_op_events, (
-            f"Expected at least one push_all_blocked_no_op audit event, got {audit_calls!r}"
+        assert reject_events, (
+            f"Expected at least one push_denied_restricted_path_modified audit event, "
+            f"got {audit_calls!r}"
         )
-        # Exactly one such event per push; it must carry the flag.
-        assert any(ev.get("attribution_fallback") is True for ev in no_op_events), (
-            f"Expected attribution_fallback=True in push_all_blocked_no_op "
-            f"event details, got {no_op_events!r}"
+        assert any(ev.get("attribution_fallback") is True for ev in reject_events), (
+            f"Expected attribution_fallback=True in push_denied_restricted_path_modified "
+            f"event details, got {reject_events!r}"
         )
 
     def test_audit_log_attribution_fallback_false_for_real_all_blocked(self, client):
@@ -506,13 +372,60 @@ class TestAttributionFallbackAuditLog:
 
             response = _do_push(client)
 
-        assert response.status_code == 200
-        no_op_events = [
+        assert response.status_code == 403
+        reject_events = [
             details
             for (event_type, _success, details) in audit_calls
-            if event_type == "push_all_blocked_no_op"
+            if event_type == "push_denied_restricted_path_modified"
         ]
-        assert no_op_events
-        assert all(ev.get("attribution_fallback") is False for ev in no_op_events), (
-            f"Expected attribution_fallback=False for real all-blocked push, got {no_op_events!r}"
+        assert reject_events
+        assert all(ev.get("attribution_fallback") is False for ev in reject_events), (
+            f"Expected attribution_fallback=False for real all-blocked push, got {reject_events!r}"
         )
+
+    def test_unregistered_fallback_audit_uses_blocked_paths_key(self, client):
+        """The ``push_authorship_unregistered_fallback`` event must report
+        the blocked file set under the ``blocked_paths`` key (renamed from
+        ``excluded_files`` in #2043 to align with the
+        ``push_denied_restricted_path_modified`` shape).  Locks the rename
+        in so a typo or revert in ``gateway.py`` would fail loudly."""
+        session = _make_session("coder")
+        files = ["docs/guide.md"]
+        # Empty attribution → unregistered_files == own_files, fires the
+        # ``push_authorship_unregistered_fallback`` audit event.
+        attributed = AttributedPushRange(files=[], commits=[], attribution={})
+
+        audit_calls = []
+
+        def fake_audit(event_type, action, success=True, details=None, **kwargs):
+            audit_calls.append((event_type, success, dict(details or {})))
+
+        with contextlib.ExitStack() as _stack:
+            for _p in _patches_for(session, files, attributed):
+                _stack.enter_context(_p)
+            _stack.enter_context(patch.dict(os.environ, {"EGG_AGENT_RESTRICTIONS_ENFORCE": "true"}))
+            _stack.enter_context(patch.object(gateway, "audit_log", side_effect=fake_audit))
+
+            response = _do_push(client)
+
+        assert response.status_code == 403
+
+        unregistered_events = [
+            details
+            for (event_type, _success, details) in audit_calls
+            if event_type == "push_authorship_unregistered_fallback"
+        ]
+        assert unregistered_events, (
+            f"Expected at least one push_authorship_unregistered_fallback audit event, "
+            f"got {audit_calls!r}"
+        )
+        for ev in unregistered_events:
+            assert "blocked_paths" in ev, (
+                f"Expected 'blocked_paths' key in unregistered fallback audit event, "
+                f"got keys {sorted(ev.keys())!r}"
+            )
+            assert "excluded_files" not in ev, (
+                f"Legacy 'excluded_files' key must not appear in unregistered "
+                f"fallback audit event, got {ev!r}"
+            )
+            assert "docs/guide.md" in ev["blocked_paths"]

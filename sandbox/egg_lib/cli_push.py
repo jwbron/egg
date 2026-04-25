@@ -1,12 +1,10 @@
 """Push subcommand for egg-orch CLI.
 
 Thin wrapper around ``git push`` — nothing more.  The ``--scope-filter``
-flag, its ``_filter_files`` helper, and the ``EGG_AGENT_FILE_PATTERNS``
-env var were removed in #1882 when the gateway started auto-filtering
-disallowed files during ``/api/v1/git/push``.  Agents that used to run
-``egg-orch push --scope-filter`` to recover from a 403 now just run
-``egg-orch push``; the gateway rewrites the range per-commit and
-surfaces the excluded files in the response.
+flag was removed in #1882; the gateway used to silently rewrite blocked
+paths but now rejects them outright (#2039).  When the gateway rejects
+a push for ``restricted_path_modified`` the agent should drop the
+offending edit and re-propose with ``--pre-merge-condition`` (#1998).
 """
 
 from __future__ import annotations

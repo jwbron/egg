@@ -1,22 +1,21 @@
 """Tests for agent-role restriction enforcement behavior.
 
 Validates the EGG_AGENT_RESTRICTIONS_ENFORCE flag controlling whether
-agent-role file restriction violations are handled via the #1882
-gateway auto-filter (enforce mode) or only logged as warnings (warn-only
-mode). Enforce mode is the default.
+agent-role file restriction violations are handled by the #2039
+restricted-path-modify rejection (enforce mode) or only logged as
+warnings (warn-only mode). Enforce mode is the default.
 
-With #1882, enforce-mode violations no longer return 403.  Instead, the
-gateway partitions the push diff into own-authored vs pulled-from-other-role
-files, runs ``partition_files_by_role`` on the own-authored set, and:
+With #2039, enforce-mode violations return a structured 403:
 
-- All own-files allowed  → plain push, 200 ``filtered=false``
-- All own-files blocked → 200 ``filtered=true nothing_to_push=true``
-  with ``excluded_files`` populated
-- Mixed                   → auto-filter rewrite (covered by dedicated
-  integration tests; not exercised here)
+- All own-files allowed     → plain push, 200 ``filtered=false``
+- Any own-file blocked      → 403 ``error=restricted_path_modified``
+  with ``role`` / ``blocked_paths`` / ``recommended_action`` in the
+  response body, pointing the agent at the conditional-ACK pattern
+  (#1998).  This replaces the prior #1882 silent-strip + nothing_to_push
+  arms, which produced destructive deletions on the shared branch.
 
-Phase, anchor, protected-file, and branch-ownership checks still return
-403 — those are unaffected by #1882.
+Phase, anchor, protected-file, and branch-ownership checks also return
+403 — those are unaffected by #2039.
 """
 
 import json
@@ -179,21 +178,20 @@ def _do_push(client):
 
 
 def _assert_auto_filtered_all_blocked(response, expected_role, expected_blocked_file):
-    """Assert the #1882 all-blocked auto-filter response shape."""
-    assert response.status_code == 200, response.data
+    """Assert the #2039 restricted-path-modified rejection shape.
+
+    (Function name kept for callers; behavior flipped from the prior
+    #1882 silent-strip + nothing_to_push assertion to the new 403.)
+    """
+    assert response.status_code == 403, response.data
     body = json.loads(response.data)
-    assert body["success"] is True
+    assert body["success"] is False, body
     data = body.get("data") or {}
-    assert data.get("filtered") is True, body
-    assert data.get("nothing_to_push") is True, body
-    excluded = data.get("excluded_files") or []
-    assert expected_blocked_file in excluded, body
-    # Role may or may not show up in the top-level message, but the
-    # audit-log entry ``push_all_blocked_no_op`` carries it; we just
-    # sanity-check the response has no pushed files.
-    assert data.get("pushed_files") in ([], None), body
-    # ``expected_role`` is accepted for API symmetry; no hard assertion.
-    _ = expected_role
+    assert data.get("error") == "restricted_path_modified", body
+    assert data.get("role") == expected_role, body
+    blocked = data.get("blocked_paths") or []
+    assert expected_blocked_file in blocked, body
+    assert data.get("recommended_action"), body
 
 
 class TestAgentRestrictionsWarnOnly:
@@ -279,10 +277,10 @@ class TestAgentRestrictionsWarnOnly:
 
 
 class TestAgentRestrictionsEnforceMode:
-    """Enforce mode: violations trigger the #1882 auto-filter."""
+    """Enforce mode: violations trigger the #2039 restricted-path-modified rejection."""
 
     def test_enforce_mode_auto_filters_push(self, client):
-        """EGG_AGENT_RESTRICTIONS_ENFORCE=true: all-blocked push → 200 nothing_to_push."""
+        """EGG_AGENT_RESTRICTIONS_ENFORCE=true: blocked path → 403 restricted_path_modified."""
         session = _make_coder_session()
         patches = _push_context(session, agent_blocked=True)
 
@@ -362,12 +360,12 @@ class TestAgentRestrictionsUnknownRole:
     """Unknown agent roles get every file blocked (deny-by-default)."""
 
     def test_unknown_role_passes_when_allowed(self, client):
-        """Unknown role + allowed-only file → still auto-filters as blocked.
+        """Unknown role + allowed-only file → still rejected as blocked.
 
         ``partition_files_by_role`` returns ``([], files)`` for unknown
         roles (deny-by-default), so even a "clean" file is blocked.  The
-        test asserts the auto-filter recognises this and returns 200
-        with ``nothing_to_push=true``.
+        test asserts the gateway recognises this and returns 403
+        ``restricted_path_modified`` (#2039).
         """
         session = _make_coder_session()
         session.agent_role = "unknown_role"
@@ -538,7 +536,7 @@ class TestCoderEndToEndPushRejection1901:
                 assert response.status_code == 200, response.data
 
     def test_coder_docs_md_gets_auto_filtered(self, client):
-        """docs/*.md in a coder push is auto-filtered → 200 nothing_to_push."""
+        """docs/*.md in a coder push → 403 restricted_path_modified."""
         session = self._coder_session()
         patches = _push_context_real_check(session, ["docs/x.md"])
         with (
@@ -556,7 +554,7 @@ class TestCoderEndToEndPushRejection1901:
                 _assert_auto_filtered_all_blocked(response, "coder", "docs/x.md")
 
     def test_coder_tests_get_auto_filtered(self, client):
-        """tests/*.py in a coder push is auto-filtered → 200 nothing_to_push."""
+        """tests/*.py in a coder push → 403 restricted_path_modified."""
         session = self._coder_session()
         patches = _push_context_real_check(session, ["tests/test_x.py"])
         with (
@@ -574,7 +572,7 @@ class TestCoderEndToEndPushRejection1901:
                 _assert_auto_filtered_all_blocked(response, "coder", "tests/test_x.py")
 
     def test_coder_contracts_get_auto_filtered(self, client):
-        """.egg-state/contracts/*.json in a coder push is auto-filtered."""
+        """.egg-state/contracts/*.json in a coder push → 403 restricted_path_modified."""
         session = self._coder_session()
         patches = _push_context_real_check(session, [".egg-state/contracts/foo.json"])
         with (
@@ -616,7 +614,7 @@ class TestTesterEndToEndPushRejection1901:
                 assert response.status_code == 200, response.data
 
     def test_tester_source_code_gets_auto_filtered(self, client):
-        """Tester cannot push source code → auto-filtered to nothing_to_push."""
+        """Tester cannot push source code → 403 restricted_path_modified."""
         session = _make_role_session("tester")
         patches = _push_context_real_check(session, ["shared/egg_restrictions/patterns.py"])
         with (
@@ -636,7 +634,7 @@ class TestTesterEndToEndPushRejection1901:
                 )
 
     def test_tester_docs_get_auto_filtered(self, client):
-        """Tester cannot push documentation → auto-filtered."""
+        """Tester cannot push documentation → 403 restricted_path_modified."""
         session = _make_role_session("tester")
         patches = _push_context_real_check(session, ["docs/guide.md"])
         with (
@@ -676,7 +674,7 @@ class TestDocumenterEndToEndPushRejection1901:
                 assert response.status_code == 200, response.data
 
     def test_documenter_source_code_gets_auto_filtered(self, client):
-        """Documenter cannot push source code → auto-filtered."""
+        """Documenter cannot push source code → 403 restricted_path_modified."""
         session = _make_role_session("documenter")
         patches = _push_context_real_check(session, ["gateway/auth.py"])
         with (
@@ -694,7 +692,7 @@ class TestDocumenterEndToEndPushRejection1901:
                 _assert_auto_filtered_all_blocked(response, "documenter", "gateway/auth.py")
 
     def test_documenter_tests_get_auto_filtered(self, client):
-        """Documenter cannot push test files → auto-filtered."""
+        """Documenter cannot push test files → 403 restricted_path_modified."""
         session = _make_role_session("documenter")
         patches = _push_context_real_check(session, ["tests/test_x.py"])
         with (
