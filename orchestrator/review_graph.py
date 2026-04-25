@@ -219,9 +219,17 @@ def get_default_implement_graph() -> ReviewGraph:
     - reviewer_code reviews coder and tester (critical)
     - reviewer_contract reviews coder (critical)
     - tester reviews coder (critical, implicitly via tests and lint/type-checks)
+    - reviewer_security reviews coder and tester (advisory) — lens reviewer
+    - reviewer_concurrency reviews coder and tester (advisory) — lens reviewer
+
+    The two ADVISORY lens reviewers (``reviewer_security`` and
+    ``reviewer_concurrency``) ship advisory-only on day 1 so they cannot
+    deadlock consensus while severity-tagged NACK signalling lands in
+    issue #1997. Promotion to CRITICAL is intentionally deferred.
 
     Producers: coder, tester, documenter
-    Reviewers: reviewer_code, reviewer_contract, tester (dual-role)
+    Reviewers: reviewer_code, reviewer_contract, tester (dual-role),
+    reviewer_security (advisory), reviewer_concurrency (advisory)
     """
     return ReviewGraph(
         [
@@ -235,6 +243,14 @@ def get_default_implement_graph() -> ReviewGraph:
             ReviewEdge("tester", "coder", ReviewCriticality.CRITICAL),
             # reviewer_code reviews documenter (advisory)
             ReviewEdge("reviewer_code", "documenter", ReviewCriticality.ADVISORY),
+            # reviewer_security reviews coder (advisory — security lens)
+            ReviewEdge("reviewer_security", "coder", ReviewCriticality.ADVISORY),
+            # reviewer_security reviews tester (advisory — security lens)
+            ReviewEdge("reviewer_security", "tester", ReviewCriticality.ADVISORY),
+            # reviewer_concurrency reviews coder (advisory — concurrency lens)
+            ReviewEdge("reviewer_concurrency", "coder", ReviewCriticality.ADVISORY),
+            # reviewer_concurrency reviews tester (advisory — concurrency lens)
+            ReviewEdge("reviewer_concurrency", "tester", ReviewCriticality.ADVISORY),
         ]
     )
 

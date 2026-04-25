@@ -1,0 +1,810 @@
+[
+  {
+    "id": "9597a171-6d9a-40",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "refiner"
+    },
+    "timestamp": "2026-04-25T16:39:38.999662+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "6e7d5d66-ad91-46",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE from=refiner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:39:39.014099+00:00"
+    },
+    "timestamp": "2026-04-25T16:39:39.082218+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "fa551fb6-aff0-49",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Synced worktree to origin/egg/issue-1965; awaiting refiner CONSENSUS_PROPOSE for 1965-analysis.md",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "refiner"
+    },
+    "timestamp": "2026-04-25T16:39:55.488199+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "e541bb17-372a-4f",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE from=refiner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:39:58.342403+00:00"
+    },
+    "timestamp": "2026-04-25T16:39:58.404013+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "e0dd8199-4926-42",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE from=refiner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:39:39.014099+00:00"
+    },
+    "timestamp": "2026-04-25T16:40:39.347832+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "114ba97c-d1bd-44",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE from=refiner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:39:58.342403+00:00"
+    },
+    "timestamp": "2026-04-25T16:40:58.507649+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "d7280391-53ba-41",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE from=refiner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:39:39.014099+00:00"
+    },
+    "timestamp": "2026-04-25T16:41:39.610710+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "579fc9d7-187c-42",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE from=refiner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:39:58.342403+00:00"
+    },
+    "timestamp": "2026-04-25T16:41:58.655741+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "23401ed6-f790-49",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE from=refiner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:39:39.014099+00:00"
+    },
+    "timestamp": "2026-04-25T16:42:39.857581+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "c0fe0765-8652-42",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE from=refiner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:39:58.342403+00:00"
+    },
+    "timestamp": "2026-04-25T16:42:58.933519+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "4ddfb7e3-b9d7-47",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE from=refiner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:39:39.014099+00:00"
+    },
+    "timestamp": "2026-04-25T16:43:40.031155+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "3d9e0113-4036-4b",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE from=refiner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:39:58.342403+00:00"
+    },
+    "timestamp": "2026-04-25T16:43:59.179257+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "23219688-4f72-4d",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE from=refiner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:39:39.014099+00:00"
+    },
+    "timestamp": "2026-04-25T16:44:40.193828+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "efed54c0-2fb4-4b",
+    "pipeline_id": "issue-1965",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from refiner",
+    "body": "Refine-phase analysis for issue #1965 (improve generalized reviewer). Drafted .egg-state/drafts/1965-analysis.md covering scope (A + B small: subagent delegation in reviewer_code plus new reviewer_security and reviewer_concurrency ADVISORY roles), current behavior in orchestrator/routes/pipelines.py (`_build_review_prompt`, `_get_reviewer_scope_preamble`, role-name mapping at line 8317), constraints (in-pipeline only, ADVISORY day-1, threshold-gated fan-out, no attestation models), and explicit option pairs for the two issue-flagged \"pick one explicitly\" pitfalls (server-side numstat vs reviewer self-gate; orchestrator contract loader vs reviewer mcp__sdlc__show_contract self-fetch). Recommended Option 2B + Option 3B + dedicated lens-criteria with inheritance + dual-mode regression-replay test. Surfaced 7 open questions and registered each as a HITL decision (decision-1..decision-7) on the contract. Complexity: medium. Commit 6143ad3af.",
+    "metadata": {
+      "payload": {
+        "summary": "Refine-phase analysis for issue #1965 (improve generalized reviewer). Drafted .egg-state/drafts/1965-analysis.md covering scope (A + B small: subagent delegation in reviewer_code plus new reviewer_security and reviewer_concurrency ADVISORY roles), current behavior in orchestrator/routes/pipelines.py (`_build_review_prompt`, `_get_reviewer_scope_preamble`, role-name mapping at line 8317), constraints (in-pipeline only, ADVISORY day-1, threshold-gated fan-out, no attestation models), and explicit option pairs for the two issue-flagged \"pick one explicitly\" pitfalls (server-side numstat vs reviewer self-gate; orchestrator contract loader vs reviewer mcp__sdlc__show_contract self-fetch). Recommended Option 2B + Option 3B + dedicated lens-criteria with inheritance + dual-mode regression-replay test. Surfaced 7 open questions and registered each as a HITL decision (decision-1..decision-7) on the contract. Complexity: medium. Commit 6143ad3af.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/1965-analysis.md"
+        ],
+        "risk_considered": "Risk: missing latent decisions; mitigated by surfacing 7 explicit HITL questions covering both issue-body-flagged pitfalls and additional ambiguities (threshold composition, subagent diff scope, criteria inheritance, parallelism config site, replay-test execution mode). Risk: scope creep into Options D/E or conditional-ACK policy; mitigated by explicit out-of-scope list mirroring issue body. Risk: duplicating spun-off issues (#1997/#1998/#1999); analysis defers severity rubric and conditional-ACK explicitly.",
+        "commit_sha": "6143ad3afbd87b7add1ed659043e9d49e97ed96b",
+        "files_changed": [
+          ".egg-state/drafts/1965-analysis.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "6143ad3afbd87b7add1ed659043e9d49e97ed96b"
+    },
+    "timestamp": "2026-04-25T16:44:46.675171+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "e63cd5f4-1cd3-4b",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-25T16:44:46.877438+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "2396ba83-3645-46",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-25T16:44:46.882670+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "c5cf0b14-367f-41",
+    "pipeline_id": "issue-1965",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:44:55.826773+00:00"
+    },
+    "timestamp": "2026-04-25T16:44:55.926311+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "d88ad7f1-2ab9-4a",
+    "pipeline_id": "issue-1965",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:44:55.826773+00:00"
+    },
+    "timestamp": "2026-04-25T16:45:56.209002+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "807e496c-e1e6-4f",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_agent_design",
+    "to_role": "refiner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_agent_design for refiner",
+    "body": "\nReviewed the refine analysis at `.egg-state/drafts/1965-analysis.md` (369 lines) plus the cross-referenced sites in `orchestrator/routes/pipelines.py` (`_get_reviewer_scope_preamble` at 3262+ and the `replace(\"reviewer_\", \"\", 1).replace(\"_\", \"-\")` mapping at 8317) and `shared/egg_agent/client.py:167` (private-mode disallow list). All the codebase claims in the draft check out.\n\nThis is an agent-mode design review only; correctness/completeness/quality is reviewer_refine's territory. No blocking agent-mode design anti-patterns found.\n\nNotable agent-mode design strengths in the draft:\n\n1. **Recommended Approach \u00a71 (Pitfall 2 \u2192 Option 2B)** \u2014 `reviewer_code` self-runs `git diff --numstat` and self-gates on the threshold. Avoids orchestrator-side numstat plumbing. Aligns with the existing pattern (the reviewer already runs `git diff` itself rather than receiving a baked-in diff in the prompt). This is the agent-friendly choice.\n\n2. **Recommended Approach \u00a72 (Pitfall 3 \u2192 Option 3B)** \u2014 `reviewer_code` calls `mcp__sdlc__show_contract` itself rather than having `_build_review_prompt()` pre-fetch tasks. Keeps the prompt builder lean and gives the reviewer access to richer context on demand. Explicit fallback (empty implement-phase tasks \u2192 skip fan-out) is documented.\n\n3. **Decision-10 carried through** \u2014 the draft consistently treats Option A (subagent fan-out) as a **prompt change** using the Claude Agent SDK's built-in `Task` subagent tool, not a new MCP verb / orchestrator routing / sandbox tool-registry edit. Verified against `shared/egg_agent/client.py:162\u2013167` \u2014 only `WebFetch`/`WebSearch` are blocked in private mode; `Task` is unrestricted, as the draft claims.\n\n4. **No attestation models for the new reviewers (Recommended \u00a73)** \u2014 follows the precedent of `reviewer_refine` / `reviewer_agent_design` (which work fine without models because `validate_attestation` is conditional on `review.attestation`). Avoids accidental schema-coupling that would lock in payload shapes before there's a real consumer.\n\n5. **No structured-output-for-humans regression** \u2014 verdicts continue to flow through ACK/NACK `--reason` text. The Recommended Approach \u00a75 regression-replay test in \"prompt-asserts\" mode tests prompt-builder output against a fixture (deterministic), not parses agent output to drive actions.\n\n### Non-blocking\n- **Open Question 4 (subagent diff scope)** is the one place where the wrong resolution could drift toward the \"excessive pre-fetching\" anti-pattern: if the parent reviewer pre-slices the diff and passes patch fragments to each subagent, large diffs end up baked into subagent prompts. The agent-friendly resolution is to let each subagent re-run `git diff` and filter its own slice (each subagent uses tools, no prompt-baked patches). Worth flagging as a soft preference when this lands in HITL \u2014 not a blocker at refine.\n- **Recommended Approach \u00a71 phrasing** \u2014 \"if files > 10 or loc > 500\" pre-resolves Open Question 3 (threshold composition: OR vs AND) toward OR. The pre-resolution is reasonable (OR is the conservative gate that turns fan-out *on* sooner) but the inconsistency between Recommended \u00a71 and Open Question 3 is mildly confusing. Plan phase should pick one and remove the dangling ambiguity.\n- **Recommended \u00a75 (regression-replay test in two modes)** \u2014 shipping both a CI-unconditional prompt-builder asserts mode AND an opt-in `RUN_REVIEWER_REPLAY=1` live-LLM mode is the right call from an agent-design POV. The prompt-asserts mode tests deterministic surface (does the prompt contain the subagent block?), the LLM mode tests behaviour. Neither is a post-processor on agent output. Good.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/1965-analysis.md",
+          "orchestrator/routes/pipelines.py",
+          "shared/egg_agent/client.py"
+        ],
+        "reason": "\nReviewed the refine analysis at `.egg-state/drafts/1965-analysis.md` (369 lines) plus the cross-referenced sites in `orchestrator/routes/pipelines.py` (`_get_reviewer_scope_preamble` at 3262+ and the `replace(\"reviewer_\", \"\", 1).replace(\"_\", \"-\")` mapping at 8317) and `shared/egg_agent/client.py:167` (private-mode disallow list). All the codebase claims in the draft check out.\n\nThis is an agent-mode design review only; correctness/completeness/quality is reviewer_refine's territory. No blocking agent-mode design anti-patterns found.\n\nNotable agent-mode design strengths in the draft:\n\n1. **Recommended Approach \u00a71 (Pitfall 2 \u2192 Option 2B)** \u2014 `reviewer_code` self-runs `git diff --numstat` and self-gates on the threshold. Avoids orchestrator-side numstat plumbing. Aligns with the existing pattern (the reviewer already runs `git diff` itself rather than receiving a baked-in diff in the prompt). This is the agent-friendly choice.\n\n2. **Recommended Approach \u00a72 (Pitfall 3 \u2192 Option 3B)** \u2014 `reviewer_code` calls `mcp__sdlc__show_contract` itself rather than having `_build_review_prompt()` pre-fetch tasks. Keeps the prompt builder lean and gives the reviewer access to richer context on demand. Explicit fallback (empty implement-phase tasks \u2192 skip fan-out) is documented.\n\n3. **Decision-10 carried through** \u2014 the draft consistently treats Option A (subagent fan-out) as a **prompt change** using the Claude Agent SDK's built-in `Task` subagent tool, not a new MCP verb / orchestrator routing / sandbox tool-registry edit. Verified against `shared/egg_agent/client.py:162\u2013167` \u2014 only `WebFetch`/`WebSearch` are blocked in private mode; `Task` is unrestricted, as the draft claims.\n\n4. **No attestation models for the new reviewers (Recommended \u00a73)** \u2014 follows the precedent of `reviewer_refine` / `reviewer_agent_design` (which work fine without models because `validate_attestation` is conditional on `review.attestation`). Avoids accidental schema-coupling that would lock in payload shapes before there's a real consumer.\n\n5. **No structured-output-for-humans regression** \u2014 verdicts continue to flow through ACK/NACK `--reason` text. The Recommended Approach \u00a75 regression-replay test in \"prompt-asserts\" mode tests prompt-builder output against a fixture (deterministic), not parses agent output to drive actions.\n\n### Non-blocking\n- **Open Question 4 (subagent diff scope)** is the one place where the wrong resolution could drift toward the \"excessive pre-fetching\" anti-pattern: if the parent reviewer pre-slices the diff and passes patch fragments to each subagent, large diffs end up baked into subagent prompts. The agent-friendly resolution is to let each subagent re-run `git diff` and filter its own slice (each subagent uses tools, no prompt-baked patches). Worth flagging as a soft preference when this lands in HITL \u2014 not a blocker at refine.\n- **Recommended Approach \u00a71 phrasing** \u2014 \"if files > 10 or loc > 500\" pre-resolves Open Question 3 (threshold composition: OR vs AND) toward OR. The pre-resolution is reasonable (OR is the conservative gate that turns fan-out *on* sooner) but the inconsistency between Recommended \u00a71 and Open Question 3 is mildly confusing. Plan phase should pick one and remove the dangling ambiguity.\n- **Recommended \u00a75 (regression-replay test in two modes)** \u2014 shipping both a CI-unconditional prompt-builder asserts mode AND an opt-in `RUN_REVIEWER_REPLAY=1` live-LLM mode is the right call from an agent-design POV. The prompt-asserts mode tests deterministic surface (does the prompt contain the subagent block?), the LLM mode tests behaviour. Neither is a post-processor on agent output. Good.\n"
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-25T16:46:07.403695+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "eba6e7b3-aaeb-49",
+    "pipeline_id": "issue-1965",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-25T16:46:07.493548+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "8a6c0cdb-5f48-4c",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_agent_design",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-25T16:46:13.114428+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "0128b3be-ae40-42",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:46:17.234205+00:00"
+    },
+    "timestamp": "2026-04-25T16:46:17.306314+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "055cd8e5-1187-47",
+    "pipeline_id": "issue-1965",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT from=reviewer_refine",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:46:17.693851+00:00"
+    },
+    "timestamp": "2026-04-25T16:46:17.782507+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "c29bde98-78e5-47",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:46:17.234205+00:00"
+    },
+    "timestamp": "2026-04-25T16:47:17.433330+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "5e53044d-b7d1-4f",
+    "pipeline_id": "issue-1965",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT from=reviewer_refine",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:46:17.693851+00:00"
+    },
+    "timestamp": "2026-04-25T16:47:17.857203+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "221ebecf-93c2-4b",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:46:17.234205+00:00"
+    },
+    "timestamp": "2026-04-25T16:48:17.651100+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "9840cf32-114a-4d",
+    "pipeline_id": "issue-1965",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT from=reviewer_refine",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:46:17.693851+00:00"
+    },
+    "timestamp": "2026-04-25T16:48:17.972027+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "d57309b3-962f-4a",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:46:17.234205+00:00"
+    },
+    "timestamp": "2026-04-25T16:49:17.930819+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "04f0cb28-20a2-4c",
+    "pipeline_id": "issue-1965",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT from=reviewer_refine",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:46:17.693851+00:00"
+    },
+    "timestamp": "2026-04-25T16:49:18.059600+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "40624180-800d-4e",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_refine",
+    "to_role": "refiner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_refine for refiner",
+    "body": "\nReviewed `.egg-state/drafts/1965-analysis.md` (369 lines) section-by-section, cross-checked every code citation, and verified the seven HITL decisions are present on the contract.\n\n### Section-by-Section Evaluation\n\n**Problem Statement (lines 5\u201332):** \u2713 Correctly distills issue #1965 \u2014 the reviewer_code-vs-GHA-egg-reviewer drift, both PR #1964 examples (uncommitted `sandbox/scripts/jira` symlink, `path=project` allowlist bypass), the trend-to-zero acceptance target, and the explicit narrowing of refine scope to \"confirm surface area, surface residual implementation-shape decisions, recommend an approach.\" Faithful to the issue body's pre-resolved A+B(small) commitment.\n\n**Current Behavior (lines 34\u2013112):** Code citations spot-checked and verified:\n  - `_get_reviewer_scope_preamble` at lines 3262\u20133313 \u2713 (actually 3262\u20133313 inclusive of the `else: raise ValueError`).\n  - `_build_review_prompt` starts at line 4217 \u2713 \u2014 signature confirmed: no `contract` param, takes `repo_path`, embeds a `git diff` shell command rather than diff text. Pitfall 2 and pitfall 3 framings are accurate.\n  - `pipelines.py:8317` \u2014 `reviewer_type = role_value.replace(\"reviewer_\", \"\", 1).replace(\"_\", \"-\")` \u2713 \u2014 exact line, exact transform; `reviewer_security` \u2192 `security` and `reviewer_concurrency` \u2192 `concurrency` do fall out automatically. Pitfall 1 is correctly characterized.\n  - `agent_roles.py:44\u201382` \u2014 `AgentRole` StrEnum, members like `REVIEWER_CODE = \"reviewer_code\"` \u2713 (file ends at INSPECTOR on line 81; range cited inclusively).\n  - `review_graph.py` \u2014 `ReviewCriticality` at lines 15\u201319, `ReviewEdge(reviewer_role, producer_role, criticality)` dataclass with `criticality: ReviewCriticality = ReviewCriticality.CRITICAL` default \u2713.\n  - `client.py:162\u2013167` \u2014 only `WebFetch`/`WebSearch` blocked under `EGG_PRIVATE_MODE`; Task subagent tool unblocked \u2713 (decision-10 is correctly grounded).\n  - `attestation_schemas.py:205\u2013237` for `validate_attestation` \u2713 and `REVIEWER_ATTESTATION_MODELS` at line 98 registers exactly `reviewer_code`, `reviewer_contract`, `tester` \u2713 \u2014 `reviewer_refine`/`reviewer_agent_design`/`reviewer_plan` indeed have no models. Pitfall 4 default (\"no attestation models on day 1\") is well-supported.\n  - `integration_tests/sdlc/` listing \u2014 `conftest.py`, `test_happy_path.py`, `test_hitl_flow.py`, `test_refine_plan_review_cycles.py`, `test_review_rejection.py`, `test_role_enforcement.py`, no `fixtures/` \u2713.\n\n**Constraints (lines 114\u2013141):** \u2713 All eleven resolved decisions and twelve resolved feedback items from the issue are correctly cross-referenced (decision-3, -7, -9, -11; feedback-1, -2, -4, -10, -11). The \"no redundant role mapping\" pitfall is explicitly carried forward as a verification-only task.\n\n**Options Considered (lines 142\u2013270):** Strong section. Pitfall-2 (orchestrator-side numstat plumbing vs reviewer self-gating) and pitfall-3 (orchestrator contract loader vs reviewer self-fetch via `mcp__sdlc__show_contract`) each have clearly-articulated pros/cons. The five \"other latent decisions\" (threshold composition, subagent diff scope, criteria-file inheritance, parallelism config site, regression-replay execution mode) are genuine ambiguities that the issue body doesn't pre-resolve.\n\n**Recommended Approach (lines 272\u2013312):** Each pick (2B, 3B, no-attestation, lens-focused-with-inherit-header, two-mode regression test) is justified with reference to existing patterns (`reviewer_refine`/`reviewer_agent_design` precedent, \"the reviewer runs `git diff` itself\" pattern, MCP-as-context-fetch pattern). The recommendations remain consistent with the open questions \u2014 humans can override and the analysis pivots accordingly.\n\n**Open Questions (lines 314\u2013345):** All seven map 1-to-1 to contract decisions:\n  - Q1 (pitfall 2 metrics path) \u2192 decision-1 \u2713\n  - Q2 (pitfall 3 task-list path) \u2192 decision-2 \u2713\n  - Q3 (threshold composition OR/AND) \u2192 decision-3 \u2713\n  - Q4 (subagent diff scope) \u2192 decision-4 \u2713\n  - Q5 (criteria-file inheritance) \u2192 decision-5 \u2713\n  - Q6 (parallelism config site) \u2192 decision-6 \u2713 (4 concrete options)\n  - Q7 (regression-replay execution mode) \u2192 decision-7 \u2713\n\nEach decision has 2\u20134 substantive options plus an \"Other (explain in reply)\" escape hatch. Decisions are specific, actionable, and address genuine ambiguities. **HITL Decision Registration criterion is fully met.**\n\n**Complexity Assessment (lines 347\u2013365):** Reasonable \"medium\" verdict, though see non-blocking observations below.\n\n### Non-blocking\n\n- **`gateway/agent_restrictions.py:166\u2013182` is a missing implementation surface item.** That file builds `AGENT_GH_RESTRICTIONS` from a hardcoded role list \u2014 `REVIEWER_CODE`, `REVIEWER_CONTRACT`, `REVIEWER_AGENT_DESIGN`, `REVIEWER_REFINE`, `REVIEWER_PLAN` are all enumerated explicitly. Adding `REVIEWER_SECURITY`/`REVIEWER_CONCURRENCY` to the enum without extending this list means the new reviewers would NOT inherit the `_BLOCKED_GH_OPS` (`issue comment *`, `issue edit *`) restriction \u2014 a defense-in-depth gap. The `agent_roles.py` docstring at lines 5\u20137 explicitly enumerates this as a \"must mirror\" site. Plan should include an `agent_restrictions.py` task; this is the established pattern when `reviewer_refine`/`reviewer_agent_design` were added (lines 176\u2013177).\n\n- **Both the `_get_review_criteria_for_type` dispatcher (line 3244) and `_get_reviewer_scope_preamble` (line 3262) have strict `elif \u2026 else: raise ValueError` shapes.** Adding the two new reviewer types requires explicit `elif` branches in both \u2014 adding only loaders without extending `_get_reviewer_scope_preamble` will throw at prompt-build time. The analysis's \"Implementation surface\" via the issue body says \"scope preambles + criteria loaders\" so this is captured at a high level, but the strict-elif structure is worth the plan-phase reviewer's attention as a concrete code-shape constraint.\n\n- **Complexity assessment under-counts files** (lines 354\u2013358 say \"eight or so\"). Per the issue body's own implementation surface, the work also touches `docs/guides/concurrent-execution.md`, `docs/architecture/orchestrator.md`, and unit-test files for \"new roles, edges, criteria loaders, threshold helper, attestation behavior.\" Plus `gateway/agent_restrictions.py` per the observation above. Realistic file count is closer to 12\u201314. Doesn't change the \"medium\" verdict but the count itself is light.\n\n- **Pitfall 4 framing on attestation default** (lines 96\u2013105) is correct on the practical effect (`if review.attestation:` guard makes the validator opt-in), but a stricter reading of `validate_attestation` (line 226\u2013228) shows it raises `ValueError(\"No attestation schema for role \u2026\")` if a reviewer DOES populate `attestation` without a registered model. The recommended \"no attestation models\" path is fine because day-1 ACKs are expected to omit `attestation`, but plan should ensure the new reviewers' prompts do not instruct them to populate the field. Minor framing nit.\n\n- **Recommendation 4 (lines 297\u2013301) endorses \"Inherits from `code-review-criteria.md`\" header** but decision-5 leaves this open. If the human picks Standalone, the `REVIEWER-SYNC.md` update needs to spell out the inline-fallback contract carefully \u2014 feedback-10 says \"Respect REVIEWER-SYNC inline-fallback parity\" and the analysis doesn't say what that parity entails for standalone files. Plan should resolve this if the human picks the standalone option.\n\nThe analysis cleanly establishes context, options, and pre-flagged risks for plan phase. Recommendations are sound, HITL surface is complete, and the only material gap (gateway restrictions list) is plan-fixable rather than refine-blocking.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/1965-analysis.md",
+          ".egg-state/contracts/issue-1965.json",
+          "orchestrator/routes/pipelines.py",
+          "orchestrator/review_graph.py",
+          "orchestrator/peer_consensus.py",
+          "orchestrator/attestation_schemas.py",
+          "shared/egg_contracts/agent_roles.py",
+          "shared/egg_agent/client.py",
+          "gateway/agent_restrictions.py",
+          "integration_tests/sdlc/"
+        ],
+        "reason": "\nReviewed `.egg-state/drafts/1965-analysis.md` (369 lines) section-by-section, cross-checked every code citation, and verified the seven HITL decisions are present on the contract.\n\n### Section-by-Section Evaluation\n\n**Problem Statement (lines 5\u201332):** \u2713 Correctly distills issue #1965 \u2014 the reviewer_code-vs-GHA-egg-reviewer drift, both PR #1964 examples (uncommitted `sandbox/scripts/jira` symlink, `path=project` allowlist bypass), the trend-to-zero acceptance target, and the explicit narrowing of refine scope to \"confirm surface area, surface residual implementation-shape decisions, recommend an approach.\" Faithful to the issue body's pre-resolved A+B(small) commitment.\n\n**Current Behavior (lines 34\u2013112):** Code citations spot-checked and verified:\n  - `_get_reviewer_scope_preamble` at lines 3262\u20133313 \u2713 (actually 3262\u20133313 inclusive of the `else: raise ValueError`).\n  - `_build_review_prompt` starts at line 4217 \u2713 \u2014 signature confirmed: no `contract` param, takes `repo_path`, embeds a `git diff` shell command rather than diff text. Pitfall 2 and pitfall 3 framings are accurate.\n  - `pipelines.py:8317` \u2014 `reviewer_type = role_value.replace(\"reviewer_\", \"\", 1).replace(\"_\", \"-\")` \u2713 \u2014 exact line, exact transform; `reviewer_security` \u2192 `security` and `reviewer_concurrency` \u2192 `concurrency` do fall out automatically. Pitfall 1 is correctly characterized.\n  - `agent_roles.py:44\u201382` \u2014 `AgentRole` StrEnum, members like `REVIEWER_CODE = \"reviewer_code\"` \u2713 (file ends at INSPECTOR on line 81; range cited inclusively).\n  - `review_graph.py` \u2014 `ReviewCriticality` at lines 15\u201319, `ReviewEdge(reviewer_role, producer_role, criticality)` dataclass with `criticality: ReviewCriticality = ReviewCriticality.CRITICAL` default \u2713.\n  - `client.py:162\u2013167` \u2014 only `WebFetch`/`WebSearch` blocked under `EGG_PRIVATE_MODE`; Task subagent tool unblocked \u2713 (decision-10 is correctly grounded).\n  - `attestation_schemas.py:205\u2013237` for `validate_attestation` \u2713 and `REVIEWER_ATTESTATION_MODELS` at line 98 registers exactly `reviewer_code`, `reviewer_contract`, `tester` \u2713 \u2014 `reviewer_refine`/`reviewer_agent_design`/`reviewer_plan` indeed have no models. Pitfall 4 default (\"no attestation models on day 1\") is well-supported.\n  - `integration_tests/sdlc/` listing \u2014 `conftest.py`, `test_happy_path.py`, `test_hitl_flow.py`, `test_refine_plan_review_cycles.py`, `test_review_rejection.py`, `test_role_enforcement.py`, no `fixtures/` \u2713.\n\n**Constraints (lines 114\u2013141):** \u2713 All eleven resolved decisions and twelve resolved feedback items from the issue are correctly cross-referenced (decision-3, -7, -9, -11; feedback-1, -2, -4, -10, -11). The \"no redundant role mapping\" pitfall is explicitly carried forward as a verification-only task.\n\n**Options Considered (lines 142\u2013270):** Strong section. Pitfall-2 (orchestrator-side numstat plumbing vs reviewer self-gating) and pitfall-3 (orchestrator contract loader vs reviewer self-fetch via `mcp__sdlc__show_contract`) each have clearly-articulated pros/cons. The five \"other latent decisions\" (threshold composition, subagent diff scope, criteria-file inheritance, parallelism config site, regression-replay execution mode) are genuine ambiguities that the issue body doesn't pre-resolve.\n\n**Recommended Approach (lines 272\u2013312):** Each pick (2B, 3B, no-attestation, lens-focused-with-inherit-header, two-mode regression test) is justified with reference to existing patterns (`reviewer_refine`/`reviewer_agent_design` precedent, \"the reviewer runs `git diff` itself\" pattern, MCP-as-context-fetch pattern). The recommendations remain consistent with the open questions \u2014 humans can override and the analysis pivots accordingly.\n\n**Open Questions (lines 314\u2013345):** All seven map 1-to-1 to contract decisions:\n  - Q1 (pitfall 2 metrics path) \u2192 decision-1 \u2713\n  - Q2 (pitfall 3 task-list path) \u2192 decision-2 \u2713\n  - Q3 (threshold composition OR/AND) \u2192 decision-3 \u2713\n  - Q4 (subagent diff scope) \u2192 decision-4 \u2713\n  - Q5 (criteria-file inheritance) \u2192 decision-5 \u2713\n  - Q6 (parallelism config site) \u2192 decision-6 \u2713 (4 concrete options)\n  - Q7 (regression-replay execution mode) \u2192 decision-7 \u2713\n\nEach decision has 2\u20134 substantive options plus an \"Other (explain in reply)\" escape hatch. Decisions are specific, actionable, and address genuine ambiguities. **HITL Decision Registration criterion is fully met.**\n\n**Complexity Assessment (lines 347\u2013365):** Reasonable \"medium\" verdict, though see non-blocking observations below.\n\n### Non-blocking\n\n- **`gateway/agent_restrictions.py:166\u2013182` is a missing implementation surface item.** That file builds `AGENT_GH_RESTRICTIONS` from a hardcoded role list \u2014 `REVIEWER_CODE`, `REVIEWER_CONTRACT`, `REVIEWER_AGENT_DESIGN`, `REVIEWER_REFINE`, `REVIEWER_PLAN` are all enumerated explicitly. Adding `REVIEWER_SECURITY`/`REVIEWER_CONCURRENCY` to the enum without extending this list means the new reviewers would NOT inherit the `_BLOCKED_GH_OPS` (`issue comment *`, `issue edit *`) restriction \u2014 a defense-in-depth gap. The `agent_roles.py` docstring at lines 5\u20137 explicitly enumerates this as a \"must mirror\" site. Plan should include an `agent_restrictions.py` task; this is the established pattern when `reviewer_refine`/`reviewer_agent_design` were added (lines 176\u2013177).\n\n- **Both the `_get_review_criteria_for_type` dispatcher (line 3244) and `_get_reviewer_scope_preamble` (line 3262) have strict `elif \u2026 else: raise ValueError` shapes.** Adding the two new reviewer types requires explicit `elif` branches in both \u2014 adding only loaders without extending `_get_reviewer_scope_preamble` will throw at prompt-build time. The analysis's \"Implementation surface\" via the issue body says \"scope preambles + criteria loaders\" so this is captured at a high level, but the strict-elif structure is worth the plan-phase reviewer's attention as a concrete code-shape constraint.\n\n- **Complexity assessment under-counts files** (lines 354\u2013358 say \"eight or so\"). Per the issue body's own implementation surface, the work also touches `docs/guides/concurrent-execution.md`, `docs/architecture/orchestrator.md`, and unit-test files for \"new roles, edges, criteria loaders, threshold helper, attestation behavior.\" Plus `gateway/agent_restrictions.py` per the observation above. Realistic file count is closer to 12\u201314. Doesn't change the \"medium\" verdict but the count itself is light.\n\n- **Pitfall 4 framing on attestation default** (lines 96\u2013105) is correct on the practical effect (`if review.attestation:` guard makes the validator opt-in), but a stricter reading of `validate_attestation` (line 226\u2013228) shows it raises `ValueError(\"No attestation schema for role \u2026\")` if a reviewer DOES populate `attestation` without a registered model. The recommended \"no attestation models\" path is fine because day-1 ACKs are expected to omit `attestation`, but plan should ensure the new reviewers' prompts do not instruct them to populate the field. Minor framing nit.\n\n- **Recommendation 4 (lines 297\u2013301) endorses \"Inherits from `code-review-criteria.md`\" header** but decision-5 leaves this open. If the human picks Standalone, the `REVIEWER-SYNC.md` update needs to spell out the inline-fallback contract carefully \u2014 feedback-10 says \"Respect REVIEWER-SYNC inline-fallback parity\" and the analysis doesn't say what that parity entails for standalone files. Plan should resolve this if the human picks the standalone option.\n\nThe analysis cleanly establishes context, options, and pre-flagged risks for plan phase. Recommendations are sound, HITL surface is complete, and the only material gap (gateway restrictions list) is plan-fixable rather than refine-blocking.\n"
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-25T16:49:25.331316+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "5bfc7566-eb87-49",
+    "pipeline_id": "issue-1965",
+    "from_role": "orchestrator",
+    "to_role": "refiner",
+    "message_type": "STATUS",
+    "subject": "All reviewers have ACKed \u2014 ready to confirm",
+    "body": "All assigned reviewers have ACKed your proposal (version 1). Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "fully_acked": true,
+      "version": 1
+    },
+    "timestamp": "2026-04-25T16:49:25.331349+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "8a7861f7-bd90-4e",
+    "pipeline_id": "issue-1965",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-25T16:49:25.446719+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "bc523911-8c57-43",
+    "pipeline_id": "issue-1965",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by refiner",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-25T16:49:33.583763+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "e132ab50-372c-4f",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-25T16:49:33.827132+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "c4a08e7c-e01a-4a",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_refine",
+    "body": "",
+    "metadata": {
+      "consensus_reached": true
+    },
+    "timestamp": "2026-04-25T16:49:35.890926+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "d06ec176-5129-43",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:49:37.261875+00:00"
+    },
+    "timestamp": "2026-04-25T16:49:37.338360+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "24cb8caa-fcdc-4c",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-25T16:49:37.507521+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "7bd15bc0-714c-41",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_agent_design",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:49:41.483083+00:00"
+    },
+    "timestamp": "2026-04-25T16:49:41.685115+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "ae3d047d-1927-4d",
+    "pipeline_id": "issue-1965",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:49:46.837463+00:00"
+    },
+    "timestamp": "2026-04-25T16:49:46.868920+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "195668f1-9bf8-4d",
+    "pipeline_id": "issue-1965",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-25T16:49:46.925625+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "663a054b-2ba6-46",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:49:48.666599+00:00"
+    },
+    "timestamp": "2026-04-25T16:49:48.736553+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "1a475fed-90bf-4d",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-25T16:49:48.807901+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "1773d0c9-cc7f-43",
+    "pipeline_id": "issue-1965",
+    "from_role": "refiner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:49:51.860397+00:00"
+    },
+    "timestamp": "2026-04-25T16:49:51.916960+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "6278cce5-2bcc-4b",
+    "pipeline_id": "issue-1965",
+    "from_role": "reviewer_refine",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T16:49:53.241664+00:00"
+    },
+    "timestamp": "2026-04-25T16:49:53.273602+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "0e476254-5ef5-4d",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-heartbeat-stall [low]",
+    "body": "Refine BRC completed \u2014 3 false-positive progress_stall alerts for agents now correctly idle\n\nDetail:\nPipeline issue-1965 refine phase BRC reached full consensus at 16:49:35. All 3 agents (refiner, reviewer_agent_design, reviewer_refine) are now CONFIRMED and idle. The monitoring system is firing 3 progress_stall warnings (refiner: 120s, reviewer_agent_design: 617s, reviewer_refine: 601s) \u2014 these are false positives. The agents are in legitimate wait-loop/idle states, not stalled. The progress events bus does not observe BRC wait-loop events, causing spurious stall alerts whenever agents correctly block on CONSENSUS_* messages. No corrective action needed for the alerts. The pipeline is now in awaiting_human pending resolution of 7 HITL decisions (decision-1 through decision-7) registered at commit 6143ad3af before the plan phase can begin.\n\nRecommended action:\nResolve the 7 pending HITL decisions (decision-1 through decision-7) in the contract for pipeline issue-1965 to unblock the plan phase. Consider raising the progress_stall threshold or excluding agents in WAITING_FOR_EVENT state from stall detection to eliminate future false positives.",
+    "metadata": {},
+    "timestamp": "2026-04-25T16:51:00.852567+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "043ae4d6-d144-48",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Overseer active \u2014 polling pipeline issue-1965 at 60s intervals while awaiting human HITL resolution of 7 decisions (decision-1..decision-7). BRC complete, all agents quiesced normally.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T16:53:44.952994+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "06f7314e-0a44-43",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Overseer standing by \u2014 pipeline awaiting_human, 7 HITL decisions pending. No new events.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T16:55:01.219630+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "5198a7fe-0096-4c",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Overseer standing by \u2014 awaiting_human, 7 HITL decisions unresolved. Polling at 60s.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T16:56:19.306040+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "2bcfdf5d-178d-46",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Overseer standing by \u2014 awaiting_human ~8min. 7 HITL decisions still unresolved. No new pipeline events.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T16:57:39.149574+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "a1117d91-b5bd-4d",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Overseer standing by \u2014 awaiting_human ~9min. No change.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T16:58:55.086907+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "429ad8d7-4538-4b",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Overseer standing by \u2014 awaiting_human ~10min. 7 HITL unresolved. System stable.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T17:00:13.401809+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "af37c4f5-e3cd-44",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Overseer standing by \u2014 awaiting_human ~11min. No change. 7 HITL pending.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T17:01:31.174826+00:00",
+    "phase": "refine"
+  },
+  {
+    "id": "e287e518-431c-47",
+    "pipeline_id": "issue-1965",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Overseer standing by \u2014 awaiting_human ~12min. Stable hold. 7 HITL pending.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T17:02:47.363439+00:00",
+    "phase": "refine"
+  }
+]

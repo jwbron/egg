@@ -241,6 +241,28 @@ def test_roles_without_worktree_are_valid():
     )
 
 
+def test_lens_reviewers_in_roles_without_worktree():
+    """Lens reviewers must be exempt from the per-agent-worktree requirement.
+
+    Regression for the egg-reviewer feedback on PR #2061: the lens reviewer
+    roles (``REVIEWER_SECURITY``, ``REVIEWER_CONCURRENCY``) operate purely on
+    the diff via the BRC consensus bus and never write code, so they belong
+    in ``_ROLES_WITHOUT_WORKTREE`` alongside the other reviewer roles.
+    Without this membership a spawn with ``repos=[]`` would raise
+    ``KubernetesSpawnError`` and a spawn with a repo would provision an
+    unnecessary worktree.
+    """
+    from kubernetes_spawner import _ROLES_WITHOUT_WORKTREE
+
+    assert {AgentRole.REVIEWER_SECURITY, AgentRole.REVIEWER_CONCURRENCY}.issubset(
+        _ROLES_WITHOUT_WORKTREE
+    ), (
+        "Lens reviewer roles (REVIEWER_SECURITY, REVIEWER_CONCURRENCY) must be "
+        "in _ROLES_WITHOUT_WORKTREE — they review diffs via the BRC bus and do "
+        "not need a per-agent git worktree."
+    )
+
+
 # ---------------------------------------------------------------------------
 # TestSpawnAgentJob
 # ---------------------------------------------------------------------------

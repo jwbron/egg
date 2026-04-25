@@ -191,6 +191,8 @@ _ROLES_WITHOUT_WORKTREE: frozenset[AgentRole] = frozenset(
         AgentRole.REVIEWER_AGENT_DESIGN,
         AgentRole.REVIEWER_REFINE,
         AgentRole.REVIEWER_PLAN,
+        AgentRole.REVIEWER_SECURITY,
+        AgentRole.REVIEWER_CONCURRENCY,
         AgentRole.OVERSEER,
         AgentRole.INSPECTOR,
     }
