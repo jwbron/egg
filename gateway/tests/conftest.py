@@ -338,6 +338,14 @@ gateway = _load_module_with_replaced_imports(
     },
 )
 
+# Loading gateway.py as sys.modules["gateway"] above replaces the real
+# gateway package; without __path__, pytest's importlib-mode collector
+# (consider_namespace_packages=true) cannot walk into gateway.tests.*
+# and raises "module 'gateway' has no attribute '__path__'" for every
+# test file under gateway/tests/. Point __path__ at the gateway dir so
+# the namespace subpackage gateway.tests resolves correctly.
+gateway.__path__ = [str(GATEWAY_DIR)]
+
 # Also load the __init__.py to prevent pytest from trying to import it
 # and failing on relative imports
 init_module = _load_module_with_replaced_imports(
