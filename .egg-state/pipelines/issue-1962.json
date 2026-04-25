@@ -345,10 +345,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-11",
+      "question": "Rollout mode for auto-issue filing: should it start in shadow mode or go live directly?",
+      "context": "Open contract question decision-10, registered by an agent during the refine phase.",
+      "options": [
+        "Shadow mode first — overseer composes issue body but raises a HITL decision 'should I file this?'; human approves; flip to live after a trial period",
+        "Live directly — ship with dedup + per-pipeline cap; iterate on policy via actual issues filed",
+        "Feature flag — ship live but gated by config `overseer_auto_file_issues` (default off) for a release",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T17:52:17.462858Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T17:05:44.416677Z",
-  "updated_at": "2026-04-25T17:52:17.424508Z",
+  "updated_at": "2026-04-25T17:52:17.481532Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -362,6 +381,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 21,
+  "version": 22,
   "jira_ticket": null
 }
