@@ -22,6 +22,7 @@ from container_spawner import (
 )
 from docker_client import ContainerNotFoundError, ContainerOperationError
 from gateway_client import GatewayHealth, SessionInfo
+from kubernetes_client import JobOperationError
 from models import (
     AgentExecution,
     AgentExecutionStatus,
@@ -195,8 +196,10 @@ class TestRestartAgentContainer:
     def test_restart_handles_stop_failure_gracefully(
         self, spawner, mock_docker_client, mock_gateway_client
     ):
-        """If removing the old Job fails, restart should still proceed."""
-        mock_docker_client.remove_container.side_effect = ContainerOperationError("timeout")
+        """If deleting the old Job fails with a real k8s error, restart should still proceed."""
+        # Restart-side delete (line ~1054) fails first; spawn_agent_job's
+        # subsequent cleanup delete (line ~404) succeeds.
+        mock_docker_client.delete_job.side_effect = [JobOperationError("api timeout"), None]
 
         result = spawner.restart_agent_container(
             pipeline_id="issue-100",
@@ -205,8 +208,12 @@ class TestRestartAgentContainer:
             mode="public",
         )
 
-        # Should still succeed — the method handles stop failures gracefully
+        # Should still succeed — the method swallows JobOperationError on best-effort cleanup
         assert isinstance(result, SpawnedContainer)
+        # And the failing delete_job call really happened against the prefixed k8s name
+        assert mock_docker_client.delete_job.call_args_list[0].args[0] == (
+            "egg-sandbox-egg-agent-issue-100-coder"
+        )
 
     def test_restart_handles_container_not_found(
         self, spawner, mock_docker_client, mock_gateway_client

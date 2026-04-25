@@ -259,8 +259,6 @@ class KubernetesSpawner:
             pipeline_id=pipeline_id,
             role=agent_role.value.replace("_", "-"),
         )
-        if job_name.startswith(KubernetesClient.JOB_PREFIX):
-            return job_name, job_name
         return job_name, f"{KubernetesClient.JOB_PREFIX}{job_name}"
 
     def __init__(
@@ -1058,9 +1056,14 @@ class KubernetesSpawner:
                     self._namespace,
                     propagation_policy="Foreground",
                 )
-            except (PodNotFoundError, JobOperationError) as e:
-                logger.info(
+            except PodNotFoundError:
+                logger.debug(
                     "No existing Job found during restart (already removed)",
+                    job_name=actual_k8s_job_name,
+                )
+            except JobOperationError as e:
+                logger.warning(
+                    "Failed to delete existing Job during restart, continuing",
                     job_name=actual_k8s_job_name,
                     error=str(e),
                 )
