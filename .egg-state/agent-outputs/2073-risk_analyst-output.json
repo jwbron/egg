@@ -1,0 +1,453 @@
+{
+  "schemaVersion": "1.0",
+  "issue": 2073,
+  "phase": "plan",
+  "agent_role": "risk_analyst",
+  "summary": "Risk assessment for the four-piece repo-config simplification (schema collapse, layered repo+user config, /onboard-repo skill, validate-config CLI/MCP). The work touches a hand-authored YAML schema parsed by ~3 independent loaders and an unversioned in-image manifest; combining hard-cutover deprecation, layered config layered loading, repo-committed config auto-discovery, and one-PR coordinated delivery (per HITL decisions 2/4/10) materially raises blast radius. The dominant risks are (a) manifest-schema producer/consumer coupling between host and Docker build container, (b) regressing the #2087/#2090 fail-loud contract while moving extraction logic, and (c) trust-boundary expansion when the loader auto-reads an in-repo committed file to drive root-privileged build_commands inside the sandbox. Mitigations are tractable: version-stamp the manifest, lift the merge into a single shared/egg_config/repos.py loader that all three call sites import, add a strict trust-boundary check at the merge layer (operator-scoped keys rejected from repo file; persist: paths checked against an allowlist before they reach docker-setup.py), keep the existing runtime denylist as second-line defense, and gate hard-deprecation of legacy keys behind a clear error message that points at the egg repo's own freshly-migrated .egg/repositories.yaml as a working example. Two items need explicit human review before implement: (1) the security model for in-repo committed build_commands when auto-discovery is on (decision-10), and (2) schema-version field-format alignment with the existing schemaVersion convention (\"1.0\" string everywhere else).",
+  "scope": {
+    "in_scope": [
+      "schema simplification (collapse persist_dirs/persist_system_dirs into persist:; derive watch_files+checks)",
+      "layered repo-defaults (<repo>/.egg/repositories.yaml) + user-overrides (~/.config/egg/repositories.yaml) loader",
+      "/onboard-repo skill (Python/Node/Go detection per decision-14)",
+      "egg validate-config CLI subcommand + extended/renamed mcp__egg__validate_config tool (decision-6)",
+      "schema-versioning on both files from day one (decision-13)",
+      "hard-deprecate legacy persist_dirs/persist_system_dirs/explicit watch_files (decision-4; no migration tool per decision-12)"
+    ],
+    "out_of_scope": [
+      "egg config migrate helper (rejected at decision-12)",
+      "extends:/template library (reserve template: hook only, per feedback Q4)",
+      "Rust/Java/Ruby detection in onboard skill (deferred per decision-14)"
+    ]
+  },
+  "risks": [
+    {
+      "id": "risk-1",
+      "title": "Manifest schema producer/consumer coupling between host launcher and Docker build container",
+      "category": "compatibility",
+      "likelihood": "high",
+      "impact": "high",
+      "severity": "high",
+      "description": "sandbox/egg_lib/docker.py::_copy_repo_watch_files writes a manifest.json that sandbox/docker-setup.py::load_build_commands_manifest consumes inside the build container. The manifest is currently UNVERSIONED; the consumer only checks for `repo` and `commands` keys and silently drops unknown fields. If the new persist: schema lands on the host (writer) but a stale image runs the old docker-setup.py (reader), persist data is silently missing again — exactly the failure mode #2087/#2090 hardened against. The egg repo's own image has to be rebuilt in lockstep with the host launcher.",
+      "affected_components": [
+        "sandbox/egg_lib/docker.py::_copy_repo_watch_files",
+        "sandbox/docker-setup.py::load_build_commands_manifest",
+        "sandbox/docker-setup.py::run_build_commands",
+        "sandbox/docker-setup.py::persist_build_dirs"
+      ],
+      "evidence": [
+        "sandbox/docker-setup.py validates only `'repo' in entry and 'commands' in entry` (no schema version check)",
+        "manifest.json today carries no version field; readers tolerate missing optional fields",
+        "Docker layer-cache means the sandbox image carrying the old reader can outlive the host upgrade by days"
+      ],
+      "mitigations": [
+        "Stamp manifest.json with manifest_version: 1 (matching the new repo-config schemaVersion); fail loudly in load_build_commands_manifest if version is unknown or missing when persist: is in use",
+        "Have the host launcher write BOTH the legacy persist_dirs/persist_system_dirs AND the new persist: list during the transition window IFF the proposal goes ahead with hard-deprecation only at the user-facing schema layer (i.e. internal manifest stays bilingual for one release even though user-facing config is hard-cut)",
+        "Add an integration test that exercises an old image + new launcher and a new image + old launcher and asserts the failure mode is loud (not silent)",
+        "Bump the sandbox image's prebuild hash inputs to include manifest_version so a schema bump invalidates the layer cache automatically"
+      ],
+      "rollback": "Revert in three steps because the four pieces ship together (decision-2): revert the schema collapse first (host falls back to writing legacy keys), then the layered loader, then the validator/skill. Users who already migrated their hand-authored config to persist: must roll back their own files; a one-line sed snippet should be in the rollback runbook."
+    },
+    {
+      "id": "risk-2",
+      "title": "Hard-deprecating legacy schema breaks every operator's existing user file on day one",
+      "category": "compatibility",
+      "likelihood": "high",
+      "impact": "medium",
+      "severity": "high",
+      "description": "decision-4 chose hard-deprecation (no warning window, no migrate helper per decision-12). Every existing operator's ~/.config/egg/repositories.yaml uses persist_dirs/persist_system_dirs/explicit watch_files today. The day this lands, every running operator gets a load-time error until they hand-migrate. The user feedback (Q1) confirms tolerance for hard-cutover, but the rollout is irreversible per-operator (each rebuilds their config locally) and there is no telemetry today to know how many operators are affected.",
+      "affected_components": [
+        "config/repo_config.py::_load_config",
+        "shared/egg_config/repos.py (new)",
+        "every operator's ~/.config/egg/repositories.yaml",
+        "egg/.egg/repositories.yaml (the canonical migration target per feedback Q2)"
+      ],
+      "evidence": [
+        "decision-4 resolution: hard-deprecate immediately; no migration tool",
+        "feedback Q2: only egg's own repo is already onboarded, but every operator running egg has a config file with the legacy keys",
+        "decision-12: explicit `egg config migrate` rejected"
+      ],
+      "mitigations": [
+        "Ship a migrated egg/.egg/repositories.yaml in the same PR as the loader change so operators can copy it as a working example",
+        "Hard-error message MUST point at the new schema doc + the egg sample; make it diagnostic, not just 'unknown key persist_dirs'",
+        "Release notes call out the breaking change at the top",
+        "Add an opt-in feature flag (env var EGG_REPO_CONFIG_LEGACY=1) for one release that reverts to legacy parsing; not a migration tool, just an emergency-stop for operators caught mid-rollout"
+      ],
+      "rollback": "Revert the loader change; legacy schema parsing returns. Operator files are untouched."
+    },
+    {
+      "id": "risk-3",
+      "title": "Auto-discovery of in-repo .egg/repositories.yaml expands the trust boundary for root-privileged build_commands",
+      "category": "security",
+      "likelihood": "medium",
+      "impact": "high",
+      "severity": "high",
+      "description": "decision-10 chose auto-discovery: `<repo>/.egg/repositories.yaml` is read silently when egg runs against any checkout, and its build_commands are executed as root inside the Docker build container under /tmp/repo-deps/. Today build_commands are operator-authored in ~/.config — meaning the operator vouched for them. After this lands, any branch of any onboarded repo can carry a malicious .egg/repositories.yaml, and the loader silently runs it. The current denylist in sandbox/docker-setup.py::persist_build_dirs (DENIED_PREFIXES, DENIED_EXACT) catches `/etc`, `/root`, etc., but it is a denylist not an allowlist, and it gates only persist paths — not arbitrary shell in `commands:`. There is no current allowlist on what commands: can run; arbitrary shell + network (during the build phase, before lockdown) is in scope.",
+      "affected_components": [
+        "shared/egg_config/repos.py (new merge loader)",
+        "sandbox/docker-setup.py::run_build_commands (executes commands as root)",
+        "sandbox/docker-setup.py::persist_build_dirs (current denylist)",
+        "sandbox/egg_lib/docker.py::_copy_repo_watch_files (path-traversal guards already in place)",
+        "gateway/ (does not currently validate repositories.yaml content)"
+      ],
+      "evidence": [
+        "decision-10 resolution: loader auto-discovers the repo file silently",
+        "sandbox/docker-setup.py persists with DENIED_PREFIXES (/proc, /sys, /dev, /run, /boot) + DENIED_EXACT (/, /etc, /bin, /usr, /var) — denylist only",
+        "build_commands execute as root in the build stage with no shell-allowlist today",
+        "gateway/config_validator.py does NOT currently parse repositories.yaml"
+      ],
+      "mitigations": [
+        "Restrict the repo file to a strict per-repo schema: reject if it sets ANY operator-scoped key (github_username, bot_username, writable_repos, local_repos, default_reviewer, user_mode, github_sync, docker_setup) — already named in feedback Q5 as an existing validator check; promote it from warning to error",
+        "Add an allowlist of persist: prefix patterns the repo file may use (e.g. repo-relative paths and a small set of /usr/local/{bin,go}, ~/.cargo, /opt — anything outside requires the operator-side override). Today system-dir persist is denylist-only.",
+        "Document a 'trust new repos before running' runbook step similar to direnv allow / mise trust; do not auto-execute build_commands from a repo whose .egg/repositories.yaml hash has changed without operator re-confirmation. This was NOT picked in decision-10 (auto-discover won), so this mitigation is a soft trust-on-first-use. RECOMMEND a HITL re-vote before implement.",
+        "Run `egg validate-config` against the merged view in the same code path BEFORE manifest.json is written, with the security checks at strict tier (block, not warn)",
+        "Add gateway-side validation that the merged manifest's persist: list passes the allowlist check; gateway already enforces git/gh policy boundaries and is the natural place for a defense-in-depth check"
+      ],
+      "rollback": "Disable auto-discovery via a feature flag; require explicit per-repo opt-in (decision-10 option-2 fallback) until the trust model is settled. This is partial rollback — the layered loader stays, only the auto-discovery silent-trust changes."
+    },
+    {
+      "id": "risk-4",
+      "title": "Schema-version field format inconsistent with existing codebase convention",
+      "category": "schema_design",
+      "likelihood": "high",
+      "impact": "low",
+      "severity": "medium",
+      "description": "decision-13 chose `version: 1` (integer) as written in the issue text. Every other schema-versioned artifact in the codebase uses `schemaVersion: \"1.0\"` (semver string) — checkpoint models (shared/egg_contracts/checkpoints.py), .egg/schemas/contract.schema.json (pattern `^[0-9]+\\.[0-9]+$`), shared/egg_anchor/models.py, orchestrator/cli.py contracts. Shipping `version: 1` makes egg's own schemas inconsistent and forces every future grep for schemaVersion to know about two formats.",
+      "affected_components": [
+        "shared/egg_config/repos.py (new loader's version-parsing path)",
+        "<repo>/.egg/repositories.yaml (committed)",
+        "~/.config/egg/repositories.yaml (operator)",
+        "all docs that talk about schemaVersion"
+      ],
+      "evidence": [
+        "shared/egg_contracts/checkpoints.py CheckpointModel: schemaVersion: str = \"1.0\"",
+        ".egg/schemas/contract.schema.json: pattern ^[0-9]+\\.[0-9]+$",
+        "shared/egg_anchor/models.py: schema_version: str = Field(default=\"1.0\")"
+      ],
+      "mitigations": [
+        "RECOMMEND standardizing on `schemaVersion: \"1.0\"` (string, semver) in the new files so the convention holds. This is a small deviation from decision-13's literal phrasing (which referenced the issue text's `version: 1`); flag it to the human reviewer in the planning loop.",
+        "If the team prefers integer per decision-13, document the deviation prominently in CONTRIBUTING and add a lint check that flags new YAML files using a different format"
+      ],
+      "rollback": "Trivial — rename the field in the loader and any docs."
+    },
+    {
+      "id": "risk-5",
+      "title": "Three independent config loaders must change atomically",
+      "category": "implementation_complexity",
+      "likelihood": "high",
+      "impact": "medium",
+      "severity": "medium",
+      "description": "Today repositories.yaml is parsed by three independent code paths: config/repo_config.py::_load_config (host launcher + orchestrator + gateway readers), sandbox/docker-setup.py (in-container build), and sandbox/egg_lib/docker.py::_load_repos_config (host build-context preparation). decision-5 chose a new shared/egg_config/repos.py to centralize the merge, but until all three call sites import the new module, divergence is possible. A subtle bug in only one path would silently produce a different merged view in one runtime than another.",
+      "affected_components": [
+        "config/repo_config.py (~15 callers across gateway/, orchestrator/, scripts/, integration_tests/)",
+        "sandbox/egg_lib/docker.py::_load_repos_config",
+        "sandbox/docker-setup.py (independent loader; runs inside build container without shared/ on PYTHONPATH)"
+      ],
+      "evidence": [
+        "decision-5 resolution: new shared/egg_config/repos.py imported by config/repo_config.py and sandbox/egg_lib/docker.py",
+        "sandbox/docker-setup.py runs in the build stage where shared/egg_config/ is NOT on PYTHONPATH — it parses manifest.json (already pre-merged on host), not repositories.yaml directly. Confirm this stays true after the refactor (no in-container reload of repositories.yaml)."
+      ],
+      "mitigations": [
+        "Land shared/egg_config/repos.py in the first commit and switch all three readers in the same PR (decision-2's one-coordinated-feature choice helps here)",
+        "Add a unit test that imports the loader from each of the three call-site contexts and asserts identical merged output for a fixture",
+        "Verify sandbox/docker-setup.py stays on manifest.json (already pre-merged) and never re-reads repositories.yaml — call this out in implement-phase task notes"
+      ],
+      "rollback": "Each loader switch is a separate commit; revert in reverse order."
+    },
+    {
+      "id": "risk-6",
+      "title": "Heuristic detection in /onboard-repo skill misclassifies build_commands",
+      "category": "correctness",
+      "likelihood": "medium",
+      "impact": "medium",
+      "severity": "medium",
+      "description": "The skill detects build_commands from lockfile presence (uv.lock vs requirements.txt vs package-lock.json vs pnpm-lock.yaml vs go.mod). False positives produce a checked-in .egg/repositories.yaml that looks correct, builds, then degrades silently — exactly the failure mode the issue is trying to eliminate. feedback Q6 mandates AskUserQuestion confirmation per detected build_command (no auto-write on high-confidence). feedback Q7 acknowledges fleet-quirky repos (bazel/gradle/multi-stage) need an extensibility hook. This raises onboard-skill complexity but is the right call.",
+      "affected_components": [
+        "skills/onboard-repo/SKILL.md (new)",
+        "<repo>/.egg/repositories.yaml (output)"
+      ],
+      "evidence": [
+        "feedback Q6: always require human confirmation per detected build_command",
+        "feedback Q7: design detector for extensibility (plug-in escape hatch for bazel/gradle)",
+        "decision-14: ship Python/Node/Go only; defer Rust/Java/Ruby"
+      ],
+      "mitigations": [
+        "Skill MUST surface a preview YAML to the user before writing, and MUST call AskUserQuestion to confirm each build_command (decision-7 names this; codify it in the skill's checklist)",
+        "Run `egg validate-config` against the proposed YAML in-skill before write — strict tier — so a misdetected block is caught before commit",
+        "Document the extensibility seam (where a new language detector plugs in) in the skill's own SKILL.md to discourage forks"
+      ],
+      "rollback": "Skill is additive; users keep hand-authoring without it. Output YAML is in the user's git working tree, not auto-committed."
+    },
+    {
+      "id": "risk-7",
+      "title": "Hard-deprecation regresses the #2087/#2090 fail-loud contract if extraction logic moves carelessly",
+      "category": "regression",
+      "likelihood": "medium",
+      "impact": "high",
+      "severity": "high",
+      "description": "#2087 (commit 514c5afaa) and #2090 changed sandbox/docker-setup.py to RAISE on five failure modes (missing watch_files dir, subprocess error, missing post-build persist dir, etc.) instead of warn-and-continue. The schema-collapse work moves persist extraction logic from get_build_commands() to a new shared loader. If the new loader silently defaults persist to [] when the field is missing OR if it accepts both schemas during transition without raising on a malformed mix, the silent-degrade pattern returns.",
+      "affected_components": [
+        "sandbox/docker-setup.py (the hardened reader)",
+        "sandbox/docker-setup.py::run_build_commands (raises on failure today)",
+        "sandbox/docker-setup.py::persist_build_dirs (raises on missing dir today)",
+        "shared/egg_config/repos.py (new loader)"
+      ],
+      "evidence": [
+        "git log: 514c5afaa 'Fix #2087: fail loudly when sandbox build_commands silently break'",
+        "5 fail-fast points in sandbox/docker-setup.py: run_build_commands subprocess error, missing watch_files dir, missing persist dir post-build, denied persist path, manifest parse error",
+        "feedback Q3: 'all four pieces required, don't drop any' — the validator is one of them, exactly because it's the write-time analog of #2090's build-time check"
+      ],
+      "mitigations": [
+        "Add a regression test that re-runs the #2087 reproducer (uv sync against watch-files-only context) under the new schema and asserts the same RuntimeError",
+        "Add a regression test for the #2065 reproducer (binary installed to /usr/local/bin without persist) under the new persist: schema and asserts the validator catches it at write-time AND docker-setup.py still raises if it slips through",
+        "Code-review checklist item for implement-phase: every place that previously raised on the legacy schema must still raise on an equivalent failure under the new schema",
+        "Pin the sandbox/docker-setup.py changes behind a separate task in the task plan so reviewer_plan can verify fail-loud preservation directly"
+      ],
+      "rollback": "Restore the original sandbox/docker-setup.py extraction logic; legacy schema parsing returns."
+    },
+    {
+      "id": "risk-8",
+      "title": "Validator name collision with existing mcp__egg__validate_config (which validates pipeline configs)",
+      "category": "naming",
+      "likelihood": "high",
+      "impact": "low",
+      "severity": "low",
+      "description": "decision-6 chose 'extend the existing mcp__egg__validate_config'. The existing tool (orchestrator/mcp_tools.py::_handle_validate_config) validates PIPELINE configs — repurposing the same name to validate REPO configs invites silent surprises in scripts and docs that already call it. The decision flagged this explicitly: 'requires renaming or namespacing'.",
+      "affected_components": [
+        "orchestrator/mcp_tools.py::_handle_validate_config",
+        "scripts/validate-config.py",
+        "any agent calling mcp__egg__validate_config",
+        "docs that reference the tool"
+      ],
+      "evidence": [
+        "decision-6 resolution explicitly notes the collision: 'today's validate_config MCP tool validates *pipeline* configs, so this requires renaming or namespacing'",
+        "scripts/validate-config.py validates secret configs (Slack, GitHub, Gateway, Jira, Confluence) — different domain again"
+      ],
+      "mitigations": [
+        "Either rename the existing tool to mcp__egg__validate_pipeline_config and add a new mcp__egg__validate_repo_config, OR namespace as mcp__egg__validate_config(target=...) with target in {pipeline, repo, secret}",
+        "Choose the namespacing strategy in the implement-phase plan and document it in the contract under a HITL decision before the rename lands (don't let the implementer choose unilaterally)",
+        "Search-and-update all callers in one PR; CI grep gate prevents stragglers"
+      ],
+      "rollback": "Revert the rename; old name is restored. Repo-config validation can ship under a fresh name independently."
+    },
+    {
+      "id": "risk-9",
+      "title": "List-merge replace-by-default semantics surprise users on persist:/checks: collisions",
+      "category": "user_experience",
+      "likelihood": "medium",
+      "impact": "low",
+      "severity": "low",
+      "description": "decision-9 chose 'replace by default; no extends:'. If a repo's .egg/repositories.yaml ships persist: [/usr/local/bin, .venv] and the operator's user file overrides persist: [/usr/local/go] (because they want a Go variant), the result is /usr/local/go alone — the .venv silently drops. Users expecting deep-merge get exactly the kind of silent-degrade footgun the issue is trying to eliminate.",
+      "affected_components": [
+        "shared/egg_config/repos.py (merge logic)",
+        "docs/guides/* (config layering)"
+      ],
+      "evidence": [
+        "decision-9 resolution: replace by default, no extends keyword for now",
+        "feedback Q3: all four pieces required — including the validator that should catch this kind of collision"
+      ],
+      "mitigations": [
+        "Validator emits a WARNING (advisory tier per decision-11) when a user-file override of a list-valued field would shadow ≥1 repo-file entry. Surfaces the silent-replace at validate-config time.",
+        "Loader logs at INFO when merge replaces a non-empty list — keeps the trail visible without breaking",
+        "Document the merge rule prominently in the example file with a worked example that intentionally shows the replace behavior"
+      ],
+      "rollback": "Switch to append-merge or per-field merge in a follow-up; merge is centralized in one module."
+    },
+    {
+      "id": "risk-10",
+      "title": "One-coordinated-feature delivery (decision-2) yields a large blast radius",
+      "category": "delivery",
+      "likelihood": "medium",
+      "impact": "medium",
+      "severity": "medium",
+      "description": "decision-2 chose 'one coordinated feature' over sequenced PRs. The single PR will touch: shared/egg_config/repos.py (new), config/repo_config.py, sandbox/egg_lib/docker.py, sandbox/docker-setup.py, orchestrator/mcp_tools.py (validator rename), scripts/validate-config.py extension, skills/onboard-repo/SKILL.md (new), egg/.egg/repositories.yaml (new — the canonical migration target), config/repositories.yaml.example (rewrite), all existing test fixtures. A regression in any one piece blocks every other piece.",
+      "affected_components": [
+        "all loaders + validator + skill + sample config + docs",
+        "CI runtime if integration tests double in count"
+      ],
+      "evidence": [
+        "decision-2 resolution: one coordinated feature",
+        "refine analysis lists ~15 callers needing updates"
+      ],
+      "mitigations": [
+        "Even though delivery is one PR, the COMMIT SEQUENCE inside that PR should follow Option B's dependency order (schema+validator → layered loader → skill → samples). Reviewer can bisect commits without bisecting the merge.",
+        "Land egg's own .egg/repositories.yaml in a SEPARATE commit at the head of the PR so the rollout can dogfood itself before reviewers approve",
+        "Run the full integration suite on a draft PR before opening for review",
+        "Pre-flight via mcp__egg__run_agent_task in a feature branch to surface integration regressions early"
+      ],
+      "rollback": "Revert the merge commit; everything ungraduates together. This is the natural rollback unit for one-coordinated-feature."
+    },
+    {
+      "id": "risk-11",
+      "title": "Hard-deprecation has no operator-side telemetry to size the impact",
+      "category": "observability",
+      "likelihood": "medium",
+      "impact": "low",
+      "severity": "low",
+      "description": "There is no count today of how many distinct operator machines parse a repositories.yaml on a given day. After hard-deprecation lands, we won't know whether 2 or 200 operators were broken at the moment of release. The recovery cost (each operator hand-edits) doesn't aggregate into a metric.",
+      "affected_components": [
+        "config/repo_config.py::_load_config",
+        "release notes / runbook"
+      ],
+      "evidence": [
+        "decision-4: hard-deprecate with no migration tool",
+        "no telemetry today on operator config-load failures"
+      ],
+      "mitigations": [
+        "Pre-announce in release notes one release ahead of the hard cutover (issue #2073's PR description should call this out as the soft-warning step that cannot live in code)",
+        "Add a one-line warning to docs/CONTRIBUTING + the egg-setup skill: 'if you upgrade past v<X>, your ~/.config/egg/repositories.yaml needs the new schema'",
+        "Provide a worked migration example in the PR body that maps each legacy key to its new equivalent, including the egg repo's own diff"
+      ],
+      "rollback": "N/A — observability gap, not a code path."
+    },
+    {
+      "id": "risk-12",
+      "title": "Validator strict-vs-advisory two-tier policy at load time vs write time",
+      "category": "design",
+      "likelihood": "low",
+      "impact": "low",
+      "severity": "low",
+      "description": "decision-11 chose 'two tiers: errors block, warnings advise'. The implementation must keep the tier definition consistent across the CLI (`egg validate-config`, where users want strict feedback), the MCP tool (where agents may want lenient output to keep moving), and the loader (which consumes the same checks at every config load). If the tier list diverges, an operator passes `egg validate-config` and then the loader rejects the same file, or vice versa.",
+      "affected_components": [
+        "shared/egg_config/validators.py (new repo-config checks)",
+        "scripts/validate-config.py extension",
+        "orchestrator/mcp_tools.py validator wrapper",
+        "config/repo_config.py loader"
+      ],
+      "evidence": [
+        "decision-11 resolution: two tiers errors-vs-warnings, like existing shared/egg_config/ patterns",
+        "feedback Q5: long list of checks at varying confidence (build_commands without matching persist is hard error; missing Makefile target may be a warning if the heuristic is wrong)"
+      ],
+      "mitigations": [
+        "Define the tier list in ONE module (shared/egg_config/repo_validators.py) with a tag per check (error|warning); CLI and MCP both consume the tagged list",
+        "Add a CLI flag `--strict` that promotes warnings to errors (lets operators run hardened checks pre-commit without changing the default load behavior)",
+        "Validator output schema (JSON) explicitly carries the tier per finding so downstream consumers don't re-categorize"
+      ],
+      "rollback": "Tier classifications are a config of the validator module — rebalance without code revert."
+    },
+    {
+      "id": "risk-13",
+      "title": "Performance: lockfile/manifest scan + Makefile parse on every config load",
+      "category": "performance",
+      "likelihood": "low",
+      "impact": "low",
+      "severity": "low",
+      "description": "Schema simplification 'derive watch_files from manifest catalog' and 'derive checks from Makefile' implies the loader scans the repo at every load. Loaders are called from gateway/, orchestrator/, sandbox/egg_lib/, and scripts/ — many short-lived invocations. Filesystem scans on every load are cheap (small repo) but compound across CI workers and warm-pool agents.",
+      "affected_components": [
+        "shared/egg_config/repos.py (deriving logic)",
+        "config/repo_config.py callers"
+      ],
+      "evidence": [
+        "Loader is called once per launcher invocation today; new derive-on-load adds at most a few stat() + small file reads",
+        "No measured baseline"
+      ],
+      "mitigations": [
+        "Cache the derived block in-process (functools.lru_cache keyed by config-file mtime) — the loader is already mostly read-once in practice",
+        "Skip derivation when explicit watch_files / checks are present",
+        "Add a microbenchmark to the integration tests that asserts derive-on-load adds <50ms"
+      ],
+      "rollback": "Disable derivation, require explicit watch_files / checks; reverts to today's behavior."
+    },
+    {
+      "id": "risk-14",
+      "title": "Schema-versioning graceful degradation semantics ill-defined",
+      "category": "design",
+      "likelihood": "low",
+      "impact": "medium",
+      "severity": "medium",
+      "description": "decision-13 chose schema versioning 'with the loader gracefully degrading on newer versions'. 'Gracefully degrade' is under-specified. If a v2 file lands in front of a v1-only loader, what happens — silent ignore, warn-and-load-best-effort, or hard-fail? The egg fleet has multiple egg installations at different versions; a fleet running mixed v1+v2 with a 'best effort' loader is exactly the silent-degrade pattern the issue eliminates.",
+      "affected_components": [
+        "shared/egg_config/repos.py version-handling logic",
+        "<repo>/.egg/repositories.yaml committed forward",
+        "operator user files"
+      ],
+      "evidence": [
+        "decision-13 mentions graceful degradation but doesn't specify the policy",
+        "no existing version-bridging code in the codebase (existing schemaVersion fields are forward-compatible by ignoring unknown fields, not by version handshake)"
+      ],
+      "mitigations": [
+        "PIN the policy: known-version → load; newer-major → hard-fail with diagnostic; older-major → migrate-or-fail. Document explicitly in the schema doc.",
+        "Add a HITL decision to the plan phase locking the policy down before implement",
+        "Reserve the `template:` field (per feedback Q4) without making it required — that bumps the minor version, and minor bumps stay loadable"
+      ],
+      "rollback": "Policy is enforced in one function; tighten or loosen without code revert."
+    },
+    {
+      "id": "risk-15",
+      "title": "Onboard-skill writing to <repo>/.egg/repositories.yaml without operator git review introduces drift",
+      "category": "process",
+      "likelihood": "low",
+      "impact": "low",
+      "severity": "low",
+      "description": "decision-7 + decision-8 land /onboard-repo as a skill that writes <repo>/.egg/repositories.yaml. If the operator runs the skill and immediately commits without review, a misdetected build_command lands in mainline. Mitigated partially by feedback Q6 (AskUserQuestion confirmation per build_command) but the file is still produced by an LLM-driven detection pass.",
+      "affected_components": [
+        "skills/onboard-repo/SKILL.md",
+        "<repo>/.egg/repositories.yaml (committed)"
+      ],
+      "evidence": [
+        "decision-7 + decision-8: skill writes the file; falls back to stdout when read-only",
+        "feedback Q6: confirmation per build_command required"
+      ],
+      "mitigations": [
+        "Skill MUST run `egg validate-config --strict` against the produced file before exit and refuse to write if errors are found",
+        "Skill output prints a diff-style summary (added persist:, added build_commands:, etc.) so the operator sees the shape before opening the file",
+        "Skill never auto-commits; the YAML file is left in the working tree for `git add` review"
+      ],
+      "rollback": "Skill is opt-in; users skip it."
+    }
+  ],
+  "needs_human_review": [
+    {
+      "id": "review-1",
+      "topic": "Trust model for auto-discovered <repo>/.egg/repositories.yaml driving root-privileged build_commands",
+      "rationale": "decision-10 settled on auto-discovery (zero-config win). decision-11 says the validator can be advisory at load time. Combined, the loader silently reads and the build container silently runs root-privileged shell from a file committed to a feature branch. Recommend explicit reaffirmation that the security model is acceptable, OR adoption of trust-on-first-use (direnv-style allow). This is risk-3, severity high — flag before implement.",
+      "registered_decision": "Recommend a new HITL decision in plan phase: 'Should auto-discovery of .egg/repositories.yaml require an operator-side allow on first encounter (direnv-style), or stay silent-trust?'"
+    },
+    {
+      "id": "review-2",
+      "topic": "Schema-version field format alignment",
+      "rationale": "decision-13 implies `version: 1` (issue text), but every other schema-versioned artifact in egg uses `schemaVersion: \"1.0\"` (string, semver). Recommend standardizing on the existing convention. Risk-4 covers it; severity is low but consistency multiplies later.",
+      "registered_decision": "Recommend confirmation: 'Use `schemaVersion: \"1.0\"` (existing convention) or `version: 1` (issue text literal) for the new files?'"
+    },
+    {
+      "id": "review-3",
+      "topic": "Schema-versioning graceful-degradation policy",
+      "rationale": "decision-13 says 'gracefully degrade on newer versions' but does not define what 'graceful' means (silent ignore vs warn vs hard-fail per major bump). risk-14 — the policy needs to be pinned before implement to avoid the silent-degrade footgun the issue itself is trying to eliminate.",
+      "registered_decision": "Recommend a new HITL decision: 'On encountering a newer-major schema, should the loader hard-fail, warn-and-best-effort-load, or silent-ignore?'"
+    },
+    {
+      "id": "review-4",
+      "topic": "Manifest version stamping (host launcher → docker-setup.py)",
+      "rationale": "manifest.json today is unversioned. risk-1 — adding a manifest_version field tied to schemaVersion lets stale images detect a host upgrade and fail loudly. Confirm the implementer should add this in the same PR.",
+      "registered_decision": "Recommend implement-phase task explicitly include manifest_version stamping + a fail-loud check in load_build_commands_manifest."
+    },
+    {
+      "id": "review-5",
+      "topic": "Allowlist (not denylist) for persist: paths reachable from a committed repo file",
+      "rationale": "Today persist paths use a denylist in sandbox/docker-setup.py::persist_build_dirs. With auto-discovered repo-side configs running root-privileged build_commands, a denylist is the wrong default for paths shipped in source control. risk-3 mitigation. Confirm the implementer should add an allowlist gate at the merge-loader layer.",
+      "registered_decision": "Recommend implement-phase task: shared/egg_config/repos.py applies an allowlist for repo-file persist: paths (operator overrides may use any path on the existing denylist allowance set)."
+    }
+  ],
+  "rollback_plan": {
+    "strategy": "Revert the merge commit. Because decision-2 is one-coordinated-feature, the natural rollback is whole-feature. Internal commit ordering inside the PR (schema+validator → layered loader → skill → samples) lets reviewers bisect, but consumers of the released egg version revert as a unit.",
+    "operator_recovery": "Operators whose ~/.config/egg/repositories.yaml was hand-migrated to persist: must re-run the inverse migration (split persist back into persist_dirs + persist_system_dirs by leading slash). The release notes should ship the inverse-migration sed snippet alongside the forward one.",
+    "image_recovery": "Sandbox images built on the new schema must be invalidated. Bumping the manifest_version (risk-1 mitigation) ensures the next launcher run rebuilds from scratch.",
+    "feature_flags": [
+      "EGG_REPO_CONFIG_LEGACY=1 — emergency-stop revert to legacy schema parsing for one release after hard-deprecation lands (risk-2 mitigation)",
+      "EGG_REPO_CONFIG_DISABLE_AUTODISCOVERY=1 — disable auto-reading <repo>/.egg/repositories.yaml; require explicit operator opt-in via repo_settings entry (risk-3 fallback)"
+    ]
+  },
+  "consulted_artifacts": [
+    ".egg-state/drafts/2073-analysis.md (refine analysis from refiner)",
+    ".egg-state/contracts/issue-2073.json (decisions 1-14 + feedback-1 Q1-Q7)",
+    "config/repo_config.py (existing loader, ~15 callers)",
+    "sandbox/egg_lib/docker.py::_copy_repo_watch_files (manifest writer)",
+    "sandbox/docker-setup.py::load_build_commands_manifest, run_build_commands, persist_build_dirs (manifest reader + #2087 fail-loud)",
+    "shared/egg_config/validators.py (existing validate_checks pattern)",
+    "scripts/validate-config.py (secret-config validator, namespace context)",
+    "orchestrator/mcp_tools.py::_handle_validate_config (existing pipeline-config validator, name collision)",
+    "shared/egg_contracts/checkpoints.py (schemaVersion convention)",
+    ".egg/schemas/contract.schema.json (schemaVersion regex)",
+    "git log: 514c5afaa (#2087), aa1f5e22d (#2065), d078434e3 (#2066) — recent fail-loud and AgentRole consolidation"
+  ],
+  "external_research": "Skipped per instructions — this is a purely internal change. No third-party dependencies are added or upgraded."
+}
