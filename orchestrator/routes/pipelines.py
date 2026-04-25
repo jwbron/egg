@@ -5243,6 +5243,296 @@ def _sync_worktree_with_remote(
         )
 
 
+class StalePipelineBranchError(RuntimeError):
+    """Raised when ``origin/<pipeline.branch>`` is behind base and the
+    rebase to bring it up to date hit a conflict.
+
+    Phase-startup callers convert this into a FAILED pipeline with a
+    clear ``error`` so the operator knows to manually rebase or start
+    fresh — vastly preferable to silently producing a PR with 70+
+    cherry-picked-variant commits buried in it (#2098).
+    """
+
+
+def _rebase_pipeline_branch_onto_base(
+    spawner: "ContainerSpawner",
+    pipeline_id: str,
+    worktree_repo_path: Path,
+    pipeline_branch: str,
+    base_branch: str,
+    gateway_mode: Literal["public", "private"] = "public",
+) -> None:
+    """Rebase a stale ``origin/<pipeline_branch>`` onto ``origin/<base_branch>``.
+
+    When ``submit_task`` resumes a pipeline whose branch has been sitting
+    on the remote for days/weeks while ``main`` advanced, the existing
+    pipeline branch tip carries old-SHA copies of commits that have since
+    been rebased onto main.  Without this helper, the first orchestrator
+    push hits non-fast-forward, the reconcile path rebases ``HEAD`` onto
+    the stale tip, and every downstream commit inherits 70+ stale-from-
+    main commits as ancestors — producing a final PR diff that buries
+    the actual feature work under contamination (#2098).
+
+    This helper runs on the orchestrator-side worktree (whose ``HEAD`` is
+    fresh from base immediately after creation, before any pipeline
+    commits) and treats it as scratch space for the rebase:
+
+    1. Skip when ``pipeline_branch`` doesn't exist on the remote (fresh
+       run — there's nothing to rebase).
+    2. Skip when ``origin/<pipeline_branch>`` is not behind
+       ``origin/<base_branch>`` (already up to date).
+    3. Skip when the worktree has local commits beyond ``origin/<base>``
+       (mid-pipeline state we'd be destroying — let the existing push
+       reconcile handle this case).
+    4. Reset the worktree to ``origin/<pipeline_branch>``, ``git rebase
+       origin/<base_branch>``, and force-push the rebased tip.  Git's
+       built-in cherry-pick-skip drops commits already content-equivalent
+       to ones on the new base.
+    5. On conflict: abort the rebase, restore the worktree to
+       ``origin/<base_branch>``, and raise ``StalePipelineBranchError``
+       so phase startup fails fast with an actionable error.
+
+    Best-effort fetch+rev-list errors are logged and swallowed so a
+    transient gateway hiccup doesn't block pipeline startup; only a
+    rebase that *started* but couldn't finish raises.
+    """
+    if not pipeline_branch or not base_branch or pipeline_branch == base_branch:
+        return
+
+    git_base = [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        f"safe.directory={worktree_repo_path}",
+        "-C",
+        str(worktree_repo_path),
+    ]
+
+    # Step 1: Fetch both refs through the gateway so we have current
+    # origin/<branch> and origin/<base> tips locally.  fetch_worktree_branch
+    # already runs `git fetch origin` (no refspec) which updates all
+    # remote-tracking refs in one call.
+    fetch_ok = spawner.gateway.fetch_worktree_branch(
+        pipeline_id=pipeline_id,
+        repo_path=str(worktree_repo_path),
+        mode=gateway_mode,
+    )
+    if not fetch_ok:
+        logger.warning(
+            "rebase-on-resume: fetch failed, skipping rebase check",
+            pipeline_id=pipeline_id,
+            branch=pipeline_branch,
+        )
+        return
+
+    # Step 2: Verify origin/<pipeline_branch> exists.  Fresh pipelines
+    # haven't pushed yet, so there's nothing to rebase.
+    verify_branch = subprocess.run(
+        [*git_base, "rev-parse", "--verify", f"origin/{pipeline_branch}"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    if verify_branch.returncode != 0:
+        return
+
+    verify_base = subprocess.run(
+        [*git_base, "rev-parse", "--verify", f"origin/{base_branch}"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    if verify_base.returncode != 0:
+        logger.warning(
+            "rebase-on-resume: origin/<base_branch> not resolvable, skipping",
+            pipeline_id=pipeline_id,
+            branch=pipeline_branch,
+            base_branch=base_branch,
+        )
+        return
+
+    # Step 3: Is the pipeline branch actually behind base?  If not, no-op.
+    behind = subprocess.run(
+        [
+            *git_base,
+            "rev-list",
+            "--count",
+            f"origin/{pipeline_branch}..origin/{base_branch}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    if behind.returncode != 0:
+        logger.warning(
+            "rebase-on-resume: rev-list failed, skipping",
+            pipeline_id=pipeline_id,
+            branch=pipeline_branch,
+            stderr=behind.stderr.strip(),
+        )
+        return
+    try:
+        behind_count = int(behind.stdout.strip() or "0")
+    except ValueError:
+        behind_count = 0
+    if behind_count == 0:
+        return
+
+    # Step 4: Refuse to clobber mid-pipeline state.  HEAD ahead of
+    # origin/<base_branch> means the worktree has uncommitted-to-remote
+    # work we shouldn't blow away.  Defer to the existing push reconcile.
+    head_ahead = subprocess.run(
+        [
+            *git_base,
+            "rev-list",
+            "--count",
+            f"origin/{base_branch}..HEAD",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    if head_ahead.returncode == 0:
+        try:
+            ahead_count = int(head_ahead.stdout.strip() or "0")
+        except ValueError:
+            ahead_count = 0
+        if ahead_count > 0:
+            logger.info(
+                "rebase-on-resume: worktree has local commits — skipping (push reconcile will handle)",
+                pipeline_id=pipeline_id,
+                branch=pipeline_branch,
+                local_ahead=ahead_count,
+                behind_base=behind_count,
+            )
+            return
+
+    logger.info(
+        "rebase-on-resume: pipeline branch is behind base, attempting rebase",
+        pipeline_id=pipeline_id,
+        branch=pipeline_branch,
+        base_branch=base_branch,
+        behind_base=behind_count,
+    )
+
+    # Step 5: Reset the worktree to the stale pipeline branch tip so we
+    # can rebase it onto current base.
+    reset_to_branch = subprocess.run(
+        [*git_base, "reset", "--hard", f"origin/{pipeline_branch}"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    if reset_to_branch.returncode != 0:
+        logger.warning(
+            "rebase-on-resume: reset to pipeline branch failed, skipping",
+            pipeline_id=pipeline_id,
+            branch=pipeline_branch,
+            stderr=reset_to_branch.stderr.strip(),
+        )
+        return
+
+    # Step 6: Rebase onto current base.  Plain ``git rebase
+    # origin/<base>`` — git's cherry-pick-skip drops content-equivalent
+    # commits already on base (the 70+ stale-variant commits in #2098).
+    rebase = subprocess.run(
+        [*git_base, "rebase", f"origin/{base_branch}"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    if rebase.returncode != 0:
+        # Conflict (or other rebase failure).  Abort the rebase, restore
+        # the worktree to origin/<base> so the worktree isn't left in a
+        # half-resolved state for downstream callers, and raise so the
+        # operator gets an actionable error rather than a contaminated PR.
+        subprocess.run(
+            [*git_base, "rebase", "--abort"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        subprocess.run(
+            [*git_base, "reset", "--hard", f"origin/{base_branch}"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        logger.error(
+            "rebase-on-resume: rebase failed (likely conflict) — aborting pipeline start",
+            pipeline_id=pipeline_id,
+            branch=pipeline_branch,
+            base_branch=base_branch,
+            stderr=rebase.stderr.strip(),
+        )
+        raise StalePipelineBranchError(
+            f"origin/{pipeline_branch} is {behind_count} commits behind "
+            f"origin/{base_branch} and rebasing it hit a conflict. "
+            f"Manually rebase the branch (or delete it to start fresh) "
+            f"and resubmit. Stderr: {rebase.stderr.strip()}"
+        )
+
+    # Step 7: Force-push the rebased branch.  ``force=True`` is required
+    # because the rebased tip has different SHAs from origin/<branch>;
+    # this is exactly the contamination we just removed, so overwriting
+    # is the desired behavior.
+    push_result = spawner.gateway.push_worktree_branch(
+        pipeline_id=pipeline_id,
+        repo_path=str(worktree_repo_path),
+        branch=pipeline_branch,
+        mode=gateway_mode,
+        base_branch=base_branch,
+        force=True,
+    )
+    if not push_result.ok:
+        # Restore HEAD to origin/<base> so the worktree is in a known
+        # state for downstream callers (the rebased commits stay in the
+        # local reflog if needed for recovery).
+        subprocess.run(
+            [*git_base, "reset", "--hard", f"origin/{base_branch}"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        logger.error(
+            "rebase-on-resume: force-push of rebased branch failed",
+            pipeline_id=pipeline_id,
+            branch=pipeline_branch,
+            category=push_result.category,
+            detail=push_result.detail,
+        )
+        raise StalePipelineBranchError(
+            f"Rebased {pipeline_branch} onto origin/{base_branch} but "
+            f"force-push to remote failed ({push_result.category}): "
+            f"{push_result.detail}"
+        )
+
+    # Re-fetch so origin/<pipeline_branch> reflects the rebased tip for
+    # any subsequent rev-parse in the same pipeline-start path.
+    spawner.gateway.fetch_worktree_branch(
+        pipeline_id=pipeline_id,
+        repo_path=str(worktree_repo_path),
+        mode=gateway_mode,
+    )
+    logger.info(
+        "rebase-on-resume: rebased and force-pushed pipeline branch",
+        pipeline_id=pipeline_id,
+        branch=pipeline_branch,
+        base_branch=base_branch,
+        dropped_stale_commits=behind_count,
+    )
+
+
 def _commit_statefiles_to_worktree(
     worktree_path: Path,
     message: str,
@@ -11175,6 +11465,30 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 gateway_mode=gateway_mode,
                 base_branch=pipeline.base_branch,
             )
+
+            # When resuming a stale pipeline branch (cancelled run from
+            # days/weeks ago), rebase origin/<branch> onto origin/<base>
+            # before any orchestrator/agent commits land — otherwise the
+            # final PR carries 70+ stale-from-main commits as ancestors
+            # (#2098).  No-op for fresh pipelines and for branches already
+            # caught up with base.
+            if pipeline.branch and pipeline.base_branch:
+                try:
+                    _rebase_pipeline_branch_onto_base(
+                        spawner,
+                        pipeline_id,
+                        worktree_repo_path,
+                        pipeline_branch=pipeline.branch,
+                        base_branch=pipeline.base_branch,
+                        gateway_mode=gateway_mode,
+                    )
+                except StalePipelineBranchError as stale_err:
+                    with get_pipeline_state_lock(pipeline_id):
+                        pipeline = store.load_pipeline(pipeline_id)
+                        pipeline.status = PipelineStatus.FAILED
+                        pipeline.error = str(stale_err)
+                        store.save_pipeline(pipeline)
+                    return
 
             # Remove legacy unprefixed draft files (analysis.md, plan.md)
             # that may have been left by earlier pipelines on this branch.
