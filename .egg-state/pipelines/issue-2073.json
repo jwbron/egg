@@ -318,10 +318,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-25T23:29:21.155896Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-25T23:33:52.954986Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Print the YAML to stdout and offer to append it to `~/.config/egg/repositories.yaml` instead (Recommended) — matches the issue proposal; user keeps onboarding even when checkin is blocked\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -495,7 +495,7 @@
     }
   ],
   "created_at": "2026-04-25T23:09:30.400320Z",
-  "updated_at": "2026-04-25T23:33:52.390261Z",
+  "updated_at": "2026-04-25T23:33:52.977074Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -509,6 +509,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 34,
+  "version": 35,
   "jira_ticket": null
 }
