@@ -486,16 +486,16 @@
           "answer": ""
         }
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-25T23:29:22.035057Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-25T23:42:43.495706Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Hard cutover OK — no migration tool. Users hand-update their config when upgrading; matches the hard-deprecate choice from decision-5.\", \"Q2\": \"Just the egg repo itself. egg/.egg/repositories.yaml is the canonical one to migrate as part of this rollout.\", \"Q3\": \"All four pieces are required — they reinforce each other and should ship together (matches decision-3 'one coordinated feature'). Don't drop any.\", \"Q4\": \"Yes — reserve a `template:` field in the schema so a follow-up template-library PR can land without another schema migration.\", \"Q5\": \"Add all examples mentioned: `auth_mode: user` without `GITHUB_USER_TOKEN` configured; persist of an empty directory; commands that exec curl/wget in private mode where network is locked down. Plus the issue's original list (build_commands without matching persist, persist without producible source, missing Makefile target, manifest/build-cmd mismatch, missing local_repos paths, dangling writable_repos, unreachable checkpoint_repo, repo-file with operator-scoped keys).\", \"Q6\": \"Always require human confirmation via AskUserQuestion per detected build_command — safest, matches the /sdlc HITL pattern, and aligns with the goal of catching misconfig at write-time rather than baking it in.\", \"Q7\": \"Don't know yet — design the detector for extensibility (plug-in escape hatch) so quirky repos like bazel/gradle/multi-stage checks can be slotted in without rewriting the heuristic.\"}}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-25T23:09:30.400320Z",
-  "updated_at": "2026-04-25T23:36:24.741568Z",
+  "updated_at": "2026-04-25T23:42:43.522840Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -509,6 +509,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 41,
+  "version": 42,
   "jira_ticket": null
 }
