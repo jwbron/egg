@@ -359,7 +359,7 @@ each surface so reviewers know to keep them in sync.
 **Outputs**:
 - Redirect messages to stalled/off-track agents
 - HITL escalation requests for agent restarts and infrastructure errors
-- `OVERSEER_ALERT` messages, optionally carrying `metadata.recommendation="file_issue"` + `metadata.recommendation_payload={issue_title, issue_body, priority, anomaly_signature}` for the HITL approval flow (`metadata.schema_version=2`; backwards-compatible — pre-#1962 alerts implicitly carry `schema_version=1` and consumers default to 1 when the key is absent, so the message envelope itself is unchanged)
+- `OVERSEER_ALERT` messages, optionally carrying top-level `recommendation="file_issue"` + `recommendation_payload={issue_title, issue_body, priority, anomaly_signature}` for the HITL approval flow (top-level `schema_version=2`; backwards-compatible — `Message.to_dict()` omits the three new fields when unset, so legacy `OVERSEER_ALERT` consumers see byte-identical JSON)
 - Autonomous GitHub issues with structured diagnostics (labeled `agent:overseer` + matching priority `p0`/`p1`/`p2`/`p3`) — only after HITL approval; never bypassed
 - Pipeline health summary at completion
 - Structured oversight logs in `.egg-state/oversight/`

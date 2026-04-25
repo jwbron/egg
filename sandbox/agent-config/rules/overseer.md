@@ -84,7 +84,7 @@ This intersection gate matches the precedent shipped in #2012 and keeps Opus out
 |----------|--------|
 | `watch` | Emit nothing this cycle. The intersection was suspicious enough to consult the advisor but not actionable. |
 | `alert` | Translate `verdict.priority` (`p0..p3`) to `low|medium|high` via `egg_overseer.priority.label_to_alert` and emit `OVERSEER_ALERT` with the advisor's `alert_summary` / `alert_detail` / translated `priority`. |
-| `file_issue` | Emit `OVERSEER_ALERT` with `metadata.recommendation="file_issue"` + `metadata.recommendation_payload={issue_title, issue_body, priority, anomaly_signature}` (the payload is bounded at 50 KB by the sandbox handler). The CLI verb (see [Auto-issue filing protocol](#auto-issue-filing-protocol)) is **not** invoked here — the human gates filing through the existing HITL flow. |
+| `file_issue` | Emit `OVERSEER_ALERT` with top-level `recommendation="file_issue"` + `recommendation_payload={issue_title, issue_body, priority, anomaly_signature}` (first-class optional fields on the `Message` envelope; the payload is bounded at 50 KB by the sandbox handler). The CLI verb (see [Auto-issue filing protocol](#auto-issue-filing-protocol)) is **not** invoked here — the human gates filing through the existing HITL flow. |
 
 ## Monitoring Loop
 
