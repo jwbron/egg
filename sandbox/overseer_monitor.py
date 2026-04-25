@@ -140,6 +140,286 @@ def emit_cycle_report(report: dict[str, Any]) -> None:
     print(json.dumps(report, default=str), flush=True)
 
 
+# ---------------------------------------------------------------------------
+# Migrated detectors (issue #1962, TASK-6-1)
+# ---------------------------------------------------------------------------
+
+# Default agent-timing state file path. Overridable for tests via the
+# AGENT_TIMING_PATH env var.
+_AGENT_TIMING_PATH_DEFAULT = ".egg-state/oversight/agent-timing.json"
+
+# Per-anomaly suppression window multiplier — a detector skips emitting
+# if the same (role, anomaly) fired within ``2 * threshold`` seconds.
+_SUPPRESSION_FACTOR = 2
+
+
+def _agent_timing_path() -> str:
+    return os.environ.get("AGENT_TIMING_PATH", _AGENT_TIMING_PATH_DEFAULT)
+
+
+def _config_int(config: dict[str, Any], key: str, default: int) -> int:
+    value = config.get(key, default)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _is_overseer_owns_host(config: dict[str, Any]) -> bool:
+    return bool(config.get("overseer_owns_host_detection", False))
+
+
+def _suppress(
+    entry: Any,  # AgentTimingEntry from egg_overseer.state
+    anomaly: str,
+    threshold_seconds: int,
+    now: datetime.datetime,
+) -> bool:
+    """Return True if the same anomaly fired recently for this role+phase."""
+    last = entry.alerted_anomalies.get(anomaly)
+    if last is None:
+        return False
+    delta = (now - last).total_seconds()
+    return delta < (_SUPPRESSION_FACTOR * threshold_seconds)
+
+
+def run_migrated_detectors(
+    *,
+    base_url: str,
+    pipeline_id: str,
+    phase_name: str,
+    config_subset: dict[str, Any],
+    progress_events: list[dict[str, Any]],
+    consensus: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Run the four migrated detectors for the current cycle.
+
+    Detectors honour the ``overseer_owns_host_detection`` flag — when
+    False (calibration-window default), they short-circuit so /sdlc's
+    host detectors stay the active source. When True, the overseer is
+    the sole source of these alerts.
+
+    Args:
+        base_url: Orchestrator base URL.
+        pipeline_id: Pipeline id (also used for the agent-timing state file).
+        phase_name: Current phase name.
+        config_subset: ``PipelineConfig`` block from the
+            pipelines-status payload.
+        progress_events: Recent progress events (used to update
+            ``has_any_messages`` / ``last_seen``).
+        consensus: Current consensus dict.
+
+    Returns:
+        List of alert dicts the agent should consider emitting via
+        ``egg-orch overseer alert``. Each dict carries the keys
+        ``anomaly``, ``priority``, ``summary``, ``detail``,
+        ``role``. Empty list when the flag is False or no detector
+        fires.
+    """
+    if not _is_overseer_owns_host(config_subset):
+        return []
+
+    try:
+        from egg_overseer.state import (
+            AgentTimingEntry,
+            AgentTimingState,
+            load_agent_timing,
+            save_agent_timing,
+        )
+    except ImportError:
+        # Shared package not on path (lightweight unit tests); fall
+        # through with no alerts rather than crashing the cycle.
+        return []
+
+    timing_path = _agent_timing_path()
+    state = load_agent_timing(timing_path, pipeline_id=pipeline_id)
+    now = datetime.datetime.now(datetime.UTC)
+
+    # Update has_any_messages from the progress feed. Each progress event
+    # carries a `role` field. We treat any progress event as evidence
+    # that the agent is alive.
+    seen_roles: set[str] = set()
+    for ev in progress_events:
+        role_name = ev.get("role") or ev.get("agent_role")
+        if role_name:
+            seen_roles.add(role_name)
+    for role_name in seen_roles:
+        entry = state.entries.get(role_name)
+        if entry is None:
+            entry = AgentTimingEntry(
+                role=role_name,
+                phase=phase_name,
+                phase_entered_at=now,
+                first_seen_at=now,
+                has_any_messages=True,
+            )
+            state.entries[role_name] = entry
+        entry.has_any_messages = True
+        entry.last_alerted_at = entry.last_alerted_at  # idempotent
+
+    stall_threshold = _config_int(
+        config_subset, "overseer_agent_stall_seconds", 180
+    )
+    silent_threshold = _config_int(
+        config_subset, "overseer_silent_agent_threshold_seconds", 600
+    )
+    nack_threshold = _config_int(
+        config_subset, "overseer_nack_unresolved_seconds", 180
+    )
+    long_run_threshold = _config_int(
+        config_subset, "overseer_long_running_phase_seconds", 3600
+    )
+
+    alerts: list[dict[str, Any]] = []
+
+    for role_name, entry in list(state.entries.items()):
+        # detect_agent_stall — phase_entered_at older than threshold.
+        elapsed = (now - entry.phase_entered_at).total_seconds()
+        if elapsed > stall_threshold and not _suppress(
+            entry, "agent-stall", stall_threshold, now
+        ):
+            alerts.append(
+                {
+                    "anomaly": "agent-stall",
+                    "priority": "medium",
+                    "role": role_name,
+                    "summary": (
+                        f"agent {role_name} has been in {phase_name} for "
+                        f"{int(elapsed)}s without progress"
+                    ),
+                    "detail": (
+                        f"phase_entered_at={entry.phase_entered_at.isoformat()}; "
+                        f"recommended next step: check agent logs via "
+                        f"`egg-checkpoint show`."
+                    ),
+                }
+            )
+            entry.alerted_anomalies["agent-stall"] = now
+
+        # detect_agent_silent — first_seen_at old AND no messages.
+        if (
+            not entry.has_any_messages
+            and (now - entry.first_seen_at).total_seconds() > silent_threshold
+            and not _suppress(entry, "agent-silent", silent_threshold, now)
+        ):
+            alerts.append(
+                {
+                    "anomaly": "agent-silent",
+                    "priority": "medium",
+                    "role": role_name,
+                    "summary": (
+                        f"agent {role_name} has produced no messages for "
+                        f"{int((now - entry.first_seen_at).total_seconds())}s"
+                    ),
+                    "detail": (
+                        f"first_seen_at={entry.first_seen_at.isoformat()}; "
+                        f"silent threshold {silent_threshold}s exceeded."
+                    ),
+                }
+            )
+            entry.alerted_anomalies["agent-silent"] = now
+
+    # detect_nack_unresolved — consensus state with an outstanding NACK.
+    nacks = consensus.get("nacks") or consensus.get("blocking_nacks") or []
+    for nack in nacks if isinstance(nacks, list) else []:
+        if not isinstance(nack, dict):
+            continue
+        nack_role = nack.get("from_role") or nack.get("reviewer") or "unknown"
+        ts = nack.get("timestamp") or nack.get("ts")
+        try:
+            nack_dt = datetime.datetime.fromisoformat(ts) if ts else None
+        except (TypeError, ValueError):
+            nack_dt = None
+        if nack_dt is None:
+            continue
+        elapsed_n = (now - nack_dt).total_seconds()
+        if elapsed_n > nack_threshold:
+            entry = state.entries.setdefault(
+                nack_role,
+                AgentTimingEntry(
+                    role=nack_role,
+                    phase=phase_name,
+                    phase_entered_at=now,
+                    first_seen_at=now,
+                ),
+            )
+            if _suppress(entry, "agent-nack-unresolved", nack_threshold, now):
+                continue
+            alerts.append(
+                {
+                    "anomaly": "agent-nack-unresolved",
+                    "priority": "high",
+                    "role": nack_role,
+                    "summary": (
+                        f"NACK from {nack_role} unresolved for {int(elapsed_n)}s"
+                    ),
+                    "detail": (
+                        f"NACK timestamp {ts}; threshold {nack_threshold}s. "
+                        f"Producer should re-propose or the human should rule."
+                    ),
+                }
+            )
+            entry.alerted_anomalies["agent-nack-unresolved"] = now
+
+    # detect_phase_long_running — implement phase elapsed beyond long_run.
+    if phase_name == "implement":
+        # Find the producer entry's phase_entered_at as a proxy for
+        # phase start; fallback to min over all entries.
+        starts = [e.phase_entered_at for e in state.entries.values()]
+        if starts:
+            phase_started = min(starts)
+            elapsed_p = (now - phase_started).total_seconds()
+            if elapsed_p > long_run_threshold:
+                # Use a synthetic 'phase' role for suppression bookkeeping.
+                synth = state.entries.setdefault(
+                    "_phase_long_running",
+                    AgentTimingEntry(
+                        role="_phase_long_running",
+                        phase=phase_name,
+                        phase_entered_at=phase_started,
+                        first_seen_at=phase_started,
+                    ),
+                )
+                if not _suppress(
+                    synth, "phase-long-running", long_run_threshold, now
+                ):
+                    alerts.append(
+                        {
+                            "anomaly": "phase-long-running",
+                            "priority": "medium",
+                            "role": "implement-phase",
+                            "summary": (
+                                f"implement phase has been running for "
+                                f"{int(elapsed_p)}s "
+                                f"(> {long_run_threshold}s threshold)"
+                            ),
+                            "detail": (
+                                f"earliest phase_entered_at "
+                                f"{phase_started.isoformat()}."
+                            ),
+                        }
+                    )
+                    synth.alerted_anomalies["phase-long-running"] = now
+
+    # Persist updated alert bookkeeping. Best-effort — a write failure
+    # logs but does not abort the cycle.
+    try:
+        save_agent_timing(state, timing_path)
+    except OSError as exc:
+        # Don't fail the cycle on a write error; the next tick will retry.
+        print(
+            json.dumps(
+                {
+                    "_overseer_warning": "save_agent_timing failed",
+                    "error": str(exc),
+                }
+            ),
+            file=sys.stderr,
+        )
+
+    return alerts
+
+
 def run_once(
     pipeline_id: str,
     role: str = "overseer",
@@ -170,6 +450,30 @@ def run_once(
     escalations = poll_messages(base_url, pipeline_id, role, wait=3)
     heartbeat_ok = send_heartbeat(base_url, pipeline_id, role)
 
+    # Issue #1962: run the migrated detectors (host → overseer migration).
+    # The detectors emit alerts only when overseer_owns_host_detection=True
+    # (the calibration-window default is False so /sdlc keeps owning these
+    # detectors during the first release; the cleanup-PR follow-up flips
+    # the default and deletes the dormant /sdlc code blocks).
+    config_subset = pipeline_data.get("config", {}) or {}
+    detector_alerts = run_migrated_detectors(
+        base_url=base_url,
+        pipeline_id=pipeline_id,
+        phase_name=phase_name,
+        config_subset=config_subset,
+        progress_events=progress,
+        consensus=consensus,
+    )
+
+    # Tier-1 intersection gate (decision-18). The advisor is invoked
+    # only when Haiku flags an anomaly AND a Tier-1 health alert is
+    # present. We surface the gate state in the cycle report so the
+    # overseer agent (Claude) knows when to call the advisor MCP tool.
+    advisor_gate = {
+        "tier1_alerts_present": bool(alerts),
+        "tier1_alert_types": sorted({a.get("type", "") for a in alerts if a}),
+    }
+
     report: dict[str, Any] = {
         "cycle": 1,
         "ts": _now_iso(),
@@ -183,6 +487,8 @@ def run_once(
         "heartbeat_ok": heartbeat_ok,
         "cycle_duration_s": round(time.monotonic() - cycle_start, 2),
         "terminal": status in TERMINAL_STATES,
+        "detector_alerts": detector_alerts,
+        "advisor_gate": advisor_gate,
     }
 
     emit_cycle_report(report)
