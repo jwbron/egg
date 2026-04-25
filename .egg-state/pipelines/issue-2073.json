@@ -245,10 +245,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Where should the centralized merge loader live (the single import point that returns a merged repo+user view)?",
+      "context": "Open contract question decision-5, registered by an agent during the refine phase.",
+      "options": [
+        "New module `shared/egg_config/repos.py`, imported by `config/repo_config.py` and `sandbox/egg_lib/docker.py` (Recommended) — keeps the existing `config/repo_config.py` API but moves the read+merge into a shared package both runtimes already depend on.",
+        "Add the merge inside `config/repo_config.py::_load_config` and have sandbox import from `config/`. Simpler diff, but `sandbox/egg_lib` doesn't currently import from `config/`, which crosses the runtime boundary.",
+        "Brand-new top-level package `egg_repo_config/` separate from both — cleanest separation but adds a new package surface.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T23:29:20.902743Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T23:09:30.400320Z",
-  "updated_at": "2026-04-25T23:29:20.850683Z",
+  "updated_at": "2026-04-25T23:29:20.929526Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -262,6 +281,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 16,
+  "version": 17,
   "jira_ticket": null
 }
