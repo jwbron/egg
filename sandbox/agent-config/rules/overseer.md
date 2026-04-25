@@ -323,7 +323,7 @@ When `"terminal": true`, stop calling the script and generate a health summary.
 
 | Path | Purpose | Owner |
 |------|---------|-------|
-| `.egg-state/oversight/filed-issues.jsonl` | Append-only JSON Lines record of issue-filing recommendations / outcomes (header `{"_kind": "header", "schema_version": 1}` on line 1, one `FiledIssueRecord` per subsequent line). Local intra-phase dedup fast path; cross-phase fallback uses `gh issue list --label agent:overseer --state open --search "{anomaly_signature[:8]}"`. Schema and helpers in `egg_overseer.state`. | overseer (write) |
+| `.egg-state/oversight/filed-issues.jsonl` | Append-only JSON Lines record of issue-filing recommendations / outcomes (header `{"_kind": "header", "schema_version": 1}` on line 1, one `FiledIssueRecord` per subsequent line). Local intra-phase dedup fast path; cross-phase fallback uses `gh issue list --label agent:overseer --state open --search "{anomaly_signature[:8]}"`. `append_filed_issue` acquires the shared `agent-timing.lock` flock so concurrent overseer respawns cannot race on the append. Schema and helpers in `egg_overseer.state`. | overseer (write) |
 | `.egg-state/oversight/agent-timing.json` | Per-agent phase-entered timestamps and per-anomaly suppression state migrated from `/sdlc`'s in-memory `{role: {phase, phase_entered_at, …}}` map. Read/modify/write is `fcntl.LOCK_EX`-guarded by `.egg-state/oversight/agent-timing.lock`. Schema (`AgentTimingState`, `AgentTimingEntry`) and helpers (`load_agent_timing`, `save_agent_timing`) in `egg_overseer.state`. | overseer (write) |
 | `.egg-state/oversight/agent-timing.lock` | flock sentinel. Created lazily; cleanup happens via worktree teardown. | overseer (lock) |
 

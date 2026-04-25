@@ -334,7 +334,7 @@ each surface so reviewers know to keep them in sync.
 
 **File access**:
 - Allowed writes: `.egg-state/oversight/` (structured oversight logs, dedup state, per-agent timing). The two state files are owned by the overseer:
-  - `.egg-state/oversight/filed-issues.jsonl` — append-only JSON Lines record of recommended/filed/skipped issue filings (intra-phase dedup fast path; cross-phase fallback uses `gh issue list --search "{anomaly_signature[:8]}"`). Schema at `egg_overseer.state.FiledIssueRecord`; helpers `load_filed_issues` / `append_filed_issue` (header-on-first-create).
+  - `.egg-state/oversight/filed-issues.jsonl` — append-only JSON Lines record of recommended/filed/skipped issue filings (intra-phase dedup fast path; cross-phase fallback uses `gh issue list --search "{anomaly_signature[:8]}"`). Schema at `egg_overseer.state.FiledIssueRecord`; helpers `load_filed_issues` / `append_filed_issue` (header-on-first-create); `append_filed_issue` acquires the shared `fcntl.LOCK_EX` flock on `agent-timing.lock` so concurrent overseer respawns cannot race on the append.
   - `.egg-state/oversight/agent-timing.json` — per-agent phase-entered timestamps and per-anomaly suppression state migrated from `/sdlc`'s in-memory map. Schemas at `egg_overseer.state.AgentTimingState` / `AgentTimingEntry`; read/modify/write is `fcntl.LOCK_EX`-guarded by `.egg-state/oversight/agent-timing.lock`. Helpers `load_agent_timing` / `save_agent_timing` (atomic tmp+rename) and `load_filed_issues` / `append_filed_issue` (header-on-first-create) live in the same module.
 - Blocked: All source code, tests, docs, configs, contracts, drafts, reviews
 
