@@ -1480,6 +1480,252 @@ def cmd_overseer_alert(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Overseer file-issue (issue #1962, decision-9 opt-1)
+# ---------------------------------------------------------------------------
+
+# Hard limits matching the gateway's defense-in-depth checks. Local-side
+# rejection means the gateway doesn't have to fail us at the network
+# boundary.
+_OVERSEER_TITLE_MAX_CHARS = 120
+_OVERSEER_BODY_MAX_BYTES = 50_000
+_OVERSEER_VALID_LABEL_PRIORITIES = ("p0", "p1", "p2", "p3")
+
+
+def cmd_overseer_file_issue(args: argparse.Namespace) -> int:
+    """File a GitHub issue from the overseer role (issue #1962).
+
+    Runs ``gh issue create`` itself, inside the sandbox, mediated by
+    the gateway. There is no orchestrator-side endpoint that runs
+    ``gh`` (decision-9 opt-1).
+
+    Reads the issue title and body from local files (no shell-escaping
+    headaches). Looks up an existing issue with the same anomaly
+    signature first (intra-phase JSONL cache + cross-phase ``gh issue
+    list --search`` fallback) and skips the gh call when one is found.
+    On a fresh filing, appends a ``FiledIssueRecord`` to
+    ``.egg-state/oversight/filed-issues.jsonl`` so a later cycle's
+    dedup can short-circuit.
+
+    Output: JSON ``{"issue_number": int, "filed": bool,
+    "dedup_match": int|null}``. Exit code 0 on either outcome
+    (filed-or-dedup); non-zero only on gh failure or local validation
+    failure. The ``--dry-run`` flag prints the composed argv + JSON
+    without invoking gh.
+    """
+    from datetime import UTC, datetime
+
+    from egg_overseer.state import FiledIssueRecord, append_filed_issue
+
+    repo = os.environ.get("EGG_PIPELINE_REPO")
+    if not repo:
+        print(
+            "Error: EGG_PIPELINE_REPO env var is required (set by orchestrator)",
+            file=sys.stderr,
+        )
+        return 2
+
+    # Read title + body files locally so we can validate sizes before
+    # the gateway has to. Files are sandbox-local (CLI-supplied paths).
+    try:
+        with open(args.issue_title_file, encoding="utf-8") as fh:
+            title = fh.read().strip()
+    except OSError as exc:
+        print(f"Error: cannot read --issue-title-file: {exc}", file=sys.stderr)
+        return 2
+    try:
+        with open(args.issue_body_file, "rb") as bfh:
+            body_bytes = bfh.read()
+    except OSError as exc:
+        print(f"Error: cannot read --issue-body-file: {exc}", file=sys.stderr)
+        return 2
+    body = body_bytes.decode("utf-8", errors="replace")
+
+    if len(title) > _OVERSEER_TITLE_MAX_CHARS:
+        print(
+            f"Error: title exceeds {_OVERSEER_TITLE_MAX_CHARS} chars (got {len(title)})",
+            file=sys.stderr,
+        )
+        return 2
+    if len(body_bytes) > _OVERSEER_BODY_MAX_BYTES:
+        print(
+            f"Error: body exceeds {_OVERSEER_BODY_MAX_BYTES} bytes (got {len(body_bytes)})",
+            file=sys.stderr,
+        )
+        return 2
+
+    if args.priority not in _OVERSEER_VALID_LABEL_PRIORITIES:
+        # argparse already enforces this via choices; double-check for
+        # programmatic callers that bypass the parser.
+        print(
+            f"Error: --priority must be one of "
+            f"{list(_OVERSEER_VALID_LABEL_PRIORITIES)}; got {args.priority!r}",
+            file=sys.stderr,
+        )
+        return 2
+
+    # Dedup pre-check.
+    from egg_lib.overseer_issue_body import find_existing_issue
+
+    existing = find_existing_issue(
+        repo=repo,
+        anomaly_signature=args.anomaly_signature,
+    )
+    if existing is not None:
+        result = {
+            "issue_number": existing,
+            "filed": False,
+            "dedup_match": existing,
+        }
+        if args.dry_run or args.json:
+            print_json(result)
+        else:
+            print(
+                f"Existing issue #{existing} already covers this anomaly; "
+                f"skipping gh issue create."
+            )
+        # Structured log line for metrics.
+        import logging as _logging
+
+        _logging.getLogger("egg_lib.overseer_file_issue").info(
+            "overseer_event",
+            extra={
+                "event": "issue_filed",
+                "outcome": "dedup",
+                "issue_number": existing,
+                "anomaly_signature": args.anomaly_signature,
+                "anomaly_type": args.anomaly_type,
+                "agent_role": args.agent_role,
+            },
+        )
+        return 0
+
+    # Build the gh argv. --json url,number,title returns structured
+    # output; we parse json.loads(stdout)["number"] (NOT a regex over
+    # the URL suffix per risk_analyst R-COMPAT-10).
+    argv = [
+        "gh",
+        "issue",
+        "create",
+        "--repo",
+        repo,
+        "--title-file",
+        args.issue_title_file,
+        "--body-file",
+        args.issue_body_file,
+        "--label",
+        "agent:overseer",
+        "--label",
+        args.priority,
+        "--json",
+        "url,number,title",
+    ]
+
+    if args.dry_run:
+        result = {
+            "issue_number": None,
+            "filed": False,
+            "dedup_match": None,
+            "dry_run": True,
+            "argv": argv,
+            "title": title,
+            "body_bytes": len(body_bytes),
+        }
+        print_json(result)
+        return 0
+
+    import subprocess as _subprocess
+
+    try:
+        proc = _subprocess.run(
+            argv,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (FileNotFoundError, _subprocess.TimeoutExpired) as exc:
+        print(f"Error: gh subprocess failed: {exc}", file=sys.stderr)
+        return 1
+    if proc.returncode != 0:
+        print(
+            f"Error: gh issue create exited {proc.returncode}: {proc.stderr}",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        gh_payload = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError as exc:
+        print(f"Error: gh stdout not JSON: {exc}: {proc.stdout!r}", file=sys.stderr)
+        return 1
+
+    issue_number = gh_payload.get("number")
+    if not isinstance(issue_number, int):
+        print(
+            f"Error: gh stdout missing integer 'number' field: {gh_payload!r}",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Persist to JSONL cache for intra-phase dedup.
+    try:
+        append_filed_issue(
+            ".egg-state/oversight/filed-issues.jsonl",
+            FiledIssueRecord(
+                issue_number=issue_number,
+                anomaly_type=args.anomaly_type,
+                anomaly_signature=args.anomaly_signature,
+                agent_role=args.agent_role,
+                repo=repo,
+                pipeline_id=os.environ.get("EGG_PIPELINE_ID", ""),
+                phase=os.environ.get("EGG_PHASE", ""),
+                filed_at=datetime.now(UTC),
+                parent_alert_message_id=getattr(
+                    args, "parent_alert_message_id", None
+                ),
+                hitl_outcome="filed",
+            ),
+        )
+    except OSError as exc:
+        # Filing succeeded; cache write failure is loggable but not fatal.
+        import logging as _logging
+
+        _logging.getLogger("egg_lib.overseer_file_issue").warning(
+            "overseer_event",
+            extra={
+                "event": "issue_filed_cache_failed",
+                "issue_number": issue_number,
+                "error": str(exc),
+            },
+        )
+
+    import logging as _logging
+
+    _logging.getLogger("egg_lib.overseer_file_issue").info(
+        "overseer_event",
+        extra={
+            "event": "issue_filed",
+            "outcome": "filed",
+            "issue_number": issue_number,
+            "anomaly_signature": args.anomaly_signature,
+            "anomaly_type": args.anomaly_type,
+            "agent_role": args.agent_role,
+        },
+    )
+
+    result = {
+        "issue_number": issue_number,
+        "filed": True,
+        "dedup_match": None,
+    }
+    if args.json:
+        print_json(result)
+    else:
+        print(f"Filed issue #{issue_number} ({args.anomaly_type}, {args.priority})")
+    return 0
+
+
 def cmd_signal_readiness(args: argparse.Namespace) -> int:
     """Signal readiness state for consensus."""
     pid = require_pipeline_id(args)
@@ -2636,6 +2882,67 @@ def create_parser() -> argparse.ArgumentParser:
     )
     _add_json_flag(ov_alert)
     ov_alert.set_defaults(func=cmd_overseer_alert)
+
+    # overseer file-issue (issue #1962, decision-9 opt-1)
+    ov_file = overseer_sub.add_parser(
+        "file-issue",
+        help="File a GitHub issue from the overseer role (advisor-gated)",
+        description=(
+            "Run `gh issue create` itself, inside the sandbox, mediated "
+            "by the gateway. Looks up an existing open issue with the "
+            "same anomaly signature first; if found, prints "
+            "{filed: false, dedup_match: <number>} and exits 0 without "
+            "calling gh. On a fresh filing, appends a FiledIssueRecord "
+            "to .egg-state/oversight/filed-issues.jsonl and prints "
+            "{filed: true, issue_number: <number>}."
+        ),
+    )
+    ov_file.add_argument(
+        "--anomaly-type",
+        required=True,
+        help="Stable kebab-case anomaly identifier (e.g. agent-loop)",
+    )
+    ov_file.add_argument(
+        "--priority",
+        required=True,
+        choices=list(_OVERSEER_VALID_LABEL_PRIORITIES),
+        help="GitHub label priority (p0|p1|p2|p3)",
+    )
+    ov_file.add_argument(
+        "--agent-role",
+        required=True,
+        help="Affected agent role (e.g. coder, refiner)",
+    )
+    ov_file.add_argument(
+        "--anomaly-signature",
+        required=True,
+        help=(
+            "16-hex anomaly signature (egg_overseer.state."
+            "compute_anomaly_signature output). The first 8 chars "
+            "embed in the issue title for cross-phase dedup."
+        ),
+    )
+    ov_file.add_argument(
+        "--issue-title-file",
+        required=True,
+        help="Path to a sandbox-local file containing the issue title",
+    )
+    ov_file.add_argument(
+        "--issue-body-file",
+        required=True,
+        help="Path to a sandbox-local file containing the issue body",
+    )
+    ov_file.add_argument(
+        "--parent-alert-message-id",
+        help="ID of the parent OVERSEER_ALERT message",
+    )
+    ov_file.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the composed gh argv + JSON without calling gh",
+    )
+    _add_json_flag(ov_file)
+    ov_file.set_defaults(func=cmd_overseer_file_issue)
 
     # --- push ---
     from egg_lib.cli_push import register_push_subcommand
