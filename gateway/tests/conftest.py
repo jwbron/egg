@@ -10,6 +10,7 @@ absolute imports that resolve to our loaded modules.
 
 import os
 import sys
+from importlib.machinery import ModuleSpec
 from pathlib import Path
 from types import ModuleType
 
@@ -345,6 +346,20 @@ gateway = _load_module_with_replaced_imports(
 # test file under gateway/tests/. Point __path__ at the gateway dir so
 # the namespace subpackage gateway.tests resolves correctly.
 gateway.__path__ = [str(GATEWAY_DIR)]
+
+# Set __spec__ so importlib.util.find_spec("gateway") returns a valid
+# package spec instead of raising "gateway.__spec__ is None". Tools
+# like grimp (used by scripts/select_tests.py) call find_spec to
+# locate the gateway package on disk; without this, they fail at
+# graph build time once the gateway tests have populated sys.modules.
+_gateway_spec = ModuleSpec(
+    name="gateway",
+    loader=None,
+    origin=str(GATEWAY_DIR / "__init__.py"),
+    is_package=True,
+)
+_gateway_spec.submodule_search_locations = [str(GATEWAY_DIR)]
+gateway.__spec__ = _gateway_spec
 
 # Also load the __init__.py to prevent pytest from trying to import it
 # and failing on relative imports
