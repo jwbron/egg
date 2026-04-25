@@ -148,7 +148,7 @@ async def consult_advisor(
         progress_events: Last N progress events from the affected agent.
         recent_log_lines: Last K container log lines.
         config: ``PipelineConfig`` with at least ``overseer_advisor_model``
-            populated. Defaults to ``claude-opus-4-6`` when None.
+            populated. Defaults to ``opus`` when None.
         _agent_runner: Test seam — pass an awaitable callable
             ``(prompt: str, model: str) -> str`` to override the default
             ``run_agent_async`` invocation. Production callers leave
@@ -162,7 +162,7 @@ async def consult_advisor(
         AdvisorParseError: if the SDK response does not parse to a
             valid AdvisorVerdict.
     """
-    model = config.overseer_advisor_model if config is not None else "claude-opus-4-6"
+    model = config.overseer_advisor_model if config is not None else "opus"
     prompt = _build_prompt(
         classification=classification,
         health_alerts=health_alerts,

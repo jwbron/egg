@@ -418,16 +418,14 @@ class PipelineConfig(BaseModel):
     # tripped. See sandbox/agent-config/rules/overseer.md and
     # docs/guides/pipeline-health-monitoring.md for context.
     overseer_advisor_model: str = Field(
-        default="claude-opus-4-6",
+        default="opus",
         description=(
             "Opus-class model used as the advisor when the Haiku-classify "
-            "loop intersects a Tier-1 health alert. Pinned to the canonical "
-            "'claude-opus-4-6' alias defined in shared/egg_harness/config.py "
-            "so cost telemetry via egg_harness.cost.lookup() returns a "
-            "populated row. NOTE: per decision-19, no per-phase invocation "
-            "cap is enforced; the existing max_llm_cost_per_hour envelope is "
-            "the only budget control until the follow-up advisor-budget "
-            "issue lands."
+            "loop intersects a Tier-1 health alert. Uses the 'opus' alias "
+            "for automatic version adoption. NOTE: per decision-19, no "
+            "per-phase invocation cap is enforced; the existing "
+            "max_llm_cost_per_hour envelope is the only budget control "
+            "until the follow-up advisor-budget issue lands."
         ),
     )
     overseer_auto_file_issues_mode: Literal["shadow", "live"] = Field(
