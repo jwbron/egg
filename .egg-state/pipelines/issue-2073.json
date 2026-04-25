@@ -442,10 +442,60 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-16",
+      "question": "Open feedback request feedback-1",
+      "context": "Open contract feedback feedback-1, registered by an agent during the refine phase.",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [
+        {
+          "id": "Q1",
+          "question": "What's the upgrade-friction tolerance for existing operators? Concretely: if the schema changes, are you OK with a one-time `egg config migrate` step, or should the loader silently accept the legacy schema indefinitely with no nudge?",
+          "answer": ""
+        },
+        {
+          "id": "Q2",
+          "question": "Are there any existing repos already onboarded that would need their per-repo block extracted into `<repo>/.egg/repositories.yaml` as part of the rollout? If yes, please list them so the migration helper (if approved in decision-12) covers them and acceptance tests exercise the layered path on real config.",
+          "answer": ""
+        },
+        {
+          "id": "Q3",
+          "question": "What's the priority ranking among the four pieces if we have to drop or defer one? In particular, is the validator considered nice-to-have given that #2090 already hardens the build-time fail-loud path, or is write-time validation the highest-value piece?",
+          "answer": ""
+        },
+        {
+          "id": "Q4",
+          "question": "The issue's 'Out of scope' list includes a repo template library (`extends:` from a built-in catalog of `python-uv`, `node-pnpm`, etc.). The proposal lands repo-defaults committed to each repo, which makes templates more attractive. Should the plan phase reserve a hook (e.g. `template:` field, or a stable schema for shared blocks) so a follow-up can land templates without another schema migration?",
+          "answer": ""
+        },
+        {
+          "id": "Q5",
+          "question": "Are there validation checks beyond the ones listed in the issue (build_commands without matching persist, persist without producible source, missing Makefile target, manifest/build-cmd mismatch, missing local_repos paths, dangling writable_repos, unreachable checkpoint_repo, repo-file with operator-scoped keys) that you want surfaced? Examples worth considering: `auth_mode: user` without `GITHUB_USER_TOKEN` configured; persist of an empty directory; commands that exec curl/wget in private mode where network is locked down.",
+          "answer": ""
+        },
+        {
+          "id": "Q6",
+          "question": "Should the onboard skill's heuristic detection always require human confirmation (e.g. AskUserQuestion to confirm each detected build_command), or auto-write when confidence is high (single lockfile, single Makefile target match)?",
+          "answer": ""
+        },
+        {
+          "id": "Q7",
+          "question": "Are there any repos in your fleet that already deviate from the simple `lint`/`test` Makefile convention (e.g. multi-stage checks, `bazel test //...`, gradle wrappers, etc.) that the auto-detected `checks` block needs to handle?",
+          "answer": ""
+        }
+      ],
+      "status": "pending",
+      "created_at": "2026-04-25T23:29:22.035057Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T23:09:30.400320Z",
-  "updated_at": "2026-04-25T23:29:21.986342Z",
+  "updated_at": "2026-04-25T23:29:22.062583Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -459,6 +509,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 26,
+  "version": 27,
   "jira_ticket": null
 }
