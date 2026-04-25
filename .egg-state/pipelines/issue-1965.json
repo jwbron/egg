@@ -234,10 +234,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-25T17:00:54.493881Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-25T17:02:32.547496Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Subagent re-runs `git diff` itself and filters by path glob to its assigned partition (parent passes only the partition spec).\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -300,7 +300,7 @@
     }
   ],
   "created_at": "2026-04-25T16:38:48.058271Z",
-  "updated_at": "2026-04-25T17:02:29.533707Z",
+  "updated_at": "2026-04-25T17:02:32.566383Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -314,6 +314,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 22,
+  "version": 23,
   "jira_ticket": null
 }
