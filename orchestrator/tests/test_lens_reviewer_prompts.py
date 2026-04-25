@@ -206,6 +206,30 @@ class TestLensScopePreambles:
             "concurrency."
         )
 
+    def test_security_preamble_warns_about_brc_minimum_content_length(self) -> None:
+        """The security preamble warns the agent about the BRC content-length floor.
+
+        Regression for the egg-reviewer feedback on PR #2061: the original
+        wording ("a brief approval is acceptable") would have led security
+        reviewers to draft sub-50-char ACK content that the BRC bus rejects
+        (``_BRC_MIN_CONTENT_LEN = 50``). The preamble must steer the agent
+        toward "at least a sentence or two" so a literal one-word ``LGTM``
+        is avoided up front.
+        """
+        preamble = _get_reviewer_scope_preamble("security", "implement")
+        assert "sentence or two" in preamble, (
+            "Security preamble must mention 'sentence or two' to steer "
+            "agents away from sub-50-char ACK content the BRC bus rejects."
+        )
+
+    def test_concurrency_preamble_warns_about_brc_minimum_content_length(self) -> None:
+        """Concurrency-lens analogue of the BRC content-length warning."""
+        preamble = _get_reviewer_scope_preamble("concurrency", "implement")
+        assert "sentence or two" in preamble, (
+            "Concurrency preamble must mention 'sentence or two' to steer "
+            "agents away from sub-50-char ACK content the BRC bus rejects."
+        )
+
 
 # ---------------------------------------------------------------------------
 # End-to-end: _build_review_prompt routes through to lens criteria.

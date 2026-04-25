@@ -1410,6 +1410,37 @@ class TestBuildAgentPromptEdgeCases:
         # ordering directive should be present.
         assert "in parallel" in result.lower()
 
+    def test_reviewer_code_implement_with_corrupt_contract_file(self):
+        """Reviewer-code prompt builds even when the contract JSON is malformed.
+
+        Sibling regression for ``ContractValidationError``: ``load_contract``
+        raises this exception when the JSON cannot be decoded or when
+        ``Contract.model_validate`` rejects the payload (loader.py:131-134).
+        Like ``ContractNotFoundError``, ``ContractValidationError`` is a
+        direct ``Exception`` subclass — not ``ValueError`` — so the prior
+        catch on ``(ImportError, FileNotFoundError, ValueError)`` would have
+        leaked it. Widening the catch to include the contract-loader
+        exceptions must keep the corrupt-contract path falling back to
+        ``parallel=True`` rather than crashing the prompt build.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            contracts_dir = Path(tmpdir) / ".egg-state" / "contracts"
+            contracts_dir.mkdir(parents=True)
+            # Malformed JSON triggers ContractValidationError via the
+            # JSONDecodeError branch in load_contract().
+            (contracts_dir / "issue-9999.json").write_text("{not json")
+            result = _build_agent_prompt(
+                role_value="reviewer_code",
+                phase="implement",
+                pipeline_id="issue-9999",
+                pipeline_mode="issue",
+                prompt="# Some feature",
+                issue_number=9999,
+                repo_path=tmpdir,
+            )
+        assert "Subagent Fan-Out Strategy" in result
+        assert "in parallel" in result.lower()
+
 
 class TestNamespacedOutputFilenames:
     """Tests for namespaced (identifier-prefixed) output filenames in prompts."""
