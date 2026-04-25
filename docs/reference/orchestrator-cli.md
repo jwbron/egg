@@ -44,7 +44,7 @@ Run `egg-orch --help` for full usage. All commands support `--json` for machine-
 | `egg-orch message heartbeat [<id>] --state <WORKING\|WAITING_ON_ROLE\|PROPOSED\|IDLE> [--waiting-on <role>] [--since <ts>]` | Emit a structured `HEARTBEAT` message on state transitions. `WAITING_ON_ROLE` requires `--waiting-on`. Rate-limited by `EGG_HEARTBEAT_RATE_LIMIT` (per-role, 429 on exceed). See [Agent Wait Patterns §4](agent-wait-patterns.md#4-heartbeat-message-type) |
 | `egg-orch message status [<id>]` | Get message bus status (concurrent mode) |
 | `egg-orch signal readiness [<id>] --state <WORKING\|READY\|BLOCKED\|OBJECTING> [--reason "..."]` | Signal readiness state (concurrent mode) |
-| `egg-orch push` | Push current branch via the gateway. The gateway [auto-filters disallowed files](../architecture/gateway-auto-filter.md) — agents no longer need the removed `--scope-filter` flag ([#1882](https://github.com/jwbron/egg/issues/1882)) |
+| `egg-orch push` | Push current branch via the gateway. The gateway rejects pushes that modify restricted paths (`403 restricted_path_modified`); drop the offending edits and re-propose with `--pre-merge-condition` ([#2039](https://github.com/jwbron/egg/issues/2039)) |
 | `egg-orch progress emit --step <text> --state <working\|blocked\|complete> [--detail <text>] [--blocker <text>]` | Emit structured progress event |
 | `egg-orch progress query [--agent <role>] [--since <timestamp>] [--limit <n>]` | Query structured progress events |
 | `egg-orch health alerts [--pipeline <id>]` | List active deterministic health alerts |
