@@ -168,7 +168,7 @@ Not all messages need the same rigor:
 |-------------|-------------|-----------|
 | STATUS, PROGRESS | Cheap talk | Low overhead, informative when interests are aligned |
 | HANDOFF | Cheap talk | Directed coordination — low overhead, enables role-boundary artifact transfers |
-| HEARTBEAT | Cheap talk | Typed agent-state transition (`WORKING`/`WAITING_ON_ROLE`/`PROPOSED`/`IDLE`) — schema-validated and rate-limited, consumed by the overseer for stall detection (see [Agent Wait Patterns §4](../reference/agent-wait-patterns.md#4-heartbeat-message-type)) |
+| HEARTBEAT | Cheap talk | Typed agent-state transition (`WORKING`/`WAITING_ON_ROLE`/`WAITING_FOR_EVENT`/`PROPOSED`/`IDLE`) — schema-validated and rate-limited, consumed by the overseer for stall detection (see [Agent Wait Patterns §4](../reference/agent-wait-patterns.md#4-heartbeat-message-type)) |
 | CONSENSUS_PROPOSE | Costly signal | Attestations are harder to produce without doing the work |
 | CONSENSUS_ACK | Costly signal | Must reference specific artifacts reviewed (prevents rubber-stamping) |
 | CONSENSUS_NACK | Costly signal | Must include specific, actionable objection with artifact references |
