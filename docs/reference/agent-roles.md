@@ -335,7 +335,7 @@ each surface so reviewers know to keep them in sync.
 **File access**:
 - Allowed writes: `.egg-state/oversight/` (structured oversight logs, dedup state, per-agent timing). The two state files are owned by the overseer:
   - `.egg-state/oversight/filed-issues.jsonl` — append-only JSON Lines record of recommended/filed/skipped issue filings (intra-phase dedup fast path; cross-phase fallback uses `gh issue list --search "{anomaly_signature[:8]}"`).
-  - `.egg-state/oversight/agent-timing.json` — per-agent phase-entered timestamps and per-anomaly suppression state migrated from `/sdlc`'s in-memory map. Read/modify/write is `fcntl.LOCK_EX`-guarded by `.egg-state/oversight/agent-timing.lock`.
+  - `.egg-state/oversight/agent-timing.json` — per-agent phase-entered timestamps and per-anomaly suppression state migrated from `/sdlc`'s in-memory map. Schemas at `egg_overseer.state.AgentTimingState` / `AgentTimingEntry`; read/modify/write is `fcntl.LOCK_EX`-guarded by `.egg-state/oversight/agent-timing.lock`. Helpers `load_agent_timing` / `save_agent_timing` (atomic tmp+rename) and `load_filed_issues` / `append_filed_issue` (header-on-first-create) live in the same module.
 - Blocked: All source code, tests, docs, configs, contracts, drafts, reviews
 
 **Required environment variables**:
@@ -343,7 +343,7 @@ each surface so reviewers know to keep them in sync.
 
 **Access**:
 - Orchestrator APIs: pipeline status, container logs, progress queries, health alerts, message bus
-- Orchestrator MCP tool: `mcp__overseer__consult_advisor` (auth-gated to overseer role; forwards to `shared.overseer.advisor.consult_advisor()`)
+- Orchestrator MCP tool: `mcp__overseer__consult_advisor` (auth-gated to overseer role; tool registration at `orchestrator/mcp/tools/overseer_advisor.py` — `CONSULT_ADVISOR_TOOL` schema + `handle_consult_advisor` handler — forwards to `egg_overseer.advisor.consult_advisor()`)
 - GitHub API: `gh issue create` for diagnostic issue filing — gateway-mediated and constrained to `--repo $EGG_PIPELINE_REPO`, `agent:overseer` + priority labels (auto-injected if missing), title ≤ 120 chars, body ≤ 50 KB, no secret patterns (defense-in-depth scan)
 - `egg-orch message send` to redirect individual agents
 - `egg-orch overseer alert` to broadcast `OVERSEER_ALERT` notifications to the human operator (always uses `message_type=OVERSEER_ALERT` and `to_role=all`)
@@ -359,7 +359,7 @@ each surface so reviewers know to keep them in sync.
 **Outputs**:
 - Redirect messages to stalled/off-track agents
 - HITL escalation requests for agent restarts and infrastructure errors
-- `OVERSEER_ALERT` messages, optionally carrying `recommendation=file_issue` + `recommendation_payload={issue_title, issue_body, priority, anomaly_signature}` for the HITL approval flow (`schema_version=2`; backwards-compatible with `schema_version=1` callers)
+- `OVERSEER_ALERT` messages, optionally carrying `metadata.recommendation="file_issue"` + `metadata.recommendation_payload={issue_title, issue_body, priority, anomaly_signature}` for the HITL approval flow (`metadata.schema_version=2`; backwards-compatible — pre-#1962 alerts implicitly carry `schema_version=1` and consumers default to 1 when the key is absent, so the message envelope itself is unchanged)
 - Autonomous GitHub issues with structured diagnostics (labeled `agent:overseer` + matching priority `p0`/`p1`/`p2`/`p3`) — only after HITL approval; never bypassed
 - Pipeline health summary at completion
 - Structured oversight logs in `.egg-state/oversight/`
