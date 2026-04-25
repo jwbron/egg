@@ -240,10 +240,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-25T17:52:17.001391Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-25T18:05:17.978161Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Sonnet-gated per-anomaly rubric — LLM decides case-by-case\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -675,7 +675,7 @@
     }
   ],
   "created_at": "2026-04-25T17:05:44.416677Z",
-  "updated_at": "2026-04-25T18:05:16.233991Z",
+  "updated_at": "2026-04-25T18:05:18.012064Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -689,6 +689,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 39,
+  "version": 40,
   "jira_ticket": null
 }
