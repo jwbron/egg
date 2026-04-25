@@ -315,7 +315,7 @@ machine-actionable status. There is no nested `metadata` envelope.
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
 | `from_role` | string | Yes | The agent role emitting the heartbeat. |
-| `state` | enum string | Yes | One of `WORKING`, `WAITING_ON_ROLE`, `PROPOSED`, `IDLE`. |
+| `state` | enum string | Yes | One of `WORKING`, `WAITING_ON_ROLE`, `WAITING_FOR_EVENT`, `PROPOSED`, `IDLE`. |
 | `waiting_on` | string | Required **iff** `state == WAITING_ON_ROLE` | The agent role this agent is blocked on. Server-side validation rejects `WAITING_ON_ROLE` with a missing or empty `waiting_on`. |
 | `since` | ISO-8601 string | Optional | When the agent entered this state. Useful for stall detection. |
 | `body` | string | Optional | Human-readable summary. |
@@ -337,6 +337,16 @@ Emit `HEARTBEAT` on **state transitions only** — not on a fixed tick:
 A dedup on the server side drops back-to-back identical `(state,
 waiting_on)` heartbeats, so repeated emissions on the same state are
 harmless but unnecessary.
+
+`WAITING_FOR_EVENT` is the one exception: it is a liveness keep-alive
+emitted automatically by `mcp__brc__wait_loop` while it is blocked on
+a message filter (issue #2036). Agents do **not** emit it manually —
+the wait primitive owns its lifecycle and emits one beat on entry,
+one every 60 s while blocked, and a final `WORKING` transition on
+exit. The server-side dedup deliberately lets `WAITING_FOR_EVENT`
+duplicates through so the overseer's "no heartbeat for N seconds"
+detector receives a steady liveness signal during long waits. The
+rate limit (§5) still applies.
 
 ### Why separate from `PROGRESS` / `STATUS`?
 
