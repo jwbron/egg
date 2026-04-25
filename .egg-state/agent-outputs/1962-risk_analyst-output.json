@@ -1,0 +1,589 @@
+{
+  "schema_version": "1.0",
+  "pipeline_id": "issue-1962",
+  "phase": "plan",
+  "agent_role": "risk_analyst",
+  "issue": 1962,
+  "title": "Improve overseer escalation/issue opening behavior (advisor strategy + auto-issue + host migration)",
+  "scope_recap": {
+    "threads": [
+      "Escalation tuning of agent-side overseer (sandbox/agent-config/rules/overseer.md)",
+      "Auto-issue filing gated by Opus advisor (advisor strategy framing) with HITL shadow-mode rollout",
+      "Host → overseer migration of stall/silent-agent/NACK/long-run/rescue logic out of skills/sdlc/SKILL.md"
+    ],
+    "shipping_mode": "Single PR (decision-22 = Option A) covering all three threads",
+    "rollout": "Shadow mode — overseer composes issue body but raises HITL decision; human approves before filing (decision-10)",
+    "advisor_implementation_choice": "Capability-spike then choose (decision-23 = Option C — Option A native advisor tool if SDK supports, else Option B two-call pattern)"
+  },
+  "summary": "High-complexity, cross-cutting change touching agent-side rules, gateway policy, sandbox CLI, orchestrator config, host skill, and tests. The single most concrete blocker uncovered during the risk pass is that the vendored claude-agent-sdk (0.1.65) DOES NOT expose the native advisor_20260301 tool or the max_uses parameter — only the context-1m-2025-08-07 beta is supported. This collapses decision-23's Option A to 'requires SDK upgrade' and turns Option B (two-call pattern) into the de-facto default unless the plan budgets an SDK upgrade explicitly. Other top concerns: (a) cost/budget exposure because decision-19 explicitly defers the advisor cap, (b) host-migration regression risk against PR #2011 / PR #2016 calibration, (c) shadow-mode HITL noise overwhelming the operator, and (d) cross-phase dedup state correctness across overseer respawns. None of these block the work, but each needs an explicit mitigation lined up in the plan before implement.",
+  "research_sources": [
+    {
+      "name": "Anthropic advisor strategy launch announcement",
+      "url": "https://claude.com/blog/the-advisor-strategy",
+      "date_referenced": "2026-04-25",
+      "key_facts": [
+        "Beta header anthropic-beta: advisor-tool-2026-03-01",
+        "Tool type advisor_20260301; only claude-opus-4-6 supported as advisor model in current beta",
+        "max_uses parameter caps advisor consultations per request",
+        "If advisor_tool_result blocks remain in message history, follow-up turns MUST include advisor tool or API returns 400 invalid_request_error",
+        "Priority Tier on Sonnet does NOT cascade to Opus advisor calls",
+        "No streaming for advisor responses (latency penalty per consultation)",
+        "ZDR eligible; data not stored after response"
+      ]
+    },
+    {
+      "name": "Anthropic advisor-tool API docs",
+      "url": "https://platform.claude.com/docs/en/agents-and-tools/tool-use/advisor-tool",
+      "date_referenced": "2026-04-25",
+      "key_facts": [
+        "API surface explicitly flagged as may-change-before-GA",
+        "Pin to beta version string and test against updates"
+      ]
+    },
+    {
+      "name": "Vendored claude-agent-sdk introspection (in-repo)",
+      "url": "n/a (local Python introspection: import claude_agent_sdk; ClaudeAgentOptions.betas)",
+      "date_referenced": "2026-04-25",
+      "key_facts": [
+        "Installed version: 0.1.65",
+        "ClaudeAgentOptions.betas accepts only Literal['context-1m-2025-08-07']",
+        "No 'advisor' / 'max_uses' references found anywhere in the SDK module surface"
+      ]
+    }
+  ],
+  "carry_over_constraints_from_refine": {
+    "scope": "All three threads in this pipeline (decision-1, decision-11)",
+    "labels": "agent:overseer + matching p0/p1/p2/p3 priority label only; NO new labels (decision-7, decision-17)",
+    "dedup_window": "Per repo by agent:overseer label + anomaly-type signature (decision-5)",
+    "dedup_state_storage": ".egg-state/oversight/filed-issues.json (decision-6 — OVERSEER_PATTERNS already permits)",
+    "issue_filing_actor": "Agent-side overseer via new egg-orch overseer file-issue CLI verb (decision-9)",
+    "issue_body_template": "Extend orchestrator/overseer/issue_filer.py:86-107 with explicit pipeline/phase/branch/commit/parent-alert links (decision-8)",
+    "rollout": "Shadow mode HITL-gated (decision-10)",
+    "advisor_trigger": "Intersection: Haiku confidence > threshold AND Tier-1 health alert present (decision-18)",
+    "advisor_budget_cap": "DEFERRED — no cap for now; follow-up issue tracks (decision-19)",
+    "prompt_contract_to_advisor": "Distilled summary: classification + last N progress events + active health alerts + last K log lines (decision-20)",
+    "auto_issue_gate_placement": "Advisor recommends; OVERSEER_ALERT surfaces; human gates filing (decision-21)",
+    "host_migration_thresholds": "Configurable per-pipeline via PipelineConfig (default to current values) (decision-12)",
+    "cross_cycle_state_location": ".egg-state/oversight/agent-timing.json — overseer-owned, persistent (decision-16)",
+    "gateway_policy_for_gh_issue_create": "Auto-inject agent:overseer + priority label; title ≤ 120 chars; body ≤ 50 KB; allowed repos = pipeline's own only; NO rate-limit (feedback-1.Q4)",
+    "shadow_mode_HITL_channel": "Existing pending_decisions / register_open_question — do not invent new channel (feedback-1.Q7)"
+  },
+  "risks": [
+    {
+      "id": "R-COMPAT-01",
+      "category": "compatibility",
+      "title": "Vendored claude-agent-sdk 0.1.65 does NOT support advisor_20260301 native tool",
+      "description": "Verified via local Python introspection: ClaudeAgentOptions.betas accepts only Literal['context-1m-2025-08-07']; no advisor or max_uses parameter exists in the public surface. The refine analysis flagged this as 'unverified pending plan-phase spike'; the spike result is now confirmed: native Option A is not viable without a claude-agent-sdk version bump. Ratifies decision-23 Option C → Option B fallback in practice.",
+      "evidence": [
+        "/usr/bin/python3 -c \"import claude_agent_sdk; print(claude_agent_sdk.__version__)\" → 0.1.65",
+        "ClaudeAgentOptions field 'betas: list[Literal['context-1m-2025-08-07']]' — no advisor literal",
+        "grep across repo for 'advisor_20260301', 'max_uses', 'advisor-tool-2026' → zero matches",
+        "Anthropic's advisor tool docs confirm beta-only status; SDK upgrade required to expose"
+      ],
+      "impact": "high",
+      "likelihood": "certain",
+      "blast_radius": "Forces Option B (two-call pattern) unless plan budgets an SDK upgrade. Option B has well-known costs (extra round trip per consultation, manual prompt construction, double token billing for context echo).",
+      "mitigations": [
+        "Default the implement plan to Option B (two-call pattern). Treat decision-23 Option A as conditional on a separate SDK upgrade task.",
+        "If pursuing Option A: add an explicit SDK upgrade task in the implement phase with version pin tracking + smoke test + rollback path. Pin to a specific advisor-tool-2026-03-01-supporting version; do not float.",
+        "Document the executor → advisor handoff contract in shared/egg_agent/ so swapping Option A in later is a one-liner if/when the SDK exposes advisor_20260301.",
+        "Add a CI assertion that fails if advisor_20260301 / max_uses appears in code without a vendored-SDK version bump landing in pyproject.toml + uv.lock."
+      ],
+      "rollback": "If Option B ships and proves expensive, the fallback is to disable advisor calls via overseer_advisor_max_uses_per_phase=0 (or an overseer_auto_file_issues=false flag) and revert to today's OVERSEER_ALERT-only path. Two-call pattern is implemented in our Python so disabling is a config flip, no SDK rollback needed.",
+      "human_review_required": true,
+      "human_review_question": "Does the implement phase ship Option B (two-call pattern, no SDK upgrade) by default, or does it ship Option A with an explicit claude-agent-sdk upgrade task included in the same PR?"
+    },
+    {
+      "id": "R-COMPAT-02",
+      "category": "compatibility",
+      "title": "Beta API surface (advisor-tool-2026-03-01) may change before GA",
+      "description": "Even if the SDK is upgraded, advisor_20260301 is in public beta. Anthropic explicitly says 'tool definition and API surface may change before GA' and offers no GA date. Pin to the beta version string is recommended but does not eliminate breakage risk — Anthropic could deprecate or change behavior of the pinned version.",
+      "evidence": [
+        "Anthropic advisor tool docs: 'API surface may change before GA. Pin to the beta version string and test against updates.'",
+        "Anthropic blog launch post (2026-04-09) does not announce a GA date.",
+        "Comparable beta (context-1m-2025-08-07) is older but still gated behind a beta header in our SDK — evidence Anthropic doesn't aggressively GA betas."
+      ],
+      "impact": "medium",
+      "likelihood": "medium",
+      "blast_radius": "If Anthropic ships a breaking change to advisor_20260301, every overseer escalation that uses it stops working until we update. The overseer is phase-scoped, so the failure is per-phase but could spam OVERSEER_ALERTs of its own ('advisor call returned 400').",
+      "mitigations": [
+        "Wrap advisor invocation in an explicit try/except that downgrades cleanly to Option B (two-call) on 400/403 from Anthropic. Today's overseer Sonnet decision is a known-good fallback.",
+        "Add an integration test that pins advisor-tool-2026-03-01 explicitly and asserts behavior; this lets us notice when our SDK floats over the beta version.",
+        "Surface advisor failures via an OVERSEER_ALERT with a distinct anomaly type (advisor-call-failure) so humans can see degradation without it being silent."
+      ],
+      "rollback": "Same as R-COMPAT-01: flip overseer_advisor_max_uses_per_phase=0 to disable advisor entirely. Two-call fallback path remains in code.",
+      "human_review_required": false
+    },
+    {
+      "id": "R-COST-01",
+      "category": "cost",
+      "title": "Advisor budget cap explicitly deferred (decision-19) creates unbounded Opus exposure per pipeline",
+      "description": "The contract resolution for decision-19 is 'no cap for now; follow-up issue tracks advisor budget specifically.' This means a single misbehaving pipeline that triggers Haiku flags every cycle could call Opus on every cycle for the lifetime of the phase. With overseer_poll_interval_seconds=30 default and a phase that runs 10–60 minutes, that's 20–120 Opus calls per phase. Opus 4.6 is roughly 5x Sonnet pricing per token; the prompt contract (decision-20: distilled summary) is non-trivial.",
+      "evidence": [
+        "Contract decision-19 resolution: 'Other: no cap for now — we'll handle budget separately.'",
+        "Existing budget knob max_llm_cost_per_hour=$5.00 (sandbox/agent-config/rules/overseer.md:214) is per-overseer-instance and not per-pipeline; it is also a self-monitor alert, not a hard limit.",
+        "decision-18's intersection gate (Haiku confidence > threshold AND Tier-1 alert present) bounds invocation rate but does not eliminate it — a genuinely stuck phase will keep tripping the gate.",
+        "Anthropic note: 'Priority Tier on Sonnet does NOT cascade to Opus' — advisor latency may extend overseer cycle time, compounding cost via slower error detection."
+      ],
+      "impact": "high",
+      "likelihood": "medium",
+      "blast_radius": "Per-pipeline Opus burn. At ~120 calls × ~600 tokens advisor output (per Anthropic's typical figure) plus echo of full executor context, a single bad pipeline could spend $5–$25 of advisor cost in one phase. Across multiple concurrent pipelines this compounds.",
+      "mitigations": [
+        "Add a defensive per-phase cap in the implement phase even though decision-19 deferred a formal cap. Recommend overseer_advisor_max_uses_per_phase with default 5 (high enough to not bite normal use; low enough to catch runaway).",
+        "Track advisor calls in the existing self_monitor max_llm_cost_per_hour budget so the cost is visible in OVERSEER_ALERT self-reports.",
+        "Add an OVERSEER_ALERT anomaly type 'advisor-budget-exceeded' that fires when a per-phase soft cap is hit — visibility, not enforcement, until the formal policy lands.",
+        "Surface advisor cost in pipeline status responses so the human can see runaway pipelines from the dashboard (no new endpoint needed; piggy-back self_monitor)."
+      ],
+      "rollback": "Set overseer_advisor_max_uses_per_phase=0 to disable advisor calls entirely. Reverts to today's behavior.",
+      "human_review_required": true,
+      "human_review_question": "Even though decision-19 deferred the formal budget cap, should the plan ship a defensive per-phase soft cap (e.g., max_uses_per_phase=5) to bound runaway-pipeline cost while the budget follow-up lands? The risk pass strongly recommends shipping a soft cap — deferring entirely is a single-bad-phase → multi-$10 exposure."
+    },
+    {
+      "id": "R-OP-01",
+      "category": "operational",
+      "title": "Shadow-mode HITL gating (decision-10) could overwhelm operator with file-issue prompts",
+      "description": "decision-10 chose 'shadow mode first' over 'feature flag' specifically so the human approves each filing before it lands. decision-21 reinforces this: advisor returns recommendation=file_issue, OVERSEER_ALERT surfaces it, human gates via existing pending_decisions. But the dedup mechanism (decision-5: per-repo agent:overseer + anomaly-type signature) only fires AFTER a filing decision is approved — meaning the human sees a HITL prompt for every advisor-recommended candidate, even ones that would have been deduped.",
+      "evidence": [
+        "Refine analysis lines 552-560 (decision-10): shadow mode requires HITL approval per filing.",
+        "Existing pending_decisions surface (skills/sdlc/SKILL.md:642+): operator already sees decision prompts; piling more on increases triage cost.",
+        "Today's overseer fires multiple OVERSEER_ALERTs per pipeline (recent calibration in PR #2011 reduced false positives but did not eliminate them).",
+        "Issue body composition involves Opus advisor cost + HITL latency — if the human skips/rejects, both are wasted."
+      ],
+      "impact": "medium",
+      "likelihood": "high",
+      "blast_radius": "Operator fatigue. Could lead to humans approving 'file_issue' decisions reflexively without reading, which neutralizes the shadow-mode benefit. Or rejecting reflexively, which makes the feature appear broken and stalls calibration data.",
+      "mitigations": [
+        "Run dedup BEFORE composing the HITL prompt: if a matching open issue already exists, skip the HITL altogether (the OVERSEER_ALERT alone suffices for the human).",
+        "Bundle multiple advisor recommendations into one pending_decision when they fire in rapid succession (per skills/sdlc/SKILL.md:642 multi-decision batching is already a pattern).",
+        "Show the would-be issue title + body preview in the HITL prompt so humans can evaluate fast — not just 'file an issue?' (decision-7's existing pre_merge_condition pattern is a precedent).",
+        "Track approval rate and surface in success metrics (per feedback-1.Q6: ≥70% acceptance rate is the bar). If approval rate < 50% during shadow mode, advisor prompt or trigger gating needs tuning before going live."
+      ],
+      "rollback": "Disable auto-issue filing entirely via overseer_auto_file_issues=false flag (recommend adding this knob even though decision-10 didn't pick the feature-flag option). Falls back to OVERSEER_ALERT-only.",
+      "human_review_required": false
+    },
+    {
+      "id": "R-COMPAT-03",
+      "category": "compatibility",
+      "title": "Host migration of stall/NACK/long-run logic risks regressing PR #2011 / PR #2016 calibration",
+      "description": "PR #2011 (Fix #2010) calibrated overseer prompt for refine-phase false positives just before this work. PR #2016 (Fix #2012) gated agent-heartbeat-stall on Tier-1 signal. Migrating /sdlc's stall/silent-agent/NACK/long-run/rescue logic into the overseer means re-implementing thresholds and triggers on a freshly-rewritten rule doc — it's easy to silently drop the calibration nuance during the rewrite. The skills/sdlc/SKILL.md:489-639 logic includes battle-tested edge cases (BRC reviewer-idle suppression, post-nudge escalation timer, 'wait longer' reset semantics) that are not all explicitly captured in the refine analysis.",
+      "evidence": [
+        "PR #2011 commit: 'Fix #2010: calibrate overseer prompt for refine-phase false positives (#2011)'",
+        "PR #2016 commit: 'Fix #2012: gate agent-heartbeat-stall overseer alerts on Tier-1 signal (#2016)'",
+        "skills/sdlc/SKILL.md:494: 'Note: 3 minutes is a baseline threshold. Code generation, test execution, and large diffs can legitimately exceed this. Adjust the threshold based on pipeline complexity.' — this nuance is hard to encode in a per-pipeline PipelineConfig threshold.",
+        "skills/sdlc/SKILL.md:568-570: in-memory map of {role: {phase, phase_entered_at, nudged_at, first_seen_at, has_any_messages}} is reset on phase-change AND on new messages. Decision-16 puts state in .egg-state/oversight/agent-timing.json but doesn't specify reset semantics."
+      ],
+      "impact": "high",
+      "likelihood": "medium",
+      "blast_radius": "False-positive or false-negative regressions in escalation. False positives = operator fatigue. False negatives = stuck pipelines that aren't surfaced.",
+      "mitigations": [
+        "Pin a regression test suite: capture today's /sdlc behavior on a representative set of pipeline traces (refine-stall, NACK-loop, long-running-implement, silent-agent) and assert the overseer reproduces them. Treat any divergence as a planning gap.",
+        "Run shadow-mode comparison in implement phase: keep /sdlc detection alive alongside overseer detection for a calibration window; alert when they disagree. Decision-22 chose 'one PR' so this has to be done as feature flags within the PR.",
+        "Explicitly capture the 'reset phase_entered_at on new messages' semantics in the agent-timing.json schema; add a test asserting it.",
+        "Review PR #2011 + #2016 changes in detail during plan phase and ensure each calibration carries forward into the new prompt rewrite. The plan should include a checklist."
+      ],
+      "rollback": "Revert host changes if regression is detected post-merge. /sdlc detection logic is separable from overseer logic in this PR — keep both reachable and use a feature flag (overseer_owns_host_detection: bool) so rollback is a config flip, not a revert.",
+      "human_review_required": true,
+      "human_review_question": "Should the implement phase ship overseer-host detection behind a feature flag (e.g., overseer_owns_host_detection, default off) so /sdlc and overseer can run side-by-side for a calibration window before the host code is removed? Strongly recommended given the PR #2011/#2016 calibration is recent and easy to regress."
+    },
+    {
+      "id": "R-OP-02",
+      "category": "operational",
+      "title": "Dedup signature mismatch could silently let duplicates through or block legitimate re-files",
+      "description": "decision-5 chose 'per repo, by agent:overseer label + anomaly-type signature.' But 'anomaly-type signature' is not formally defined. Today the agent-side overseer's anomaly types include: stuck-phase-transition, orchestrator-consensus-silent, unauthorized-overseer-action, agent-heartbeat-stall, agent-loop. These are coarse — two genuinely different stuck-phase-transition incidents (different pipelines, different agents) would dedup to the same signature unless the signature includes more entropy. Conversely, a too-fine signature (including pipeline_id + commit_sha) would never dedup.",
+      "evidence": [
+        "sandbox/agent-config/rules/overseer.md:171-180 enumerates 5 anomaly types. No 'subtype' or 'signature' field exists today.",
+        "orchestrator/overseer/issue_filer.py:137 builds title as f'[Pipeline Diagnostic] {anomaly_type} - {agent_role} ({pipeline_id})' — includes pipeline_id, which would prevent dedup across pipelines.",
+        "feedback-1.Q3: 'No cap on auto-filed issues. Dedup is sufficient.' This puts the entire weight of duplicate prevention on the dedup mechanism."
+      ],
+      "impact": "medium",
+      "likelihood": "high",
+      "blast_radius": "Either GitHub issue spam (signature too narrow) or missed escalations (signature too broad). Both undermine human trust in the feature.",
+      "mitigations": [
+        "Define the dedup signature explicitly in the plan phase: recommend (anomaly_type + agent_role + repo) as the matcher. Pipeline-id should NOT be part of the signature — the same anomaly recurring in multiple pipelines is exactly the case auto-filing should catch.",
+        "Add a 'dedup match' field to the OVERSEER_ALERT --detail so the human can see what was matched against.",
+        "Track a 'dedup overrides' counter — humans can manually approve filing even when dedup would block, with reasoning logged. Surfaces the boundary.",
+        "Run a calibration backtest: scan recent OVERSEER_ALERTs and simulate which would have deduped under each signature definition. Pick a definition that matches operator intuition."
+      ],
+      "rollback": "Make the dedup signature configurable. If the chosen signature proves wrong post-merge, ship a follow-up that adjusts it without code changes.",
+      "human_review_required": true,
+      "human_review_question": "What exactly should the dedup signature be? Recommend (anomaly_type + agent_role + repo); explicitly EXCLUDE pipeline_id. Confirm or override."
+    },
+    {
+      "id": "R-COMPAT-04",
+      "category": "compatibility",
+      "title": "Two coexisting overseers risk divergence if dead-code OverseerMonitor is partially revived",
+      "description": "The codebase has two overseer paths today: deployed sandbox/agent-config/rules/overseer.md (LLM agent) and dormant orchestrator/overseer/{monitor,classifier,decision_maker,issue_filer}.py (~3000 LOC dead code). decision-9 picked agent-side CLI (egg-orch overseer file-issue), which means the dead-code path stays dead. But decision-8 reuses orchestrator/overseer/issue_filer.py:86-107 (template). That partial revival creates a code-coupling: changes to the agent-side rule rewrite need to keep the dead-code template extension in sync, or the two drift.",
+      "evidence": [
+        "orchestrator/overseer/__init__.py:27-28: from overseer.issue_filer import file_diagnostic_issue; from overseer.monitor import OverseerMonitor",
+        "orchestrator/overseer/monitor.py:34: from overseer.issue_filer import file_diagnostic_issue",
+        "orchestrator/overseer/monitor.py:624: file_diagnostic_issue called from inside OverseerMonitor (only known production caller)",
+        "Refine analysis lines 90-108 documents OverseerMonitor as 'dead code in production', referenced only in tests."
+      ],
+      "impact": "low",
+      "likelihood": "medium",
+      "blast_radius": "Future-maintainer confusion; subtle drift if someone updates one path without the other. Not a runtime risk.",
+      "mitigations": [
+        "Move the issue body template OUT of orchestrator/overseer/issue_filer.py and INTO a shared module (e.g., shared/overseer/issue_template.py) imported by both the new CLI verb and any test that exercises the dead-code path. Single source of truth.",
+        "Mark orchestrator/overseer/monitor.py + classifier.py + decision_maker.py + self_monitor.py as 'reference-only / not for production' in the module docstring + add a runtime assertion that prevents accidental instantiation in production code paths (e.g., look for OverseerMonitor() in routes/ via grep + lint rule).",
+        "If the plan phase decides to delete the dead code entirely, do it as a separate commit on the same PR (smaller diff per commit, clear story)."
+      ],
+      "rollback": "Reverting the template extraction is a one-file change.",
+      "human_review_required": false
+    },
+    {
+      "id": "R-SEC-01",
+      "category": "security",
+      "title": "Issue body could leak sensitive context (logs, tokens, env values) without scrubbing",
+      "description": "orchestrator/overseer/issue_filer.py:78-84 already truncates container_logs to last 2000 chars and embeds them in the body. The decision-8 extension adds branch + commit SHA + pipeline_id + parent OVERSEER_ALERT message ID — all benign. But the existing template already accepts arbitrary 'context' dict that may include log lines from agents, which historically have surfaced auth tokens (e.g., Slack webhook URLs in stack traces, gh PAT in subprocess error output). Public GitHub issues are publicly readable.",
+      "evidence": [
+        "orchestrator/overseer/issue_filer.py:78-84: container_logs trimmed to 2000 chars but NOT scrubbed for secrets.",
+        "Recent issue history shows orchestrator/sandbox sometimes logs gateway-injected env values; though gateway scrubs at injection point, agent stack traces can re-emit them.",
+        "agent:overseer label is the only label — there is no 'sensitive' / 'security' label that would reroute to a private repo."
+      ],
+      "impact": "high",
+      "likelihood": "low",
+      "blast_radius": "Single-shot leak of credentials or internal-only context to a public GitHub issue. Could require coordinated disclosure / token rotation.",
+      "mitigations": [
+        "Add a secret-scrubbing pass to the issue body BEFORE filing. Patterns: gh_*, GITHUB_TOKEN=, ghp_*, ghs_*, AKIA*, glpat-*, slack webhook URLs. Use shared/egg_restrictions or a new shared/scrubbing module.",
+        "Length-cap container_logs at 2000 chars (already done); also length-cap the entire body at 50 KB per feedback-1.Q4.",
+        "Run gateway-side validation on the issue body before filing: gateway already mediates gh; reject the call if the body contains common secret patterns (defense in depth).",
+        "Test cases: gateway/tests/test_overseer_issue_create.py should include a test that asserts 'body containing ghp_xyz...' is rejected by gateway with a clear error.",
+        "Document in the rule doc that the overseer must NOT include un-scrubbed log dumps in the issue body — prefer summarized observations + log line references."
+      ],
+      "rollback": "If a leak occurs, revoke any leaked credentials, rotate, and use gh issue delete to remove the issue. Add the leaked pattern to the scrubbing list.",
+      "human_review_required": true,
+      "human_review_question": "What scrubbing patterns must the issue body filter (secrets, internal hostnames, container env values)? Recommend a denylist of GitHub PAT, AWS, Slack webhook patterns; gateway-side validation for defense in depth. Confirm or extend."
+    },
+    {
+      "id": "R-SEC-02",
+      "category": "security",
+      "title": "Gateway must enforce label injection so overseer cannot bypass agent:overseer + priority labels",
+      "description": "feedback-1.Q4 mandates auto-injection of agent:overseer + matching priority label at gateway level. Without enforcement, the overseer rule doc could (intentionally or via a future prompt regression) emit gh issue create without --label agent:overseer, breaking dedup search and labeling discipline. The gateway today blocks issue comment / issue edit but does not currently rewrite gh issue create commands to inject labels.",
+      "evidence": [
+        "gateway/agent_restrictions.py:153-158: _OVERSEER_BLOCKED_GH_OPS = ['issue comment *', 'issue edit *', 'pr merge *', 'pr create *'] — 'issue create' is not blocked AND not rewritten.",
+        "gateway/agent_restrictions.py:193-218: check_agent_gh_operation only checks against blocked_operations; no rewrite path exists.",
+        "feedback-1.Q4 explicitly resolved 'auto-inject required labels'."
+      ],
+      "impact": "medium",
+      "likelihood": "medium",
+      "blast_radius": "Issues filed without agent:overseer label do not appear in dedup search — same issue gets filed multiple times. Mislabeled p0 issues could trigger incident response false alarms.",
+      "mitigations": [
+        "Add a gh-command-rewrite path in gateway/gateway.py that intercepts 'gh issue create' from overseer role and injects --label agent:overseer + --label p<N> based on the OVERSEER_ALERT priority. Reject if the priority label is missing from the request.",
+        "Enforce title ≤ 120 chars and body ≤ 50 KB at gateway level (per feedback-1.Q4). Reject with a clear 4xx if exceeded.",
+        "Enforce allowed_repos = pipeline's own repo only (per feedback-1.Q4). Block --repo flag from being passed by overseer; force the file to use the env-injected repo identity.",
+        "Add gateway tests: test_overseer_issue_create_label_injection, test_overseer_issue_create_size_limits, test_overseer_issue_create_repo_pinning. Each should be in gateway/tests/test_gateway.py near the existing 6660-6710 issue-comment tests."
+      ],
+      "rollback": "If gateway rewrite breaks, fall back to blocking 'issue create' for overseer entirely — reverts to OVERSEER_ALERT-only mode without auto-filing.",
+      "human_review_required": false
+    },
+    {
+      "id": "R-SEC-03",
+      "category": "security",
+      "title": "egg-orch overseer file-issue CLI surface needs PATH/role gating coordination with #1786",
+      "description": "decision-9 picked agent-side CLI (egg-orch overseer file-issue). decision-14 chose 'add a gateway allowlist rule now, defer PATH restructuring to #1786.' But the new CLI verb runs inside the sandbox container; without role-based PATH restrictions (#1786), every agent in every role would have access to the verb, including coder/tester/refiner. A misconfigured prompt or rogue agent could file diagnostic issues mid-implement-phase.",
+      "evidence": [
+        "decision-14 resolution: 'Add a gateway allowlist rule now, defer PATH restructuring to #1786.'",
+        "Today: sandbox/bin/egg-orch is a single binary on every agent's PATH; subcommands are gated only by the orchestrator-side auth check.",
+        "issue #1786 (per-role PATH restriction) is the proper fix; decision-14 explicitly defers."
+      ],
+      "impact": "medium",
+      "likelihood": "low",
+      "blast_radius": "Non-overseer agent files a diagnostic issue. The orchestrator-side auth check (egg-orch overseer requires overseer-role bearer token) would reject the call — so this is bounded by auth, not PATH alone. But error messages and CLI usage discovery remain visible to non-overseer roles.",
+      "mitigations": [
+        "Verify the orchestrator-side auth check on egg-orch overseer file-issue rejects non-overseer roles with 401. Add a regression test in orchestrator/tests/test_overseer_role.py.",
+        "Consider hiding the 'overseer' subparser from non-overseer-role help output to reduce the surface of accidental invocation. Subparsers can be wired to inspect EGG_AGENT_ROLE before exposing.",
+        "When #1786 ships, the PATH restriction will provide defense in depth. Until then, the auth check is load-bearing — prioritize testing it.",
+        "Document the auth gate in the rule doc rewrite (sandbox/agent-config/rules/overseer.md) so the dependency is visible."
+      ],
+      "rollback": "If the auth gate fails: add the verb to a denylist for non-overseer roles in the gateway and ship a hotfix. Existing OVERSEER_BLOCKED_GH_OPS pattern applies.",
+      "human_review_required": false
+    },
+    {
+      "id": "R-OP-03",
+      "category": "operational",
+      "title": "Cross-phase respawn could re-raise the same HITL decision the human already approved",
+      "description": "The overseer is phase-scoped (overseer.md:5: 'Each phase gets a fresh overseer instance with no accumulated state from prior phases'). A new phase's overseer reads .egg-state/oversight/filed-issues.json (decision-6 storage) for filed-issue dedup. But the HITL decision approval state — 'has the human already said yes/no to filing this anomaly?' — is NOT in filed-issues.json. It's in the contract's resolved decisions. A respawning overseer that hits the same anomaly classification could re-register the same HITL decision, asking the human twice.",
+      "evidence": [
+        "overseer.md:5: phase-scoped, no accumulated state.",
+        "decision-6 stores filed-issues.json (post-filing dedup), not pre-filing HITL state.",
+        "decision-21: 'Advisor recommends; OVERSEER_ALERT surfaces; human gates filing.' Implies HITL decision is created per-recommendation.",
+        "If the human says 'no', the overseer has no signal to remember 'don't ask again for this anomaly + signature' — a respawn could re-ask."
+      ],
+      "impact": "medium",
+      "likelihood": "medium",
+      "blast_radius": "Operator fatigue (asked twice for the same approval). Subtle correctness issue: if human approves on respawn after rejecting earlier, the issue gets filed despite earlier intent.",
+      "mitigations": [
+        "Extend filed-issues.json to also track 'rejected' anomaly signatures (as well as 'filed'). Schema: {filed: [...], rejected: [{signature, rejected_at, reason}]}. Overseer skips re-prompting on a signature in 'rejected' for the lifetime of the pipeline.",
+        "Surface the prior decision in any new HITL prompt: 'Earlier you rejected filing for this anomaly. Re-evaluate?' Lets the human override knowingly.",
+        "Add an observability test: simulate phase advance with a pending unresolved file-issue HITL decision — assert the new overseer does NOT re-register the same decision.",
+        "Pipeline-id stays in the dedup state file so respawns within the same pipeline have the right context."
+      ],
+      "rollback": "If the duplication problem persists, fall back to per-pipeline single-shot HITL: overseer registers at most one file-issue HITL per phase; subsequent triggers wait for the human's response before re-prompting.",
+      "human_review_required": false
+    },
+    {
+      "id": "R-PERF-01",
+      "category": "performance",
+      "title": "Two-call advisor pattern (Option B) doubles network round trips per advisor consultation",
+      "description": "Option B (decision-23 fallback) uses two separate run_agent_async calls: Haiku classifies, then Sonnet/Opus decides. Each is a full HTTP round trip to Anthropic. Today's overseer cycle (overseer_poll_interval_seconds=30) plus a Haiku classifier call is ~5–8 sec end-to-end; adding an Opus advisor call on top adds 3–10 sec depending on context size. If the advisor is invoked on most cycles (the intersection gate of decision-18 is conservative but not rare), cycle time could double.",
+      "evidence": [
+        "shared/egg_agent/client.py:65-203: run_agent_async is a single Anthropic Messages API call; no multiplexing.",
+        "Anthropic note (research): 'No streaming for advisor responses' — two-call pattern can't pipeline.",
+        "Anthropic note: Priority Tier doesn't cascade — Opus calls run at standard throughput.",
+        "decision-20 prompt contract = 'distilled summary' — includes last N progress events + active health alerts + last K log lines. Non-trivial token count."
+      ],
+      "impact": "low",
+      "likelihood": "high",
+      "blast_radius": "Overseer cycle time grows when advisor is invoked. Real-time signal lag for the operator. No correctness impact.",
+      "mitigations": [
+        "Set overseer_poll_interval_seconds floor to current default (30s) so cycle slowdown doesn't block tighter polling.",
+        "Use prompt caching on the executor (shared system prompt + tool definitions) so the second call (advisor) reuses cached state for the executor side. Anthropic SDK supports caching today.",
+        "Tune the prompt contract (decision-20: distilled summary) to be compact — last N=10 progress events, last K=50 log lines is a starting point; don't dump full transcripts.",
+        "Defer to Option A (native advisor tool, single API call) once SDK supports it — R-COMPAT-01's mitigation. The contract is identical so swapping is straightforward."
+      ],
+      "rollback": "Reduce advisor invocation rate via per-phase max_uses cap (R-COST-01 mitigation).",
+      "human_review_required": false
+    },
+    {
+      "id": "R-OP-04",
+      "category": "operational",
+      "title": "PipelineConfig threshold migration (decision-12) lacks observability dashboard — silent threshold drift",
+      "description": "decision-12 chose 'Make configurable per-pipeline via PipelineConfig (default to current values).' Without a way to see what threshold each pipeline is using, operators may set unusual values once for one pipeline and forget. Without alerting on threshold-driven decisions, a too-loose threshold goes silently undetected until a real failure escapes.",
+      "evidence": [
+        "Refine analysis 'Complexity Assessment' notes 'the existing thresholds (3 min stall, 10 min silent agent, 60 min long-run) have a long history of calibration.'",
+        "Today's PipelineConfig (orchestrator/models.py) does not include overseer thresholds — they're hardcoded in skills/sdlc/SKILL.md.",
+        "No observability is mentioned in the refine analysis for threshold values per pipeline."
+      ],
+      "impact": "low",
+      "likelihood": "medium",
+      "blast_radius": "Slow accumulation of threshold drift across pipelines. Hard to diagnose 'why didn't we get an alert?' weeks later.",
+      "mitigations": [
+        "Surface the active thresholds in pipeline status responses (egg-orch pipeline status). Cheap visibility — just include the resolved PipelineConfig overseer fields.",
+        "Default the configurability to 'unset = use baseline'; require explicit set to override. Audit-log overrides.",
+        "Document the thresholds in the rule doc rewrite so the agent-side overseer can quote them when explaining why it did/didn't escalate.",
+        "Add a regression test that asserts default-baseline behavior matches today's /sdlc behavior on canonical traces."
+      ],
+      "rollback": "Strip configurability — hardcode the baseline values until observability is in place.",
+      "human_review_required": false
+    },
+    {
+      "id": "R-SEC-04",
+      "category": "security",
+      "title": "Concurrent overseer respawns could race on filed-issues.json",
+      "description": "decision-6 stores dedup state in .egg-state/oversight/filed-issues.json. Multiple overseers can run concurrently across phases (during phase transitions) or be respawned within the same phase if overseer_max_respawns triggers. Without file-locking or atomic rename semantics, two overseers writing to filed-issues.json simultaneously could corrupt the JSON or lose entries.",
+      "evidence": [
+        "shared/egg_restrictions/patterns.py:526-527: OVERSEER_PATTERNS allows .egg-state/oversight/ writes.",
+        "orchestrator/models.py: overseer_max_respawns = 3 (default).",
+        "Phase-scoped respawn means the dying overseer might still be writing when the new one starts reading.",
+        "JSON file format is fragile — a partial write corrupts the entire file."
+      ],
+      "impact": "medium",
+      "likelihood": "low",
+      "blast_radius": "filed-issues.json corrupted → dedup logic fails → duplicate issues filed (until manual repair).",
+      "mitigations": [
+        "Use atomic write semantics: write to filed-issues.json.tmp, fsync, rename. Standard pattern in existing .egg-state writes (e.g., orchestrator/state_manager.py).",
+        "Use file-locking on writes (fcntl.LOCK_EX) so concurrent overseers serialize.",
+        "Validate JSON parseability after every read; if parse fails, fall back to 'rely on per-repo GitHub search' (decision-6 opt-1) for that cycle and emit OVERSEER_ALERT 'dedup-state-corrupted'.",
+        "Prefer append-only log format (e.g., JSONL) over a single JSON document so partial writes don't corrupt prior records.",
+        "Add a test: orchestrator/tests/test_overseer_dedup_concurrency.py simulates concurrent writes and asserts the file remains parseable."
+      ],
+      "rollback": "If dedup state corruption recurs, switch to in-memory dedup with GitHub search fallback (decision-6 opt-1) by config flip. No code change required if the storage layer is abstracted.",
+      "human_review_required": false
+    },
+    {
+      "id": "R-COMPAT-05",
+      "category": "compatibility",
+      "title": "OVERSEER_ALERT payload shape must remain stable for /sdlc surfacing",
+      "description": "Migrating /sdlc detection logic to the overseer means the overseer emits more OVERSEER_ALERTs than before, with potentially new --detail content (proactive log fetches, distilled summaries). /sdlc's existing 'pending stall' / 'unresolved NACK' / 'long-running phase' display formats parse OVERSEER_ALERTs heuristically (skills/sdlc/SKILL.md:511-516, 533-538, 577-581). Changing the --detail format risks breaking the host's display.",
+      "evidence": [
+        "skills/sdlc/SKILL.md:511-516: '### Potential Stall Detected' template parses ALL alerts and synthesizes its own summary.",
+        "skills/sdlc/SKILL.md:533-538: '### Unresolved NACK' similarly.",
+        "Overseer.md:182-204 specifies a structured --detail format (Pipeline / Phase / Agent / Detected / Timeline / Classification / Evidence). Today this is decoupled from /sdlc's stall-detection display.",
+        "decision-22 ships everything in one PR, so /sdlc display logic must update in lockstep with overseer payload format."
+      ],
+      "impact": "medium",
+      "likelihood": "medium",
+      "blast_radius": "Operator sees garbled or missing alert details. No data loss but signal-to-noise degrades.",
+      "mitigations": [
+        "Lock the OVERSEER_ALERT payload schema in the plan phase. Any --detail format change goes through a documented schema bump (e.g., schema_version field in the JSON).",
+        "Migrate /sdlc display from heuristic parsing to schema-aware parsing in the same PR. The plan should call this out as a coupled change.",
+        "Add an integration test that posts every anomaly type's expected --detail payload and asserts /sdlc renders it correctly.",
+        "If schema change is unavoidable mid-flight, ship overseer-side with both old and new format for one release; flip /sdlc to new format in the same PR; remove old format in a follow-up."
+      ],
+      "rollback": "Revert /sdlc to today's heuristic parsing; the overseer-side schema can stay (no host coupling needed for filing logic). Drop schema bump if needed.",
+      "human_review_required": false
+    },
+    {
+      "id": "R-OP-05",
+      "category": "operational",
+      "title": "Success metrics in feedback-1.Q6 are not measurable today — calibration risk",
+      "description": "feedback-1.Q6 set success criteria: zero repeat anomaly alerts per pipeline, ≥70% OVERSEER_ALERT acknowledgment rate, ≥70% auto-filed issue acceptance rate, net reduction in /sdlc HITL prompts per pipeline. None of these are measured today — there's no metric pipeline that tracks 'OVERSEER_ALERT acknowledgment' or 'auto-filed issue acceptance.' Without measurement infrastructure, the success criteria are aspirational.",
+      "evidence": [
+        "feedback-1.Q6 resolution lists 4 metrics, all currently unmeasured.",
+        "Today's OVERSEER_ALERT messages do not have an 'acknowledged_at' field; the host's acknowledgement is implicit (reading the alert in /sdlc UI) and not logged.",
+        "Auto-filed issues' 'acceptance' (closed as valid vs. invalid) requires GitHub-side metric — no current pipeline.",
+        "decision-22 ships everything in one PR — metrics infrastructure is not in the PR scope."
+      ],
+      "impact": "low",
+      "likelihood": "high",
+      "blast_radius": "Cannot validate post-merge that the feature meets success criteria. Failures detected late via operator complaint rather than metric drift.",
+      "mitigations": [
+        "Add minimum metric instrumentation in the implement PR: log OVERSEER_ALERT emission events, log HITL decision resolutions (already there), log gh issue create successes/failures. This is sufficient for a manual offline calibration backtest.",
+        "Defer formal acknowledgment-rate measurement to a follow-up issue. Track manually for the first month via /sdlc operator interview.",
+        "Auto-filed issue acceptance rate: query GitHub via gh issue list --label agent:overseer --state closed --json closedAt,closedReason once a week, manual until automated.",
+        "Document the metric definitions in docs/architecture/orchestrator.md so future work can build on them."
+      ],
+      "rollback": "Metric instrumentation is additive — disable via config if it costs too much.",
+      "human_review_required": false
+    },
+    {
+      "id": "R-COMPAT-06",
+      "category": "compatibility",
+      "title": "Single-PR sequencing (decision-22) creates large review burden and rollback unit",
+      "description": "decision-22 chose 'one PR — architecture change + auto-issue + host migration land together (highest review cohesion, biggest review burden).' The refine analysis estimated this PR will touch sandbox/agent-config/rules/overseer.md (~250 LOC rewrite), sandbox/overseer_monitor.py (314 LOC), sandbox/bin/egg-orch (new verb), gateway/ (new allowlist + injection logic), shared/egg_restrictions/patterns.py (possibly), orchestrator/models.py (new knobs), skills/sdlc/SKILL.md (large reduction), plus new tests across orchestrator/tests/, gateway/tests/, sandbox/tests/, integration_tests/. Single-PR atomicity makes rollback a full revert.",
+      "evidence": [
+        "Refine analysis 'Complexity Assessment' lists 9+ touch areas.",
+        "decision-22 explicitly chose Option A (one PR, highest review burden).",
+        "feedback-1.Q5 resolution increases /sdlc-skill diff: 'AskUserQuestion side flows' move out, 'pending_decisions surfacing' stays in.",
+        "Recent PRs that landed similar-scope changes: PR #1932 (event plumbing) was multiple PRs over weeks; #2011/#2016 calibration was per-bug single-PR but bounded scope."
+      ],
+      "impact": "medium",
+      "likelihood": "high",
+      "blast_radius": "Slow review cycle; high regression risk if reviewers miss something. Rollback = revert one PR but loses ALL three threads' work.",
+      "mitigations": [
+        "Within the single PR, split commits by surface so reviewers can read incrementally: (1) overseer rule rewrite + advisor wiring, (2) auto-issue CLI + dedup, (3) gateway policy, (4) host-migration in /sdlc, (5) tests. Each commit individually buildable.",
+        "Use feature flags (overseer_owns_host_detection, overseer_auto_file_issues) so each thread can be disabled at runtime without revert.",
+        "Plan reviewer assignments by surface: overseer rules + advisor → reviewer with overseer expertise; gateway policy → reviewer with gateway expertise; host migration → /sdlc skill expertise.",
+        "Ship a draft PR early in implement phase to get directional feedback before the work is finalized."
+      ],
+      "rollback": "Feature flags above let each thread be disabled at runtime. Full PR revert is the last resort.",
+      "human_review_required": false
+    },
+    {
+      "id": "R-TEST-01",
+      "category": "test_coverage",
+      "title": "No end-to-end test exists today for advisor-gated escalation or auto-issue filing",
+      "description": "The dead-code OverseerMonitor has unit tests in orchestrator/tests/test_overseer_*.py, but no integration test exercises the agent-side overseer's escalation path with auto-issue filing (since the capability doesn't exist yet). Adding the feature without an end-to-end test means regression detection is purely on operator-observed behavior post-merge.",
+      "evidence": [
+        "orchestrator/tests/test_overseer_*.py: 11 files, all unit-level. No integration test.",
+        "integration_tests/: scanned; no overseer-issue-filing test.",
+        "Refine analysis 'Tests / regression risk' calls out 'A new integration test (overseer observes anomaly → advisor approves → file → verify dedup on next cycle) is a likely deliverable.'"
+      ],
+      "impact": "medium",
+      "likelihood": "high",
+      "blast_radius": "Bugs in the auto-issue flow surface only via operator complaint or via real GitHub issues being filed wrong.",
+      "mitigations": [
+        "Plan an integration test that: (a) starts a pipeline with a synthetic anomaly trigger, (b) asserts the overseer emits OVERSEER_ALERT with advisor-recommended file_issue, (c) asserts a HITL decision is registered, (d) simulates human approval, (e) asserts the gh issue create call is made with correct labels + body, (f) re-runs the cycle and asserts dedup blocks a second filing.",
+        "Use existing integration_tests/ patterns; reuse the synthetic-pipeline harness if available.",
+        "Add a test in sandbox/tests/ for the egg-orch overseer file-issue CLI verb (unit-level).",
+        "Add a test in gateway/tests/ for the new gh issue create allowlist + label injection."
+      ],
+      "rollback": "If integration test is too costly to implement initially, ship with unit tests only and add the integration test as a follow-up. Document the gap in the PR description.",
+      "human_review_required": false
+    },
+    {
+      "id": "R-COMPAT-07",
+      "category": "compatibility",
+      "title": "GitHub gh CLI version dependency — dedup parsing relies on URL output format",
+      "description": "orchestrator/overseer/issue_filer.py:165-173 parses gh issue create output as a URL ending in /<number> to extract the issue number. If gh CLI changes its output format (a major version bump, or a configuration like --json), the parsing fails silently and dedup state misses entries. The decision-6 .egg-state/oversight/filed-issues.json mechanism depends on this number being correctly captured.",
+      "evidence": [
+        "issue_filer.py:165-173: 'url = stdout_text.strip(); issue_number = int(url.rstrip(\"/\").rsplit(\"/\", 1)[-1])'",
+        "No version pin on gh CLI in the sandbox container that I can see; gateway/ provides authentication, not version pinning.",
+        "gh CLI breaking changes are infrequent but happen (e.g., issue create output flag changes)."
+      ],
+      "impact": "low",
+      "likelihood": "low",
+      "blast_radius": "Dedup state files miss entries → duplicate issues filed.",
+      "mitigations": [
+        "Switch to gh issue create --json url,number to get structured output. Parses cleanly regardless of CLI minor version.",
+        "Add a test in gateway/tests/ that asserts issue_number is correctly parsed from a representative gh output.",
+        "Pin gh CLI version in the sandbox Dockerfile (sandbox/Dockerfile or similar) and bump deliberately.",
+        "If parsing fails, fall back to per-repo GitHub search by title; log a self-monitor warning."
+      ],
+      "rollback": "Switch parser to use --json mode if breakage is detected post-merge.",
+      "human_review_required": false
+    }
+  ],
+  "human_review_areas": [
+    {
+      "id": "HR-01",
+      "linked_risks": ["R-COMPAT-01"],
+      "question": "Decision: ship Option B (two-call advisor pattern, no SDK upgrade) by default, or budget a claude-agent-sdk upgrade as part of the implement PR so Option A (native advisor_20260301 tool) is available?",
+      "context": "Vendored SDK 0.1.65 does NOT expose advisor_20260301 or max_uses (verified via local Python introspection). Refine assumed this would be a plan-phase capability spike; the spike result is now in. Option A requires SDK upgrade; Option B works with what we have."
+    },
+    {
+      "id": "HR-02",
+      "linked_risks": ["R-COST-01"],
+      "question": "Even though decision-19 deferred a formal advisor budget cap, should the implement phase ship a defensive per-phase soft cap (e.g., overseer_advisor_max_uses_per_phase=5) to bound runaway-pipeline cost while the budget follow-up is filed?",
+      "context": "Without any cap, a single misbehaving pipeline could trigger 20–120 Opus calls per phase. Cost exposure is real."
+    },
+    {
+      "id": "HR-03",
+      "linked_risks": ["R-COMPAT-03"],
+      "question": "Should overseer-host detection ship behind a feature flag (e.g., overseer_owns_host_detection, default off) so /sdlc and overseer can run side-by-side for a calibration window before the host code is removed?",
+      "context": "PR #2011 + #2016 calibration is recent and easy to regress. Side-by-side comparison de-risks; revert path stays simple."
+    },
+    {
+      "id": "HR-04",
+      "linked_risks": ["R-OP-02"],
+      "question": "What exactly is the dedup signature? Recommend (anomaly_type + agent_role + repo); explicitly EXCLUDE pipeline_id so repeat anomalies across pipelines dedup correctly. Confirm or override.",
+      "context": "decision-5 chose 'per repo by anomaly-type signature' but didn't define the signature. Too narrow → spam; too broad → missed alerts."
+    },
+    {
+      "id": "HR-05",
+      "linked_risks": ["R-SEC-01"],
+      "question": "What scrubbing patterns must the issue body filter (secrets, internal hostnames, tokens)? Recommend a denylist of GitHub PAT/AWS/Slack-webhook patterns + gateway-side validation for defense in depth.",
+      "context": "Public GitHub issues are publicly readable. Issue body includes container_logs (already truncated to 2000 chars) but NOT scrubbed for secrets."
+    }
+  ],
+  "rollback_plan": {
+    "approach": "Layered feature flags + clean-revert path",
+    "steps": [
+      "All three threads (advisor wiring / auto-issue / host migration) ship behind feature flags so each can be independently disabled at runtime without revert.",
+      "Recommended flags: overseer_advisor_enabled (default on), overseer_auto_file_issues (default on but HITL-gated per decision-10), overseer_owns_host_detection (default off during initial calibration; flip on in a follow-up PR after side-by-side validation).",
+      "If a flag-flip is insufficient (e.g., new code path has a hard bug), full PR revert restores today's behavior. Decision-22 ships one PR so revert is one git revert.",
+      "Dedup state file (.egg-state/oversight/filed-issues.json) is forward-compatible — old code paths ignore it.",
+      "Gateway policy is additive (new allow rule); revert removes it without affecting other roles."
+    ],
+    "rollback_triggers": [
+      "Cost spike: max_llm_cost_per_hour budget exceeded on multiple pipelines → disable overseer_advisor_enabled.",
+      "Issue spam: dedup signature mismatch causes duplicate filings → disable overseer_auto_file_issues.",
+      "Detection regression: side-by-side comparison shows overseer missing real stalls → set overseer_owns_host_detection=false; /sdlc continues to detect.",
+      "API breakage: advisor_20260301 returns 4xx → fall back to Option B (two-call pattern) automatically; if Option B also fails, disable overseer_advisor_enabled.",
+      "Secret leak in filed issue: revoke credentials, rotate, gh issue delete; tighten scrubbing list and disable overseer_auto_file_issues until fix lands."
+    ]
+  },
+  "highlights_for_planner": [
+    "Capability spike result confirmed: vendored claude-agent-sdk 0.1.65 does NOT expose advisor_20260301 / max_uses. Plan must default to Option B unless an SDK upgrade is budgeted (R-COMPAT-01).",
+    "Recommend adding three feature flags to bound rollback: overseer_advisor_enabled, overseer_auto_file_issues, overseer_owns_host_detection (R-COMPAT-03, R-COMPAT-06, rollback_plan).",
+    "Recommend a defensive per-phase advisor cap (overseer_advisor_max_uses_per_phase=5) even though decision-19 deferred (R-COST-01).",
+    "Recommend explicit dedup-signature definition: (anomaly_type + agent_role + repo), EXCLUDING pipeline_id (R-OP-02).",
+    "Recommend gateway-side label injection + size limit + repo-pinning + secret scrubbing for gh issue create (R-SEC-01, R-SEC-02).",
+    "Recommend extracting the issue body template into a shared module so the agent-side and dead-code paths share a single source of truth (R-COMPAT-04).",
+    "Recommend integration test covering anomaly → advisor → HITL approval → file → dedup blocks re-file (R-TEST-01).",
+    "Recommend OVERSEER_ALERT --detail schema lock + /sdlc parser migration in same PR so payload format change doesn't break host display (R-COMPAT-05)."
+  ],
+  "out_of_scope_explicit": [
+    "Sub-agent launching by overseer (deferred to #2000 per decision-2)",
+    "#1722 stale AGENT_FAILED, #1727 early-exit respawn (left in their own pipelines per decision-3)",
+    "Per-role PATH restriction (#1786 — decision-14 keeps gateway allowlist only, defers PATH)",
+    "Formal advisor budget cap (decision-19 deferred to follow-up issue)",
+    "claude-agent-sdk version upgrade (recommendation: defer unless plan ships Option A; otherwise out of scope)"
+  ],
+  "metadata": {
+    "authored_at": "2026-04-25T18:25:00Z",
+    "authored_by": "risk_analyst (egg)",
+    "input_artifacts": [
+      ".egg-state/drafts/1962-analysis.md (refine output)",
+      ".egg-state/contracts/issue-1962.json (resolved decisions)",
+      "shared/egg_restrictions/patterns.py:522-545 (OVERSEER_PATTERNS)",
+      "gateway/agent_restrictions.py:108-218 (gh restrictions)",
+      "orchestrator/overseer/issue_filer.py (full file)",
+      "sandbox/agent-config/rules/overseer.md:1-230",
+      "skills/sdlc/SKILL.md:485-639",
+      "shared/egg_agent/client.py (introspected)",
+      "vendored claude_agent_sdk 0.1.65 (introspected)",
+      "Anthropic advisor strategy public docs (web search)"
+    ]
+  }
+}
