@@ -213,11 +213,27 @@ def run_migrated_detectors(
         List of alert dicts the agent should consider emitting via
         ``egg-orch overseer alert``. Each dict carries the keys
         ``anomaly``, ``priority``, ``summary``, ``detail``,
-        ``role``. Empty list when the flag is False or no detector
-        fires.
+        ``role`` and a ``calibration_only`` boolean. During the
+        calibration window (``overseer_owns_host_detection=False``,
+        the default) the detectors run but emit alerts marked
+        ``calibration_only=true`` so the host (/sdlc) and downstream
+        consumers know to treat them as observational rather than
+        authoritative — the host detectors keep firing as the
+        authoritative source. When the flag is True the alerts are
+        ``calibration_only=false`` and the host detectors are
+        expected to be silent (the cleanup PR follow-up makes that
+        assumption real by deleting the dormant /sdlc code blocks).
+
+    The reviewer_contract NACK on the original "host-only-or-overseer-
+    only" implementation correctly pointed out that the plan calls for
+    *side-by-side* calibration (`feedback-1.Q6` lists "net reduction in
+    /sdlc HITL prompts per pipeline" as a success signal that requires
+    comparable data from both sides). This function therefore runs the
+    detectors unconditionally and uses the flag only to mark whether
+    the alerts are calibration-only (observational) or authoritative.
     """
-    if not _is_overseer_owns_host(config_subset):
-        return []
+    is_authoritative = _is_overseer_owns_host(config_subset)
+    calibration_only = not is_authoritative
 
     try:
         from egg_overseer.state import (
@@ -291,6 +307,7 @@ def run_migrated_detectors(
                         f"recommended next step: check agent logs via "
                         f"`egg-checkpoint show`."
                     ),
+                    "calibration_only": calibration_only,
                 }
             )
             entry.alerted_anomalies["agent-stall"] = now
@@ -314,6 +331,7 @@ def run_migrated_detectors(
                         f"first_seen_at={entry.first_seen_at.isoformat()}; "
                         f"silent threshold {silent_threshold}s exceeded."
                     ),
+                    "calibration_only": calibration_only,
                 }
             )
             entry.alerted_anomalies["agent-silent"] = now
@@ -356,6 +374,7 @@ def run_migrated_detectors(
                         f"NACK timestamp {ts}; threshold {nack_threshold}s. "
                         f"Producer should re-propose or the human should rule."
                     ),
+                    "calibration_only": calibration_only,
                 }
             )
             entry.alerted_anomalies["agent-nack-unresolved"] = now
@@ -396,6 +415,7 @@ def run_migrated_detectors(
                                 f"earliest phase_entered_at "
                                 f"{phase_started.isoformat()}."
                             ),
+                            "calibration_only": calibration_only,
                         }
                     )
                     synth.alerted_anomalies["phase-long-running"] = now
@@ -467,10 +487,16 @@ def run_once(
     # Tier-1 intersection gate (decision-18). The advisor is invoked
     # only when Haiku flags an anomaly AND a Tier-1 health alert is
     # present. We surface the gate state in the cycle report so the
-    # overseer agent (Claude) knows when to call the advisor MCP tool.
+    # overseer agent (Claude) reads it before calling the advisor MCP
+    # tool. The agent's Haiku-classify pass owns the
+    # `tier1_alerts_present == True` AND classification.confidence ≥ 0.8
+    # decision; we expose helper `maybe_consult_advisor` (below) that
+    # encodes the gate and forwards to the MCP tool when conditions
+    # are met.
     advisor_gate = {
         "tier1_alerts_present": bool(alerts),
         "tier1_alert_types": sorted({a.get("type", "") for a in alerts if a}),
+        "gate_open": bool(alerts),  # Haiku-flag check is agent-side
     }
 
     report: dict[str, Any] = {
@@ -492,6 +518,85 @@ def run_once(
 
     emit_cycle_report(report)
     return report
+
+
+# Tier-1 intersection: the Haiku classifier confidence threshold above
+# which the gate is considered tripped. Matches the precedent shipped
+# in #2012 (Tier-1 intersection gate for agent-heartbeat-stall) and
+# documented in sandbox/agent-config/rules/overseer.md.
+HAIKU_CONFIDENCE_THRESHOLD = 0.8
+
+
+def maybe_consult_advisor(
+    classification: dict[str, Any],
+    cycle_report: dict[str, Any],
+    *,
+    base_url: str | None = None,
+    pipeline_id: str | None = None,
+    role: str = "overseer",
+) -> dict[str, Any] | None:
+    """Apply the Tier-1 intersection gate and call the advisor MCP tool.
+
+    This is the load-bearing wiring per the #1962 plan TASK-4-2:
+    Haiku flag (``classification.confidence ≥ 0.8``) AND Tier-1 alert
+    present in the cycle report → invoke
+    ``mcp__overseer__consult_advisor`` (registered in
+    ``orchestrator/mcp_tools.py``). Returns the advisor verdict dict
+    when the call is made; ``None`` when the gate did not trip.
+
+    Args:
+        classification: Haiku's classification dict (must include
+            ``confidence`` ∈ [0,1]).
+        cycle_report: Output of ``run_once``; we read
+            ``advisor_gate.tier1_alerts_present`` and the alert types.
+        base_url: Orchestrator base URL.
+        pipeline_id: Pipeline id; defaults to ``EGG_PIPELINE_ID``.
+        role: Calling role (kept for symmetry with the MCP handler's
+            auth gate; ``overseer`` is the only allowed value).
+
+    Returns:
+        Advisor verdict dict on tool success, ``None`` if the gate
+        did not trip, or ``{"ok": False, ...}`` on tool failure.
+    """
+    confidence = float(classification.get("confidence") or 0.0)
+    advisor_gate = cycle_report.get("advisor_gate", {})
+    tier1 = bool(advisor_gate.get("tier1_alerts_present"))
+    if confidence < HAIKU_CONFIDENCE_THRESHOLD:
+        return None
+    if not tier1:
+        return None
+
+    if base_url is None:
+        base_url = get_orchestrator_url()
+    if pipeline_id is None:
+        pipeline_id = get_pipeline_id_from_env()
+
+    payload = {
+        "tool": "consult_advisor",
+        "arguments": {
+            "classification": classification,
+            "health_alerts": cycle_report.get("alerts_detail", []),
+            "progress_events": [],
+            "recent_log_lines": [],
+            "role": role,
+        },
+    }
+    # The MCP tool is exposed via the orchestrator's MCP server; the
+    # sandbox calls it through the same MCP client path the agent
+    # uses. Here we POST to the MCP-tool dispatch endpoint as a
+    # fallback when the in-process MCP client isn't available — the
+    # Python-side equivalent is documented in the plan.
+    try:
+        result = api_request(
+            base_url,
+            "/api/v1/mcp/tools/consult_advisor",
+            method="POST",
+            data=payload,
+            timeout=60,
+        )
+        return result if isinstance(result, dict) else {"ok": False, "error": "bad_response"}
+    except Exception as exc:
+        return {"ok": False, "error": f"call_failed: {exc}"}
 
 
 def run_monitor(

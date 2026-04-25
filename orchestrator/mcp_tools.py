@@ -1071,6 +1071,52 @@ PIPELINE_TOOLS = [
             },
         },
     },
+    # consult_advisor — issue #1962. The schema literal lives in
+    # orchestrator/mcp/tools/overseer_advisor.py; we re-import it
+    # here so the tool registers with FastMCP under the standard
+    # PIPELINE_TOOLS pipeline. Auth-gated to the overseer role at
+    # the handler level.
+    {
+        "name": "consult_advisor",
+        "description": (
+            "Consult the Opus advisor for a structured verdict on a "
+            "Haiku-flagged anomaly. Returns AdvisorVerdict JSON with "
+            "decision in {alert, file_issue, watch}. Auth-gated to "
+            "the overseer role only."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "classification": {
+                    "type": "object",
+                    "description": "Haiku classification (anomaly_type, confidence, reasoning).",
+                },
+                "health_alerts": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "Active Tier-1 health alerts.",
+                },
+                "progress_events": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": "Last N progress events.",
+                },
+                "recent_log_lines": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Last K container log lines.",
+                },
+                "role": {
+                    "type": "string",
+                    "description": (
+                        "Calling agent role; the handler rejects calls from "
+                        "any role except 'overseer'."
+                    ),
+                },
+            },
+            "required": ["classification", "health_alerts"],
+        },
+    },
 ]
 
 
@@ -1130,6 +1176,7 @@ class PipelineToolHandler:
             "validate_network_isolation": self._handle_validate_network_isolation,
             "rebuild_and_rollout": self._handle_rebuild_and_rollout,
             "get_service_logs": self._handle_get_service_logs,
+            "consult_advisor": self._handle_consult_advisor,
         }
 
         handler = handlers.get(tool_name)
@@ -2901,3 +2948,47 @@ class PipelineToolHandler:
         else:
             payload["error"] = "wait_timeout"
         return payload
+
+    def _handle_consult_advisor(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Forward a ``consult_advisor`` MCP tool call to the shared advisor.
+
+        Issue #1962. The handler is auth-gated to the ``overseer`` role
+        (other roles get a permission error). Runs the asyncio
+        ``consult_advisor`` coroutine in a fresh event loop because the
+        FastMCP wrapper invokes ``handle_tool_call`` from a thread-pool
+        worker (sync handler signature).
+
+        Args (parsed from MCP tool kwargs):
+            classification: Haiku classification dict.
+            health_alerts: Tier-1 health alerts.
+            progress_events: Recent progress events (optional).
+            recent_log_lines: Recent container log lines (optional).
+            role: Calling agent role; rejected unless ``"overseer"``.
+
+        Returns:
+            ``{"ok": true, "verdict": <AdvisorVerdict.model_dump()>}`` on
+            success; ``{"ok": false, "error": ...}`` on auth/parse failure.
+        """
+        import asyncio
+
+        from mcp.tools.overseer_advisor import handle_consult_advisor
+
+        async def _run() -> dict[str, Any]:
+            return await handle_consult_advisor(
+                classification=args.get("classification") or {},
+                health_alerts=args.get("health_alerts") or [],
+                progress_events=args.get("progress_events") or [],
+                recent_log_lines=args.get("recent_log_lines") or [],
+                role=args.get("role"),
+                config=None,
+            )
+
+        try:
+            loop = asyncio.new_event_loop()
+            try:
+                return loop.run_until_complete(_run())
+            finally:
+                loop.close()
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.error("consult_advisor handler failed", error=str(exc))
+            return {"ok": False, "error": f"handler_error: {exc}"}

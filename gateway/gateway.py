@@ -3628,6 +3628,118 @@ def gh_execute() -> tuple[Response, int] | Response:
                 details={"role": session_role, "command": gh_command_str},
             )
 
+    # Issue #1962 TASK-2-2: extra guardrails for `gh issue create`
+    # from the overseer role. The role-level check above does NOT
+    # block `gh issue create` from the overseer (the operation is
+    # not on _OVERSEER_BLOCKED_GH_OPS) so the existing handler lets
+    # it through. We now layer additional defenses on top:
+    # repo enforcement against EGG_PIPELINE_REPO, label injection,
+    # title/body size limits, and a defense-in-depth secret-pattern
+    # scan on the body. Failure is a structured 403.
+    if (
+        session_role
+        and session_role.lower() == "overseer"
+        and len(args) >= 2
+        and args[0] == "issue"
+        and args[1] == "create"
+    ):
+        from .agent_restrictions import check_overseer_gh_issue_create
+
+        # Parse the relevant flags from the gh argv. We accept both
+        # --title-file/--body-file (the new CLI verb's preferred path)
+        # and --title/--body (the historical form) so old callers do
+        # not break.
+        repo_arg: str | None = None
+        title_text: str = ""
+        body_text: str = ""
+        labels: list[str] = []
+        i = 2
+        while i < len(args):
+            tok = args[i]
+            if tok == "--repo" and i + 1 < len(args):
+                repo_arg = args[i + 1]
+                i += 2
+            elif tok == "--label" and i + 1 < len(args):
+                labels.append(args[i + 1])
+                i += 2
+            elif tok == "--title" and i + 1 < len(args):
+                title_text = args[i + 1]
+                i += 2
+            elif tok == "--title-file" and i + 1 < len(args):
+                try:
+                    with open(args[i + 1], encoding="utf-8") as _f:
+                        title_text = _f.read().strip()
+                except OSError as _exc:
+                    return make_error(
+                        f"Cannot read --title-file {args[i + 1]!r}: {_exc}",
+                        status_code=400,
+                        details={"command": gh_command_str},
+                    )
+                i += 2
+            elif tok == "--body" and i + 1 < len(args):
+                body_text = args[i + 1]
+                i += 2
+            elif tok == "--body-file" and i + 1 < len(args):
+                try:
+                    with open(args[i + 1], encoding="utf-8") as _f:
+                        body_text = _f.read()
+                except OSError as _exc:
+                    return make_error(
+                        f"Cannot read --body-file {args[i + 1]!r}: {_exc}",
+                        status_code=400,
+                        details={"command": gh_command_str},
+                    )
+                i += 2
+            else:
+                i += 1
+
+        pipeline_repo = os.environ.get("EGG_PIPELINE_REPO")
+        ov_check = check_overseer_gh_issue_create(
+            role=session_role,
+            repo=repo_arg or "",
+            pipeline_repo=pipeline_repo,
+            labels=labels,
+            title=title_text,
+            body=body_text,
+        )
+        if not ov_check.allowed:
+            audit_log(
+                "gh_overseer_issue_create_blocked",
+                "gh_execute",
+                success=False,
+                details={
+                    "command": gh_command_str,
+                    "role": session_role,
+                    "reason": ov_check.reason,
+                    "secret_kinds": list(ov_check.secret_kinds),
+                },
+            )
+            return make_error(
+                ov_check.reason,
+                status_code=403,
+                details={
+                    "role": session_role,
+                    "command": gh_command_str,
+                    "secret_kinds": list(ov_check.secret_kinds),
+                },
+            )
+        # Auto-inject any required labels the caller forgot. The
+        # injected labels are tagged in the audit log so operators can
+        # spot bypass attempts.
+        if ov_check.injected_labels:
+            for lbl in ov_check.injected_labels:
+                args = (*args, "--label", lbl)
+            audit_log(
+                "gh_overseer_issue_create_labels_injected",
+                "gh_execute",
+                success=True,
+                details={
+                    "command": gh_command_str,
+                    "role": session_role,
+                    "injected_labels": list(ov_check.injected_labels),
+                },
+            )
+
     # For 'gh api' commands, validate the path against allowlist
     api_path: str | None = None
     method: str = "GET"
