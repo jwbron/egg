@@ -486,9 +486,9 @@ When a producer pushes new commits after proposing, existing reviews become stal
 
 **Explicit proposal cover**: When a producer calls `egg-orch consensus propose --push`, the push and proposal happen atomically. If a push arrives within the `auto_repropose_debounce_seconds` window of an explicit `propose` call, the tracker skips the auto re-propose — the explicit proposal already covers the push, so no redundant re-review is triggered.
 
-### Gateway-Level Push Enforcement (Concurrent Mode)
+### Gateway-Level Push Enforcement (Pipeline Sessions)
 
-While auto re-propose provides a **safety net** for stale reviews, it relies on the orchestrator detecting post-proposal pushes. A stronger guarantee comes from the gateway itself: in concurrent mode, **direct `git push` is blocked** — all pushes must go through `mcp__brc__propose` (the fallback CLI is `egg-orch consensus propose --push`).
+While auto re-propose provides a **safety net** for stale reviews, it relies on the orchestrator detecting post-proposal pushes. A stronger guarantee comes from the gateway itself: for all pipeline sessions, **direct `git push` is blocked** — all pushes must go through `mcp__brc__propose` (the fallback CLI is `egg-orch consensus propose --push`).
 
 **How the marker flows:**
 
@@ -509,7 +509,7 @@ the mcp__brc__propose tool (which pushes to origin and sends CONSENSUS_PROPOSE
 in one step). Fallback CLI: `egg-orch consensus propose --push`.
 ```
 
-See [Gateway README — Concurrent-Mode Push Enforcement](../../gateway/README.md#concurrent-mode-push-enforcement-brc-sessions) for implementation details. See [#1669](https://github.com/jwbron/egg/issues/1669) for the motivating incident and design rationale.
+See [Gateway README — Pipeline Push Enforcement](../../gateway/README.md#pipeline-push-enforcement-brc-sessions) for implementation details. See [#1669](https://github.com/jwbron/egg/issues/1669) for the motivating incident and design rationale.
 
 ### Excusing Non-Delivering Agents
 
