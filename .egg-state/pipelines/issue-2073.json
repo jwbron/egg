@@ -403,10 +403,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-14",
+      "question": "Should we adopt schema versioning (`version: 1`) on the new files from day one?",
+      "context": "Open contract question decision-13, registered by an agent during the refine phase.",
+      "options": [
+        "Yes on both files (user file + repo file) (Recommended) — cheap insurance now; loader gracefully degrades for newer schema versions. Issue's open-question list leans this way.",
+        "Yes only on the new repo-file (`<repo>/.egg/repositories.yaml`); leave user file unversioned. The repo file is the one committed to source control and most exposed to schema churn.",
+        "No — don't add a version key now; revisit if/when we make a breaking change. Avoids paying the cost preemptively.",
+        "Adopt a different versioning scheme (e.g. `apiVersion: egg.config/v1` Kubernetes-style, or semver string) — more verbose but more conventional",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T23:29:21.887866Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T23:09:30.400320Z",
-  "updated_at": "2026-04-25T23:29:21.835103Z",
+  "updated_at": "2026-04-25T23:29:21.913475Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -420,6 +440,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 24,
+  "version": 25,
   "jira_ticket": null
 }
