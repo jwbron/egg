@@ -441,10 +441,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-16",
+      "question": "Coordination with #1902 (overseer file-boundary policy): should this pipeline expand `OVERSEER_PATTERNS` to allow writes under `.egg-state/oversight/` for filed-issue dedup state?",
+      "context": "Open contract question decision-15, registered by an agent during the refine phase.",
+      "options": [
+        "Yes — expand OVERSEER_PATTERNS allowlist to include the chosen dedup state file",
+        "No — use an orchestrator-side store instead; overseer never writes dedup state locally",
+        "Defer — decide during plan phase based on the chosen dedup-storage option (decision-6)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T17:52:17.730035Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T17:05:44.416677Z",
-  "updated_at": "2026-04-25T17:52:17.696568Z",
+  "updated_at": "2026-04-25T17:52:17.750982Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -458,6 +477,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 26,
+  "version": 27,
   "jira_ticket": null
 }
