@@ -612,7 +612,8 @@ def require_session_or_launcher_auth(f: F) -> F:  # noqa: UP047
     is treated as orchestrator-originated: ``g.session`` is left ``None``
     and ``g.auth_actor`` is set to ``"launcher"``.  Otherwise the request
     falls through to ``require_session_auth`` (sandbox/agent path), which
-    sets ``g.session`` and ``g.auth_actor = "session"``.
+    sets ``g.session`` and ``g.session_mode``/``g.session_phase``; this
+    wrapper then sets ``g.auth_actor = "session"``.
 
     The trust split is grounded in the launcher secret already used by
     ``/api/v1/sessions/create`` and other privileged endpoints — only the
@@ -625,6 +626,13 @@ def require_session_or_launcher_auth(f: F) -> F:  # noqa: UP047
     register-session/push/delete ceremony, and without tripping the
     pipeline-push block (#2028) intended for agents.
     """
+
+    # Build the session-auth fallback once at decoration time so we don't
+    # re-create the wrapper closure on every request.
+    @require_session_auth
+    def _session_path(*args: Any, **kwargs: Any) -> Any:
+        g.auth_actor = "session"
+        return f(*args, **kwargs)
 
     @functools.wraps(f)
     def decorated(*args: Any, **kwargs: Any) -> Any:
@@ -644,12 +652,7 @@ def require_session_or_launcher_auth(f: F) -> F:  # noqa: UP047
         # Fall through to session-token validation.  The session decorator
         # sets g.session/g.session_mode/g.session_phase on success and
         # returns 401 on failure.
-        @require_session_auth
-        def _wrapped(*a: Any, **kw: Any) -> Any:
-            g.auth_actor = "session"
-            return f(*a, **kw)
-
-        return _wrapped(*args, **kwargs)
+        return _session_path(*args, **kwargs)
 
     return decorated  # type: ignore[return-value]
 
@@ -1009,7 +1012,22 @@ def git_push() -> tuple[Response, int] | Response:
     # session_mode comes from the request body since there is no session.
     is_orchestrator_push = getattr(g, "auth_actor", None) == "launcher"
     if is_orchestrator_push:
-        session_mode = data.get("mode") or session_mode
+        mode_in = data.get("mode")
+        if mode_in is not None and mode_in not in ("public", "private"):
+            audit_log(
+                "push_blocked",
+                "git_push",
+                success=False,
+                details={
+                    "repo_path": repo_path,
+                    "reason": f"Invalid mode {mode_in!r} on launcher-auth push",
+                },
+            )
+            return make_error(
+                f"Invalid mode {mode_in!r}: must be 'public' or 'private'",
+                status_code=400,
+            )
+        session_mode = mode_in or session_mode
         audit_log(
             "push_orchestrator_authenticated",
             "git_push",

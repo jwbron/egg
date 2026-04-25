@@ -630,3 +630,62 @@ class TestOrchestratorLauncherAuthPush:
             # session_manager rejects the unknown token via the fallback
             # require_session_auth path → 401, not 403.
             assert response.status_code == 401
+
+    def test_launcher_secret_not_configured_falls_back_to_session_auth(self, client):
+        """When the gateway has no launcher secret configured at all, every
+        bearer falls through to session auth and is rejected as 401 cleanly
+        (the ``LauncherSecretNotConfiguredError`` is swallowed inside the
+        decorator)."""
+        # get_launcher_secret raises — simulates an unconfigured gateway.
+        with patch.object(
+            gateway,
+            "get_launcher_secret",
+            side_effect=gateway.LauncherSecretNotConfiguredError(
+                "Launcher secret not configured"
+            ),
+        ):
+            response = client.post(
+                "/api/v1/git/push",
+                headers={"Authorization": "Bearer any-bearer"},
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test-repo",
+                        "remote": "origin",
+                        "refspec": "egg/issue-2051",
+                    }
+                ),
+                content_type="application/json",
+            )
+            # No launcher secret means we can't match — fall through to
+            # session-auth, which rejects the unknown token cleanly.
+            assert response.status_code == 401
+
+    def test_launcher_push_invalid_mode_rejected(self, client):
+        """A launcher-auth push with a non-{public,private} ``mode`` returns 400.
+
+        The orchestrator's ``_do_push`` is typed
+        ``Literal["public", "private"]``, but if the launcher secret were ever
+        used by another caller, an unknown value would silently degrade to
+        public-mode policy in ``check_private_repo_access``.  Explicit
+        validation closes that gap.
+        """
+        patches = _launcher_auth_context()
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+            response = _do_launcher_push(client, mode="banana")
+            assert response.status_code == 400
+            data = json.loads(response.data)
+            assert "mode" in data["message"].lower()
+
+    def test_launcher_push_missing_mode_uses_session_default(self, client):
+        """A launcher-auth push without ``mode`` in the body is allowed.
+
+        Missing ``mode`` is normal for the orchestrator's failsafe pushes that
+        don't care about private-repo policy (defaults are applied downstream
+        by ``check_private_repo_access``).  Only an *invalid* mode is rejected.
+        """
+        patches = _launcher_auth_context()
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+            response = _do_launcher_push(client)  # no mode kwarg
+            assert response.status_code == 200, (
+                f"Expected 200 with no mode, got {response.status_code}: {response.data!r}"
+            )
