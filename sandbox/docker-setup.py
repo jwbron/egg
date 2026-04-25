@@ -280,11 +280,15 @@ def load_extra_packages_manifest(
         return [], []
 
 
-def run_build_commands(build_commands: list[dict[str, Any]]) -> None:
+def run_build_commands(
+    build_commands: list[dict[str, Any]],
+    repo_deps_base: Path = Path("/tmp/repo-deps"),
+) -> None:
     """Execute build commands for each repo during Docker image build.
 
-    Each repo's commands run in its watch files directory at /tmp/repo-deps/<repo-name>.
-    Commands run as root (same as the rest of docker-setup.py).
+    Each repo's commands run in its watch files directory at
+    `<repo_deps_base>/<repo-name>`. Commands run as root (same as the rest of
+    docker-setup.py).
 
     Failure modes that abort the build (vs. earlier warn-and-continue behavior,
     which silently produced broken images — see #2087):
@@ -295,6 +299,9 @@ def run_build_commands(build_commands: list[dict[str, Any]]) -> None:
 
     Args:
         build_commands: List of dicts from get_build_commands()
+        repo_deps_base: Base path for repo build contexts (default: /tmp/repo-deps).
+            Mirrors persist_build_dirs's parameter so tests can use tmp_path
+            instead of touching the real /tmp/repo-deps tree.
 
     Raises:
         RuntimeError: When any of the failure modes above occurs.
@@ -309,7 +316,7 @@ def run_build_commands(build_commands: list[dict[str, Any]]) -> None:
         commands = entry["commands"]
         # Sanitize repo name for directory path (owner/repo -> owner--repo)
         repo_dir_name = repo.replace("/", "--")
-        work_dir = Path("/tmp/repo-deps") / repo_dir_name
+        work_dir = repo_deps_base / repo_dir_name
 
         print(f"\n--- Build commands for {repo} ---")
 
@@ -343,7 +350,7 @@ def run_build_commands(build_commands: list[dict[str, Any]]) -> None:
 
     print("\n=== Build commands complete ===")
 
-    persist_build_dirs(build_commands)
+    persist_build_dirs(build_commands, repo_deps_base=repo_deps_base)
 
 
 def persist_build_dirs(

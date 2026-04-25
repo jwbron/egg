@@ -154,7 +154,11 @@ repo_settings:
   #     persist_dirs:
   #       - .venv
   #     persist_system_dirs:
-  #       - /usr/local/bin       # ← carries `uv` itself into the runtime image
+  #       # ← carries `uv` itself (and anything else earlier setup steps put
+  #       # under /usr/local/bin) into the runtime image. The persist machinery
+  #       # only handles directories, not single files, so persisting just `uv`
+  #       # would require a wrapper dir.
+  #       - /usr/local/bin
   # YOUR_USERNAME/go-service:
   #   build_commands:
   #     watch_files:

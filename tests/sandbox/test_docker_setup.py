@@ -385,9 +385,8 @@ class TestRunBuildCommands:
         """Test that build commands are executed."""
         mock_run.return_value = MagicMock(returncode=0)
 
-        # Create the work directory that run_build_commands expects
-        work_dir = Path("/tmp/repo-deps/org--app")
-        work_dir.mkdir(parents=True, exist_ok=True)
+        repo_deps = tmp_path / "repo-deps"
+        (repo_deps / "org--app").mkdir(parents=True)
 
         build_commands = [
             {
@@ -397,13 +396,7 @@ class TestRunBuildCommands:
             }
         ]
 
-        try:
-            run_build_commands(build_commands)
-        finally:
-            # Clean up
-            import shutil
-
-            shutil.rmtree("/tmp/repo-deps", ignore_errors=True)
+        run_build_commands(build_commands, repo_deps_base=repo_deps)
 
         # Should have called subprocess.run twice (one per command)
         assert mock_run.call_count == 2
@@ -420,12 +413,12 @@ class TestRunBuildCommands:
         assert captured.out == ""
 
     @patch("subprocess.run")
-    def test_command_failure_aborts_build(self, mock_run, capsys):
+    def test_command_failure_aborts_build(self, mock_run, tmp_path, capsys):
         """A failed build command aborts the image build (was warn-only). See #2087."""
         mock_run.return_value = MagicMock(returncode=1)
 
-        work_dir = Path("/tmp/repo-deps/org--app")
-        work_dir.mkdir(parents=True, exist_ok=True)
+        repo_deps = tmp_path / "repo-deps"
+        (repo_deps / "org--app").mkdir(parents=True)
 
         build_commands = [
             {
@@ -435,13 +428,8 @@ class TestRunBuildCommands:
             }
         ]
 
-        try:
-            with pytest.raises(RuntimeError, match="exited with code 1"):
-                run_build_commands(build_commands)
-        finally:
-            import shutil
-
-            shutil.rmtree("/tmp/repo-deps", ignore_errors=True)
+        with pytest.raises(RuntimeError, match="exited with code 1"):
+            run_build_commands(build_commands, repo_deps_base=repo_deps)
 
 
 class TestGetBuildCommandsEdgeCases:
@@ -506,13 +494,16 @@ class TestRunBuildCommandsEdgeCases:
     """Edge case tests for run_build_commands."""
 
     @patch("subprocess.run")
-    def test_missing_work_dir_raises(self, mock_run):
+    def test_missing_work_dir_raises(self, mock_run, tmp_path):
         """When repo work_dir doesn't exist, build aborts (vs. silent /tmp fallback).
 
         The earlier behavior silently fell back to running commands in /tmp,
         which masked real misconfiguration. See #2087.
         """
         mock_run.return_value = MagicMock(returncode=0)
+
+        repo_deps = tmp_path / "repo-deps"
+        repo_deps.mkdir()
 
         build_commands = [
             {
@@ -523,12 +514,12 @@ class TestRunBuildCommandsEdgeCases:
         ]
 
         with pytest.raises(RuntimeError, match="watch files directory.*does not exist"):
-            run_build_commands(build_commands)
+            run_build_commands(build_commands, repo_deps_base=repo_deps)
 
         mock_run.assert_not_called()
 
     @patch("subprocess.run")
-    def test_subprocess_exception_raises(self, mock_run):
+    def test_subprocess_exception_raises(self, mock_run, tmp_path):
         """Subprocess raising an exception aborts the build.
 
         The earlier behavior caught and warned, masking misconfigurations
@@ -536,8 +527,8 @@ class TestRunBuildCommandsEdgeCases:
         """
         mock_run.side_effect = OSError("command not found")
 
-        work_dir = Path("/tmp/repo-deps/org--app")
-        work_dir.mkdir(parents=True, exist_ok=True)
+        repo_deps = tmp_path / "repo-deps"
+        (repo_deps / "org--app").mkdir(parents=True)
 
         build_commands = [
             {
@@ -547,13 +538,8 @@ class TestRunBuildCommandsEdgeCases:
             }
         ]
 
-        try:
-            with pytest.raises(RuntimeError, match="raised an exception"):
-                run_build_commands(build_commands)
-        finally:
-            import shutil
-
-            shutil.rmtree("/tmp/repo-deps", ignore_errors=True)
+        with pytest.raises(RuntimeError, match="raised an exception"):
+            run_build_commands(build_commands, repo_deps_base=repo_deps)
 
     @patch("subprocess.run")
     def test_nonzero_exit_raises_with_exit_code(self, mock_run, tmp_path):
@@ -565,8 +551,8 @@ class TestRunBuildCommandsEdgeCases:
         """
         mock_run.return_value = MagicMock(returncode=127)
 
-        work_dir = Path("/tmp/repo-deps/org--app")
-        work_dir.mkdir(parents=True, exist_ok=True)
+        repo_deps = tmp_path / "repo-deps"
+        (repo_deps / "org--app").mkdir(parents=True)
 
         build_commands = [
             {
@@ -576,21 +562,17 @@ class TestRunBuildCommandsEdgeCases:
             }
         ]
 
-        try:
-            with pytest.raises(RuntimeError, match="exited with code 127"):
-                run_build_commands(build_commands)
-        finally:
-            import shutil
-
-            shutil.rmtree("/tmp/repo-deps", ignore_errors=True)
+        with pytest.raises(RuntimeError, match="exited with code 127"):
+            run_build_commands(build_commands, repo_deps_base=repo_deps)
 
     @patch("subprocess.run")
-    def test_multiple_repos_run_sequentially(self, mock_run, capsys):
+    def test_multiple_repos_run_sequentially(self, mock_run, tmp_path, capsys):
         """Multiple repos' commands all execute."""
         mock_run.return_value = MagicMock(returncode=0)
 
+        repo_deps = tmp_path / "repo-deps"
         for repo_dir in ("org--app-a", "org--app-b"):
-            (Path("/tmp/repo-deps") / repo_dir).mkdir(parents=True, exist_ok=True)
+            (repo_deps / repo_dir).mkdir(parents=True)
 
         build_commands = [
             {
@@ -605,12 +587,7 @@ class TestRunBuildCommandsEdgeCases:
             },
         ]
 
-        try:
-            run_build_commands(build_commands)
-        finally:
-            import shutil
-
-            shutil.rmtree("/tmp/repo-deps", ignore_errors=True)
+        run_build_commands(build_commands, repo_deps_base=repo_deps)
 
         assert mock_run.call_count == 3
         captured = capsys.readouterr()
