@@ -535,10 +535,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-25T17:52:17.963195Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-25T18:13:23.485416Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Other: no cap for now — we'll handle budget separately. A follow-up issue will be filed to track advisor budget specifically.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -675,7 +675,7 @@
     }
   ],
   "created_at": "2026-04-25T17:05:44.416677Z",
-  "updated_at": "2026-04-25T18:13:21.869801Z",
+  "updated_at": "2026-04-25T18:13:23.503703Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -689,6 +689,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 55,
+  "version": 56,
   "jira_ticket": null
 }
