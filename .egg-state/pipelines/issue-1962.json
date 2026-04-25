@@ -520,10 +520,31 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-20",
+      "question": "Advisor budget: what cap should bound Opus advisor calls (and how should it interact with the existing `max_llm_cost_per_hour=$5.00` budget at `sandbox/agent-config/rules/overseer.md:214`)?",
+      "context": "Open contract question decision-19, registered by an agent during the refine phase.",
+      "options": [
+        "Per-phase cap: e.g., `overseer_advisor_max_uses_per_phase=3` (mirrors `overseer_max_cycles_before_re_alert` precedent)",
+        "Per-pipeline cap: aggregate across all phases of the pipeline (e.g., 5)",
+        "Daily cap: per overseer-role consumer-id per UTC day (e.g., 50)",
+        "Hybrid: per-phase floor + dollar-budget ceiling (cap stays inside the existing `max_llm_cost_per_hour`)",
+        "Defer to plan phase — measure first, set cap second",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T17:52:17.963195Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T17:05:44.416677Z",
-  "updated_at": "2026-04-25T17:52:17.923552Z",
+  "updated_at": "2026-04-25T17:52:17.981802Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -537,6 +558,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 30,
+  "version": 31,
   "jira_ticket": null
 }
