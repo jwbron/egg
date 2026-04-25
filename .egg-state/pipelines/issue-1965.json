@@ -180,10 +180,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-25T17:00:54.263479Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-25T17:02:22.487735Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option 2B: Reviewer self-gates — put the threshold rule in the prompt text and have the reviewer run `git diff --numstat` itself, choosing fan-out vs solo review based on what it sees.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -300,7 +300,7 @@
     }
   ],
   "created_at": "2026-04-25T16:38:48.058271Z",
-  "updated_at": "2026-04-25T17:00:54.738289Z",
+  "updated_at": "2026-04-25T17:02:22.509697Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -314,6 +314,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 19,
+  "version": 20,
   "jira_ticket": null
 }
