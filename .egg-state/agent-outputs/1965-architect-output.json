@@ -1,0 +1,418 @@
+{
+  "issue": 1965,
+  "phase": "plan",
+  "role": "architect",
+  "title": "Architecture analysis: improve the generalized BRC reviewer (A + B small)",
+  "problem_statement": "The pipeline's BRC reviewer_code is confirming consensus while missing genuine blocking issues that the GHA egg-reviewer then flags after the PR is opened (PR #1964 is the canonical example: an uncommitted sandbox/scripts/jira deliverable, and a /api/v1/jira/execute path=project allowlist bypass). The desired outcome is that any blocking issue is caught and fixed inside the pipeline. The issue body has pre-resolved scope to A + B (small): subagent delegation inside reviewer_code for large diffs, plus two new specialised reviewer roles (reviewer_security, reviewer_concurrency). Both ship as ADVISORY on day 1, no severity rubric or attestation models, and only REVIEWER-SYNC.md is touched on the GHA side.",
+  "in_scope": [
+    "A — Subagent delegation block inside reviewer_code prompt (threshold-gated; reviewer self-gates and self-fans-out using the Claude Agent SDK Task tool).",
+    "B — Two new ADVISORY reviewer roles: reviewer_security and reviewer_concurrency, with dedicated criteria files that inherit from code-review-criteria.md.",
+    "REVIEWER-SYNC.md update documenting the SDLC-only asymmetry (new criteria files + subagent fan-out are SDLC-only).",
+    "Per-pipeline parallelism knob: phase_configs.implement.reviewer_code.parallel field on the contract (default true).",
+    "Regression-replay test for PR #1964 with two modes (CI-unconditional prompt asserts + opt-in live-LLM gated by RUN_REVIEWER_REPLAY=1).",
+    "Verification (not redefinition) that the existing role_value.replace('reviewer_', '', 1).replace('_', '-') mapping at pipelines.py:8317 already routes reviewer_security → security and reviewer_concurrency → concurrency."
+  ],
+  "out_of_scope": [
+    "Option D pre-PR GHA-equivalent gate (dropped).",
+    "Conditional-ACK policy (#1998 — merged).",
+    "Severity rubric in code-review-criteria.md (#1999).",
+    "Severity-tagged NACK flagging (#1997 — pairs with B; new reviewers stay ADVISORY until then).",
+    "babysit_pr subagent fan-out (deferred to v2).",
+    "GHA reviewer code (action/build-review-prompt.sh, action/reusable-review.yml). Only REVIEWER-SYNC.md is updated.",
+    "^project$ classification policy (#1998/#1964).",
+    "Static-analyzer integration (Option E).",
+    "Adding a redundant reviewer_type mapping dict/elif chain — the existing one-liner already handles both new roles.",
+    "Adding REVIEWER_ATTESTATION_MODELS entries for the two new reviewers (Pitfall 4 — only add if day-1 ACKs carry attestation payloads, which they do not)."
+  ],
+  "current_architecture_summary": {
+    "agent_roles_canonical": "shared/egg_contracts/agent_roles.py — AgentRole StrEnum is the canonical source of truth. Existing reviewer roles (REVIEWER_CODE, REVIEWER_CONTRACT, REVIEWER_AGENT_DESIGN, REVIEWER_REFINE, REVIEWER_PLAN) follow the same pattern: enum entry + AgentRoleDefinition with allowed/blocked file_access + AGENT_ROLES registry + AGENT_ROLE_TO_CONTRACT_ROLE mapping (Role.REVIEWER) + _PHASE_REVIEWERS list + (optional) EGG_ONLY_REVIEWERS membership.",
+    "review_graph": "orchestrator/review_graph.py — get_default_implement_graph() builds the asymmetric edge list. ReviewCriticality has CRITICAL and ADVISORY. Adding ReviewEdge(reviewer_security, coder, ADVISORY), ReviewEdge(reviewer_security, tester, ADVISORY), ReviewEdge(reviewer_concurrency, coder, ADVISORY), ReviewEdge(reviewer_concurrency, tester, ADVISORY) is mechanical.",
+    "criteria_loader_dispatch": "orchestrator/routes/pipelines.py — _get_review_criteria_for_type() at L3244 is a string-key dispatch (agent-design / code / contract / refine / plan). Adding security/concurrency branches is mechanical, mirroring the code-review loader (which uses _read_shared_criteria with a user_override fallback path and an inline-fallback string).",
+    "scope_preamble": "_get_reviewer_scope_preamble() at L3262 — same string-key dispatch; needs new branches for security/concurrency telling the reviewer to ONLY flag issues in its lens (delegating non-lens findings to reviewer_code).",
+    "review_prompt_builder": "_build_review_prompt() at L4217 has reviewer_type='code' branch with procedural steps, conventions, NACK-vs-ACK section. Currently does NOT have the diff text or the contract; pitfall-2 / pitfall-3 decisions both keep the function lean by self-gating in the prompt rather than threading new arguments.",
+    "reviewer_role_to_type_mapping": "pipelines.py:8317 already does role_value.replace('reviewer_', '', 1).replace('_', '-'). reviewer_security → 'security', reviewer_concurrency → 'concurrency' fall out automatically; this must be verified (unit test) but NOT replaced with a dict.",
+    "phase_config_schema": "shared/egg_contracts/models.py PhaseConfig currently has only checks/max_review_cycles/human_review_mechanism. To support phase_configs.implement.reviewer_code.parallel, the schema needs a new optional nested field (e.g. reviewer_code: Optional[ReviewerCodeConfig]={parallel: bool=True}), with phase_defaults.py merge logic preserving the override.",
+    "shared_criteria_files": "shared/prompts/ contains code-review-criteria.md (canonical, read by both GHA and SDLC), contract-review-criteria.md, agent-design-criteria.md, REVIEWER-SYNC.md. Add security-review-criteria.md and concurrency-review-criteria.md alongside.",
+    "agent_sdk_subagent_tool": "shared/egg_agent/client.py L162-167 only blocks WebFetch / WebSearch in private mode. The Claude Agent SDK Task subagent tool is NOT blocked anywhere — no allow-list edits, no MCP plumbing, no tool-registry additions, no orchestrator routing changes are needed for reviewer_code to spawn subagents. This is purely a prompt change (decision-10).",
+    "attestation_schemas": "orchestrator/attestation_schemas.py REVIEWER_ATTESTATION_MODELS only registers reviewer_code, reviewer_contract, tester. validate_attestation in peer_consensus.py is gated on review.attestation truthy, so reviewers without models work fine (reviewer_refine, reviewer_agent_design, reviewer_plan ship without models today). Day-1 ACKs from reviewer_security / reviewer_concurrency will not carry attestation payloads → do NOT add models (Pitfall 4).",
+    "integration_test_layout": "integration_tests/sdlc/ has conftest.py, test_happy_path.py, test_hitl_flow.py, test_refine_plan_review_cycles.py, test_review_rejection.py, test_role_enforcement.py. There is no fixtures/ directory yet — adding integration_tests/sdlc/fixtures/1964-diff.patch and integration_tests/sdlc/test_reviewer_1964_regression.py is greenfield."
+  },
+  "recommended_architecture": {
+    "summary": "Implement A + B small as a prompt-and-config change with surgical Python additions. No new MCP verbs, no new orchestrator routes, no new sandbox tools. The reviewer_code prompt grows a self-gated subagent fan-out block (Option 2B/3B + decision-3 OR composition + decision-4 path-glob slicing), the agent_roles enum gains two new StrEnum members (auto-routing through the existing one-liner reviewer_type mapping at pipelines.py:8317), the review_graph implement-phase factory gains four ADVISORY edges, _get_review_criteria_for_type() and _get_reviewer_scope_preamble() each gain two branches (security, concurrency) backed by two new shared/prompts criteria files that explicitly Inherit from code-review-criteria.md, and PhaseConfig gains a small reviewer_code config block (parallel: bool = true) consumed by the prompt builder when emitting the fan-out instruction. A regression-replay test pinned to PR #1964's diff (1964-diff.patch) asserts both previously-missed issues are flagged in two modes: CI-unconditional prompt-text asserts plus an opt-in live-LLM replay gated by RUN_REVIEWER_REPLAY=1.",
+    "components": [
+      {
+        "id": "C1",
+        "name": "New reviewer roles in agent_roles.py",
+        "files": ["shared/egg_contracts/agent_roles.py"],
+        "responsibilities": [
+          "Add AgentRole.REVIEWER_SECURITY = 'reviewer_security' and AgentRole.REVIEWER_CONCURRENCY = 'reviewer_concurrency' StrEnum members.",
+          "Add REVIEWER_SECURITY_ROLE and REVIEWER_CONCURRENCY_ROLE AgentRoleDefinition instances modelled after REVIEWER_PLAN_ROLE/REVIEWER_CODE_ROLE: REVIEW category, depends on TASK_PLANNER+RISK_ANALYST (same as reviewer_code), file_access allows .egg-state/reviews/ + .egg-state/agent-outputs/ with _REVIEWER_BLOCKED_WRITE.",
+          "Wire both into AGENT_ROLES dict and AGENT_ROLE_TO_CONTRACT_ROLE (both → Role.REVIEWER).",
+          "Append both to _PHASE_REVIEWERS['implement'] so get_roles_for_phase('implement') includes them by default. They are NOT egg-only (omit from EGG_ONLY_REVIEWERS).",
+          "Update the REVIEW role docstring on AgentRole to include the two new entries."
+        ],
+        "rationale": "Mirrors the additive pattern used for REVIEWER_REFINE / REVIEWER_AGENT_DESIGN. No schema migration; all dependent helpers (validate_roles_for_custom_phase, get_roles_for_phase, get_role_definition) work by virtue of registration."
+      },
+      {
+        "id": "C2",
+        "name": "Review graph edges for the implement phase",
+        "files": ["orchestrator/review_graph.py"],
+        "responsibilities": [
+          "Inside get_default_implement_graph() add four new edges: ReviewEdge('reviewer_security', 'coder', ADVISORY), ReviewEdge('reviewer_security', 'tester', ADVISORY), ReviewEdge('reviewer_concurrency', 'coder', ADVISORY), ReviewEdge('reviewer_concurrency', 'tester', ADVISORY).",
+          "Update the docstring listing producers/reviewers."
+        ],
+        "rationale": "ADVISORY criticality makes the new reviewers non-deadlocking — their NACKs surface as warnings but cannot block consensus, satisfying decision-11 and matching the day-1 promotion-deferred-to-#1997 plan."
+      },
+      {
+        "id": "C3",
+        "name": "Two dedicated criteria files in shared/prompts/",
+        "files": [
+          "shared/prompts/security-review-criteria.md",
+          "shared/prompts/concurrency-review-criteria.md"
+        ],
+        "responsibilities": [
+          "Both files open with an explicit header: 'Inherits from code-review-criteria.md; only the lens-specific rules below override or extend it.' (decision-5).",
+          "security-review-criteria.md focuses the reviewer on OWASP top-10 cross-file flow problems, secret leakage, allowlist/denylist mismatches between handler and validator (the PR #1964 ^project$ failure mode), authentication/authorization paths, SSRF/SSRF-equivalents, deserialization, supply-chain (uncommitted dependencies / dangling symlinks like the PR #1964 sandbox/scripts/jira failure mode).",
+          "concurrency-review-criteria.md focuses the reviewer on race conditions, deadlocks, missing locks, atomicity boundaries, async event-loop pitfalls, BRC consensus protocol invariants (re-review, ACK/NACK ordering, timing), and resource lifecycle (file handles, subprocess wait, asyncio task cancellation).",
+          "Both files explicitly DEFER non-lens findings to reviewer_code — the lens reviewers only flag inside their lens; comprehensive coverage is reviewer_code's responsibility (still ADVISORY-coexists)."
+        ],
+        "rationale": "Lens-focused inheritance keeps the new criteria small, prevents accidental criteria duplication, and respects the REVIEWER-SYNC inline-fallback parity by giving each loader a clear inline fallback string."
+      },
+      {
+        "id": "C4",
+        "name": "Criteria loaders + scope preambles in pipelines.py",
+        "files": ["orchestrator/routes/pipelines.py"],
+        "responsibilities": [
+          "Add _get_security_review_criteria(repo_path) and _get_concurrency_review_criteria(repo_path) using the same shape as _get_code_review_criteria (read shared file via _read_shared_criteria, fall back to an inline string that mirrors the dedicated md file's substance).",
+          "Extend _get_review_criteria_for_type() to dispatch reviewer_type='security' and reviewer_type='concurrency'.",
+          "Extend _get_reviewer_scope_preamble() with branches for 'security' and 'concurrency' that explicitly say 'this is a specialised lens review — do NOT review code quality or correctness in general; defer those to reviewer_code'."
+        ],
+        "rationale": "Reuses the existing pattern. The 'reviewer_security' role string flows through the existing role_value.replace('reviewer_','').replace('_','-') one-liner at pipelines.py:8317 and lands as reviewer_type='security' — no new mapping needed (Pitfall 1 verified)."
+      },
+      {
+        "id": "C5",
+        "name": "Subagent fan-out block inside reviewer_code prompt",
+        "files": ["orchestrator/routes/pipelines.py"],
+        "responsibilities": [
+          "Inside _build_review_prompt() under the existing if reviewer_type == 'code' branch, append a self-gated subagent fan-out instruction block that tells the reviewer to: (1) run git diff --numstat <base>...HEAD; (2) compute (files_changed, loc); (3) IF files_changed > 10 OR loc > 500 (decision-3 OR composition), call mcp__sdlc__show_contract and self-extract phases.implement.tasks[]; (4) partition the changed files by logical subsystem inferred from the task list, with one Task subagent per partition; (5) each Task subagent re-runs git diff <base>...HEAD itself and filters by path glob to its assigned partition (decision-4 — parent passes only the partition spec, not patch fragments); (6) each Task subagent reviews its partition against code-review-criteria.md and reports findings; (7) parent reviewer aggregates findings into a single ACK/NACK reason. Parallel vs sequential subagent dispatch obeys the contract field reviewer_code.parallel (passed in via prompt builder) — default parallel.",
+          "Provide an explicit fallback path: if implement-phase tasks are empty (e.g. custom-phase invocation), skip fan-out and review yourself end-to-end (decision-3B fallback).",
+          "Provide a 'log the gate decision' instruction telling the reviewer to emit a STATUS message (egg-orch message send --to all --type STATUS) recording 'Subagent fan-out: enabled (N partitions, M files, L LOC)' or '...skipped (below threshold)' so we can grep telemetry.",
+          "Pull the parallelism knob via a new optional argument on _build_review_prompt() and on _build_phase_prompt() (reviewer_code_parallel: bool = True), defaulted from get_effective_phase_config(contract, IMPLEMENT).reviewer_code.parallel. Thread it from the call site at L8318 where the contract is in scope (or fall back to True if the contract is None / phase_configs absent)."
+        ],
+        "rationale": "Pure prompt change for the reviewer's behaviour (decision-2B + decision-3B + decision-4). The parallelism flag is the ONLY orchestrator-side wiring needed and lives entirely on the contract via existing PhaseConfig override semantics. No diff plumbing in Python (Option 2A rejected); no contract loader in Python (Option 3A rejected); no patch-fragment slicing in the parent (decision-4 keeps the parent's job small)."
+      },
+      {
+        "id": "C6",
+        "name": "PhaseConfig.reviewer_code knob",
+        "files": [
+          "shared/egg_contracts/models.py",
+          "shared/egg_contracts/phase_defaults.py"
+        ],
+        "responsibilities": [
+          "Add a new ReviewerCodeConfig BaseModel with parallel: bool = Field(default=True). Add reviewer_code: Optional[ReviewerCodeConfig] = None to PhaseConfig.",
+          "Update get_effective_phase_config() to merge contract.phase_configs.implement.reviewer_code over the default (None → defaults; partial → take override).",
+          "Default in _DEFAULT_PHASE_CONFIGS[IMPLEMENT] explicitly sets reviewer_code=ReviewerCodeConfig(parallel=True) so contracts that don't set it still get parallel by default (feedback-11)."
+        ],
+        "rationale": "Keeps the parallelism switch on the contract per decision-6. PhaseConfig is already the schema for per-phase overrides, so no new top-level surface is required and CLI tooling that reads contracts inherits the field for free."
+      },
+      {
+        "id": "C7",
+        "name": "Reviewer-sync doc update",
+        "files": ["shared/prompts/REVIEWER-SYNC.md"],
+        "responsibilities": [
+          "Add a section documenting the SDLC-only asymmetry: reviewer_security and reviewer_concurrency are SDLC-only ADVISORY reviewers (no GHA equivalent); GHA reviewer code (action/...) is intentionally untouched.",
+          "Add the subagent fan-out behaviour to the 'What's Intentionally Different' table — SDLC reviewer_code conditionally fans out via Task subagents when diff > 10 files OR > 500 LOC; GHA reviewer does not.",
+          "Update the Modification Checklist: when changing reviewer_security / reviewer_concurrency criteria, update both the shared/prompts file and the inline fallback string in pipelines.py."
+        ],
+        "rationale": "Feedback-9 and the issue's GHA-untouched constraint require an explicit doc record so future maintainers don't accidentally try to mirror these into action/."
+      },
+      {
+        "id": "C8",
+        "name": "Regression-replay test for PR #1964",
+        "files": [
+          "integration_tests/sdlc/fixtures/1964-diff.patch",
+          "integration_tests/sdlc/test_reviewer_1964_regression.py"
+        ],
+        "responsibilities": [
+          "Create the fixture 1964-diff.patch by capturing git diff origin/main...PR-#1964-merge-commit (committed as a static text file).",
+          "Test mode 1 — CI-unconditional prompt asserts: build the reviewer_code prompt for a synthetic state where get_diff_metrics returns (12 files, 800 LOC); assert the rendered prompt contains the subagent-fan-out block. Repeat for (3 files, 50 LOC) and assert the block is NOT present (decision-7 — both modes; this is the prompt-text half).",
+          "Test mode 2 — opt-in live-LLM: gated by RUN_REVIEWER_REPLAY=1 environment variable; uses the real Anthropic SDK client to drive a reviewer_code session against the fixture; asserts the reviewer's ACK/NACK reason text contains references to BOTH the uncommitted sandbox/scripts/jira issue AND the ^project$ allowlist-bypass issue.",
+          "Add a fixture loader and a small helper for the reviewer_code prompt builder that feeds a stubbed contract with implement-phase tasks (so the partition path runs)."
+        ],
+        "rationale": "Decision-7 selected 'both modes'. CI-unconditional prompt asserts give regression-protection without LLM cost (catches accidental removal of the fan-out block); the opt-in live-LLM mode is the genuine end-to-end exercise but stays out of the default CI cost path."
+      },
+      {
+        "id": "C9",
+        "name": "Verification-only unit tests for existing wiring",
+        "files": ["orchestrator/tests/", "shared/egg_contracts/tests/"],
+        "responsibilities": [
+          "Add a unit test asserting the existing one-liner at pipelines.py:8317 maps reviewer_security → 'security' and reviewer_concurrency → 'concurrency' (Pitfall 1).",
+          "Add a unit test asserting that a reviewer_security ACK with empty attestation passes validate_attestation (Pitfall 4 — confirms the no-model path works).",
+          "Add unit tests for new criteria loaders, the new scope preamble branches, and the new PhaseConfig.reviewer_code merge semantics."
+        ],
+        "rationale": "Verification rather than invention; ensures the no-redundant-mapping and no-attestation-models invariants stay protected against future drift."
+      },
+      {
+        "id": "C10",
+        "name": "Documentation refresh",
+        "files": [
+          "docs/guides/concurrent-execution.md",
+          "docs/architecture/orchestrator.md"
+        ],
+        "responsibilities": [
+          "Add a brief subsection to docs/guides/concurrent-execution.md describing reviewer_security and reviewer_concurrency as ADVISORY day-1 reviewers and pointing readers at the criteria files.",
+          "Add a paragraph to docs/architecture/orchestrator.md noting that reviewer_code conditionally fans out via Task subagents above ~10 files / ~500 LOC, with the threshold defined in-prompt (Option 2B)."
+        ],
+        "rationale": "Two short doc deltas keep architecture/concurrency-execution docs in sync with the new behaviour. Keeps these scoped to ADVISORY-status promotion notes (no severity rubric content here)."
+      }
+    ]
+  },
+  "key_technical_decisions": [
+    {
+      "id": "TD-1",
+      "decision": "reviewer_code self-gates the threshold check by running git diff --numstat in-prompt (Option 2B).",
+      "source": "decision-1 (resolved)",
+      "rationale": "Avoids orchestrator-side numstat plumbing; matches the existing pattern of telling the reviewer to run git diff itself; non-determinism mitigated by the regression-replay prompt-text asserts (which check that the reviewer prompt instructs the gate, not whether the reviewer's runtime gate decision is correct).",
+      "implication": "_build_review_prompt() does NOT gain (files_changed, loc) parameters. The reviewer's prompt embeds the threshold rule as plain text."
+    },
+    {
+      "id": "TD-2",
+      "decision": "reviewer_code fetches the implement-phase task list via mcp__sdlc__show_contract from its own session (Option 3B), with explicit fallback: empty implement-phase tasks → skip fan-out.",
+      "source": "decision-2 (resolved)",
+      "rationale": "Keeps _build_review_prompt() lean; agents already use MCP for contract reads; aligns with the broader pattern.",
+      "implication": "No contract parameter on _build_review_prompt(). The reviewer is instructed to call mcp__sdlc__show_contract and self-extract phases.implement.tasks[]."
+    },
+    {
+      "id": "TD-3",
+      "decision": "Threshold composition is OR — fan-out triggers when files_changed > 10 OR loc > 500.",
+      "source": "decision-3 (resolved)",
+      "rationale": "Either trip is a strong-enough signal that the diff is too large for a single review pass; AND would let high-LOC single-file refactors slip through.",
+      "implication": "Prompt text says 'if files > 10 OR loc > 500' verbatim."
+    },
+    {
+      "id": "TD-4",
+      "decision": "Each subagent re-runs git diff itself and filters by path glob to its assigned partition; the parent reviewer passes only the partition spec.",
+      "source": "decision-4 (resolved)",
+      "rationale": "Keeps the parent's responsibilities minimal (no diff slicing, no patch-fragment handling); subagents already have shell access; matches the 'agents fetch their own context' pattern.",
+      "implication": "Prompt text instructs subagents to run git diff <base>...HEAD -- <glob1> <glob2> ... limited to their assigned paths."
+    },
+    {
+      "id": "TD-5",
+      "decision": "security-review-criteria.md and concurrency-review-criteria.md inherit from code-review-criteria.md via an explicit header.",
+      "source": "decision-5 (resolved)",
+      "rationale": "Prevents accidental criteria duplication; keeps REVIEWER-SYNC.md honest; reviewers know they apply lens-specific overrides on top of the canonical criteria.",
+      "implication": "Each new file opens with: 'Inherits from code-review-criteria.md; only lens-specific rules below override or extend it.' Loaders for security/concurrency call _read_shared_criteria for their dedicated file (no auto-merging — the inherit is by reference, the reviewer reads both)."
+    },
+    {
+      "id": "TD-6",
+      "decision": "Per-pipeline subagent parallelism knob lives in phase_configs.implement.reviewer_code.parallel (default true).",
+      "source": "decision-6 (resolved)",
+      "rationale": "PhaseConfig already exists for per-phase overrides; using it gives free CLI/API plumbing and avoids env vars / settings.json entanglement.",
+      "implication": "Add ReviewerCodeConfig BaseModel; add reviewer_code field to PhaseConfig; update phase_defaults merge logic; thread the bool from the call site at L8318 into _build_review_prompt(reviewer_code_parallel=...)."
+    },
+    {
+      "id": "TD-7",
+      "decision": "PR #1964 regression-replay ships in BOTH modes — CI-unconditional prompt-text asserts AND opt-in live-LLM gated by RUN_REVIEWER_REPLAY=1.",
+      "source": "decision-7 (resolved)",
+      "rationale": "Prompt-text asserts catch accidental removal of the fan-out block in normal CI; live-LLM mode validates the actual model behaviour but stays out of the default CI cost budget.",
+      "implication": "Two test functions in test_reviewer_1964_regression.py — the first deterministic and unconditional, the second gated by os.environ.get('RUN_REVIEWER_REPLAY') == '1' (skip otherwise)."
+    },
+    {
+      "id": "TD-8",
+      "decision": "Use the Claude Agent SDK's built-in Task subagent tool (decision-10 from the issue body).",
+      "source": "Issue #1965 decision-10 (resolved)",
+      "rationale": "shared/egg_agent/client.py:162-167 only blocks WebFetch/WebSearch in private mode; Task is unblocked, so no allow-list edits, no MCP verb, no orchestrator routing.",
+      "implication": "Subagent fan-out is purely a prompt instruction. Subagents inherit the parent's tool roster automatically via the SDK."
+    },
+    {
+      "id": "TD-9",
+      "decision": "Both new reviewers ship as ADVISORY on day 1 (no day-1 attestation models).",
+      "source": "decision-11 (resolved) + Pitfall 4",
+      "rationale": "ADVISORY edges cannot deadlock consensus; promotion to CRITICAL waits for #1997 (severity-tagged NACK flagging). validate_attestation in peer_consensus.py is conditional on review.attestation truthy — reviewers without attestation models work fine, as proven by reviewer_refine, reviewer_agent_design, reviewer_plan.",
+      "implication": "Do NOT add ReviewerSecurityAttestation / ReviewerConcurrencyAttestation classes. Do NOT register entries in REVIEWER_ATTESTATION_MODELS."
+    },
+    {
+      "id": "TD-10",
+      "decision": "Do NOT introduce a redundant reviewer_type mapping dict / if-elif chain.",
+      "source": "Pitfall 1",
+      "rationale": "pipelines.py:8317 already does role_value.replace('reviewer_', '', 1).replace('_', '-'); adding a dict would be net-negative.",
+      "implication": "C9 ships a unit-test that asserts this mapping behaves correctly for the two new roles; no production-code addition."
+    }
+  ],
+  "constraints": [
+    "GHA reviewer code is OFF-LIMITS — only shared/prompts/REVIEWER-SYNC.md is updated on the GHA side.",
+    "Backward compatibility: existing reviewer roles, edges, and prompts must keep working unchanged.",
+    "Day-1 cost / latency budget: 2-5x cost on large PRs, 5-10 min latency, no hard per-pipeline ceiling.",
+    "Threshold gate: below 10 changed files OR 500 LOC, fan-out is off by default. Above either, on by default. Reviewer can override either direction at its discretion.",
+    "Parallelism: configurable per-pipeline via phase_configs.implement.reviewer_code.parallel (default true).",
+    "Acceptance is trend-based — GHA blocking-count per pipeline-PR trends to zero across N PRs. No hard numeric gate.",
+    "Phase boundary: refine/plan reviewers do NOT get subagent fan-out; only reviewer_code does.",
+    "ADVISORY criticality on day 1 for both new reviewers — promotion to CRITICAL is gated on #1997.",
+    "Architect file restrictions: this output writes only to .egg-state/agent-outputs/1965-architect-output.json; no production code, no contracts, no drafts."
+  ],
+  "dependencies_and_blockers": {
+    "internal": [
+      "shared/egg_contracts/agent_roles.py (canonical AgentRole enum) — must export the two new members or downstream gateway/agent_restrictions.py role-string validation will reject them.",
+      "orchestrator/review_graph.py — implement-phase factory must include the four new ADVISORY edges or BRC will not invoke the new reviewers.",
+      "shared/egg_contracts/models.py + phase_defaults.py — PhaseConfig change must round-trip through gateway contract endpoints (Pydantic v2 backward-compat).",
+      "shared/prompts/code-review-criteria.md — referenced by inheritance header in the two new criteria files; no edits required."
+    ],
+    "external": [
+      "None — Task subagent tool is built into the Claude Agent SDK (no version bump required); current shared/egg_agent/client.py already permits it.",
+      "Anthropic API — only used by the opt-in live-LLM regression-replay path; default CI doesn't invoke it."
+    ],
+    "cross_repo": [
+      "GHA reviewer code (action/) is intentionally untouched.",
+      "REVIEWER-SYNC.md is the only sync artifact; modification checklist updates ensure future drift is caught."
+    ]
+  },
+  "risks_handed_to_risk_analyst": [
+    {
+      "id": "R-1",
+      "description": "Self-gated threshold (TD-1) is non-deterministic — the reviewer might decide differently on different runs even with the same diff.",
+      "mitigation": "Regression-replay prompt asserts (TD-7 mode 1) verify the prompt instructs the gate; live-LLM mode (TD-7 mode 2) verifies the gate is honoured end-to-end on a known fixture."
+    },
+    {
+      "id": "R-2",
+      "description": "Subagent fan-out cost (2-5× on large PRs per feedback-1) could escalate if subagents themselves trigger nested Task calls or run for unbounded turns.",
+      "mitigation": "Prompt instruction caps per-subagent turns; partition list size bounded by implement-phase tasks (typically 3-8). Add a guardrail comment that subagents do not nest Task calls."
+    },
+    {
+      "id": "R-3",
+      "description": "ADVISORY edges produce noisy NACKs that humans/operators ignore until #1997 lands.",
+      "mitigation": "Day-1 advisory status by design (decision-11). Document promotion path in REVIEWER-SYNC.md and docs/guides/concurrent-execution.md."
+    },
+    {
+      "id": "R-4",
+      "description": "PhaseConfig schema change (C6) could break existing serialised contracts on disk if the new field is required.",
+      "mitigation": "ReviewerCodeConfig.parallel defaults to True; reviewer_code field on PhaseConfig is Optional and defaults to None (treated as 'use defaults' by get_effective_phase_config merge logic). Round-trip test in C9."
+    },
+    {
+      "id": "R-5",
+      "description": "REVIEWER-SYNC.md drift: future reviewers might add lens-specific criteria to action/ without realising it's intentionally SDLC-only.",
+      "mitigation": "Explicit row in 'What's Intentionally Different' table calling out reviewer_security / reviewer_concurrency as SDLC-only; modification-checklist row reminds maintainers not to mirror to action/."
+    },
+    {
+      "id": "R-6",
+      "description": "Regression-replay live-LLM test (TD-7 mode 2) could become flaky as Anthropic models drift.",
+      "mitigation": "Test runs only when RUN_REVIEWER_REPLAY=1 — never in default CI. Failure is informational unless explicitly opted in. Document the gate in CONTRIBUTING.md or test docstring."
+    },
+    {
+      "id": "R-7",
+      "description": "Subagent fan-out partition strategy (Option 3B/decision-4) may produce uneven load if implement-phase tasks are skewed (e.g., 80% of LOC in one task).",
+      "mitigation": "Reviewer can override partition heuristic at its discretion (the prompt allows free-form partitioning); the empty-tasks fallback skips fan-out entirely."
+    },
+    {
+      "id": "R-8",
+      "description": "Subagent diff-glob filtering (decision-4) may miss cross-file findings that span partition boundaries (e.g., a route handler in partition A whose allowlist extractor lives in partition B — the exact PR #1964 ^project$ failure mode).",
+      "mitigation": "Mitigated by the parent reviewer running its own end-to-end final pass after subagents complete, and by reviewer_security's lens-specific instruction to scan for handler-vs-validator allowlist mismatches across files. The regression-replay test asserts both PR #1964 issues are flagged; if R-8 manifests in practice, escalate to a follow-up issue (parent-side cross-partition pass)."
+    }
+  ],
+  "tasks_handed_to_task_planner": {
+    "approach_summary": "task_planner should produce roughly the following implement-phase task partition (suggested IDs are illustrative; final IDs come from the contract):",
+    "suggested_partition": [
+      {
+        "id": "task-1",
+        "title": "Add reviewer_security + reviewer_concurrency to AgentRole enum, AGENT_ROLES registry, AGENT_ROLE_TO_CONTRACT_ROLE, _PHASE_REVIEWERS['implement']",
+        "files": ["shared/egg_contracts/agent_roles.py"],
+        "depends_on": [],
+        "ac_outline": "AgentRole.REVIEWER_SECURITY and AgentRole.REVIEWER_CONCURRENCY exist; both map to Role.REVIEWER; both appear in implement-phase reviewer roster; existing tests pass."
+      },
+      {
+        "id": "task-2",
+        "title": "Add four ADVISORY edges to get_default_implement_graph()",
+        "files": ["orchestrator/review_graph.py"],
+        "depends_on": ["task-1"],
+        "ac_outline": "reviewer_security/concurrency review coder and tester at ADVISORY criticality; existing CRITICAL edges unchanged."
+      },
+      {
+        "id": "task-3",
+        "title": "Author shared/prompts/security-review-criteria.md and concurrency-review-criteria.md with the inheritance header",
+        "files": ["shared/prompts/security-review-criteria.md", "shared/prompts/concurrency-review-criteria.md"],
+        "depends_on": [],
+        "ac_outline": "Both files exist; both open with the prescribed inheritance header; security file enumerates the PR #1964 failure-mode classes (uncommitted artifacts, allowlist mismatches across files, secret leakage, OWASP top-10 cross-file flow); concurrency file enumerates race/deadlock/lifecycle/BRC-protocol invariants."
+      },
+      {
+        "id": "task-4",
+        "title": "Add criteria loaders + scope preamble branches in pipelines.py for security/concurrency",
+        "files": ["orchestrator/routes/pipelines.py"],
+        "depends_on": ["task-3"],
+        "ac_outline": "_get_security_review_criteria() and _get_concurrency_review_criteria() exist with shared-file + inline-fallback shape; _get_review_criteria_for_type() and _get_reviewer_scope_preamble() dispatch to them."
+      },
+      {
+        "id": "task-5",
+        "title": "Add ReviewerCodeConfig + reviewer_code field to PhaseConfig with default parallel=True",
+        "files": ["shared/egg_contracts/models.py", "shared/egg_contracts/phase_defaults.py"],
+        "depends_on": [],
+        "ac_outline": "PhaseConfig.reviewer_code optional nested config; get_effective_phase_config merges contract overrides; default parallel=True for IMPLEMENT phase."
+      },
+      {
+        "id": "task-6",
+        "title": "Add subagent fan-out block to reviewer_code prompt in _build_review_prompt(), threading reviewer_code_parallel from the call site",
+        "files": ["orchestrator/routes/pipelines.py"],
+        "depends_on": ["task-5"],
+        "ac_outline": "Reviewer_code prompt contains a self-gated threshold check (OR composition), an mcp__sdlc__show_contract self-fetch with empty-tasks fallback, a partition-by-task-list instruction with path-glob diff slicing, a parallel-vs-sequential dispatch directive, and a STATUS-message log instruction."
+      },
+      {
+        "id": "task-7",
+        "title": "Update shared/prompts/REVIEWER-SYNC.md to document the SDLC-only asymmetry",
+        "files": ["shared/prompts/REVIEWER-SYNC.md"],
+        "depends_on": ["task-3", "task-6"],
+        "ac_outline": "REVIEWER-SYNC.md mentions reviewer_security / reviewer_concurrency as SDLC-only ADVISORY reviewers; mentions reviewer_code subagent fan-out behaviour; modification checklist updated."
+      },
+      {
+        "id": "task-8",
+        "title": "Add fixture integration_tests/sdlc/fixtures/1964-diff.patch + test_reviewer_1964_regression.py with two test modes",
+        "files": ["integration_tests/sdlc/fixtures/1964-diff.patch", "integration_tests/sdlc/test_reviewer_1964_regression.py"],
+        "depends_on": ["task-6"],
+        "ac_outline": "Fixture committed; CI-unconditional prompt-text assert mode passes; opt-in RUN_REVIEWER_REPLAY=1 mode skipped by default but runs and passes when invoked manually."
+      },
+      {
+        "id": "task-9",
+        "title": "Add verification unit tests: reviewer_type one-liner mapping (Pitfall 1), no-attestation-model path for new reviewers (Pitfall 4), criteria loaders, scope preambles, PhaseConfig.reviewer_code merge",
+        "files": ["orchestrator/tests/", "shared/egg_contracts/tests/"],
+        "depends_on": ["task-1", "task-4", "task-5"],
+        "ac_outline": "All five unit-test categories pass; existing tests still pass."
+      },
+      {
+        "id": "task-10",
+        "title": "Update docs/guides/concurrent-execution.md and docs/architecture/orchestrator.md",
+        "files": ["docs/guides/concurrent-execution.md", "docs/architecture/orchestrator.md"],
+        "depends_on": ["task-1", "task-6", "task-7"],
+        "ac_outline": "Concurrent-execution guide describes the two new ADVISORY reviewers; orchestrator doc has a paragraph on the reviewer_code subagent fan-out gate."
+      }
+    ],
+    "ordering_notes": [
+      "task-1, task-3, task-5 are independent leaf foundations and can run in parallel.",
+      "task-2 depends on task-1 (needs the role strings).",
+      "task-4 depends on task-3 (loader fallback strings should mirror the md file content).",
+      "task-6 depends on task-5 (needs the parallel knob).",
+      "task-7, task-8 depend on task-3, task-6 (doc + regression test exercise the new behaviour).",
+      "task-9 depends on the additive tasks it tests.",
+      "task-10 is the final doc pass."
+    ]
+  },
+  "test_strategy_outline": {
+    "unit": [
+      "agent_roles: REVIEWER_SECURITY/CONCURRENCY membership in AGENT_ROLES, AGENT_ROLE_TO_CONTRACT_ROLE → REVIEWER, _PHASE_REVIEWERS['implement'] inclusion.",
+      "review_graph: get_default_implement_graph() returns the four new ADVISORY edges; advisory_reviewers_for('coder') and advisory_reviewers_for('tester') include both new reviewers.",
+      "pipelines.py: _get_review_criteria_for_type('security'/'concurrency', ...) returns a string containing the inheritance header; _get_reviewer_scope_preamble('security'/'concurrency', ...) returns lens-specific text mentioning 'defer non-lens findings to reviewer_code'.",
+      "pipelines.py: role_value.replace('reviewer_','',1).replace('_','-') one-liner produces 'security' / 'concurrency' (Pitfall 1).",
+      "PhaseConfig: round-trip Pydantic serialization preserves reviewer_code.parallel; get_effective_phase_config merge with contract override flips parallel=False; default for IMPLEMENT phase is parallel=True.",
+      "validate_attestation: a ReviewPayload with role='reviewer_security' and empty attestation passes (no model registered → returns instance unchanged) (Pitfall 4 verification)."
+    ],
+    "integration": [
+      "test_reviewer_1964_regression.py mode 1: build prompt with stubbed (12 files, 800 LOC) → prompt contains subagent fan-out block; with (3 files, 50 LOC) → block absent.",
+      "test_reviewer_1964_regression.py mode 2 (RUN_REVIEWER_REPLAY=1): live LLM session reviews the 1964-diff.patch fixture and produces a NACK reason that mentions both the uncommitted sandbox/scripts/jira issue and the ^project$ allowlist-bypass issue.",
+      "test_role_enforcement.py: ensure reviewer_security/reviewer_concurrency are accepted by validate_roles_for_custom_phase('implement', ...)."
+    ],
+    "out_of_scope_for_v1": [
+      "End-to-end pipeline run that exercises the new reviewers against a synthetic large PR — covered organically by next pipeline-produced PR after merge; trend-based acceptance per decision-9 means we expect GHA blocking count to drop over multiple pipeline PRs."
+    ]
+  },
+  "open_questions_after_refine": "All seven refine-phase open questions were resolved by the human (decisions 1-7 on the contract). No new architecture-level open questions introduced by this analysis.",
+  "complexity_assessment": {
+    "rating": "medium",
+    "rationale": "Touches ~10 files (2 enum entries, 4 review-graph edges, 2 new criteria docs + 2 inline fallbacks, 2 prompt builder branches, 1 prompt-text fan-out block, 1 PhaseConfig field + 1 phase_defaults merge, 1 REVIEWER-SYNC.md update, 1 fixture, 1 regression test file, 2 doc updates). Each change is mechanical and follows an existing pattern (REVIEWER_REFINE / REVIEWER_AGENT_DESIGN templates). No new subsystems, no schema migrations, no orchestrator routing changes, no MCP verb additions. The subagent fan-out is purely a prompt change leveraging the existing Task tool from the Claude Agent SDK. The single non-trivial design choice — whether to plumb diff metrics / contract through Python or self-gate in the prompt — has been resolved (Options 2B + 3B)."
+  }
+}
