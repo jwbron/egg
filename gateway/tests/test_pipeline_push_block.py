@@ -675,11 +675,13 @@ class TestOrchestratorLauncherAuthPush:
             assert "mode" in data["message"].lower()
 
     def test_launcher_push_missing_mode_uses_session_default(self, client):
-        """A launcher-auth push without ``mode`` in the body is allowed.
+        """A launcher-auth push without ``mode`` in the body is not rejected by
+        the new validator (only invalid values are).
 
-        Missing ``mode`` is normal for the orchestrator's failsafe pushes that
-        don't care about private-repo policy (defaults are applied downstream
-        by ``check_private_repo_access``).  Only an *invalid* mode is rejected.
+        Note that in production ``check_private_repo_access`` would still 403
+        with "No session mode specified" — this test exercises the validator in
+        isolation (``check_private_repo_access`` is mocked to allow); the
+        orchestrator's ``_do_push`` always sends mode in practice.
         """
         patches = _launcher_auth_context()
         with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
