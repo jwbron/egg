@@ -1005,57 +1005,58 @@ def git_push() -> tuple[Response, int] | Response:
                     details=priv_result.to_dict(),
                 )
 
-    # SECURITY: Pipeline and concurrent-mode push enforcement.
-    # Infrastructure pushes (checkpoint branches, etc.) are exempt from both checks.
+    # SECURITY: Pipeline push enforcement.
+    # All SDLC producer phases (refine/plan/implement) are BRC phases, so every
+    # pipeline-session push must route through mcp__brc__propose (which sets the
+    # consensus_push marker).  A direct git push from a pipeline session — whether
+    # bare, mis-targeted, or correctly-targeted — is rejected with a single
+    # unambiguous error pointing at the right tool, instead of the three-layer
+    # error cascade that previously sent agents refspec-hunting (#2028).
+    # Infrastructure pushes (checkpoint branches, etc.) are exempt.
     if not is_infrastructure_push:
-        # Concurrent-mode enforcement runs FIRST.  In BRC mode the agent's
-        # work branch (e.g. egg/<pid>-<role>/work) never matches the
-        # assigned branch, so the wrong-branch check below would almost
-        # always fire first with a misleading message — sending agents
-        # down a refspec-guessing rabbit hole.  The concurrent-mode
-        # error points at the actionable tool (#1994).
-        # Killswitch: set CONCURRENT_PUSH_ENFORCEMENT=false to disable.
-        concurrent_push_enforcement = os.environ.get(
-            "CONCURRENT_PUSH_ENFORCEMENT", "true"
-        ).lower() not in ("false", "0", "no")
-        concurrent_mode = os.environ.get("EGG_CONCURRENT_MODE", "").lower() == "true"
-        if concurrent_push_enforcement and concurrent_mode:
+        # Killswitch: PIPELINE_PUSH_ENFORCEMENT=false (legacy alias:
+        # CONCURRENT_PUSH_ENFORCEMENT=false) disables the block.
+        enforcement_env = os.environ.get(
+            "PIPELINE_PUSH_ENFORCEMENT",
+            os.environ.get("CONCURRENT_PUSH_ENFORCEMENT", "true"),
+        )
+        pipeline_push_enforcement = enforcement_env.lower() not in ("false", "0", "no")
+        if pipeline_push_enforcement:
             session_pipeline_id = None
             if hasattr(g, "session") and g.session:
                 session_pipeline_id = getattr(g.session, "pipeline_id", None)
             if isinstance(session_pipeline_id, str) and session_pipeline_id:
                 if not data.get("consensus_push"):
                     audit_log(
-                        "push_denied_concurrent_mode",
+                        "push_denied_pipeline_session",
                         "git_push",
                         success=False,
                         details={
                             "repo": repo,
                             "branch": branch,
                             "pipeline_id": session_pipeline_id,
-                            "reason": "Direct push blocked in concurrent mode",
+                            "reason": "Direct push blocked for pipeline session",
                         },
                     )
                     return make_error(
-                        "Direct git push is blocked in BRC mode. "
-                        "Publish your artifact via the mcp__brc__propose "
-                        "tool (which pushes to origin and sends "
-                        "CONSENSUS_PROPOSE in one step). Fallback CLI: "
+                        "Direct git push is blocked for pipeline sessions. "
+                        "Publish your artifact via the mcp__brc__propose tool "
+                        "(which pushes to origin and sends CONSENSUS_PROPOSE "
+                        "in one step). Fallback CLI: "
                         "`egg-orch consensus propose --push`.",
                         status_code=403,
                         details={
-                            "mode": "concurrent",
                             "pipeline_id": session_pipeline_id,
                             "requirement": "consensus_push",
                             "recommended_tool": "mcp__brc__propose",
                         },
                     )
 
-        # Push-target enforcement: in pipeline mode (non-concurrent or
-        # concurrent with the consensus_push marker set), agents must
-        # push only to their assigned branch.  Prevents improvising
-        # branch names on push failure.
-        # Killswitch: set PUSH_TARGET_ENFORCEMENT=false to disable.
+        # Push-target enforcement: a consensus_push request must still target the
+        # session's assigned branch.  Defense-in-depth against a malformed propose
+        # call (consensus_push=true but wrong refspec).  Non-pipeline sessions
+        # (e.g. user-mode pushes) are not subject to this check.
+        # Killswitch: PUSH_TARGET_ENFORCEMENT=false.
         push_target_enforcement = os.environ.get("PUSH_TARGET_ENFORCEMENT", "true").lower() not in (
             "false",
             "0",
@@ -1077,15 +1078,10 @@ def git_push() -> tuple[Response, int] | Response:
                             "pipeline_id": session_pipeline_id,
                         },
                     )
-                    hint = (
-                        " In BRC mode, call mcp__brc__propose — it handles "
-                        "branch targeting for you."
-                        if concurrent_mode
-                        else ""
-                    )
                     return make_error(
                         f"Pipeline sessions must push to their assigned branch "
-                        f"'{session_assigned_branch}'. Got '{branch}'.{hint}",
+                        f"'{session_assigned_branch}'. Got '{branch}'. "
+                        f"mcp__brc__propose handles branch targeting for you.",
                         status_code=403,
                         details={
                             "assigned_branch": session_assigned_branch,

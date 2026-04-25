@@ -59,8 +59,8 @@ def _make_session(role: str = "coder"):
     mock_session.expires_at = None
     mock_session.agent_role = role
     mock_session.phase = None
-    # Intentionally leave pipeline_id unset — the gateway's concurrent-mode
-    # check otherwise blocks the push before the auto-filter decision tree.
+    # Intentionally leave pipeline_id unset — the gateway's pipeline-push
+    # enforcement otherwise blocks the push before the auto-filter decision tree.
     mock_session.pipeline_id = None
     return mock_session
 

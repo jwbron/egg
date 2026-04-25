@@ -13,7 +13,7 @@ The gateway inspects every commit in the unpushed range, partitions files by aut
   - Commits authored by other roles (pulled via merge/rebase) pass through **bitwise-unchanged**.
   - After the push, your local `HEAD` is fast-forwarded to match origin, and the blocked files are **re-staged as uncommitted changes** in your worktree so another role can pick them up.
 - **All your own files are blocked.** Response returns `200 nothing_to_push: true` with the excluded file list. No ref update, no remote push. Your worktree is untouched. Re-author the work under the correct role (or coordinate via the message bus).
-- **Other restrictions** (phase gate, anchor scope, protected file, branch ownership, private mode, concurrent mode). These still return `403`. The auto-filter is only for agent-role file restrictions.
+- **Other restrictions** (phase gate, anchor scope, protected file, branch ownership, private mode, pipeline session). These still return `403`. The auto-filter is only for agent-role file restrictions.
 
 ## Response body fields
 
