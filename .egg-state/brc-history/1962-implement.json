@@ -7032,5 +7032,20 @@
     },
     "timestamp": "2026-04-25T22:19:15.784932+00:00",
     "phase": "implement"
+  },
+  {
+    "id": "f634922b-a1ee-41",
+    "pipeline_id": "issue-1962",
+    "from_role": "coder",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T22:19:25.202145+00:00"
+    },
+    "timestamp": "2026-04-25T22:19:25.238924+00:00",
+    "phase": "implement"
   }
 ]

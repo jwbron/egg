@@ -1,6 +1,6 @@
 # BRC Consensus History — implement phase
 
-Generated: 2026-04-25T22:19:15Z
+Generated: 2026-04-25T22:19:25Z
 Pipeline: issue-1962
 
 ### [2026-04-25T21:00:34Z] overseer (HEARTBEAT): heartbeat: WORKING
@@ -8840,4 +8840,16 @@ phase: implement
 metadata:
   state: WAITING_FOR_EVENT
   since: '2026-04-25T22:19:15.683924+00:00'
+````
+
+### [2026-04-25T22:19:25Z] coder (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: f634922b-a1ee-41
+phase: implement
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-25T22:19:25.202145+00:00'
 ````

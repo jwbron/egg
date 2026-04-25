@@ -4769,5 +4769,136 @@
     },
     "timestamp": "2026-04-25T20:56:58.279260+00:00",
     "phase": "plan"
+  },
+  {
+    "id": "dca2c306-a5ba-42",
+    "pipeline_id": "issue-1962",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT,CONSENSUS_NACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T20:57:02.787909+00:00"
+    },
+    "timestamp": "2026-04-25T20:57:02.868888+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e07cbca0-b9d4-4b",
+    "pipeline_id": "issue-1962",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T20:57:03.328074+00:00"
+    },
+    "timestamp": "2026-04-25T20:57:03.360388+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "16e52013-c1db-45",
+    "pipeline_id": "issue-1962",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT,CONSENSUS_NACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T20:57:04.002377+00:00"
+    },
+    "timestamp": "2026-04-25T20:57:04.045620+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7229c3cc-3fa7-48",
+    "pipeline_id": "issue-1962",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T20:57:04.252971+00:00"
+    },
+    "timestamp": "2026-04-25T20:57:04.287670+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f0dd0144-8f51-4b",
+    "pipeline_id": "issue-1962",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-25T20:57:04.351982+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4824e3bb-0726-4e",
+    "pipeline_id": "issue-1962",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T20:57:07.612496+00:00"
+    },
+    "timestamp": "2026-04-25T20:57:07.645199+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "726f5d58-b423-47",
+    "pipeline_id": "issue-1962",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "BRC COMPLETE at 20:56:54 UTC. All 4 agents CONFIRMED on plan v4. Pipeline now awaiting_human. Generating final status report.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-25T20:57:24.770154+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6d74dcd2-3c94-4b",
+    "pipeline_id": "issue-1962",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Cycle 22: pipeline awaiting_human \u2014 decision-26 pending (plan approval). All 4 BRC agents complete. Monitoring for human decision or new alerts.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T20:57:46.155684+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1ed69de7-4ee1-42",
+    "pipeline_id": "issue-1962",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Cycle 23: awaiting_human stable. No new alerts. Polling every 90s for human approval of decision-26 (plan phase).",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T20:58:29.090099+00:00",
+    "phase": "plan"
   }
 ]
