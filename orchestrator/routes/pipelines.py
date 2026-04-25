@@ -4469,22 +4469,32 @@ def _build_review_prompt(
                 "`files_changed > 10` OR `(loc_added + loc_removed) > 500`. "
                 "Below the threshold, review the diff yourself in a single "
                 'pass — emit the "fan-out: skipped" heartbeat and continue '
-                "with the rest of this prompt."
+                "with the rest of this prompt. **The Mandatory "
+                "Cross-Partition Consistency Pass below still runs** — you "
+                "are reviewing the full diff anyway."
             )
             lines.append(
                 "3. **Above the threshold, partition by implement-phase task.** "
                 "Call `mcp__sdlc__show_contract` and self-extract "
-                "`phases.implement.tasks[]`. Each task's `files` list "
-                "becomes a partition spec (a list of path globs)."
+                "`phases.implement.tasks[]`. Each task's `files_affected` "
+                "list becomes a partition spec (a list of path globs). "
+                "(Older plans may surface the legacy key `files` instead of "
+                "`files_affected`; tolerate both.) If a task has an empty "
+                "`files_affected` list, treat that task as covering the full "
+                "diff and either group it with an adjacent task whose globs "
+                "are populated, or fall back to single-pass review per the "
+                "Fallbacks rule."
             )
             lines.append(
                 "4. **Fallbacks.** If the `mcp__sdlc__show_contract` call "
                 'FAILS or is unreachable, emit a "fan-out: aborted (mcp '
-                'unavailable)" STATUS heartbeat and fall back to '
+                'unavailable)" heartbeat (state=WORKING) and fall back to '
                 "single-pass review. If the implement-phase task list is "
                 "EMPTY (custom-phase invocation, contractless `babysit_pr`), "
                 'emit "fan-out: skipped (no implement tasks)" and fall back '
-                "to single-pass review. Do NOT attempt to invent partitions."
+                "to single-pass review. Do NOT attempt to invent partitions. "
+                "**The Mandatory Cross-Partition Consistency Pass below "
+                "still runs in both fallback paths.**"
             )
             lines.append(
                 "5. **Cap at 6 subagents.** Never spawn more than 6 subagents "
@@ -4505,40 +4515,54 @@ def _build_review_prompt(
                 "the overall verdict."
             )
             lines.append(
-                "7. **Parent Cross-Partition Pass — REQUIRED before verdict.** "
-                "After subagents return and BEFORE you emit the final "
-                f"verdict, read the full diff (`git diff {_base_ref}...HEAD`) "
-                "yourself and run a cross-partition consistency pass focused "
-                "on cross-file invariants no single-partition subagent could "
-                "catch. At minimum, check: handler ↔ allowlist consistency "
-                "(the PR #1964 `^project$` pattern — a handler in one "
-                "partition references an allowlist defined or extended in "
-                "another partition); route ↔ schema consistency; "
-                "fixture ↔ Dockerfile / symlink reference consistency (the "
-                "PR #1964 `sandbox/scripts/jira` pattern); import-graph "
-                "cycles introduced by the diff; and any pattern where a "
-                "check exists in partition A but the call site in "
-                "partition B is unguarded. Merge cross-partition findings "
-                "into the aggregated subagent findings before emitting "
-                "the verdict."
-            )
-            lines.append(
-                "8. **Aggregate and emit.** You (the parent reviewer) emit "
+                "7. **Aggregate and emit.** You (the parent reviewer) emit "
                 "the single ACK / NACK that covers ALL partitions plus the "
                 "cross-partition pass. Subagents do NOT emit ACK / NACK on "
                 "their own — they return findings to you and you decide."
             )
             lines.append(
-                "9. **Parallelism.** Spawn the subagents "
+                "8. **Parallelism.** Spawn the subagents "
                 f"**{_parallel_word}** "
                 "(per the resolved per-pipeline knob "
                 "`phase_configs.implement.reviewer_code.parallel`)."
             )
             lines.append(
-                "10. **No recursion.** subagents must NOT spawn their own "
+                "9. **No recursion.** subagents must NOT spawn their own "
                 "subagents. Recursive fan-out is forbidden — it produces "
                 "untraceable cost and timeout cascades. State the "
                 "prohibition verbatim to each subagent in its prompt."
+            )
+            lines.append("")
+            # Mandatory cross-partition consistency pass — runs in ALL paths
+            # (above-threshold fan-out, below-threshold solo, empty-tasks
+            # fallback, mcp-unavailable fallback). Lifted out of the numbered
+            # fan-out steps per reviewer_code feedback so it cannot be
+            # short-circuited when the reviewer takes a single-pass branch.
+            lines.append("## Mandatory Cross-Partition Consistency Pass\n")
+            lines.append(
+                "Regardless of whether you fan out or review solo (and "
+                "regardless of whether the partition fetch hit either "
+                "fallback), BEFORE you emit the final verdict, read the "
+                f"full diff (`git diff {_base_ref}...HEAD`) yourself and "
+                "run a cross-partition consistency pass focused on the "
+                "cross-file invariants no single-partition subagent could "
+                "catch. **This pass is mandatory** — small diffs and "
+                "fallback paths are not exempt; the failure modes the issue "
+                "was filed to fix are cross-file mismatches and a small PR "
+                "with the same shape would otherwise slip through."
+            )
+            lines.append(
+                "At minimum, check: handler ↔ allowlist consistency "
+                "(the PR #1964 `^project$` pattern — a handler in one "
+                "file references an allowlist defined or extended in "
+                "another file); route ↔ schema consistency; "
+                "fixture ↔ Dockerfile / symlink reference consistency (the "
+                "PR #1964 `sandbox/scripts/jira` pattern); import-graph "
+                "cycles introduced by the diff; and any pattern where a "
+                "check exists in one file but the call site in another "
+                "file is unguarded. Merge cross-partition findings into "
+                "the aggregated findings (whether from subagents or your "
+                "own solo review) before emitting the verdict."
             )
             lines.append("")
     elif draft_path:
@@ -8549,9 +8573,15 @@ def _build_agent_prompt(
 
                 _contract = load_contract(pipeline_id, Path(repo_path))
                 _reviewer_code_parallel = _get_reviewer_code_parallel(_contract)
-            except Exception:
-                # Missing contract / schema drift / import failure all fall
-                # through to the parallel default — the prompt still renders.
+            except (ImportError, FileNotFoundError, ValueError) as _knob_err:
+                # Narrow catch: missing loader module, missing contract file,
+                # or contract schema validation failure. Surface in logs so
+                # genuine issues are observable, but never let prompt
+                # construction fail — fall back to the parallel default.
+                logger.warning(
+                    "Failed to resolve reviewer_code_parallel knob; falling back to True. error=%s",
+                    _knob_err,
+                )
                 _reviewer_code_parallel = True
         review_prompt = _build_review_prompt(
             phase=phase,
