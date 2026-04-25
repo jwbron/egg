@@ -109,6 +109,16 @@ def _track_long_poll_end() -> None:
 # Rate-limit (20/min per role) still applies.
 _DEDUP_EXEMPT_HEARTBEAT_STATES: frozenset[str] = frozenset({"WAITING_FOR_EVENT"})
 
+# Minimum seconds between gateway-session fan-outs per (pipeline_id,
+# role) (#2076 NB2).  The dedup early-return path bypasses the per-role
+# heartbeat rate limit by design (#1897 NB1: dedup'd heartbeats are
+# no-ops and must not consume rate budget), so without a separate cap a
+# misbehaving agent hot-looping with identical state could amplify into
+# the gateway at the agent's emission rate.  The gateway's idle window
+# is 60 minutes, so fanning out every 30 s is far more than enough to
+# keep the session alive; the cap exists purely to bound amplification.
+_GATEWAY_FANOUT_MIN_INTERVAL_SECONDS: float = 30.0
+
 
 messages_bp = Blueprint("messages", __name__, url_prefix="/api/v1/pipelines")
 
@@ -523,7 +533,9 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
     # state hasn't changed.  Rate-limited heartbeats do not fan out: by
     # definition the agent already got plenty of refreshes in the last
     # minute, and a hot-looping agent shouldn't amplify into the
-    # gateway.
+    # gateway.  ``_refresh_gateway_session`` itself applies a separate
+    # per-role cooldown (#2076 NB2) to bound dedup-path amplification
+    # without consuming rate budget.
     if state not in _DEDUP_EXEMPT_HEARTBEAT_STATES and coordinator.is_duplicate(
         pipeline_id, from_role, state, waiting_on
     ):
@@ -628,7 +640,19 @@ def _refresh_gateway_session(pipeline_id: str, from_role: str) -> None:
     a sibling's gateway session alive past the idle timeout.  Tracked
     as a follow-up; spoofing here doesn't grant any new capability,
     only extends an existing session's lifetime.
+
+    Throttle: per-role cooldown via
+    ``HeartbeatCoordinator.should_fan_out_gateway_session`` (#2076 NB2)
+    bounds amplification on the dedup early-return path, which bypasses
+    the heartbeat rate limiter by design.  The cooldown is well below
+    the gateway's 60-minute idle window so it does not risk session
+    expiry under any realistic heartbeat cadence.
     """
+    coordinator = get_heartbeat_coordinator()
+    if not coordinator.should_fan_out_gateway_session(
+        pipeline_id, from_role, _GATEWAY_FANOUT_MIN_INTERVAL_SECONDS
+    ):
+        return
     try:
         try:
             from gateway_client import get_gateway_client

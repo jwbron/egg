@@ -6,6 +6,7 @@ long-polling behavior in the messages route.
 
 import json
 import sys
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -1903,6 +1904,11 @@ class TestHeartbeatRoute:
         unchanged-state heartbeats still count as gateway-session
         liveness, while rate-limited heartbeats do not amplify into the
         gateway.
+
+        The ``_GATEWAY_FANOUT_MIN_INTERVAL_SECONDS`` cooldown (#2076 NB2)
+        is patched to ``0`` here so the test stays focused on the
+        dedup-fan-out invariant; the throttle's caps are pinned by
+        ``test_heartbeat_fan_out_throttle_*`` below.
         """
         with app.test_request_context():
             mock_gw_client = MagicMock()
@@ -1913,6 +1919,10 @@ class TestHeartbeatRoute:
                 patch(
                     "gateway_client.get_gateway_client",
                     return_value=mock_gw_client,
+                ),
+                patch(
+                    "routes.messages._GATEWAY_FANOUT_MIN_INTERVAL_SECONDS",
+                    0.0,
                 ),
             ):
                 mock_get_store_for_pipeline.return_value = (
@@ -1993,6 +2003,111 @@ class TestHeartbeatRoute:
                 mock_gw_client.heartbeat_session_by_container.assert_called_once_with(
                     expected_container_id
                 )
+
+    def test_heartbeat_fan_out_throttle_caps_dedup_amplification(self, client, app):
+        """#2076 NB2: dedup'd hot-loops cannot amplify into the gateway.
+
+        The dedup early-return path bypasses the per-role rate limit by
+        design (#1897 NB1: dedup'd heartbeats are no-ops and must not
+        consume rate budget).  Without a separate cap, a misbehaving
+        agent hot-looping with identical state could fan out a gateway
+        session refresh on every call.  ``_refresh_gateway_session``
+        applies a per-role cooldown via
+        ``HeartbeatCoordinator.should_fan_out_gateway_session`` to bound
+        amplification.
+
+        Five back-to-back identical heartbeats (1 fresh + 4 dedup'd)
+        within the cooldown window MUST produce exactly one fan-out.
+        """
+        with app.test_request_context():
+            mock_gw_client = MagicMock()
+            with (
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+                patch(
+                    "gateway_client.get_gateway_client",
+                    return_value=mock_gw_client,
+                ),
+                # Cooldown well above realistic test wall-clock so all
+                # five posts fall inside the same window.
+                patch(
+                    "routes.messages._GATEWAY_FANOUT_MIN_INTERVAL_SECONDS",
+                    300.0,
+                ),
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                role = "fanout-throttle-hotloop-role"
+                for _ in range(5):
+                    resp = client.post(
+                        "/api/v1/pipelines/test-pipeline/heartbeat",
+                        json={"from_role": role, "state": "WORKING"},
+                    )
+                    assert resp.status_code == 200
+                assert mock_gw_client.heartbeat_session_by_container.call_count == 1
+
+    def test_heartbeat_fan_out_throttle_resumes_after_window(self, client, app):
+        """#2076 NB2: cooldown is a throttle, not a one-shot mute.
+
+        After the per-role cooldown elapses, the next heartbeat MUST
+        fan out again — otherwise a long-running agent in a single
+        state would fan out exactly once and then silently age out of
+        the gateway's 60-minute idle window.
+
+        Uses a tiny cooldown + ``time.sleep`` rather than mocking
+        ``time.time`` so the patch doesn't ripple through unrelated
+        callers (Flask internals, gateway client) inside the request
+        scope.  Uses ``WAITING_FOR_EVENT`` (dedup-exempt) so this
+        exercise also pins the throttle on the post-rate-limit fan-out
+        site, not just the dedup early-return.
+        """
+        with app.test_request_context():
+            mock_gw_client = MagicMock()
+            with (
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+                patch(
+                    "gateway_client.get_gateway_client",
+                    return_value=mock_gw_client,
+                ),
+                patch(
+                    "routes.messages._GATEWAY_FANOUT_MIN_INTERVAL_SECONDS",
+                    0.05,
+                ),
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                role = "fanout-throttle-window-role"
+                # First heartbeat — fans out.
+                resp1 = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={"from_role": role, "state": "WAITING_FOR_EVENT"},
+                )
+                assert resp1.status_code == 200
+                assert mock_gw_client.heartbeat_session_by_container.call_count == 1
+
+                # Inside the 50 ms cooldown — no additional fan-out.
+                resp2 = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={"from_role": role, "state": "WAITING_FOR_EVENT"},
+                )
+                assert resp2.status_code == 200
+                assert mock_gw_client.heartbeat_session_by_container.call_count == 1
+
+                # Past the cooldown — fan-out fires again.
+                time.sleep(0.07)
+                resp3 = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={"from_role": role, "state": "WAITING_FOR_EVENT"},
+                )
+                assert resp3.status_code == 200
+                assert mock_gw_client.heartbeat_session_by_container.call_count == 2
 
 
 class TestWaitTimeoutFloorRegression:
