@@ -186,10 +186,28 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Pitfall 3 — How should `reviewer_code` see the implement-phase task list for partition strategy?",
+      "context": "Open contract question decision-2, registered by an agent during the refine phase.",
+      "options": [
+        "Option 3A: Orchestrator-side contract loader — add a contract parameter (or pipeline_id load) to `_build_review_prompt()`, extract `phases.implement.tasks[]`, and embed the partition list in the prompt; fallback skips fan-out when tasks are empty.",
+        "Option 3B: Reviewer self-fetches — instruct the reviewer to call `mcp__sdlc__show_contract` and self-extract `phases.implement.tasks[]`; fallback skips fan-out when the list is empty.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T17:00:54.339489Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T16:38:48.058271Z",
-  "updated_at": "2026-04-25T17:00:54.287747Z",
+  "updated_at": "2026-04-25T17:00:54.365551Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -203,6 +221,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 13,
+  "version": 14,
   "jira_ticket": null
 }
