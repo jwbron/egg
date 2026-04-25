@@ -582,10 +582,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-23",
+      "question": "Host-migration sequencing within this pipeline (host → overseer migration is in scope per pre-refine notes). Should the implement phase ship one PR with everything, or split?",
+      "context": "Open contract question decision-22, registered by an agent during the refine phase.",
+      "options": [
+        "One PR — architecture change + auto-issue + host migration land together (highest review cohesion, biggest review burden)",
+        "Two PRs — (1) advisor + auto-issue, (2) host migration (smaller per-PR diff; risk of host-migration getting deprioritized)",
+        "Three PRs — (1) advisor wiring + escalation tuning, (2) auto-issue filing, (3) host migration (smallest per-PR diff; coordination overhead)",
+        "Defer the sequencing decision to the planner once full scope is known",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T17:52:18.135684Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T17:05:44.416677Z",
-  "updated_at": "2026-04-25T17:52:18.098766Z",
+  "updated_at": "2026-04-25T17:52:18.159765Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -599,6 +619,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 33,
+  "version": 34,
   "jira_ticket": null
 }
