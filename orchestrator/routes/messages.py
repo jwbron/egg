@@ -464,7 +464,7 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
 
         {
             "from_role": "coder",
-            "state": "WORKING" | "WAITING_ON_ROLE" | "PROPOSED" | "IDLE",
+            "state": "WORKING" | "WAITING_ON_ROLE" | "WAITING_FOR_EVENT" | "PROPOSED" | "IDLE",
             "waiting_on": "tester",  # required when state=WAITING_ON_ROLE
             "since": "2026-04-23T07:00:00Z",  # optional
             "body": "short human-readable summary"  # optional
