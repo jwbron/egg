@@ -362,20 +362,27 @@ class TestAckPhasePropagation:
 
     @patch("routes.signals._resolve_pipeline_phase", return_value="implement")
     @patch("routes.signals.get_state_store")
-    def test_fully_acked_status_message_has_phase(
+    def test_ready_to_confirm_status_message_has_phase(
         self,
         mock_get_store,
         mock_resolve_phase,
         app,
         mock_pipeline,
     ):
-        """STATUS message sent on full-ACK includes phase."""
+        """STATUS message sent when a producer becomes ready-to-confirm
+        includes phase.  The tracker reports newly-ready producers via
+        ``newly_ready`` (post-#2078); the prior ``fully_acked`` flag is no
+        longer the nudge gate."""
         mock_store = MagicMock()
         mock_store.load_pipeline.return_value = mock_pipeline
         mock_get_store.return_value = mock_store
 
         mock_tracker = MagicMock()
-        mock_tracker.handle_ack.return_value = {"version": 1, "fully_acked": True}
+        mock_tracker.handle_ack.return_value = {
+            "version": 1,
+            "fully_acked": True,
+            "newly_ready": [{"role": "coder", "version": 1}],
+        }
 
         mock_msg_store = MagicMock()
 
@@ -399,7 +406,7 @@ class TestAckPhasePropagation:
             )
 
         assert status_code == 200
-        # Should have 2 messages: ACK + STATUS (fully_acked)
+        # Should have 2 messages: ACK + STATUS (ready-to-confirm)
         assert mock_msg_store.add_message.call_count == 2
 
         ack_msg = mock_msg_store.add_message.call_args_list[0][0][0]
@@ -407,6 +414,7 @@ class TestAckPhasePropagation:
 
         status_msg = mock_msg_store.add_message.call_args_list[1][0][0]
         assert status_msg.phase == "implement"
+        assert status_msg.metadata.get("ready_to_confirm") is True
 
 
 class TestNackPhasePropagation:

@@ -96,7 +96,7 @@ Agents communicate with each other during concurrent execution via the orchestra
 
 ### How to Wait
 
-Agents wait for BRC messages with a single canonical command — `egg-orch message wait-loop` — which long-polls the bus server-side and exits only on a terminal match or a permanent error. The full contract (the one-liner for producers and reviewers, the four anti-patterns to avoid, the `egg-orch message wait` exit codes, the `HEARTBEAT` schema, and the `EGG_MESSAGE_POLL_MAX_WAIT` ↔ gateway-Squid coupling) is in [Agent Wait Patterns](../reference/agent-wait-patterns.md) — read it before writing an outer `for`-loop, a `sleep`, or a multi-call poll sequence.
+Agents wait for BRC messages with a single canonical command — `egg-orch message wait-loop` — which long-polls the bus server-side and exits only on a terminal match or a permanent error. The full contract (the one-liner for producers and reviewers, the five anti-patterns to avoid, the `egg-orch message wait` exit codes, the `HEARTBEAT` schema, and the `EGG_MESSAGE_POLL_MAX_WAIT` ↔ gateway-Squid coupling) is in [Agent Wait Patterns](../reference/agent-wait-patterns.md) — read it before writing an outer `for`-loop, a `sleep`, or a multi-call poll sequence.
 
 ```bash
 # Producer STAY ALIVE — exits on consensus, re-review, or overseer alert
@@ -341,7 +341,7 @@ Each agent tracks two state machines (producer and reviewer) independently:
 
    > **Note — `CONSENSUS_RE_REVIEW` handling:** Agents that receive a `CONSENSUS_RE_REVIEW` while staying alive **must** act on it immediately: reviewers of the re-proposing producer must re-review and ACK/NACK; all other agents must re-confirm via `egg-orch consensus confirmed`. Ignoring this message stalls the pipeline.
 
-> **Note — `pending_acks` (exit code 2):** After a re-proposal, previously-confirmed reviewers are un-confirmed and must re-ACK. If the producer calls `confirmed` before those re-ACKs arrive, the command returns exit code **2** (`pending_acks`) — this is transient, not an error. The producer should poll for messages and retry `confirmed` until it exits 0. Via `mcp__brc__confirm`, the equivalent is `ok=False` with `status="pending_acks"`; retry until `ok=True`.
+> **Note — `pending_acks` (exit code 2):** After a re-proposal, previously-confirmed reviewers are un-confirmed and must re-ACK. If the producer calls `confirmed` before those re-ACKs arrive, the command returns exit code **2** (`pending_acks`) — this is transient, not an error. The producer must wait on the prerequisite event (`CONSENSUS_ACK`/`CONSENSUS_NACK` from reviewers, `CONSENSUS_PROPOSE` from missing producers, or `CONSENSUS_RE_REVIEW`) and retry `confirmed` when that arrives. Via `mcp__brc__confirm`, the equivalent is `ok=False` with `status="pending_acks"`; retry until `ok=True`. **Do not** enter the STAY ALIVE `wait_loop --for CONSENSUS_CONFIRMED` as a recovery path — a producer whose own confirm hasn't succeeded yet deadlocks the pipeline (see [Anti-pattern 5](../reference/agent-wait-patterns.md#anti-pattern-5--producer-waits-on-consensus_confirmed-before-its-own-confirm-has-succeeded-2064)).
 >
 > **Note — Reviewer `pending_acks`:** Reviewers can also receive exit code 2 from `confirmed` when they have stale ACKs (e.g., an ACK recorded before the producer proposed) **or unresolved NACKs** (a NACK issued against a producer that has not yet re-proposed). In the stale-ACK case, the reviewer must re-ACK the listed producers at their current proposal version before confirming. In the unresolved-NACK case, the reviewer must wait for the NACKed producer to re-propose, then re-review and ACK/NACK the new version before confirming.
 
@@ -956,7 +956,7 @@ The health monitor is aware of BRC protocol state and **suppresses stall alerts 
 
 Once both conditions expire (all producers have proposed AND the grace period has elapsed), normal heartbeat/progress monitoring resumes.
 
-**Post-ACK confirmation timeout:** In the opposite direction, the health monitor also detects **producers stuck after being fully ACKed**. If all reviewers have ACKed a producer's proposal but the producer hasn't sent `CONSENSUS_CONFIRMED` within `orchestrator_post_ack_confirmation_timeout_seconds` (default 180s / 3 minutes), the health monitor escalates — regardless of whether the producer is still sending heartbeats. This catches the failure mode where a producer enters a tight heartbeat loop without ever confirming.
+**Post-ACK confirmation timeout:** In the opposite direction, the health monitor also detects **producers stuck after being fully ACKed**. If all reviewers have ACKed a producer's proposal but the producer hasn't sent `CONSENSUS_CONFIRMED` within `orchestrator_post_ack_confirmation_timeout_seconds` (default 180s / 3 minutes), the health monitor sends a direct `OVERSEER_ALERT` to the stuck producer instructing it to call `mcp__brc__confirm`, and also escalates to overseer/HITL — regardless of whether the producer is still sending heartbeats. This catches the failure mode where a producer enters a tight heartbeat loop without ever confirming.
 
 See [Pipeline Health Monitoring](pipeline-health-monitoring.md#post-propose-grace-period-for-reviewers) for implementation details and configuration.
 

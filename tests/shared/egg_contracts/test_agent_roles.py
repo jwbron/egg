@@ -741,23 +741,19 @@ class TestRoleSyncWithOrchestratorTypes:
 
 
 class TestRoleSyncWithGateway:
-    """Verify gateway/agent_restrictions.py AgentRole stays in sync."""
+    """Tripwire: the gateway must use the canonical AgentRole enum.
 
-    def test_all_canonical_roles_in_gateway(self):
-        """Every canonical AgentRole should have a constant in gateway AgentRole."""
+    Issue #2066: gateway/agent_restrictions.py and
+    egg_restrictions.patterns now re-export this enum rather than
+    redefining it, eliminating the silent-drift failure mode that
+    PR #2061 surfaced. The identity check fails if anyone re-adds
+    a parallel class or enum in either module.
+    """
+
+    def test_gateway_agent_role_is_canonical(self):
         from agent_restrictions import AgentRole as GatewayAgentRole
 
-        canonical_values = {r.value for r in AgentRole}
-        # Gateway AgentRole is a plain class with string constants
-        gateway_values = {
-            v
-            for k, v in vars(GatewayAgentRole).items()
-            if not k.startswith("_") and isinstance(v, str)
-        }
-        missing = canonical_values - gateway_values
-        assert not missing, (
-            f"gateway/agent_restrictions.py AgentRole is missing constants: {missing}"
-        )
+        assert GatewayAgentRole is AgentRole
 
 
 # ---------------------------------------------------------------------------

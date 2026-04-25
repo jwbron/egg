@@ -1,7 +1,7 @@
 # Agent Wait Patterns
 
 > Canonical reference for how concurrent agents wait for BRC messages — the
-> single one-liner you should copy, the four anti-patterns to avoid, the
+> single one-liner you should copy, the five anti-patterns to avoid, the
 > exit-code contract for `egg-orch message wait`, the `HEARTBEAT` metadata
 > schema, and the operator-facing env vars that couple the client-side wait
 > cap to the gateway and Waitress thread pool.

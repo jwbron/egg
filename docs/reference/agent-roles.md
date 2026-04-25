@@ -466,7 +466,7 @@ All agent roles are defined in a single canonical location: `shared/egg_contract
 - **`detect_write_overlaps(roles)`** — Find file access conflicts between parallel roles
 - **`get_file_patterns(role_value)`** — Return `{"allowed": [...], "blocked": [...]}` write patterns for a role, or `None` if not defined
 
-Other modules (`orchestrator/models.py`, `shared/egg_orchestrator/types.py`) import `AgentRole` from this canonical source rather than defining their own copies.
+Other modules (`orchestrator/models.py`, `shared/egg_orchestrator/types.py`, `shared/egg_restrictions/patterns.py`) import `AgentRole` from this canonical source rather than defining their own copies. The `egg_restrictions` re-export means the gateway sees the same enum instance, eliminating the silent-drift failure mode that existed when `egg_restrictions` defined its own parallel class.
 
 ### Removed Roles
 
