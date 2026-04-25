@@ -134,6 +134,27 @@ repo_settings:
   #     commands:
   #       - pip install -r requirements.txt
   #       - pip install -r requirements-dev.txt
+  #
+  # # Python project using uv + a build backend (hatchling, setuptools, ...).
+  # # NOTE: build_commands run in a synthetic context that contains ONLY the
+  # # files in `watch_files` — no source dirs, no README. A bare `uv sync`
+  # # tries to build the local project as a wheel and will fail. Use
+  # # `--no-install-project` (or a Makefile target that wraps it) so only
+  # # third-party deps go into the persisted .venv. The local project is not
+  # # needed for ruff / pytest / mypy / etc. to function in the sandbox. See #2087.
+  # YOUR_USERNAME/uv-python-project:
+  #   build_commands:
+  #     watch_files:
+  #       - Makefile
+  #       - pyproject.toml
+  #       - uv.lock
+  #     commands:
+  #       - curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+  #       - make sandbox-deps    # ← `uv sync --extra dev --no-install-project`
+  #     persist_dirs:
+  #       - .venv
+  #     persist_system_dirs:
+  #       - /usr/local/bin       # ← carries `uv` itself into the runtime image
   # YOUR_USERNAME/go-service:
   #   build_commands:
   #     watch_files:

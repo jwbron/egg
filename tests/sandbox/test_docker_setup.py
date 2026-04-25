@@ -420,12 +420,12 @@ class TestRunBuildCommands:
         assert captured.out == ""
 
     @patch("subprocess.run")
-    def test_handles_command_failure(self, mock_run, tmp_path, capsys):
-        """Test that failed commands produce warnings but don't crash."""
+    def test_command_failure_aborts_build(self, mock_run, capsys):
+        """A failed build command aborts the image build (was warn-only). See #2087."""
         mock_run.return_value = MagicMock(returncode=1)
 
-        work_dir = tmp_path / "repo-deps" / "org--app"
-        work_dir.mkdir(parents=True)
+        work_dir = Path("/tmp/repo-deps/org--app")
+        work_dir.mkdir(parents=True, exist_ok=True)
 
         build_commands = [
             {
@@ -435,11 +435,13 @@ class TestRunBuildCommands:
             }
         ]
 
-        # Just run it - should not raise
-        run_build_commands(build_commands)
+        try:
+            with pytest.raises(RuntimeError, match="exited with code 1"):
+                run_build_commands(build_commands)
+        finally:
+            import shutil
 
-        captured = capsys.readouterr()
-        assert "Build commands" in captured.out
+            shutil.rmtree("/tmp/repo-deps", ignore_errors=True)
 
 
 class TestGetBuildCommandsEdgeCases:
@@ -504,8 +506,12 @@ class TestRunBuildCommandsEdgeCases:
     """Edge case tests for run_build_commands."""
 
     @patch("subprocess.run")
-    def test_fallback_to_tmp_when_work_dir_missing(self, mock_run, capsys):
-        """When repo work_dir doesn't exist, falls back to /tmp."""
+    def test_missing_work_dir_raises(self, mock_run):
+        """When repo work_dir doesn't exist, build aborts (vs. silent /tmp fallback).
+
+        The earlier behavior silently fell back to running commands in /tmp,
+        which masked real misconfiguration. See #2087.
+        """
         mock_run.return_value = MagicMock(returncode=0)
 
         build_commands = [
@@ -516,18 +522,22 @@ class TestRunBuildCommandsEdgeCases:
             }
         ]
 
-        run_build_commands(build_commands)
+        with pytest.raises(RuntimeError, match="watch files directory.*does not exist"):
+            run_build_commands(build_commands)
 
-        # Verify it ran with /tmp as cwd
-        call_args = mock_run.call_args
-        assert call_args.kwargs["cwd"] == "/tmp"
-        captured = capsys.readouterr()
-        assert "does not exist" in captured.out
+        mock_run.assert_not_called()
 
     @patch("subprocess.run")
-    def test_subprocess_exception_does_not_crash(self, mock_run, capsys):
-        """Subprocess raising an exception is caught and warned about."""
+    def test_subprocess_exception_raises(self, mock_run):
+        """Subprocess raising an exception aborts the build.
+
+        The earlier behavior caught and warned, masking misconfigurations
+        like "tool not on PATH". See #2087.
+        """
         mock_run.side_effect = OSError("command not found")
+
+        work_dir = Path("/tmp/repo-deps/org--app")
+        work_dir.mkdir(parents=True, exist_ok=True)
 
         build_commands = [
             {
@@ -537,16 +547,22 @@ class TestRunBuildCommandsEdgeCases:
             }
         ]
 
-        # Should not raise
-        run_build_commands(build_commands)
+        try:
+            with pytest.raises(RuntimeError, match="raised an exception"):
+                run_build_commands(build_commands)
+        finally:
+            import shutil
 
-        captured = capsys.readouterr()
-        assert "Command failed" in captured.out
-        assert "command not found" in captured.out
+            shutil.rmtree("/tmp/repo-deps", ignore_errors=True)
 
     @patch("subprocess.run")
-    def test_warning_message_includes_exit_code(self, mock_run, tmp_path, capsys):
-        """Failed commands report the exit code in the warning."""
+    def test_nonzero_exit_raises_with_exit_code(self, mock_run, tmp_path):
+        """Failed commands abort the build and report the exit code.
+
+        The earlier behavior printed a warning and continued, allowing the
+        image to be built without any of the dependencies the commands were
+        supposed to install. See #2087.
+        """
         mock_run.return_value = MagicMock(returncode=127)
 
         work_dir = Path("/tmp/repo-deps/org--app")
@@ -561,19 +577,20 @@ class TestRunBuildCommandsEdgeCases:
         ]
 
         try:
-            run_build_commands(build_commands)
+            with pytest.raises(RuntimeError, match="exited with code 127"):
+                run_build_commands(build_commands)
         finally:
             import shutil
 
             shutil.rmtree("/tmp/repo-deps", ignore_errors=True)
 
-        captured = capsys.readouterr()
-        assert "127" in captured.out
-
     @patch("subprocess.run")
     def test_multiple_repos_run_sequentially(self, mock_run, capsys):
         """Multiple repos' commands all execute."""
         mock_run.return_value = MagicMock(returncode=0)
+
+        for repo_dir in ("org--app-a", "org--app-b"):
+            (Path("/tmp/repo-deps") / repo_dir).mkdir(parents=True, exist_ok=True)
 
         build_commands = [
             {
@@ -588,7 +605,12 @@ class TestRunBuildCommandsEdgeCases:
             },
         ]
 
-        run_build_commands(build_commands)
+        try:
+            run_build_commands(build_commands)
+        finally:
+            import shutil
+
+            shutil.rmtree("/tmp/repo-deps", ignore_errors=True)
 
         assert mock_run.call_count == 3
         captured = capsys.readouterr()
@@ -859,27 +881,30 @@ class TestPersistDirs:
         assert "Persisting" in captured.out
         assert "Persisted 1 directories" in captured.out
 
-    def test_persist_dirs_skips_missing_dirs(self, tmp_path, capsys):
-        """persist_dirs skips directories that don't exist after build."""
+    def test_persist_dirs_raises_on_missing_dir(self, tmp_path):
+        """persist_dirs raises when a declared dir doesn't exist post-build.
+
+        The earlier behavior silently skipped, producing an image where the
+        config promised dependencies but none were actually persisted. See
+        #2087.
+        """
         from docker_setup import persist_build_dirs
 
         repo_deps = tmp_path / "repo-deps"
         (repo_deps / "org--app").mkdir(parents=True)
 
-        persist_build_dirs(
-            [
-                {
-                    "repo": "org/app",
-                    "commands": ["npm ci"],
-                    "persist_dirs": ["nonexistent_dir"],
-                }
-            ],
-            repo_deps_base=repo_deps,
-            prebuilt_base=tmp_path / "prebuilt",
-        )
-
-        captured = capsys.readouterr()
-        assert "does not exist after build" in captured.out
+        with pytest.raises(RuntimeError, match="does not exist .* after build"):
+            persist_build_dirs(
+                [
+                    {
+                        "repo": "org/app",
+                        "commands": ["npm ci"],
+                        "persist_dirs": ["nonexistent_dir"],
+                    }
+                ],
+                repo_deps_base=repo_deps,
+                prebuilt_base=tmp_path / "prebuilt",
+            )
 
     def test_persist_dirs_blocks_path_traversal(self, tmp_path, capsys):
         """persist_dirs rejects paths that escape the build context."""
@@ -1011,28 +1036,31 @@ class TestPersistSystemDirs:
         captured = capsys.readouterr()
         assert "Persisting system dir" in captured.out
 
-    def test_persist_system_dirs_skips_nonexistent(self, tmp_path, capsys):
-        """persist_system_dirs skips directories that don't exist."""
+    def test_persist_system_dirs_raises_on_nonexistent(self, tmp_path):
+        """persist_system_dirs raises when a declared path doesn't exist.
+
+        Same fail-fast contract as `persist_dirs`: if the build commands
+        promised to install something to /usr/local/bin but didn't, the
+        image is broken. See #2087.
+        """
         from docker_setup import persist_build_dirs
 
         repo_deps = tmp_path / "repo-deps"
         (repo_deps / "org--app").mkdir(parents=True)
 
-        persist_build_dirs(
-            [
-                {
-                    "repo": "org/app",
-                    "commands": ["install go"],
-                    "persist_dirs": [],
-                    "persist_system_dirs": ["/nonexistent/path/go"],
-                }
-            ],
-            repo_deps_base=repo_deps,
-            prebuilt_base=tmp_path / "prebuilt",
-        )
-
-        captured = capsys.readouterr()
-        assert "does not exist after build" in captured.out
+        with pytest.raises(RuntimeError, match="does not exist .* after build"):
+            persist_build_dirs(
+                [
+                    {
+                        "repo": "org/app",
+                        "commands": ["install go"],
+                        "persist_dirs": [],
+                        "persist_system_dirs": ["/nonexistent/path/go"],
+                    }
+                ],
+                repo_deps_base=repo_deps,
+                prebuilt_base=tmp_path / "prebuilt",
+            )
 
     def test_persist_system_dirs_skips_relative_paths(self, tmp_path, capsys):
         """persist_system_dirs rejects non-absolute paths."""

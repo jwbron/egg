@@ -26,7 +26,7 @@ PYTHON := $(if $(wildcard $(VENV_BIN)/python),$(VENV_BIN)/python,python3)
 EGG_IMAGE_TAG := $(shell git describe --always --dirty 2>/dev/null || echo latest)
 
 .PHONY: help \
-        setup deps venv sync-venv-if-uv install-linters check-linters \
+        setup deps venv sync-venv-if-uv sandbox-deps install-linters check-linters \
         lint lint-python lint-shell lint-yaml lint-docker lint-actions lint-custom \
         test test-all test-record-good security \
         test-integration test-e2e test-security smoketest-long-poll \
@@ -122,6 +122,17 @@ venv:
 # the same `uv sync` behavior as the strict `venv` target. Issue #2065.
 sync-venv-if-uv:
 	@if command -v uv >/dev/null 2>&1; then $(MAKE) venv; fi
+
+# Sync only third-party dependencies into .venv; do NOT install the local
+# `egg` package. This is the variant invoked by sandbox image build_commands,
+# which run in a synthetic context containing only watch_files (Makefile,
+# pyproject.toml, uv.lock) — no source dirs, no README — so a full
+# `uv sync` fails when the hatchling build backend tries to package the
+# project. Dev tools (ruff, pytest, mypy, etc.) install fine without the
+# project itself. Issue #2087.
+sandbox-deps:
+	@echo "==> Syncing dev dependencies (no project install)..."
+	@uv sync --extra dev --no-install-project
 
 # Install all linting tools
 install-linters: venv
