@@ -10,7 +10,7 @@ Every agent role belongs to one of five categories. Categories enable dynamic te
 |----------|---------|-------|
 | **EXECUTION** | Produce artifacts (code, tests, docs) | `coder`, `tester`, `documenter` |
 | **ANALYSIS** | Analyze tasks and plan work | `refiner`, `architect`, `task_planner`, `risk_analyst` |
-| **REVIEW** | Validate quality and correctness | `reviewer_code`, `reviewer_contract`, `reviewer_refine`, `reviewer_plan`, `reviewer_agent_design` |
+| **REVIEW** | Validate quality and correctness | `reviewer_code`, `reviewer_contract`, `reviewer_refine`, `reviewer_plan`, `reviewer_agent_design`, `reviewer_security`, `reviewer_concurrency` |
 | **UTILITY** | Cross-cutting support tasks | `autofixer`, `conflict_resolver` |
 | **INTERFACE** | Pipeline health and monitoring | `inspector`, `overseer` |
 
@@ -30,8 +30,10 @@ Use `get_roles_by_category(AgentCategory.REVIEW)` to dynamically query roles by 
 | `coder` | Execution | Implement | No | — |
 | `tester` | Execution | Implement | Yes (with `documenter`) | coder |
 | `documenter` | Execution | Implement | Yes (with `tester`) | coder |
-| `reviewer_code` | Review | Implement | Yes (with `reviewer_contract`) | coder, tester |
-| `reviewer_contract` | Review | Implement | Yes (with `reviewer_code`) | coder, tester |
+| `reviewer_code` | Review | Implement | Yes (with `reviewer_contract`, `reviewer_security`, `reviewer_concurrency`) | coder, tester |
+| `reviewer_contract` | Review | Implement | Yes (with `reviewer_code`, `reviewer_security`, `reviewer_concurrency`) | coder, tester |
+| `reviewer_security` | Review | Implement | Yes (advisory) | coder, tester |
+| `reviewer_concurrency` | Review | Implement | Yes (advisory) | coder, tester |
 | `autofixer` | Utility | Any | Yes | — |
 | `conflict_resolver` | Utility | Any | Yes | — |
 | `inspector` | Interface | Any | — | — (health checks) |
@@ -238,6 +240,8 @@ each surface so reviewers know to keep them in sync.
 - Allowed writes: `.egg-state/reviews/`, `.egg-state/agent-outputs/`
 - Blocked: All source, docs, tests, contracts, drafts
 
+**Subagent fan-out**: On large diffs (`files_changed > 10` OR `loc > 500`), `reviewer_code` fans out into Claude Agent SDK subagents — one per implement-phase task partition (capped at 6). Each subagent reviews its slice; the parent aggregates findings and emits the single ACK/NACK. A mandatory cross-partition consistency pass runs regardless of whether fan-out fires. Fan-out can be forced sequential via `phase_configs.implement.reviewer_code.parallel = false` (default: `true`).
+
 **Outputs**:
 - `.egg-state/reviews/{identifier}-implement-reviewer_code-review.json` — Verdict file
 
@@ -251,6 +255,32 @@ each surface so reviewers know to keep them in sync.
 
 **Outputs**:
 - `.egg-state/reviews/{identifier}-implement-reviewer_contract-review.json` — Verdict file
+
+### `reviewer_security`
+
+**Purpose**: ADVISORY security-lens reviewer. Focuses exclusively on cross-file security invariants that a general code reviewer may miss: cross-file allowlist mismatches, handler-vs-validator path mismatches, information-disclosure and authorization-bypass patterns, uncommitted-artifact/Dockerfile-symlink mismatches, secret leakage, and OWASP top-10 patterns spanning multiple changed files.
+
+**Criticality**: ADVISORY — NACKs block consensus informally but do not deadlock BRC until severity-tagged NACK signalling lands. Promotion to CRITICAL is intentionally deferred.
+
+**File access**:
+- Allowed writes: `.egg-state/reviews/`, `.egg-state/agent-outputs/`
+- Blocked: All source, docs, tests, contracts, drafts
+
+**Outputs**:
+- `.egg-state/reviews/{identifier}-implement-reviewer_security-review.json` — Verdict file
+
+### `reviewer_concurrency`
+
+**Purpose**: ADVISORY concurrency-lens reviewer. Focuses exclusively on concurrency invariants: race conditions, deadlocks, shared-state mutation without synchronization, async-context leakage, retry-storm patterns, resource-cleanup ordering bugs, and BRC-protocol invariants (send→wait ordering, cursor threading, heartbeat-stall windows).
+
+**Criticality**: ADVISORY — same deferral rationale as `reviewer_security` above.
+
+**File access**:
+- Allowed writes: `.egg-state/reviews/`, `.egg-state/agent-outputs/`
+- Blocked: All source, docs, tests, contracts, drafts
+
+**Outputs**:
+- `.egg-state/reviews/{identifier}-implement-reviewer_concurrency-review.json` — Verdict file
 
 ## Utility Roles
 
