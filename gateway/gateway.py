@@ -3666,7 +3666,7 @@ def gh_execute() -> tuple[Response, int] | Response:
             "--body-file",
         }
 
-        def _value_for(flag: str, idx: int):
+        def _value_for(flag: str, idx: int) -> tuple[str | None, tuple[Response, int] | None]:
             """Return (value, error_response) for a known --flag at args[idx]."""
             if idx + 1 >= len(args):
                 return None, make_error(
