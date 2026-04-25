@@ -879,7 +879,7 @@ class CheckpointHandler:
             return False
 
         target = _resolve_checkpoint_target(checkpoint_repo, remote, repo_path)
-        repo_lock = _get_repo_lock(repo_path, target)
+        repo_lock = _get_repo_lock(repo_path)
 
         try:
             with (
@@ -894,79 +894,89 @@ class CheckpointHandler:
                     repo_path, target, CHECKPOINT_BRANCH, github_token=github_token
                 )
 
-                if branch_exists:
-                    # Force-update the local branch to match the remote.
-                    # The + prefix handles the case where the local branch
-                    # has diverged (e.g., from a different remote or
-                    # concurrent checkpoint pushes).
-                    # Retry with backoff: network fetches can be slow or
-                    # transiently fail, especially during container shutdown.
-                    fetch_args = ["fetch", target, f"+{CHECKPOINT_BRANCH}:{CHECKPOINT_BRANCH}"]
-                    max_fetch_attempts = 3
-                    fetch_timeout = 45
-                    for attempt in range(1, max_fetch_attempts + 1):
-                        try:
-                            self._run_git(
-                                repo_path,
-                                fetch_args,
-                                timeout=fetch_timeout,
-                                github_token=github_token,
-                            )
-                            break
-                        except (
-                            subprocess.TimeoutExpired,
-                            CheckpointError,
-                        ) as exc:
-                            if attempt < max_fetch_attempts:
-                                backoff = 2**attempt
-                                logger.warning(
-                                    "Checkpoint fetch failed, retrying",
-                                    attempt=attempt,
-                                    max_attempts=max_fetch_attempts,
-                                    backoff_seconds=backoff,
-                                    checkpoint_id=checkpoint.id,
-                                    error=str(exc),
-                                )
-                                time.sleep(backoff)
-                            else:
-                                logger.error(
-                                    "Checkpoint fetch failed after all retries",
-                                    attempts=max_fetch_attempts,
-                                    checkpoint_id=checkpoint.id,
-                                    error=str(exc),
-                                )
-                                raise
-                    self._run_git(
-                        repo_path,
-                        [
-                            "worktree",
-                            "add",
-                            "--detach",
-                            str(temp_path),
-                            CHECKPOINT_BRANCH,
-                        ],
-                    )
-                else:
-                    # Delete any stale local branch before creating orphan.
-                    # The branch may exist locally from a different remote
-                    # (e.g., checkpoints were previously stored in the source
-                    # repo before migrating to an external checkpoint repo).
-                    self._run_git(
-                        repo_path,
-                        ["branch", "-D", CHECKPOINT_BRANCH],
-                        check=False,
-                    )
-                    self._run_git(
-                        repo_path,
-                        ["worktree", "add", "--detach", str(temp_path)],
-                    )
-                    self._run_git(
-                        str(temp_path),
-                        ["checkout", "--orphan", CHECKPOINT_BRANCH],
-                    )
-                    self._run_git(str(temp_path), ["rm", "-rf", "."], check=False)
-
+                # Wrap the worktree-add and the checkpoint work so that
+                # `worktree remove` and `worktree prune` always run, even
+                # if `worktree add` itself raises (which is exactly the
+                # failure mode #2069 reports). Without this, a partially-
+                # created `.git/worktrees/<basename>` entry would persist
+                # until the next successful store's cleanup pruned it.
                 try:
+                    if branch_exists:
+                        # Force-update the local branch to match the remote.
+                        # The + prefix handles the case where the local branch
+                        # has diverged (e.g., from a different remote or
+                        # concurrent checkpoint pushes).
+                        # Retry with backoff: network fetches can be slow or
+                        # transiently fail, especially during container shutdown.
+                        fetch_args = [
+                            "fetch",
+                            target,
+                            f"+{CHECKPOINT_BRANCH}:{CHECKPOINT_BRANCH}",
+                        ]
+                        max_fetch_attempts = 3
+                        fetch_timeout = 45
+                        for attempt in range(1, max_fetch_attempts + 1):
+                            try:
+                                self._run_git(
+                                    repo_path,
+                                    fetch_args,
+                                    timeout=fetch_timeout,
+                                    github_token=github_token,
+                                )
+                                break
+                            except (
+                                subprocess.TimeoutExpired,
+                                CheckpointError,
+                            ) as exc:
+                                if attempt < max_fetch_attempts:
+                                    backoff = 2**attempt
+                                    logger.warning(
+                                        "Checkpoint fetch failed, retrying",
+                                        attempt=attempt,
+                                        max_attempts=max_fetch_attempts,
+                                        backoff_seconds=backoff,
+                                        checkpoint_id=checkpoint.id,
+                                        error=str(exc),
+                                    )
+                                    time.sleep(backoff)
+                                else:
+                                    logger.error(
+                                        "Checkpoint fetch failed after all retries",
+                                        attempts=max_fetch_attempts,
+                                        checkpoint_id=checkpoint.id,
+                                        error=str(exc),
+                                    )
+                                    raise
+                        self._run_git(
+                            repo_path,
+                            [
+                                "worktree",
+                                "add",
+                                "--detach",
+                                str(temp_path),
+                                CHECKPOINT_BRANCH,
+                            ],
+                        )
+                    else:
+                        # Delete any stale local branch before creating orphan.
+                        # The branch may exist locally from a different remote
+                        # (e.g., checkpoints were previously stored in the source
+                        # repo before migrating to an external checkpoint repo).
+                        self._run_git(
+                            repo_path,
+                            ["branch", "-D", CHECKPOINT_BRANCH],
+                            check=False,
+                        )
+                        self._run_git(
+                            repo_path,
+                            ["worktree", "add", "--detach", str(temp_path)],
+                        )
+                        self._run_git(
+                            str(temp_path),
+                            ["checkout", "--orphan", CHECKPOINT_BRANCH],
+                        )
+                        self._run_git(str(temp_path), ["rm", "-rf", "."], check=False)
+
                     checkpoint_path = get_checkpoint_path(temp_path / "checkpoints", checkpoint.id)
 
                     save_checkpoint_v2(checkpoint, checkpoint_path)
@@ -1071,7 +1081,8 @@ class CheckpointHandler:
                         check=False,
                     )
                     # Drop any stale .git/worktrees/<basename> entry so a
-                    # failed remove doesn't leak across attempts.
+                    # failed remove (or a failed worktree add) doesn't
+                    # leak across attempts.
                     self._run_git(
                         repo_path,
                         ["worktree", "prune"],
@@ -1313,21 +1324,25 @@ class CheckpointHandler:
 _checkpoint_handler: CheckpointHandler | None = None
 _handler_lock = threading.Lock()
 
-# Per-(repo_path, target) locks serializing concurrent checkpoint stores.
+# Per-repo_path locks serializing concurrent checkpoint stores.
 # Concurrent threads operating on the same source repo race on
-# .git/worktrees state and ref locks, producing 'worktree add' failures
-# and stale worktree directories. See #2069.
-_repo_locks: dict[tuple[str, str], threading.Lock] = {}
+# .git/worktrees state and ref locks under repo_path/.git/, producing
+# 'worktree add' failures and stale worktree directories. The lock is
+# keyed by repo_path only — the target (origin vs. external checkpoint
+# repo) does not affect the local .git state being contended.
+# Not trimmed: the set of distinct repo_paths in a gateway process is
+# small and stable in practice (one entry per source repo seen).
+# See #2069.
+_repo_locks: dict[str, threading.Lock] = {}
 _repo_locks_guard = threading.Lock()
 
 
-def _get_repo_lock(repo_path: str, target: str) -> threading.Lock:
-    key = (repo_path, target)
+def _get_repo_lock(repo_path: str) -> threading.Lock:
     with _repo_locks_guard:
-        lock = _repo_locks.get(key)
+        lock = _repo_locks.get(repo_path)
         if lock is None:
             lock = threading.Lock()
-            _repo_locks[key] = lock
+            _repo_locks[repo_path] = lock
         return lock
 
 

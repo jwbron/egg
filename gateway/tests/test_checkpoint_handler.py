@@ -667,6 +667,9 @@ class TestStoreCheckpointV2Concurrency:
         """Cleanup runs `git worktree prune` to drop stale worktree entries."""
         import checkpoint_handler
 
+        # Reset the per-repo lock dict so this test is isolated.
+        checkpoint_handler._repo_locks.clear()
+
         handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
 
         git_calls = []
@@ -688,8 +691,38 @@ class TestStoreCheckpointV2Concurrency:
         assert prune_calls[0][0] == "/fake/repo"
         assert prune_calls[0][2].get("check") is False
 
+    def test_worktree_prune_runs_when_worktree_add_fails(self):
+        """If `worktree add` itself raises, cleanup still runs `worktree prune`."""
+        import checkpoint_handler
+
+        checkpoint_handler._repo_locks.clear()
+
+        handler = checkpoint_handler.CheckpointHandler(github_token="test-token")
+
+        git_calls = []
+
+        def track_run_git(cwd, args, **kwargs):
+            git_calls.append((cwd, args, kwargs))
+            if args[:2] == ["worktree", "add"]:
+                raise checkpoint_handler.CheckpointError("simulated worktree add failure")
+            return MagicMock(returncode=0, stdout="", stderr="")
+
+        handler._run_git = track_run_git
+        handler._branch_exists = MagicMock(return_value=True)
+
+        # store_checkpoint_v2 swallows exceptions and returns False; we just
+        # need it to complete and run the finally block.
+        result = handler.store_checkpoint_v2(self._make_checkpoint(), "/fake/repo")
+        assert result is False
+
+        prune_calls = [c for c in git_calls if c[1][:2] == ["worktree", "prune"]]
+        assert len(prune_calls) == 1, (
+            "Expected `worktree prune` to run even when `worktree add` fails"
+        )
+        assert prune_calls[0][0] == "/fake/repo"
+
     def test_concurrent_stores_on_same_repo_serialized(self):
-        """Two threads storing into the same (repo, target) run sequentially."""
+        """Two threads storing into the same repo_path run sequentially."""
         import threading
         import time
 
@@ -734,11 +767,11 @@ class TestStoreCheckpointV2Concurrency:
             t.join()
 
         # If serialization works, only one thread is ever inside _run_git
-        # at a time for the same (repo_path, target) key.
+        # at a time for the same repo_path.
         assert max_in_flight == 1, f"Expected serialized git calls, saw {max_in_flight} concurrent"
 
     def test_concurrent_stores_on_different_repos_not_serialized(self):
-        """Different (repo, target) keys take different locks and run in parallel."""
+        """Different repo_paths take different locks and run in parallel."""
         import threading
         import time
 
