@@ -8831,7 +8831,7 @@ def _build_agent_prompt(
                 "across a send→wait boundary, capture the ID of your "
                 "send and pass `--since <id>`.  See "
                 "`docs/reference/agent-wait-patterns.md` for the full "
-                "exit-code contract and the four anti-patterns to avoid.",
+                "exit-code contract and the five anti-patterns to avoid.",
                 "4. If `wait-loop` returns with a message that affects your work, "
                 "transition back to WORKING, address it, then signal READY again. "
                 "**In particular, if you receive a `CONSENSUS_RE_REVIEW` message, "

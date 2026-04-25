@@ -134,7 +134,7 @@ egg-orch message wait-loop \
 egg-orch message wait --for CONSENSUS_PROPOSE --from coder --timeout 60
 ```
 
-Do not wrap `wait-loop` in an outer shell `for`-loop or `sleep` — it is already the outer loop, server-side. See [Agent Wait Patterns](agent-wait-patterns.md) for the full contract, the four anti-patterns to avoid, and the exit-code table.
+Do not wrap `wait-loop` in an outer shell `for`-loop or `sleep` — it is already the outer loop, server-side. See [Agent Wait Patterns](agent-wait-patterns.md) for the full contract, the five anti-patterns to avoid, and the exit-code table.
 
 **Emit a structured heartbeat (state transitions only):**
 ```bash
