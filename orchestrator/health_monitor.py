@@ -160,6 +160,11 @@ class HealthMonitor:
         with self._lock:
             self._current_phase = phase
 
+    def get_current_phase(self) -> str | None:
+        """Return the phase last set via :meth:`set_current_phase`."""
+        with self._lock:
+            return self._current_phase
+
     def _get_heartbeat_threshold(self) -> int:
         """Return the heartbeat timeout threshold for the current phase.
 
@@ -768,6 +773,19 @@ class HealthMonitor:
                 if agent_state:
                     agent_state.brc_progress_escalated = False
 
+            # Per-iteration breadcrumb so post-mortems can verify the check
+            # ran and what it observed (#2079).
+            if fully_acked:
+                logger.info(
+                    "BRC progress check observed fully-acked producers",
+                    pipeline_id=self._pipeline_id,
+                    producers={
+                        p: round(now - self._fully_acked_first_seen.get(p, now), 1)
+                        for p in fully_acked
+                    },
+                    timeout_seconds=timeout,
+                )
+
             # Timeout is measured from when the monitor first observed the
             # fully-acked state (_fully_acked_first_seen), not from the
             # original proposal timestamp, because the monitor may start
@@ -783,9 +801,20 @@ class HealthMonitor:
                 if elapsed <= timeout:
                     continue
 
-                # Skip producers with no agent state (never emitted heartbeat/progress)
+                # Skip producers with no agent state (never emitted
+                # heartbeat/progress).  This branch is unexpected in
+                # practice — every producer in the fully-acked set has
+                # at minimum proposed, which routes through MESSAGE_SENT
+                # and registers agent_state.  Log loudly so future
+                # post-mortems can audit (#2079).
                 agent_state = self._agents.get(producer)
                 if not agent_state:
+                    logger.warning(
+                        "BRC progress timeout but producer has no agent_state",
+                        pipeline_id=self._pipeline_id,
+                        producer=producer,
+                        elapsed_seconds=int(elapsed),
+                    )
                     continue
                 if agent_state.brc_progress_escalated:
                     continue
@@ -802,11 +831,21 @@ class HealthMonitor:
                 }
                 actions.append(action)
 
+                logger.warning(
+                    "BRC progress timeout — escalating",
+                    pipeline_id=self._pipeline_id,
+                    producer=producer,
+                    elapsed_seconds=int(elapsed),
+                    timeout_seconds=timeout,
+                )
+
                 escalation_type = "overseer" if self._config.overseer_enabled else "hitl"
                 escalation = {
                     "type": escalation_type,
                     "agent_id": producer,
                     "reason": action["reason"],
+                    "alert_type": "brc_confirmation_timeout",
+                    "elapsed_seconds": int(elapsed),
                     "timestamp": datetime.now(UTC).isoformat(),
                 }
                 escalations.append(escalation)

@@ -507,6 +507,92 @@ def _check_and_respawn_overseer(
     return overseer_container_id, overseer_respawn_count
 
 
+def _send_brc_confirmation_nudge(
+    escalation: dict[str, Any],
+    pipeline_id: str,
+    phase: str | None,
+) -> bool:
+    """Wake a producer stuck post-ACK with a directed OVERSEER_ALERT (#2079).
+
+    Wired as an escalation callback for HealthMonitor's
+    ``brc_confirmation_timeout`` alert.  The deterministic detector in
+    ``check_brc_progress`` knows the exact remediation, so we deliver
+    it directly to the stuck producer rather than relying on the
+    overseer agent's discretion.
+
+    Uses ``OVERSEER_ALERT`` (not ``STATUS`` or ``NUDGE``) because the
+    producer's post-confirm wait_loop filter is
+    ``CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT`` — only
+    those types wake the wait.  The subject calls out that the alert
+    originated from the orchestrator's deterministic detector rather
+    than the overseer agent.
+
+    Returns True when a message was posted, False otherwise (wrong
+    alert type, missing fields, message store unavailable, send error).
+    """
+    if escalation.get("alert_type") != "brc_confirmation_timeout":
+        return False
+
+    producer = escalation.get("agent_id")
+    if not producer:
+        return False
+
+    elapsed = escalation.get("elapsed_seconds", 0)
+
+    store_fn = _get_message_store()
+    if store_fn is None:
+        return False
+
+    try:
+        from message_store import Message, MessageType
+    except ImportError:
+        return False
+
+    body = (
+        f"You are PROPOSED and fully ACKed but have not confirmed in "
+        f"{elapsed}s. Call `mcp__brc__confirm` now. If it returns "
+        "status='pending_acks' (e.g., another producer hasn't proposed "
+        "yet, or the global zero-proposal guard is blocking you), wait "
+        "on the prerequisite events instead — CONSENSUS_PROPOSE from "
+        "missing producers, CONSENSUS_ACK from your reviewers, or "
+        "CONSENSUS_RE_REVIEW — then retry confirm."
+    )
+
+    try:
+        msg_store = store_fn()
+        msg_store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role="orchestrator",
+                to_role=producer,
+                message_type=MessageType.OVERSEER_ALERT,
+                subject="BRC confirmation timeout — call mcp__brc__confirm",
+                body=body,
+                phase=phase,
+                metadata={
+                    "alert_type": "brc_confirmation_timeout",
+                    "elapsed_seconds": elapsed,
+                    "source": "health_monitor",
+                },
+            )
+        )
+        logger.info(
+            "Sent BRC confirmation-timeout nudge",
+            pipeline_id=pipeline_id,
+            producer=producer,
+            elapsed_seconds=elapsed,
+        )
+        return True
+    except Exception as send_err:
+        logger.warning(
+            "Failed to send BRC confirmation-timeout nudge (non-fatal)",
+            pipeline_id=pipeline_id,
+            producer=producer,
+            error=str(send_err),
+        )
+        return False
+
+
 def _teardown_phase_overseer(
     spawner: "ContainerSpawner",
     container_id: str,
@@ -11453,6 +11539,17 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
             )
             # Sync the phase-aware threshold with the current pipeline phase
             health_monitor_instance.set_current_phase(pipeline.current_phase.value)
+
+            # Wake stuck producers directly when check_brc_progress fires
+            # so the deterministic detector actually drives remediation
+            # instead of relying on the overseer agent's discretion (#2079).
+            # The closure reads the monitor's current phase at fire time so
+            # the message records the phase the producer is actually in.
+            def _on_health_escalation(escalation: dict[str, Any]) -> None:
+                phase = health_monitor_instance.get_current_phase()
+                _send_brc_confirmation_nudge(escalation, pipeline_id, phase)
+
+            health_monitor_instance.on_escalation(_on_health_escalation)
 
             # Start a background polling thread for time-based tripwires
             health_monitor_timer = threading.Event()

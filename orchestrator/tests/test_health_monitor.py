@@ -1008,6 +1008,16 @@ class TestImplementPhaseThreshold:
         assert hasattr(monitor, "set_current_phase")
         assert callable(monitor.set_current_phase)
 
+    def test_get_current_phase_round_trips(self):
+        """get_current_phase returns the value last set via set_current_phase (#2079)."""
+        bus = _make_event_bus()
+        monitor = _make_monitor(bus)
+        assert monitor.get_current_phase() is None
+        monitor.set_current_phase("implement")
+        assert monitor.get_current_phase() == "implement"
+        monitor.set_current_phase("plan")
+        assert monitor.get_current_phase() == "plan"
+
     def test_get_heartbeat_threshold_private_method(self):
         """_get_heartbeat_threshold returns correct value per phase."""
         bus = _make_event_bus()
@@ -2154,6 +2164,132 @@ class TestBRCProgressCheck:
 
         assert len(escalations) == 1
         assert escalations[0]["type"] == "hitl"
+
+    def test_escalation_includes_alert_type_and_elapsed(self):
+        """Escalation dict carries alert_type + elapsed_seconds for callbacks (#2079)."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_post_ack_confirmation_timeout_seconds=180)
+        monitor = _make_monitor(bus, config)
+
+        escalations: list[dict] = []
+        monitor.on_escalation(lambda e: escalations.append(e))
+
+        _emit_heartbeat(bus, agent_id=PRODUCER_ID)
+
+        mock_tracker = self._make_tracker_with_fully_acked(
+            fully_acked={PRODUCER_ID: time.time()},
+        )
+
+        base = time.time()
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+        ):
+            mock_time.time.return_value = base
+            monitor.check_brc_progress()  # records first-seen
+
+            mock_time.time.return_value = base + 181
+            monitor.check_brc_progress()
+
+        assert len(escalations) == 1
+        esc = escalations[0]
+        assert esc["alert_type"] == "brc_confirmation_timeout"
+        assert esc["elapsed_seconds"] == 181
+
+    def test_breadcrumb_logged_on_each_observation(self):
+        """Per-iteration breadcrumb makes the check visible in container logs (#2079)."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_post_ack_confirmation_timeout_seconds=180)
+        monitor = _make_monitor(bus, config)
+
+        _emit_heartbeat(bus, agent_id=PRODUCER_ID)
+
+        mock_tracker = self._make_tracker_with_fully_acked(
+            fully_acked={PRODUCER_ID: time.time()},
+        )
+
+        with (
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+            patch("health_monitor.logger") as mock_logger,
+        ):
+            monitor.check_brc_progress()
+
+        info_calls = [
+            c
+            for c in mock_logger.info.call_args_list
+            if c.args and "BRC progress check observed fully-acked producers" in c.args[0]
+        ]
+        assert len(info_calls) == 1, (
+            "Expected one breadcrumb info log per check_brc_progress call "
+            "with fully-acked producers"
+        )
+        # Breadcrumb must include producer + elapsed metadata for post-mortems.
+        kwargs = info_calls[0].kwargs
+        assert kwargs.get("pipeline_id") == PIPELINE_ID
+        assert PRODUCER_ID in kwargs.get("producers", {})
+
+    def test_no_breadcrumb_when_set_empty(self):
+        """No breadcrumb log when no producers are fully-acked."""
+        bus = _make_event_bus()
+        monitor = _make_monitor(bus)
+
+        mock_tracker = self._make_tracker_with_fully_acked(fully_acked={})
+
+        with (
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+            patch("health_monitor.logger") as mock_logger,
+        ):
+            monitor.check_brc_progress()
+
+        info_calls = [
+            c
+            for c in mock_logger.info.call_args_list
+            if c.args and "BRC progress check observed fully-acked producers" in c.args[0]
+        ]
+        assert info_calls == [], "Should not log breadcrumb on empty fully-acked set"
+
+    def test_warns_when_skipping_producer_without_agent_state(self):
+        """Warn loudly when a fully-acked producer past timeout has no agent_state (#2079)."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_post_ack_confirmation_timeout_seconds=180)
+        monitor = _make_monitor(bus, config)
+
+        # Deliberately do NOT emit a heartbeat — producer has no AgentState.
+        mock_tracker = self._make_tracker_with_fully_acked(
+            fully_acked={PRODUCER_ID: time.time()},
+        )
+
+        base = time.time()
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=mock_tracker,
+            ),
+            patch("health_monitor.logger") as mock_logger,
+        ):
+            mock_time.time.return_value = base
+            monitor.check_brc_progress()  # records first-seen
+
+            mock_time.time.return_value = base + 181
+            actions = monitor.check_brc_progress()
+
+        assert actions == [], "No action when producer has no agent_state"
+        warn_calls = [
+            c
+            for c in mock_logger.warning.call_args_list
+            if c.args and "no agent_state" in c.args[0]
+        ]
+        assert len(warn_calls) == 1
 
 
 # ---------------------------------------------------------------------------
