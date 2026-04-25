@@ -464,3 +464,228 @@ class TestPipelinePushBlockEdgeCases:
                 assert found_pipeline_deny, (
                     "Expected audit_log to be called with a pipeline-session push denial event"
                 )
+
+
+def _launcher_auth_context():
+    """Patches that let a launcher-authed push reach the success path.
+
+    Mirrors ``_push_context`` but skips session validation — launcher auth
+    sets ``g.session = None`` and is recognised before session-token
+    validation runs.  The git subprocess shim and policy stubs let the
+    push run end-to-end so we can assert the request was accepted.
+    """
+    mock_policy_result = PrivateRepoPolicyResult(
+        allowed=True,
+        reason="Test mode",
+        visibility="public",
+    )
+
+    def run_side_effect(*args, **kwargs):
+        cmd = args[0] if args else kwargs.get("args", [])
+        result = MagicMock()
+        result.returncode = 0
+        result.stderr = ""
+        if "remote" in cmd and "get-url" in cmd:
+            result.stdout = "https://github.com/owner/repo.git\n"
+        elif "branch" in cmd and "--show-current" in cmd:
+            result.stdout = "egg/issue-2051\n"
+        elif "push" in cmd:
+            result.stdout = "Everything up-to-date\n"
+        elif "diff" in cmd:
+            result.stdout = ""
+        else:
+            result.stdout = ""
+        return result
+
+    return (
+        patch.object(gateway, "get_launcher_secret", return_value="test-launcher-secret"),
+        patch.object(gateway, "check_private_repo_access", return_value=mock_policy_result),
+        patch("subprocess.run", side_effect=run_side_effect),
+        patch.object(
+            gateway,
+            "get_policy_engine",
+            return_value=MagicMock(
+                check_branch_ownership=MagicMock(
+                    return_value=PolicyResult(
+                        allowed=True,
+                        reason="OK",
+                        details={"branch": "egg/issue-2051"},
+                    )
+                ),
+            ),
+        ),
+        patch.object(gateway, "get_token_for_repo", return_value=("test-token", "bot", "")),
+        patch.object(gateway, "get_changed_files_in_push", return_value=([], None)),
+    )
+
+
+def _do_launcher_push(client, refspec: str = "egg/issue-2051", **extra_payload):
+    """Send a launcher-authed push (no session token, launcher secret bearer)."""
+    payload = {
+        "repo_path": "/home/egg/repos/test-repo",
+        "remote": "origin",
+        "refspec": refspec,
+        **extra_payload,
+    }
+    return client.post(
+        "/api/v1/git/push",
+        headers={"Authorization": "Bearer test-launcher-secret"},
+        data=json.dumps(payload),
+        content_type="application/json",
+    )
+
+
+class TestOrchestratorLauncherAuthPush:
+    """Verify that launcher-authed pushes bypass agent-targeted enforcement (#2051).
+
+    The orchestrator has a different trust boundary than sandboxed agents
+    — it holds the launcher secret already used by ``/api/v1/sessions/create``.
+    Push requests authenticated with that secret are orchestrator-trusted
+    (programmatic contract init / state-sync / completion pushes) and skip
+    the pipeline-push enforcement that would otherwise block them.
+    """
+
+    def test_launcher_push_to_pipeline_branch_bypasses_block(self, client):
+        """A launcher-authed push to a pipeline branch is NOT blocked.
+
+        Regression for #2051: the orchestrator's contract-init push targets
+        ``egg/issue-<N>`` (a pipeline branch) and previously got a 403
+        because temp sessions inherit ``pipeline_id``.  With launcher auth
+        there is no session, and the push is allowed.
+        """
+        patches = _launcher_auth_context()
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+            response = _do_launcher_push(client)
+            assert response.status_code == 200, (
+                f"Expected 200 for launcher-auth push, got {response.status_code}: "
+                f"{response.data!r}"
+            )
+
+    def test_launcher_push_skips_consensus_push_requirement(self, client):
+        """Launcher-auth push needs no ``consensus_push`` marker.
+
+        The marker exists for the BRC-on-agent-side path; launcher-auth
+        identifies the orchestrator directly.  No marker is required.
+        """
+        patches = _launcher_auth_context()
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+            response = _do_launcher_push(client)
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            # Should NOT carry the agent-targeted "use mcp__brc__propose" hint.
+            assert "mcp__brc__propose" not in data.get("message", "")
+
+    def test_launcher_push_audited_as_orchestrator_authenticated(self, client):
+        """Launcher-auth pushes emit a distinct audit event for traceability."""
+        patches = _launcher_auth_context()
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+            with patch.object(gateway, "audit_log") as mock_audit:
+                response = _do_launcher_push(client)
+                assert response.status_code == 200
+                events = [call.args[0] if call.args else None for call in mock_audit.call_args_list]
+                assert "push_orchestrator_authenticated" in events, (
+                    f"Expected push_orchestrator_authenticated audit event, got {events}"
+                )
+
+    def test_session_token_path_still_blocks_pipeline_push(self, client):
+        """The session-token branch of the auth decorator still enforces #2028.
+
+        Adding launcher auth must NOT loosen enforcement for agent
+        sessions — only sandbox agents are subject to the BRC routing.
+        """
+        session = _make_session("coder")
+        patches = _push_context(session)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            response = _do_push(client)
+            assert response.status_code == 403, (
+                "Session-token push to a pipeline branch must still be blocked"
+            )
+
+    def test_launcher_push_invalid_secret_falls_back_to_session_auth(self, client):
+        """A bearer that is neither the launcher secret nor a valid session
+        token returns 401 from session-auth (the fallback path)."""
+        # Launcher secret patched to a known value; we send a different bearer.
+        with patch.object(gateway, "get_launcher_secret", return_value="real-secret"):
+            response = client.post(
+                "/api/v1/git/push",
+                headers={"Authorization": "Bearer wrong-bearer"},
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test-repo",
+                        "remote": "origin",
+                        "refspec": "egg/issue-2051",
+                    }
+                ),
+                content_type="application/json",
+            )
+            # session_manager rejects the unknown token via the fallback
+            # require_session_auth path → 401, not 403.
+            assert response.status_code == 401
+
+    def test_launcher_secret_not_configured_falls_back_to_session_auth(self, client):
+        """When the gateway has no launcher secret configured at all, every
+        bearer falls through to session auth and is rejected as 401 cleanly
+        (the ``LauncherSecretNotConfiguredError`` is swallowed inside the
+        decorator)."""
+        # get_launcher_secret raises — simulates an unconfigured gateway.
+        with patch.object(
+            gateway,
+            "get_launcher_secret",
+            side_effect=gateway.LauncherSecretNotConfiguredError("Launcher secret not configured"),
+        ):
+            response = client.post(
+                "/api/v1/git/push",
+                headers={"Authorization": "Bearer any-bearer"},
+                data=json.dumps(
+                    {
+                        "repo_path": "/home/egg/repos/test-repo",
+                        "remote": "origin",
+                        "refspec": "egg/issue-2051",
+                    }
+                ),
+                content_type="application/json",
+            )
+            # No launcher secret means we can't match — fall through to
+            # session-auth, which rejects the unknown token cleanly.
+            assert response.status_code == 401
+
+    def test_launcher_push_invalid_mode_rejected(self, client):
+        """A launcher-auth push with a non-{public,private} ``mode`` returns 400.
+
+        The orchestrator's ``_do_push`` is typed
+        ``Literal["public", "private"]``, but if the launcher secret were ever
+        used by another caller, an unknown value would silently degrade to
+        public-mode policy in ``check_private_repo_access``.  Explicit
+        validation closes that gap.
+        """
+        patches = _launcher_auth_context()
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+            response = _do_launcher_push(client, mode="banana")
+            assert response.status_code == 400
+            data = json.loads(response.data)
+            assert "mode" in data["message"].lower()
+
+    def test_launcher_push_missing_mode_uses_session_default(self, client):
+        """A launcher-auth push without ``mode`` in the body is not rejected by
+        the new validator (only invalid values are).
+
+        Note that in production ``check_private_repo_access`` would still 403
+        with "No session mode specified" — this test exercises the validator in
+        isolation (``check_private_repo_access`` is mocked to allow); the
+        orchestrator's ``_do_push`` always sends mode in practice.
+        """
+        patches = _launcher_auth_context()
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+            response = _do_launcher_push(client)  # no mode kwarg
+            assert response.status_code == 200, (
+                f"Expected 200 with no mode, got {response.status_code}: {response.data!r}"
+            )

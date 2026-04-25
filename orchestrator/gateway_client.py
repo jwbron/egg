@@ -710,10 +710,13 @@ class GatewayClient:
         ref: str | None = None,
         base_branch: str | None = None,
     ) -> PushResult:
-        """Push a branch to remote using a temporary session.
+        """Push a branch to remote with launcher-auth (orchestrator-trusted).
 
         Called after contract initialization, phase completion, or pipeline
-        failure. Registers a temp session, pushes, then cleans up the session.
+        failure.  Authenticates with the launcher secret rather than a
+        sandbox session token: the orchestrator is on the privileged side
+        of the trust boundary and its programmatic pushes bypass the
+        agent-targeted pipeline-push enforcement (#2028, #2051).
 
         When ``ref`` is ``None`` (default), pushes the worktree's current
         ``HEAD`` — used when ``repo_path`` is a worktree checked out to
@@ -793,30 +796,25 @@ class GatewayClient:
         mode: Literal["public", "private"],
         refspec: str,
     ) -> PushResult:
-        """Send a single push request to the gateway.
+        """Send a single push request to the gateway with launcher auth.
 
-        Returns ``PushResult(ok=True)`` on success. On failure the gateway
+        The orchestrator authenticates directly with the launcher secret —
+        no register-session/push/delete ceremony.  The push endpoint
+        recognises launcher auth as orchestrator-trusted and skips the
+        agent-targeted enforcement (pipeline-push block, push-target,
+        role/phase file restrictions).  ``mode`` is forwarded in the
+        request body so the private-repo policy still applies.
+
+        Returns ``PushResult(ok=True)`` on success.  On failure the gateway
         HTTP 500 body carries git stderr in ``details["stderr"]``; we
         classify it into a category and propagate both category and raw
-        stderr so callers can build an operator-actionable error without
-        re-reading source to understand what "False" meant.
+        stderr so callers can build an operator-actionable error.
         """
-        temp_container_id = f"{pipeline_id}-failsafe-push"
-        session_token: str | None = None
         try:
-            session = self.register_session(
-                container_id=temp_container_id,
-                container_ip=self.self_ip,
-                mode=mode,
-                pipeline_id=pipeline_id,
-                branch=branch,
-            )
-            session_token = session.session_token
-
-            # Do NOT include container_id — the repo_path is already resolved.
-            # Including the synthetic container_id would cause
-            # map_container_path_to_worktree() to fail with "worktree not found"
-            # since no real worktree exists for the temp session (see #1500).
+            # Do NOT include container_id — the repo_path is already resolved
+            # (orchestrator-side worktree on the shared hostPath).  Including
+            # one would route through map_container_path_to_worktree() and
+            # fail "worktree not found" (#1500).
             self._make_request(
                 "/api/v1/git/push",
                 method="POST",
@@ -824,8 +822,9 @@ class GatewayClient:
                     "repo_path": repo_path,
                     "remote": "origin",
                     "refspec": refspec,
+                    "mode": mode,
                 },
-                bearer_token=session_token,
+                use_launcher_auth=True,
             )
 
             logger.info(
@@ -866,12 +865,6 @@ class GatewayClient:
                 error=str(e),
             )
             return PushResult(ok=False, category="unknown", detail=str(e))
-        finally:
-            if session_token:
-                try:
-                    self.delete_session(session_token)
-                except Exception:
-                    pass
 
     def _reconcile_and_retry_push(
         self,
