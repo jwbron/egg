@@ -454,10 +454,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-25T17:52:17.730035Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-25T18:05:52.588826Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Defer — decide during plan phase based on the chosen dedup-storage option (decision-6)\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -675,7 +675,7 @@
     }
   ],
   "created_at": "2026-04-25T17:05:44.416677Z",
-  "updated_at": "2026-04-25T18:05:50.591799Z",
+  "updated_at": "2026-04-25T18:05:52.606930Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -689,6 +689,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 48,
+  "version": 49,
   "jira_ticket": null
 }
