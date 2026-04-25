@@ -1,0 +1,702 @@
+{
+  "issue": 2073,
+  "phase": "plan",
+  "agent": "architect",
+  "title": "Simplify repository configuration: schema cleanup, repo+local config layering, onboard skill, validator",
+  "summary": "Architecture analysis for the four-part proposal that lands as one coordinated feature (per HITL decision-2): collapse persist_dirs/persist_system_dirs into a single persist:, derive watch_files and checks, add a layered <repo>/.egg/repositories.yaml + ~/.config/egg/repositories.yaml model with replace-by-default merge semantics, add an /onboard-repo skill, and ship a write-time validator (egg validate-config CLI + an mcp__egg__validate_repo_config MCP tool). The recommended approach centralizes load+merge in a new shared/egg_config/repos.py imported by both config/repo_config.py and sandbox/egg_lib/docker.py so all ~15 callers see the same merged view, hard-deprecates the legacy schema (decision-4), reserves a forward-compatible version: 1 + template: hook (decision-13 + feedback Q4), and ships Python (uv/pip), Node (npm/pnpm/yarn), and Go detection in v1 (decision-14) with a registered detector plug-in seam to slot in bazel/gradle later.",
+
+  "context_inputs": {
+    "issue_url": "https://github.com/jwbron/egg/issues/2073",
+    "refine_analysis_path": ".egg-state/drafts/2073-analysis.md",
+    "refine_analysis_lines": 349,
+    "hitl_decisions_resolved": 14,
+    "hitl_feedback_resolved": 1,
+    "decisions_summary": {
+      "decision-1": ".egg/repositories.yaml is the repo-defaults file (selected: opt-1)",
+      "decision-2": "One coordinated feature, not sequenced PRs (selected: opt-2)",
+      "decision-3": "persist: classifies entries by leading slash (selected: opt-1)",
+      "decision-4": "Hard-deprecate legacy schema immediately, no migration tool (selected: opt-4)",
+      "decision-5": "Centralized merge loader in new shared/egg_config/repos.py (selected: opt-1)",
+      "decision-6": "Both new egg validate-config CLI subcommand AND extend the MCP tool (selected: opt-1)",
+      "decision-7": "/onboard-repo skill under skills/onboard-repo/SKILL.md (selected: opt-1)",
+      "decision-8": "On unwritable repo: print to stdout + offer to append to user file (selected: opt-1)",
+      "decision-9": "Replace by default, no extends keyword for now (selected: opt-1)",
+      "decision-10": "Loader auto-discovers <repo>/.egg/repositories.yaml; silent skip if absent (selected: opt-1)",
+      "decision-11": "Two-tier validator: errors block, warnings advise (selected: opt-1)",
+      "decision-12": "No migration helper; hand-migrate via deprecation docs (selected: opt-2)",
+      "decision-13": "Schema versioning (version: 1) on both files (selected: opt-1)",
+      "decision-14": "Detect Python (uv/pip), Node (npm/pnpm/yarn), Go in v1 only (selected: opt-1)"
+    },
+    "feedback_summary": {
+      "Q1_upgrade_friction": "Hard cutover OK, no migration tool — matches decision-4.",
+      "Q2_repos_to_migrate": "Just the egg repo itself (egg/.egg/repositories.yaml is canonical migration).",
+      "Q3_priority": "All four pieces are required and ship together — don't drop any.",
+      "Q4_template_hook": "Yes — reserve a template: schema field for follow-up template-library work.",
+      "Q5_extra_validations": "Add: auth_mode: user without GITHUB_USER_TOKEN; persist of empty dir; curl/wget in private mode network-locked context. Keep all the issue's listed checks.",
+      "Q6_skill_confirmation": "Always require AskUserQuestion confirmation per detected build_command — no auto-write.",
+      "Q7_non_makefile_checks": "Unknown today; design detector for plug-in extensibility (bazel/gradle/multi-stage)."
+    }
+  },
+
+  "current_architecture": {
+    "loader": {
+      "location": "config/repo_config.py",
+      "approx_lines": 724,
+      "config_path_resolver": "_get_config_path() — env(EGG_REPO_CONFIG) → ~/.config/egg/repositories.yaml → ~/repos/egg/config/repositories.yaml; FileNotFoundError if none.",
+      "load_function": "_load_config() returns dict via yaml.safe_load(); module-level cache, reload via reload_config().",
+      "public_api": [
+        "get_github_username(), get_bot_username(), get_default_reviewer()",
+        "get_writable_repos(), get_readable_repos(), is_writable_repo(repo), is_readable_repo(repo), get_repo_access_level(repo)",
+        "get_repo_setting(repo, setting, default)",
+        "get_repo_build_commands(repo) — returns dict with watch_files / commands / persist_dirs / persist_system_dirs",
+        "get_all_build_commands()",
+        "get_repo_checks(repo) — coerces via validate_checks() from shared/egg_config/validators.py",
+        "get_auth_mode(repo), is_user_mode_repo(repo), get_user_mode_config()",
+        "get_checkpoint_repo(repo), get_all_checkpoint_repos() (60s TTL cache), is_checkpoint_repo(owner, repo)",
+        "get_sync_config(), get_repos_for_sync()",
+        "reload_config()"
+      ],
+      "validation_today": "validate_checks() filters list to {name, command} dicts and string-coerces; no schema-level validation; type coercion is per-getter."
+    },
+    "sandbox_build_path": {
+      "host_side_writer": {
+        "file": "sandbox/egg_lib/docker.py",
+        "fn": "_copy_repo_watch_files()",
+        "lines": "270-436",
+        "behavior": "Reads repositories.yaml; for each repo with build_commands.watch_files copies the listed files from local repo path into config/repo-deps/<owner>--<repo>/ with symlink validation; writes config/repo-deps/manifest.json mirroring extra_packages + per-repo build_commands."
+      },
+      "build_time_consumer": {
+        "file": "sandbox/docker-setup.py",
+        "fns": [
+          "load_build_commands_manifest() (lines 204-250) — parses /tmp/repo-deps/manifest.json (new dict-with-build_commands or legacy list).",
+          "run_build_commands() (lines 283-353) — runs each repo's commands as root in /tmp/repo-deps/<repo>/; raises RuntimeError on missing watch dir / non-zero exit (post-#2087/#2090, no warn-and-continue).",
+          "persist_build_dirs() (lines 356-466) — copies persist_dirs (relative) into /opt/prebuilt-deps/<repo>/ and persist_system_dirs (absolute) into /opt/prebuilt-deps/__egg_system_dirs__/<path>/; denies /proc /sys /dev /run /boot /etc /bin /lib /usr /var; entrypoint restores at container start."
+        ]
+      },
+      "sandbox_runtime_reader": "sandbox/egg_lib/config.py provides Config class + get_local_repos(); does NOT load repositories.yaml at runtime — only at build time via the manifest."
+    },
+    "validators_today": {
+      "shared_egg_config_validators": {
+        "file": "shared/egg_config/validators.py",
+        "lines": "164-205 (validate_checks)",
+        "fns": ["validate_url, validate_email, validate_github_token, validate_anthropic_key, validate_non_empty, validate_port, validate_checks, mask_secret"],
+        "validate_checks_behavior": "Filter list to dicts with name+command keys, coerce values to strings."
+      },
+      "scripts_validate_config": {
+        "file": "scripts/validate-config.py",
+        "scope": "Validates secret/integration configs (SlackConfig, GitHubConfig, JiraConfig, ConfluenceConfig, GatewayConfig). Does NOT parse repositories.yaml.",
+        "output": "stdout text report with ✓/✗/⚠"
+      },
+      "mcp_validate_config": {
+        "file": "orchestrator/mcp_tools.py",
+        "lines": "689-700 schema, ~1569 handler",
+        "scope": "Validates pipeline config (PipelineConfig Pydantic model: start_phase, hitl_gates). NOT a repo config validator. Naming collision must be resolved (decision-6 implies a new mcp__egg__validate_repo_config tool)."
+      }
+    },
+    "example_file": {
+      "path": "config/repositories.yaml.example",
+      "approx_lines": 245,
+      "operator_scoped_keys": [
+        "github_username, bot_username, default_reviewer",
+        "writable_repos, readable_repos",
+        "github_sync.{sync_all_prs, sync_interval_minutes}",
+        "user_mode.{github_user, git_name, git_email}",
+        "local_repos.paths",
+        "docker_setup.extra_packages.{apt, dnf, packages}"
+      ],
+      "per_repo_keys": [
+        "restrict_to_configured_users, disable_auto_fix",
+        "auth_mode (bot|user), checkpoint_repo",
+        "checks ([{name, command}])",
+        "build_commands.{watch_files, commands, persist_dirs, persist_system_dirs}"
+      ]
+    },
+    "repo_side_egg_dir": {
+      "path": ".egg/",
+      "current_contents": [
+        "contract-rules.md (91 lines, contract state machine rules)",
+        "phase-permissions.json (RBAC for phases)",
+        "schemas/agent-anchor.schema.json (7.3K)",
+        "schemas/checkpoint.schema.json (12K)",
+        "schemas/contract.schema.json (24K)",
+        "schemas/phase-permissions.schema.json (3.7K)",
+        "schemas/usage.schema.json (12K)",
+        "schemas/yaml-tasks.schema.json (3.7K)"
+      ],
+      "implication": "Adding repositories.yaml here is consistent with .egg/ as repo-side egg config; we will also need .egg/schemas/repositories.schema.json so the existing schema-driven tooling pattern carries over."
+    },
+    "callers": {
+      "config_repo_config_imports": [
+        "tests/config/test_repo_config.py (~20 usages)",
+        "gateway/tests/test_config_reload.py (~5)",
+        "orchestrator/routes/pipelines.py (2), orchestrator/routes/signals.py (1)",
+        "gateway/gateway.py (2), gateway/checkpoint_handler.py (1)",
+        "shared/egg_contracts/checkpoint_cli.py (1)",
+        "tests/config/test_repo_config_checkpoint.py (1)"
+      ],
+      "sandbox_egg_lib_config_imports": [
+        "sandbox/egg_lib/__init__.py, sandbox/egg_lib/contract_cli.py",
+        "tests/sandbox/test_setup_flow.py, tests/sandbox/test_docker.py, tests/sandbox/test_config.py",
+        "scripts/select_tests.py"
+      ],
+      "implication": "Centralizing the merge in shared/egg_config/repos.py (decision-5) means we update _load_config() in config/repo_config.py + the read site in sandbox/egg_lib/docker.py; every other caller inherits the merged view for free."
+    },
+    "schema_versioning_today": "No version field on repositories.yaml. Other YAML/JSON in the repo: shared/check-fixers.yml carries version: \"1\" (legacy workflow); .github/dependabot.yml uses version: 2 (GitHub standard). No graceful-degradation pattern is precedented for repo config — new in this change."
+  },
+
+  "scope_breakdown": {
+    "in_scope": [
+      "Schema simplification (collapse persist_dirs+persist_system_dirs → persist:; derive watch_files; derive checks; add version: 1 + template: reservation; HARD-deprecate legacy keys)",
+      "Layered loader: read <repo>/.egg/repositories.yaml + ~/.config/egg/repositories.yaml; deep-merge dicts, replace lists; centralized in shared/egg_config/repos.py",
+      "/onboard-repo skill (skills/onboard-repo/SKILL.md) with Python (uv/pip), Node (npm/pnpm/yarn), Go detection; AskUserQuestion confirmation per detected build_command; fallback to stdout-print + append-to-user-file when repo is unwritable",
+      "Validator: new shared/egg_config/repo_validator.py module; egg validate-config CLI subcommand; new mcp__egg__validate_repo_config MCP tool (renamed to avoid name collision with existing pipeline-config tool); two-tier (errors block, warnings advise)",
+      "Migrate egg/.egg/repositories.yaml itself as part of rollout (per feedback Q2)",
+      "Update config/repositories.yaml.example to the new schema",
+      "Update docs (docs/guides/) covering layered model + onboarding skill"
+    ],
+    "out_of_scope_explicit": [
+      "Migration helper / egg config migrate (decision-12 = no)",
+      "extends: keyword for additive list merging (decision-9 = ship without)",
+      "Repo template library (python-uv/node-pnpm) — reserved as template: schema hook only (feedback Q4)",
+      "Rust / Java / Ruby detection in skill (decision-14 — follow-up)",
+      "Web UI / wizard",
+      "Cross-repo dependency auto-linking",
+      "Auto-rewrite of existing user configs (hand-migrate per Q1)"
+    ]
+  },
+
+  "schema_design": {
+    "new_repo_file_layout": {
+      "path": "<repo>/.egg/repositories.yaml",
+      "json_schema": ".egg/schemas/repositories.schema.json (new)",
+      "shape": {
+        "version": "1",
+        "template": "(reserved, opt-in string identifier; loader does not yet resolve, just validates that it is a string when present)",
+        "build_commands": {
+          "watch_files": "(optional; if omitted, derived from manifest catalog: pyproject.toml, uv.lock, package.json, pnpm-lock.yaml, package-lock.json, yarn.lock, go.mod, go.sum, Cargo.toml, Cargo.lock, requirements*.txt, Gemfile.lock — the loader populates the resolved list before manifest.json is written so docker-setup.py sees explicit watch files)",
+          "commands": "(required if build_commands present)",
+          "persist": "(unified list, classified at runtime: leading-slash → system absolute path; otherwise repo-relative)"
+        },
+        "checks": "(optional; if omitted, derived from Makefile lint/test targets and package.json scripts)",
+        "auth_mode": "(optional, repo-scoped only — bot|user)",
+        "checkpoint_repo": "(optional)",
+        "extra_packages": "(optional, repo-scoped: { apt: [], dnf: [], packages: [] })"
+      },
+      "operator_scoped_keys_forbidden_here": [
+        "github_username, bot_username, default_reviewer",
+        "writable_repos, readable_repos",
+        "github_sync.*, user_mode.*",
+        "local_repos.paths",
+        "docker_setup.* (operator-level extras only — repo-scoped extras live in repo file's extra_packages)"
+      ],
+      "validator_warns_when_repo_file_sets_operator_keys": true
+    },
+    "new_user_file_layout": {
+      "path": "~/.config/egg/repositories.yaml (unchanged location)",
+      "shape": {
+        "version": "1",
+        "github_username": "...",
+        "bot_username": "...",
+        "default_reviewer": "...",
+        "writable_repos": ["..."],
+        "readable_repos": ["..."],
+        "github_sync": "...",
+        "user_mode": "...",
+        "local_repos": "...",
+        "docker_setup.extra_packages": "...",
+        "repo_settings": {
+          "<owner>/<repo>": "(any per-repo key from repo file; user values OVERRIDE repo file at the leaf)"
+        }
+      },
+      "validator_errors_when_user_file_sets_repo_only_keys_outside_repo_settings": "warning, not error (existing files may already be doing this; tightening to error is a follow-up)"
+    },
+    "merge_semantics": {
+      "dict_merge": "Deep merge; user file wins at the leaf (decision-9 baseline behavior).",
+      "list_merge": "Replace by default. No extends: keyword. checks, persist, watch_files, extra_packages.apt, extra_packages.dnf, extra_packages.packages, local_repos.paths all replace.",
+      "operator_scoped_top_level": "Comes EXCLUSIVELY from user file; repo-file entries here are dropped with a warning.",
+      "auto_discovery": "When the loader is invoked against a checkout (path inferred from local_repos.paths or the cwd at MCP invocation time), it looks for <repo>/.egg/repositories.yaml. Missing file is not an error (silent skip per decision-10)."
+    },
+    "persist_classification_rule": {
+      "leading_slash": "Absolute path. Routed to persist_system_dirs at manifest-write time.",
+      "no_leading_slash": "Repo-relative path. Routed to persist_dirs at manifest-write time.",
+      "validator_check": "If a relative path begins with .. or contains symlinks escaping the repo root, error.",
+      "internal_compatibility": "The manifest.json written to /tmp/repo-deps/ continues to use the existing two-list shape (persist_dirs + persist_system_dirs). docker-setup.py is NOT changed; the host-side classifier produces the legacy manifest fields from the unified persist: list. This keeps the build-time consumer untouched and preserves the #2090 fail-loud guarantees."
+    },
+    "watch_files_derivation": {
+      "manifest_catalog_v1": [
+        "pyproject.toml", "uv.lock",
+        "package.json", "pnpm-lock.yaml", "package-lock.json", "yarn.lock",
+        "go.mod", "go.sum",
+        "requirements.txt", "requirements-*.txt", "constraints.txt",
+        "Cargo.toml", "Cargo.lock",
+        "Gemfile.lock",
+        "Makefile"
+      ],
+      "rule": "If build_commands exists and watch_files is omitted, the loader populates the resolved watch list by intersecting the catalog with files actually present in the repo, plus any Makefile target referenced by build_commands.commands.",
+      "explicit_override": "Listing watch_files explicitly disables derivation (the explicit list is used verbatim).",
+      "validator_check": "Heuristic — if commands include 'pip install' / 'uv sync' / 'npm install' / 'go mod' and the corresponding manifest is NOT in resolved watch list, warn."
+    },
+    "checks_derivation": {
+      "rules": [
+        "If checks is absent, scan repo's Makefile for lint and test targets (after include resolution; tolerate phony targets).",
+        "If a package.json is present, also scan scripts.lint and scripts.test.",
+        "If exactly one of {Makefile, package.json scripts} provides a target, the resolved checks block is [{name: lint, command: make lint}, {name: test, command: make test}] (or npm equivalents).",
+        "If both provide targets, prefer Makefile and add a warning suggesting the user pin checks: explicitly.",
+        "Explicit checks: still wins."
+      ],
+      "validator_check": "If checks.command references a Makefile target that does not exist after include resolution, error (blocks load); if it references a target whose body is empty / phony, warn."
+    },
+    "schema_versioning": {
+      "field": "version: 1 (top-level integer, required at config-write time, optional at load time with a warning if absent)",
+      "graceful_degradation": "Loader accepts version <= LOADER_MAX_SUPPORTED (1 today); on version > LOADER_MAX_SUPPORTED logs a warning and proceeds with best-effort parsing (do not error — the operator may be running an older egg against a newer-schema repo file).",
+      "future_breaking_changes": "Bump LOADER_MAX_SUPPORTED only when a hard incompatibility is introduced. The version: 0 / unversioned legacy file is rejected with a clear error pointing to the migration doc (per decision-4 hard cutover)."
+    },
+    "template_hook_reservation": {
+      "field": "template: (string, optional)",
+      "v1_behavior": "Validator allows the field; loader stores it on the merged dict but takes no action.",
+      "rationale": "Reserves the spelling so a follow-up template-library PR (out-of-scope here) can land without another schema migration (per feedback Q4)."
+    }
+  },
+
+  "components": [
+    {
+      "id": "C1",
+      "name": "shared/egg_config/repos.py (new module — central loader+merger)",
+      "responsibilities": [
+        "Single import point for the merged repo+user view used by config/repo_config.py and sandbox/egg_lib/docker.py.",
+        "load_repo_file(repo_path: Path | None) -> RepoFileConfig — parses <repo>/.egg/repositories.yaml; returns empty cfg if absent.",
+        "load_user_file() -> UserFileConfig — parses ~/.config/egg/repositories.yaml.",
+        "merge_configs(user, repo, repo_slug) -> MergedConfig — deep-merges dicts, replaces lists, drops repo-file operator-scoped keys with warnings.",
+        "classify_persist(entry: str) -> Literal['system', 'repo'] — leading-slash classifier.",
+        "resolve_watch_files(build_commands: dict, repo_path: Path) -> list[str] — manifest catalog inference.",
+        "resolve_checks(repo_path: Path) -> list[dict] — Makefile/package.json scan.",
+        "Hard error on legacy keys (persist_dirs / persist_system_dirs) per decision-4."
+      ],
+      "depends_on": ["yaml.safe_load (PyYAML)", "shared/egg_config/validators.py"],
+      "depended_on_by": ["config/repo_config.py", "sandbox/egg_lib/docker.py"],
+      "lines_of_code_estimate": "~600"
+    },
+    {
+      "id": "C2",
+      "name": "config/repo_config.py (modify — keep public API, swap inner loader)",
+      "responsibilities": [
+        "_load_config() now calls shared.egg_config.repos.load_user_file() and merges with auto-discovered repo file when invoked against a known repo.",
+        "get_repo_build_commands() returns merged build_commands and reflects derived watch_files / classified persist (synthesizes legacy persist_dirs + persist_system_dirs fields for the manifest writer).",
+        "get_repo_checks() returns derived checks if explicit not set.",
+        "Public function signatures unchanged — every existing caller inherits the merged view without code changes.",
+        "Hard error path for legacy persist_dirs / persist_system_dirs keys (mention the migration doc)."
+      ],
+      "depends_on": ["C1"],
+      "depended_on_by": ["all 15+ existing callers"],
+      "behavior_change": "Existing call sites get merged config. Operator-scoped getters (get_writable_repos etc.) remain user-only-sourced."
+    },
+    {
+      "id": "C3",
+      "name": "sandbox/egg_lib/docker.py (modify — re-route through C1)",
+      "responsibilities": [
+        "_copy_repo_watch_files() reads merged config via shared.egg_config.repos (instead of yaml.safe_load directly).",
+        "Manifest write retains existing schema (persist_dirs + persist_system_dirs lists, watch_files list, commands list, extra_packages dict) — produced from the unified persist: by C1's classifier.",
+        "No change to docker-setup.py — the build-time consumer keeps reading the same manifest.json shape and the #2090 fail-loud invariants."
+      ],
+      "depends_on": ["C1"],
+      "depended_on_by": ["sandbox build pipeline"],
+      "rationale": "Keeping the host→build manifest contract unchanged isolates the schema change from the in-image runtime; only the host writer learns the new shape."
+    },
+    {
+      "id": "C4",
+      "name": "shared/egg_config/repo_validator.py (new module — write-time validator core)",
+      "responsibilities": [
+        "validate_repo_config(user_cfg, repo_cfg, repo_path) -> ValidationReport — emits errors and warnings as typed records.",
+        "Schema validity: required keys, type checks, version range, malformed YAML structure.",
+        "Legacy keys: hard-error on persist_dirs / persist_system_dirs / explicit watch_files at top of new schema.",
+        "Persistence coherence: build_commands install to /usr/local/bin etc. but persist: omits the parent dir (the #2065 trap).",
+        "Persist-vs-build-context coherence: detect 'uv sync' / 'pip install -e .' / 'npm install' patterns and warn when watch_files lacks the source files those need (the #2087 trap).",
+        "Makefile target existence: scan target Makefile for each checks.command and error on missing target.",
+        "Manifest/watch coherence: install-tool keywords without matching manifest in watch list → warning.",
+        "auth_mode: user without GITHUB_USER_TOKEN configured → warning.",
+        "persist of empty directory → warning.",
+        "curl/wget in build_commands while operator is in private network mode → warning.",
+        "local_repos.paths entries must exist on disk → error.",
+        "writable_repos entries with no corresponding repo_settings → info.",
+        "checkpoint_repo well-formedness (owner/repo) and best-effort accessibility (gh api repos/<...>) → warning.",
+        "Repo file containing operator-scoped keys → warning.",
+        "Two-tier output (decision-11): errors block, warnings advise."
+      ],
+      "depends_on": ["C1", "shared/egg_config/validators.py"],
+      "depended_on_by": ["C5 (CLI)", "C6 (MCP tool)", "(advisory) C1's load path emits warnings"]
+    },
+    {
+      "id": "C5",
+      "name": "egg validate-config CLI subcommand (new — bin/egg or scripts/)",
+      "responsibilities": [
+        "Surface egg validate-config [<repo-path>]; dispatches to C4 and renders a stdout report (errors red, warnings yellow, info green) compatible with scripts/validate-config.py's existing ✓/✗/⚠ format.",
+        "Exit code 0 on no errors; nonzero on any error (warnings do not fail).",
+        "Reuses scripts/validate-config.py output framing where compatible (decision-6 leans toward extending the existing surface; we add a new subcommand inside that script or as a new script that imports its formatter)."
+      ],
+      "depends_on": ["C4", "scripts/validate-config.py (formatter helpers)"],
+      "depended_on_by": ["humans onboarding repos / CI hooks"]
+    },
+    {
+      "id": "C6",
+      "name": "mcp__egg__validate_repo_config MCP tool (new — orchestrator/mcp_tools.py)",
+      "responsibilities": [
+        "Distinct from the existing mcp__egg__validate_config tool (which validates pipeline configs). The naming collision noted in the refine analysis is resolved by adopting a separate tool name.",
+        "Input schema: { repo_path?: string, user_path?: string }; output: ValidationReport JSON.",
+        "Used by /onboard-repo skill before write, and by reviewers in BRC if needed."
+      ],
+      "depends_on": ["C4"],
+      "depended_on_by": ["agents (especially /onboard-repo)"]
+    },
+    {
+      "id": "C7",
+      "name": "skills/onboard-repo/SKILL.md (new)",
+      "responsibilities": [
+        "/onboard-repo <path> entry point. Mirrors skills/egg-setup/SKILL.md style (single SKILL.md, AskUserQuestion-driven).",
+        "Phase 1 — detection: inspect repo path; identify lockfiles/manifests; classify by language ladder Python (uv → pip), Node (pnpm → npm → yarn), Go.",
+        "Phase 2 — propose build_commands per detection rule (Python uv: install uv to /usr/local/bin + make sandbox-deps + persist [.venv, /usr/local/bin]; Python pip: pip install -r + persist [.venv]; Node: corepack/pnpm/npm install + persist [node_modules]; Go: install Go to /usr/local/go + go mod download + persist [/usr/local/go]; mixed: union).",
+        "Phase 3 — propose checks: scan Makefile + package.json scripts; surface what was found.",
+        "Phase 4 — AskUserQuestion confirmation for EACH detected build_command (per feedback Q6: always require human confirmation; no auto-write).",
+        "Phase 5 — write to <repo>/.egg/repositories.yaml; if write blocked, print YAML to stdout and offer to append the per-repo block to ~/.config/egg/repositories.yaml under repo_settings (decision-8).",
+        "Phase 6 — call C6 (mcp__egg__validate_repo_config) on the produced file; surface errors and warnings; refuse to commit until errors are resolved.",
+        "Detector plug-in seam (per feedback Q7): a registry pattern — register_detector(name, predicate, builder) — so bazel/gradle/multi-stage variants can be added without rewriting the core skill."
+      ],
+      "depends_on": ["C6", "AskUserQuestion (Claude Agent SDK)"],
+      "depended_on_by": ["operators onboarding new repos"]
+    },
+    {
+      "id": "C8",
+      "name": ".egg/schemas/repositories.schema.json (new) + config/repositories.yaml.example (rewrite)",
+      "responsibilities": [
+        "JSON Schema for both files — single schema with schemaVersion: 1, two top-level shapes (user vs repo) discriminated by allowed keys.",
+        "Example file rewritten to the new schema: unified persist:, derived-by-default checks/watch_files, version: 1, template: (commented placeholder), per-repo blocks both inline (user file) and standalone (repo file)."
+      ],
+      "depends_on": [],
+      "depended_on_by": ["humans, validator (loaded as JSON Schema sanity check)"]
+    },
+    {
+      "id": "C9",
+      "name": "egg/.egg/repositories.yaml (NEW — first concrete repo-defaults file)",
+      "responsibilities": [
+        "Migrate the existing per-repo block for jwbron/egg out of config/repositories.yaml.example into .egg/repositories.yaml with the new schema (per feedback Q2: 'Just the egg repo itself').",
+        "Acts as the canonical reference repo file and the first integration test of the layered loader."
+      ],
+      "depends_on": ["C1, C2, C3, C8"],
+      "depended_on_by": ["egg pipeline runs"]
+    },
+    {
+      "id": "C10",
+      "name": "Tests (new + extended)",
+      "scope": [
+        "shared/tests/test_repos_loader.py — merge semantics matrix (dict deep-merge, list replace, operator-scoped key drop with warning, auto-discover, missing repo file silent-skip, version range, legacy-key hard-error).",
+        "shared/tests/test_repo_validator.py — every error + warning class (legacy keys, missing persist, build-context-source mismatch, missing Makefile target, install-tool/manifest mismatch, missing local_repos path, dangling writable_repos, checkpoint_repo well-formed, repo-file operator-keys, auth_mode without token, empty persist dir, network-locked curl).",
+        "tests/config/test_repo_config.py — extend to cover merged-view behavior of public API.",
+        "tests/sandbox/test_docker.py — extend to verify _copy_repo_watch_files goes through C1 and that classified persist produces the legacy two-list manifest.",
+        "tests/integration/test_onboard_repo.py — drive /onboard-repo against a Python+uv fixture, a Node+pnpm fixture, and a Go fixture; verify confirmation prompts and validator hand-off.",
+        "tests/cli/test_egg_validate_config.py — happy-path + error-path exit codes."
+      ]
+    },
+    {
+      "id": "C11",
+      "name": "Docs",
+      "files": [
+        "docs/guides/repo-config.md (new) — explains layered model, version, persist classification rule.",
+        "docs/guides/onboard-repo.md (new) — walks through the skill.",
+        "docs/reference/repo-config-schema.md (new) — complete schema reference, legacy-deprecation note, migration steps.",
+        "docs/index.md (update) — link to new guides."
+      ]
+    }
+  ],
+
+  "data_flow": {
+    "host_runtime_load": "config.repo_config.get_repo_build_commands(repo) → shared.egg_config.repos.load_merged(repo_slug=repo) → user file (~/.config/egg/repositories.yaml) loaded once + cached → if local_repos.paths or invocation cwd identifies a checkout, repo file (<repo>/.egg/repositories.yaml) loaded → merge_configs() → returned as merged dict → per-getter slicing.",
+    "host_build_write": "sandbox.egg_lib.docker._copy_repo_watch_files() → load_merged() → write /tmp/repo-deps/manifest.json with legacy two-list persist shape produced by classifier → docker-setup.py reads manifest unchanged.",
+    "validator_invoked": "egg validate-config <repo> → C5 → C4.validate_repo_config(load_user_file(), load_repo_file(<repo>), <repo>) → ValidationReport → stdout/stderr render + exit code.",
+    "onboard_skill": "/onboard-repo <path> → C7 detection → AskUserQuestion confirmation → write <repo>/.egg/repositories.yaml → mcp__egg__validate_repo_config → if errors: prompt for fix; if warnings: surface; else commit."
+  },
+
+  "alternatives_considered": [
+    {
+      "name": "Inline merge inside config/repo_config.py without a shared module",
+      "description": "Keep the merge logic in config/repo_config.py::_load_config() and have sandbox/egg_lib/docker.py import from config/.",
+      "rejected_because": "decision-5 explicitly prefers shared/egg_config/repos.py because sandbox/egg_lib does not currently import from config/, which crosses the runtime boundary. Making sandbox depend on config/ would invert today's dependency direction."
+    },
+    {
+      "name": "New top-level package egg_repo_config/",
+      "description": "Brand-new package separate from both shared/ and config/.",
+      "rejected_because": "decision-5 ruled this out (option opt-3); shared/egg_config/ already houses the validators and constants both runtimes use, so adding a sibling module there is the smallest surface."
+    },
+    {
+      "name": "Sequenced PRs (decision-2 opt-1)",
+      "description": "Land schema+validator first, then layered loader, then skill in separate PRs.",
+      "rejected_because": "Human chose decision-2 opt-2 (one coordinated feature). Sequencing would have made each PR smaller but created in-flight schema churn for two-three releases. The trade-off was discussed in the refine phase and resolved."
+    },
+    {
+      "name": "Soft deprecation with warnings",
+      "description": "Accept legacy persist_dirs/persist_system_dirs/explicit watch_files with a deprecation warning indefinitely.",
+      "rejected_because": "decision-4 selected hard deprecation. Cleanest schema; prevents legacy-vs-new dual code paths from accumulating; users hand-update per Q1."
+    },
+    {
+      "name": "Append-merge as default for lists",
+      "description": "Make checks/persist/watch_files lists union user + repo entries by default.",
+      "rejected_because": "decision-9 selected replace by default. Append surprises users when they want an override; simpler to teach replace + (future) extends opt-in."
+    },
+    {
+      "name": "Operator-must-opt-in for repo defaults",
+      "description": "Loader reads <repo>/.egg/repositories.yaml only when the operator explicitly lists the repo or sets use_repo_defaults: true.",
+      "rejected_because": "decision-10 selected silent auto-discovery. Onboarding a new repo with a committed .egg/repositories.yaml should Just Work — opt-in friction defeats the zero-config win."
+    },
+    {
+      "name": "Auto-write skill (no per-detection AskUserQuestion)",
+      "description": "Skill writes its inferred config without confirmation when only one lockfile is found.",
+      "rejected_because": "feedback Q6 explicitly said always require AskUserQuestion confirmation. Heuristic detection has to fail loudly, not silently bake in a wrong block."
+    },
+    {
+      "name": "Single big mcp__egg__validate_config tool serving both pipeline + repo configs",
+      "description": "Reuse the existing tool name with an input discriminator.",
+      "rejected_because": "Naming collision noted in the refine analysis — existing tool validates PipelineConfig with a different schema. Cleaner to add mcp__egg__validate_repo_config; existing tool's schema and consumers stay stable."
+    }
+  ],
+
+  "constraints_and_invariants": [
+    "Backward compatibility on the in-image manifest.json shape: docker-setup.py keeps reading the legacy persist_dirs + persist_system_dirs fields; the schema change is host-side only. This preserves #2090's fail-loud invariants without changes to in-container code.",
+    "Operator-scoped keys NEVER leak into a committed repo file; validator emits a warning if they do; loader strips them with a warning at merge time. (Both correctness and leak-hazard considerations.)",
+    "Centralized merge: ONE place (shared/egg_config/repos.py) owns the merge rules. Every existing caller inherits the merged view without changes. This is non-negotiable per decision-5.",
+    "Hard cutover on legacy keys: loading persist_dirs / persist_system_dirs / explicit watch_files in the NEW schema raises with a clear error pointing to docs/reference/repo-config-schema.md. Existing files at version: (none) are rejected with the same migration pointer (per decision-4).",
+    "Two-tier validation: errors block, warnings advise (decision-11). Loader emits warnings via the standard Python logger; CLI/MCP tool surface them in their reports.",
+    "Schema versioning from day one (decision-13): version: 1 on both files. Loader gracefully degrades on version > 1.",
+    "Detector plug-in seam: register_detector(name, predicate, builder) is exposed so bazel/gradle/multi-stage repos can be slotted in without rewriting the core skill (per feedback Q7).",
+    "Heuristic detection has confirmation: every detected build_command in the onboard skill goes through AskUserQuestion (per feedback Q6).",
+    "egg's own .egg/repositories.yaml ships in the same change as the loader (per feedback Q2). It is the canonical first-consumer reference.",
+    "List merge: replace by default; no extends: keyword (decision-9). All list-valued fields (checks, persist, watch_files, extra_packages.*, local_repos.paths) follow the same rule.",
+    "template: field reserved (feedback Q4). Validator allows it; loader stores it; v1 takes no action."
+  ],
+
+  "open_questions_for_planner_and_risk_analyst": [
+    {
+      "id": "Q-A1",
+      "question": "How should the onboarding skill detect Makefile lint/test targets when the Makefile uses include directives or recipe variables (e.g. include scripts/*.mk, $(MAKE) -C subdir)?",
+      "context": "feedback Q7 acknowledges unknown variation. The validator's missing-target check needs the same Makefile parser.",
+      "recommendation": "Use a tolerant scan: grep '^[a-zA-Z0-9_-]+:' for direct targets; for include directives, recursively follow at most 2 levels and union the targets; otherwise warn that detection may be incomplete and ask the user to pin checks: explicitly. Defer fully-correct GNU Make parsing to a follow-up."
+    },
+    {
+      "id": "Q-A2",
+      "question": "Should the validator's checkpoint_repo accessibility check (gh api repos/<owner/repo>) run by default or only on --strict?",
+      "context": "Network calls in a validator add latency and can fail in private mode where the gh CLI is restricted (decision-11 names this case).",
+      "recommendation": "Best-effort with timeout; skip silently in private network mode (detected via existing private-mode env var). Surface result as a warning, never an error."
+    },
+    {
+      "id": "Q-A3",
+      "question": "What is the expected size of the ValidationReport on a complex repo, and should the MCP tool stream or return whole?",
+      "context": "Decision-11 lists 13+ check classes. A monorepo could trigger many warnings.",
+      "recommendation": "Return whole; cap per-class warnings at 20 with an overflow indicator. Consistent with existing scripts/validate-config.py output cap."
+    },
+    {
+      "id": "Q-A4",
+      "question": "When auto-discovery finds a <repo>/.egg/repositories.yaml that is malformed YAML, do we hard-fail the load (operator can't run egg) or soft-fail with a warning and proceed using only the user file?",
+      "context": "decision-10 says silent skip if absent. Malformed is not absent.",
+      "recommendation": "Hard-error. Silent-skip is for 'file not present'; a malformed file is a deployment bug the operator should see immediately. Surface the parse error and the file path. Document this distinction in docs/reference/repo-config-schema.md."
+    },
+    {
+      "id": "Q-A5",
+      "question": "Should the unified persist: list disallow .. components even when leading-slash is absent, or only validate after path resolution?",
+      "context": "Repo-relative paths could escape the repo root via ../something.",
+      "recommendation": "Validator-level error pre-resolution: any entry containing .. components is rejected with a clear message. Stricter than docker-setup.py's runtime denial; we want this caught at config-write time."
+    },
+    {
+      "id": "Q-A6",
+      "question": "Naming: mcp__egg__validate_repo_config vs renaming the existing mcp__egg__validate_config to validate_pipeline_config?",
+      "context": "decision-6 chose 'extend the existing tool' but flagged the collision. The existing tool's name is a public surface.",
+      "recommendation": "Add mcp__egg__validate_repo_config and leave the existing mcp__egg__validate_config alone (validating pipeline config). Renaming the existing tool would break callers; the goal in decision-6 was 'cover humans and agents in one change,' not 'one tool.' We satisfy that with CLI + new MCP tool."
+    }
+  ],
+
+  "risk_summary_for_risk_analyst": [
+    {
+      "risk": "Centralized loader change risks fan-out regressions across ~15 callers",
+      "severity": "MEDIUM",
+      "mitigation": "Public API of config/repo_config.py is preserved. Behavior change is limited to merged-view handling. Test matrix: every public getter has a test that pins both user-only and merged behavior."
+    },
+    {
+      "risk": "Hard deprecation breaks existing operator configs at upgrade time",
+      "severity": "MEDIUM",
+      "mitigation": "Per decision-4 / Q1 hard cutover is accepted. Surface a clear error message linking to docs/reference/repo-config-schema.md. Update CHANGELOG and onboarding docs in the same PR."
+    },
+    {
+      "risk": "Skill heuristic produces a wrong build_command and bakes it into a committed repo file",
+      "severity": "HIGH",
+      "mitigation": "AskUserQuestion confirmation per detected build_command (Q6). Validator runs before commit (C7 phase 6). Detector plug-in seam (Q7) lets us iterate without churning the schema."
+    },
+    {
+      "risk": "Auto-discovery accidentally trusts a hostile <repo>/.egg/repositories.yaml in a cloned repo",
+      "severity": "MEDIUM",
+      "mitigation": "Per-repo file can ONLY set repo-scoped keys (validator strips operator-scoped with warnings). Build_commands run only inside the sandbox build at image-build time; existing /proc /sys /dev path denials remain. Document the trust model: operator opts in by checking out a repo into local_repos.paths."
+    },
+    {
+      "risk": "Persist classifier diverges from docker-setup.py's interpretation",
+      "severity": "MEDIUM",
+      "mitigation": "Classifier is a one-line rule (leading-slash). Tests assert the produced manifest exactly matches what the legacy schema would have produced for equivalent inputs; round-trip property tests."
+    },
+    {
+      "risk": "Schema version bump inflation",
+      "severity": "LOW",
+      "mitigation": "version: 1 today, LOADER_MAX_SUPPORTED constant gating future bumps; require a docs/reference entry on every bump."
+    },
+    {
+      "risk": "Validator false positives erode user trust",
+      "severity": "MEDIUM",
+      "mitigation": "Two-tier (errors vs warnings) per decision-11. Heuristic checks (manifest/install-tool mismatch, package.json scripts collision) are warnings, never errors. Provide an --ignore <check-name> flag in C5 (CLI) to suppress specific warnings."
+    },
+    {
+      "risk": "Migration of egg's own .egg/repositories.yaml (C9) breaks the egg pipeline mid-rollout",
+      "severity": "HIGH",
+      "mitigation": "Land C1+C2+C3+C8 first as separate commits; verify egg pipeline still loads from the user file alone; THEN add C9 in a follow-up commit; keep config/repositories.yaml.example up-to-date as a fallback. Integration tests run end-to-end before merge."
+    },
+    {
+      "risk": "Watch_files derivation misses a manifest the build_commands use",
+      "severity": "MEDIUM",
+      "mitigation": "Validator's install-tool-keyword heuristic (C4) catches the common cases. Manifest catalog v1 is conservative; users override explicitly when wrong. Docker layer caching invariants stay the same as today."
+    }
+  ],
+
+  "implementation_workstreams_for_task_planner": [
+    {
+      "id": "WS1",
+      "name": "Shared loader + merger module",
+      "summary": "Create shared/egg_config/repos.py (C1). Define dataclasses for RepoFileConfig, UserFileConfig, MergedConfig, ValidationReport. Implement load_repo_file, load_user_file, merge_configs, classify_persist, resolve_watch_files, resolve_checks. Hard-error on legacy keys.",
+      "files": ["shared/egg_config/repos.py (NEW)"],
+      "tests": ["shared/tests/test_repos_loader.py (NEW) — covers merge matrix, persist classifier, watch derivation, checks derivation, version handling, legacy-key error."],
+      "depends_on": [],
+      "estimated_complexity": "medium"
+    },
+    {
+      "id": "WS2",
+      "name": "Wire C1 into config/repo_config.py",
+      "summary": "Modify _load_config to call shared.egg_config.repos. Synthesize legacy persist_dirs/persist_system_dirs from unified persist for the manifest writer. Public API unchanged.",
+      "files": ["config/repo_config.py (MODIFY)"],
+      "tests": ["tests/config/test_repo_config.py (EXTEND)"],
+      "depends_on": ["WS1"],
+      "estimated_complexity": "small"
+    },
+    {
+      "id": "WS3",
+      "name": "Wire C1 into sandbox/egg_lib/docker.py",
+      "summary": "Re-route _copy_repo_watch_files through shared.egg_config.repos. Manifest shape unchanged. Verify docker-setup.py still works on existing tests.",
+      "files": ["sandbox/egg_lib/docker.py (MODIFY)"],
+      "tests": ["tests/sandbox/test_docker.py (EXTEND)"],
+      "depends_on": ["WS1"],
+      "estimated_complexity": "small"
+    },
+    {
+      "id": "WS4",
+      "name": "JSON Schema + example file rewrite",
+      "summary": "Create .egg/schemas/repositories.schema.json. Rewrite config/repositories.yaml.example to the new schema. Cover both file shapes (user + repo) and the new persist:/version:/template: keys.",
+      "files": [".egg/schemas/repositories.schema.json (NEW)", "config/repositories.yaml.example (REWRITE)"],
+      "tests": ["existing schema-loading tests if any; ad-hoc validate-against-schema test for example file."],
+      "depends_on": [],
+      "estimated_complexity": "small"
+    },
+    {
+      "id": "WS5",
+      "name": "Validator core",
+      "summary": "Create shared/egg_config/repo_validator.py (C4). Implement every check class enumerated in C4 responsibilities. Two-tier output. Reuse C1 for parsing.",
+      "files": ["shared/egg_config/repo_validator.py (NEW)"],
+      "tests": ["shared/tests/test_repo_validator.py (NEW) — one test per check class."],
+      "depends_on": ["WS1"],
+      "estimated_complexity": "medium-large"
+    },
+    {
+      "id": "WS6",
+      "name": "egg validate-config CLI",
+      "summary": "Add validate-config subcommand to scripts/validate-config.py (or a new bin entry that reuses its formatter). Wires C4 → stdout report → exit code.",
+      "files": ["scripts/validate-config.py (EXTEND) or new scripts/validate-repo-config.py"],
+      "tests": ["tests/cli/test_egg_validate_config.py (NEW)"],
+      "depends_on": ["WS5"],
+      "estimated_complexity": "small"
+    },
+    {
+      "id": "WS7",
+      "name": "MCP tool mcp__egg__validate_repo_config",
+      "summary": "Add new tool to orchestrator/mcp_tools.py. Schema { repo_path?, user_path? }. Handler dispatches to C4 and serializes ValidationReport.",
+      "files": ["orchestrator/mcp_tools.py (EXTEND)"],
+      "tests": ["orchestrator/tests/test_mcp_tools.py (EXTEND)"],
+      "depends_on": ["WS5"],
+      "estimated_complexity": "small"
+    },
+    {
+      "id": "WS8",
+      "name": "/onboard-repo skill",
+      "summary": "Create skills/onboard-repo/SKILL.md. Implement detector ladder, AskUserQuestion confirmations, write/fallback paths, post-write validation via mcp__egg__validate_repo_config. Detector plug-in seam.",
+      "files": ["skills/onboard-repo/SKILL.md (NEW)"],
+      "tests": ["tests/integration/test_onboard_repo.py (NEW) — Python+uv, Node+pnpm, Go fixtures."],
+      "depends_on": ["WS1", "WS5", "WS7"],
+      "estimated_complexity": "medium"
+    },
+    {
+      "id": "WS9",
+      "name": "Migrate egg's own .egg/repositories.yaml",
+      "summary": "Lift the egg per-repo block out of config/repositories.yaml.example into <egg-repo>/.egg/repositories.yaml using the new schema. Verify the egg SDLC pipeline still runs end-to-end.",
+      "files": [".egg/repositories.yaml (NEW for egg repo)"],
+      "tests": ["integration_tests / end-to-end pipeline run"],
+      "depends_on": ["WS1", "WS2", "WS3", "WS4"],
+      "estimated_complexity": "small"
+    },
+    {
+      "id": "WS10",
+      "name": "Docs",
+      "summary": "Add docs/guides/repo-config.md, docs/guides/onboard-repo.md, docs/reference/repo-config-schema.md. Update docs/index.md table of contents. Document hard deprecation + migration steps.",
+      "files": [
+        "docs/guides/repo-config.md (NEW)",
+        "docs/guides/onboard-repo.md (NEW)",
+        "docs/reference/repo-config-schema.md (NEW)",
+        "docs/index.md (MODIFY)"
+      ],
+      "tests": ["docs lint pass"],
+      "depends_on": ["WS1", "WS5", "WS8", "WS9"],
+      "estimated_complexity": "small"
+    }
+  ],
+
+  "implementation_order_recommendation": [
+    "WS1 → WS4 (shared loader + JSON schema + example) — foundation; can be split into two parallel commits.",
+    "WS2 + WS3 (wire callers) — done as a pair; both target C1.",
+    "WS5 (validator core) — depends only on WS1.",
+    "WS6 + WS7 (CLI + MCP tool) — parallel, both depend on WS5.",
+    "WS8 (skill) — after WS5/WS7 so it can call the validator.",
+    "WS9 (migrate egg's own file) — last code change, requires WS1-WS4 stable.",
+    "WS10 (docs) — cross-cuts; finalize at the end."
+  ],
+
+  "metrics": {
+    "new_modules": 4,
+    "new_skills": 1,
+    "new_mcp_tools": 1,
+    "new_cli_subcommands": 1,
+    "new_schemas": 1,
+    "files_created_estimate": 11,
+    "files_modified_estimate": 6,
+    "tests_added_estimate": 6,
+    "tests_extended_estimate": 4,
+    "doc_files_created": 3,
+    "doc_files_modified": 1,
+    "estimated_overall_complexity": "high"
+  },
+
+  "verification_checklist_for_reviewer_plan": [
+    "Recommended approach honors all 14 HITL decisions and the 7-question feedback batch — verify by spot-checking decisions_summary against current_architecture/scope_breakdown/components.",
+    "Centralized merge lives in shared/egg_config/repos.py (decision-5) and is the single import point for both runtimes — verify in components C1, C2, C3.",
+    "Legacy schema is hard-deprecated, not soft-deprecated — verify in scope_breakdown.in_scope and constraints_and_invariants.",
+    ".egg/repositories.yaml is the repo-defaults filename (decision-1) — verify schema_design.new_repo_file_layout.path.",
+    "All four pieces (schema, layered config, skill, validator) are present — verify components C1, C4, C5/C6, C7.",
+    "egg's own per-repo block is migrated as part of rollout (feedback Q2) — verify component C9 + WS9.",
+    "Detector plug-in seam reserved for bazel/gradle/multi-stage (feedback Q7) — verify component C7 responsibilities.",
+    "Validator covers all listed checks PLUS auth_mode/empty-persist/private-mode-curl (feedback Q5) — verify component C4 responsibilities.",
+    "AskUserQuestion confirmation always-on in skill (feedback Q6) — verify component C7 phase 4.",
+    "template: field reserved on schema (feedback Q4) — verify schema_design.template_hook_reservation.",
+    "Schema version: 1 on both files (decision-13) — verify schema_design.schema_versioning.",
+    "Replace-by-default list semantics (decision-9) — verify schema_design.merge_semantics.list_merge.",
+    "Auto-discovery, silent skip if absent (decision-10) — verify schema_design.merge_semantics.auto_discovery.",
+    "Two-tier validator (decision-11) — verify component C4 responsibilities.",
+    "Persist classifier rule (decision-3) — verify schema_design.persist_classification_rule.",
+    "Build-time consumer (docker-setup.py) is unchanged — verify components C3 rationale + risk mitigation."
+  ]
+}
