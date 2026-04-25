@@ -766,6 +766,20 @@ class TestScaledReEvaluation:
         t.handle_ack("reviewer_code", "tester", {"artifact_references": ["tests/test_main.py"]})
         t.handle_ack("reviewer_code", "documenter", {"artifact_references": ["docs/README.md"]})
 
+        # Lens reviewers (advisory) ACK coder and tester
+        t.handle_ack(
+            "reviewer_security", "coder", {"artifact_references": ["src/main.py", "src/utils.py"]}
+        )
+        t.handle_ack("reviewer_security", "tester", {"artifact_references": ["tests/test_main.py"]})
+        t.handle_ack(
+            "reviewer_concurrency",
+            "coder",
+            {"artifact_references": ["src/main.py", "src/utils.py"]},
+        )
+        t.handle_ack(
+            "reviewer_concurrency", "tester", {"artifact_references": ["tests/test_main.py"]}
+        )
+
         # Verify coder is fully acked
         assert t.matrix.is_fully_acked("coder")
         assert t.matrix.is_fully_acked("tester")
@@ -811,6 +825,15 @@ class TestScaledReEvaluation:
         )
         # tester's ACK is at old version — needs to re-ACK
         t.handle_ack("tester", "coder", {"artifact_references": ["src/main.py"]})
+        # Lens reviewers' ACKs touched utils.py — they were invalidated, re-ACK
+        t.handle_ack(
+            "reviewer_security", "coder", {"artifact_references": ["src/main.py", "src/utils.py"]}
+        )
+        t.handle_ack(
+            "reviewer_concurrency",
+            "coder",
+            {"artifact_references": ["src/main.py", "src/utils.py"]},
+        )
 
         # Now coder should be fully acked again
         assert t.matrix.is_fully_acked("coder")

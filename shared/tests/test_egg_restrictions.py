@@ -22,9 +22,11 @@ from egg_restrictions.patterns import (
     REFINER_PATTERNS,
     REVIEWER_AGENT_DESIGN_PATTERNS,
     REVIEWER_CODE_PATTERNS,
+    REVIEWER_CONCURRENCY_PATTERNS,
     REVIEWER_CONTRACT_PATTERNS,
     REVIEWER_PLAN_PATTERNS,
     REVIEWER_REFINE_PATTERNS,
+    REVIEWER_SECURITY_PATTERNS,
     RISK_ANALYST_PATTERNS,
     TASK_PLANNER_PATTERNS,
     TESTER_PATTERNS,
@@ -36,7 +38,7 @@ from egg_restrictions.patterns import (
 
 
 class TestAgentRole:
-    def test_all_16_roles_defined(self):
+    def test_all_18_roles_defined(self):
         roles = [
             AgentRole.CODER,
             AgentRole.TESTER,
@@ -50,14 +52,16 @@ class TestAgentRole:
             AgentRole.REVIEWER_AGENT_DESIGN,
             AgentRole.REVIEWER_REFINE,
             AgentRole.REVIEWER_PLAN,
+            AgentRole.REVIEWER_SECURITY,
+            AgentRole.REVIEWER_CONCURRENCY,
             AgentRole.AUTOFIXER,
             AgentRole.CONFLICT_RESOLVER,
             AgentRole.OVERSEER,
             AgentRole.INSPECTOR,
         ]
-        assert len(roles) == 16
+        assert len(roles) == 18
         # All unique
-        assert len(set(roles)) == 16
+        assert len(set(roles)) == 18
 
     def test_role_values_are_lowercase(self):
         for attr in dir(AgentRole):
@@ -71,8 +75,8 @@ class TestAgentRole:
 
 
 class TestAgentPatterns:
-    def test_registry_has_all_16_roles(self):
-        assert len(AGENT_PATTERNS) == 16
+    def test_registry_has_all_18_roles(self):
+        assert len(AGENT_PATTERNS) == 18
 
     def test_registry_keys_match_role_constants(self):
         expected_roles = {
@@ -88,6 +92,8 @@ class TestAgentPatterns:
             AgentRole.REVIEWER_AGENT_DESIGN,
             AgentRole.REVIEWER_REFINE,
             AgentRole.REVIEWER_PLAN,
+            AgentRole.REVIEWER_SECURITY,
+            AgentRole.REVIEWER_CONCURRENCY,
             AgentRole.AUTOFIXER,
             AgentRole.CONFLICT_RESOLVER,
             AgentRole.OVERSEER,
@@ -108,6 +114,8 @@ class TestAgentPatterns:
         assert AGENT_PATTERNS[AgentRole.REVIEWER_AGENT_DESIGN] is REVIEWER_AGENT_DESIGN_PATTERNS
         assert AGENT_PATTERNS[AgentRole.REVIEWER_REFINE] is REVIEWER_REFINE_PATTERNS
         assert AGENT_PATTERNS[AgentRole.REVIEWER_PLAN] is REVIEWER_PLAN_PATTERNS
+        assert AGENT_PATTERNS[AgentRole.REVIEWER_SECURITY] is REVIEWER_SECURITY_PATTERNS
+        assert AGENT_PATTERNS[AgentRole.REVIEWER_CONCURRENCY] is REVIEWER_CONCURRENCY_PATTERNS
         assert AGENT_PATTERNS[AgentRole.OVERSEER] is OVERSEER_PATTERNS
         assert AGENT_PATTERNS[AgentRole.AUTOFIXER] is AUTOFIXER_PATTERNS
         assert AGENT_PATTERNS[AgentRole.CONFLICT_RESOLVER] is CONFLICT_RESOLVER_PATTERNS
