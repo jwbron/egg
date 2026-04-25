@@ -364,10 +364,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-12",
+      "question": "Defer the host→overseer migration (thread 3) to a follow-up issue (confirming Option B recommendation)?",
+      "context": "Open contract question decision-11, registered by an agent during the refine phase.",
+      "options": [
+        "Yes — file a follow-up issue; keep this pipeline scoped to escalation tuning + auto-issue filing",
+        "No — migrate host logic in this pipeline",
+        "Partial — migrate only stall/NACK detection; leave long-running-phase + stuck-pipeline-rescue with /sdlc",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T17:52:17.513673Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T17:05:44.416677Z",
-  "updated_at": "2026-04-25T17:52:17.481532Z",
+  "updated_at": "2026-04-25T17:52:17.532359Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -381,6 +400,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 22,
+  "version": 23,
   "jira_ticket": null
 }
