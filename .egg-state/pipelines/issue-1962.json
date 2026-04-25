@@ -602,10 +602,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-24",
+      "question": "Native `advisor_20260301` tool vs. two-call pattern: which implementation should the executor → advisor handoff use? (See Recommended Approach: Option A = native advisor tool, Option B = two `run_agent_async` calls, Option C = capability-spike then choose.)",
+      "context": "Open contract question decision-23, registered by an agent during the refine phase.",
+      "options": [
+        "Option C (recommended) — capability-spike vendored `claude-agent-sdk` in plan phase; if `advisor_20260301` is supported, ship Option A; else ship Option B",
+        "Option A — commit now to the native advisor tool; require SDK upgrade if needed",
+        "Option B — commit now to the two-call pattern; ignore the native tool",
+        "Defer to plan phase entirely — don't even pre-spike",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T17:52:18.204126Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T17:05:44.416677Z",
-  "updated_at": "2026-04-25T17:52:18.159765Z",
+  "updated_at": "2026-04-25T17:52:18.223456Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -619,6 +639,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 34,
+  "version": 35,
   "jira_ticket": null
 }
