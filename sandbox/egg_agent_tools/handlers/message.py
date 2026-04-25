@@ -167,6 +167,12 @@ def _default_emit_wait_loop_heartbeat(
     Short-circuits when ``pipeline_id`` or ``role`` is unset: without
     them the server cannot associate the beat with an agent, and the
     heartbeat endpoint would reject the request anyway.
+
+    ``since`` (optional ISO-8601 timestamp) is included in the payload
+    only when truthy. ``message_wait_loop`` captures it once at wait
+    entry so every periodic ``WAITING_FOR_EVENT`` beat carries the same
+    value, letting the overseer read it as a monotonically aging
+    "waiting since" rather than a clock that resets each tick.
     """
     if not pipeline_id or not role:
         return
