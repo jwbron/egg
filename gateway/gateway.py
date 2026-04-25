@@ -1963,6 +1963,7 @@ def git_execute() -> tuple[Response, int] | Response:
         if isinstance(assigned, str) and assigned:
             target_ref = extract_reset_target_ref(validated_args)
             if target_ref is not None:
+                ancestor_stderr: str | None = None
                 try:
                     ancestor_check = subprocess.run(
                         git_cmd("merge-base", "--is-ancestor", target_ref, "HEAD"),
@@ -1973,22 +1974,28 @@ def git_execute() -> tuple[Response, int] | Response:
                         check=False,
                     )
                     is_ancestor = ancestor_check.returncode == 0
-                except (OSError, subprocess.TimeoutExpired):
+                    if not is_ancestor and ancestor_check.stderr:
+                        ancestor_stderr = ancestor_check.stderr.strip() or None
+                except (OSError, subprocess.TimeoutExpired) as exc:
                     # Fail closed — if we cannot verify safety, treat as off-lineage.
                     is_ancestor = False
+                    ancestor_stderr = str(exc)
                 if not is_ancestor:
+                    audit_details = {
+                        "repo_path": repo_path,
+                        "git_args": validated_args,
+                        "container_id": container_id,
+                        "assigned_branch": assigned,
+                        "target_ref": target_ref,
+                        "reason": "Off-lineage reset blocked in pipeline session",
+                    }
+                    if ancestor_stderr:
+                        audit_details["merge_base_stderr"] = ancestor_stderr
                     audit_log(
                         "git_execute_blocked",
                         operation,
                         success=False,
-                        details={
-                            "repo_path": repo_path,
-                            "git_args": validated_args,
-                            "container_id": container_id,
-                            "assigned_branch": assigned,
-                            "target_ref": target_ref,
-                            "reason": "Off-lineage reset blocked in pipeline session",
-                        },
+                        details=audit_details,
                     )
                     return make_error(
                         f"Off-lineage 'git reset' is not allowed in pipeline sessions. "
