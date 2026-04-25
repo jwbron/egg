@@ -1435,6 +1435,27 @@ def cmd_overseer_alert(args: argparse.Namespace) -> int:
         req["detail"] = args.detail
     if args.recommend:
         req["recommend"] = args.recommend
+    # Issue #1962: structured recommendation + payload.
+    recommendation = getattr(args, "recommendation", None)
+    payload_file = getattr(args, "recommendation_payload_file", None)
+    if recommendation:
+        if not payload_file:
+            print(
+                "Error: --recommendation requires --recommendation-payload-file",
+                file=sys.stderr,
+            )
+            return 2
+        try:
+            with open(payload_file, encoding="utf-8") as fh:
+                payload = json.load(fh)
+        except (OSError, json.JSONDecodeError) as exc:
+            print(
+                f"Error: cannot read --recommendation-payload-file: {exc}",
+                file=sys.stderr,
+            )
+            return 2
+        req["recommendation"] = recommendation
+        req["recommendation_payload"] = payload
 
     try:
         resp = _handlers.progress_overseer_alert(req)
@@ -2592,6 +2613,26 @@ def create_parser() -> argparse.ArgumentParser:
     ov_alert.add_argument(
         "--recommend",
         help="What you'd recommend the human do (optional, for context)",
+    )
+    # Issue #1962: structured advisor recommendation. Surfaces in /sdlc
+    # as a HITL decision; the human gates the actual action (file_issue).
+    ov_alert.add_argument(
+        "--recommendation",
+        choices=["file_issue"],
+        help=(
+            "Structured advisor recommendation (issue #1962). Currently "
+            "the only legal value is 'file_issue'. The human gates the "
+            "actual filing via the existing pending_decisions HITL flow."
+        ),
+    )
+    ov_alert.add_argument(
+        "--recommendation-payload-file",
+        help=(
+            "Path to a JSON file containing the recommendation payload "
+            "(e.g. composed issue_title + issue_body + priority + "
+            "anomaly_signature). Required when --recommendation is set. "
+            "Bounded at 50 KB."
+        ),
     )
     _add_json_flag(ov_alert)
     ov_alert.set_defaults(func=cmd_overseer_alert)
