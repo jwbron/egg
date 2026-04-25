@@ -84,6 +84,7 @@ try:
         GIT_ALLOWED_COMMANDS,
         cleanup_credential_helper,
         create_credential_helper,
+        extract_reset_target_ref,
         get_authenticated_remote_target,
         get_changed_files_in_push,
         get_token_for_repo,
@@ -179,6 +180,7 @@ except ImportError:
         GIT_ALLOWED_COMMANDS,
         cleanup_credential_helper,
         create_credential_helper,
+        extract_reset_target_ref,
         get_authenticated_remote_target,
         get_changed_files_in_push,
         get_token_for_repo,
@@ -1949,6 +1951,59 @@ def git_execute() -> tuple[Response, int] | Response:
     if exec_path is None:
         return make_worktree_not_found_error(container_id)
     is_worktree = exec_path != repo_path
+
+    # SECURITY: Block off-lineage `git reset` in pipeline sessions.
+    # `git reset <ref>` (any mode) moves HEAD; if <ref> is not an ancestor of
+    # HEAD on the assigned branch, the agent's commits are silently dropped
+    # from the working tree — the same effect as a branch switch. The
+    # checkout/switch lock at :1924 does not catch this (see issue #2089).
+    if operation == "reset":
+        session = getattr(g, "session", None)
+        assigned = getattr(session, "assigned_branch", None) if session else None
+        if isinstance(assigned, str) and assigned:
+            target_ref = extract_reset_target_ref(validated_args)
+            if target_ref is not None:
+                ancestor_stderr: str | None = None
+                try:
+                    ancestor_check = subprocess.run(
+                        git_cmd("merge-base", "--is-ancestor", target_ref, "HEAD"),
+                        cwd=exec_path,
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                        check=False,
+                    )
+                    is_ancestor = ancestor_check.returncode == 0
+                    if not is_ancestor and ancestor_check.stderr:
+                        ancestor_stderr = ancestor_check.stderr.strip() or None
+                except (OSError, subprocess.TimeoutExpired) as exc:
+                    # Fail closed — if we cannot verify safety, treat as off-lineage.
+                    is_ancestor = False
+                    ancestor_stderr = str(exc)
+                if not is_ancestor:
+                    audit_details = {
+                        "repo_path": repo_path,
+                        "git_args": validated_args,
+                        "container_id": container_id,
+                        "assigned_branch": assigned,
+                        "target_ref": target_ref,
+                        "reason": "Off-lineage reset blocked in pipeline session",
+                    }
+                    if ancestor_stderr:
+                        audit_details["merge_base_stderr"] = ancestor_stderr
+                    audit_log(
+                        "git_execute_blocked",
+                        operation,
+                        success=False,
+                        details=audit_details,
+                    )
+                    return make_error(
+                        f"Off-lineage 'git reset' is not allowed in pipeline sessions. "
+                        f"Target ref '{target_ref}' is not an ancestor of HEAD on your "
+                        f"assigned branch '{assigned}'. To incorporate new commits from the "
+                        f"remote, use 'git rebase origin/{assigned}' instead.",
+                        status_code=403,
+                    )
 
     # SECURITY: Enforce branch isolation in pipeline worktree sessions.
     # Pipeline agents in worktrees must stay on their assigned branch.
