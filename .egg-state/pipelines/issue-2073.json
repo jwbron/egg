@@ -397,10 +397,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-25T23:29:21.808908Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-25T23:35:28.569940Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"No — deprecation warnings only; users hand-migrate. Issue lists migrate tool as out-of-scope; honoring that scope keeps PR boundaries tight\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -495,7 +495,7 @@
     }
   ],
   "created_at": "2026-04-25T23:09:30.400320Z",
-  "updated_at": "2026-04-25T23:35:27.924609Z",
+  "updated_at": "2026-04-25T23:35:28.598540Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -509,6 +509,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 38,
+  "version": 39,
   "jira_ticket": null
 }
