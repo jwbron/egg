@@ -12,34 +12,13 @@ import fnmatch
 import posixpath
 from dataclasses import dataclass, field
 
+# Re-export the canonical AgentRole StrEnum from egg_contracts so the
+# gateway sees a single source of truth — adding a role in egg_contracts
+# is now automatically visible here, removing the silent-drift failure
+# mode from #2066.
+from egg_contracts.agent_roles import AgentRole
 
-class AgentRole:
-    """Agent role identifiers.
-
-    Note: Mirrors egg_contracts.agent_roles.AgentRole to avoid import
-    complexity in the gateway module. Values must be kept in sync.
-    """
-
-    CODER = "coder"
-    TESTER = "tester"
-    DOCUMENTER = "documenter"
-    # Analysis roles
-    ARCHITECT = "architect"
-    TASK_PLANNER = "task_planner"
-    RISK_ANALYST = "risk_analyst"
-    REFINER = "refiner"
-    # Review roles
-    REVIEWER_CODE = "reviewer_code"
-    REVIEWER_CONTRACT = "reviewer_contract"
-    REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
-    REVIEWER_REFINE = "reviewer_refine"
-    REVIEWER_PLAN = "reviewer_plan"
-    # Utility roles
-    AUTOFIXER = "autofixer"
-    CONFLICT_RESOLVER = "conflict_resolver"
-    # Interface roles
-    OVERSEER = "overseer"
-    INSPECTOR = "inspector"
+__all__ = ["AGENT_PATTERNS", "AgentFilePattern", "AgentRole"]
 
 
 @dataclass
