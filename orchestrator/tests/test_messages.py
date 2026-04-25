@@ -1830,6 +1830,67 @@ class TestHeartbeatRoute:
                 data = json.loads(resp.data)
                 assert data["data"]["message"]["metadata"]["since"] == ("2026-04-23T07:00:00Z")
 
+    def test_heartbeat_refreshes_gateway_session(self, client, app):
+        """A real heartbeat fans out to the gateway to refresh the agent's session.
+
+        Regression guard for #2068: without this, an agent in
+        ``WAITING_FOR_EVENT`` for >60 min has its gateway session pruned
+        as idle even though it's actively heartbeating.
+        """
+        with app.test_request_context():
+            mock_gw_client = MagicMock()
+            with (
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+                patch(
+                    "gateway_client.get_gateway_client",
+                    return_value=mock_gw_client,
+                ),
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={
+                        "from_role": "fanout-role-coder",
+                        "state": "WAITING_FOR_EVENT",
+                    },
+                )
+                assert resp.status_code == 200
+                mock_gw_client.heartbeat_session_by_container.assert_called_once_with(
+                    "egg-agent-test-pipeline-fanout-role-coder"
+                )
+
+    def test_heartbeat_swallows_gateway_failure(self, client, app):
+        """Gateway fan-out failures must not fail the heartbeat call."""
+        with app.test_request_context():
+            mock_gw_client = MagicMock()
+            mock_gw_client.heartbeat_session_by_container.side_effect = RuntimeError("gateway down")
+            with (
+                patch(
+                    "routes.messages.get_state_store_for_pipeline"
+                ) as mock_get_store_for_pipeline,
+                patch(
+                    "gateway_client.get_gateway_client",
+                    return_value=mock_gw_client,
+                ),
+            ):
+                mock_get_store_for_pipeline.return_value = (
+                    MagicMock(),
+                    _make_pipeline_mock(),
+                )
+                resp = client.post(
+                    "/api/v1/pipelines/test-pipeline/heartbeat",
+                    json={
+                        "from_role": "fanout-role-tester",
+                        "state": "WORKING",
+                    },
+                )
+                assert resp.status_code == 200
+
 
 class TestWaitTimeoutFloorRegression:
     """Plan non-blocking: ``timeout <= 0`` is silently coerced to 1s

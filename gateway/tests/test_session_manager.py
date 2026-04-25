@@ -779,6 +779,64 @@ class TestDeleteByContainer:
         assert not result.valid
 
 
+class TestHeartbeatByContainer:
+    """Tests for heartbeat_session_by_container (#2068)."""
+
+    @pytest.fixture
+    def manager(self, tmp_path):
+        return SessionManager(persistence_file=tmp_path / "sessions.json")
+
+    def test_heartbeat_refreshes_last_seen(self, manager):
+        """A heartbeat call advances last_seen so the idle pruner spares the session."""
+        _token, session = manager.register_session(
+            container_id="egg-agent-pipeline-1-coder",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+
+        # Backdate last_seen past the idle timeout window.
+        session.last_seen = datetime.now(UTC) - timedelta(minutes=120)
+
+        refreshed = manager.heartbeat_session_by_container("egg-agent-pipeline-1-coder")
+        assert refreshed is True
+
+        # Session is now fresh -- not pruned by a 60-minute idle sweep.
+        assert manager.prune_idle_sessions(idle_timeout_minutes=60) == 0
+        assert manager.get_session_by_container("egg-agent-pipeline-1-coder") is not None
+
+    def test_heartbeat_unknown_container(self, manager):
+        """Heartbeat for an unknown container returns False without raising."""
+        assert manager.heartbeat_session_by_container("not-a-real-container") is False
+
+    def test_heartbeat_extends_ttl(self, manager):
+        """Heartbeat also extends expires_at (mirrors validate_session behaviour)."""
+        _token, session = manager.register_session(
+            container_id="egg-agent-pipeline-1-coder",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+        original_expiry = session.expires_at
+        # Wind the wall forward via last_seen so extend_ttl moves expires_at.
+        session.last_seen = datetime.now(UTC) - timedelta(minutes=30)
+        session.expires_at = session.last_seen + timedelta(hours=24)
+
+        manager.heartbeat_session_by_container("egg-agent-pipeline-1-coder")
+        refreshed_session = manager.get_session_by_container("egg-agent-pipeline-1-coder")
+        assert refreshed_session is not None
+        assert refreshed_session.expires_at > original_expiry - timedelta(seconds=1)
+
+    def test_heartbeat_ignores_expired_session(self, manager):
+        """Already-expired sessions are not silently revived."""
+        _token, session = manager.register_session(
+            container_id="egg-agent-pipeline-1-coder",
+            container_ip="172.18.0.5",
+            mode="private",
+        )
+        session.expires_at = datetime.now(UTC) - timedelta(minutes=1)
+
+        assert manager.heartbeat_session_by_container("egg-agent-pipeline-1-coder") is False
+
+
 class TestSessionModes:
     """Tests for session mode handling."""
 

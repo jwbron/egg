@@ -74,6 +74,10 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
             self._handle_git_fetch(data)
         elif self.path == "/api/v1/gh/pr/create":
             self._handle_pr_create(data)
+        elif self.path.startswith("/api/v1/sessions/by-container/") and self.path.endswith(
+            "/heartbeat"
+        ):
+            self._handle_heartbeat_by_container()
         else:
             self._send_error(404, "Not found")
 
@@ -167,6 +171,20 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
             self._send_error(401, "Unauthorized")
             return
 
+        self._send_json({"success": True})
+
+    def _handle_heartbeat_by_container(self):
+        """Handle session heartbeat by container ID (POST .../by-container/<id>/heartbeat)."""
+        auth_header = self.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer ") or auth_header[7:] != "test-secret":
+            self._send_error(401, "Unauthorized")
+            return
+
+        # Path: /api/v1/sessions/by-container/<id>/heartbeat
+        container_id = self.path.split("/")[-2]
+        if container_id == "missing":
+            self._send_json({"success": False, "message": "Session not found"}, status=404)
+            return
         self._send_json({"success": True})
 
     def _handle_worktree_create(self, data):
@@ -486,6 +504,18 @@ class TestSessionManagement:
         """Test deleting a session by container ID."""
         result = gateway_client.delete_session_by_container("container-123")
         assert result is True
+
+    def test_heartbeat_session_by_container(self, gateway_client, mock_gateway_server):
+        """Heartbeat-by-container returns True for an active session."""
+        result = gateway_client.heartbeat_session_by_container("egg-agent-pipe-1-coder")
+        assert result is True
+
+    def test_heartbeat_session_by_container_missing_returns_false(
+        self, gateway_client, mock_gateway_server
+    ):
+        """Heartbeat-by-container swallows 404 and returns False (best-effort path)."""
+        result = gateway_client.heartbeat_session_by_container("missing")
+        assert result is False
 
 
 class TestSecurityBoundaryValidation:

@@ -583,10 +583,40 @@ def post_heartbeat(pipeline_id: str) -> tuple[Response, int]:
         },
     )
 
+    # Refresh the agent's gateway session liveness (#2068).  An agent in
+    # ``WAITING_FOR_EVENT`` makes no gateway requests for the duration of
+    # a BRC review cycle, so without this fan-out the gateway's idle
+    # pruner evicts the session after ~60 min and the next git/gh op
+    # fails with 401.  Best-effort: the gateway may not be reachable
+    # (tests, dev runs without a gateway) and a missing session is a
+    # 404; never fail the heartbeat on this path.
+    _refresh_gateway_session(pipeline_id, from_role)
+
     return _make_success(
         "HEARTBEAT stored",
         data={"message": msg.to_dict(), "deduped": False},
     )
+
+
+def _refresh_gateway_session(pipeline_id: str, from_role: str) -> None:
+    """Best-effort POST to the gateway so the BRC heartbeat counts as session liveness."""
+    try:
+        try:
+            from gateway_client import get_gateway_client
+        except ImportError:  # pragma: no cover
+            from ..gateway_client import (
+                get_gateway_client,  # type: ignore[no-redef,import-not-found]
+            )
+
+        container_id = f"egg-agent-{pipeline_id}-{from_role}"
+        get_gateway_client().heartbeat_session_by_container(container_id)
+    except Exception as exc:  # pragma: no cover - logging only
+        logger.warning(
+            "Gateway session heartbeat fan-out failed",
+            pipeline_id=pipeline_id,
+            from_role=from_role,
+            error=str(exc),
+        )
 
 
 @messages_bp.route("/<pipeline_id>/messages/status", methods=["GET"])
