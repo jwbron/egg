@@ -417,10 +417,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-25T23:29:21.887866Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-25T23:36:23.611211Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Yes on both files (user file + repo file) (Recommended) — cheap insurance now; loader gracefully degrades for newer schema versions. Issue's open-question list leans this way.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -495,7 +495,7 @@
     }
   ],
   "created_at": "2026-04-25T23:09:30.400320Z",
-  "updated_at": "2026-04-25T23:35:28.598540Z",
+  "updated_at": "2026-04-25T23:36:23.635315Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -509,6 +509,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 39,
+  "version": 40,
   "jira_ticket": null
 }
