@@ -210,7 +210,7 @@ class TestConsultAdvisor:
                 _agent_runner=runner,
             )
         )
-        assert seen["model"] == "claude-opus-4-6"
+        assert seen["model"] == "opus"
 
     def test_config_model_override(self) -> None:
         seen: dict[str, str] = {}
