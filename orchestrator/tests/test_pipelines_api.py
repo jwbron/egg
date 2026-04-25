@@ -843,3 +843,273 @@ class TestPipelineIdValidation:
 
         with pytest.raises(InvalidPipelineIdError):
             _validate_pipeline_id("not-a-valid-id")
+
+
+class TestRuntimeStateLeakageOnBranchReuse:
+    """Regression tests for #2053.
+
+    A new pipeline that reuses an id from a prior terminal run (same
+    branch, e.g. ``issue-1965``) must not inherit the prior run's
+    consensus tracker, legacy consensus state, or message-store
+    history. Without isolation, ``wait_for_status_change`` reports
+    ``concurrent.consensus.is_complete: true`` for a pipeline that has
+    not spawned any agents.
+    """
+
+    @patch("routes.pipelines.get_decision_queue")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_cancel_clears_runtime_state(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_dq_fn, client
+    ):
+        """PATCH to cancelled status evicts consensus + message-store state."""
+        mock_repo.return_value = "/repo"
+        pipeline = _make_cancellable_pipeline("issue-1965")
+
+        mock_store = MagicMock()
+        mock_store.update_pipeline.return_value = pipeline
+        mock_store.load_pipeline.return_value = pipeline
+        pipeline.status = PipelineStatus.CANCELLED
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner.cleanup_pipeline.return_value = 0
+        mock_spawner_fn.return_value = mock_spawner
+
+        mock_dq = MagicMock()
+        mock_dq.get_pending_decisions.return_value = []
+        mock_dq_fn.return_value = mock_dq
+
+        with patch("routes.pipelines._clear_pipeline_runtime_state") as mock_clear:
+            response = client.patch(
+                "/api/v1/pipelines/issue-1965",
+                json={"status": "cancelled"},
+            )
+            assert response.status_code == 200
+            mock_clear.assert_called_once()
+            assert mock_clear.call_args.args[0] == "issue-1965"
+            assert "cancelled" in mock_clear.call_args.kwargs["reason"]
+
+    @patch("routes.pipelines.get_gateway_client")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    def test_delete_clears_runtime_state(self, mock_resolve, mock_spawner_fn, mock_gw_fn, client):
+        """DELETE evicts consensus + message-store state alongside the JSON file."""
+        pipeline = _make_pipeline_with_containers("issue-1965")
+
+        mock_store = MagicMock()
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner.cleanup_pipeline.return_value = 0
+        mock_spawner_fn.return_value = mock_spawner
+
+        mock_gw = MagicMock()
+        mock_gw.delete_remote_branch.return_value = True
+        mock_gw_fn.return_value = mock_gw
+
+        with patch("routes.pipelines._clear_pipeline_runtime_state") as mock_clear:
+            response = client.delete("/api/v1/pipelines/issue-1965")
+            assert response.status_code == 200
+            mock_clear.assert_called_once()
+            assert mock_clear.call_args.args[0] == "issue-1965"
+
+    @patch("routes.pipelines.get_gateway_client")
+    @patch("routes.pipelines.get_state_store")
+    @patch("routes.pipelines.get_repo_path")
+    def test_create_clears_runtime_state(
+        self, mock_repo_path, mock_get_store, mock_gw_client, client
+    ):
+        """POST evicts any lingering state for the created pipeline id.
+
+        Defends against paths that bypass PATCH/DELETE — auto-FAILED
+        pipelines, and Redis-backed message-store entries that survived
+        an orchestrator restart between cancel and resubmit.
+        """
+        mock_repo_path.return_value = Path("/home/egg/repos/webapp")
+        mock_store = MagicMock()
+        mock_pipeline = MagicMock()
+        mock_pipeline.id = "issue-1965"
+        mock_pipeline.model_dump.return_value = {"id": "issue-1965"}
+        mock_store.create_pipeline.return_value = mock_pipeline
+        mock_get_store.return_value = mock_store
+        mock_gw = MagicMock()
+        mock_gw.ls_remote_branch.return_value = False
+        mock_gw_client.return_value = mock_gw
+
+        with patch("routes.pipelines._clear_pipeline_runtime_state") as mock_clear:
+            response = client.post(
+                "/api/v1/pipelines",
+                json={
+                    "issue_number": 1965,
+                    "repo": "Khan/webapp",
+                    "branch": "egg/issue-1965",
+                },
+            )
+            assert response.status_code == 200
+            mock_clear.assert_called_once()
+            assert mock_clear.call_args.args[0] == "issue-1965"
+            assert mock_clear.call_args.kwargs["reason"] == "pipeline_create"
+
+    @patch("routes.pipelines.get_gateway_client")
+    @patch("routes.pipelines.get_state_store")
+    @patch("routes.pipelines.get_repo_path")
+    def test_post_clears_real_runtime_state(
+        self, mock_repo_path, mock_get_store, mock_gw_client, client
+    ):
+        """POST evicts real Redis/in-memory state at the route level.
+
+        Integration variant of ``test_create_clears_runtime_state`` that
+        exercises the real ``_clear_pipeline_runtime_state`` helper (no
+        mock) through the route handler. Seeds the three backends
+        (``PeerConsensusTracker``, the legacy evaluator, the message
+        store), POSTs a fresh pipeline with the same id, and asserts
+        every backend is empty afterwards.
+
+        This is the route-level safety net for the POST-site clear's
+        primary motivation: auto-FAILED paths (restart_agent spawn
+        failure, _handle_pr_creation_failure) write status=FAILED
+        directly via ``store.update_pipeline`` / ``store.save_pipeline``,
+        bypassing PATCH and therefore bypassing the PATCH-site clear.
+        The seeding here represents the residual state such a path would
+        leave behind, not a literal auto-FAILED prior pipeline.
+        """
+        from consensus import ReadinessState, get_consensus_evaluator
+        from message_store import Message, get_message_store
+        from peer_consensus import (
+            create_peer_consensus_tracker,
+            get_peer_consensus_tracker,
+            remove_peer_consensus_tracker,
+        )
+        from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
+
+        pipeline_id = "issue-1965"
+
+        # Defensive: clear any leftover state from a prior test run
+        remove_peer_consensus_tracker(pipeline_id)
+        get_consensus_evaluator().clear(pipeline_id)
+        get_message_store().clear(pipeline_id)
+
+        # Seed state as if a prior run had reached CONFIRMED and then
+        # been auto-FAILED via store.update_pipeline (bypassing PATCH).
+        graph = ReviewGraph(
+            edges=[
+                ReviewEdge(
+                    reviewer_role="reviewer_refine",
+                    producer_role="refiner",
+                    criticality=ReviewCriticality.CRITICAL,
+                )
+            ]
+        )
+        create_peer_consensus_tracker(pipeline_id, graph)
+        evaluator = get_consensus_evaluator()
+        evaluator.register_agent(pipeline_id, "refiner")
+        evaluator.update_readiness(pipeline_id, "refiner", ReadinessState.READY)
+        msg_store = get_message_store()
+        msg_store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role="refiner",
+                to_role="all",
+                message_type="PROGRESS",
+                body="prior-run-leak",
+            )
+        )
+
+        # Sanity: prior-run state is present
+        assert get_peer_consensus_tracker(pipeline_id) is not None
+        assert evaluator.get_state(pipeline_id)["agents"]
+        assert msg_store.get_status(pipeline_id)["total"] == 1
+
+        mock_repo_path.return_value = Path("/home/egg/repos/webapp")
+        mock_store = MagicMock()
+        mock_pipeline = MagicMock()
+        mock_pipeline.id = pipeline_id
+        mock_pipeline.model_dump.return_value = {"id": pipeline_id}
+        mock_store.create_pipeline.return_value = mock_pipeline
+        mock_get_store.return_value = mock_store
+        mock_gw = MagicMock()
+        mock_gw.ls_remote_branch.return_value = False
+        mock_gw_client.return_value = mock_gw
+
+        # No patch of _clear_pipeline_runtime_state — exercise the real helper
+        response = client.post(
+            "/api/v1/pipelines",
+            json={
+                "issue_number": 1965,
+                "repo": "Khan/webapp",
+                "branch": "egg/issue-1965",
+            },
+        )
+        assert response.status_code == 200
+
+        # All three backends must be evicted by the POST-site clear
+        assert get_peer_consensus_tracker(pipeline_id) is None
+        assert evaluator.get_state(pipeline_id)["agents"] == {}
+        assert msg_store.get_status(pipeline_id)["total"] == 0
+
+    def test_clear_runtime_state_evicts_real_consensus_and_messages(self):
+        """End-to-end: helper actually clears tracker, evaluator, and messages.
+
+        Seeds a real ``PeerConsensusTracker``, the legacy consensus
+        evaluator, and the message store under the same pipeline id,
+        then invokes ``_clear_pipeline_runtime_state`` and asserts every
+        backend lookup returns empty/None — matching what a fresh
+        pipeline with the same id would observe.
+        """
+        from consensus import ReadinessState, get_consensus_evaluator
+        from message_store import Message, get_message_store
+        from peer_consensus import (
+            create_peer_consensus_tracker,
+            get_peer_consensus_tracker,
+            remove_peer_consensus_tracker,
+        )
+        from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
+        from routes.pipelines import _clear_pipeline_runtime_state
+
+        pipeline_id = "issue-1965-test"
+        # Defensive: clear any leftover state from a prior test run
+        remove_peer_consensus_tracker(pipeline_id)
+        get_consensus_evaluator().clear(pipeline_id)
+        get_message_store().clear(pipeline_id)
+
+        # Seed peer-consensus tracker (BRC). Presence of the tracker in
+        # the global ``_trackers`` map is the symptom; what's inside it
+        # doesn't matter for the leak.
+        graph = ReviewGraph(
+            edges=[
+                ReviewEdge(
+                    reviewer_role="reviewer_refine",
+                    producer_role="refiner",
+                    criticality=ReviewCriticality.CRITICAL,
+                )
+            ]
+        )
+        tracker = create_peer_consensus_tracker(pipeline_id, graph)
+        assert get_peer_consensus_tracker(pipeline_id) is tracker
+
+        # Seed legacy consensus evaluator
+        evaluator = get_consensus_evaluator()
+        evaluator.register_agent(pipeline_id, "refiner")
+        evaluator.update_readiness(pipeline_id, "refiner", ReadinessState.READY)
+        assert evaluator.get_state(pipeline_id)["agents"]
+
+        # Seed message store
+        store = get_message_store()
+        store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role="refiner",
+                to_role="all",
+                message_type="PROGRESS",
+                body="seed",
+            )
+        )
+        assert store.get_status(pipeline_id)["total"] == 1
+
+        _clear_pipeline_runtime_state(pipeline_id, reason="test")
+
+        assert get_peer_consensus_tracker(pipeline_id) is None
+        assert evaluator.get_state(pipeline_id)["agents"] == {}
+        assert store.get_status(pipeline_id)["total"] == 0
