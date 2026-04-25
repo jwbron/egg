@@ -42,10 +42,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option A \u2014 single pipeline covering all three threads\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:05:14.410193Z",
       "debounce_until": null
     },
     {
@@ -70,10 +70,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Deferred \u2014 file a follow-up issue, out of scope here\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:05:14.592699Z",
       "debounce_until": null
     },
     {
@@ -108,10 +108,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Leave them in their own pipelines \u2014 link as context only\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:05:19.647859Z",
       "debounce_until": null
     },
     {
@@ -146,10 +146,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Sonnet-gated per-anomaly rubric \u2014 LLM decides case-by-case\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:05:19.733138Z",
       "debounce_until": null
     },
     {
@@ -184,10 +184,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Per repo \u2014 search all open overseer-filed issues across the repo by anomaly label\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:05:24.781774Z",
       "debounce_until": null
     },
     {
@@ -222,10 +222,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Persisted to .egg-state/oversight/filed-issues.json so respawns/new phases remember\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:05:24.808626Z",
       "debounce_until": null
     },
     {
@@ -260,10 +260,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Other: agent:overseer + matching p0/p1/p2/p3 priority label only, no new labels (matches pre-refine resolution and decision-18 confirmation)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:21.309960Z",
       "debounce_until": null
     },
     {
@@ -293,10 +293,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Extend the existing template with explicit links (pipeline ID, phase, branch, commit SHA, parent-alert message ID)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:21.370354Z",
       "debounce_until": null
     },
     {
@@ -331,10 +331,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Agent-side overseer runs it in its sandbox via a new `egg-orch overseer file-issue` CLI verb\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:21.502024Z",
       "debounce_until": null
     },
     {
@@ -364,10 +364,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Shadow mode first \u2014 overseer composes issue body but raises a HITL decision 'should I file this?'; human approves; flip to live after a trial period\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:21.522664Z",
       "debounce_until": null
     },
     {
@@ -397,10 +397,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"No \u2014 migrate host logic in this pipeline\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:21.542500Z",
       "debounce_until": null
     },
     {
@@ -435,10 +435,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Make configurable per-pipeline via PipelineConfig (default to current values)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:21.563062Z",
       "debounce_until": null
     },
     {
@@ -468,10 +468,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Proceed independently \u2014 let #1806 adapt to whatever auto-issue policy lands here\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:21.586657Z",
       "debounce_until": null
     },
     {
@@ -501,10 +501,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Add a gateway allowlist rule now, defer PATH restructuring to #1786\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:21.678417Z",
       "debounce_until": null
     },
     {
@@ -534,10 +534,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Defer \u2014 decide during plan phase based on the chosen dedup-storage option (decision-6)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:21.777385Z",
       "debounce_until": null
     },
     {
@@ -572,10 +572,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"In `.egg-state/oversight/agent-timing.json` \u2014 persistent, phase-scoped, overseer-owned\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:21.831201Z",
       "debounce_until": null
     },
     {
@@ -605,10 +605,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Confirm \u2014 agent:overseer + priority label only, no new labels\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:21.909271Z",
       "debounce_until": null
     },
     {
@@ -648,10 +648,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Intersection: Haiku confidence > threshold AND Tier-1 health alert present (matches the #2012 gate pattern)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:21.930306Z",
       "debounce_until": null
     },
     {
@@ -691,10 +691,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Other: no cap for now \u2014 we'll handle budget separately. A follow-up issue will be filed to track advisor budget specifically.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:26.970685Z",
       "debounce_until": null
     },
     {
@@ -734,10 +734,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Distilled summary: classification + last N progress events + active health alerts + last K log lines\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:15:23.127248Z",
       "debounce_until": null
     },
     {
@@ -772,10 +772,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Advisor recommends: Opus returns `recommendation=file_issue` inside an `OVERSEER_ALERT`; the existing alert flow surfaces it; the human gates the actual filing\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:15:23.156512Z",
       "debounce_until": null
     },
     {
@@ -810,10 +810,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"One PR \u2014 architecture change + auto-issue + host migration land together (highest review cohesion, biggest review burden)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:15:23.183659Z",
       "debounce_until": null
     },
     {
@@ -848,10 +848,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option C (recommended) \u2014 capability-spike vendored `claude-agent-sdk` in plan phase; if `advisor_20260301` is supported, ship Option A; else ship Option B\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:15:23.208184Z",
       "debounce_until": null
     }
   ],
@@ -2000,42 +2000,42 @@
       {
         "id": "Q1",
         "question": "Which specific escalation triggers in the overseer today (`sandbox/agent-config/rules/overseer.md:142-153`) need tightening? Please list the concrete false-positive / false-negative patterns you want fixed (e.g., #1722-style stale AGENT_FAILED, long legitimate test runs flagged as stalls, specific 401 patterns that should/shouldn't escalate, etc.).",
-        "answer": null
+        "answer": "Concrete false-positive classes to tighten: (a) `agent-heartbeat-stall` fires during legitimate file-reading/research time \u2014 observed during this very pipeline at 3.5min into refine while refiner was actively reading source files; (b) `stuck-phase-transition` reads stale contract state from a prior cancelled run and misdiagnoses \u2014 observed when the alert claimed 'reviewer silent for 5+min' AFTER the reviewer had already sent a substantive NACK; (c) #1722-style stale `AGENT_FAILED` after phase restart misdiagnosed as deadlock; (d) #1727-style early-exit respawn in fresh pipeline. The Tier-1 intersection gate chosen in decision-19 directly addresses (a) and (b) by requiring a Tier-1 health alert before invoking Opus; (c) and (d) stay in their own pipelines and link as calibration context."
       },
       {
         "id": "Q2",
         "question": "Baseline thresholds in `overseer.md` \u2014 are any of these values wrong: ~60s for `stuck-phase-transition`, Haiku loop-detection confidence >0.8 across 2 consecutive cycles for `agent-loop`, `overseer_max_cycles_before_re_alert=3`? If so, what should they be and why?",
-        "answer": null
+        "answer": "60s for `stuck-phase-transition` is too tight for refine \u2014 legitimate refiner work on a complex multi-thread issue can take 5\u201310+ minutes (this pipeline's refine ran 22m total, with one PROPOSED\u2192re-review cycle taking ~5m on its own). Recommended: bump the default to ~180s and/or make the threshold per-phase configurable via PipelineConfig. The `agent-loop` Haiku confidence > 0.8 across 2 consecutive cycles is reasonable; leave it. `overseer_max_cycles_before_re_alert=3` is reasonable; leave it."
       },
       {
         "id": "Q3",
         "question": "Per-pipeline cap on auto-filed issues \u2014 is there a maximum (e.g., 1 per phase, 3 per pipeline) beyond which the overseer should stop filing and escalate via HITL instead? If yes, what cap?",
-        "answer": null
+        "answer": "No cap on auto-filed issues. Dedup (decision-6: per-repo search by `agent:overseer` + anomaly-type signature) is sufficient. Don't add a per-pipeline / per-phase numeric cap; it would create another tunable that drifts out of calibration over time."
       },
       {
         "id": "Q4",
         "question": "Gateway policy for `gh issue create` from the overseer role \u2014 what constraints should the gateway enforce (required labels auto-injected, title/body size limits, rate-limit, allowed repos only, etc.)?",
-        "answer": null
+        "answer": "Gateway policy for `gh issue create` from the overseer role: (a) auto-inject required labels (`agent:overseer` + matching priority label) so the overseer cannot omit them; (b) size limits \u2014 title \u2264120 chars, body \u226450 KB; (d) allowed repos = the pipeline's own repo only (no cross-repo filing). NO rate-limit \u2014 drop (c). Dedup + the shadow-mode rollout (decision-11) are the rate-limiting controls."
       },
       {
         "id": "Q5",
         "question": "If thread 3 (host\u2192overseer migration) ends up in scope, what must stay in `/sdlc`? The issue says 'report what's going on' and 'manage HITL decisions' \u2014 does that include user-facing `AskUserQuestion` options like 'Check agent logs' / 'Nudge agent' / 'Restart pipeline', or do those become overseer-initiated with the host only displaying a passive dashboard + HITL prompts?",
-        "answer": null
+        "answer": "/sdlc becomes a thin reporter when host\u2192overseer migration is in scope. /sdlc keeps: (a) surfacing alerts as a passive dashboard, (b) HITL decision handling (`pending_decisions` surfacing), (c) Phase-5 final-handoff prompts. The AskUserQuestion side flows currently in `/sdlc` ('Check agent logs', 'Nudge agent', 'Restart pipeline') become overseer-initiated: the overseer does the diagnostic work and surfaces findings in `OVERSEER_ALERT.detail`, which /sdlc displays. Stall / silent-agent / NACK / long-run / stuck-pipeline-rescue detection logic and the in-memory `{role: {phase, phase_entered_at, \u2026}}` state map all move into the overseer."
       },
       {
         "id": "Q6",
         "question": "Success criteria for 'the overseer is now escalating well' \u2014 what metric or observable signal counts? E.g., zero repeat same-anomaly alerts per pipeline, >X% of OVERSEER_ALERTs acknowledged by human, auto-filed issues accepted (not closed as invalid) at >Y rate, something else?",
-        "answer": null
+        "answer": "Success criteria \u2014 a small basket of observable signals: (a) zero repeat same-anomaly alerts per pipeline (dedup works correctly); (b) \u226570% of `OVERSEER_ALERT` messages acknowledged or actioned by the human (not dismissed as noise); (c) of human-approved auto-file recommendations, \u226570% are accepted (not closed as invalid); (d) net reduction in /sdlc HITL prompts per pipeline since the side-flow prompts move out."
       },
       {
         "id": "Q7",
         "question": "Any additional constraints or preferences not covered by the decisions above (e.g., GitHub App vs. `gh` CLI for filing, required approvers for auto-filed issues, notification routing beyond Slack, etc.)?",
-        "answer": null
+        "answer": "Two additional constraints to bake into the plan: (a) use `gh` CLI via the gateway (not a GitHub App) \u2014 matches existing patterns; the gateway already mediates `gh` for refiners and coders, so the overseer role just needs a parallel allow-rule. (b) For the shadow-mode rollout chosen in decision-11, the human's 'should I file this issue?' approval surfaces in /sdlc via the existing `pending_decisions` flow \u2014 don't invent a new HITL channel. The advisor returns `recommendation=file_issue` (decision-22), the overseer wraps it in an OVERSEER_ALERT, and the alert flow + a follow-up HITL decision is the path; the existing `provide_input` plumbing handles the rest."
       }
     ],
-    "submitted": false,
-    "submitted_by": null,
-    "submitted_at": null,
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-04-25T18:20:06.671139Z",
     "comment_id": null,
     "debounce_until": null
   },
