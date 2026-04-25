@@ -363,10 +363,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-12",
+      "question": "Should the validator be strict (errors fail the load) or advisory (warnings logged, load succeeds)?",
+      "context": "Open contract question decision-11, registered by an agent during the refine phase.",
+      "options": [
+        "Two tiers — errors block (e.g. malformed YAML, missing required key, persist of denied path) and warnings advise (e.g. `make` target not found in Makefile heuristic) (Recommended). Matches existing validator patterns in `shared/egg_config/`.",
+        "All errors — hard-fail the load on any flagged issue. Safest but breaks users on heuristic false positives.",
+        "All warnings — log everything, never block. Lenient but undermines the 'catch at write-time' goal.",
+        "Strict at config-write time (`egg validate-config`), advisory at load time. Best of both — user gets blocked when explicitly validating, agents/runtime see warnings.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-25T23:29:21.618676Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-25T23:09:30.400320Z",
-  "updated_at": "2026-04-25T23:29:21.464338Z",
+  "updated_at": "2026-04-25T23:29:21.764297Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -380,6 +400,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 22,
+  "version": 23,
   "jira_ticket": null
 }
