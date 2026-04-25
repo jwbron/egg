@@ -358,10 +358,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-25T17:52:17.462858Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-25T18:13:19.156441Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Shadow mode first — overseer composes issue body but raises a HITL decision 'should I file this?'; human approves; flip to live after a trial period\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -675,7 +675,7 @@
     }
   ],
   "created_at": "2026-04-25T17:05:44.416677Z",
-  "updated_at": "2026-04-25T18:13:17.473683Z",
+  "updated_at": "2026-04-25T18:13:19.174749Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -689,6 +689,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 53,
+  "version": 54,
   "jira_ticket": null
 }
