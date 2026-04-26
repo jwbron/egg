@@ -59,6 +59,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Anchor Recovery](guides/anchor-recovery.md) | Agent post-compaction state recovery via persistent anchors |
 | [Harness Configuration](guides/harness-configuration.md) | Selecting and configuring agent runtime harness (egg, claude-sdk, claude-code) |
 | [Deployment Diagnostics](guides/deployment-diagnostics.md) | When to use `/deployment-diagnose` vs `/agent-diagnose`, evidence boundaries, and redaction guarantees |
+| [Repository Configuration](guides/repo-config.md) | Layered repo+user defaults: where each file lives, merge semantics (replace-by-default), authoring `<repo>/.egg/repositories.yaml`, the `manifest.json` host-classifier invariant, validator checks, auto-discovery trust model, and migration steps from the legacy `persist_dirs` / `persist_system_dirs` schema |
 
 ### Deploy
 
@@ -123,7 +124,8 @@ Each major component has detailed documentation:
 | **Gateway changes** | [Architecture Overview](architecture/README.md) | [Git Isolation](architecture/git-isolation.md), [Gateway Auto-Filter](architecture/gateway-auto-filter.md), [Gateway README](../gateway/README.md) |
 | **Security-related changes** | [Architecture Overview](architecture/README.md) | [Git Isolation](architecture/git-isolation.md) |
 | **Sandbox changes** | [Sandbox README](../sandbox/README.md) | [Architecture Overview](architecture/README.md) |
-| **Configuration changes** | [Config README](../config/README.md) | [egg_config README](../shared/egg_config/README.md) |
+| **Configuration changes** | [Config README](../config/README.md) | [egg_config README](../shared/egg_config/README.md), [Repository Configuration Guide](guides/repo-config.md) |
+| **Onboarding a new repo to egg** | [Repository Configuration Guide](guides/repo-config.md) | [`/onboard-repo` Skill](../skills/onboard-repo/SKILL.md), [`/egg-setup` Skill](../skills/egg-setup/SKILL.md) |
 | **Docker build / dependency caching** | [Sandbox README](../sandbox/README.md#build-time-dependency-installation) | [Config README](../config/README.md#per-repo-build-commands-dependency-caching) |
 | **GitHub Action setup** | [GitHub Action README](../action/README.md) | [Architecture Overview](architecture/README.md) |
 | **Adding tests** | [Contributing](../CONTRIBUTING.md) | [Project Structure](development/STRUCTURE.md) |

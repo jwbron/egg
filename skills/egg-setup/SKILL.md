@@ -235,7 +235,23 @@ Ensure the configuration directory exists:
 mkdir -p ~/.config/egg/
 ```
 
-Configure `~/.config/egg/repositories.yaml`.
+Configure the **operator-scoped** fields in `~/.config/egg/repositories.yaml`.
+**Per-repo build / persist / checks blocks no longer live here** — they
+belong in `<repo>/.egg/repositories.yaml` checked into each target repo, and
+are authored by the [`/onboard-repo`](../onboard-repo/SKILL.md) skill (see
+[issue #2073](https://github.com/jwbron/egg/issues/2073) and
+[`docs/guides/repo-config.md`](../../docs/guides/repo-config.md)).
+
+| Field | Lives in | Authored by |
+|-------|----------|-------------|
+| `github_username`, `bot_username`, `default_reviewer`, `github_sync`, `writable_repos`, `readable_repos`, `local_repos`, `restrict_to_configured_users`, `disable_auto_fix`, `repo_settings.<repo>.auth_mode` | `~/.config/egg/repositories.yaml` (operator user file) | This skill (`/egg-setup --update repos`) |
+| `build_commands`, `persist`, `watch_files`, `checks`, `auth_mode`, `checkpoint_repo`, `template` | `<repo>/.egg/repositories.yaml` (per-repo defaults) | [`/onboard-repo`](../onboard-repo/SKILL.md) |
+
+The merge loader at `shared/egg_config/repos.py` auto-discovers the per-repo
+file when egg runs against a checkout (decision-10) and deep-merges it under
+the user file's `repo_settings:` block. List-valued fields use
+**replace-by-default** semantics — the user file overwrites the repo file
+when both define the same list (decision-9). No `extends:` keyword in v1.
 
 ### Step 1: GitHub Username
 
@@ -269,21 +285,32 @@ For each detected repo, use `AskUserQuestion`:
   - **"Writable"** — description: "Can push code, create PRs, respond to comments"
   - **"Read-only"** — description: "Can monitor and analyze, but not modify"
 
-### Step 4: Per-repo Settings
+### Step 4: Per-repo Settings (operator-scoped only)
 
-For each writable repo, ask about optional settings:
+The only per-repo settings authored here are the **operator-scoped** ones —
+`auth_mode` (when the operator wants to use their PAT for this repo) and
+the read/write split from Step 3. Build / persist / checks blocks belong in
+the per-repo file authored by `/onboard-repo`.
 
-Use `AskUserQuestion` (multiSelect):
-- **Question**: "Configure optional settings for <owner/repo>?"
+For each writable repo, use `AskUserQuestion` (multiSelect):
+- **Question**: "Configure operator-scoped settings for <owner/repo>?"
 - **Header**: "Settings"
 - **multiSelect**: true
 - **Options**:
-  - **"Custom check commands"** — description: "Specify lint/test commands for SDLC pipeline (default: auto-discover)"
-  - **"User auth mode"** — description: "Use personal PAT instead of bot identity for this repo"
+  - **"User auth mode"** — description: "Use personal PAT (`GITHUB_USER_TOKEN`) instead of bot identity for this repo"
+  - **"Restrict auto-respond"** — description: "Only auto-respond to comments/PRs from `bot_username` or `github_username`"
+  - **"Disable auto-fix"** — description: "Don't automatically attempt to fix failing CI checks"
   - **"None"** — description: "Use defaults"
 
-If "Custom check commands": collect name/command pairs for each check.
-If "User auth mode": set `auth_mode: user` for this repo.
+If the user wants build / persist / checks for this repo, point them at the
+onboard skill:
+
+```
+For build / persist / checks blocks, run /onboard-repo against a clone of
+<owner/repo>. The onboard skill detects the repo's build shape, confirms
+each entry with you, and writes it to <repo>/.egg/repositories.yaml so the
+whole team / fleet picks it up automatically.
+```
 
 ### Step 5: Bot Username
 
@@ -295,7 +322,18 @@ Set the default PR reviewer to the GitHub username collected in Step 1.
 
 ### Step 7: Write repositories.yaml
 
-Write the configuration to `~/.config/egg/repositories.yaml`. Repos marked "Writable" go under `writable_repos`, repos marked "Read-only" go under `readable_repos`.
+Write the operator-scoped configuration to `~/.config/egg/repositories.yaml`.
+Repos marked "Writable" go under `writable_repos`, repos marked "Read-only"
+go under `readable_repos`. Add `schemaVersion: "1.0"` at the top
+([decision-13](../../.egg-state/contracts/issue-2073.json)).
+
+Do **not** write `persist_dirs`, `persist_system_dirs`, or explicit
+`watch_files` keys here — they were dropped from the user-facing schema in
+issue [#2073](https://github.com/jwbron/egg/issues/2073) and the loader
+rejects them with a migration diagnostic. The internal sandbox manifest
+(`<config-dir>/repo-deps/<repo>/manifest.json`) keeps the legacy two-list
+shape for sandbox-image cross-version stability — that's a host-side
+classifier output, not user-facing.
 
 ## Phase 5 — General Configuration
 
