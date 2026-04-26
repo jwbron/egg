@@ -4,6 +4,20 @@ Docker Development Environment Setup
 
 Installs common development utilities in the Docker container.
 For additional packages, configure extra_packages in ~/.config/egg/repositories.yaml.
+
+Manifest contract (issue #2073, architect Component C3):
+
+This script reads ``manifest.json`` from ``<config-dir>/repo-deps/`` and
+expects each ``build_commands`` entry to carry the legacy two-list
+shape — ``persist_dirs`` (repo-relative entries) and
+``persist_system_dirs`` (absolute paths). The host-side classifier in
+``shared/egg_config/repos.py`` translates the new user-facing
+``persist:`` list into that two-list manifest shape, so this script
+needs no changes when operators migrate their repositories.yaml to the
+collapsed schema. The fail-loud invariant from #2090 — raise
+``RuntimeError`` when a declared persist path is missing after the
+build runs — is preserved unchanged so the #2087 / #2065 footguns stay
+caught at build-time.
 """
 
 import json

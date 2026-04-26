@@ -212,19 +212,54 @@ def is_dangerous_dir(path: Path) -> bool:
 
 
 def _load_repos_config() -> dict[str, Any]:
-    """Load repositories.yaml for build_commands configuration.
+    """Load the merged layered repo config for build_commands consumption.
+
+    Combines the user file at :data:`Config.REPOS_CONFIG_FILE` with any
+    auto-discovered ``<checkout>/.egg/repositories.yaml`` (issue #2073)
+    via :func:`shared.egg_config.repos.load_merged_repo_config`. The
+    returned dict mirrors the historical user-file shape: operator-
+    scoped fields (``local_repos``, ``docker_setup``, ...) come from
+    the user file; ``repo_settings`` contains the *merged* per-repo
+    blocks (repo-defaults + user overrides).
+
+    The merged per-repo blocks use the new user-facing schema — i.e.
+    ``persist`` is a single top-level list at the per-repo level. The
+    host-side manifest classifier in :func:`_copy_repo_watch_files`
+    splits it into the legacy two-list shape (``persist_dirs`` +
+    ``persist_system_dirs``) that ``sandbox/docker-setup.py`` reads.
 
     Returns:
-        Parsed config dict, or empty dict if not found.
+        Parsed merged config dict, or empty dict if no user file exists
+        and no checkout-side defaults are discoverable.
     """
     config_path = Config.REPOS_CONFIG_FILE
-    if not config_path.exists():
-        return {}
+    user_dict: dict[str, Any] = {}
+    if config_path.exists():
+        try:
+            with config_path.open() as handle:
+                user_dict = yaml.safe_load(handle) or {}
+        except Exception:
+            user_dict = {}
+
     try:
-        with config_path.open() as f:
-            return yaml.safe_load(f) or {}
+        from egg_config.repos import load_merged_repo_config
+    except ImportError:  # pragma: no cover — shared dir absent
+        return user_dict
+
+    try:
+        merged = load_merged_repo_config(
+            checkout=Path.cwd(),
+            user_path=config_path if config_path.exists() else None,
+        )
     except Exception:
-        return {}
+        # Schema errors here would surface during validate-config; fall
+        # back to the raw view so build hashing keeps working.
+        return user_dict
+
+    result = dict(user_dict)
+    if merged.repo_blocks:
+        result["repo_settings"] = dict(merged.repo_blocks)
+    return result
 
 
 def _get_local_repo_path(config: dict[str, Any], repo_name: str) -> Path | None:
@@ -296,11 +331,16 @@ def _copy_repo_watch_files(quiet: bool = False) -> None:
         build_cmds = settings.get("build_commands")
         if not isinstance(build_cmds, dict):
             continue
-        watch_files = build_cmds.get("watch_files", [])
         commands = build_cmds.get("commands", [])
-        if not isinstance(watch_files, list) or not isinstance(commands, list):
+        if not isinstance(commands, list) or not commands:
             continue
-        if not commands:
+        # watch_files: prefer the new top-level per-repo field, fall
+        # back to the legacy nested build_commands.watch_files for any
+        # consumer that still emits the legacy shape.
+        watch_files = settings.get("watch_files")
+        if not isinstance(watch_files, list):
+            watch_files = build_cmds.get("watch_files", [])
+        if not isinstance(watch_files, list):
             continue
 
         # Find the local repo path
@@ -363,7 +403,20 @@ def _copy_repo_watch_files(quiet: bool = False) -> None:
 
     # Write a manifest.json so docker-setup.py can read it during the Docker build.
     # (repositories.yaml is not available in the build context)
-    # Format: {"extra_packages": {"apt": [...], "dnf": [...]}, "build_commands": [...]}
+    #
+    # Manifest schema is intentionally STABLE across the #2073 launch
+    # (architect Component C3): each entry carries
+    #   {"repo", "watch_files", "commands", "persist_dirs",
+    #    "persist_system_dirs"}
+    # so sandbox/docker-setup.py is unchanged. The host-side classifier
+    # below splits the unified user-facing `persist:` list into the
+    # legacy two-list shape via classify_persist_entry.
+    try:
+        from egg_config.repos_schema import classify_persist_entry
+    except ImportError:  # pragma: no cover — shared dir absent
+        def classify_persist_entry(entry: str) -> str:  # type: ignore[no-redef]
+            return "system" if isinstance(entry, str) and entry.startswith("/") else "repo"
+
     build_commands_list = []
     for repo_name, settings in repo_settings.items():
         if not isinstance(settings, dict):
@@ -374,15 +427,30 @@ def _copy_repo_watch_files(quiet: bool = False) -> None:
         commands = build_cmds.get("commands", [])
         if not isinstance(commands, list) or not commands:
             continue
-        watch_files = build_cmds.get("watch_files", [])
+
+        # watch_files: prefer the per-repo top-level field (new schema),
+        # fall back to the legacy build_commands.watch_files.
+        watch_files = settings.get("watch_files")
+        if not isinstance(watch_files, list):
+            watch_files = build_cmds.get("watch_files", [])
         if not isinstance(watch_files, list):
             watch_files = []
-        persist_dirs = build_cmds.get("persist_dirs", [])
-        if not isinstance(persist_dirs, list):
-            persist_dirs = []
-        persist_system_dirs = build_cmds.get("persist_system_dirs", [])
-        if not isinstance(persist_system_dirs, list):
-            persist_system_dirs = []
+
+        # persist: unified list at the per-repo level (new schema).
+        persist_entries = settings.get("persist")
+        if not isinstance(persist_entries, list):
+            persist_entries = []
+
+        persist_dirs: list[str] = []
+        persist_system_dirs: list[str] = []
+        for entry in persist_entries:
+            if not isinstance(entry, str) or not entry:
+                continue
+            if classify_persist_entry(entry) == "system":
+                persist_system_dirs.append(entry)
+            else:
+                persist_dirs.append(entry)
+
         build_commands_list.append(
             {
                 "repo": repo_name,
@@ -824,11 +892,15 @@ def _hash_build_command_watch_files(hasher: Any) -> None:
         build_cmds = settings.get("build_commands")
         if not isinstance(build_cmds, dict):
             continue
-        watch_files = build_cmds.get("watch_files", [])
         commands = build_cmds.get("commands", [])
-        if not isinstance(watch_files, list) or not isinstance(commands, list):
+        if not isinstance(commands, list) or not commands:
             continue
-        if not commands:
+        # watch_files: prefer new top-level field, fall back to legacy
+        # nested build_commands.watch_files (architect C3 compatibility).
+        watch_files = settings.get("watch_files")
+        if not isinstance(watch_files, list):
+            watch_files = build_cmds.get("watch_files", [])
+        if not isinstance(watch_files, list):
             continue
 
         local_path = _get_local_repo_path(config, repo_name)
