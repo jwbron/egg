@@ -32,11 +32,21 @@ Usage:
 """
 
 import os
+import sys
 import time
 from pathlib import Path
 from typing import Any, cast
 
 import yaml
+
+# Lazy-import the shared loader to keep the legacy fast path intact when
+# the layered config isn't in play (e.g., minimal CI fixtures that only
+# set EGG_REPO_CONFIG to a one-line YAML).  The shared loader lives at
+# shared/egg_config/repos.py — see its docstring for merge semantics.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_SHARED_DIR = _REPO_ROOT / "shared"
+if str(_SHARED_DIR) not in sys.path:  # pragma: no cover — defensive
+    sys.path.insert(0, str(_SHARED_DIR))
 
 
 def _get_config_path() -> Path:
@@ -73,11 +83,63 @@ def _get_config_path() -> Path:
     )
 
 
+def _checkout_path() -> Path | None:
+    """Best-effort discovery of the current repo checkout for layering.
+
+    Walks upward from CWD looking for a ``.egg/repositories.yaml`` so the
+    shared loader can pick it up. ``None`` when nothing is found —
+    callers fall back to the user file alone.
+    """
+    here = Path.cwd().resolve()
+    for candidate in (here, *here.parents):
+        if (candidate / ".egg" / "repositories.yaml").exists():
+            return candidate
+    # Also probe the egg repo itself when running inside a clone — this
+    # is the common case for `egg --exec` against the local checkout.
+    if (_REPO_ROOT / ".egg" / "repositories.yaml").exists():
+        return _REPO_ROOT
+    return None
+
+
 def _load_config() -> dict[str, Any]:
-    """Load and return the repository configuration."""
+    """Load and return the repository configuration.
+
+    Returns a dict shaped like the historical user-file with one
+    augmentation: ``repo_settings`` carries the **merged** per-repo
+    blocks (repo-defaults + user overrides) produced by
+    :func:`shared.egg_config.repos.load_merged_repo_config`. Operator-
+    scoped fields (``github_username``, ``writable_repos``, etc.) come
+    straight from the user file unchanged.
+
+    Falls back to the raw user-file dict if the shared loader is
+    unavailable for any reason (e.g., during early bootstrap before
+    ``shared/`` is on ``sys.path``).
+    """
     config_path = _get_config_path()
     with config_path.open() as f:
-        return cast(dict[str, Any], yaml.safe_load(f))
+        raw = cast(dict[str, Any], yaml.safe_load(f) or {})
+
+    try:
+        from egg_config.repos import load_merged_repo_config
+    except ImportError:  # pragma: no cover — shared dir absent
+        return raw
+
+    try:
+        merged = load_merged_repo_config(
+            checkout=_checkout_path(), user_path=config_path
+        )
+    except Exception:
+        # Schema errors here would surface during validate-config; fall
+        # back to the raw view so existing callers keep working until
+        # the user fixes the file.
+        return raw
+
+    # Merge view: keep the raw operator-scoped fields, replace
+    # repo_settings with the merged per-repo blocks.
+    result = dict(raw)
+    if merged.repo_blocks:
+        result["repo_settings"] = dict(merged.repo_blocks)
+    return result
 
 
 def get_github_username() -> str:
@@ -356,6 +418,14 @@ def reload_config() -> None:
     """
     global _checkpoint_repos_cache
     _checkpoint_repos_cache = None
+    # Drop the layered loader's mtime cache too so the next call
+    # re-reads both the user file and the repo-defaults file.
+    try:
+        from egg_config.repos import reload_config as _layered_reload
+
+        _layered_reload()
+    except ImportError:  # pragma: no cover — shared dir absent
+        pass
 
 
 def get_all_checkpoint_repos() -> frozenset[str]:
@@ -425,6 +495,90 @@ def is_checkpoint_repo(owner: str, repo: str) -> bool:
         return False
 
 
+# Manifests we recognise when inferring watch_files / build context for
+# a repo. Inference is short-circuited whenever the user explicitly
+# pins ``watch_files`` (NACK non-blocking caching).
+_WATCH_FILE_MANIFESTS: tuple[str, ...] = (
+    "pyproject.toml",
+    "uv.lock",
+    "package.json",
+    "pnpm-lock.yaml",
+    "package-lock.json",
+    "yarn.lock",
+    "go.mod",
+    "go.sum",
+    "Cargo.toml",
+    "Cargo.lock",
+    "Gemfile",
+    "Gemfile.lock",
+    "requirements.txt",
+    "requirements-dev.txt",
+    "Makefile",
+)
+
+
+def infer_watch_files(repo_path: Path) -> list[str]:
+    """Infer ``watch_files`` from manifests present at ``repo_path``.
+
+    Returns the names of recognised manifest files that exist at the
+    repo root, sorted in catalog order so the result is deterministic.
+    Used by the validator and the onboard skill to surface a sensible
+    default when the user hasn't pinned ``watch_files`` explicitly.
+    """
+    repo_path = Path(repo_path)
+    return [name for name in _WATCH_FILE_MANIFESTS if (repo_path / name).is_file()]
+
+
+def infer_checks(repo_path: Path) -> list[dict[str, str]]:
+    """Infer ``checks`` entries from ``Makefile`` / ``package.json`` heuristics.
+
+    Recognises:
+
+    * ``make lint`` / ``make test`` when the corresponding Makefile
+      target exists.
+    * ``npm run lint`` / ``npm test`` when ``package.json`` carries the
+      conventional script names.
+
+    Explicit ``checks`` entries in the merged view always take
+    precedence over inference (the validator and the onboard skill
+    short-circuit accordingly).
+    """
+    repo_path = Path(repo_path)
+    out: list[dict[str, str]] = []
+
+    makefile = repo_path / "Makefile"
+    if makefile.is_file():
+        try:
+            content = makefile.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            content = ""
+        for target in ("lint", "test"):
+            # Match "<target>:" at start of line (ignoring leading spaces).
+            for line in content.splitlines():
+                stripped = line.lstrip()
+                if stripped.startswith(f"{target}:") or stripped == target + ":":
+                    out.append({"name": target, "command": f"make {target}"})
+                    break
+
+    if not out:
+        package_json = repo_path / "package.json"
+        if package_json.is_file():
+            try:
+                import json
+
+                pkg = json.loads(package_json.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                pkg = {}
+            scripts = pkg.get("scripts") if isinstance(pkg, dict) else None
+            if isinstance(scripts, dict):
+                if "lint" in scripts:
+                    out.append({"name": "lint", "command": "npm run lint"})
+                if "test" in scripts:
+                    out.append({"name": "test", "command": "npm test"})
+
+    return out
+
+
 def get_repo_build_commands(repo: str) -> dict[str, Any]:
     """Get build_commands configuration for a repository.
 
@@ -432,42 +586,82 @@ def get_repo_build_commands(repo: str) -> dict[str, Any]:
     project-specific dependencies (e.g., npm ci, pip install -r requirements.txt).
     Results are baked into the image for fast container startup.
 
-    Args:
-        repo: Repository in "owner/repo" format
-
     Returns:
         Dictionary with:
         - watch_files: list[str] - Files that trigger rebuild when changed
         - commands: list[str] - Commands to run during build
-        - persist_dirs: list[str] - Relative dirs to persist from build context
-        - persist_system_dirs: list[str] - Absolute system dirs to persist
+        - persist: list[str] - Unified persist list (user-facing schema)
+        - persist_dirs: list[str] - Repo-relative entries (classifier output)
+        - persist_system_dirs: list[str] - Absolute entries (classifier output)
         Returns empty dict if no build_commands configured.
+
+        ``persist_dirs`` / ``persist_system_dirs`` are produced by the
+        host-side classifier in :mod:`shared.egg_config.repos` so the
+        manifest writer in :mod:`sandbox.egg_lib.docker` keeps the
+        legacy two-list shape (architect Component C3 — keeps sandbox
+        images cross-version stable).
+
+    Args:
+        repo: Repository in "owner/repo" format
     """
-    build_cmds = get_repo_setting(repo, "build_commands", None)
+    config = _load_config()
+    repo_settings = config.get("repo_settings", {})
+    if not isinstance(repo_settings, dict):
+        return {}
+
+    repo_lower = repo.lower()
+    block: dict[str, Any] | None = None
+    for configured_repo, settings in repo_settings.items():
+        if isinstance(settings, dict) and configured_repo.lower() == repo_lower:
+            block = settings
+            break
+    if block is None:
+        return {}
+
+    build_cmds = block.get("build_commands")
     if not isinstance(build_cmds, dict):
         return {}
-    result: dict[str, Any] = {}
-    watch_files = build_cmds.get("watch_files", [])
-    if isinstance(watch_files, list):
-        result["watch_files"] = [str(f) for f in watch_files]
-    else:
-        result["watch_files"] = []
-    commands = build_cmds.get("commands", [])
-    if isinstance(commands, list):
-        result["commands"] = [str(c) for c in commands]
-    else:
-        result["commands"] = []
-    persist_dirs = build_cmds.get("persist_dirs", [])
-    if isinstance(persist_dirs, list):
-        result["persist_dirs"] = [str(d) for d in persist_dirs]
-    else:
-        result["persist_dirs"] = []
-    persist_system_dirs = build_cmds.get("persist_system_dirs", [])
-    if isinstance(persist_system_dirs, list):
-        result["persist_system_dirs"] = [str(d) for d in persist_system_dirs]
-    else:
-        result["persist_system_dirs"] = []
-    return result
+
+    # commands: pull from build_commands.commands.
+    commands_raw = build_cmds.get("commands", [])
+    commands = [str(c) for c in commands_raw] if isinstance(commands_raw, list) else []
+
+    # watch_files: prefer the per-repo top-level field, fall back to a
+    # nested build_commands.watch_files for backward compat with any
+    # consumer that still emits the legacy shape.
+    watch_files_raw = block.get("watch_files")
+    if not isinstance(watch_files_raw, list):
+        watch_files_raw = build_cmds.get("watch_files", [])
+    watch_files = (
+        [str(f) for f in watch_files_raw] if isinstance(watch_files_raw, list) else []
+    )
+
+    # persist: unified list at the per-repo top level. Run it through
+    # the classifier to produce the legacy two-list shape consumed by
+    # the manifest writer.
+    persist_raw = block.get("persist")
+    if not isinstance(persist_raw, list):
+        persist_raw = []
+    persist = [str(p) for p in persist_raw]
+
+    try:
+        from egg_config.repos import _classify_persist_for_manifest
+
+        persist_dirs, persist_system_dirs = _classify_persist_for_manifest(persist)
+    except ImportError:  # pragma: no cover — shared dir absent
+        persist_dirs = [p for p in persist if not p.startswith("/")]
+        persist_system_dirs = [p for p in persist if p.startswith("/")]
+
+    if not (commands or watch_files or persist):
+        return {}
+
+    return {
+        "commands": commands,
+        "watch_files": watch_files,
+        "persist": persist,
+        "persist_dirs": persist_dirs,
+        "persist_system_dirs": persist_system_dirs,
+    }
 
 
 def get_all_build_commands() -> dict[str, dict[str, Any]]:
