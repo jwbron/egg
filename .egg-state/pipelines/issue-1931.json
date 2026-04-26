@@ -375,10 +375,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-26T23:23:26.319404Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-26T23:40:02.701249Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Filter response so only allowlisted spaces are returned (agents cannot enumerate the full tenant space set) (Recommended)\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -504,7 +504,7 @@
     }
   ],
   "created_at": "2026-04-26T23:05:30.164689Z",
-  "updated_at": "2026-04-26T23:39:19.351411Z",
+  "updated_at": "2026-04-26T23:40:02.727320Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -518,6 +518,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 37,
+  "version": 38,
   "jira_ticket": null
 }
