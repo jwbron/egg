@@ -328,30 +328,39 @@ each surface so reviewers know to keep them in sync.
 
 ### `overseer`
 
-**Purpose**: Pipeline health monitoring agent that detects and responds to agent failures, stalls, loops, off-track behavior, and infrastructure errors. Uses a two-sub-tier LLM architecture: Haiku classifiers for anomaly detection (including infrastructure error identification) and Sonnet/Opus decision-makers for corrective action. Infrastructure errors (git failures, gateway errors, permission denied) are fast-pathed directly to HITL escalation, bypassing the normal nudge/redirect ladder.
+**Purpose**: Pipeline health monitoring agent that detects and responds to agent failures, stalls, loops, off-track behavior, and infrastructure errors. Uses a two-sub-tier LLM architecture: Haiku classifiers for anomaly detection (including infrastructure error identification) and Sonnet/Opus decision-makers for corrective action. Infrastructure errors (git failures, gateway errors, permission denied) are fast-pathed directly to HITL escalation, bypassing the normal nudge/redirect ladder. With [#1962](https://github.com/jwbron/egg/issues/1962), an Opus 4.6 advisor (the Tier-2 decision tier) is invoked **only when** Haiku flags an anomaly **and** a Tier-1 health alert is active simultaneously — see [Advisor Gate](../guides/pipeline-health-monitoring.md#advisor-gate).
 
-**Lifecycle**: Auto-spawned at pipeline start (when `overseer_enabled` is true in `PipelineConfig`). Runs across all phases until pipeline completion — one overseer per pipeline.
+**Lifecycle**: Phase-scoped. Auto-spawned at the start of each pipeline phase (when `overseer_enabled` is true in `PipelineConfig`) and torn down when the phase completes, advances, or fails. Each phase gets a fresh overseer instance with no accumulated state from prior phases.
 
 **File access**:
-- Allowed writes: `.egg-state/oversight/` (structured oversight logs)
+- Allowed writes: `.egg-state/oversight/` (structured oversight logs, dedup state, per-agent timing). The two state files are owned by the overseer:
+  - `.egg-state/oversight/filed-issues.jsonl` — append-only JSON Lines record of recommended/filed/skipped issue filings (intra-phase dedup fast path; cross-phase fallback uses `gh issue list --search "{anomaly_signature[:8]}"`). Schema at `egg_overseer.state.FiledIssueRecord`; helpers `load_filed_issues` / `append_filed_issue` (header-on-first-create); `append_filed_issue` acquires an `fcntl.LOCK_EX` flock on its per-state-file sentinel `filed-issues.jsonl.lock` (computed by `_lock_path_for(path) = path.parent / f"{path.name}.lock"`) so concurrent overseer respawns cannot race on the append.
+  - `.egg-state/oversight/agent-timing.json` — per-agent phase-entered timestamps and per-anomaly suppression state migrated from `/sdlc`'s in-memory map. Schemas at `egg_overseer.state.AgentTimingState` / `AgentTimingEntry`; read/modify/write is `fcntl.LOCK_EX`-guarded by its own per-state-file sentinel `agent-timing.json.lock` (independent of the JSONL lock above). Helpers `load_agent_timing` / `save_agent_timing` (atomic tmp+rename) and `load_filed_issues` / `append_filed_issue` (header-on-first-create) live in the same module.
 - Blocked: All source code, tests, docs, configs, contracts, drafts, reviews
+
+**Required environment variables**:
+- `EGG_PIPELINE_REPO` (`owner/repo` format) — injected by the orchestrator at spawn time. Distinct from `EGG_REPO_PATH` (filesystem path). The CLI verb `egg-orch overseer file-issue` sets `--repo $EGG_PIPELINE_REPO` on every `gh issue create`; the gateway cross-checks the `--repo` argument against this env var and rejects mismatches. The sandbox `entrypoint.py` raises if the variable is missing — a misconfigured pipeline failing fast is preferred over one that silently files an issue against the wrong repo.
 
 **Access**:
 - Orchestrator APIs: pipeline status, container logs, progress queries, health alerts, message bus
-- GitHub API: `gh issue create` for diagnostic issue filing
+- Sandbox CLI verb: `egg-orch overseer consult-advisor` (handler at `sandbox/egg_lib/orch_cli.py::cmd_overseer_consult_advisor`; calls `egg_overseer.advisor.consult_advisor()` directly so the underlying `run_agent_async` Opus call lives sandbox-side, on the LLM-execution side of the EGG200 boundary documented in `docs/guides/agent-mode-design.md`)
+- GitHub API: `gh issue create` for diagnostic issue filing — gateway-mediated. Guardrails are codified in `gateway.agent_restrictions.check_overseer_gh_issue_create`: overseer-role-only, `--repo` must equal `$EGG_PIPELINE_REPO`, `agent:overseer` + priority labels auto-injected if missing, title ≤ 120 chars, body ≤ 50 KB, defense-in-depth secret scan via `egg_overseer.scrubbing.find_secret_kinds`. (As of issue [#1962](https://github.com/jwbron/egg/issues/1962) the function is defined and unit-tested; final wiring into the live `gh` request path is part of the same PR — verify on the merged commit before relying on the gateway-side enforcement.)
 - `egg-orch message send` to redirect individual agents
 - `egg-orch overseer alert` to broadcast `OVERSEER_ALERT` notifications to the human operator (always uses `message_type=OVERSEER_ALERT` and `to_role=all`)
+- `egg-orch overseer file-issue` to file a GitHub issue once a HITL approval has resolved the recommendation. Required flags: `--anomaly-type`, `--priority` (`p0|p1|p2|p3`), `--agent-role`, `--anomaly-signature` (16-hex), `--issue-title-file`, `--issue-body-file`. Optional: `--parent-alert-message-id`, `--dry-run`. The verb runs `find_existing_issue(...)` first and skips `gh` if a dedup match is found.
 
 **Blocked from**:
 - All git operations (no repo volume mounted)
 - `gh pr merge`, `gh pr create`
 - `egg-orch phase advance`, `egg-orch phase complete`
 - Direct agent restart (must go through HITL decision queue)
+- Cross-repo `gh issue create` (gateway enforces `--repo == $EGG_PIPELINE_REPO`)
 
 **Outputs**:
 - Redirect messages to stalled/off-track agents
 - HITL escalation requests for agent restarts and infrastructure errors
-- Autonomous GitHub issues with structured diagnostics (labeled `overseer-alert`)
+- `OVERSEER_ALERT` messages, optionally carrying top-level `recommendation="file_issue"` + `recommendation_payload={issue_title, issue_body, priority, anomaly_signature}` for the HITL approval flow (top-level `schema_version=2`; backwards-compatible — `Message.to_dict()` omits the three new fields when unset, so legacy `OVERSEER_ALERT` consumers see byte-identical JSON)
+- Autonomous GitHub issues with structured diagnostics (labeled `agent:overseer` + matching priority `p0`/`p1`/`p2`/`p3`) — only after HITL approval; never bypassed
 - Pipeline health summary at completion
 - Structured oversight logs in `.egg-state/oversight/`
 

@@ -413,6 +413,90 @@ class PipelineConfig(BaseModel):
         ge=30,
         description="If a blocking agent has progress events within this window, suppress stall alerts",
     )
+    # Advisor-strategy knobs (issue #1962). The advisor is invoked from the
+    # overseer when Haiku flags an anomaly AND a Tier-1 health alert has
+    # tripped. See sandbox/agent-config/rules/overseer.md and
+    # docs/guides/pipeline-health-monitoring.md for context.
+    overseer_advisor_model: str = Field(
+        default="opus",
+        description=(
+            "Opus-class model used as the advisor when the Haiku-classify "
+            "loop intersects a Tier-1 health alert. Uses the 'opus' alias "
+            "for automatic version adoption. NOTE: per decision-19, no "
+            "per-phase invocation cap is enforced; the existing "
+            "max_llm_cost_per_hour envelope is the only budget control "
+            "until the follow-up advisor-budget issue lands."
+        ),
+    )
+    overseer_auto_file_issues_mode: Literal["shadow", "live"] = Field(
+        default="shadow",
+        description=(
+            "Auto-issue filing rollout mode. 'shadow' (default): the advisor's "
+            "decision='file_issue' surfaces as an OVERSEER_ALERT + HITL "
+            "decision; the human gates the actual filing. 'live': the same "
+            "HITL flow still runs but the CLI verb is willing to call gh "
+            "once approval lands. Full disable continues to be expressed via "
+            "overseer_enabled=False (per decision-10)."
+        ),
+    )
+    overseer_owns_host_detection: bool = Field(
+        default=False,
+        description=(
+            "Calibration-window flag. While False (the default), /sdlc keeps "
+            "running its host-side stall / silent-agent / NACK / long-run / "
+            "rescue detectors so the overseer's new detectors can be "
+            "calibrated side-by-side with no behavior regression. The "
+            "follow-up cleanup PR flips the default to True and deletes the "
+            "now-dormant /sdlc detection blocks."
+        ),
+    )
+    overseer_stuck_phase_transition_seconds: int = Field(
+        default=180,
+        ge=10,
+        description=(
+            "Wall-clock seconds for the orchestrator-side "
+            "stuck-phase-transition trigger. Bumped from ~60s to 180s per "
+            "feedback-1.Q2 — legitimate refiner work on a complex multi-"
+            "thread issue can take 5-10+ minutes."
+        ),
+    )
+    overseer_agent_stall_seconds: int = Field(
+        default=180,
+        ge=10,
+        description=(
+            "Per-agent elapsed-time threshold for the migrated detect_agent_stall "
+            "detector (issue #1962 host migration). Distinct from "
+            "overseer_stuck_phase_transition_seconds (which fires on the "
+            "orchestrator-level signal) so operators can tune them "
+            "independently. Default matches stuck-phase-transition for "
+            "release-time parity."
+        ),
+    )
+    overseer_silent_agent_threshold_seconds: int = Field(
+        default=600,
+        ge=10,
+        description=(
+            "Threshold (10 min default) for detect_agent_silent. Lifted out "
+            "of /sdlc into PipelineConfig so the host migration in Phase 6 "
+            "of #1962 can read it via the pipelines-status endpoint."
+        ),
+    )
+    overseer_long_running_phase_seconds: int = Field(
+        default=3600,
+        ge=60,
+        description=(
+            "Threshold (60 min default) for detect_phase_long_running on "
+            "implement phase. Lifted out of /sdlc into PipelineConfig."
+        ),
+    )
+    overseer_nack_unresolved_seconds: int = Field(
+        default=180,
+        ge=10,
+        description=(
+            "Threshold (3 min default) for detect_nack_unresolved. Lifted "
+            "out of /sdlc into PipelineConfig."
+        ),
+    )
     start_phase: str | None = Field(
         default=None,
         description="Phase to start execution from, skipping earlier phases. "

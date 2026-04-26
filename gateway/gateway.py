@@ -3683,6 +3683,164 @@ def gh_execute() -> tuple[Response, int] | Response:
                 details={"role": session_role, "command": gh_command_str},
             )
 
+    # Issue #1962 TASK-2-2: extra guardrails for `gh issue create`
+    # from the overseer role. The role-level check above does NOT
+    # block `gh issue create` from the overseer (the operation is
+    # not on _OVERSEER_BLOCKED_GH_OPS) so the existing handler lets
+    # it through. We now layer additional defenses on top:
+    # repo enforcement against EGG_PIPELINE_REPO, label injection,
+    # title/body size limits, and a defense-in-depth secret-pattern
+    # scan on the body. Failure is a structured 403.
+    if (
+        session_role
+        and session_role.lower() == "overseer"
+        and len(args) >= 2
+        and args[0] == "issue"
+        and args[1] == "create"
+    ):
+        from .agent_restrictions import check_overseer_gh_issue_create
+
+        # Parse the relevant flags from the gh argv. We accept both
+        # --title-file/--body-file (the new CLI verb's preferred path)
+        # and --title/--body (the historical form) so old callers do
+        # not break. Each known flag MUST be followed by a value that
+        # does not start with '-' (otherwise a malformed argv like
+        # `--repo --label foo` would consume `--label` as the repo
+        # value and walk past every subsequent flag — reviewer_code
+        # blocker against the original loop's order-dependence).
+        repo_arg: str | None = None
+        title_text: str = ""
+        body_text: str = ""
+        labels: list[str] = []
+        _OVERSEER_VALUE_FLAGS = {
+            "--repo",
+            "--label",
+            "--title",
+            "--title-file",
+            "--body",
+            "--body-file",
+        }
+
+        def _value_for(flag: str, idx: int) -> tuple[str | None, tuple[Response, int] | None]:
+            """Return (value, error_response) for a known --flag at args[idx]."""
+            if idx + 1 >= len(args):
+                return None, make_error(
+                    f"Flag {flag!r} requires a value (end of argv)",
+                    status_code=400,
+                    details={"command": gh_command_str},
+                )
+            val = args[idx + 1]
+            if val.startswith("-"):
+                return None, make_error(
+                    f"Flag {flag!r} requires a value (got another flag {val!r})",
+                    status_code=400,
+                    details={"command": gh_command_str},
+                )
+            return val, None
+
+        i = 2
+        while i < len(args):
+            tok = args[i]
+            if tok in _OVERSEER_VALUE_FLAGS:
+                val, err = _value_for(tok, i)
+                if err is not None:
+                    return err
+                if tok == "--repo":
+                    repo_arg = val
+                elif tok == "--label":
+                    labels.append(val or "")
+                elif tok == "--title":
+                    title_text = val or ""
+                elif tok == "--title-file":
+                    try:
+                        with open(val or "", encoding="utf-8", errors="strict") as _f:
+                            title_text = _f.read().strip()
+                    except UnicodeDecodeError as _exc:
+                        return make_error(
+                            f"--title-file {val!r} contains invalid UTF-8: {_exc}",
+                            status_code=400,
+                            details={"command": gh_command_str},
+                        )
+                    except OSError as _exc:
+                        return make_error(
+                            f"Cannot read --title-file {val!r}: {_exc}",
+                            status_code=400,
+                            details={"command": gh_command_str},
+                        )
+                elif tok == "--body":
+                    body_text = val or ""
+                elif tok == "--body-file":
+                    try:
+                        # errors="strict" so invalid UTF-8 in the body
+                        # is rejected loudly (reviewer_code blocker:
+                        # silent corruption could swap a leaked-secret
+                        # byte sequence past the regex check).
+                        with open(val or "", encoding="utf-8", errors="strict") as _f:
+                            body_text = _f.read()
+                    except UnicodeDecodeError as _exc:
+                        return make_error(
+                            f"--body-file {val!r} contains invalid UTF-8: {_exc}",
+                            status_code=400,
+                            details={"command": gh_command_str},
+                        )
+                    except OSError as _exc:
+                        return make_error(
+                            f"Cannot read --body-file {val!r}: {_exc}",
+                            status_code=400,
+                            details={"command": gh_command_str},
+                        )
+                i += 2
+                continue
+            else:
+                i += 1
+
+        pipeline_repo = os.environ.get("EGG_PIPELINE_REPO")
+        ov_check = check_overseer_gh_issue_create(
+            role=session_role,
+            repo=repo_arg or "",
+            pipeline_repo=pipeline_repo,
+            labels=labels,
+            title=title_text,
+            body=body_text,
+        )
+        if not ov_check.allowed:
+            audit_log(
+                "gh_overseer_issue_create_blocked",
+                "gh_execute",
+                success=False,
+                details={
+                    "command": gh_command_str,
+                    "role": session_role,
+                    "reason": ov_check.reason,
+                    "secret_kinds": list(ov_check.secret_kinds),
+                },
+            )
+            return make_error(
+                ov_check.reason,
+                status_code=403,
+                details={
+                    "role": session_role,
+                    "command": gh_command_str,
+                    "secret_kinds": list(ov_check.secret_kinds),
+                },
+            )
+        # Auto-inject any required labels the caller forgot. The
+        # injected labels are tagged in the audit log so operators can
+        # spot bypass attempts.
+        if ov_check.injected_labels:
+            for lbl in ov_check.injected_labels:
+                args = (*args, "--label", lbl)
+            audit_log(
+                "gh_overseer_issue_create_labels_injected",
+                "gh_execute",
+                success=True,
+                details={
+                    "command": gh_command_str,
+                    "role": session_role,
+                    "injected_labels": list(ov_check.injected_labels),
+                },
+            )
+
     # For 'gh api' commands, validate the path against allowlist
     api_path: str | None = None
     method: str = "GET"
@@ -5596,6 +5754,33 @@ def session_delete_by_container(container_id: str) -> tuple[Response, int] | Res
     )
 
     return make_success("Session deleted")
+
+
+@app.route("/api/v1/sessions/by-container/<container_id>/heartbeat", methods=["POST"])
+@require_launcher_auth
+def session_heartbeat_by_container(container_id: str) -> tuple[Response, int] | Response:
+    """
+    Refresh a session's idle timer by container ID (orchestrator-only path).
+
+    Used by the orchestrator to keep agent sessions alive while their
+    container is heartbeating on the BRC bus but not making gateway
+    requests — without this, the idle pruner evicts the session after
+    EGG_SESSION_IDLE_TIMEOUT_MINUTES even though the agent is still
+    working (see #2068).
+
+    Auth: Bearer {launcher_secret}
+
+    Returns 404 if no session exists for the container.  No per-session
+    rate limit because the launcher secret already gates access — only
+    the orchestrator can call this.
+    """
+    session_manager = get_session_manager()
+    refreshed = session_manager.heartbeat_session_by_container(container_id)
+
+    if not refreshed:
+        return make_error("Session not found for container", status_code=404)
+
+    return make_success("Heartbeat recorded")
 
 
 @app.route("/api/v1/sessions/<session_token>", methods=["GET"])

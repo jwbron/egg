@@ -1797,3 +1797,101 @@ class TestInitialStatefileCommitFailure:
 
         # No agents should be spawned — pipeline should return early
         mock_spawn_wait.assert_not_called()
+
+
+class TestStalePipelineBranchTransition:
+    """Verify the rebase-on-resume helper's ``StalePipelineBranchError``
+    propagates into a FAILED pipeline before any agents are spawned (#2098)."""
+
+    @patch("routes.pipelines._rebase_pipeline_branch_onto_base")
+    @patch("routes.pipelines._sync_worktree_with_remote")
+    @patch(_COMMON_PATCHES[7])
+    @patch(_COMMON_PATCHES[6])
+    @patch(_COMMON_PATCHES[5])
+    @patch(_COMMON_PATCHES[4])
+    @patch(_COMMON_PATCHES[3])
+    @patch(_COMMON_PATCHES[2])
+    @patch(_COMMON_PATCHES[1])
+    @patch(_COMMON_PATCHES[0])
+    def test_stale_branch_error_marks_pipeline_failed_with_actionable_message(
+        self,
+        mock_emit,
+        mock_get_spawner,
+        mock_get_store,
+        mock_spawn_wait,
+        mock_state_lock,
+        mock_build_prompt,
+        mock_read_draft,
+        mock_report,
+        mock_sync,
+        mock_rebase,
+    ):
+        """When ``_rebase_pipeline_branch_onto_base`` raises, the
+        ``except StalePipelineBranchError`` block must mark the pipeline
+        FAILED with the helper's actionable message and return *before*
+        ``_spawn_and_wait`` is invoked.
+        """
+        from routes.pipelines import (
+            WORKTREE_BASE_DIR,
+            StalePipelineBranchError,
+            _run_pipeline,
+        )
+
+        pipeline = _make_running_pipeline(branch="egg/issue-42")
+        # base_branch must be set for the rebase-on-resume guard to fire
+        # (the call site is gated on `pipeline.branch and pipeline.base_branch`).
+        pipeline.base_branch = "main"
+        mock_store, mock_gateway = _setup_mocks(
+            mock_report,
+            mock_read_draft,
+            mock_build_prompt,
+            mock_state_lock,
+            mock_spawn_wait,
+            mock_get_store,
+            mock_get_spawner,
+            mock_emit,
+            pipeline,
+        )
+
+        worktree_dir = WORKTREE_BASE_DIR / "issue-42" / "repo"
+        mock_gateway.create_worktrees.return_value = MagicMock(
+            success=True,
+            worktrees={"repo": str(worktree_dir)},
+            errors=[],
+        )
+
+        actionable_message = (
+            "origin/egg/issue-42 is 70 commits behind origin/main "
+            "and rebasing it failed. Manually rebase the branch (or "
+            "delete it to start fresh) and resubmit. Stderr: CONFLICT"
+        )
+        mock_rebase.side_effect = StalePipelineBranchError(actionable_message)
+
+        with (
+            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
+            patch("pathlib.Path.exists", return_value=True),
+        ):
+            _run_pipeline("issue-42", Path("/repo"))
+
+        # (a) pipeline.status == FAILED
+        assert pipeline.status == PipelineStatus.FAILED, (
+            f"Expected pipeline FAILED, got {pipeline.status}"
+        )
+
+        # (b) pipeline.error carries the actionable string
+        assert pipeline.error == actionable_message, (
+            f"Expected actionable error string, got: {pipeline.error!r}"
+        )
+
+        # (c) _run_pipeline returned before subsequent worktree work — no
+        #     agents spawned, no statefile commit attempted.
+        mock_spawn_wait.assert_not_called()
+
+        # save_pipeline must have persisted the FAILED state at least once.
+        save_calls = mock_store.save_pipeline.call_args_list
+        final_statuses = [
+            call.args[0].status
+            for call in save_calls
+            if call.args and hasattr(call.args[0], "status")
+        ]
+        assert PipelineStatus.FAILED in final_statuses

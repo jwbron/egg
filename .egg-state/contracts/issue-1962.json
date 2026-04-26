@@ -1,0 +1,2155 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1962,
+    "title": "Issue #1962",
+    "url": "https://github.com/jwbron/egg/issues/1962"
+  },
+  "pipeline_id": "issue-1962",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Scope split: how should the three threads in this issue (escalation tuning, auto-issue filing, host\u2192overseer migration) be packaged?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Option B (recommended) \u2014 one pipeline for escalation tuning + auto-issue filing; host migration as a follow-up issue",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Option A \u2014 single pipeline covering all three threads",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Option C \u2014 three separate pipelines, one per thread",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Option D \u2014 narrow this pipeline to auto-issue filing only; both other threads become follow-ups",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option A \u2014 single pipeline covering all three threads\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:05:14.410193Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Sub-agent launching by the overseer (the speculative capability in the issue body): in scope for this pipeline or deferred?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Deferred \u2014 file a follow-up issue, out of scope here",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "In scope \u2014 design a sub-agent-launch capability in this pipeline",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Deferred \u2014 file a follow-up issue, out of scope here\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:05:14.592699Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Should this pipeline also address related overseer bugs (#1722 stale AGENT_FAILED misdiagnosis, #1727 early-exit respawn), or leave them to their own pipelines?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Leave them in their own pipelines \u2014 link as context only",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Absorb #1722 into this pipeline (it is a p1 false-positive case)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Absorb both #1722 and #1727 into this pipeline",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Absorb only #1727",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Leave them in their own pipelines \u2014 link as context only\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:05:19.647859Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Auto-issue filing policy: what qualifies for the overseer to auto-file a GitHub issue?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Persistent / systemic only \u2014 same anomaly across N cycles AND clear orchestrator/agent-code bug signals",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "All priority=high OVERSEER_ALERTs with dedup on anomaly type within pipeline",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Sonnet-gated per-anomaly rubric \u2014 LLM decides case-by-case",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Hybrid \u2014 systemic criteria as the floor, Sonnet gate above it",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Sonnet-gated per-anomaly rubric \u2014 LLM decides case-by-case\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:05:19.733138Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Auto-issue dedup scope: when the overseer considers filing, what window should it search to avoid duplicates?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Per pipeline \u2014 dedup only against this pipeline's prior filings",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Per repo \u2014 search all open overseer-filed issues across the repo by anomaly label",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Global \u2014 search across all open issues, including human-filed ones, by label + title fuzzy match",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "No dedup \u2014 file every time; accept some duplication risk",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Per repo \u2014 search all open overseer-filed issues across the repo by anomaly label\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:05:24.781774Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Dedup state storage: where does the overseer remember issues it has already filed?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "In-process only \u2014 each phase's overseer starts fresh; rely on GitHub search each time",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Persisted to .egg-state/oversight/filed-issues.json so respawns/new phases remember",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Persisted via orchestrator REST endpoint (central store); overseer asks 'have I filed this?' before filing",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Hybrid \u2014 persist locally AND verify via GitHub search before filing",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Persisted to .egg-state/oversight/filed-issues.json so respawns/new phases remember\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:05:24.808626Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-7",
+      "question": "Label convention for overseer-filed issues: which label set should we standardize on?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Use existing dead-code convention: `egg:diagnostic` + `pipeline-health` + anomaly-type label",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Use docs convention: `overseer-alert` + category label (e.g., `stall`, `repeated-error`)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Use pre-refine-notes convention: `overseer-opened` + anomaly-type label + pipeline-id link in body",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "New naming \u2014 propose in 'Other' (explain in reply)",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Other: agent:overseer + matching p0/p1/p2/p3 priority label only, no new labels (matches pre-refine resolution and decision-18 confirmation)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:21.309960Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-8",
+      "question": "Issue body template: keep the existing `## Pipeline Diagnostic: ...` template at orchestrator/overseer/issue_filer.py:86-107, or redesign?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Keep existing template (pipeline + phase + agent + timeline + classification + actions + logs + remediation)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Extend the existing template with explicit links (pipeline ID, phase, branch, commit SHA, parent-alert message ID)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Redesign \u2014 draft a new template in the plan phase",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Extend the existing template with explicit links (pipeline ID, phase, branch, commit SHA, parent-alert message ID)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:21.370354Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-9",
+      "question": "Who actually runs `gh issue create` for an overseer-filed issue?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Agent-side overseer runs it in its sandbox via a new `egg-orch overseer file-issue` CLI verb",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Orchestrator-side \u2014 new REST endpoint; server runs `gh` with its own credentials; overseer POSTs payload",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Hybrid \u2014 overseer composes body, orchestrator files it; orchestrator enforces central rate-limit / dedup policy",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Reuse the existing dead-code `file_diagnostic_issue` path by instantiating OverseerMonitor in production",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Agent-side overseer runs it in its sandbox via a new `egg-orch overseer file-issue` CLI verb\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:21.502024Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-10",
+      "question": "Rollout mode for auto-issue filing: should it start in shadow mode or go live directly?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Shadow mode first \u2014 overseer composes issue body but raises a HITL decision 'should I file this?'; human approves; flip to live after a trial period",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Live directly \u2014 ship with dedup + per-pipeline cap; iterate on policy via actual issues filed",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Feature flag \u2014 ship live but gated by config `overseer_auto_file_issues` (default off) for a release",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Shadow mode first \u2014 overseer composes issue body but raises a HITL decision 'should I file this?'; human approves; flip to live after a trial period\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:21.522664Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-11",
+      "question": "Defer the host\u2192overseer migration (thread 3) to a follow-up issue (confirming Option B recommendation)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes \u2014 file a follow-up issue; keep this pipeline scoped to escalation tuning + auto-issue filing",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "No \u2014 migrate host logic in this pipeline",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Partial \u2014 migrate only stall/NACK detection; leave long-running-phase + stuck-pipeline-rescue with /sdlc",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"No \u2014 migrate host logic in this pipeline\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:21.542500Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-12",
+      "question": "/sdlc wall-clock thresholds (3 min stall, 10 min silent agent, 60 min long-running phase): when / if they migrate to the overseer, should the thresholds change?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Keep identical \u2014 same numeric thresholds, just moved across the process boundary",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Make configurable per-pipeline via PipelineConfig (default to current values)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Revise numbers as part of migration \u2014 human to specify in plan phase",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Defer until the migration pipeline",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Make configurable per-pipeline via PipelineConfig (default to current values)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:21.563062Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-13",
+      "question": "Coordination with #1806 (overseer vs. `deployment-diagnose` / `agent-diagnose` skills overlap)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Proceed independently \u2014 let #1806 adapt to whatever auto-issue policy lands here",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Coordinate \u2014 resolve the overlap question in #1806 first (or as a blocking decision) before finalizing auto-issue scope",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Absorb part of #1806 into this pipeline \u2014 pick a consolidation stance now",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Proceed independently \u2014 let #1806 adapt to whatever auto-issue policy lands here\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:21.586657Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-14",
+      "question": "Coordination with #1786 (per-role PATH restriction): should this pipeline also bake in overseer PATH restrictions for any new CLI verb (`egg-orch overseer file-issue`)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "No \u2014 wait for #1786 to ship on its own; use server-side gateway enforcement only",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Yes \u2014 pre-allocate a role-specific PATH entry as part of this pipeline",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Add a gateway allowlist rule now, defer PATH restructuring to #1786",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Add a gateway allowlist rule now, defer PATH restructuring to #1786\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:21.678417Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-15",
+      "question": "Coordination with #1902 (overseer file-boundary policy): should this pipeline expand `OVERSEER_PATTERNS` to allow writes under `.egg-state/oversight/` for filed-issue dedup state?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Yes \u2014 expand OVERSEER_PATTERNS allowlist to include the chosen dedup state file",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "No \u2014 use an orchestrator-side store instead; overseer never writes dedup state locally",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Defer \u2014 decide during plan phase based on the chosen dedup-storage option (decision-6)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Defer \u2014 decide during plan phase based on the chosen dedup-storage option (decision-6)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:21.777385Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-16",
+      "question": "If host\u2192overseer migration is in scope (decision-11 = No or Partial), where does the cross-cycle agent-timing state live (currently /sdlc's in-memory map of {role: {phase, phase_entered_at, nudged_at, first_seen_at, has_any_messages}})?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "In the overseer only \u2014 phase-scoped, lost on phase transition / overseer respawn",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "In the orchestrator's health_monitor \u2014 persistent across phases / respawns",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "In `.egg-state/oversight/agent-timing.json` \u2014 persistent, phase-scoped, overseer-owned",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "N/A \u2014 thread 3 deferred per decision-11",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"In `.egg-state/oversight/agent-timing.json` \u2014 persistent, phase-scoped, overseer-owned\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:21.831201Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-17",
+      "question": "Confirm the resolved label preference for overseer-filed issues: use the existing `agent:overseer` label + the matching priority label (`p0`/`p1`/`p2`/`p3`) only, with NO new labels (no `egg:diagnostic`, `pipeline-health`, `overseer-alert`, `overseer-opened`)? (Pre-refine notes already locked this in; this decision exists because none of `decision-7`'s options match.)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Confirm \u2014 agent:overseer + priority label only, no new labels",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Override \u2014 also create new labels (specify in 'Other')",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Override \u2014 different label set entirely (specify in 'Other')",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Confirm \u2014 agent:overseer + priority label only, no new labels\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:21.909271Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-18",
+      "question": "Advisor trigger calibration: what signal(s) should gate invocation of the heavy-tier (Opus) advisor inside the overseer's existing Haiku-classify loop? (The advisor strategy bounds cost by only calling Opus when Haiku flags a candidate.)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Haiku confidence > threshold (e.g., 0.8) on any anomaly classification",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Specific anomaly types only (e.g., agent-loop, persistent-error, stuck-phase-transition) regardless of confidence",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "N consecutive cycles with the same Haiku flag (e.g., 2 of 2) \u2014 matches existing `agent-loop` precedent",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Intersection: Haiku confidence > threshold AND Tier-1 health alert present (matches the #2012 gate pattern)",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Defer to plan phase (spike calibration data first)",
+          "description": null
+        },
+        {
+          "id": "opt-6",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Intersection: Haiku confidence > threshold AND Tier-1 health alert present (matches the #2012 gate pattern)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:21.930306Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-19",
+      "question": "Advisor budget: what cap should bound Opus advisor calls (and how should it interact with the existing `max_llm_cost_per_hour=$5.00` budget at `sandbox/agent-config/rules/overseer.md:214`)?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Per-phase cap: e.g., `overseer_advisor_max_uses_per_phase=3` (mirrors `overseer_max_cycles_before_re_alert` precedent)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Per-pipeline cap: aggregate across all phases of the pipeline (e.g., 5)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Daily cap: per overseer-role consumer-id per UTC day (e.g., 50)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Hybrid: per-phase floor + dollar-budget ceiling (cap stays inside the existing `max_llm_cost_per_hour`)",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Defer to plan phase \u2014 measure first, set cap second",
+          "description": null
+        },
+        {
+          "id": "opt-6",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Other: no cap for now \u2014 we'll handle budget separately. A follow-up issue will be filed to track advisor budget specifically.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:13:26.970685Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-20",
+      "question": "Prompt contract: what exactly does the executor (Haiku) hand the advisor (Opus) when it invokes? This affects token cost AND advisor accuracy.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Raw cycle output: the full JSON line from `overseer_monitor.py --once` plus container logs snapshot",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Classification result only: just the Haiku verdict (type, confidence, reasoning)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Distilled summary: classification + last N progress events + active health alerts + last K log lines",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Native `advisor_20260301` shared-context (Anthropic auto-routes; no manual construction \u2014 only viable if Option A on `decision-23`)",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Defer to plan phase (spec depends on Option A vs B on `decision-23`)",
+          "description": null
+        },
+        {
+          "id": "opt-6",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Distilled summary: classification + last N progress events + active health alerts + last K log lines\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:15:23.127248Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-21",
+      "question": "Auto-issue gate placement: where does the final \"file an issue Y/N\" decision live?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Advisor decides directly: Opus returns `file=true|false`; overseer files immediately if true (subject to dedup + budget)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Advisor recommends: Opus returns `recommendation=file_issue` inside an `OVERSEER_ALERT`; the existing alert flow surfaces it; the human gates the actual filing",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Advisor decides for a subset (e.g., systemic / repeated anomalies); for novel anomalies, the advisor recommends only and the human gates",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Defer to plan phase \u2014 ties together with rollout (decision-10/decision-22)",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Advisor recommends: Opus returns `recommendation=file_issue` inside an `OVERSEER_ALERT`; the existing alert flow surfaces it; the human gates the actual filing\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:15:23.156512Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-22",
+      "question": "Host-migration sequencing within this pipeline (host \u2192 overseer migration is in scope per pre-refine notes). Should the implement phase ship one PR with everything, or split?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "One PR \u2014 architecture change + auto-issue + host migration land together (highest review cohesion, biggest review burden)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Two PRs \u2014 (1) advisor + auto-issue, (2) host migration (smaller per-PR diff; risk of host-migration getting deprioritized)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Three PRs \u2014 (1) advisor wiring + escalation tuning, (2) auto-issue filing, (3) host migration (smallest per-PR diff; coordination overhead)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Defer the sequencing decision to the planner once full scope is known",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"One PR \u2014 architecture change + auto-issue + host migration land together (highest review cohesion, biggest review burden)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:15:23.183659Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-23",
+      "question": "Native `advisor_20260301` tool vs. two-call pattern: which implementation should the executor \u2192 advisor handoff use? (See Recommended Approach: Option A = native advisor tool, Option B = two `run_agent_async` calls, Option C = capability-spike then choose.)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Option C (recommended) \u2014 capability-spike vendored `claude-agent-sdk` in plan phase; if `advisor_20260301` is supported, ship Option A; else ship Option B",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Option A \u2014 commit now to the native advisor tool; require SDK upgrade if needed",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Option B \u2014 commit now to the two-call pattern; ignore the native tool",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Defer to plan phase entirely \u2014 don't even pre-spike",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Option C (recommended) \u2014 capability-spike vendored `claude-agent-sdk` in plan phase; if `advisor_20260301` is supported, ship Option A; else ship Option B\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:15:23.208184Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-24",
+      "question": "Open feedback request feedback-1",
+      "type": "hitl",
+      "phase": null,
+      "options": [],
+      "resolved": true,
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Concrete false-positive classes to tighten: (a) `agent-heartbeat-stall` fires during legitimate file-reading/research time \u2014 observed during this very pipeline at 3.5min into refine while refiner was actively reading source files; (b) `stuck-phase-transition` reads stale contract state from a prior cancelled run and misdiagnoses \u2014 observed when the alert claimed 'reviewer silent for 5+min' AFTER the reviewer had already sent a substantive NACK; (c) #1722-style stale `AGENT_FAILED` after phase restart misdiagnosed as deadlock; (d) #1727-style early-exit respawn in fresh pipeline. The Tier-1 intersection gate chosen in decision-19 directly addresses (a) and (b) by requiring a Tier-1 health alert before invoking Opus; (c) and (d) stay in their own pipelines and link as calibration context.\", \"Q2\": \"60s for `stuck-phase-transition` is too tight for refine \u2014 legitimate refiner work on a complex multi-thread issue can take 5\u201310+ minutes (this pipeline's refine ran 22m total, with one PROPOSED\u2192re-review cycle taking ~5m on its own). Recommended: bump the default to ~180s and/or make the threshold per-phase configurable via PipelineConfig. The `agent-loop` Haiku confidence > 0.8 across 2 consecutive cycles is reasonable; leave it. `overseer_max_cycles_before_re_alert=3` is reasonable; leave it.\", \"Q3\": \"No cap on auto-filed issues. Dedup (decision-6: per-repo search by `agent:overseer` + anomaly-type signature) is sufficient. Don't add a per-pipeline / per-phase numeric cap; it would create another tunable that drifts out of calibration over time.\", \"Q4\": \"Gateway policy for `gh issue create` from the overseer role: (a) auto-inject required labels (`agent:overseer` + matching priority label) so the overseer cannot omit them; (b) size limits \u2014 title \u2264120 chars, body \u226450 KB; (d) allowed repos = the pipeline's own repo only (no cross-repo filing). NO rate-limit \u2014 drop (c). Dedup + the shadow-mode rollout (decision-11) are the rate-limiting controls.\", \"Q5\": \"/sdlc becomes a thin reporter when host\u2192overseer migration is in scope. /sdlc keeps: (a) surfacing alerts as a passive dashboard, (b) HITL decision handling (`pending_decisions` surfacing), (c) Phase-5 final-handoff prompts. The AskUserQuestion side flows currently in `/sdlc` ('Check agent logs', 'Nudge agent', 'Restart pipeline') become overseer-initiated: the overseer does the diagnostic work and surfaces findings in `OVERSEER_ALERT.detail`, which /sdlc displays. Stall / silent-agent / NACK / long-run / stuck-pipeline-rescue detection logic and the in-memory `{role: {phase, phase_entered_at, \u2026}}` state map all move into the overseer.\", \"Q6\": \"Success criteria \u2014 a small basket of observable signals: (a) zero repeat same-anomaly alerts per pipeline (dedup works correctly); (b) \u226570% of `OVERSEER_ALERT` messages acknowledged or actioned by the human (not dismissed as noise); (c) of human-approved auto-file recommendations, \u226570% are accepted (not closed as invalid); (d) net reduction in /sdlc HITL prompts per pipeline since the side-flow prompts move out.\", \"Q7\": \"Two additional constraints to bake into the plan: (a) use `gh` CLI via the gateway (not a GitHub App) \u2014 matches existing patterns; the gateway already mediates `gh` for refiners and coders, so the overseer role just needs a parallel allow-rule. (b) For the shadow-mode rollout chosen in decision-11, the human's 'should I file this issue?' approval surfaces in /sdlc via the existing `pending_decisions` flow \u2014 don't invent a new HITL channel. The advisor returns `recommendation=file_issue` (decision-22), the overseer wraps it in an OVERSEER_ALERT, and the alert flow + a follow-up HITL decision is the path; the existing `provide_input` plumbing handles the rest.\"}}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T18:20:03.101060Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-25",
+      "question": "[Phase gate: plan] The plan phase has completed. Please review the plan and approve to continue, or provide feedback to request changes.",
+      "type": "hitl",
+      "phase": null,
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "approve",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "request changes",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "Approved as-is. Note for record: TASK-1-2's `overseer_advisor_model: str = \"claude-opus-4-6\"` is a pinned snapshot, not the alias `\"opus\"` the operator preference calls for; this was an artifact of the reviewer_plan NACK recommending the resolved snapshot rather than the alias. Codebase-wide de-pin audit is tracked in #2081 and will catch this on the broader sweep.",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T20:59:25.809457Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-26",
+      "question": "Coder needs guidance on the new shared package's name (issue #1962, blocker raised by reviewer_contract).\n\nThe plan's TASK-1-5 acceptance reads `from shared.overseer.advisor import consult_advisor` (and similar for the other modules). The implementer placed the package at `shared/egg_overseer/` and imports as `egg_overseer.*` because the existing convention is `egg_*` (matches `egg_orchestrator`, `egg_health`, `egg_agent`, etc.) and because at runtime `/opt/egg-runtime/shared/` is on PYTHONPATH (not its parent), so `from shared.overseer.*` would not resolve in the sandbox.\n\nThe reviewer_contract NACK correctly notes that downstream tasks (TASK-7-3, TASK-7-8, TASK-5-1, TASK-8-1) reference the planner's `shared.overseer.*` import path verbatim and will not match the implementation as-is.\n\nThree options:\n1. Keep `shared/egg_overseer/` (current implementation), amend the plan/downstream tasks to use `egg_overseer.*` import paths. This matches existing codebase convention.\n2. Rename to `shared/overseer/` AND add `shared/__init__.py` to make `shared` a real package, AND update the runtime PYTHONPATH wiring so `from shared.overseer.*` works in the sandbox container.\n3. Keep `shared/egg_overseer/` with no plan amendment; treat the planner's `shared.overseer.*` paths as a typo and have the documenter/tester translate at write time.",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Keep shared/egg_overseer/ (recommended) \u2014 amend plan to use egg_overseer.* import paths",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Rename to shared/overseer/ + add shared/__init__.py + update PYTHONPATH",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Keep shared/egg_overseer/ with no amendment; downstream agents translate at write time",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
+  "workflow_owner": null,
+  "audit_log": [
+    {
+      "timestamp": "2026-04-24T18:13:59.647800Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-1",
+        "question": "Scope split: how should the three threads in this issue (escalation tuning, auto-issue filing, host\u2192overseer migration) be packaged?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Option B (recommended) \u2014 one pipeline for escalation tuning + auto-issue filing; host migration as a follow-up issue",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Option A \u2014 single pipeline covering all three threads",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Option C \u2014 three separate pipelines, one per thread",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Option D \u2014 narrow this pipeline to auto-issue filing only; both other threads become follow-ups",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Scope split: how should the three threads in this ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T18:14:04.058835Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-2",
+        "question": "Sub-agent launching by the overseer (the speculative capability in the issue body): in scope for this pipeline or deferred?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Deferred \u2014 file a follow-up issue, out of scope here",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "In scope \u2014 design a sub-agent-launch capability in this pipeline",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Sub-agent launching by the overseer (the speculati...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T18:14:08.903062Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-3",
+        "question": "Should this pipeline also address related overseer bugs (#1722 stale AGENT_FAILED misdiagnosis, #1727 early-exit respawn), or leave them to their own pipelines?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Leave them in their own pipelines \u2014 link as context only",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Absorb #1722 into this pipeline (it is a p1 false-positive case)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Absorb both #1722 and #1727 into this pipeline",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Absorb only #1727",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Should this pipeline also address related overseer...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T18:14:15.220269Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-4",
+        "question": "Auto-issue filing policy: what qualifies for the overseer to auto-file a GitHub issue?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Persistent / systemic only \u2014 same anomaly across N cycles AND clear orchestrator/agent-code bug signals",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "All priority=high OVERSEER_ALERTs with dedup on anomaly type within pipeline",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Sonnet-gated per-anomaly rubric \u2014 LLM decides case-by-case",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Hybrid \u2014 systemic criteria as the floor, Sonnet gate above it",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Auto-issue filing policy: what qualifies for the o...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T18:14:27.972632Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-5",
+        "question": "Auto-issue dedup scope: when the overseer considers filing, what window should it search to avoid duplicates?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Per pipeline \u2014 dedup only against this pipeline's prior filings",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Per repo \u2014 search all open overseer-filed issues across the repo by anomaly label",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Global \u2014 search across all open issues, including human-filed ones, by label + title fuzzy match",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "No dedup \u2014 file every time; accept some duplication risk",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Auto-issue dedup scope: when the overseer consider...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T18:14:34.072034Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-6",
+        "question": "Dedup state storage: where does the overseer remember issues it has already filed?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "In-process only \u2014 each phase's overseer starts fresh; rely on GitHub search each time",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Persisted to .egg-state/oversight/filed-issues.json so respawns/new phases remember",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Persisted via orchestrator REST endpoint (central store); overseer asks 'have I filed this?' before filing",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Hybrid \u2014 persist locally AND verify via GitHub search before filing",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Dedup state storage: where does the overseer remem...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T18:14:39.731167Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-7",
+        "question": "Label convention for overseer-filed issues: which label set should we standardize on?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Use existing dead-code convention: `egg:diagnostic` + `pipeline-health` + anomaly-type label",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Use docs convention: `overseer-alert` + category label (e.g., `stall`, `repeated-error`)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Use pre-refine-notes convention: `overseer-opened` + anomaly-type label + pipeline-id link in body",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "New naming \u2014 propose in 'Other' (explain in reply)",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Label convention for overseer-filed issues: which ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T18:14:46.404166Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.7",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-8",
+        "question": "Issue body template: keep the existing `## Pipeline Diagnostic: ...` template at orchestrator/overseer/issue_filer.py:86-107, or redesign?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Keep existing template (pipeline + phase + agent + timeline + classification + actions + logs + remediation)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Extend the existing template with explicit links (pipeline ID, phase, branch, commit SHA, parent-alert message ID)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Redesign \u2014 draft a new template in the plan phase",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Issue body template: keep the existing `## Pipelin...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T18:14:53.448228Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.8",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-9",
+        "question": "Who actually runs `gh issue create` for an overseer-filed issue?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Agent-side overseer runs it in its sandbox via a new `egg-orch overseer file-issue` CLI verb",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Orchestrator-side \u2014 new REST endpoint; server runs `gh` with its own credentials; overseer POSTs payload",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Hybrid \u2014 overseer composes body, orchestrator files it; orchestrator enforces central rate-limit / dedup policy",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Reuse the existing dead-code `file_diagnostic_issue` path by instantiating OverseerMonitor in production",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Who actually runs `gh issue create` for an oversee...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T18:14:59.491268Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.9",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-10",
+        "question": "Rollout mode for auto-issue filing: should it start in shadow mode or go live directly?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Shadow mode first \u2014 overseer composes issue body but raises a HITL decision 'should I file this?'; human approves; flip to live after a trial period",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Live directly \u2014 ship with dedup + per-pipeline cap; iterate on policy via actual issues filed",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Feature flag \u2014 ship live but gated by config `overseer_auto_file_issues` (default off) for a release",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Rollout mode for auto-issue filing: should it star...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T18:15:05.450564Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.10",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-11",
+        "question": "Defer the host\u2192overseer migration (thread 3) to a follow-up issue (confirming Option B recommendation)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Yes \u2014 file a follow-up issue; keep this pipeline scoped to escalation tuning + auto-issue filing",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "No \u2014 migrate host logic in this pipeline",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Partial \u2014 migrate only stall/NACK detection; leave long-running-phase + stuck-pipeline-rescue with /sdlc",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Defer the host\u2192overseer migration (thread 3) to a ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T18:15:11.654517Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.11",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-12",
+        "question": "/sdlc wall-clock thresholds (3 min stall, 10 min silent agent, 60 min long-running phase): when / if they migrate to the overseer, should the thresholds change?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Keep identical \u2014 same numeric thresholds, just moved across the process boundary",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Make configurable per-pipeline via PipelineConfig (default to current values)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Revise numbers as part of migration \u2014 human to specify in plan phase",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Defer until the migration pipeline",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: /sdlc wall-clock thresholds (3 min stall, 10 min s...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T18:15:17.249164Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.12",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-13",
+        "question": "Coordination with #1806 (overseer vs. `deployment-diagnose` / `agent-diagnose` skills overlap)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Proceed independently \u2014 let #1806 adapt to whatever auto-issue policy lands here",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Coordinate \u2014 resolve the overlap question in #1806 first (or as a blocking decision) before finalizing auto-issue scope",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Absorb part of #1806 into this pipeline \u2014 pick a consolidation stance now",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Coordination with #1806 (overseer vs. `deployment-...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T18:15:23.340870Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.13",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-14",
+        "question": "Coordination with #1786 (per-role PATH restriction): should this pipeline also bake in overseer PATH restrictions for any new CLI verb (`egg-orch overseer file-issue`)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "No \u2014 wait for #1786 to ship on its own; use server-side gateway enforcement only",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Yes \u2014 pre-allocate a role-specific PATH entry as part of this pipeline",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Add a gateway allowlist rule now, defer PATH restructuring to #1786",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Coordination with #1786 (per-role PATH restriction...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T18:15:41.206668Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.14",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-15",
+        "question": "Coordination with #1902 (overseer file-boundary policy): should this pipeline expand `OVERSEER_PATTERNS` to allow writes under `.egg-state/oversight/` for filed-issue dedup state?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Yes \u2014 expand OVERSEER_PATTERNS allowlist to include the chosen dedup state file",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "No \u2014 use an orchestrator-side store instead; overseer never writes dedup state locally",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Defer \u2014 decide during plan phase based on the chosen dedup-storage option (decision-6)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Coordination with #1902 (overseer file-boundary po...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T18:15:47.923525Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.15",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-16",
+        "question": "If host\u2192overseer migration is in scope (decision-11 = No or Partial), where does the cross-cycle agent-timing state live (currently /sdlc's in-memory map of {role: {phase, phase_entered_at, nudged_at, first_seen_at, has_any_messages}})?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "In the overseer only \u2014 phase-scoped, lost on phase transition / overseer respawn",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "In the orchestrator's health_monitor \u2014 persistent across phases / respawns",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "In `.egg-state/oversight/agent-timing.json` \u2014 persistent, phase-scoped, overseer-owned",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "N/A \u2014 thread 3 deferred per decision-11",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: If host\u2192overseer migration is in scope (decision-1...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-24T18:16:05.714881Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Which specific escalation triggers in the overseer today (`sandbox/agent-config/rules/overseer.md:142-153`) need tightening? Please list the concrete false-positive / false-negative patterns you want fixed (e.g., #1722-style stale AGENT_FAILED, long legitimate test runs flagged as stalls, specific 401 patterns that should/shouldn't escalate, etc.).",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Baseline thresholds in `overseer.md` \u2014 are any of these values wrong: ~60s for `stuck-phase-transition`, Haiku loop-detection confidence >0.8 across 2 consecutive cycles for `agent-loop`, `overseer_max_cycles_before_re_alert=3`? If so, what should they be and why?",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "Per-pipeline cap on auto-filed issues \u2014 is there a maximum (e.g., 1 per phase, 3 per pipeline) beyond which the overseer should stop filing and escalate via HITL instead? If yes, what cap?",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "Gateway policy for `gh issue create` from the overseer role \u2014 what constraints should the gateway enforce (required labels auto-injected, title/body size limits, rate-limit, allowed repos only, etc.)?",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "If thread 3 (host\u2192overseer migration) ends up in scope, what must stay in `/sdlc`? The issue says 'report what's going on' and 'manage HITL decisions' \u2014 does that include user-facing `AskUserQuestion` options like 'Check agent logs' / 'Nudge agent' / 'Restart pipeline', or do those become overseer-initiated with the host only displaying a passive dashboard + HITL prompts?",
+            "answer": null
+          },
+          {
+            "id": "Q6",
+            "question": "Success criteria for 'the overseer is now escalating well' \u2014 what metric or observable signal counts? E.g., zero repeat same-anomaly alerts per pipeline, >X% of OVERSEER_ALERTs acknowledged by human, auto-filed issues accepted (not closed as invalid) at >Y rate, something else?",
+            "answer": null
+          },
+          {
+            "id": "Q7",
+            "question": "Any additional constraints or preferences not covered by the decisions above (e.g., GitHub App vs. `gh` CLI for filing, required approvers for auto-filed issues, notification routing beyond Slack, etc.)?",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 7 question(s)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T17:13:00.379416Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.16",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-17",
+        "question": "Confirm the resolved label preference for overseer-filed issues: use the existing `agent:overseer` label + the matching priority label (`p0`/`p1`/`p2`/`p3`) only, with NO new labels (no `egg:diagnostic`, `pipeline-health`, `overseer-alert`, `overseer-opened`)? (Pre-refine notes already locked this in; this decision exists because none of `decision-7`'s options match.)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Confirm \u2014 agent:overseer + priority label only, no new labels",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Override \u2014 also create new labels (specify in 'Other')",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Override \u2014 different label set entirely (specify in 'Other')",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Confirm the resolved label preference for overseer...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T17:13:00.432979Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.17",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-18",
+        "question": "Advisor trigger calibration: what signal(s) should gate invocation of the heavy-tier (Opus) advisor inside the overseer's existing Haiku-classify loop? (The advisor strategy bounds cost by only calling Opus when Haiku flags a candidate.)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Haiku confidence > threshold (e.g., 0.8) on any anomaly classification",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Specific anomaly types only (e.g., agent-loop, persistent-error, stuck-phase-transition) regardless of confidence",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "N consecutive cycles with the same Haiku flag (e.g., 2 of 2) \u2014 matches existing `agent-loop` precedent",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Intersection: Haiku confidence > threshold AND Tier-1 health alert present (matches the #2012 gate pattern)",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Defer to plan phase (spike calibration data first)",
+            "description": null
+          },
+          {
+            "id": "opt-6",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Advisor trigger calibration: what signal(s) should...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T17:13:14.067950Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.18",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-19",
+        "question": "Advisor budget: what cap should bound Opus advisor calls (and how should it interact with the existing `max_llm_cost_per_hour=$5.00` budget at `sandbox/agent-config/rules/overseer.md:214`)?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Per-phase cap: e.g., `overseer_advisor_max_uses_per_phase=3` (mirrors `overseer_max_cycles_before_re_alert` precedent)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Per-pipeline cap: aggregate across all phases of the pipeline (e.g., 5)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Daily cap: per overseer-role consumer-id per UTC day (e.g., 50)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Hybrid: per-phase floor + dollar-budget ceiling (cap stays inside the existing `max_llm_cost_per_hour`)",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Defer to plan phase \u2014 measure first, set cap second",
+            "description": null
+          },
+          {
+            "id": "opt-6",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Advisor budget: what cap should bound Opus advisor...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T17:13:14.121756Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.19",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-20",
+        "question": "Prompt contract: what exactly does the executor (Haiku) hand the advisor (Opus) when it invokes? This affects token cost AND advisor accuracy.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Raw cycle output: the full JSON line from `overseer_monitor.py --once` plus container logs snapshot",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Classification result only: just the Haiku verdict (type, confidence, reasoning)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Distilled summary: classification + last N progress events + active health alerts + last K log lines",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Native `advisor_20260301` shared-context (Anthropic auto-routes; no manual construction \u2014 only viable if Option A on `decision-23`)",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Defer to plan phase (spec depends on Option A vs B on `decision-23`)",
+            "description": null
+          },
+          {
+            "id": "opt-6",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Prompt contract: what exactly does the executor (H...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T17:13:27.286483Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.20",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-21",
+        "question": "Auto-issue gate placement: where does the final \"file an issue Y/N\" decision live?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Advisor decides directly: Opus returns `file=true|false`; overseer files immediately if true (subject to dedup + budget)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Advisor recommends: Opus returns `recommendation=file_issue` inside an `OVERSEER_ALERT`; the existing alert flow surfaces it; the human gates the actual filing",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Advisor decides for a subset (e.g., systemic / repeated anomalies); for novel anomalies, the advisor recommends only and the human gates",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Defer to plan phase \u2014 ties together with rollout (decision-10/decision-22)",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Auto-issue gate placement: where does the final \"f...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T17:13:27.352420Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.21",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-22",
+        "question": "Host-migration sequencing within this pipeline (host \u2192 overseer migration is in scope per pre-refine notes). Should the implement phase ship one PR with everything, or split?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "One PR \u2014 architecture change + auto-issue + host migration land together (highest review cohesion, biggest review burden)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Two PRs \u2014 (1) advisor + auto-issue, (2) host migration (smaller per-PR diff; risk of host-migration getting deprioritized)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Three PRs \u2014 (1) advisor wiring + escalation tuning, (2) auto-issue filing, (3) host migration (smallest per-PR diff; coordination overhead)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Defer the sequencing decision to the planner once full scope is known",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Host-migration sequencing within this pipeline (ho...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T17:13:36.705008Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.22",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-23",
+        "question": "Native `advisor_20260301` tool vs. two-call pattern: which implementation should the executor \u2192 advisor handoff use? (See Recommended Approach: Option A = native advisor tool, Option B = two `run_agent_async` calls, Option C = capability-spike then choose.)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Option C (recommended) \u2014 capability-spike vendored `claude-agent-sdk` in plan phase; if `advisor_20260301` is supported, ship Option A; else ship Option B",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Option A \u2014 commit now to the native advisor tool; require SDK upgrade if needed",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Option B \u2014 commit now to the two-call pattern; ignore the native tool",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Defer to plan phase entirely \u2014 don't even pre-spike",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Native `advisor_20260301` tool vs. two-call patter...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-25T21:47:47.378488Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.25",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-26",
+        "question": "Coder needs guidance on the new shared package's name (issue #1962, blocker raised by reviewer_contract).\n\nThe plan's TASK-1-5 acceptance reads `from shared.overseer.advisor import consult_advisor` (and similar for the other modules). The implementer placed the package at `shared/egg_overseer/` and imports as `egg_overseer.*` because the existing convention is `egg_*` (matches `egg_orchestrator`, `egg_health`, `egg_agent`, etc.) and because at runtime `/opt/egg-runtime/shared/` is on PYTHONPATH (not its parent), so `from shared.overseer.*` would not resolve in the sandbox.\n\nThe reviewer_contract NACK correctly notes that downstream tasks (TASK-7-3, TASK-7-8, TASK-5-1, TASK-8-1) reference the planner's `shared.overseer.*` import path verbatim and will not match the implementation as-is.\n\nThree options:\n1. Keep `shared/egg_overseer/` (current implementation), amend the plan/downstream tasks to use `egg_overseer.*` import paths. This matches existing codebase convention.\n2. Rename to `shared/overseer/` AND add `shared/__init__.py` to make `shared` a real package, AND update the runtime PYTHONPATH wiring so `from shared.overseer.*` works in the sandbox container.\n3. Keep `shared/egg_overseer/` with no plan amendment; treat the planner's `shared.overseer.*` paths as a typo and have the documenter/tester translate at write time.",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Keep shared/egg_overseer/ (recommended) \u2014 amend plan to use egg_overseer.* import paths",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Rename to shared/overseer/ + add shared/__init__.py + update PYTHONPATH",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Keep shared/egg_overseer/ with no amendment; downstream agents translate at write time",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Coder needs guidance on the new shared package's n...",
+      "checkpoint_id": null
+    }
+  ],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Which specific escalation triggers in the overseer today (`sandbox/agent-config/rules/overseer.md:142-153`) need tightening? Please list the concrete false-positive / false-negative patterns you want fixed (e.g., #1722-style stale AGENT_FAILED, long legitimate test runs flagged as stalls, specific 401 patterns that should/shouldn't escalate, etc.).",
+        "answer": "Concrete false-positive classes to tighten: (a) `agent-heartbeat-stall` fires during legitimate file-reading/research time \u2014 observed during this very pipeline at 3.5min into refine while refiner was actively reading source files; (b) `stuck-phase-transition` reads stale contract state from a prior cancelled run and misdiagnoses \u2014 observed when the alert claimed 'reviewer silent for 5+min' AFTER the reviewer had already sent a substantive NACK; (c) #1722-style stale `AGENT_FAILED` after phase restart misdiagnosed as deadlock; (d) #1727-style early-exit respawn in fresh pipeline. The Tier-1 intersection gate chosen in decision-19 directly addresses (a) and (b) by requiring a Tier-1 health alert before invoking Opus; (c) and (d) stay in their own pipelines and link as calibration context."
+      },
+      {
+        "id": "Q2",
+        "question": "Baseline thresholds in `overseer.md` \u2014 are any of these values wrong: ~60s for `stuck-phase-transition`, Haiku loop-detection confidence >0.8 across 2 consecutive cycles for `agent-loop`, `overseer_max_cycles_before_re_alert=3`? If so, what should they be and why?",
+        "answer": "60s for `stuck-phase-transition` is too tight for refine \u2014 legitimate refiner work on a complex multi-thread issue can take 5\u201310+ minutes (this pipeline's refine ran 22m total, with one PROPOSED\u2192re-review cycle taking ~5m on its own). Recommended: bump the default to ~180s and/or make the threshold per-phase configurable via PipelineConfig. The `agent-loop` Haiku confidence > 0.8 across 2 consecutive cycles is reasonable; leave it. `overseer_max_cycles_before_re_alert=3` is reasonable; leave it."
+      },
+      {
+        "id": "Q3",
+        "question": "Per-pipeline cap on auto-filed issues \u2014 is there a maximum (e.g., 1 per phase, 3 per pipeline) beyond which the overseer should stop filing and escalate via HITL instead? If yes, what cap?",
+        "answer": "No cap on auto-filed issues. Dedup (decision-6: per-repo search by `agent:overseer` + anomaly-type signature) is sufficient. Don't add a per-pipeline / per-phase numeric cap; it would create another tunable that drifts out of calibration over time."
+      },
+      {
+        "id": "Q4",
+        "question": "Gateway policy for `gh issue create` from the overseer role \u2014 what constraints should the gateway enforce (required labels auto-injected, title/body size limits, rate-limit, allowed repos only, etc.)?",
+        "answer": "Gateway policy for `gh issue create` from the overseer role: (a) auto-inject required labels (`agent:overseer` + matching priority label) so the overseer cannot omit them; (b) size limits \u2014 title \u2264120 chars, body \u226450 KB; (d) allowed repos = the pipeline's own repo only (no cross-repo filing). NO rate-limit \u2014 drop (c). Dedup + the shadow-mode rollout (decision-11) are the rate-limiting controls."
+      },
+      {
+        "id": "Q5",
+        "question": "If thread 3 (host\u2192overseer migration) ends up in scope, what must stay in `/sdlc`? The issue says 'report what's going on' and 'manage HITL decisions' \u2014 does that include user-facing `AskUserQuestion` options like 'Check agent logs' / 'Nudge agent' / 'Restart pipeline', or do those become overseer-initiated with the host only displaying a passive dashboard + HITL prompts?",
+        "answer": "/sdlc becomes a thin reporter when host\u2192overseer migration is in scope. /sdlc keeps: (a) surfacing alerts as a passive dashboard, (b) HITL decision handling (`pending_decisions` surfacing), (c) Phase-5 final-handoff prompts. The AskUserQuestion side flows currently in `/sdlc` ('Check agent logs', 'Nudge agent', 'Restart pipeline') become overseer-initiated: the overseer does the diagnostic work and surfaces findings in `OVERSEER_ALERT.detail`, which /sdlc displays. Stall / silent-agent / NACK / long-run / stuck-pipeline-rescue detection logic and the in-memory `{role: {phase, phase_entered_at, \u2026}}` state map all move into the overseer."
+      },
+      {
+        "id": "Q6",
+        "question": "Success criteria for 'the overseer is now escalating well' \u2014 what metric or observable signal counts? E.g., zero repeat same-anomaly alerts per pipeline, >X% of OVERSEER_ALERTs acknowledged by human, auto-filed issues accepted (not closed as invalid) at >Y rate, something else?",
+        "answer": "Success criteria \u2014 a small basket of observable signals: (a) zero repeat same-anomaly alerts per pipeline (dedup works correctly); (b) \u226570% of `OVERSEER_ALERT` messages acknowledged or actioned by the human (not dismissed as noise); (c) of human-approved auto-file recommendations, \u226570% are accepted (not closed as invalid); (d) net reduction in /sdlc HITL prompts per pipeline since the side-flow prompts move out."
+      },
+      {
+        "id": "Q7",
+        "question": "Any additional constraints or preferences not covered by the decisions above (e.g., GitHub App vs. `gh` CLI for filing, required approvers for auto-filed issues, notification routing beyond Slack, etc.)?",
+        "answer": "Two additional constraints to bake into the plan: (a) use `gh` CLI via the gateway (not a GitHub App) \u2014 matches existing patterns; the gateway already mediates `gh` for refiners and coders, so the overseer role just needs a parallel allow-rule. (b) For the shadow-mode rollout chosen in decision-11, the human's 'should I file this issue?' approval surfaces in /sdlc via the existing `pending_decisions` flow \u2014 don't invent a new HITL channel. The advisor returns `recommendation=file_issue` (decision-22), the overseer wraps it in an OVERSEER_ALERT, and the alert flow + a follow-up HITL decision is the path; the existing `provide_input` plumbing handles the rest."
+      }
+    ],
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-04-25T18:20:06.671139Z",
+    "comment_id": null,
+    "debounce_until": null
+  },
+  "phase_configs": null,
+  "agent_executions": []
+}

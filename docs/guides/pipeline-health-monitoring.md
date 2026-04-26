@@ -242,6 +242,14 @@ Tripwire thresholds are configurable in `PipelineConfig`:
 | `overseer_max_agent_restarts` | `2` | Maximum auto-restarts per agent per phase before escalating to HITL. The overseer reads the authoritative count from the spawner's REST API response (unified with all restart sources) rather than tracking independently |
 | `overseer_heartbeat_failures_before_restart` | `3` | Consecutive heartbeat failures before the overseer triggers an agent restart (default: 3) |
 | `overseer_nudge_timeout_before_restart_minutes` | `5` | Minutes to wait after sending a nudge with no response before triggering an agent restart |
+| `overseer_advisor_model` | `"opus"` | LLM model used by the Tier-2 advisor when Haiku flags an anomaly that intersects with a Tier-1 health alert. The default is the canonical `opus` alias (resolved by `shared/egg_harness/config.py` to the latest pinned Opus ID, currently Opus 4.6) so cost telemetry resolves correctly. See [Advisor Gate](#advisor-gate). |
+| `overseer_auto_file_issues_mode` | `"shadow"` | Auto-issue-filing mode: `shadow` surfaces the advisor's `recommendation=file_issue` as an `OVERSEER_ALERT` + HITL decision (the human approves before any `gh issue create` runs); `live` runs the same HITL flow but allows the CLI verb to file once approval lands. The HITL approval is *never* bypassed. To disable issue filing entirely, set `overseer_enabled=false`. |
+| `overseer_owns_host_detection` | `false` | Calibration-window flag for the host → overseer migration. While `false` (the default), the `/sdlc` host skill keeps its stall / silent-agent / NACK / long-running-phase / stuck-pipeline rescue detectors live. While `true`, those host detectors short-circuit and the overseer is the sole source of these alerts. See [Host Detector Migration](#host-detector-migration). |
+| `overseer_stuck_phase_transition_seconds` | `180` | Threshold (seconds) for the existing overseer `stuck-phase-transition` trigger (orchestrator-level signal). Raised from the previous hardcoded ~60s default per operator feedback during long phase transitions. |
+| `overseer_agent_stall_seconds` | `180` | Threshold (seconds) for the new `detect_agent_stall` detector migrated from `/sdlc` (per-agent elapsed-time signal). Distinct from `overseer_stuck_phase_transition_seconds` so the two anomalies can be tuned independently. |
+| `overseer_silent_agent_threshold_seconds` | `600` | Threshold (seconds) for the migrated `detect_agent_silent` detector (running agent with zero messages). Matches the previous `/sdlc` default. |
+| `overseer_long_running_phase_seconds` | `3600` | Threshold (seconds) for the migrated `detect_phase_long_running` detector during the implement phase. Matches the previous `/sdlc` default. |
+| `overseer_nack_unresolved_seconds` | `180` | Threshold (seconds) for the migrated `detect_nack_unresolved` detector (NACK outstanding without progress). Matches the previous `/sdlc` default. |
 
 ## Tier 2: Overseer Agent
 
@@ -407,9 +415,49 @@ Infrastructure errors can be detected by both Tier 1 (deterministic pattern matc
 
 When a Tier 1 `infrastructure_error` alert reaches the overseer monitor, it is routed directly to the decision maker with the infrastructure error classification pre-set, avoiding a redundant LLM classification call. This saves both latency and LLM cost.
 
-### Autonomous Issue Filing
+### Advisor Gate
 
-When the overseer files a GitHub issue (decided by the Sonnet/Opus tier), it uses a structured diagnostic template:
+Issue [#1962](https://github.com/jwbron/egg/issues/1962) introduces the **advisor strategy** for the overseer's decision tier: Haiku continues to drive every cycle (`max_turns=1`), and an Opus 4.6 advisor is invoked **only when both** of these conditions hold simultaneously:
+
+1. **Haiku flags an anomaly** with classification confidence ≥ 0.8.
+2. **A Tier-1 orchestrator health alert is currently active** (the same intersection precedent shipped in [#2012](https://github.com/jwbron/egg/issues/2012)).
+
+The intersection gate keeps the heavy-tier model out of every poll cycle while still giving the overseer an Opus-grade reasoner for the cases that warrant it. The advisor returns a structured `AdvisorVerdict` (`shared/egg_overseer/advisor.py`) with one of three decisions:
+
+| Decision | Effect |
+|----------|--------|
+| `watch` | Emit nothing this cycle. The intersection was suspicious enough to consult the advisor but not actionable. |
+| `alert` | Emit an `OVERSEER_ALERT` carrying the advisor's `alert_summary`, `alert_detail`, and translated `priority`. The advisor returns `priority` as `p0..p3`; `egg_overseer.priority.label_to_alert` maps to the alert verb's `low|medium|high` dimension. |
+| `file_issue` | Emit an `OVERSEER_ALERT` whose `recommendation=file_issue` carries a fully composed `issue_title` + `issue_body` + `priority` + `anomaly_signature` in `recommendation_payload`. The CLI verb is **not** invoked here — see [Auto-Issue Filing (Shadow vs Live)](#auto-issue-filing-shadow-vs-live). |
+
+The advisor is exposed to the sandbox as a CLI verb (`egg-orch overseer consult-advisor`); the handler at `sandbox/egg_lib/orch_cli.py::cmd_overseer_consult_advisor` calls `consult_advisor` from `shared/egg_overseer/advisor.py` directly. The underlying `run_agent_async` Opus call therefore runs sandbox-side and stays on the LLM-execution side of the EGG200 boundary documented in [agent-mode-design.md](agent-mode-design.md) — the orchestrator pod never holds Anthropic credentials. The CLI verb reads the keyword arguments (`classification`, `health_alerts`, `progress_events`, `recent_log_lines`) that comprise the executor → advisor prompt contract from a JSON file passed via `--inputs-file`.
+
+**No advisor cap is enforced in this PR** — the existing `max_llm_cost_per_hour=$5` envelope at `sandbox/agent-config/rules/overseer.md` remains the only budget control. A follow-up issue tracks an `overseer_advisor_max_uses_per_phase` (or equivalent) knob if production data shows the cap is needed.
+
+### Auto-Issue Filing (Shadow vs Live)
+
+When the advisor returns `decision="file_issue"`, the overseer:
+
+1. **Composes the issue body** by calling `compose_issue_body(...)` from `sandbox/egg_lib/overseer_issue_body.py`. The body is built on the canonical template literal in `shared/egg_overseer/issue_template.py` (the byte-for-byte source preserved at `orchestrator/overseer/issue_filer.py:86-107` is kept as a regression anchor; the runtime renderer reads from the shared source). The composed body adds a "Pipeline Links" sub-block with branch URL, phase, branch name, commit SHA, and parent `OVERSEER_ALERT` message ID.
+2. **Scrubs secrets.** The body passes through `shared/egg_overseer/scrubbing.py`'s `scrub_secrets()` pass before the advisor returns its verdict. The pattern set covers GitHub PATs (`ghp_…`, `ghs_…`, `gho_…`, `ghu_…`, `ghr_…`), AWS access keys (`AKIA…`), Slack webhooks (`https://hooks.slack.com/services/…`), and `GITHUB_TOKEN=` / `GH_TOKEN=` / `ANTHROPIC_API_KEY=` env exports. Each match becomes `[REDACTED:<kind>]`. The gateway re-runs the same scan as defense-in-depth and **rejects** any body that still contains a secret pattern (which surfaces the advisor bug rather than silently scrubbing).
+3. **Emits `OVERSEER_ALERT` with top-level `recommendation="file_issue"`**, embedding the composed title and body in the top-level `recommendation_payload` field (sized ≤ 50 KB at the sandbox handler before the message reaches the bus). The fields are first-class optional on the `Message` envelope (`orchestrator/message_store.py`) — pre-#1962 alerts that don't set them serialize byte-identically thanks to `to_dict()` omitting unset values.
+4. **Surfaces a HITL decision** so the human approves before any `gh issue create` runs. This is true in both modes:
+   - `overseer_auto_file_issues_mode="shadow"` (the default rollout setting): the advisor's recommendation surfaces as an `OVERSEER_ALERT` + a `pending_decision` for the human; the human's approval triggers the `egg-orch overseer file-issue` verb.
+   - `overseer_auto_file_issues_mode="live"`: the same HITL flow still runs — `mode` only controls whether the CLI verb is allowed to call `gh` once approval lands.
+5. **Files the issue.** On HITL approval, the sandbox-side `egg-orch overseer file-issue` CLI verb runs `gh issue create` itself, mediated by the gateway. Issues land with the existing `agent:overseer` label plus the matching priority label (`p0`/`p1`/`p2`/`p3`) — no new labels are created. The title format embeds the first 8 hex characters of the anomaly signature: `[Pipeline Diagnostic] {anomaly_type} - {agent_role} [{anomaly_signature[:8]}]`.
+
+**Dedup before recommend.** The advisor MUST call `find_existing_issue(repo, anomaly_signature)` first; only if it returns `None` does it return `decision="file_issue"`. Dedup state lives in two places:
+
+- **Local fast path** — `.egg-state/oversight/filed-issues.jsonl` (append-only JSON Lines, header `{"_kind": "header", "schema_version": 1}` on line 1, one `FiledIssueRecord` per subsequent line). `append_filed_issue` and `load_filed_issues` acquire an `fcntl.LOCK_EX` flock on a per-state-file sentinel `.egg-state/oversight/filed-issues.jsonl.lock` (computed as `path.parent / f"{path.name}.lock"` by `_lock_path_for` — the agent-timing helpers do the same on `agent-timing.json.lock` for their state file; the two locks are independent). This file is **intra-phase only** — each phase spawns a fresh overseer container and `.egg-state/oversight/` is not preserved across phase boundaries.
+- **Cross-phase fallback** — `gh issue list --label agent:overseer --state open --search "{anomaly_signature[:8]}" --json number,title --limit 100`. The 8-char signature prefix embedded in the issue title makes this query reliable.
+
+The anomaly signature is computed deterministically by `egg_overseer.state.compute_anomaly_signature(anomaly_type, agent_role, repo, sorted(tier1_alert_types))` (SHA-1 of the concatenation, truncated to 16 hex characters; the first 8 chars travel in the title, all 16 in the dedup record). Tier-1 alert types participate in the signature so two genuinely different incidents that share `(anomaly_type, agent_role, repo)` but were triggered by different Tier-1 alerts (e.g., `agent-loop` on `coder` triggered by `heartbeat_timeout` vs by `repeated_error`) do not collapse onto the same signature.
+
+`HITL outcome tracking`. Each `FiledIssueRecord` records `hitl_outcome` (`filed`, `skipped`, `modified_and_filed`, or `null`) so that when the human declines a recommendation the overseer doesn't re-prompt on the same anomaly after a respawn. `skipped` records carry `issue_number=null` and dedup the recommendation for `hitl_skip_lookback_seconds` (default 86400).
+
+#### Diagnostic body template
+
+The advisor populates the canonical body template (frozen at `orchestrator/overseer/issue_filer.py:86-107` and also exported from `shared/egg_overseer/issue_template.py`):
 
 ```markdown
 ## Pipeline Diagnostic: {anomaly_type}
@@ -438,9 +486,56 @@ When the overseer files a GitHub issue (decided by the Sonnet/Opus tier), it use
 
 ### Suggested Remediation
 {what a human should do}
+
+### Pipeline Links          <!-- added by sandbox-side composer -->
+- Pipeline: [{pipeline_id}](https://github.com/{repo}/tree/{branch})
+- Phase: {phase}
+- Branch: {branch}
+- Commit SHA at filing: {commit_sha}
+- Parent OVERSEER_ALERT message ID: {parent_alert_message_id}
 ```
 
-Issues are auto-labeled with `overseer-alert` and the error category (e.g., `stall`, `repeated-error`).
+#### `EGG_PIPELINE_REPO` env var
+
+The CLI verb and gateway require an `owner/repo`-formatted `EGG_PIPELINE_REPO` env var (distinct from `EGG_REPO_PATH`, which is the filesystem path). The orchestrator injects it via `kubernetes_spawner.py`; sandbox `entrypoint.py` raises if the variable is missing — a misconfigured pipeline failing fast is preferred over one that silently files an issue against the wrong repo. The CLI verb sets `--repo $EGG_PIPELINE_REPO` on every `gh issue create`; the gateway cross-checks the `--repo` argument against the env var and rejects mismatches. See [Agent Roles Reference](../reference/agent-roles.md#overseer) for the env-var contract.
+
+### Host Detector Migration
+
+Issue [#1962](https://github.com/jwbron/egg/issues/1962) also migrates five host-side `/sdlc` skill detectors into the overseer:
+
+| Detector | Threshold knob | Migrated trigger |
+|----------|----------------|------------------|
+| `agent-stall` | `overseer_agent_stall_seconds` (default 180) | Per-agent: `phase_entered_at` older than threshold while in WORKING/PROPOSED |
+| `agent-silent` | `overseer_silent_agent_threshold_seconds` (default 600) | Running agent with zero messages and `first_seen_at` older than threshold |
+| `agent-nack-unresolved` | `overseer_nack_unresolved_seconds` (default 180) | NACK outstanding without producer progress for the threshold |
+| `phase-long-running` | `overseer_long_running_phase_seconds` (default 3600) | Implement phase WORKING for longer than threshold |
+| (host-side rescue) | `overseer_stuck_phase_transition_seconds` (default 180) | Existing overseer trigger; threshold raised from the previous ~60s hardcoded value |
+
+Per-agent timing state moves from `/sdlc`'s in-memory `{role: {phase, phase_entered_at, …}}` map into `.egg-state/oversight/agent-timing.json` (see `shared/egg_overseer/state.py::AgentTimingState`). Read/modify/write is guarded by an `fcntl.LOCK_EX` flock on its own per-state-file sentinel `.egg-state/oversight/agent-timing.json.lock` so concurrent overseer respawns at phase boundaries cannot clobber each other's updates. Per-anomaly suppression uses `AgentTimingEntry.alerted_anomalies` so each `(role, anomaly)` pair fires at most once per `2× threshold` window per phase.
+
+**Calibration-window flag semantics.** `overseer_owns_host_detection` defaults to `false` for the first release. The flag selects **one** active source of these alerts:
+
+- **`false` (default)** — the host's `/sdlc` detectors run; the overseer's `run_migrated_detectors` function (`sandbox/overseer_monitor.py`) early-returns `[]` so the overseer emits no migrated-detector alerts at all. Pipelines see today's behavior.
+- **`true`** — the host's `/sdlc` detection blocks short-circuit (gated on the same flag in `skills/sdlc/SKILL.md`); the overseer becomes the sole source.
+
+This is "host XOR overseer", not "host AND overseer" — the calibration window is **operator-driven**: an operator opts a pipeline into `true` to validate overseer parity, then opts back to `false` if needed. After a calibration window (≥ 2 weeks) of validating overseer-side detection, a follow-up PR flips the default to `true` and deletes the now-dormant host blocks. Running both in parallel for observability comparison is tracked as a follow-up enhancement (out of scope for this PR; would require the overseer to compute alerts but suppress emission while the flag is False).
+
+When `overseer_owns_host_detection=true` and the host sees no `OVERSEER_ALERT` from the overseer for `2 × overseer_agent_stall_seconds` while running agents are present, the host raises a single `AskUserQuestion` ("Overseer appears unresponsive; would you like to (a) check the overseer container logs, (b) restart the overseer, (c) continue with host detection only for this pipeline, (d) cancel?"). A sentinel file at `.egg-state/oversight/sdlc-fallback-fired-{pipeline_id}-{phase}.flag` ensures the fallback fires at most once per phase.
+
+### Sandbox CLI Verb: `egg-orch overseer consult-advisor`
+
+The sandbox-side CLI verb is the one and only way the overseer invokes the advisor:
+
+| Inputs-file key | Type | Description |
+|-----------------|------|-------------|
+| `classification` | `dict` | Haiku classifier output — `{anomaly_type, confidence, reasoning, ...}` |
+| `health_alerts` | `list[dict]` | Tier-1 health alerts active for the agent |
+| `progress_events` | `list[dict]` | Recent structured progress events |
+| `recent_log_lines` | `list[str]` | Tail of agent container log lines |
+
+The handler at `sandbox/egg_lib/orch_cli.py::cmd_overseer_consult_advisor` calls `egg_overseer.advisor.consult_advisor()` directly. Output is the JSON-serialized `AdvisorVerdict` written to `--output-file` (or stdout when omitted). The Opus `run_agent_async` call runs sandbox-side, keeping the LLM call on the LLM-execution side of the EGG200 boundary; the orchestrator pod never holds Anthropic credentials.
+
+**Backwards compatibility — top-level optional fields with omit-when-unset serialization.** The `OVERSEER_ALERT` schema gains three first-class optional fields on the `Message` envelope (`orchestrator/message_store.py`): `recommendation: str | None`, `recommendation_payload: dict | None`, and `schema_version: int = 1`. The `Message.to_dict()` serializer **omits** each of the three fields when they hold their defaults, so legacy callers that don't set them produce JSON byte-identical to the pre-#1962 shape. New consumers branch on the presence of `recommendation` (or, equivalently, `schema_version >= 2`); old consumers see no envelope change. The `egg-orch overseer alert` CLI gains `--recommendation file_issue --recommendation-payload-file /path/to/payload.json` flags that populate the new fields; the sandbox handler at `sandbox/egg_agent_tools/handlers/progress.py::progress_overseer_alert` enforces a 50 KB cap on the payload and validates that `recommendation` is one of the legal values (`file_issue` is currently the only accepted value).
 
 ### Pipeline Isolation
 

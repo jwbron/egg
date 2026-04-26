@@ -5118,6 +5118,46 @@ class TestSessionDeleteByContainerWorktreeCleanup:
             assert response.status_code == 404
 
 
+class TestSessionHeartbeatByContainer:
+    """Tests for POST /api/v1/sessions/by-container/<id>/heartbeat (#2068)."""
+
+    def test_refreshes_session(self, client, launcher_auth_headers):
+        mock_session_mgr = MagicMock()
+        mock_session_mgr.heartbeat_session_by_container.return_value = True
+
+        with patch.object(gateway, "get_session_manager", return_value=mock_session_mgr):
+            response = client.post(
+                "/api/v1/sessions/by-container/egg-agent-pipeline-1-coder/heartbeat",
+                headers=launcher_auth_headers,
+            )
+
+        assert response.status_code == 200
+        data = json.loads(response.data)
+        assert data["success"] is True
+        mock_session_mgr.heartbeat_session_by_container.assert_called_once_with(
+            "egg-agent-pipeline-1-coder"
+        )
+
+    def test_returns_404_when_session_missing(self, client, launcher_auth_headers):
+        mock_session_mgr = MagicMock()
+        mock_session_mgr.heartbeat_session_by_container.return_value = False
+
+        with patch.object(gateway, "get_session_manager", return_value=mock_session_mgr):
+            response = client.post(
+                "/api/v1/sessions/by-container/nonexistent/heartbeat",
+                headers=launcher_auth_headers,
+            )
+
+        assert response.status_code == 404
+
+    def test_requires_launcher_auth(self, client):
+        """Endpoint must reject requests without the launcher secret."""
+        response = client.post(
+            "/api/v1/sessions/by-container/egg-agent-pipeline-1-coder/heartbeat",
+        )
+        assert response.status_code == 401
+
+
 class TestBranchIsolation:
     """Tests for branch isolation enforcement in pipeline worktree sessions.
 

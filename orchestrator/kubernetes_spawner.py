@@ -636,6 +636,15 @@ class KubernetesSpawner:
             else:
                 repo_path = repo_base
 
+            # EGG_PIPELINE_REPO is the GitHub-style "owner/repo" string the
+            # gateway and the auto-issue dedup signature rely on (issue
+            # #1962). EGG_REPO_PATH is the *filesystem* path; this is a
+            # separate, distinct env var. Sourced from the first repo in
+            # `repos`; an empty repos list leaves it unset and the sandbox
+            # entrypoint will fail-fast (no silent fallback per the
+            # implementation plan).
+            pipeline_repo = repos[0] if repos else None
+
             environment: dict[str, str] = {
                 "CONTAINER_ID": agent_worktree_id,
                 "EGG_REPO_PATH": repo_path,
@@ -662,6 +671,10 @@ class KubernetesSpawner:
             }
             if session_token:
                 environment["EGG_SESSION_TOKEN"] = session_token
+            if pipeline_repo:
+                # owner/repo string used by the overseer auto-issue verb
+                # (issue #1962) and the gateway's overseer guardrails.
+                environment["EGG_PIPELINE_REPO"] = pipeline_repo
             if issue_number is not None:
                 environment["EGG_ISSUE_NUMBER"] = str(issue_number)
             if phase:

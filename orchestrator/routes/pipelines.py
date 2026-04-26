@@ -2281,6 +2281,27 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             error=str(e),
         )
 
+    # Reset health-monitor anchor so the pre-respawn _last_heartbeat does not
+    # generate a stale-elapsed heartbeat_timeout alert against the fresh
+    # container (issue #2084).
+    try:
+        try:
+            from health_monitor import get_health_monitor
+        except ImportError:
+            from ..health_monitor import (
+                get_health_monitor,  # type: ignore[import-not-found]
+            )
+        _hm = get_health_monitor()
+        if _hm is not None:
+            _hm.reset_agent(agent_role)
+    except Exception as e:
+        logger.warning(
+            "Failed to reset health-monitor state for restarted agent",
+            pipeline_id=pipeline_id,
+            agent_role=agent_role,
+            error=str(e),
+        )
+
     # Update pipeline state with new container/agent info
     lock = get_pipeline_state_lock(pipeline_id)
     with lock:
@@ -2296,6 +2317,14 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                 # Update or add agent execution entry
                 from models import AgentExecution  # type: ignore
 
+                # Refresh ``started_at`` to the new container's spawn time so
+                # ``_get_concurrent_status`` reports an ``elapsed_seconds``
+                # anchored on the live container.  Without this the field
+                # carries the original spawn timestamp and the overseer's
+                # phase_minimum_working_window suppression on the
+                # ``agent-heartbeat-stall`` trigger is structurally dead on
+                # the ``restart_agent`` path (issue #2084).
+                respawn_started_at = datetime.now(UTC)
                 found = False
                 for agent in fresh_phase_exec.agents:
                     if hasattr(agent, "role") and (
@@ -2304,6 +2333,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                     ):
                         agent.container_id = spawned.container_info.container_id
                         agent.status = AgentExecutionStatus.RUNNING
+                        agent.started_at = respawn_started_at
                         found = True
                         break
                 if not found:
@@ -2312,6 +2342,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                             role=role,
                             container_id=spawned.container_info.container_id,
                             status=AgentExecutionStatus.RUNNING,
+                            started_at=respawn_started_at,
                         )
                     )
 
@@ -2564,6 +2595,28 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
     # 6. Reset restart counts for this pipeline
     spawner.reset_restart_counts(pipeline_id)
 
+    # 6b. Drop health-monitor anchors for every respawned role so the Tier-1
+    #     heartbeat clock does not survive the restart and fire stale-elapsed
+    #     alerts that the overseer would faithfully escalate (issue #2084).
+    try:
+        try:
+            from health_monitor import get_health_monitor
+        except ImportError:
+            from ..health_monitor import (
+                get_health_monitor,  # type: ignore[import-not-found]
+            )
+        _hm = get_health_monitor()
+        if _hm is not None:
+            for role in agent_roles:
+                _hm.reset_agent(role.value)
+    except Exception as e:
+        logger.warning(
+            "Failed to reset health-monitor state during phase restart",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            error=str(e),
+        )
+
     # 7. Launch a new _run_pipeline thread to monitor the restarted phase.
     #    Container spawning is handled by _run_concurrent_phase within the
     #    thread, matching the recovery pattern used by start_pipeline.
@@ -2655,6 +2708,45 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
         concurrent_data = _get_concurrent_status(pipeline)
         if concurrent_data:
             data["concurrent"] = concurrent_data
+
+        # Issue #1962 TASK-1-2: include the overseer-relevant config
+        # subset in the status payload so the sandbox-side overseer
+        # monitor can read PipelineConfig values (advisor model,
+        # threshold knobs, host-detection flag) without a separate
+        # endpoint. Only the new + load-bearing knobs are exposed
+        # here to keep the response compact; full config is available
+        # via the dedicated config endpoint.
+        try:
+            cfg = getattr(pipeline, "config", None)
+            if cfg is not None:
+                data["config"] = {
+                    "overseer_advisor_model": getattr(cfg, "overseer_advisor_model", None),
+                    "overseer_auto_file_issues_mode": getattr(
+                        cfg, "overseer_auto_file_issues_mode", None
+                    ),
+                    "overseer_owns_host_detection": getattr(
+                        cfg, "overseer_owns_host_detection", False
+                    ),
+                    "overseer_stuck_phase_transition_seconds": getattr(
+                        cfg, "overseer_stuck_phase_transition_seconds", 180
+                    ),
+                    "overseer_agent_stall_seconds": getattr(
+                        cfg, "overseer_agent_stall_seconds", 180
+                    ),
+                    "overseer_silent_agent_threshold_seconds": getattr(
+                        cfg, "overseer_silent_agent_threshold_seconds", 600
+                    ),
+                    "overseer_long_running_phase_seconds": getattr(
+                        cfg, "overseer_long_running_phase_seconds", 3600
+                    ),
+                    "overseer_nack_unresolved_seconds": getattr(
+                        cfg, "overseer_nack_unresolved_seconds", 180
+                    ),
+                }
+        except (AttributeError, TypeError):
+            # Defensive: never let a config-shape change crash the
+            # status endpoint.
+            pass
 
         return make_success_response("Status retrieved", data=data)
 
@@ -3085,9 +3177,13 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
 
     # Agent lifecycle info from the phase execution record — shows which agents
     # are spawned for the current phase and their container-level status.
+    # Includes ``container_id`` and server-computed ``elapsed_seconds`` so the
+    # sandboxed overseer can anchor stall-duration math on the live container's
+    # ``started_at`` rather than pre-restart message-bus events (issue #2084).
     current_phase_name = pipeline.current_phase.value
     phase_exec = pipeline.phases.get(current_phase_name)
     if phase_exec and hasattr(phase_exec, "agents"):
+        now = datetime.now(UTC)
         agents_info = []
         for agent in phase_exec.agents:
             if hasattr(agent, "role"):
@@ -3098,7 +3194,29 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
                 status = agent.status.value if hasattr(agent.status, "value") else "unknown"
             else:
                 status = "unknown"
-            agents_info.append({"role": role, "status": status})
+
+            entry: dict[str, Any] = {"role": role, "status": status}
+
+            container_id = getattr(agent, "container_id", None)
+            if isinstance(container_id, str) and container_id:
+                entry["container_id"] = container_id
+
+            started_at = getattr(agent, "started_at", None)
+            started_dt: datetime | None = None
+            if isinstance(started_at, datetime):
+                started_dt = started_at
+            elif isinstance(started_at, str) and started_at:
+                try:
+                    started_dt = datetime.fromisoformat(started_at)
+                except ValueError:
+                    started_dt = None
+            if started_dt is not None:
+                if started_dt.tzinfo is None:
+                    started_dt = started_dt.replace(tzinfo=UTC)
+                entry["started_at"] = started_dt.isoformat()
+                entry["elapsed_seconds"] = max(0, int((now - started_dt).total_seconds()))
+
+            agents_info.append(entry)
         result["agents"] = agents_info
 
     return result
@@ -5241,6 +5359,308 @@ def _sync_worktree_with_remote(
             pipeline_id=pipeline_id,
             error=str(sync_err),
         )
+
+
+class StalePipelineBranchError(RuntimeError):
+    """Raised when ``origin/<pipeline.branch>`` is behind base and the
+    rebase to bring it up to date hit a conflict.
+
+    Phase-startup callers convert this into a FAILED pipeline with a
+    clear ``error`` so the operator knows to manually rebase or start
+    fresh — vastly preferable to silently producing a PR with 70+
+    cherry-picked-variant commits buried in it (#2098).
+    """
+
+
+def _rebase_pipeline_branch_onto_base(
+    spawner: "ContainerSpawner",
+    pipeline_id: str,
+    worktree_repo_path: Path,
+    pipeline_branch: str,
+    base_branch: str,
+    gateway_mode: Literal["public", "private"] = "public",
+) -> None:
+    """Rebase a stale ``origin/<pipeline_branch>`` onto ``origin/<base_branch>``.
+
+    When ``submit_task`` resumes a pipeline whose branch has been sitting
+    on the remote for days/weeks while ``main`` advanced, the existing
+    pipeline branch tip carries old-SHA copies of commits that have since
+    been rebased onto main.  Without this helper, the first orchestrator
+    push hits non-fast-forward, the reconcile path rebases ``HEAD`` onto
+    the stale tip, and every downstream commit inherits 70+ stale-from-
+    main commits as ancestors — producing a final PR diff that buries
+    the actual feature work under contamination (#2098).
+
+    This helper runs on the orchestrator-side worktree and treats it as
+    scratch space for the rebase:
+
+    1. Skip when ``pipeline_branch`` doesn't exist on the remote (fresh
+       run — there's nothing to rebase).
+    2. Skip when ``origin/<pipeline_branch>`` is not behind
+       ``origin/<base_branch>`` (already up to date).
+    3. Skip when ``HEAD`` is an ancestor of *neither*
+       ``origin/<pipeline_branch>`` *nor* ``origin/<base_branch>``.  Two
+       real resume paths satisfy the ancestry check:
+
+       (a) **Preserved worktree** (canonical #2098 case): the
+           orchestrator-side worktree was kept across a cancel/resubmit,
+           so ``HEAD`` carries state-file commits that were already
+           pushed to ``origin/<branch>``.  ``HEAD`` is a strict ancestor
+           of ``origin/<branch>``.
+       (b) **Fresh worktree**: the worktree volume was wiped between
+           cancel and resubmit (e.g. orchestrator redeploy onto a fresh
+           PVC), so the gateway recreated it from ``origin/<base>``.
+           ``HEAD == origin/<base>`` is a (trivial) ancestor of
+           ``origin/<base>``; resetting to ``origin/<branch>`` discards
+           no unique commits because every base commit is preserved as
+           the rebase target.
+
+       If neither ancestry holds, ``HEAD`` carries truly unpublished
+       work and we defer rather than overwrite it.
+    4. Reset the worktree to ``origin/<pipeline_branch>``, ``git rebase
+       origin/<base_branch>``, and force-push the rebased tip.  Git's
+       built-in cherry-pick-skip drops commits already content-equivalent
+       to ones on the new base.
+    5. On conflict: abort the rebase, restore the worktree to
+       ``origin/<base_branch>``, and raise ``StalePipelineBranchError``
+       so phase startup fails fast with an actionable error.
+
+    Best-effort fetch+rev-list errors are logged and swallowed so a
+    transient gateway hiccup doesn't block pipeline startup; only a
+    rebase that *started* but couldn't finish raises.
+    """
+    if not pipeline_branch or not base_branch or pipeline_branch == base_branch:
+        return
+
+    git_base = [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        f"safe.directory={worktree_repo_path}",
+        "-C",
+        str(worktree_repo_path),
+    ]
+
+    def _run_git(
+        args: list[str],
+        timeout: int,
+    ) -> subprocess.CompletedProcess[str] | None:
+        """Run a git command and convert ``TimeoutExpired`` / ``OSError``
+        into a ``None`` return so callers can decide what to do.
+
+        Mirrors the defensive pattern in ``_sync_worktree_with_remote``.
+        """
+        try:
+            return subprocess.run(
+                [*git_base, *args],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            logger.warning(
+                "rebase-on-resume: git command failed to run",
+                pipeline_id=pipeline_id,
+                branch=pipeline_branch,
+                git_args=args,
+                error=str(exc),
+            )
+            return None
+
+    # Step 1: Fetch both refs through the gateway so we have current
+    # origin/<branch> and origin/<base> tips locally.  fetch_worktree_branch
+    # already runs `git fetch origin` (no refspec) which updates all
+    # remote-tracking refs in one call.
+    fetch_ok = spawner.gateway.fetch_worktree_branch(
+        pipeline_id=pipeline_id,
+        repo_path=str(worktree_repo_path),
+        mode=gateway_mode,
+    )
+    if not fetch_ok:
+        logger.warning(
+            "rebase-on-resume: fetch failed, skipping rebase check",
+            pipeline_id=pipeline_id,
+            branch=pipeline_branch,
+        )
+        return
+
+    # Step 2: Verify origin/<pipeline_branch> exists.  Fresh pipelines
+    # haven't pushed yet, so there's nothing to rebase.
+    verify_branch = _run_git(["rev-parse", "--verify", f"origin/{pipeline_branch}"], timeout=10)
+    if verify_branch is None or verify_branch.returncode != 0:
+        return
+
+    verify_base = _run_git(["rev-parse", "--verify", f"origin/{base_branch}"], timeout=10)
+    if verify_base is None or verify_base.returncode != 0:
+        logger.warning(
+            "rebase-on-resume: origin/<base_branch> not resolvable, skipping",
+            pipeline_id=pipeline_id,
+            branch=pipeline_branch,
+            base_branch=base_branch,
+        )
+        return
+
+    # Step 3: Is the pipeline branch actually behind base?  If not, no-op.
+    behind = _run_git(
+        [
+            "rev-list",
+            "--count",
+            f"origin/{pipeline_branch}..origin/{base_branch}",
+        ],
+        timeout=10,
+    )
+    if behind is None or behind.returncode != 0:
+        logger.warning(
+            "rebase-on-resume: rev-list failed, skipping",
+            pipeline_id=pipeline_id,
+            branch=pipeline_branch,
+            stderr=(behind.stderr.strip() if behind is not None else None),
+        )
+        return
+    try:
+        behind_count = int(behind.stdout.strip() or "0")
+    except ValueError:
+        behind_count = 0
+    if behind_count == 0:
+        return
+
+    # Step 4: Confirm reset-to-origin/<branch> is lossless before we
+    # overwrite HEAD.  Two real worktree states satisfy this:
+    #
+    #   (a) Preserved-worktree resume (#2098 canonical): the orchestrator-
+    #       side worktree was kept across a cancel/resubmit, so HEAD
+    #       carries state-file commits that were already pushed to
+    #       origin/<branch>.  HEAD is a strict ancestor of
+    #       origin/<branch> — resetting drops nothing.
+    #   (b) Fresh-worktree resume: the worktree volume was wiped between
+    #       cancel and resubmit (e.g. orchestrator redeploy onto a fresh
+    #       PVC, manual cleanup), so the gateway recreated the worktree
+    #       from origin/<base>.  HEAD == origin/<base>; resetting to
+    #       origin/<branch> discards no unique commits because every
+    #       commit on origin/<base> is preserved as the rebase target.
+    #
+    # If HEAD is on neither ref, something unexpected lives on it and
+    # we defer to the existing push-reconcile path rather than blow it
+    # away.  An ahead-of-base check would have wrongly skipped (a); a
+    # branch-only ancestry check would have wrongly skipped (b).
+    def _head_on(ref: str) -> bool:
+        result = _run_git(["merge-base", "--is-ancestor", "HEAD", ref], timeout=10)
+        return result is not None and result.returncode == 0
+
+    if not (_head_on(f"origin/{pipeline_branch}") or _head_on(f"origin/{base_branch}")):
+        logger.info(
+            "rebase-on-resume: HEAD on neither origin/<branch> nor origin/<base> — skipping",
+            pipeline_id=pipeline_id,
+            branch=pipeline_branch,
+            base_branch=base_branch,
+            behind_base=behind_count,
+        )
+        return
+
+    logger.info(
+        "rebase-on-resume: pipeline branch is behind base, attempting rebase",
+        pipeline_id=pipeline_id,
+        branch=pipeline_branch,
+        base_branch=base_branch,
+        behind_base=behind_count,
+    )
+
+    # Step 5: Reset the worktree to the stale pipeline branch tip so we
+    # can rebase it onto current base.
+    reset_to_branch = _run_git(["reset", "--hard", f"origin/{pipeline_branch}"], timeout=30)
+    if reset_to_branch is None or reset_to_branch.returncode != 0:
+        logger.warning(
+            "rebase-on-resume: reset to pipeline branch failed, skipping",
+            pipeline_id=pipeline_id,
+            branch=pipeline_branch,
+            stderr=(reset_to_branch.stderr.strip() if reset_to_branch is not None else None),
+        )
+        return
+
+    # Step 6: Rebase onto current base.  Plain ``git rebase
+    # origin/<base>`` — git's cherry-pick-skip drops content-equivalent
+    # commits already on base (the 70+ stale-variant commits in #2098).
+    rebase = _run_git(["rebase", f"origin/{base_branch}"], timeout=120)
+    if rebase is None or rebase.returncode != 0:
+        # Conflict, timeout, or other rebase failure.  Abort the rebase,
+        # restore the worktree to origin/<base> so it isn't left mid-
+        # rebase for downstream callers, and raise so the operator gets
+        # an actionable error rather than a contaminated PR.  ``rebase
+        # is None`` covers the timeout case where ``_run_git`` already
+        # logged the underlying exception.
+        _run_git(["rebase", "--abort"], timeout=30)
+        _run_git(["reset", "--hard", f"origin/{base_branch}"], timeout=30)
+        stderr_text = rebase.stderr.strip() if rebase is not None else "rebase command timed out"
+        logger.error(
+            "rebase-on-resume: rebase failed — aborting pipeline start",
+            pipeline_id=pipeline_id,
+            branch=pipeline_branch,
+            base_branch=base_branch,
+            stderr=stderr_text,
+            timed_out=rebase is None,
+        )
+        raise StalePipelineBranchError(
+            f"origin/{pipeline_branch} is {behind_count} commits behind "
+            f"origin/{base_branch} and rebasing it failed. "
+            f"Manually rebase the branch (or delete it to start fresh) "
+            f"and resubmit. Stderr: {stderr_text}"
+        )
+
+    # Git emits ``warning: skipped previously applied commit <sha>`` on
+    # stderr for every cherry-pick-equivalent it dropped.  Counting them
+    # gives operators a quick sanity check that the helper actually
+    # discarded the stale-from-main commits (vs. e.g. silently no-op'd).
+    skipped_via_rebase = sum(
+        1 for line in rebase.stderr.splitlines() if "skipped previously applied commit" in line
+    )
+
+    # Step 7: Force-push the rebased branch.  ``force=True`` is required
+    # because the rebased tip has different SHAs from origin/<branch>;
+    # this is exactly the contamination we just removed, so overwriting
+    # is the desired behavior.
+    push_result = spawner.gateway.push_worktree_branch(
+        pipeline_id=pipeline_id,
+        repo_path=str(worktree_repo_path),
+        branch=pipeline_branch,
+        mode=gateway_mode,
+        base_branch=base_branch,
+        force=True,
+    )
+    if not push_result.ok:
+        # Restore HEAD to origin/<base> so the worktree is in a known
+        # state for downstream callers (the rebased commits stay in the
+        # local reflog if needed for recovery).
+        _run_git(["reset", "--hard", f"origin/{base_branch}"], timeout=30)
+        logger.error(
+            "rebase-on-resume: force-push of rebased branch failed",
+            pipeline_id=pipeline_id,
+            branch=pipeline_branch,
+            category=push_result.category,
+            detail=push_result.detail,
+        )
+        raise StalePipelineBranchError(
+            f"Rebased {pipeline_branch} onto origin/{base_branch} but "
+            f"force-push to remote failed ({push_result.category}): "
+            f"{push_result.detail}"
+        )
+
+    # Re-fetch so origin/<pipeline_branch> reflects the rebased tip for
+    # any subsequent rev-parse in the same pipeline-start path.
+    spawner.gateway.fetch_worktree_branch(
+        pipeline_id=pipeline_id,
+        repo_path=str(worktree_repo_path),
+        mode=gateway_mode,
+    )
+    logger.info(
+        "rebase-on-resume: rebased and force-pushed pipeline branch",
+        pipeline_id=pipeline_id,
+        branch=pipeline_branch,
+        base_branch=base_branch,
+        dropped_stale_commits=behind_count,
+        skipped_via_rebase=skipped_via_rebase,
+    )
 
 
 def _commit_statefiles_to_worktree(
@@ -11175,6 +11595,30 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 gateway_mode=gateway_mode,
                 base_branch=pipeline.base_branch,
             )
+
+            # When resuming a stale pipeline branch (cancelled run from
+            # days/weeks ago), rebase origin/<branch> onto origin/<base>
+            # before any orchestrator/agent commits land — otherwise the
+            # final PR carries 70+ stale-from-main commits as ancestors
+            # (#2098).  No-op for fresh pipelines and for branches already
+            # caught up with base.
+            if pipeline.branch and pipeline.base_branch:
+                try:
+                    _rebase_pipeline_branch_onto_base(
+                        spawner,
+                        pipeline_id,
+                        worktree_repo_path,
+                        pipeline_branch=pipeline.branch,
+                        base_branch=pipeline.base_branch,
+                        gateway_mode=gateway_mode,
+                    )
+                except StalePipelineBranchError as stale_err:
+                    with get_pipeline_state_lock(pipeline_id):
+                        pipeline = store.load_pipeline(pipeline_id)
+                        pipeline.status = PipelineStatus.FAILED
+                        pipeline.error = str(stale_err)
+                        store.save_pipeline(pipeline)
+                    return
 
             # Remove legacy unprefixed draft files (analysis.md, plan.md)
             # that may have been left by earlier pipelines on this branch.

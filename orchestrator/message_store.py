@@ -112,9 +112,43 @@ class Message(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     phase: str | None = Field(default=None, description="Pipeline phase when sent")
 
+    # Issue #1962 OVERSEER_ALERT extension. These optional first-class
+    # fields are populated only on OVERSEER_ALERT messages produced by
+    # the advisor-gated path (TASK-3-3). Legacy callers that don't set
+    # them serialize identically to today (None / 1) — the
+    # backwards-compat regression test in TASK-7-1 asserts a pre-#1962
+    # alert payload (no recommendation field) round-trips through the
+    # message store and renders in /sdlc's alert-display path verbatim.
+    recommendation: str | None = Field(
+        default=None,
+        description=(
+            "Structured advisor recommendation (issue #1962). Currently "
+            "the only legal value is 'file_issue'; the human gates the "
+            "actual filing via the existing pending_decisions HITL flow. "
+            "None for non-OVERSEER_ALERT messages and for legacy alerts."
+        ),
+    )
+    recommendation_payload: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Opaque payload carrying the advisor's composed issue_title "
+            "+ issue_body + priority + anomaly_signature when "
+            "recommendation == 'file_issue'."
+        ),
+    )
+    schema_version: int = Field(
+        default=1,
+        description=(
+            "OVERSEER_ALERT schema version (issue #1962). 1 = pre-#1962 "
+            "implicit (no recommendation fields); 2 = post-#1962 with "
+            "recommendation / recommendation_payload populated. "
+            "Defaults to 1 so legacy callers continue to round-trip."
+        ),
+    )
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize to dictionary."""
-        return {
+        result = {
             "id": self.id,
             "pipeline_id": self.pipeline_id,
             "from_role": self.from_role,
@@ -126,6 +160,15 @@ class Message(BaseModel):
             "timestamp": self.timestamp.isoformat(),
             "phase": self.phase,
         }
+        # Issue #1962: emit the new fields only when populated so legacy
+        # consumers see byte-identical output for pre-#1962 messages.
+        if self.recommendation is not None:
+            result["recommendation"] = self.recommendation
+        if self.recommendation_payload is not None:
+            result["recommendation_payload"] = self.recommendation_payload
+        if self.schema_version != 1:
+            result["schema_version"] = self.schema_version
+        return result
 
 
 class MessageStore:

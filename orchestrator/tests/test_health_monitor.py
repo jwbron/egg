@@ -196,6 +196,72 @@ class TestHeartbeatTimeout:
 
 
 # ---------------------------------------------------------------------------
+# Tests: reset_agent (issue #2084)
+# ---------------------------------------------------------------------------
+
+
+class TestResetAgent:
+    """``reset_agent`` drops per-agent state so a respawned container is not
+    judged against the prior container's heartbeat clock."""
+
+    def test_reset_clears_heartbeat_anchor(self):
+        """After reset, an agent that was beyond threshold no longer escalates."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_heartbeat_timeout_seconds=60)
+        monitor = _make_monitor(bus, config)
+
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+        assert AGENT_ID in monitor._last_heartbeat
+        assert AGENT_ID in monitor._agents
+
+        # Without reset, the next check would fire — confirm baseline.
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 61
+            pre_reset_actions = monitor.check_heartbeats()
+        assert len(pre_reset_actions) == 1
+
+        # Reset and verify the next check (with no fresh heartbeat) does not
+        # synthesize an alert from the dead anchor.
+        monitor.reset_agent(AGENT_ID)
+        assert AGENT_ID not in monitor._last_heartbeat
+        assert AGENT_ID not in monitor._agents
+
+        with patch("health_monitor.time") as mock_time:
+            mock_time.time.return_value = time.time() + 200
+            post_reset_actions = monitor.check_heartbeats()
+
+        assert post_reset_actions == []
+
+    def test_reset_drops_active_alerts_for_role(self):
+        """Active alerts pinned to the reset agent are removed; others kept."""
+        bus = _make_event_bus()
+        monitor = _make_monitor(bus)
+
+        # Manually seed two alerts.
+        monitor._active_alerts.append(
+            {"id": "1", "agent_id": AGENT_ID, "alert_type": "heartbeat_timeout"}
+        )
+        monitor._active_alerts.append(
+            {"id": "2", "agent_id": AGENT_ID_2, "alert_type": "heartbeat_timeout"}
+        )
+
+        monitor.reset_agent(AGENT_ID)
+
+        remaining = list(monitor._active_alerts)
+        assert len(remaining) == 1
+        assert remaining[0]["agent_id"] == AGENT_ID_2
+
+    def test_reset_unknown_agent_is_noop(self):
+        """Resetting an agent that was never tracked must not raise."""
+        bus = _make_event_bus()
+        monitor = _make_monitor(bus)
+
+        # No state, no exception.
+        monitor.reset_agent("never-existed")
+        assert "never-existed" not in monitor._agents
+
+
+# ---------------------------------------------------------------------------
 # Tests: Container exit
 # ---------------------------------------------------------------------------
 

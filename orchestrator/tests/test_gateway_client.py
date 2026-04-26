@@ -74,6 +74,10 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
             self._handle_git_fetch(data)
         elif self.path == "/api/v1/gh/pr/create":
             self._handle_pr_create(data)
+        elif self.path.startswith("/api/v1/sessions/by-container/") and self.path.endswith(
+            "/heartbeat"
+        ):
+            self._handle_heartbeat_by_container()
         else:
             self._send_error(404, "Not found")
 
@@ -167,6 +171,20 @@ class MockGatewayHandler(BaseHTTPRequestHandler):
             self._send_error(401, "Unauthorized")
             return
 
+        self._send_json({"success": True})
+
+    def _handle_heartbeat_by_container(self):
+        """Handle session heartbeat by container ID (POST .../by-container/<id>/heartbeat)."""
+        auth_header = self.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer ") or auth_header[7:] != "test-secret":
+            self._send_error(401, "Unauthorized")
+            return
+
+        # Path: /api/v1/sessions/by-container/<id>/heartbeat
+        container_id = self.path.split("/")[-2]
+        if container_id == "missing":
+            self._send_json({"success": False, "message": "Session not found"}, status=404)
+            return
         self._send_json({"success": True})
 
     def _handle_worktree_create(self, data):
@@ -486,6 +504,18 @@ class TestSessionManagement:
         """Test deleting a session by container ID."""
         result = gateway_client.delete_session_by_container("container-123")
         assert result is True
+
+    def test_heartbeat_session_by_container(self, gateway_client, mock_gateway_server):
+        """Heartbeat-by-container returns True for an active session."""
+        result = gateway_client.heartbeat_session_by_container("egg-agent-pipe-1-coder")
+        assert result is True
+
+    def test_heartbeat_session_by_container_missing_returns_false(
+        self, gateway_client, mock_gateway_server
+    ):
+        """Heartbeat-by-container swallows 404 and returns False (best-effort path)."""
+        result = gateway_client.heartbeat_session_by_container("missing")
+        assert result is False
 
 
 class TestSecurityBoundaryValidation:
@@ -1094,6 +1124,44 @@ class TestPushWorktreeBranch:
                 push_data["refspec"]
                 == "refs/heads/egg/pipeline-state:refs/heads/egg/pipeline-state"
             )
+
+    def test_push_worktree_branch_force_flag_propagates(self, gateway_client, mock_gateway_server):
+        """``force=True`` must reach the ``/api/v1/git/push`` request body.
+
+        The rebase-on-resume helper (#2098) relies on this — without it,
+        the gateway never sees ``--force`` and the post-rebase push hits
+        the same non-fast-forward error the helper just rebased to fix.
+        """
+        with patch.object(
+            gateway_client, "_make_request", wraps=gateway_client._make_request
+        ) as mock_req:
+            gateway_client.push_worktree_branch(
+                pipeline_id="issue-42",
+                repo_path="/some/path",
+                branch="egg/issue-42",
+                force=True,
+            )
+            push_calls = [c for c in mock_req.call_args_list if c.args[0] == "/api/v1/git/push"]
+            assert len(push_calls) == 1
+            push_data = push_calls[0].kwargs["data"]
+            assert push_data["force"] is True
+
+    def test_push_worktree_branch_default_force_false(self, gateway_client, mock_gateway_server):
+        """Default callers must not silently force-push.  The body's
+        ``force`` field must be ``False`` unless explicitly opted in.
+        """
+        with patch.object(
+            gateway_client, "_make_request", wraps=gateway_client._make_request
+        ) as mock_req:
+            gateway_client.push_worktree_branch(
+                pipeline_id="issue-42",
+                repo_path="/some/path",
+                branch="egg/issue-42",
+            )
+            push_calls = [c for c in mock_req.call_args_list if c.args[0] == "/api/v1/git/push"]
+            assert len(push_calls) == 1
+            push_data = push_calls[0].kwargs["data"]
+            assert push_data["force"] is False
 
 
 class TestDeleteRemoteBranch:
