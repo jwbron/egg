@@ -838,6 +838,7 @@ class TestToolRouting:
             "search_checkpoints",
             "get_contract",
             "validate_config",
+            "validate_repo_config",
             "restart_agent",
             "restart_phase",
             "advance_phase",
