@@ -251,10 +251,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Default body format for getConfluencePage and related reads?",
+      "context": "Open contract question decision-5, registered by an agent during the refine phase.",
+      "options": [
+        "Both storage and atlas_doc_format (Recommended — agent gets HTML-ish + ADF in one call)",
+        "storage only (smallest payload)",
+        "atlas_doc_format only (most structured)",
+        "view (rendered HTML) only (lossy on macros / layout)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-26T23:23:25.861943Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-26T23:05:30.164689Z",
-  "updated_at": "2026-04-26T23:23:25.802851Z",
+  "updated_at": "2026-04-26T23:23:25.890156Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -268,6 +288,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 16,
+  "version": 17,
   "jira_ticket": null
 }
