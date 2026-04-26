@@ -40,14 +40,22 @@ directory). If not, abort with a clear error.
 ## Phase 1 — Detection
 
 Run the detector module and collect proposed `build_commands` / `persist` /
-`checks` entries. Use Bash to invoke the egg CLI (the detector is registered as
-a Python module so it can be unit-tested and re-used by other skills):
+`checks` entries. The detector is a pluggable Python module (TASK-5-1) so it
+can be unit-tested and re-used by other skills; invoke it directly with Bash:
 
 ```bash
-egg validate-config --detect <repo-path>
+python -c "
+import json, sys
+from pathlib import Path
+from shared.egg_config.onboard_detectors import run_detectors
+results = run_detectors(Path(sys.argv[1]))
+print(json.dumps([r.to_dict() for r in results], indent=2))
+" <repo-path>
 ```
 
-(or call `python -c "from shared.egg_config.onboard_detectors import run_detectors; ..."` directly).
+There is **no** `egg validate-config --detect` mode — TASK-4-2 commits the
+validator CLI surface to `--repo-config <path>` only, and detection lives in
+the `shared.egg_config.onboard_detectors` module.
 
 The detector returns a list of `DetectionResult` records — one per language —
 each carrying:
@@ -248,17 +256,23 @@ overwrites repo-defaults for `persist`, `watch_files`, `checks`,
 
 ## Phase 5 — Post-write summary
 
-After a successful write, present:
+After a successful write, present a heading + table + the rendered YAML
+block + a Next-steps list. Render each piece as its own markdown chunk
+(no outer fence wrapping the entire summary — nested fences break many
+renderers).
 
-```
-## Onboarding Complete
+**Heading and status table.** Use a level-2 heading and a two-column
+table:
 
-| File | Status |
-|------|--------|
-| <repo>/.egg/repositories.yaml | Written |
-| Validator | 0 errors, <N> warnings |
+> ## Onboarding Complete
+>
+> | File | Status |
+> |------|--------|
+> | `<repo>/.egg/repositories.yaml` | Written |
+> | Validator | 0 errors, `<N>` warnings |
 
-### Block written
+**Block written.** Render the rendered YAML in a single fenced block,
+e.g.:
 
 ```yaml
 schemaVersion: "1.0"
@@ -276,19 +290,18 @@ checks:
   - {name: test, command: make test}
 ```
 
-### Next steps
+**Next steps.** Append a bulleted list:
 
 - Commit `<repo>/.egg/repositories.yaml` to the repo so the rest of the
   team / fleet picks it up automatically.
-- If you have a per-repo block in `~/.config/egg/repositories.yaml` for this
-  repo, you can now delete it (the loader auto-discovers the repo file).
-- Run `egg validate-config <repo>` periodically — the validator surfaces new
-  drift as the build / persist / checks shape evolves.
-- For per-operator overrides, edit
-  `repo_settings.<owner/repo>` in `~/.config/egg/repositories.yaml`. The
-  user file takes precedence at the leaf level; list-valued fields are
-  replaced outright.
-```
+- If you have a per-repo block in `~/.config/egg/repositories.yaml` for
+  this repo, you can now delete it (the loader auto-discovers the repo
+  file).
+- Run `egg validate-config <repo>` periodically — the validator surfaces
+  new drift as the build / persist / checks shape evolves.
+- For per-operator overrides, edit `repo_settings.<owner/repo>` in
+  `~/.config/egg/repositories.yaml`. The user file takes precedence at
+  the leaf level; list-valued fields are replaced outright.
 
 ## `template:` reserve field
 

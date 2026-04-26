@@ -110,12 +110,13 @@ schemaVersion: "1.0"
 # `string | null`. Leave unset for now.
 template: null
 
-# Build-time dependency installation. The host classifier routes entries
-# in `persist:` whose first character is `/` to system-absolute paths,
-# others to repo-relative paths. The classifier produces the legacy
-# `persist_dirs` + `persist_system_dirs` two-list shape into
-# `manifest.json` so `sandbox/docker-setup.py` is unchanged — schema
-# simplification is a host-side concern.
+# Build-time dependency installation. The host-side classifier in
+# `config/repo_config.py` routes entries in `persist:` whose first
+# character is `/` to system-absolute paths, others to repo-relative
+# paths. The classifier produces the legacy `persist_dirs` +
+# `persist_system_dirs` two-list shape; `sandbox/egg_lib/docker.py`
+# then writes that into `manifest.json`, so `sandbox/docker-setup.py`
+# is unchanged — schema simplification is a host-side concern.
 build_commands:
   watch_files:
     # Files that trigger a rebuild when changed (e.g., lockfiles). When
@@ -158,24 +159,36 @@ checkpoint_repo: jwbron/egg-ckpt  # optional — separate transcript repo
 
 ## `manifest.json` invariant (sandbox stability)
 
-The internal sandbox manifest at
-`<config-dir>/repo-deps/<repo>/manifest.json` keeps its **pre-#2073
-shape**:
+The internal sandbox manifest at `<config-dir>/repo-deps/manifest.json`
+(a single top-level file, not per-repo — see
+`sandbox/egg_lib/docker.py::_copy_repo_watch_files`) keeps its
+**pre-#2073 shape**:
 
 ```json
 {
-  "<owner/repo>": {
-    "watch_files": [...],
-    "commands": [...],
-    "persist_dirs": [...],
-    "persist_system_dirs": [...]
-  }
+  "extra_packages": {"apt": [...], "dnf": [...]},
+  "build_commands": [
+    {
+      "repo": "<owner/repo>",
+      "watch_files": [...],
+      "commands": [...],
+      "persist_dirs": [...],
+      "persist_system_dirs": [...]
+    }
+  ]
 }
 ```
 
+That is, a top-level `extra_packages` block sits alongside a
+`build_commands` list, with each list entry carrying a `repo` field plus
+the four per-repo arrays. The per-repo subdirectories under
+`<config-dir>/repo-deps/<repo-dir-name>/` only contain copied watch
+files (no per-repo manifest).
+
 The host-side classifier in `config/repo_config.py` produces
-`persist_dirs` + `persist_system_dirs` from the unified `persist:` list
-(architect C3 design;
+`persist_dirs` + `persist_system_dirs` from the unified `persist:` list,
+which `sandbox/egg_lib/docker.py::_copy_repo_watch_files` then writes
+into `manifest.json` (architect C3 design;
 [risk-1 mitigation](../../.egg-state/drafts/2073-plan.md#risks--mitigations))
 so `sandbox/docker-setup.py` is unchanged and existing sandbox images
 keep working against the new launcher without forcing a rebuild. **Do
@@ -208,19 +221,22 @@ but do not block. Run periodically to catch drift as the build / persist
 
 ### CLI usage
 
+The validator is exposed via `scripts/validate-config.py --repo-config
+<path>` (TASK-4-2), wrapped by the launcher as `egg validate-config
+<path>`:
+
 ```bash
 # Validate the repo file at the current checkout
 egg validate-config .
 
 # Validate an explicit path
 egg validate-config /path/to/repo
-
-# Validate just the user file
-egg validate-config --user-config ~/.config/egg/repositories.yaml
 ```
 
 Exit code: `0` on a clean config (no errors; warnings are stdout-only),
-`1` on errors.
+`1` on errors. The merge layer also pulls in the user file, so checks
+against operator-scoped fields (`local_repos.paths` existence,
+`writable_repos` cross-references) surface from the same invocation.
 
 ### MCP tool usage
 
@@ -321,11 +337,12 @@ If the rollout surfaces a regression in production:
 
 1. **Revert the merge commit** on `main` (single PR per CLAUDE.md, so
    one revert restores pre-#2073 state).
-2. **Operator-side recovery** — apply the inverse `sed` snippet
-   (committed in the CHANGELOG entry for #2073) against your
-   `~/.config/egg/repositories.yaml` to split `persist:` back into
-   `persist_dirs` + `persist_system_dirs` based on leading-slash
-   classification:
+2. **Operator-side recovery** — apply the inverse `sed` snippet below
+   against your `~/.config/egg/repositories.yaml` to split `persist:`
+   back into `persist_dirs` + `persist_system_dirs` based on
+   leading-slash classification. The snippet is intentionally inlined
+   here so the rollback path is self-contained; verify against your
+   file before running:
 
    ```bash
    # Approximate inversion — verify against your file before running
