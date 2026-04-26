@@ -1,0 +1,13 @@
+build_commands:
+- npm ci
+checks:
+- command: npm run lint
+  name: lint
+- command: npm test
+  name: test
+language: node-npm
+persist:
+- node_modules
+watch_files:
+- package-lock.json
+- package.json

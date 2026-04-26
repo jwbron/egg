@@ -1,0 +1,12 @@
+build_commands:
+- curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+- uv sync --no-install-project
+checks: []
+language: python-uv
+persist:
+- .venv
+- /usr/local/bin
+watch_files:
+- Makefile
+- pyproject.toml
+- uv.lock

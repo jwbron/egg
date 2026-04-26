@@ -760,3 +760,144 @@ class TestGetAllBuildCommandsEdgeCases:
 
         result = get_all_build_commands()
         assert result == {}
+
+
+# ---------------------------------------------------------------------------
+# Issue #2073 — infer_watch_files / infer_checks (TASK-3-5)
+# ---------------------------------------------------------------------------
+
+
+class TestInferWatchFiles:
+    """`infer_watch_files` heuristics from a manifest catalog."""
+
+    def test_python_uv_repo(self, temp_dir):
+        from config.repo_config import infer_watch_files
+
+        (temp_dir / "pyproject.toml").write_text("[project]\nname = 'foo'")
+        (temp_dir / "uv.lock").write_text("# lock\n")
+        result = infer_watch_files(temp_dir)
+        assert "pyproject.toml" in result
+        assert "uv.lock" in result
+
+    def test_node_pnpm_repo(self, temp_dir):
+        from config.repo_config import infer_watch_files
+
+        (temp_dir / "package.json").write_text("{}")
+        (temp_dir / "pnpm-lock.yaml").write_text("# pnpm")
+        result = infer_watch_files(temp_dir)
+        assert "package.json" in result
+        assert "pnpm-lock.yaml" in result
+
+    def test_node_npm_repo(self, temp_dir):
+        from config.repo_config import infer_watch_files
+
+        (temp_dir / "package.json").write_text("{}")
+        (temp_dir / "package-lock.json").write_text("{}")
+        result = infer_watch_files(temp_dir)
+        assert "package-lock.json" in result
+
+    def test_node_yarn_repo(self, temp_dir):
+        from config.repo_config import infer_watch_files
+
+        (temp_dir / "package.json").write_text("{}")
+        (temp_dir / "yarn.lock").write_text("")
+        result = infer_watch_files(temp_dir)
+        assert "yarn.lock" in result
+
+    def test_go_repo(self, temp_dir):
+        from config.repo_config import infer_watch_files
+
+        (temp_dir / "go.mod").write_text("module foo")
+        (temp_dir / "go.sum").write_text("# sum")
+        result = infer_watch_files(temp_dir)
+        assert "go.mod" in result
+        assert "go.sum" in result
+
+    def test_pip_requirements_repo(self, temp_dir):
+        from config.repo_config import infer_watch_files
+
+        (temp_dir / "requirements.txt").write_text("foo")
+        (temp_dir / "requirements-dev.txt").write_text("bar")
+        result = infer_watch_files(temp_dir)
+        assert "requirements.txt" in result
+        assert "requirements-dev.txt" in result
+
+    def test_makefile_included(self, temp_dir):
+        from config.repo_config import infer_watch_files
+
+        (temp_dir / "Makefile").write_text("lint:\n\techo")
+        assert "Makefile" in infer_watch_files(temp_dir)
+
+    def test_empty_repo_returns_empty(self, temp_dir):
+        from config.repo_config import infer_watch_files
+
+        # No manifests in the dir.
+        assert infer_watch_files(temp_dir) == []
+
+    def test_result_deterministic_catalog_order(self, temp_dir):
+        from config.repo_config import infer_watch_files
+
+        # Drop several manifests and confirm catalog order is preserved.
+        (temp_dir / "uv.lock").write_text("")
+        (temp_dir / "pyproject.toml").write_text("")
+        (temp_dir / "Makefile").write_text("")
+        result = infer_watch_files(temp_dir)
+        # pyproject.toml comes before uv.lock in the catalog.
+        assert result.index("pyproject.toml") < result.index("uv.lock")
+        # Makefile is at the tail.
+        assert result[-1] == "Makefile"
+
+
+class TestInferChecks:
+    """`infer_checks` heuristics from Makefile / package.json."""
+
+    def test_makefile_lint_test_targets(self, temp_dir):
+        from config.repo_config import infer_checks
+
+        (temp_dir / "Makefile").write_text("lint:\n\tmake lint-python lint-yaml\ntest:\n\tpytest\n")
+        result = infer_checks(temp_dir)
+        names = [c["name"] for c in result]
+        assert "lint" in names
+        assert "test" in names
+        commands = {c["name"]: c["command"] for c in result}
+        assert commands["lint"] == "make lint"
+        assert commands["test"] == "make test"
+
+    def test_makefile_lint_only(self, temp_dir):
+        from config.repo_config import infer_checks
+
+        (temp_dir / "Makefile").write_text("lint:\n\tflake8")
+        result = infer_checks(temp_dir)
+        assert len(result) == 1
+        assert result[0]["name"] == "lint"
+
+    def test_makefile_no_recognised_targets_falls_back_to_package_json(self, temp_dir):
+        from config.repo_config import infer_checks
+
+        (temp_dir / "Makefile").write_text("foo:\n\techo nothing\n")
+        (temp_dir / "package.json").write_text('{"scripts": {"lint": "eslint .", "test": "jest"}}')
+        result = infer_checks(temp_dir)
+        # Falls back to package.json scripts when Makefile lacks lint/test.
+        names = [c["name"] for c in result]
+        assert "lint" in names
+        assert "test" in names
+
+    def test_package_json_scripts_only_when_no_makefile(self, temp_dir):
+        from config.repo_config import infer_checks
+
+        (temp_dir / "package.json").write_text('{"scripts": {"lint": "eslint .", "test": "jest"}}')
+        result = infer_checks(temp_dir)
+        assert {"name": "lint", "command": "npm run lint"} in result
+        assert {"name": "test", "command": "npm test"} in result
+
+    def test_no_makefile_no_package_json_returns_empty(self, temp_dir):
+        from config.repo_config import infer_checks
+
+        assert infer_checks(temp_dir) == []
+
+    def test_invalid_package_json_handled_gracefully(self, temp_dir):
+        from config.repo_config import infer_checks
+
+        (temp_dir / "package.json").write_text("{ invalid json")
+        # Should return empty rather than raising.
+        assert infer_checks(temp_dir) == []

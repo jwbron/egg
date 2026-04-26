@@ -1190,3 +1190,56 @@ class TestMain:
         captured = capsys.readouterr()
         assert "root" in captured.out
         assert excinfo.value.code == 1
+
+
+# ---------------------------------------------------------------------------
+# Issue #2073 — host-side classifier tests (TASK-3-5)
+# ---------------------------------------------------------------------------
+
+
+class TestHostSideClassifier:
+    """Issue #2073 / architect Component C3.
+
+    The unified user-facing ``persist:`` list is split into the legacy
+    two-list manifest shape (``persist_dirs`` + ``persist_system_dirs``)
+    by ``shared.egg_config.repos._classify_persist_for_manifest``.
+    These tests pin the leading-slash routing rule so a regression
+    surfaces here rather than at sandbox image build time.
+    """
+
+    def test_repo_relative_routes_to_persist_dirs(self):
+        from egg_config.repos import _classify_persist_for_manifest
+
+        repo, system = _classify_persist_for_manifest([".venv", "node_modules"])
+        assert repo == [".venv", "node_modules"]
+        assert system == []
+
+    def test_absolute_routes_to_persist_system_dirs(self):
+        from egg_config.repos import _classify_persist_for_manifest
+
+        repo, system = _classify_persist_for_manifest(["/usr/local/bin", "/usr/local/go"])
+        assert repo == []
+        assert system == ["/usr/local/bin", "/usr/local/go"]
+
+    def test_mixed_routes_each_into_correct_list(self):
+        from egg_config.repos import _classify_persist_for_manifest
+
+        repo, system = _classify_persist_for_manifest(
+            ["/usr/local/bin", ".venv", "node_modules", "/opt/foo"]
+        )
+        assert repo == [".venv", "node_modules"]
+        assert system == ["/usr/local/bin", "/opt/foo"]
+
+    def test_empty_input_yields_empty_lists(self):
+        from egg_config.repos import _classify_persist_for_manifest
+
+        assert _classify_persist_for_manifest([]) == ([], [])
+
+    def test_classifier_is_textual_only(self):
+        """The classifier doesn't consult the FS — pure leading-slash check."""
+        from egg_config.repos import _classify_persist_for_manifest
+
+        # Even a path that doesn't exist routes to system if it starts with /.
+        repo, system = _classify_persist_for_manifest(["/nonexistent/path"])
+        assert repo == []
+        assert system == ["/nonexistent/path"]
