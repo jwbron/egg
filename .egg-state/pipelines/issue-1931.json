@@ -326,10 +326,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-10",
+      "question": "Bot identity for Confluence access?",
+      "context": "Open contract question decision-9, registered by an agent during the refine phase.",
+      "options": [
+        "Same dedicated Atlassian bot account used for Jira (single principal owns both Jira and Confluence read scopes) (Recommended)",
+        "Separate bot accounts per service",
+        "Reuse the operator's personal Atlassian account",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-26T23:23:26.185612Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-26T23:05:30.164689Z",
-  "updated_at": "2026-04-26T23:23:26.134374Z",
+  "updated_at": "2026-04-26T23:23:26.205997Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -343,6 +362,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 20,
+  "version": 21,
   "jira_ticket": null
 }
