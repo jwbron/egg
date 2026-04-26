@@ -1,245 +1,189 @@
-# Repository Configuration for egg
+# Repository Configuration for egg (user file, post-#2073).
 #
-# This is a TEMPLATE file. Copy to ~/.config/egg/repositories.yaml and customize.
-# Or run ./setup.py which will create this file interactively.
+# This is a TEMPLATE file. Copy to ~/.config/egg/repositories.yaml and
+# customize. Or run ./setup.py which will create this file
+# interactively.
 #
-# This file is the SINGLE SOURCE OF TRUTH for which repositories egg has
-# read/write access to. All components should import this config rather than
-# hardcoding repository names.
+# Layered config model (issue #2073):
+# - Per-repo defaults (build_commands, persist, watch_files, checks,
+#   auth_mode, checkpoint_repo, template) belong in
+#   `<repo>/.egg/repositories.yaml` checked into the source repo.
+#   Onboard new repos with the `/onboard-repo` skill in Claude Code,
+#   which detects build commands / persist paths and writes the file.
+# - This file carries operator-scoped fields only — github username,
+#   bot username, the writable_repos / readable_repos lists,
+#   local_repos.paths, default_reviewer, github_sync, user_mode,
+#   docker_setup.extra_packages, plus optional per-repo OVERRIDES
+#   under `repo_settings:` (use sparingly — most blocks should live
+#   in the repo file).
+# - Validate this file with: python3 scripts/validate-config.py
+#   --repo-config <path-to-checkout>
 #
-# Usage:
-# - Python: from config.repo_config import get_writable_repos, is_writable_repo
-# - Bash/Scripts: parse this YAML or use the helper script
-# - Claude Rules: Reference this file for up-to-date repo list
-#
-# Access Levels:
-# - writable: egg can respond to comments, push changes, create PRs
-# - readable: egg can sync and analyze but not modify
+# Schema reference: docs/guides/repo-config.md
+# Internal manifest format (manifest.json) is unchanged from pre-#2073;
+# the host-side classifier produces the legacy two-list shape so
+# existing sandbox images keep working without rebuild.
 
-# Your GitHub username (set by setup.py)
+schemaVersion: "1.0"
+
+# ---------------------------------------------------------------------
+# Operator identity
+# ---------------------------------------------------------------------
+
+# Your GitHub username (set by setup.py).
 github_username: YOUR_USERNAME
 
-# Bot username - the bot's GitHub identity for filtering out its own comments
-# Comments from this user are ignored (so the bot doesn't respond to itself)
+# Bot username — the bot's GitHub identity for filtering out its own
+# comments. Comments from this user are ignored (so the bot doesn't
+# respond to itself).
 bot_username: YOUR_BOT_USERNAME
 
-# Repositories where egg has WRITE access
-# These are repos where egg can:
-# - Respond to PR comments
-# - Push code changes
-# - Create PRs via gh CLI
-# - Implement fixes for failed CI checks
-writable_repos:
-  - YOUR_USERNAME/egg
-  # Add more repos as needed:
-  # - YOUR_USERNAME/other-repo
-
-# Default reviewer for PRs created by egg (defaults to github_username)
+# Default reviewer for PRs created by egg (defaults to github_username).
 default_reviewer: YOUR_USERNAME
 
-# GitHub sync configuration
-github_sync:
-  # Whether to sync all PRs in writable repos (true) or just user's PRs (false)
-  sync_all_prs: true
+# ---------------------------------------------------------------------
+# Repository access
+# ---------------------------------------------------------------------
 
-  # Sync interval in minutes (used by systemd timer)
+# Repositories where egg has WRITE access:
+#   - Respond to PR comments
+#   - Push code changes
+#   - Create PRs via gh CLI
+#   - Implement fixes for failed CI checks
+writable_repos:
+  - YOUR_USERNAME/egg
+  # - YOUR_USERNAME/other-repo
+
+# Repositories with read-only access:
+#   - Sync and analyze PRs, comments, and check failures
+#   - Send Slack notifications with feedback/analysis
+#   - NOT: Push code, create PRs, post comments, or make any
+#     modifications.
+# Read-only repos only require a GitHub PAT with read access
+# (GITHUB_READONLY_TOKEN).
+readable_repos: []
+
+# GitHub sync configuration.
+github_sync:
+  # Sync all PRs in writable repos (true) or just the user's PRs (false).
+  sync_all_prs: true
+  # Sync interval in minutes (used by the systemd timer).
   sync_interval_minutes: 5
 
-# Repositories with read-only access
-# These are repos where egg can:
-# - Sync and analyze PRs, comments, and check failures
-# - Send Slack notifications with feedback/analysis
-# - NOT: Push code, create PRs, post comments, or make any modifications
-#
-# Read-only repos only require a GitHub PAT with read access.
-# egg will monitor these repos and send Slack messages with:
-# - Branch names with proposed changes
-# - Analysis and feedback on code
-# - Comments and suggestions (sent to user, not posted to GitHub)
-#
-# Authentication: Uses GITHUB_READONLY_TOKEN (PAT) - no GitHub App needed for read-only
-readable_repos:
-  # Add repos you want to monitor but not modify here
-  # Example: - some-org/some-repo
+# ---------------------------------------------------------------------
+# Per-repo overrides (most blocks should live in
+# <repo>/.egg/repositories.yaml — only override here when the operator
+# wants to layer custom values on top of the repo defaults)
+# ---------------------------------------------------------------------
 
-# Per-repository configuration overrides
-# Each key is a repository name in "owner/repo" format
-# Available options per repo:
-#   - restrict_to_configured_users: Only auto-respond to comments/PRs from
-#     bot_username or github_username (ignores external contributors)
-#     Default: false (respond to all users)
-#   - disable_auto_fix: Don't automatically attempt to fix failing CI checks
-#     Default: false (auto-fix enabled)
-#   - auth_mode: Authentication mode for this repo
-#     "bot" (default): Use GitHub App bot identity
-#     "user": Use personal access token with user identity
-#   - checks: List of check commands for the SDLC pipeline implement phase
-#     Each entry has "name" (display label) and "command" (shell command)
-#     These run sequentially during the checker step
-#   - checkpoint_repo: Push checkpoints to a separate repo instead of the
-#     source repo. Value is "owner/repo" format. The checkpoint branch
-#     (egg/checkpoints/v2) will be created in this repo. Useful for keeping
-#     session transcripts and tool call data private/separate.
-#     Default: not set (checkpoints stored in the same repo)
-#   - build_commands: Commands to run during Docker image build to install
-#     project-specific dependencies. Results are baked into the image so
-#     containers start with dependencies pre-installed (critical for private
-#     mode where network access is restricted at runtime).
-#     - watch_files: List of files that trigger a rebuild when changed
-#       (e.g., package-lock.json, requirements.txt). These are copied into
-#       the Docker build context so Docker layer caching works correctly.
-#     - commands: Shell commands to run during build (e.g., npm ci, pip install).
-#       Commands run as root in a directory seeded with the watch files.
-#     - persist_dirs: List of directories (relative to repo root) to preserve
-#       from the build context into the Docker image. These are restored into
-#       the mounted repo at container startup. Use this for local dependencies
-#       like node_modules that would otherwise be lost when the build context
-#       is cleaned up. (e.g., node_modules, .venv)
-#     - persist_system_dirs: List of absolute paths to preserve from the build
-#       stage into the final Docker image. Use this for system-level tool
-#       installations that build_commands place outside the repo directory.
-#       (e.g., /usr/local/go, /usr/local/node)
 repo_settings:
-  # Example:
+  # Most repos need NO entry here — egg auto-discovers
+  # <repo>/.egg/repositories.yaml from the checkout. Add a block only
+  # to override a per-repo default or to set operator-scoped per-repo
+  # policies that aren't allowed in the checked-in repo file:
+  #
+  #   restrict_to_configured_users  (operator policy, repo-file forbidden)
+  #   disable_auto_fix              (operator policy, repo-file forbidden)
+  #
+  # Example: lock auto-fix off for a specific repo and persist an
+  # extra system dir from your machine.
+  #
   # YOUR_USERNAME/egg:
   #   restrict_to_configured_users: true
   #   disable_auto_fix: true
   #   checkpoint_repo: YOUR_USERNAME/egg-checkpoints
-  #   checks:
-  #     - name: lint
-  #       command: make lint
-  #     - name: test
-  #       command: make test
-  # some-org/external-repo:
-  #   auth_mode: user  # Use personal identity for this repo
-  #   checks:
-  #     - name: install
-  #       command: npm install
-  #     - name: lint
-  #       command: npm run lint
-  #     - name: test
-  #       command: npm test
-  #   build_commands:
-  #     watch_files:
-  #       - package-lock.json
-  #     commands:
-  #       - npm ci
-  #     persist_dirs:
-  #       - node_modules
-  # YOUR_USERNAME/python-service:
-  #   build_commands:
-  #     watch_files:
-  #       - requirements.txt
-  #       - requirements-dev.txt
-  #     commands:
-  #       - pip install -r requirements.txt
-  #       - pip install -r requirements-dev.txt
+  #   # The repo's own .egg/repositories.yaml already defines
+  #   # build_commands / persist / checks — leaving them out here
+  #   # means egg uses the checked-in defaults.
   #
-  # # Python project using uv + a build backend (hatchling, setuptools, ...).
-  # # NOTE: build_commands run in a synthetic context that contains ONLY the
-  # # files in `watch_files` — no source dirs, no README. A bare `uv sync`
-  # # tries to build the local project as a wheel and will fail. Use
-  # # `--no-install-project` (or a Makefile target that wraps it) so only
-  # # third-party deps go into the persisted .venv. The local project is not
-  # # needed for ruff / pytest / mypy / etc. to function in the sandbox. See #2087.
-  # YOUR_USERNAME/uv-python-project:
+  # YOUR_USERNAME/external-bazel-repo:
+  #   auth_mode: user        # personal identity for this repo
+  #   # If the repo has no .egg/repositories.yaml of its own you can
+  #   # supply the per-repo block here as a fallback. Persist lists
+  #   # use the unified single-list shape (entries with leading `/`
+  #   # are absolute system paths; others are repo-relative).
   #   build_commands:
-  #     watch_files:
-  #       - Makefile
-  #       - pyproject.toml
-  #       - uv.lock
   #     commands:
-  #       - curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
-  #       - make sandbox-deps    # ← `uv sync --extra dev --no-install-project`
-  #     persist_dirs:
-  #       - .venv
-  #     persist_system_dirs:
-  #       # ← carries `uv` itself (and anything else earlier setup steps put
-  #       # under /usr/local/bin) into the runtime image. The persist machinery
-  #       # only handles directories, not single files, so persisting just `uv`
-  #       # would require a wrapper dir.
-  #       - /usr/local/bin
-  # YOUR_USERNAME/go-service:
-  #   build_commands:
-  #     watch_files:
-  #       - go.mod
-  #       - go.sum
-  #     commands:
-  #       - GO_VERSION=$(grep '^go ' go.mod | awk '{print $2}') && curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-$(dpkg --print-architecture).tar.gz" | tar -xz -C /usr/local
-  #       - PATH=/usr/local/go/bin:$PATH go mod download
-  #     persist_system_dirs:
-  #       - /usr/local/go
+  #       - bazel build //...
+  #   watch_files:
+  #     - WORKSPACE
+  #     - BUILD
+  #   persist:
+  #     - bazel-bin
+  #     - /opt/bazel
+  #   checks:
+  #     - name: test
+  #       command: bazel test //...
 
-# User mode configuration (optional)
-# When auth_mode is set to "user" for a repo, operations will be
-# attributed to this personal GitHub account instead of the egg bot.
-# This is useful for contributing to external repos where bot accounts
-# may not be appropriate.
+# ---------------------------------------------------------------------
+# User-mode authentication (optional)
+# ---------------------------------------------------------------------
+
+# When `auth_mode: user` is set for a repo (here or in its checked-in
+# repo file), operations are attributed to this personal GitHub
+# account instead of the egg bot. Useful for contributing to external
+# repos where bot accounts may not be appropriate.
 #
 # To use user mode:
-# 1. Set GITHUB_USER_TOKEN in secrets.env (a PAT for your personal account)
-# 2. Configure the user_mode section below with your GitHub username
-# 3. Set auth_mode: user for repos that should use it
-# 4. Configure your LOCAL git with your name/email:
-#      git config user.name "Your Name"
-#      git config user.email "your@email.com"
-#    (Git author info is set at commit time, not push time)
+#   1. Set GITHUB_USER_TOKEN in secrets.env (a PAT for your personal
+#      account).
+#   2. Configure user_mode below with your GitHub username.
+#   3. Set auth_mode: user for repos that should use it.
+#   4. Configure your LOCAL git with your name/email:
+#        git config user.name "Your Name"
+#        git config user.email "your@email.com"
 #
-# User mode permissions:
-# - CAN push to new branches (that don't exist upstream yet)
-# - CAN push to branches with an open PR owned by egg or the user mode user
-# - CANNOT push to main/master (protected branches)
-# - CANNOT create PRs (you must create PRs manually via GitHub UI)
-# This ensures the human maintains control over what PRs are opened in their name.
+# Permissions in user mode:
+#   - CAN push to new branches (that don't exist upstream yet)
+#   - CAN push to branches with an open PR owned by egg or the user
+#     mode user
+#   - CANNOT push to main/master (protected branches)
+#   - CANNOT create PRs (you create PRs manually via the GitHub UI).
+#
+# This ensures the human maintains control over what PRs are opened
+# in their name.
 user_mode:
   # GitHub username for attribution (must match the PAT owner)
   # github_user: your-username
-  # Git author info (for documentation - configure locally with git config)
-  # git_name: "James Wies"
+  # Git author info (informational — configure locally with `git config`)
+  # git_name: "Your Name"
   # git_email: "your-email@example.com"
 
+# ---------------------------------------------------------------------
 # Local repository configuration
-# These are local directories on your machine that will be:
-# 1. Volume-mounted into the egg container
-# 2. Set up with git worktrees for isolated development
-#
-# Each repo gets its own worktree so the agent can work without affecting
-# your working directory. Changes are committed to the worktree branch,
-# then you review and merge.
+# ---------------------------------------------------------------------
+
+# Local directories on your machine that will be:
+#   1. Volume-mounted into the egg container.
+#   2. Set up with git worktrees for isolated development.
+# Each repo gets its own worktree so the agent can work without
+# affecting your working directory. Changes are committed to the
+# worktree branch, then you review and merge.
 local_repos:
-  # List of absolute paths to local git repositories
-  # Example:
+  paths: []
+  # Examples:
   #   - /home/username/projects/my-app
   #   - /home/username/work/another-repo
-  #
-  # These paths will be:
-  # - Mounted read-only (the main repo stays clean)
-  # - Git metadata mounted read-write (for worktree commits)
-  # - Worktrees created at ~/.egg-worktrees/<container-id>/<repo-name>
-  paths: []
 
-# Docker container setup configuration
-# Controls what gets installed when running docker-setup.py
+# ---------------------------------------------------------------------
+# Docker container setup
+# ---------------------------------------------------------------------
+
+# Controls what gets installed when running docker-setup.py.
 docker_setup:
-  # Extra packages to install beyond core utilities
-  # Core utilities (always installed): git, curl, wget, jq, unzip, vim, htop,
-  #   tree, lsof, build-essential/gcc+make
+  # Extra packages to install beyond core utilities.
+  # Core utilities (always installed): git, curl, wget, jq, unzip, vim,
+  #   htop, tree, lsof, build-essential / gcc + make.
   extra_packages:
-    # Packages for apt (Ubuntu/Debian)
-    apt: []
-    # Packages for dnf (Fedora/RHEL)
-    dnf: []
-    # Common packages that work on both (package names must match)
-    packages: []
+    apt: []   # Ubuntu/Debian packages
+    dnf: []   # Fedora/RHEL packages
+    packages: []  # Common packages that work on both
   # Examples:
   #   apt:
   #     - nodejs
   #     - python3.11
-  #     - golang-go
-  #     - openjdk-11-jdk
   #     - postgresql-14
   #   dnf:
   #     - nodejs
   #     - python3.11
-  #     - golang
   #     - java-11-openjdk

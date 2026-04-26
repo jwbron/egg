@@ -1,0 +1,62 @@
+# Repo defaults for jwbron/egg (issue #2073).
+#
+# This file is the canonical per-repo block for egg itself. The
+# host-side launcher reads it via shared/egg_config/repos.py and merges
+# it onto the operator's ~/.config/egg/repositories.yaml. Operator-
+# scoped fields (writable_repos, github_username, local_repos.paths,
+# restrict_to_configured_users, disable_auto_fix, …) live in the user
+# file; only per-repo defaults belong here.
+#
+# Validate this file with:
+#   python3 scripts/validate-config.py --repo-config .
+#
+# See docs/guides/repo-config.md for the full schema reference.
+
+schemaVersion: "1.0"
+
+# Reserved for a follow-up template-library PR. Set to a template
+# name (e.g. "python-uv") once the catalog lands; today only `null`
+# is valid (the schema accepts string or null).
+template: null
+
+# Auth mode: "bot" (use the egg GitHub App) or "user" (use a personal
+# access token). egg authenticates as the configured bot identity.
+auth_mode: bot
+
+# Build-time dependency installation. The build context contains only
+# the files listed in `watch_files:` below — `uv sync` against that
+# minimal context needs `--no-install-project` (or wrapping it in a
+# Makefile target that supplies it) so only third-party deps go into
+# the persisted `.venv`. The local project doesn't need to build for
+# ruff/pytest/mypy to function in the sandbox. See #2087.
+build_commands:
+  commands:
+    - curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+    - make sandbox-deps
+
+# Files copied into the build context. Changes to any of these
+# invalidate the dependency-install layer and trigger a rebuild.
+watch_files:
+  - Makefile
+  - pyproject.toml
+  - uv.lock
+
+# Unified persist list (issue #2073 / decision-3). Entries beginning
+# with `/` route to the absolute-path stage at image build time
+# (replaces the legacy `persist_system_dirs`); other entries stay
+# repo-relative (replaces `persist_dirs`).
+#
+# `/usr/local/bin` carries `uv` itself (placed there by the install
+# script above) into the runtime image; `.venv` carries the
+# third-party deps `make sandbox-deps` installs.
+persist:
+  - /usr/local/bin
+  - .venv
+
+# Checks run during the SDLC pipeline implement phase. Each entry has
+# a name (display label) and a command (shell). They run sequentially.
+checks:
+  - name: lint
+    command: make lint
+  - name: test
+    command: make test
