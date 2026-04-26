@@ -131,7 +131,9 @@ jobs:
           {
             echo "head-ref=$(echo "$pr_json" | jq -r '.head.ref')"
             echo "head-repo=$(echo "$pr_json" | jq -r '.head.repo.full_name')"
-            echo "title=$(echo "$pr_json" | jq -r '.title')"
+            echo "title<<EOF_TITLE"
+            echo "$pr_json" | jq -r '.title'
+            echo "EOF_TITLE"
           } >> "$GITHUB_OUTPUT"
         env:
           GH_TOKEN: ${{ steps.bot-token.outputs.token }}
