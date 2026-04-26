@@ -74,7 +74,10 @@ _INSTALL_TO_SYSTEM_PATH_RE = re.compile(
 )
 _TAR_TO_USR_LOCAL_RE = re.compile(r"tar\b[^|;&]*-C\s+(/usr/local/?\S*)")
 _PIP_INSTALL_NEEDS_SOURCE_RE = re.compile(
-    r"\bpip\s+install\b[^;|&]*\b-e\s+\.|\bpip\s+install\b[^;|&]*\bsetup\.py"
+    # `\b-e` doesn't fire between space and `-` because Python's `\b`
+    # is a word-boundary; use an explicit space match instead so the
+    # canonical `pip install -e .` form is caught (#2087 / tester NACK).
+    r"\bpip\s+install\b[^;|&]*\s+-e\s+\.|\bpip\s+install\b[^;|&]*\bsetup\.py"
 )
 _UV_SYNC_NEEDS_SOURCE_RE = re.compile(r"\buv\s+sync\b(?![^;|&]*--no-install-project)")
 _NPM_INSTALL_RE = re.compile(r"\bnpm\s+(?:ci|install|i)\b")

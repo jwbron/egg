@@ -14,7 +14,7 @@ import time
 import uuid
 from functools import cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 
@@ -424,7 +424,7 @@ def _copy_repo_watch_files(quiet: bool = False) -> None:
         from egg_config.repos_schema import classify_persist_entry
     except ImportError:  # pragma: no cover — shared dir absent
 
-        def classify_persist_entry(entry: str) -> str:  # type: ignore[no-redef]
+        def classify_persist_entry(entry: str) -> Literal["repo", "system"]:
             return "system" if isinstance(entry, str) and entry.startswith("/") else "repo"
 
     build_commands_list = []
