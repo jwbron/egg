@@ -1,11 +1,11 @@
 build_commands:
-- pip install -r requirements.txt
-- pip install -r requirements-dev.txt
+  - pip install -r requirements.txt
+  - pip install -r requirements-dev.txt
 checks: []
 language: python-pip
 persist:
-- .venv
+  - .venv
 watch_files:
-- pyproject.toml
-- requirements-dev.txt
-- requirements.txt
+  - pyproject.toml
+  - requirements-dev.txt
+  - requirements.txt
