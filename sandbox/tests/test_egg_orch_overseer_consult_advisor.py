@@ -260,6 +260,29 @@ class TestOverseerConsultAdvisorCommand:
         assert rc == 1
         assert "advisor parse failure" in capsys.readouterr().err
 
+    def test_advisor_runtime_error_returns_3(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # SDK / network / auth / rate-limit failures get a distinct exit
+        # code so the caller can distinguish them from a parse drift on
+        # AdvisorVerdict (exit 1) and decide retry vs. classify-drift.
+        inputs = tmp_path / "inputs.json"
+        _write_inputs(inputs)
+
+        async def _raise(**_kwargs: object) -> AdvisorVerdict:
+            raise RuntimeError("connection reset by peer")
+
+        with patch(
+            "egg_overseer.advisor.consult_advisor",
+            side_effect=_raise,
+        ):
+            rc = cmd_overseer_consult_advisor(_make_args(inputs_file=inputs))
+        assert rc == 3
+        err = capsys.readouterr().err
+        assert "advisor runtime failure" in err
+        assert "RuntimeError" in err
+        assert "connection reset by peer" in err
+
     def test_unwritable_output_file_returns_2(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:

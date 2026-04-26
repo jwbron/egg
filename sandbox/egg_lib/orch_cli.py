@@ -1760,8 +1760,17 @@ def cmd_overseer_consult_advisor(args: argparse.Namespace) -> int:
     AND a Tier-1 health alert active).
 
     Output (JSON): the verdict dict from ``AdvisorVerdict.model_dump()``.
-    Exit code 0 on success; non-zero on input validation failure or an
-    advisor parse failure.
+    Exit codes:
+        0 — success
+        1 — advisor parse failure (the SDK returned a payload that did
+            not match the ``AdvisorVerdict`` schema; the caller should
+            classify as a parse drift, not a transient failure)
+        2 — input validation / I/O failure (missing or malformed
+            ``--inputs-file``; unwritable ``--output-file``)
+        3 — advisor runtime failure (network, auth, rate-limit, or any
+            other unhandled exception from the SDK call); distinct from
+            parse failure so the caller can back off / retry vs. treat
+            as a model-output drift
     """
     import asyncio
 
@@ -1813,6 +1822,17 @@ def cmd_overseer_consult_advisor(args: argparse.Namespace) -> int:
     except AdvisorParseError as exc:
         print(f"Error: advisor parse failure: {exc}", file=sys.stderr)
         return 1
+    except Exception as exc:
+        # Distinct exit code for SDK / runtime failures (network, auth,
+        # rate-limit) so the caller can distinguish them from a parse
+        # drift on AdvisorVerdict. The overseer agent uses this to
+        # decide between retry / back-off and re-classifying the model
+        # output.
+        print(
+            f"Error: advisor runtime failure ({type(exc).__name__}): {exc}",
+            file=sys.stderr,
+        )
+        return 3
 
     payload = verdict.model_dump()
     rendered = json.dumps(payload, indent=2, sort_keys=True)
@@ -1829,6 +1849,10 @@ def cmd_overseer_consult_advisor(args: argparse.Namespace) -> int:
         else:
             print(f"Wrote AdvisorVerdict to {args.output_file}")
     else:
+        # No --output-file: stdout is the only sink, so the verdict
+        # JSON always lands there. ``--json`` is meaningful only with
+        # ``--output-file`` (where it controls whether to tee the
+        # verdict to stdout in addition to writing the file).
         print(rendered)
     return 0
 
@@ -3079,7 +3103,10 @@ def create_parser() -> argparse.ArgumentParser:
         "--output-file",
         help=(
             "Path to write the AdvisorVerdict JSON. When omitted the "
-            "verdict is written to stdout (pretty-printed)."
+            "verdict is written to stdout (pretty-printed). With "
+            "--output-file, --json additionally tees the verdict JSON "
+            "to stdout; without --output-file, --json is a no-op "
+            "since stdout is already JSON."
         ),
     )
     _add_json_flag(ov_advisor)

@@ -517,12 +517,14 @@ def run_once(
     # Tier-1 intersection gate (decision-18). The advisor is invoked
     # only when Haiku flags an anomaly AND a Tier-1 health alert is
     # present. We surface the gate state in the cycle report so the
-    # overseer agent (Claude) reads it before calling the advisor MCP
-    # tool. The agent's Haiku-classify pass owns the
-    # `tier1_alerts_present == True` AND classification.confidence ≥ 0.8
-    # decision; we expose helper `maybe_consult_advisor` (below) that
-    # encodes the gate and forwards to the MCP tool when conditions
-    # are met.
+    # overseer agent (Claude) reads it before invoking the
+    # ``egg-orch overseer consult-advisor`` sandbox CLI verb (the Opus
+    # ``run_agent_async`` call lives sandbox-side per the EGG200
+    # boundary in ``docs/guides/agent-mode-design.md``). The agent's
+    # Haiku-classify pass owns the ``tier1_alerts_present == True`` AND
+    # ``classification.confidence ≥ 0.8`` decision; the
+    # ``should_consult_advisor`` helper (below) is a pure predicate
+    # that encodes the gate so callers can reuse it.
     advisor_gate = {
         "tier1_alerts_present": bool(alerts),
         "tier1_alert_types": sorted({a.get("type", "") for a in alerts if a}),
