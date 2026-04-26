@@ -63,7 +63,8 @@ The `--agent-type` flag accepts both coarse agent types (e.g., `reviewer`) and c
 
 | Composite Role | Description |
 |----------------|-------------|
-| `reviewer_code` | Code quality reviewer |
+| `reviewer_code` | Code quality reviewer (fan-out, slice-by-slice) |
+| `reviewer_code_holistic` | Holistic code reviewer (cross-module coherence) |
 | `reviewer_contract` | Contract compliance reviewer |
 | `reviewer_agent_design` | Agent design reviewer |
 | `reviewer_refine` | Refinement reviewer |

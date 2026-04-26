@@ -10,7 +10,7 @@ Every agent role belongs to one of five categories. Categories enable dynamic te
 |----------|---------|-------|
 | **EXECUTION** | Produce artifacts (code, tests, docs) | `coder`, `tester`, `documenter` |
 | **ANALYSIS** | Analyze tasks and plan work | `refiner`, `architect`, `task_planner`, `risk_analyst` |
-| **REVIEW** | Validate quality and correctness | `reviewer_code`, `reviewer_contract`, `reviewer_refine`, `reviewer_plan`, `reviewer_agent_design`, `reviewer_security`, `reviewer_concurrency` |
+| **REVIEW** | Validate quality and correctness | `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_refine`, `reviewer_plan`, `reviewer_agent_design`, `reviewer_security`, `reviewer_concurrency` |
 | **UTILITY** | Cross-cutting support tasks | `autofixer`, `conflict_resolver` |
 | **INTERFACE** | Pipeline health and monitoring | `inspector`, `overseer` |
 
@@ -30,10 +30,11 @@ Use `get_roles_by_category(AgentCategory.REVIEW)` to dynamically query roles by 
 | `coder` | Execution | Implement | No | — |
 | `tester` | Execution | Implement | Yes (with `documenter`) | coder |
 | `documenter` | Execution | Implement | Yes (with `tester`) | coder |
-| `reviewer_code` | Review | Implement | Yes (with `reviewer_contract`, `reviewer_security`, `reviewer_concurrency`) | coder, tester |
-| `reviewer_contract` | Review | Implement | Yes (with `reviewer_code`, `reviewer_security`, `reviewer_concurrency`) | coder, tester |
-| `reviewer_security` | Review | Implement | Yes (with `reviewer_code`, `reviewer_contract`, `reviewer_concurrency`) | coder, tester |
-| `reviewer_concurrency` | Review | Implement | Yes (with `reviewer_code`, `reviewer_contract`, `reviewer_security`) | coder, tester |
+| `reviewer_code` | Review | Implement | Yes (with `reviewer_code_holistic`, `reviewer_contract`, `reviewer_security`, `reviewer_concurrency`) | coder, tester |
+| `reviewer_code_holistic` | Review | Implement | Yes (with `reviewer_code`, `reviewer_contract`, `reviewer_security`, `reviewer_concurrency`) | coder, tester |
+| `reviewer_contract` | Review | Implement | Yes (with `reviewer_code`, `reviewer_code_holistic`, `reviewer_security`, `reviewer_concurrency`) | coder, tester |
+| `reviewer_security` | Review | Implement | Yes (with `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_concurrency`) | coder, tester |
+| `reviewer_concurrency` | Review | Implement | Yes (with `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_security`) | coder, tester |
 | `autofixer` | Utility | Any | Yes | — |
 | `conflict_resolver` | Utility | Any | Yes | — |
 | `inspector` | Interface | Any | — | — (health checks) |
@@ -244,6 +245,25 @@ each surface so reviewers know to keep them in sync.
 
 **Outputs**:
 - `.egg-state/reviews/{identifier}-implement-reviewer_code-review.json` — Verdict file
+
+### `reviewer_code_holistic`
+
+**Purpose**: Single-pass holistic code review focused on cross-module coherence. Runs alongside `reviewer_code`'s slice-by-slice fan-out — its job is the architectural-coherence question no fan-out slice owns.
+
+**Criticality**: CRITICAL — NACKs block consensus on their own and are not averaged against `reviewer_code`'s fan-out ACKs.
+
+**Focus areas** (four mandatory passes):
+1. Walk the primary advertised use case end-to-end across the full diff.
+2. Cross-check doc-claimed behaviour against what the code actually does.
+3. Audit synthetic keys, sentinels, and magic values for cross-module agreement.
+4. Hunt silent fallbacks that swallow operator-visible misconfiguration.
+
+**File access**:
+- Allowed writes: `.egg-state/reviews/`, `.egg-state/agent-outputs/`
+- Blocked: All source, docs, tests, contracts, drafts
+
+**Outputs**:
+- `.egg-state/reviews/{identifier}-implement-reviewer_code_holistic-review.json` — Verdict file
 
 ### `reviewer_contract`
 
