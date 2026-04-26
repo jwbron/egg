@@ -1600,25 +1600,28 @@ def cmd_overseer_file_issue(args: argparse.Namespace) -> int:
         )
         return 0
 
-    # Build the gh argv. --json url,number,title returns structured
-    # output; we parse json.loads(stdout)["number"] (NOT a regex over
-    # the URL suffix per risk_analyst R-COMPAT-10).
+    # Build the gh argv. We pass --title inline (we've already read and
+    # validated the title file locally) because the sandbox `gh` wrapper
+    # at sandbox/scripts/gh::handle_issue_create only recognises
+    # --title|-t, --body|-b, --body-file|-F, --label|-l, --assignee|-a.
+    # --title-file is not a recognised flag and would cause the wrapper
+    # to error before reaching the gateway. We also drop --json because
+    # the wrapper doesn't pass it through; instead we parse the URL
+    # gh prints to stdout to extract the issue number.
     argv = [
         "gh",
         "issue",
         "create",
         "--repo",
         repo,
-        "--title-file",
-        args.issue_title_file,
+        "--title",
+        title,
         "--body-file",
         args.issue_body_file,
         "--label",
         "agent:overseer",
         "--label",
         args.priority,
-        "--json",
-        "url,number,title",
     ]
 
     if args.dry_run:
@@ -1654,16 +1657,35 @@ def cmd_overseer_file_issue(args: argparse.Namespace) -> int:
         )
         return 1
 
-    try:
-        gh_payload = json.loads(proc.stdout or "{}")
-    except json.JSONDecodeError as exc:
-        print(f"Error: gh stdout not JSON: {exc}: {proc.stdout!r}", file=sys.stderr)
-        return 1
+    # gh issue create (without --json) prints the issue URL to stdout,
+    # one line, e.g. "https://github.com/owner/repo/issues/123\n".
+    # The sandbox `gh` wrapper does not pass --json through, so we
+    # parse the trailing integer off the URL. Keep this resilient to
+    # minor whitespace and trailing-slash variations.
+    issue_number: int | None = None
+    raw_stdout = (proc.stdout or "").strip()
+    # First try JSON (covers tests / future wrapper extensions that
+    # surface the --json output).
+    if raw_stdout.startswith("{"):
+        try:
+            gh_payload = json.loads(raw_stdout)
+            num = gh_payload.get("number")
+            if isinstance(num, int):
+                issue_number = num
+        except json.JSONDecodeError:
+            issue_number = None
+    if issue_number is None:
+        import re as _re
 
-    issue_number = gh_payload.get("number")
-    if not isinstance(issue_number, int):
+        match = _re.search(r"/issues/(\d+)", raw_stdout)
+        if match:
+            try:
+                issue_number = int(match.group(1))
+            except ValueError:
+                issue_number = None
+    if issue_number is None:
         print(
-            f"Error: gh stdout missing integer 'number' field: {gh_payload!r}",
+            f"Error: gh stdout did not contain an issue number: {raw_stdout!r}",
             file=sys.stderr,
         )
         return 1

@@ -292,8 +292,16 @@ def run_migrated_detectors(
                 has_any_messages=True,
             )
             state.entries[role_name] = entry
+        elif entry.phase != phase_name:
+            # Phase transition: reset the per-phase anchors so the
+            # stall detector compares against the time the role
+            # entered THIS phase, not a stale anchor from the prior
+            # one. Also clear alerted_anomalies so suppression
+            # bookkeeping starts fresh in the new phase.
+            entry.phase = phase_name
+            entry.phase_entered_at = now
+            entry.alerted_anomalies = {}
         entry.has_any_messages = True
-        entry.last_alerted_at = entry.last_alerted_at  # idempotent
 
     stall_threshold = _config_int(config_subset, "overseer_agent_stall_seconds", 180)
     silent_threshold = _config_int(config_subset, "overseer_silent_agent_threshold_seconds", 600)
@@ -303,6 +311,14 @@ def run_migrated_detectors(
     alerts: list[dict[str, Any]] = []
 
     for role_name, entry in list(state.entries.items()):
+        # Skip entries left over from a prior phase. The phase-transition
+        # reset above handles roles that emit a progress event in the
+        # new phase, but a role that has been silent across the
+        # transition would otherwise fire an immediate agent-stall on
+        # every cycle (its phase_entered_at would still anchor the
+        # earlier phase).
+        if entry.phase != phase_name:
+            continue
         # detect_agent_stall — phase_entered_at older than threshold.
         elapsed = (now - entry.phase_entered_at).total_seconds()
         if elapsed > stall_threshold and not _suppress(entry, "agent-stall", stall_threshold, now):

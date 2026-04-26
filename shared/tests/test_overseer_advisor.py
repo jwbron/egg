@@ -35,13 +35,25 @@ class TestAdvisorVerdictValidator:
         with pytest.raises(ValueError, match="alert_summary"):
             AdvisorVerdict(decision="alert", reasoning="trip")
 
-    def test_alert_with_summary_validates(self) -> None:
+    def test_alert_requires_priority(self) -> None:
+        # Reviewer-flagged validator gap: ``label_to_alert`` crashes on
+        # priority=None for ``decision=alert``. Catch it at parse time.
+        with pytest.raises(ValueError, match="priority"):
+            AdvisorVerdict(
+                decision="alert",
+                alert_summary="something fired",
+                reasoning="r",
+            )
+
+    def test_alert_with_summary_and_priority_validates(self) -> None:
         v = AdvisorVerdict(
             decision="alert",
             alert_summary="something fired",
+            priority="p2",
             reasoning="r",
         )
         assert v.alert_summary == "something fired"
+        assert v.priority == "p2"
 
     def test_file_issue_requires_title_and_body(self) -> None:
         with pytest.raises(ValueError, match="issue_title"):

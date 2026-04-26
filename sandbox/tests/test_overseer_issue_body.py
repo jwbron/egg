@@ -280,7 +280,10 @@ class TestFindExistingIssue:
         assert argv[:3] == ["gh", "issue", "list"]
         assert "--repo" in argv
         assert "agent:overseer" in argv
-        assert sig[:8] in argv
+        # Search uses ``in:title`` qualifier so we don't match the
+        # 8-char prefix in body or comment text. Reviewer flagged the
+        # bare-prefix search as too loose.
+        assert any(f"in:title {sig[:8]}" == arg for arg in argv)
 
     def test_gh_fallback_returns_none_when_no_matching_title(self, tmp_path: Path) -> None:
         path = tmp_path / "missing.jsonl"

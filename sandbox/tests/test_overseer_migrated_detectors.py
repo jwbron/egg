@@ -298,6 +298,102 @@ class TestRunMigratedDetectors:
         # The contract pins the multiplier so test fixtures don't drift.
         assert _SUPPRESSION_FACTOR == 2
 
+    def test_phase_transition_resets_anchors(self, tmp_state_path: Path) -> None:
+        # Regression test: a role that was tracked in a prior phase
+        # must NOT immediately fire agent-stall on entering the next
+        # phase. The reviewer flagged that ``entry.phase_entered_at``
+        # was never updated on phase transition, so refine→plan→implement
+        # would emit an agent-stall instantly with phase_entered_at
+        # anchored to refine.
+        from egg_overseer.state import (
+            AgentTimingEntry,
+            AgentTimingState,
+            load_agent_timing,
+            save_agent_timing,
+        )
+
+        old = datetime.datetime.now(datetime.UTC) - datetime.timedelta(seconds=600)
+        state = AgentTimingState(
+            pipeline_id="issue-1",
+            entries={
+                "coder": AgentTimingEntry(
+                    role="coder",
+                    phase="refine",
+                    phase_entered_at=old,
+                    first_seen_at=old,
+                    has_any_messages=True,
+                    alerted_anomalies={"agent-stall": old},
+                )
+            },
+        )
+        save_agent_timing(state, tmp_state_path)
+
+        alerts = run_migrated_detectors(
+            base_url="http://orch",
+            pipeline_id="issue-1",
+            phase_name="implement",
+            config_subset={
+                "overseer_owns_host_detection": True,
+                "overseer_agent_stall_seconds": 60,
+            },
+            progress_events=[{"role": "coder", "event": "x"}],
+            consensus={},
+        )
+        kinds = [a["anomaly"] for a in alerts]
+        # No stall: phase transition reset the anchor and per-phase
+        # alerted_anomalies bookkeeping.
+        assert "agent-stall" not in kinds
+
+        rebuilt = load_agent_timing(tmp_state_path)
+        coder = rebuilt.entries["coder"]
+        # The anchor is now in the new phase and >= old.
+        assert coder.phase == "implement"
+        assert coder.phase_entered_at > old
+        # Prior-phase alert bookkeeping cleared.
+        assert "agent-stall" not in coder.alerted_anomalies
+
+    def test_silent_role_in_prior_phase_does_not_stall(
+        self, tmp_state_path: Path
+    ) -> None:
+        # A role that emitted progress in refine but is silent in
+        # implement should NOT fire agent-stall — its entry belongs to
+        # the prior phase. The detector skips entries whose phase
+        # doesn't match the current cycle.
+        from egg_overseer.state import (
+            AgentTimingEntry,
+            AgentTimingState,
+            save_agent_timing,
+        )
+
+        old = datetime.datetime.now(datetime.UTC) - datetime.timedelta(seconds=600)
+        state = AgentTimingState(
+            pipeline_id="issue-1",
+            entries={
+                "refiner": AgentTimingEntry(
+                    role="refiner",
+                    phase="refine",
+                    phase_entered_at=old,
+                    first_seen_at=old,
+                    has_any_messages=True,
+                )
+            },
+        )
+        save_agent_timing(state, tmp_state_path)
+
+        alerts = run_migrated_detectors(
+            base_url="http://orch",
+            pipeline_id="issue-1",
+            phase_name="implement",
+            config_subset={
+                "overseer_owns_host_detection": True,
+                "overseer_agent_stall_seconds": 60,
+            },
+            # No progress events for refiner this cycle — it's silent.
+            progress_events=[],
+            consensus={},
+        )
+        assert all(a["role"] != "refiner" for a in alerts)
+
     def test_persists_alerted_anomalies(self, tmp_state_path: Path) -> None:
         from egg_overseer.state import (
             AgentTimingEntry,

@@ -258,19 +258,25 @@ class TestOverseerFileIssueCommand:
         title_file.write_text("ok title")
         body_file.write_text("ok body")
 
-        gh_payload = {
-            "url": "https://github.com/owner/repo/issues/777",
-            "number": 777,
-            "title": "ok title",
-        }
-
-        # subprocess.run gets called inside cmd_overseer_file_issue via
-        # `import subprocess as _subprocess` — patch that lookup path.
+        # The sandbox `gh` wrapper at sandbox/scripts/gh proxies
+        # `gh issue create` to the gateway and prints the issue URL on
+        # stdout (no --json passthrough). The CLI verb parses the URL
+        # to extract the issue number. Mirror that contract here.
         def _fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
             assert argv[:3] == ["gh", "issue", "create"]
+            # Title is passed inline (not --title-file) because the
+            # wrapper does not recognise --title-file.
+            assert "--title" in argv
+            # --json must NOT be present — the wrapper drops it.
+            assert "--json" not in argv
             assert "agent:overseer" in argv
             assert "p1" in argv
-            return subprocess.CompletedProcess(argv, 0, stdout=json.dumps(gh_payload), stderr="")
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                stdout="https://github.com/owner/repo/issues/777\n",
+                stderr="",
+            )
 
         with (
             patch(
@@ -321,7 +327,7 @@ class TestOverseerFileIssueCommand:
         assert rc == 1
         assert "gh issue create exited 2" in capsys.readouterr().err
 
-    def test_gh_invalid_json_stdout_returns_1(
+    def test_gh_unparseable_stdout_returns_1(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
@@ -335,7 +341,8 @@ class TestOverseerFileIssueCommand:
         body_file.write_text("body")
 
         def _fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-            return subprocess.CompletedProcess(argv, 0, stdout="not-json", stderr="")
+            # Neither a JSON object nor a recognisable issue URL.
+            return subprocess.CompletedProcess(argv, 0, stdout="not-a-url", stderr="")
 
         with (
             patch(
@@ -346,7 +353,7 @@ class TestOverseerFileIssueCommand:
         ):
             rc = cmd_overseer_file_issue(_make_args(title_file=title_file, body_file=body_file))
         assert rc == 1
-        assert "not JSON" in capsys.readouterr().err
+        assert "did not contain an issue number" in capsys.readouterr().err
 
     def test_gh_subprocess_filenotfound_returns_1(
         self,
@@ -412,12 +419,14 @@ class TestOverseerFileIssueCommand:
         assert "agent:overseer" in argv
         assert "p1" in argv
 
-    def test_gh_payload_missing_number_field_returns_1(
+    def test_gh_url_stdout_is_parsed_for_issue_number(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path: Path,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
+        # Confirms the production path: gh prints the URL, the verb
+        # extracts the number from the URL.
         monkeypatch.setenv("EGG_PIPELINE_REPO", "owner/repo")
         monkeypatch.chdir(tmp_path)
         title_file = tmp_path / "title"
@@ -426,9 +435,12 @@ class TestOverseerFileIssueCommand:
         body_file.write_text("body")
 
         def _fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-            # Return JSON without 'number' key — the new code rejects rather
-            # than regex-parsing the URL (R-COMPAT-10).
-            return subprocess.CompletedProcess(argv, 0, stdout='{"url": "x"}', stderr="")
+            return subprocess.CompletedProcess(
+                argv,
+                0,
+                stdout="https://github.com/owner/repo/issues/4242\n",
+                stderr="",
+            )
 
         with (
             patch(
@@ -438,5 +450,6 @@ class TestOverseerFileIssueCommand:
             patch("subprocess.run", side_effect=_fake_run),
         ):
             rc = cmd_overseer_file_issue(_make_args(title_file=title_file, body_file=body_file))
-        assert rc == 1
-        assert "missing integer" in capsys.readouterr().err
+        assert rc == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["issue_number"] == 4242

@@ -284,7 +284,7 @@ egg-orch overseer file-issue \
   [--parent-alert-message-id <id>] [--dry-run]
 ```
 
-The verb writes the title and body to local files (so `gh` never escapes shell metacharacters), runs `find_existing_issue` first, calls `gh issue create --json url,number,title` on a fresh signature, and on success appends a `FiledIssueRecord` to `.egg-state/oversight/filed-issues.jsonl`. Output is JSON: `{"issue_number": int, "filed": bool, "dedup_match": int|null}`.
+The verb reads the title and body from the supplied files, runs `find_existing_issue` first, then calls the sandbox `gh` wrapper (`gh issue create --repo … --title <inline> --body-file …`) on a fresh signature. The wrapper proxies through the gateway and prints the issue URL on stdout; the verb parses the trailing integer to get the issue number and on success appends a `FiledIssueRecord` to `.egg-state/oversight/filed-issues.jsonl`. Output is JSON: `{"issue_number": int, "filed": bool, "dedup_match": int|null}`.
 
 ## Self-Monitoring
 

@@ -67,7 +67,7 @@ def compose_issue_body(
     phase: str,
     branch: str,
     commit_sha: str,
-    parent_alert_message_id: str,
+    parent_alert_message_id: str | None = None,
     classification: dict[str, Any] | None = None,
     recent_log_lines: list[str] | None = None,
     health_alerts: list[dict[str, Any]] | None = None,
@@ -165,7 +165,7 @@ def compose_issue_body(
         branch_url=branch_url,
         branch=branch,
         commit_sha=commit_sha,
-        parent_alert_message_id=parent_alert_message_id,
+        parent_alert_message_id=parent_alert_message_id or "(none)",
     )
 
     # Defense-in-depth scrub. The advisor is the primary scrubber.
@@ -225,7 +225,10 @@ def find_existing_issue(
         return matching[-1].issue_number
 
     # GitHub-side fallback. Search by the 8-char prefix embedded in
-    # the title; that's the contract titles preserve.
+    # the title; that's the contract titles preserve. We use the
+    # ``in:title`` qualifier so the search ignores body and comment
+    # matches — both reduces false-positive duplicates and lifts the
+    # 100-result ceiling for repos with chatty issues.
     sig8 = anomaly_signature[:8]
     argv = [
         "gh",
@@ -238,7 +241,7 @@ def find_existing_issue(
         "--state",
         "open",
         "--search",
-        sig8,
+        f"in:title {sig8}",
         "--json",
         "number,title",
         "--limit",

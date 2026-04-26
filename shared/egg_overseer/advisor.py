@@ -78,8 +78,16 @@ class AdvisorVerdict(BaseModel):
                 )
             if not self.priority:
                 raise ValueError("AdvisorVerdict: decision='file_issue' requires a priority")
-        if self.decision == "alert" and not self.alert_summary:
-            raise ValueError("AdvisorVerdict: decision='alert' requires alert_summary")
+        if self.decision == "alert":
+            if not self.alert_summary:
+                raise ValueError("AdvisorVerdict: decision='alert' requires alert_summary")
+            # The OVERSEER_ALERT consumer translates priority via
+            # ``egg_overseer.priority.label_to_alert``; a missing
+            # priority crashes that helper with "unrecognised label".
+            # Catch the gap at parse time so we surface a clearer
+            # error than a downstream KeyError.
+            if not self.priority:
+                raise ValueError("AdvisorVerdict: decision='alert' requires a priority")
         return self
 
 

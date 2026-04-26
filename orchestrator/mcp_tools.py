@@ -1081,10 +1081,12 @@ PIPELINE_TOOLS = [
         "description": (
             "Consult the Opus advisor for a structured verdict on a "
             "Haiku-flagged anomaly. Returns AdvisorVerdict JSON with "
-            "decision in {alert, file_issue, watch}. Auth-gated to "
-            "the overseer role only — the orchestrator sources the "
-            "calling role from the gateway session, not from a "
-            "caller-supplied JSON field."
+            "decision in {alert, file_issue, watch}. Reachability is "
+            "gated by the gateway's per-role allow-rules — only the "
+            "overseer role is permitted to reach this tool. The "
+            "handler does not re-check the caller role (no "
+            "session-aware role plumbing in the MCP server today; "
+            "see #1786)."
         ),
         "inputSchema": {
             "type": "object",
@@ -2947,12 +2949,20 @@ class PipelineToolHandler:
     def _handle_consult_advisor(self, args: dict[str, Any]) -> dict[str, Any]:
         """Forward a ``consult_advisor`` MCP tool call to the shared advisor.
 
-        Issue #1962. The role authentication is provided by the
-        gateway-sourced ``EGG_AGENT_ROLE`` env var on the calling
-        sandbox container — the MCP-tool input schema deliberately
-        does NOT expose ``role`` so a caller cannot spoof it. The MCP
-        server runs localhost-only inside the orchestrator pod and is
-        fronted by the gateway's per-role allow-rules.
+        Issue #1962. **Auth is enforced by the gateway, not by this
+        handler.** The earlier draft of this method read
+        ``EGG_AGENT_ROLE`` from the orchestrator process env and
+        passed it to the handler's role gate; that variable is unset
+        in the orchestrator pod, so the gate was a no-op (constant
+        ``"overseer"`` for any caller) — security paint, not security.
+
+        The MCP server is localhost-only inside the orchestrator pod
+        and is fronted by the gateway's per-role allow-rules; the
+        gateway is the sole enforcement boundary for which roles may
+        reach this tool. Plumbing the calling role through the FastMCP
+        request context (so this handler can re-check it) is tracked
+        under #1786 (per-session role plumbing) and is out of scope
+        here.
 
         We use ``asyncio.run`` (not ``new_event_loop``+``close``) so
         the loop's async-generator cleanup runs and the SDK's
@@ -2966,34 +2976,25 @@ class PipelineToolHandler:
 
         Returns:
             ``{"ok": true, "verdict": <AdvisorVerdict.model_dump()>}`` on
-            success; ``{"ok": false, "error": ...}`` on auth/parse failure.
+            success; ``{"ok": false, "error": ...}`` on parse failure.
         """
         import asyncio
 
         from mcp.tools.overseer_advisor import handle_consult_advisor
 
-        # Source the calling role from the orchestrator-side env var.
-        # The MCP server is run inside the orchestrator pod; the env
-        # var is set per-deployment, not per-request, so this is the
-        # role of the *MCP server process* — which is the orchestrator
-        # itself. We treat "orchestrator" as equivalent to "overseer"
-        # for this auth gate because the only path into this tool is
-        # through the orchestrator's own MCP surface, which is
-        # gateway-fronted (the gateway's per-role rules already
-        # block non-overseer roles from reaching the MCP endpoint).
-        # If a stricter session-aware auth is required, wire the
-        # gateway session role into the request context — out of
-        # scope for this PR per decision-14 (defer per-role PATH
-        # restructuring to #1786).
-        session_role = os.environ.get("EGG_AGENT_ROLE", "overseer")
-
         async def _run() -> dict[str, Any]:
+            # ``role="overseer"`` here is documentation-only: the
+            # gateway has already gated this request before it reached
+            # the MCP server, so by the time we are here the caller is
+            # guaranteed to be the overseer. The handler keeps the
+            # ``role`` parameter so the signature stays stable for the
+            # day a real session-aware role is plumbed through (#1786).
             return await handle_consult_advisor(
                 classification=args.get("classification") or {},
                 health_alerts=args.get("health_alerts") or [],
                 progress_events=args.get("progress_events") or [],
                 recent_log_lines=args.get("recent_log_lines") or [],
-                role=session_role,
+                role="overseer",
                 config=None,
             )
 
