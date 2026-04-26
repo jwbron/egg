@@ -539,10 +539,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"(a) Silent trust + safe-by-default denylist (Recommended) \u2014 matches decision-10, lowest friction; the denylist already blocks the dangerous classes (writing to /etc, /root, etc.). Operator-scoped policy keys (restrict_to_configured_users, disable_auto_fix) are also rejected in repo file.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-26T00:20:43.392748Z",
       "debounce_until": null
     },
     {
