@@ -3152,10 +3152,18 @@ class TestReadyToConfirmNudge:
         t.handle_ack("reviewer_x", "coder", {"artifact_references": ["a.py"]})
 
         # Simulate a prior "ready to confirm" nudge for coder at v1.
-        # In current code paths this can be reached by replay during
-        # tracker reconstruction, by legacy pipelines that pre-date the
-        # #2078 nudge gating, or by an agent that self-confirms based on
-        # direct ACK observation rather than the STATUS message.
+        # We seed the memo directly rather than driving the natural
+        # population path because none of those paths reproduce in a unit
+        # test: the memo only gets set when ``_collect_newly_ready_producers``
+        # finds the producer with ``check_confirm_guard.allowed`` — but if
+        # the guard passed, ``handle_confirmed`` would not reject.  The
+        # buggy state arises in production from (a) replay during tracker
+        # reconstruction, (b) legacy pipelines that pre-date the #2078
+        # nudge gating, or (c) an agent that self-confirms based on direct
+        # ACK observation rather than the STATUS message — all of which
+        # populate the memo at one point and then race a peer's state
+        # change before reaching ``handle_confirmed``.  The seed mimics
+        # the post-race state directly.
         t._nudged_versions["coder"] = 1
 
         # coder eagerly confirms — the global zero-proposal guard rejects
@@ -3199,6 +3207,74 @@ class TestReadyToConfirmNudge:
 
         assert t._nudged_versions.get("coder") == 1, (
             "reviewer rejection must not corrupt unrelated producer memos"
+        )
+
+    def test_dual_role_reviewer_side_rejection_drops_memo_but_blocks_re_emit(self):
+        """Dual-role agent (e.g. ``tester``) hitting a reviewer-side
+        rejection while holding a producer-side memo:
+
+        - The helper runs *before* the ``guard_type`` dispatch, so the
+          producer-side memo is dropped even when the failing guard is
+          ``must_have_reviewed`` / ``stale_acks`` / ``unresolved_nacks``.
+        - Dropping the memo is safe because ``check_confirm_guard``
+          evaluates BOTH the producer- and reviewer-side guards for
+          dual-role agents — the next sweep refuses to re-emit until the
+          reviewer side also clears.
+        - Once the reviewer side clears, the previously-dropped memo
+          allows the sweep to legitimately re-nudge the agent.
+        """
+        graph = ReviewGraph(
+            [
+                ReviewEdge("tester", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_x", "coder", ReviewCriticality.CRITICAL),
+                ReviewEdge("reviewer_x", "tester", ReviewCriticality.CRITICAL),
+            ]
+        )
+        t = PeerConsensusTracker("test-2100-dual-role", graph, cooldown_seconds=0)
+        for role in ("coder", "tester", "reviewer_x"):
+            t.register_agent(role)
+
+        # Both producers propose v1; reviewer_x ACKs tester so tester is
+        # fully ACKed as a producer.  tester has NOT yet reviewed coder.
+        self._propose(t, "coder", artifacts=["a.py"], commit="abc123")
+        self._propose(t, "tester", artifacts=["t.py"], commit="def456")
+        t.handle_ack("reviewer_x", "tester", {"artifact_references": ["t.py"]})
+
+        # Synthetic producer-side memo for tester at v1 (see seed
+        # justification on the producer-only test above — the natural
+        # population path requires the guard to pass at memo time, which
+        # contradicts the test setup).
+        t._nudged_versions["tester"] = 1
+
+        # tester tries to confirm — reviewer-side guard rejects with
+        # ``must_have_reviewed`` (tester has not ACKed coder).  The helper
+        # runs BEFORE the dispatch, so the producer-side memo is dropped.
+        try:
+            t.handle_confirmed("tester")
+        except ValueError:
+            pass  # expected: must_have_reviewed raises
+
+        assert "tester" not in t._nudged_versions, (
+            "dual-role producer-side memo must be dropped on reviewer-side "
+            "rejection too — the helper runs before guard_type dispatch (#2100)"
+        )
+
+        # reviewer_x ACKs coder.  tester is fully ACKed as a producer but
+        # still missing a review of coder, so the reviewer-side guard
+        # still fails — the next sweep must NOT re-emit a nudge for tester.
+        ack_result = t.handle_ack("reviewer_x", "coder", {"artifact_references": ["a.py"]})
+        assert all(e["role"] != "tester" for e in ack_result["newly_ready"]), (
+            "next sweep must NOT re-emit while the reviewer side still "
+            "fails; check_confirm_guard gates emission on BOTH producer "
+            "and reviewer sides for dual-role agents"
+        )
+
+        # Once tester ACKs coder, both sides clear — sweep emits.
+        final_ack = t.handle_ack("tester", "coder", {"artifact_references": ["a.py"]})
+        ready_roles = {e["role"]: e["version"] for e in final_ack["newly_ready"]}
+        assert ready_roles.get("tester") == 1, (
+            "after both sides clear, the dropped memo allows the sweep to "
+            "re-emit the nudge legitimately"
         )
 
     def test_re_propose_re_arms_nudge(self):
