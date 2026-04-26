@@ -511,6 +511,51 @@
       "resolved_by": "human",
       "resolved_at": "2026-04-25T23:36:28.223668Z",
       "debounce_until": null
+    },
+    {
+      "id": "decision-15",
+      "question": "Auto-discovery trust model: when egg encounters `<repo>/.egg/repositories.yaml` in a checkout for the first time, should the loader (a) silently trust it as decision-10 already settled, relying on the safe-by-default denylist this plan adds (`/etc`, `/root`, `/var`, `/home/`, `/proc`, `/sys`, `/dev`, `/.ssh`, paths outside `/usr/local/`+`/opt/`+repo root) plus the operator-scoped key rejection, or (b) additionally require an operator-side allow on first encounter (direnv-style: a one-time prompt or `egg trust <repo>` command before the file is honored)? Build_commands run as root in the sandbox, and feature branches can ship arbitrary `<repo>/.egg/repositories.yaml` content, so the security floor matters even with the denylist in place.",
+      "type": "hitl",
+      "phase": "plan",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "(a) Silent trust + safe-by-default denylist (Recommended) \u2014 matches decision-10, lowest friction; the denylist already blocks the dangerous classes (writing to /etc, /root, etc.). Operator-scoped policy keys (restrict_to_configured_users, disable_auto_fix) are also rejected in repo file.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "(b) Direnv-style opt-in on top of denylist \u2014 first time egg sees `<repo>/.egg/repositories.yaml`, prompt the operator to allow/reject; cache the decision per repo path. Maximum security but adds friction to onboarding flow.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "(c) Silent trust today, add a structured audit log of all repo-file persist entries seen so the operator can review post-hoc. Middle ground: no friction, but evidence trail exists.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-16",
+      "question": "Open feedback request feedback-1",
+      "type": "hitl",
+      "phase": null,
+      "options": [],
+      "resolved": true,
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Hard cutover OK \u2014 no migration tool. Users hand-update their config when upgrading; matches the hard-deprecate choice from decision-5.\", \"Q2\": \"Just the egg repo itself. egg/.egg/repositories.yaml is the canonical one to migrate as part of this rollout.\", \"Q3\": \"All four pieces are required \u2014 they reinforce each other and should ship together (matches decision-3 'one coordinated feature'). Don't drop any.\", \"Q4\": \"Yes \u2014 reserve a `template:` field in the schema so a follow-up template-library PR can land without another schema migration.\", \"Q5\": \"Add all examples mentioned: `auth_mode: user` without `GITHUB_USER_TOKEN` configured; persist of an empty directory; commands that exec curl/wget in private mode where network is locked down. Plus the issue's original list (build_commands without matching persist, persist without producible source, missing Makefile target, manifest/build-cmd mismatch, missing local_repos paths, dangling writable_repos, unreachable checkpoint_repo, repo-file with operator-scoped keys).\", \"Q6\": \"Always require human confirmation via AskUserQuestion per detected build_command \u2014 safest, matches the /sdlc HITL pattern, and aligns with the goal of catching misconfig at write-time rather than baking it in.\", \"Q7\": \"Don't know yet \u2014 design the detector for extensibility (plug-in escape hatch) so quirky repos like bazel/gradle/multi-stage checks can be slotted in without rewriting the heuristic.\"}}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-25T23:42:43.495706Z",
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
@@ -1211,6 +1256,49 @@
         "debounce_until": null
       },
       "reason": "Created feedback request with 7 question(s)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-26T00:08:07.130669Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.14",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-15",
+        "question": "Auto-discovery trust model: when egg encounters `<repo>/.egg/repositories.yaml` in a checkout for the first time, should the loader (a) silently trust it as decision-10 already settled, relying on the safe-by-default denylist this plan adds (`/etc`, `/root`, `/var`, `/home/`, `/proc`, `/sys`, `/dev`, `/.ssh`, paths outside `/usr/local/`+`/opt/`+repo root) plus the operator-scoped key rejection, or (b) additionally require an operator-side allow on first encounter (direnv-style: a one-time prompt or `egg trust <repo>` command before the file is honored)? Build_commands run as root in the sandbox, and feature branches can ship arbitrary `<repo>/.egg/repositories.yaml` content, so the security floor matters even with the denylist in place.",
+        "type": "hitl",
+        "phase": "plan",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "(a) Silent trust + safe-by-default denylist (Recommended) \u2014 matches decision-10, lowest friction; the denylist already blocks the dangerous classes (writing to /etc, /root, etc.). Operator-scoped policy keys (restrict_to_configured_users, disable_auto_fix) are also rejected in repo file.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "(b) Direnv-style opt-in on top of denylist \u2014 first time egg sees `<repo>/.egg/repositories.yaml`, prompt the operator to allow/reject; cache the decision per repo path. Maximum security but adds friction to onboarding flow.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "(c) Silent trust today, add a structured audit log of all repo-file persist entries seen so the operator can review post-hoc. Middle ground: no friction, but evidence trail exists.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Auto-discovery trust model: when egg encounters `<...",
       "checkpoint_id": null
     }
   ],

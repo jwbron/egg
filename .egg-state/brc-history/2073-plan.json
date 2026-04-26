@@ -1,0 +1,1763 @@
+[
+  {
+    "id": "d7119aaf-2b04-4e",
+    "pipeline_id": "issue-2073",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Overseer active. Cycle 1 complete. Pipeline has advanced past refine phase (BRC consensus reached). Now monitoring plan phase: 4 agents running (architect, risk_analyst, reviewer_plan, task_planner). Historical refiner-stall alerts from refine phase are resolved. Plan BRC not yet complete.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-25T23:43:40.066000+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "399e280d-4df9-48",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Plan reviewer is prepared and waiting for CONSENSUS_PROPOSE from architect/task_planner/risk_analyst. Read the issue, the analysis draft, and explored relevant code paths (config/repo_config.py, shared/egg_config/, sandbox/docker-setup.py, .egg/, skills/).",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-25T23:44:37.818231+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "68f32dde-edb2-49",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:44:37.828941+00:00"
+    },
+    "timestamp": "2026-04-25T23:44:37.911221+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "21b30849-01d6-4e",
+    "pipeline_id": "issue-2073",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-heartbeat-stall [high]",
+    "body": "ALL 4 plan-phase agents silent for 20+ minutes \u2014 pipeline blocked on plan BRC consensus\n\nDetail:\nPipeline issue-2073 transitioned to plan phase at ~23:24 UTC after refine BRC completed. As of 23:44 UTC (20+ minutes elapsed), ZERO messages have been received from any plan-phase agent: architect, risk_analyst, reviewer_plan, task_planner. mcp__brc__read_peer_artifact for phase=plan returns 0 items. No heartbeats, no CONSENSUS_PROPOSE, no progress events from any agent. The orchestrator reports all 4 as status=running but confirmed=false in WORKING state. This is a total communications blackout across all 4 concurrent agents simultaneously \u2014 unlikely to be individual agent failure; more likely a systemic issue (network partition, orchestrator routing bug, or all agents blocked on shared resource). Previous refiner stall in refine phase lasted ~10 min before self-recovery. This stall has already exceeded that by 2x with no signs of recovery. No prior overseer alerts have been raised for plan phase.\n\nRecommended action:\nIMMEDIATE ACTION: (1) Check sandbox/container logs for all 4 plan agents (architect, risk_analyst, reviewer_plan, task_planner). (2) Verify orchestrator routing \u2014 confirm plan-phase messages are being delivered to agents. (3) If agents appear crashed/frozen, restart all 4 plan-phase agents. (4) If systemic issue is confirmed, cancel pipeline issue-2073 and re-trigger. (5) If restart succeeds, monitor for first proposal within 5 min.",
+    "metadata": {},
+    "timestamp": "2026-04-25T23:45:17.894669+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "38e129ec-6fdd-4e",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:44:37.828941+00:00"
+    },
+    "timestamp": "2026-04-25T23:45:38.378722+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "32cf8dc7-eae0-44",
+    "pipeline_id": "issue-2073",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-heartbeat-stall [low]",
+    "body": "CORRECTION: Prior high-severity plan-phase alert was premature \u2014 plan phase only started 2-3 min before alert was raised\n\nDetail:\nCorrecting alert 21b30849-01d6-4e sent at 23:45:17 UTC. Root cause of apparent 20-min silence: the gap between last refine-phase agent heartbeat (23:24 UTC) and my cycle-1 observation was entirely occupied by the human HITL decision window (14 decisions + 7-question feedback answered between 23:32 and 23:42:47 UTC). The plan phase only transitioned at 23:42:53 UTC (pipeline updated_at field). At the time the alert was sent (23:45:17), plan agents had been running for only ~144 seconds \u2014 barely past the 120s threshold. The orchestrator confirms all 4 agents are status=running. No actual stall; normal startup. Please disregard the prior high-severity alert for plan phase.\n\nRecommended action:\nNo immediate action needed. Continue monitoring plan phase normally. First proposals expected within 10-20 minutes of 23:42:53 UTC depending on analysis complexity.",
+    "metadata": {},
+    "timestamp": "2026-04-25T23:46:13.832093+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "45c25527-f859-47",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:44:37.828941+00:00"
+    },
+    "timestamp": "2026-04-25T23:46:38.676485+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4fdf256a-fb1c-41",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:44:37.828941+00:00"
+    },
+    "timestamp": "2026-04-25T23:47:38.878454+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ca4e0e7f-18e8-4d",
+    "pipeline_id": "issue-2073",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-heartbeat-stall [medium]",
+    "body": "Plan-phase producers silent 10+ min \u2014 architect, risk_analyst, task_planner all emitting zero messages\n\nDetail:\nPipeline issue-2073, plan phase (started 23:42:53 UTC). As of 23:52+ UTC (~10 min elapsed), all 3 plan producers have emitted ZERO messages: no heartbeats, no CONSENSUS_PROPOSE, no progress events. mcp__brc__read_peer_artifact for phase=plan returns 0 items. Only reviewer_plan is healthy (60-second heartbeats confirmed). Pattern mirrors the refiner stall in refine phase (~10-min silence before recovery at 23:20:30). Key difference: 3 agents simultaneously silent (not 1), suggesting a shared startup issue rather than individual failure. Monitoring alert_count is stable at 22 \u2014 no additional threshold breaches detected by the monitoring system since cycle 3.\n\nRecommended action:\nWatch for 3 more minutes. If still silent at 23:55 UTC, escalate to high and consider restarting the 3 producer agents. Check if all 3 hit a shared resource contention (e.g. git checkout, shared API rate limit, context window overrun on analysis draft).",
+    "metadata": {},
+    "timestamp": "2026-04-25T23:48:26.479142+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8a13343a-2931-4e",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:44:37.828941+00:00"
+    },
+    "timestamp": "2026-04-25T23:48:38.963393+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b39b5901-fee5-49",
+    "pipeline_id": "issue-2073",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-heartbeat-stall [high]",
+    "body": "ESCALATION: All 3 plan-phase producers silent 12+ min \u2014 architect, risk_analyst, task_planner unresponsive\n\nDetail:\nEscalation from medium alert ca4e0e7f-18e8-4d (sent ~23:48 UTC). The 3-minute remediation window has elapsed with no change. Plan phase producers remain completely silent: architect, risk_analyst, and task_planner have emitted ZERO messages since plan phase started at 23:42:53 UTC (~12 minutes ago). mcp__brc__read_peer_artifact returns 0 items for plan phase. Only reviewer_plan is healthy. This pattern of simultaneous silence across all 3 producers with no recovery strongly indicates a systemic failure \u2014 likely a shared resource block (filesystem, API rate limit, token limit on the 2073-analysis.md artifact), an orchestrator routing failure that prevented agent startup context from reaching them, or a crash in all 3 container processes. The refine-phase refiner self-recovered after ~10 min; we are now past that window with no sign of recovery.\n\nRecommended action:\nIMMEDIATE ACTION REQUIRED: (1) Inspect container/sandbox logs for architect, risk_analyst, and task_planner. (2) Verify the plan phase context artifact (.egg-state/drafts/2073-analysis.md) is accessible to agents. (3) Restart all 3 producer agents. (4) If restart fails or second stall occurs within 5 min, cancel pipeline issue-2073 and re-trigger from plan phase. (5) Check orchestrator routing for plan-phase message delivery.",
+    "metadata": {},
+    "timestamp": "2026-04-25T23:49:07.177170+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "bf437483-066a-4c",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:44:37.828941+00:00"
+    },
+    "timestamp": "2026-04-25T23:49:39.130300+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1e1d30a8-af0f-48",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:44:37.828941+00:00"
+    },
+    "timestamp": "2026-04-25T23:50:39.193722+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3e364a15-b344-4c",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from risk_analyst",
+    "body": "Risk assessment for issue #2073 (repo-config simplification). Wrote .egg-state/agent-outputs/2073-risk_analyst-output.json \u2014 15 risks across compatibility, security, regression, and design categories; 5 flagged for explicit human review before implement. Three high-severity items: (1) manifest.json producer/consumer coupling between host launcher and Docker build container (currently unversioned \u2014 recommend stamping manifest_version + fail-loud reader check); (2) hard-deprecation per decision-4 breaks every existing operator's user file with no migration tool \u2014 mitigated by shipping the egg repo's own migrated .egg/repositories.yaml as a working example plus an EGG_REPO_CONFIG_LEGACY=1 emergency-stop flag; (3) auto-discovery (decision-10) silently reads <repo>/.egg/repositories.yaml and runs root-privileged build_commands during Docker build \u2014 recommend an allowlist-not-denylist policy on persist: paths from repo files, plus a HITL re-vote on whether trust-on-first-use is needed. Also flagged: schemaVersion field-format inconsistency (codebase uses \"1.0\" string everywhere; decision-13 implies integer 1), three-loader atomic-refactor risk (decision-5 helps), regression risk against the #2087/#2090 fail-loud contract, validator name collision (decision-6 acknowledged but unresolved), list-merge replace-by-default surprise budget, one-coordinated-feature delivery blast radius, and graceful-degradation policy under-specification. Mitigations and rollback plan included; cross-referenced refine analysis, all 14 HITL decisions, and feedback-1 Q1-Q7. Skipped external research per instructions (purely internal change).",
+    "metadata": {
+      "payload": {
+        "summary": "Risk assessment for issue #2073 (repo-config simplification). Wrote .egg-state/agent-outputs/2073-risk_analyst-output.json \u2014 15 risks across compatibility, security, regression, and design categories; 5 flagged for explicit human review before implement. Three high-severity items: (1) manifest.json producer/consumer coupling between host launcher and Docker build container (currently unversioned \u2014 recommend stamping manifest_version + fail-loud reader check); (2) hard-deprecation per decision-4 breaks every existing operator's user file with no migration tool \u2014 mitigated by shipping the egg repo's own migrated .egg/repositories.yaml as a working example plus an EGG_REPO_CONFIG_LEGACY=1 emergency-stop flag; (3) auto-discovery (decision-10) silently reads <repo>/.egg/repositories.yaml and runs root-privileged build_commands during Docker build \u2014 recommend an allowlist-not-denylist policy on persist: paths from repo files, plus a HITL re-vote on whether trust-on-first-use is needed. Also flagged: schemaVersion field-format inconsistency (codebase uses \"1.0\" string everywhere; decision-13 implies integer 1), three-loader atomic-refactor risk (decision-5 helps), regression risk against the #2087/#2090 fail-loud contract, validator name collision (decision-6 acknowledged but unresolved), list-merge replace-by-default surprise budget, one-coordinated-feature delivery blast radius, and graceful-degradation policy under-specification. Mitigations and rollback plan included; cross-referenced refine analysis, all 14 HITL decisions, and feedback-1 Q1-Q7. Skipped external research per instructions (purely internal change).",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/2073-risk_analyst-output.json"
+        ],
+        "risk_considered": "15 risks identified \u2014 3 high-severity (manifest coupling, hard-deprecation breakage, auto-discovery trust), 5 medium, 7 low. Mitigations and rollback strategy detailed in the artifact.",
+        "commit_sha": "d8275317b7bba7be4e76334f9cc3200251fa7289",
+        "files_changed": [
+          ".egg-state/agent-outputs/2073-risk_analyst-output.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "d8275317b7bba7be4e76334f9cc3200251fa7289"
+    },
+    "timestamp": "2026-04-25T23:51:30.488450+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "49f9f509-323f-40",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-25T23:51:30.581519+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a4ac1454-c79c-4d",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:51:42.262611+00:00"
+    },
+    "timestamp": "2026-04-25T23:51:43.668103+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f50f9f04-7dd7-4f",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-25T23:51:44.034652+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "21e2ed57-55d6-40",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:51:54.225791+00:00"
+    },
+    "timestamp": "2026-04-25T23:51:54.369670+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7f3dda07-ea64-44",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:51:46.984263+00:00"
+    },
+    "timestamp": "2026-04-25T23:52:50.210369+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "90c88e09-beb8-4a",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:51:54.225791+00:00"
+    },
+    "timestamp": "2026-04-25T23:52:54.506022+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "42adb95a-d95d-43",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:51:46.984263+00:00"
+    },
+    "timestamp": "2026-04-25T23:53:50.284369+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "fa856aaf-8788-43",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:51:54.225791+00:00"
+    },
+    "timestamp": "2026-04-25T23:53:55.665422+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9fdf5026-3a74-46",
+    "pipeline_id": "issue-2073",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from architect",
+    "body": "Architecture analysis for issue #2073: simplify repo configuration. Centralizes load+merge in new shared/egg_config/repos.py imported by both config/repo_config.py and sandbox/egg_lib/docker.py so all 15+ callers see the same merged view; keeps the build-time docker-setup.py manifest contract unchanged (#2090's fail-loud invariants preserved). Honors all 14 HITL decisions + 7 feedback answers: hard-deprecate legacy persist_dirs/persist_system_dirs/explicit watch_files, replace-by-default list semantics, auto-discover <repo>/.egg/repositories.yaml with silent skip, two-tier validator (errors block, warnings advise), schema version: 1 + reserved template: hook, Python (uv/pip) + Node (npm/pnpm/yarn) + Go detection in v1 with a detector plug-in seam for bazel/gradle. Defines 11 components (C1 shared loader/merger, C2 config/repo_config rewire, C3 sandbox/docker rewire, C4 validator core, C5 egg validate-config CLI, C6 mcp__egg__validate_repo_config tool, C7 /onboard-repo skill with AskUserQuestion-per-detection, C8 JSON schema + example rewrite, C9 migrate egg's own .egg/repositories.yaml, C10 tests, C11 docs), 10 workstreams with explicit dependency order, 9 ranked risks with mitigations, and 6 open questions for the planner/risk-analyst. Tests run: none (analysis-only artifact). Satisfies architect role for plan phase.",
+    "metadata": {
+      "payload": {
+        "summary": "Architecture analysis for issue #2073: simplify repo configuration. Centralizes load+merge in new shared/egg_config/repos.py imported by both config/repo_config.py and sandbox/egg_lib/docker.py so all 15+ callers see the same merged view; keeps the build-time docker-setup.py manifest contract unchanged (#2090's fail-loud invariants preserved). Honors all 14 HITL decisions + 7 feedback answers: hard-deprecate legacy persist_dirs/persist_system_dirs/explicit watch_files, replace-by-default list semantics, auto-discover <repo>/.egg/repositories.yaml with silent skip, two-tier validator (errors block, warnings advise), schema version: 1 + reserved template: hook, Python (uv/pip) + Node (npm/pnpm/yarn) + Go detection in v1 with a detector plug-in seam for bazel/gradle. Defines 11 components (C1 shared loader/merger, C2 config/repo_config rewire, C3 sandbox/docker rewire, C4 validator core, C5 egg validate-config CLI, C6 mcp__egg__validate_repo_config tool, C7 /onboard-repo skill with AskUserQuestion-per-detection, C8 JSON schema + example rewrite, C9 migrate egg's own .egg/repositories.yaml, C10 tests, C11 docs), 10 workstreams with explicit dependency order, 9 ranked risks with mitigations, and 6 open questions for the planner/risk-analyst. Tests run: none (analysis-only artifact). Satisfies architect role for plan phase.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/2073-architect-output.json"
+        ],
+        "risk_considered": "",
+        "commit_sha": "0c7e2b6537941ca64f0477906482eccbeca8c0d3",
+        "files_changed": [
+          ".egg-state/agent-outputs/2073-architect-output.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "0c7e2b6537941ca64f0477906482eccbeca8c0d3"
+    },
+    "timestamp": "2026-04-25T23:54:04.440520+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3c727d4a-ed70-44",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-25T23:54:04.472182+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "561cf729-8a7b-4a",
+    "pipeline_id": "issue-2073",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT from=reviewer_plan",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:54:20.145713+00:00"
+    },
+    "timestamp": "2026-04-25T23:54:21.380395+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "dbb59d8c-af3d-41",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:54:24.753753+00:00"
+    },
+    "timestamp": "2026-04-25T23:54:24.825425+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "10540c3f-66ce-41",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:51:46.984263+00:00"
+    },
+    "timestamp": "2026-04-25T23:54:50.385673+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2acf3a66-ecf3-41",
+    "pipeline_id": "issue-2073",
+    "from_role": "orchestrator",
+    "to_role": "risk_analyst",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "BRC confirmation timeout \u2014 call mcp__brc__confirm",
+    "body": "You are PROPOSED and fully ACKed but have not confirmed in 182s. Call `mcp__brc__confirm` now. If it returns `status='pending_acks'`, read `message` for the guard reason and wait on the prerequisite events instead: `CONSENSUS_PROPOSE` if a producer hasn't proposed (`zero_proposal_producers`), `CONSENSUS_ACK` / `CONSENSUS_RE_REVIEW` if a reviewer's ACK is stale or unresolved. Then retry confirm.",
+    "metadata": {
+      "alert_type": "brc_confirmation_timeout",
+      "elapsed_seconds": 182,
+      "source": "health_monitor"
+    },
+    "timestamp": "2026-04-25T23:54:55.106137+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a521a672-2131-40",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-25T23:54:55.794175+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "785d30b1-b94c-41",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by risk_analyst (pending_acks)",
+    "body": "Agent risk_analyst cannot confirm: producers ['task_planner'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-25T23:54:59.547042+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "00e09413-1c5d-4f",
+    "pipeline_id": "issue-2073",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "Six-phase task plan for issue #2073 covering schema simplification (collapse persist_dirs+persist_system_dirs into one persist: list with leading-slash classification, derive watch_files/checks, drop legacy schema outright per HITL decision-4), centralized layered loader at shared/egg_config/repos.py with replace-by-default merge and auto-discover, two-tier validator exposed as `egg validate-config` CLI + new mcp__egg__validate_repo_config MCP tool (with hard rename of existing validate_config to validate_pipeline_config), pluggable detector module + /onboard-repo skill driving AskUserQuestion confirmation per detection (Q6), egg-own per-repo block migrated into checked-in .egg/repositories.yaml. Single PR per decision-2. 20 tasks across 6 phases with role assignments (coder/tester/documenter), acceptance criteria, dependency ordering, and a complete pr/test_plan/manual_steps appendix. YAML parses cleanly via yaml.safe_load.",
+    "metadata": {
+      "payload": {
+        "summary": "Six-phase task plan for issue #2073 covering schema simplification (collapse persist_dirs+persist_system_dirs into one persist: list with leading-slash classification, derive watch_files/checks, drop legacy schema outright per HITL decision-4), centralized layered loader at shared/egg_config/repos.py with replace-by-default merge and auto-discover, two-tier validator exposed as `egg validate-config` CLI + new mcp__egg__validate_repo_config MCP tool (with hard rename of existing validate_config to validate_pipeline_config), pluggable detector module + /onboard-repo skill driving AskUserQuestion confirmation per detection (Q6), egg-own per-repo block migrated into checked-in .egg/repositories.yaml. Single PR per decision-2. 20 tasks across 6 phases with role assignments (coder/tester/documenter), acceptance criteria, dependency ordering, and a complete pr/test_plan/manual_steps appendix. YAML parses cleanly via yaml.safe_load.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/2073-plan.md"
+        ],
+        "risk_considered": "Hard cutover on legacy schema breaks every existing user config \u2014 mitigated by validator's blocking error message naming exact migration steps and example file's diff demonstrating before/after. Sandbox manifest format change is a multi-stage Docker invariant \u2014 mitigated by landing producer + consumer in single phase 3 commit with integration test exercising the round-trip. Skill detection wrong-block silent risk \u2014 mitigated by Q6's mandatory AskUserQuestion-per-detection enforced in skill prose and detector returning (detection, confidence, reasoning) triples. MCP tool rename breaks existing callers \u2014 mitigated by hard-grep-and-update-everywhere in same commit, no backward-compat alias.",
+        "commit_sha": "3bc666b80eac7e45db92108b3b71518d88bb0203",
+        "files_changed": [
+          ".egg-state/drafts/2073-plan.md"
+        ],
+        "tests_run": [
+          "python3 yaml.safe_load on appendix"
+        ],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "3bc666b80eac7e45db92108b3b71518d88bb0203"
+    },
+    "timestamp": "2026-04-25T23:55:03.925426+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "411d008f-f053-47",
+    "pipeline_id": "issue-2073",
+    "from_role": "orchestrator",
+    "to_role": "risk_analyst",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-04-25T23:55:03.925458+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "75731440-15b3-48",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-25T23:55:04.007879+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b1ef8e6f-52dc-48",
+    "pipeline_id": "issue-2073",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:55:17.355800+00:00"
+    },
+    "timestamp": "2026-04-25T23:55:17.389225+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5842b830-6474-40",
+    "pipeline_id": "issue-2073",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-25T23:55:17.496800+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d013a978-916f-41",
+    "pipeline_id": "issue-2073",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:55:21.350904+00:00"
+    },
+    "timestamp": "2026-04-25T23:55:21.563680+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6131db89-3dd5-47",
+    "pipeline_id": "issue-2073",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT from=reviewer_plan",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:54:20.145713+00:00"
+    },
+    "timestamp": "2026-04-25T23:55:21.620794+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e53f516e-6955-41",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT from=task_planner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:55:03.055446+00:00"
+    },
+    "timestamp": "2026-04-25T23:56:04.260181+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d551168b-f842-47",
+    "pipeline_id": "issue-2073",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:55:21.350904+00:00"
+    },
+    "timestamp": "2026-04-25T23:56:21.930449+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "42e8656c-c105-47",
+    "pipeline_id": "issue-2073",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT from=reviewer_plan",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:54:20.145713+00:00"
+    },
+    "timestamp": "2026-04-25T23:56:22.320729+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f39c83ef-c33e-42",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT from=task_planner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:55:03.055446+00:00"
+    },
+    "timestamp": "2026-04-25T23:57:04.366219+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "01a21062-6713-4a",
+    "pipeline_id": "issue-2073",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:55:21.350904+00:00"
+    },
+    "timestamp": "2026-04-25T23:57:22.019906+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e7af2feb-aa5d-4d",
+    "pipeline_id": "issue-2073",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT from=reviewer_plan",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:54:20.145713+00:00"
+    },
+    "timestamp": "2026-04-25T23:57:22.797768+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "20aee2c7-c25e-4a",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT from=task_planner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:55:03.055446+00:00"
+    },
+    "timestamp": "2026-04-25T23:58:04.465359+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3c6b3f51-7234-44",
+    "pipeline_id": "issue-2073",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:55:21.350904+00:00"
+    },
+    "timestamp": "2026-04-25T23:58:22.151146+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3fd55326-8117-4a",
+    "pipeline_id": "issue-2073",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT from=reviewer_plan",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:54:20.145713+00:00"
+    },
+    "timestamp": "2026-04-25T23:58:23.018441+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a4d2a896-21ca-42",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "risk_analyst",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for risk_analyst",
+    "body": "Reviewed `.egg-state/agent-outputs/2073-risk_analyst-output.json` (453 lines, 15 risks + 5 human-review items + rollback plan) cross-referenced against `2073-analysis.md`, the resolved HITL decisions in `issue-2073.json`, and the codebase touch points (`config/repo_config.py`, `sandbox/egg_lib/docker.py`, `sandbox/docker-setup.py::load_build_commands_manifest|run_build_commands|persist_build_dirs`, `shared/egg_config/`, `orchestrator/mcp_tools.py`).\n\nThe risk inventory is comprehensive and the categorisation is sound. In particular, three findings are load-bearing for the plan and they are correctly identified and substantiated:\n\n- **risk-1 (manifest schema producer/consumer coupling \u2014 high)** \u2014 accurately identifies that `manifest.json` is unversioned today and that `sandbox/docker-setup.py::load_build_commands_manifest` only checks `'repo' in entry and 'commands' in entry`. The mitigation (stamp `manifest_version: 1`, fail loudly in the reader on unknown/missing version when `persist:` is in use) is the correct guard against a stale image + new launcher combination \u2014 exactly the failure shape #2087/#2090 hardened against. The recommended bilingual-manifest transition window (write both legacy and new shapes) gives operators a safe upgrade path without contradicting decision-4's user-facing hard-cutover.\n- **risk-3 (auto-discovery trust expansion \u2014 high)** \u2014 correctly notes the asymmetry between decision-10 (silent auto-discovery) and the existing denylist-only protection in `persist_build_dirs` (`DENIED_PREFIXES = /proc /sys /dev /run /boot`, `DENIED_EXACT = / /etc /bin /usr /var`). The mitigation set is well-tiered: strict per-repo schema rejection of operator-scoped keys, allowlist on `persist:` paths from the repo file, and a recommended HITL revote on trust-on-first-use vs silent-trust. Promoting \"operator-scoped keys in repo file\" from warning to error is a sound recommendation.\n- **risk-7 (regression of #2087/#2090 fail-loud contract \u2014 high)** \u2014 correctly identifies that moving persist extraction logic into a shared loader risks silently restoring the warn-and-continue pattern. The mitigation (re-run the #2065 and #2087 reproducers as regression tests under the new schema; checklist item that every existing raise-site stays a raise-site) is the right guardrail. This finding is what made me NACK the task_planner \u2014 see that review.\n\nrisk-4 (schemaVersion field-format inconsistency) and risk-14 (graceful-degradation policy under-specified) are smaller but correct: I confirmed `shared/egg_contracts/checkpoints.py` and `.egg/schemas/contract.schema.json` use `schemaVersion: \"1.0\"` (string, semver) \u2014 the plan's `version: 1` (integer) does diverge. The recommended HITL revote (review-2) is appropriate.\n\nThe 5 human-review items are well-justified and should land as new HITL decisions before implement. In particular review-1 (auto-discovery trust model) and review-4 (manifest version stamping) are the two that the implement phase cannot proceed safely without.\n\n### Non-blocking\n- **risk-2 mitigation conflicts subtly with decision-4** \u2014 risk-2 recommends a `EGG_REPO_CONFIG_LEGACY=1` env-var fallback for one release. decision-4's hard-cutover resolution rejected dual code paths. Worth tagging this as a rollback-only tool (not a deprecation window) so the planner doesn't accidentally implement a soft fallback path. Calling it explicitly an \"emergency stop\" rather than a \"transition window\" would tighten the framing.\n- **risk-13 (performance, derive-on-load FS scans)** \u2014 flagged as low impact, but the planner did not pick up on the `functools.lru_cache` + mtime-keyed caching mitigation. Consider escalating this from a low-severity finding to an explicit ask in the planner's task list, because the loader is invoked from per-pipeline orchestrator routes and from the `_copy_repo_watch_files` host-side path \u2014 both hot paths for warm-pool agents.\n- **risk-15 (skill writing without git review)** \u2014 the \"skill never auto-commits\" mitigation is correct but should be promoted to an architectural invariant (not just a mitigation) \u2014 `/onboard-repo` should be incapable of running `git add` / `git commit` against the repo, not just by convention.\n- The rollback_plan section's `EGG_REPO_CONFIG_DISABLE_AUTODISCOVERY=1` flag is a useful escape hatch \u2014 recommend the planner explicitly land this in phase 2 alongside the auto-discovery code rather than as an as-needed addition.\n- Consider escalating risk-10 (one-coordinated-feature blast radius) to high impact given that the sandbox image has to be rebuilt in lockstep \u2014 that's not a routine revert.\n\nSolid risk assessment overall; the planner needs to absorb risks 1/3/7 before this plan is ready for implement.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/2073-risk_analyst-output.json",
+          ".egg-state/drafts/2073-analysis.md",
+          ".egg-state/contracts/issue-2073.json"
+        ],
+        "reason": "Reviewed `.egg-state/agent-outputs/2073-risk_analyst-output.json` (453 lines, 15 risks + 5 human-review items + rollback plan) cross-referenced against `2073-analysis.md`, the resolved HITL decisions in `issue-2073.json`, and the codebase touch points (`config/repo_config.py`, `sandbox/egg_lib/docker.py`, `sandbox/docker-setup.py::load_build_commands_manifest|run_build_commands|persist_build_dirs`, `shared/egg_config/`, `orchestrator/mcp_tools.py`).\n\nThe risk inventory is comprehensive and the categorisation is sound. In particular, three findings are load-bearing for the plan and they are correctly identified and substantiated:\n\n- **risk-1 (manifest schema producer/consumer coupling \u2014 high)** \u2014 accurately identifies that `manifest.json` is unversioned today and that `sandbox/docker-setup.py::load_build_commands_manifest` only checks `'repo' in entry and 'commands' in entry`. The mitigation (stamp `manifest_version: 1`, fail loudly in the reader on unknown/missing version when `persist:` is in use) is the correct guard against a stale image + new launcher combination \u2014 exactly the failure shape #2087/#2090 hardened against. The recommended bilingual-manifest transition window (write both legacy and new shapes) gives operators a safe upgrade path without contradicting decision-4's user-facing hard-cutover.\n- **risk-3 (auto-discovery trust expansion \u2014 high)** \u2014 correctly notes the asymmetry between decision-10 (silent auto-discovery) and the existing denylist-only protection in `persist_build_dirs` (`DENIED_PREFIXES = /proc /sys /dev /run /boot`, `DENIED_EXACT = / /etc /bin /usr /var`). The mitigation set is well-tiered: strict per-repo schema rejection of operator-scoped keys, allowlist on `persist:` paths from the repo file, and a recommended HITL revote on trust-on-first-use vs silent-trust. Promoting \"operator-scoped keys in repo file\" from warning to error is a sound recommendation.\n- **risk-7 (regression of #2087/#2090 fail-loud contract \u2014 high)** \u2014 correctly identifies that moving persist extraction logic into a shared loader risks silently restoring the warn-and-continue pattern. The mitigation (re-run the #2065 and #2087 reproducers as regression tests under the new schema; checklist item that every existing raise-site stays a raise-site) is the right guardrail. This finding is what made me NACK the task_planner \u2014 see that review.\n\nrisk-4 (schemaVersion field-format inconsistency) and risk-14 (graceful-degradation policy under-specified) are smaller but correct: I confirmed `shared/egg_contracts/checkpoints.py` and `.egg/schemas/contract.schema.json` use `schemaVersion: \"1.0\"` (string, semver) \u2014 the plan's `version: 1` (integer) does diverge. The recommended HITL revote (review-2) is appropriate.\n\nThe 5 human-review items are well-justified and should land as new HITL decisions before implement. In particular review-1 (auto-discovery trust model) and review-4 (manifest version stamping) are the two that the implement phase cannot proceed safely without.\n\n### Non-blocking\n- **risk-2 mitigation conflicts subtly with decision-4** \u2014 risk-2 recommends a `EGG_REPO_CONFIG_LEGACY=1` env-var fallback for one release. decision-4's hard-cutover resolution rejected dual code paths. Worth tagging this as a rollback-only tool (not a deprecation window) so the planner doesn't accidentally implement a soft fallback path. Calling it explicitly an \"emergency stop\" rather than a \"transition window\" would tighten the framing.\n- **risk-13 (performance, derive-on-load FS scans)** \u2014 flagged as low impact, but the planner did not pick up on the `functools.lru_cache` + mtime-keyed caching mitigation. Consider escalating this from a low-severity finding to an explicit ask in the planner's task list, because the loader is invoked from per-pipeline orchestrator routes and from the `_copy_repo_watch_files` host-side path \u2014 both hot paths for warm-pool agents.\n- **risk-15 (skill writing without git review)** \u2014 the \"skill never auto-commits\" mitigation is correct but should be promoted to an architectural invariant (not just a mitigation) \u2014 `/onboard-repo` should be incapable of running `git add` / `git commit` against the repo, not just by convention.\n- The rollback_plan section's `EGG_REPO_CONFIG_DISABLE_AUTODISCOVERY=1` flag is a useful escape hatch \u2014 recommend the planner explicitly land this in phase 2 alongside the auto-discovery code rather than as an as-needed addition.\n- Consider escalating risk-10 (one-coordinated-feature blast radius) to high impact given that the sandbox image has to be rebuilt in lockstep \u2014 that's not a routine revert.\n\nSolid risk assessment overall; the planner needs to absorb risks 1/3/7 before this plan is ready for implement."
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-25T23:58:45.571006+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5bbc55c4-9ef1-4b",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT from=task_planner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:55:03.055446+00:00"
+    },
+    "timestamp": "2026-04-25T23:59:04.559639+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6fbc49f2-01b0-4d",
+    "pipeline_id": "issue-2073",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:55:21.350904+00:00"
+    },
+    "timestamp": "2026-04-25T23:59:22.227202+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c552a690-49bb-4e",
+    "pipeline_id": "issue-2073",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT from=reviewer_plan",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:54:20.145713+00:00"
+    },
+    "timestamp": "2026-04-25T23:59:23.268304+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a4287974-dc56-47",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "architect",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for architect",
+    "body": "Reviewed `.egg-state/agent-outputs/2073-architect-output.json` (702 lines: 11 components, 10 workstreams, schema design, 8 alternatives considered, 6 open questions, 9 risk-summary entries, verification checklist) cross-referenced against the codebase, the resolved HITL decisions, and the refine analysis.\n\nThe design is well-grounded and correctly threads all 14 HITL resolutions and the 7 feedback answers. Specific strengths:\n\n- **Component C3 rationale is the load-bearing call of this design** \u2014 keeping `manifest.json`'s shape unchanged (legacy `persist_dirs` + `persist_system_dirs` two-list shape produced by the host-side classifier from the unified `persist:` list) preserves the #2087/#2090 fail-loud invariants in `sandbox/docker-setup.py` without modification. This is exactly the right framing: the schema change is host-side only, and the build-time consumer keeps the contract that #2090 hardened. The planner then deviated from this without justification \u2014 see my NACK against task_planner.\n- **C1's surface (`load_repo_file`, `load_user_file`, `merge_configs`, `classify_persist`, `resolve_watch_files`, `resolve_checks`)** is a clean, single-purpose API. Centralising the merge in `shared/egg_config/repos.py` and keeping `config/repo_config.py`'s public API stable (per C2) is the right move: the ~15 callers across `gateway/`, `orchestrator/`, `scripts/`, `integration_tests/` inherit the merged view without any changes. Verified by grepping the imports: `gateway/gateway.py`, `gateway/checkpoint_handler.py`, `orchestrator/routes/pipelines.py`, `orchestrator/routes/signals.py`, `shared/egg_contracts/checkpoint_cli.py` all consume `config/repo_config` helpers, so freezing that surface is correct.\n- **Q-A6's recommendation (do NOT rename `mcp__egg__validate_config`; just add `mcp__egg__validate_repo_config`)** is the safer answer for decision-6's name-collision problem. The existing tool's schema and consumers stay stable, and decision-6's literal \"extend the existing tool\" is satisfied because adding the new tool extends the validator surface area in MCP. The planner went the other way (hard-rename); flagged as a non-blocking concern in the task_planner NACK.\n- **Schema design choices are internally consistent** \u2014 `version: 1` field, `template:` field reservation per Q4, persist classification by leading slash per decision-3, replace-by-default merge per decision-9, manifest catalog v1 list for derived `watch_files`, Makefile + package.json scripts for derived `checks`. The schema design makes the explicit-overrides-win rule clear at every level.\n- **The 6 open questions for planner/risk-analyst are useful** \u2014 Q-A1 (Makefile include directives), Q-A4 (malformed YAML behaviour), Q-A5 (`..` components in repo-relative paths). The recommendations are appropriately conservative (hard-error on malformed YAML; reject `..` components at validator-level pre-resolution).\n- **Verification checklist** is a thoughtful self-review; all 16 items map to specific resolutions in the design. Good practice.\n\n### Non-blocking\n- **`shared/egg_config/repo_validator.py` vs `shared/egg_config/repos_validator.py`** \u2014 the architect's component name is `repo_validator.py` (singular), but the planner used `repos_validator.py` (plural). Trivial but the planner's deviation doesn't have a stated rationale; pick one and stick with it. Recommend the architect's `repo_validator.py` for grammatical match with `repo_config.py`.\n- **Q-A6 vs decision-6** \u2014 decision-6's resolution literally reads \"extend the existing `mcp__egg__validate_config` MCP tool\". Q-A6 recommends side-stepping that by adding a sibling tool. The architecture is right but worth flagging that the recommendation is a soft re-interpretation of the HITL resolution; consider registering an explicit confirmation HITL (\"MCP namespacing: rename existing or add sibling?\") in the plan phase before implement.\n- **`auth_mode: user` without `GITHUB_USER_TOKEN`** \u2014 C4 lists this under the warning class. The planner promoted it to error in TASK-4-2 (i). The architect's classification is the safer default (the token may be injected at runtime and the validator can't always definitively assert it is unconfigured). Recommend the architect's design hold; called out in the task_planner NACK.\n- **Watch-files inference scope** \u2014 C1's `resolve_watch_files` intersects the catalog with files actually present, plus any Makefile target referenced by `build_commands.commands`. The \"plus any Makefile target\" branch needs the same Makefile parser as the validator's checks-existence check (C4 + Q-A1). Worth a single `parse_makefile_targets` helper in `shared/egg_config/` so the two consumers don't drift.\n- **Implementation order recommendation** \u2014 calls out parallelism between WS6 and WS7, and between WS2 and WS3. The planner serialised these into phases 3 and 4; not strictly wrong, but the architect's parallelism note should at least be mirrored in the plan's risks section.\n- **C7 phase 6 (skill calls validator before write)** \u2014 explicit and correct. Recommend the planner promote this to an acceptance criterion of TASK-5-3 (currently mentioned in the description but not pinned as acceptance).\n- **Schema-version graceful-degradation** \u2014 C8/schema_design says \"version > LOADER_MAX_SUPPORTED logs a warning and proceeds with best-effort parsing\". This is exactly the silent-degrade pattern risk-14 flags. Recommend tightening to hard-fail on major-version bumps (consistent with decision-13's \"graceful degradation\" being about minor bumps only).\n- **`restrict_to_configured_users` and `disable_auto_fix` in the per-repo file** \u2014 both are listed under per-repo keys. Worth flagging a security note: a malicious feature branch could ship `disable_auto_fix: true` to neuter auto-fix. Architect's \"operator-scoped keys forbidden\" list should probably grow these two; OR they should remain user-scoped (in `repo_settings:` only). Worth a follow-up HITL.\n\nSolid architectural design. The planner's deviations from this design (manifest field rename, hard MCP rename, auth_mode error vs warning, missing manifest versioning) are what triggered the task_planner NACK; the design itself is sound and would have been a safer foundation than the plan that landed.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/2073-architect-output.json",
+          ".egg-state/drafts/2073-analysis.md",
+          ".egg-state/contracts/issue-2073.json",
+          "config/repo_config.py",
+          "sandbox/egg_lib/docker.py",
+          "sandbox/docker-setup.py",
+          "shared/egg_config/validators.py",
+          "orchestrator/mcp_tools.py"
+        ],
+        "reason": "Reviewed `.egg-state/agent-outputs/2073-architect-output.json` (702 lines: 11 components, 10 workstreams, schema design, 8 alternatives considered, 6 open questions, 9 risk-summary entries, verification checklist) cross-referenced against the codebase, the resolved HITL decisions, and the refine analysis.\n\nThe design is well-grounded and correctly threads all 14 HITL resolutions and the 7 feedback answers. Specific strengths:\n\n- **Component C3 rationale is the load-bearing call of this design** \u2014 keeping `manifest.json`'s shape unchanged (legacy `persist_dirs` + `persist_system_dirs` two-list shape produced by the host-side classifier from the unified `persist:` list) preserves the #2087/#2090 fail-loud invariants in `sandbox/docker-setup.py` without modification. This is exactly the right framing: the schema change is host-side only, and the build-time consumer keeps the contract that #2090 hardened. The planner then deviated from this without justification \u2014 see my NACK against task_planner.\n- **C1's surface (`load_repo_file`, `load_user_file`, `merge_configs`, `classify_persist`, `resolve_watch_files`, `resolve_checks`)** is a clean, single-purpose API. Centralising the merge in `shared/egg_config/repos.py` and keeping `config/repo_config.py`'s public API stable (per C2) is the right move: the ~15 callers across `gateway/`, `orchestrator/`, `scripts/`, `integration_tests/` inherit the merged view without any changes. Verified by grepping the imports: `gateway/gateway.py`, `gateway/checkpoint_handler.py`, `orchestrator/routes/pipelines.py`, `orchestrator/routes/signals.py`, `shared/egg_contracts/checkpoint_cli.py` all consume `config/repo_config` helpers, so freezing that surface is correct.\n- **Q-A6's recommendation (do NOT rename `mcp__egg__validate_config`; just add `mcp__egg__validate_repo_config`)** is the safer answer for decision-6's name-collision problem. The existing tool's schema and consumers stay stable, and decision-6's literal \"extend the existing tool\" is satisfied because adding the new tool extends the validator surface area in MCP. The planner went the other way (hard-rename); flagged as a non-blocking concern in the task_planner NACK.\n- **Schema design choices are internally consistent** \u2014 `version: 1` field, `template:` field reservation per Q4, persist classification by leading slash per decision-3, replace-by-default merge per decision-9, manifest catalog v1 list for derived `watch_files`, Makefile + package.json scripts for derived `checks`. The schema design makes the explicit-overrides-win rule clear at every level.\n- **The 6 open questions for planner/risk-analyst are useful** \u2014 Q-A1 (Makefile include directives), Q-A4 (malformed YAML behaviour), Q-A5 (`..` components in repo-relative paths). The recommendations are appropriately conservative (hard-error on malformed YAML; reject `..` components at validator-level pre-resolution).\n- **Verification checklist** is a thoughtful self-review; all 16 items map to specific resolutions in the design. Good practice.\n\n### Non-blocking\n- **`shared/egg_config/repo_validator.py` vs `shared/egg_config/repos_validator.py`** \u2014 the architect's component name is `repo_validator.py` (singular), but the planner used `repos_validator.py` (plural). Trivial but the planner's deviation doesn't have a stated rationale; pick one and stick with it. Recommend the architect's `repo_validator.py` for grammatical match with `repo_config.py`.\n- **Q-A6 vs decision-6** \u2014 decision-6's resolution literally reads \"extend the existing `mcp__egg__validate_config` MCP tool\". Q-A6 recommends side-stepping that by adding a sibling tool. The architecture is right but worth flagging that the recommendation is a soft re-interpretation of the HITL resolution; consider registering an explicit confirmation HITL (\"MCP namespacing: rename existing or add sibling?\") in the plan phase before implement.\n- **`auth_mode: user` without `GITHUB_USER_TOKEN`** \u2014 C4 lists this under the warning class. The planner promoted it to error in TASK-4-2 (i). The architect's classification is the safer default (the token may be injected at runtime and the validator can't always definitively assert it is unconfigured). Recommend the architect's design hold; called out in the task_planner NACK.\n- **Watch-files inference scope** \u2014 C1's `resolve_watch_files` intersects the catalog with files actually present, plus any Makefile target referenced by `build_commands.commands`. The \"plus any Makefile target\" branch needs the same Makefile parser as the validator's checks-existence check (C4 + Q-A1). Worth a single `parse_makefile_targets` helper in `shared/egg_config/` so the two consumers don't drift.\n- **Implementation order recommendation** \u2014 calls out parallelism between WS6 and WS7, and between WS2 and WS3. The planner serialised these into phases 3 and 4; not strictly wrong, but the architect's parallelism note should at least be mirrored in the plan's risks section.\n- **C7 phase 6 (skill calls validator before write)** \u2014 explicit and correct. Recommend the planner promote this to an acceptance criterion of TASK-5-3 (currently mentioned in the description but not pinned as acceptance).\n- **Schema-version graceful-degradation** \u2014 C8/schema_design says \"version > LOADER_MAX_SUPPORTED logs a warning and proceeds with best-effort parsing\". This is exactly the silent-degrade pattern risk-14 flags. Recommend tightening to hard-fail on major-version bumps (consistent with decision-13's \"graceful degradation\" being about minor bumps only).\n- **`restrict_to_configured_users` and `disable_auto_fix` in the per-repo file** \u2014 both are listed under per-repo keys. Worth flagging a security note: a malicious feature branch could ship `disable_auto_fix: true` to neuter auto-fix. Architect's \"operator-scoped keys forbidden\" list should probably grow these two; OR they should remain user-scoped (in `repo_settings:` only). Worth a follow-up HITL.\n\nSolid architectural design. The planner's deviations from this design (manifest field rename, hard MCP rename, auth_mode error vs warning, missing manifest versioning) are what triggered the task_planner NACK; the design itself is sound and would have been a safer foundation than the plan that landed."
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-25T23:59:30.004526+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "861cd697-b9a4-44",
+    "pipeline_id": "issue-2073",
+    "from_role": "orchestrator",
+    "to_role": "architect",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-04-25T23:59:30.004561+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9a05e452-9349-47",
+    "pipeline_id": "issue-2073",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-25T23:59:30.085850+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "26680e64-b1a0-46",
+    "pipeline_id": "issue-2073",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-25T23:59:36.367336+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ca6dc832-0b4f-43",
+    "pipeline_id": "issue-2073",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:59:46.691890+00:00"
+    },
+    "timestamp": "2026-04-25T23:59:46.769906+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9cf91cf5-202c-41",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT from=task_planner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:55:03.055446+00:00"
+    },
+    "timestamp": "2026-04-26T00:00:04.651262+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "79f99112-1d27-4f",
+    "pipeline_id": "issue-2073",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:55:21.350904+00:00"
+    },
+    "timestamp": "2026-04-26T00:00:22.297953+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a6b61388-cacc-44",
+    "pipeline_id": "issue-2073",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:59:46.691890+00:00"
+    },
+    "timestamp": "2026-04-26T00:00:47.065726+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c017a087-4099-47",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT from=task_planner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:55:03.055446+00:00"
+    },
+    "timestamp": "2026-04-26T00:01:04.731399+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "81686575-6721-41",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_NACK",
+    "subject": "NACK from reviewer_plan for task_planner",
+    "body": "Reviewed `.egg-state/drafts/2073-plan.md` (866 lines: 6 phases, 17 tasks, PR description, test plan, manual steps) cross-referenced against the architect's design (`2073-architect-output.json`), the risk_analyst's risk inventory (`2073-risk_analyst-output.json`), the refine analysis, the resolved HITL decisions, and the touch-point code (`sandbox/docker-setup.py::load_build_commands_manifest|run_build_commands|persist_build_dirs`, `sandbox/egg_lib/docker.py::_copy_repo_watch_files`, `orchestrator/mcp_tools.py:689`).\n\nThe plan's high-level structure is reasonable (6 phases, role-tagged tasks, end-to-end test strategy, PR description ready), but several blocking issues need fixes before implement.\n\n### Blocking\n\n1. **TASK-3-2 / TASK-3-3 \u2014 manifest schema breaking-change without versioning, deviates from architect's design without rationale, regresses #2087/#2090 invariants.**\n   - TASK-3-2 acceptance: \"manifest.json written to `<config-dir>/repo-deps/<repo>/` contains `persist_relative: [...]`, `persist_system: [...]`, and `watch_files: [...]` per repo. No `persist_dirs` / `persist_system_dirs` keys.\"\n   - TASK-3-3 acceptance: \"`sandbox/docker-setup.py` no longer references `persist_dirs` or `persist_system_dirs` field names.\"\n   - The architect's Component C3 explicitly recommended the OPPOSITE: keep `manifest.json` carrying the legacy `persist_dirs` + `persist_system_dirs` two-list shape (produced by the host-side classifier from the unified `persist:`) so docker-setup.py is NOT changed and the #2090 fail-loud invariants stay untouched. Plan rationale section calls this \"Sandbox manifest format change is a multi-stage Docker invariant\" but does not explain why C3's safer design was rejected.\n   - The mitigation in the plan's risks section \u2014 \"phase 3 lands the manifest format change alongside both producers and consumers in a single commit\" \u2014 does NOT mitigate the cross-version risk. Sandbox images outlive launcher upgrades (see how Docker layer caching works in this repo, and risk_analyst risk-1 evidence: \"the sandbox image carrying the old reader can outlive the host upgrade by days\"). A new launcher writing `persist_relative:` to `manifest.json` against a stale image whose `docker-setup.py::load_build_commands_manifest` (lines 204-250) only knows `persist_dirs` will silently produce empty `/opt/prebuilt-deps/<repo>/` \u2014 exactly the failure mode #2090 hardened against.\n   - **Fix**: pick one of:\n     - **(a) Adopt architect's C3** \u2014 keep manifest field names (`persist_dirs`, `persist_system_dirs`); the host-side classifier produces them from the unified `persist:`. `sandbox/docker-setup.py` is unchanged. This is the lowest-risk path and matches the schema-change-is-host-side-only invariant. TASK-3-3 becomes a no-op or a comment-only change confirming the contract.\n     - **(b) Keep the field rename, but add manifest versioning per risk-1** \u2014 stamp `manifest_version: 1` at the top of `manifest.json`; `load_build_commands_manifest` raises `RuntimeError` on missing/unknown `manifest_version` when `persist_relative:`/`persist_system:` keys are present (or when legacy keys are absent). Bump the sandbox image's prebuild hash inputs so a manifest_version bump invalidates the layer cache automatically. Add a fail-loud check in TASK-3-3's acceptance criteria.\n\n2. **Phase 3 modifies `sandbox/docker-setup.py` but plan ships no #2065/#2087/#2090 regression tests.**\n   - TASK-3-3 acceptance says \"Existing fail-loud behavior on missing post-build paths is preserved (regression-tested)\" but does not point to a specific reproducer. Risk_analyst risk-7 explicitly recommends:\n     - Re-run the #2087 reproducer (`uv sync` against watch-files-only context) under the new schema and assert the same `RuntimeError`.\n     - Re-run the #2065 reproducer (binary installed to `/usr/local/bin` without persist) under the new `persist:` schema and assert the validator catches it at write-time AND `docker-setup.py` still raises if it slips through.\n   - Without these tests pinned, the silent-warn-and-continue regression risk is unmitigated. The plan's manual test (c) (\"run it against a known-broken config (the #2065 shape: install to `/usr/local/bin` without `persist:`) and confirm the validator surfaces the error\") covers only the validator at config-write-time, not the runtime fail-loud at image-build-time.\n   - **Fix**: add an explicit task under Phase 3 (recommended TASK-3-5, role: tester) with acceptance criteria that pin both reproducers under the new schema. Cite the original commits (514c5afaa #2087, fff9cea56 / aa1f5e22d #2065) as the reference behavior.\n\n3. **TASK-4-3 (CLI integration path) is unpinned and references a removed binary.**\n   - Quoting TASK-4-3 description: \"If the launcher's existing dispatch table lives in `sandbox/egg_lib/orch_cli.py` or a `bin/egg` shim, register the subcommand there; if not, create a thin `bin/egg-validate-config` wrapper invokable on PATH and document the alias in the example config's header comment.\"\n   - Per CLAUDE.md and issue #1762, `bin/egg` was REMOVED. The \"if not\" branch is the live one but it tells the implementer to create a new `bin/egg-validate-config` wrapper, which contradicts the trajectory of #1762 (move CLI surface into the MCP server / `egg_agent` package, away from interactive bin scripts). The implementer is being given two incompatible options without a decision.\n   - **Fix**: pin a single integration path explicitly. Recommended options:\n     - Extend `scripts/validate-config.py` (the existing secret-config validator with the `\u2713/\u2717/\u26a0` formatting) to dispatch on a `--repo-config` flag (or via subcommand). Reuses the existing test surface and stays consistent with how secret configs are validated today.\n     - Add the validator as an MCP server subcommand (`egg validate-config <path>` via the agent surface). Aligns with #1762's direction.\n   - Either is fine but the plan must commit to one. Update TASK-4-3's files list and acceptance accordingly.\n\n4. **TASK-4-2 check (i) \u2014 `auth_mode: user` without `GITHUB_USER_TOKEN` listed as ERROR; should be WARNING.**\n   - Q5's resolution adds this check to the validator surface, but it doesn't specify the tier. Architect's C4 implicitly classifies this as a warning (under \"validator's most useful checks\" the heuristic class). The plan's elevation to error (TASK-4-2 (i): \"\u2192 error (Q5)\") blocks the load entirely.\n   - The validator cannot definitively assert that `GITHUB_USER_TOKEN` is unconfigured at validate-config time \u2014 operators commonly inject it at runtime via env var, secrets manager, or CI variable. A blocking error here forces operators with valid runtime injection paths to either lie to the validator or skip it.\n   - **Fix**: downgrade to warning (`\u2192 warning`). Same treatment for check (j) (empty persist dir) and (k) (curl/wget under private mode) \u2014 those are heuristic checks that the architect's C4 also classed as warnings. Reserve the error tier for hard schema violations: malformed YAML, missing required keys, denied persist paths, legacy keys present, operator-scoped keys in repo file, missing Makefile target, non-existent local_repos path.\n\n5. **No HITL decision registered for the auto-discovery trust model (risk-3 / review-1).**\n   - decision-10 settled silent auto-discovery; decision-11 said the validator can be advisory at load time. Combined, the loader silently reads and the build container silently runs root-privileged shell from `<repo>/.egg/repositories.yaml` committed to a feature branch, before any operator review. Risk_analyst review-1 explicitly recommends a new HITL decision in the plan phase: \"Should auto-discovery require an operator-side allow on first encounter (direnv-style), or stay silent-trust?\"\n   - The plan's TASK-2-1 honors decision-10 silent-skip-if-absent, but doesn't address that the security model needs a second look now that build_commands run as root and the file is committed to source control.\n   - **Fix**: register a HITL decision per review-1 and pause this phase on it OR add an explicit hard-error allowlist gate at the merge layer (per review-5: `shared/egg_config/repos.py` applies an allowlist for repo-file `persist:` paths; operator-side overrides may use any path on the existing denylist allowance set). This needs to land before TASK-2-1's loader is implemented.\n\n### Non-blocking\n\n- **`version: 1` (integer) vs `schemaVersion: \"1.0\"` (string)** \u2014 risk-4 / review-2 noted egg-wide convention: `shared/egg_contracts/checkpoints.py` uses `schemaVersion: str = \"1.0\"`, `.egg/schemas/contract.schema.json` uses pattern `^[0-9]+\\.[0-9]+$`, `shared/egg_anchor/models.py` uses `schema_version: str = Field(default=\"1.0\")`. Plan's `version: 1` (integer) breaks the convention. Recommend standardising on `schemaVersion: \"1.0\"`. If the team prefers integer per the issue's literal wording, document the deviation in `docs/reference/repo-config-schema.md` and add a lint rule that flags mixed conventions.\n- **TASK-2-2 acceptance \"version tolerance for newer schema\" is under-specified (risk-14 / review-3)** \u2014 TASK-1-1 acceptance says \"Loading a dict missing `version` defaults to `version: 1` with no warning (forward-compat reserved for `version: 2+`)\" \u2014 but what does the loader do on `version: 2`? Silent ignore? Warn-and-best-effort? Hard-fail? Pin the policy: known-version \u2192 load; newer-major \u2192 hard-fail with diagnostic; older-major (when v2+ ships) \u2192 migrate-or-fail. This is exactly the silent-degrade pattern the issue is trying to eliminate; under-specifying the loader's behavior here re-introduces it.\n- **Plan's \"Risks & mitigations\" section omits risk-1, risk-3, risk-7, risk-14 from risk_analyst's output.** Even if some are deferred, the plan should explicitly cite risk_analyst's findings and document which are deferred, why, and to what follow-up. Currently the plan just lists 4 bullets (\"only the load-bearing ones\") which contradicts risk_analyst's classification of risks 1/3/7 as high.\n- **Phase 4 (validator) can run in parallel with phase 3 (consumers)** \u2014 architect's `implementation_order_recommendation` notes this. Plan strict-orders 3 \u2192 4 \u2192 5. Not strictly wrong (Phase 5's skill calls Phase 4's validator), but the dependency tree allows WS5 (validator core) to land alongside WS2/WS3 (wire consumers). At minimum, the plan should mention this in dependency ordering.\n- **TASK-4-2 (k) phrasing conflates `restrict_to_configured_users` with private network mode** \u2014 the issue's Q5 answer cited \"commands that exec curl/wget in private mode where network is locked down\". `restrict_to_configured_users` is user-identity policy, not network-mode policy. The two settings are independent. Phrasing should reference only the network-mode condition (whatever env var or config flag controls it \u2014 verify against `gateway/` policy code).\n- **TASK-4-2 (a) phrasing slip** \u2014 \"build_commands install something to a system path (`/usr/local/bin`, `/opt/...`) but `persist:` doesn't include the parent \u2192 error\". `/usr/local/bin` IS the persist entry, not a \"parent\". Cleaner: \"binary installed at `/usr/local/bin/<name>` is not covered by any `persist:` entry whose prefix would include it (heuristic via parsing the install command)\".\n- **TASK-4-2 validator-core location indecision** \u2014 \"in `shared/egg_config/repos.py` (or a sibling `repos_validator.py`)\". Pick one. Architect picked `shared/egg_config/repo_validator.py` (singular). Recommend matching that.\n- **MCP rename of `mcp__egg__validate_config` \u2192 `validate_pipeline_config`** \u2014 TASK-4-1 hard-renames the existing pipeline-config validator. Architect's Q-A6 recommends NOT renaming (just add `mcp__egg__validate_repo_config`); decision-6's literal phrasing said \"extend the existing tool\" but that's a soft re-interpretation. The hard rename breaks any external script or doc that calls the existing name. Recommend matching architect's recommendation and registering a HITL confirmation if the team prefers the rename.\n- **`restrict_to_configured_users` and `disable_auto_fix` listed as per-repo keys allowed in `<repo>/.egg/repositories.yaml`** (TASK-1-1 description). A malicious feature branch could ship `disable_auto_fix: true` to neuter auto-fix policy. Worth restricting these to operator-side (under `repo_settings:` in user file only). Fold into review-1's trust-model HITL.\n- **Caching strategy** \u2014 risk-13 noted derive-on-load adds FS scans. Plan exposes `reload_config()` for SIGHUP but no in-process caching strategy beyond that. Recommend a `functools.lru_cache` keyed by config-file mtime (cheap and matches the loader's read-once-in-practice pattern). Skip derivation when explicit `watch_files`/`checks` are present.\n- **Rollback plan is implicit** \u2014 risk_analyst's rollback_plan section recommends an explicit \"revert the merge commit\" plus operator-side recovery (inverse migration sed snippet) plus image-level recovery (manifest_version bump invalidates layer cache). Plan should include a one-paragraph rollback section under \"Risks & mitigations\".\n- **TASK-5-3 acceptance should pin \"skill calls validator before write\"** \u2014 the description mentions phase 6 of the skill flow runs `egg validate-config <path>` before commit, but that step is not in the acceptance criteria. Promote it to acceptance.\n- **Phase 6 ordering** \u2014 TASK-6-1 (egg's `.egg/repositories.yaml`) depends on phases 1-3; TASK-6-2 (rewrite example) depends on phase 1; TASK-6-3 (integration test) depends on TASK-3-2/-3 and TASK-6-1. The intra-phase ordering should be stated.\n- **Test strategy gap** \u2014 no test for the gateway-side merged-view consumption (`gateway/gateway.py`, `gateway/checkpoint_handler.py` consume `config/repo_config` helpers). Add at least a smoke test that gateway sees the merged view after a `<repo>/.egg/repositories.yaml` is added.\n- **Q4's `template:` reservation** \u2014 TASK-1-1 acceptance includes `template` in the model but doesn't specify the validator behavior on a non-string value. Architect's `template_hook_reservation` says \"Validator allows the field; loader stores it on the merged dict but takes no action.\" Pin the validator behavior (string-or-null only; reject other types).",
+    "metadata": {
+      "payload": {
+        "reason": "Reviewed `.egg-state/drafts/2073-plan.md` (866 lines: 6 phases, 17 tasks, PR description, test plan, manual steps) cross-referenced against the architect's design (`2073-architect-output.json`), the risk_analyst's risk inventory (`2073-risk_analyst-output.json`), the refine analysis, the resolved HITL decisions, and the touch-point code (`sandbox/docker-setup.py::load_build_commands_manifest|run_build_commands|persist_build_dirs`, `sandbox/egg_lib/docker.py::_copy_repo_watch_files`, `orchestrator/mcp_tools.py:689`).\n\nThe plan's high-level structure is reasonable (6 phases, role-tagged tasks, end-to-end test strategy, PR description ready), but several blocking issues need fixes before implement.\n\n### Blocking\n\n1. **TASK-3-2 / TASK-3-3 \u2014 manifest schema breaking-change without versioning, deviates from architect's design without rationale, regresses #2087/#2090 invariants.**\n   - TASK-3-2 acceptance: \"manifest.json written to `<config-dir>/repo-deps/<repo>/` contains `persist_relative: [...]`, `persist_system: [...]`, and `watch_files: [...]` per repo. No `persist_dirs` / `persist_system_dirs` keys.\"\n   - TASK-3-3 acceptance: \"`sandbox/docker-setup.py` no longer references `persist_dirs` or `persist_system_dirs` field names.\"\n   - The architect's Component C3 explicitly recommended the OPPOSITE: keep `manifest.json` carrying the legacy `persist_dirs` + `persist_system_dirs` two-list shape (produced by the host-side classifier from the unified `persist:`) so docker-setup.py is NOT changed and the #2090 fail-loud invariants stay untouched. Plan rationale section calls this \"Sandbox manifest format change is a multi-stage Docker invariant\" but does not explain why C3's safer design was rejected.\n   - The mitigation in the plan's risks section \u2014 \"phase 3 lands the manifest format change alongside both producers and consumers in a single commit\" \u2014 does NOT mitigate the cross-version risk. Sandbox images outlive launcher upgrades (see how Docker layer caching works in this repo, and risk_analyst risk-1 evidence: \"the sandbox image carrying the old reader can outlive the host upgrade by days\"). A new launcher writing `persist_relative:` to `manifest.json` against a stale image whose `docker-setup.py::load_build_commands_manifest` (lines 204-250) only knows `persist_dirs` will silently produce empty `/opt/prebuilt-deps/<repo>/` \u2014 exactly the failure mode #2090 hardened against.\n   - **Fix**: pick one of:\n     - **(a) Adopt architect's C3** \u2014 keep manifest field names (`persist_dirs`, `persist_system_dirs`); the host-side classifier produces them from the unified `persist:`. `sandbox/docker-setup.py` is unchanged. This is the lowest-risk path and matches the schema-change-is-host-side-only invariant. TASK-3-3 becomes a no-op or a comment-only change confirming the contract.\n     - **(b) Keep the field rename, but add manifest versioning per risk-1** \u2014 stamp `manifest_version: 1` at the top of `manifest.json`; `load_build_commands_manifest` raises `RuntimeError` on missing/unknown `manifest_version` when `persist_relative:`/`persist_system:` keys are present (or when legacy keys are absent). Bump the sandbox image's prebuild hash inputs so a manifest_version bump invalidates the layer cache automatically. Add a fail-loud check in TASK-3-3's acceptance criteria.\n\n2. **Phase 3 modifies `sandbox/docker-setup.py` but plan ships no #2065/#2087/#2090 regression tests.**\n   - TASK-3-3 acceptance says \"Existing fail-loud behavior on missing post-build paths is preserved (regression-tested)\" but does not point to a specific reproducer. Risk_analyst risk-7 explicitly recommends:\n     - Re-run the #2087 reproducer (`uv sync` against watch-files-only context) under the new schema and assert the same `RuntimeError`.\n     - Re-run the #2065 reproducer (binary installed to `/usr/local/bin` without persist) under the new `persist:` schema and assert the validator catches it at write-time AND `docker-setup.py` still raises if it slips through.\n   - Without these tests pinned, the silent-warn-and-continue regression risk is unmitigated. The plan's manual test (c) (\"run it against a known-broken config (the #2065 shape: install to `/usr/local/bin` without `persist:`) and confirm the validator surfaces the error\") covers only the validator at config-write-time, not the runtime fail-loud at image-build-time.\n   - **Fix**: add an explicit task under Phase 3 (recommended TASK-3-5, role: tester) with acceptance criteria that pin both reproducers under the new schema. Cite the original commits (514c5afaa #2087, fff9cea56 / aa1f5e22d #2065) as the reference behavior.\n\n3. **TASK-4-3 (CLI integration path) is unpinned and references a removed binary.**\n   - Quoting TASK-4-3 description: \"If the launcher's existing dispatch table lives in `sandbox/egg_lib/orch_cli.py` or a `bin/egg` shim, register the subcommand there; if not, create a thin `bin/egg-validate-config` wrapper invokable on PATH and document the alias in the example config's header comment.\"\n   - Per CLAUDE.md and issue #1762, `bin/egg` was REMOVED. The \"if not\" branch is the live one but it tells the implementer to create a new `bin/egg-validate-config` wrapper, which contradicts the trajectory of #1762 (move CLI surface into the MCP server / `egg_agent` package, away from interactive bin scripts). The implementer is being given two incompatible options without a decision.\n   - **Fix**: pin a single integration path explicitly. Recommended options:\n     - Extend `scripts/validate-config.py` (the existing secret-config validator with the `\u2713/\u2717/\u26a0` formatting) to dispatch on a `--repo-config` flag (or via subcommand). Reuses the existing test surface and stays consistent with how secret configs are validated today.\n     - Add the validator as an MCP server subcommand (`egg validate-config <path>` via the agent surface). Aligns with #1762's direction.\n   - Either is fine but the plan must commit to one. Update TASK-4-3's files list and acceptance accordingly.\n\n4. **TASK-4-2 check (i) \u2014 `auth_mode: user` without `GITHUB_USER_TOKEN` listed as ERROR; should be WARNING.**\n   - Q5's resolution adds this check to the validator surface, but it doesn't specify the tier. Architect's C4 implicitly classifies this as a warning (under \"validator's most useful checks\" the heuristic class). The plan's elevation to error (TASK-4-2 (i): \"\u2192 error (Q5)\") blocks the load entirely.\n   - The validator cannot definitively assert that `GITHUB_USER_TOKEN` is unconfigured at validate-config time \u2014 operators commonly inject it at runtime via env var, secrets manager, or CI variable. A blocking error here forces operators with valid runtime injection paths to either lie to the validator or skip it.\n   - **Fix**: downgrade to warning (`\u2192 warning`). Same treatment for check (j) (empty persist dir) and (k) (curl/wget under private mode) \u2014 those are heuristic checks that the architect's C4 also classed as warnings. Reserve the error tier for hard schema violations: malformed YAML, missing required keys, denied persist paths, legacy keys present, operator-scoped keys in repo file, missing Makefile target, non-existent local_repos path.\n\n5. **No HITL decision registered for the auto-discovery trust model (risk-3 / review-1).**\n   - decision-10 settled silent auto-discovery; decision-11 said the validator can be advisory at load time. Combined, the loader silently reads and the build container silently runs root-privileged shell from `<repo>/.egg/repositories.yaml` committed to a feature branch, before any operator review. Risk_analyst review-1 explicitly recommends a new HITL decision in the plan phase: \"Should auto-discovery require an operator-side allow on first encounter (direnv-style), or stay silent-trust?\"\n   - The plan's TASK-2-1 honors decision-10 silent-skip-if-absent, but doesn't address that the security model needs a second look now that build_commands run as root and the file is committed to source control.\n   - **Fix**: register a HITL decision per review-1 and pause this phase on it OR add an explicit hard-error allowlist gate at the merge layer (per review-5: `shared/egg_config/repos.py` applies an allowlist for repo-file `persist:` paths; operator-side overrides may use any path on the existing denylist allowance set). This needs to land before TASK-2-1's loader is implemented.\n\n### Non-blocking\n\n- **`version: 1` (integer) vs `schemaVersion: \"1.0\"` (string)** \u2014 risk-4 / review-2 noted egg-wide convention: `shared/egg_contracts/checkpoints.py` uses `schemaVersion: str = \"1.0\"`, `.egg/schemas/contract.schema.json` uses pattern `^[0-9]+\\.[0-9]+$`, `shared/egg_anchor/models.py` uses `schema_version: str = Field(default=\"1.0\")`. Plan's `version: 1` (integer) breaks the convention. Recommend standardising on `schemaVersion: \"1.0\"`. If the team prefers integer per the issue's literal wording, document the deviation in `docs/reference/repo-config-schema.md` and add a lint rule that flags mixed conventions.\n- **TASK-2-2 acceptance \"version tolerance for newer schema\" is under-specified (risk-14 / review-3)** \u2014 TASK-1-1 acceptance says \"Loading a dict missing `version` defaults to `version: 1` with no warning (forward-compat reserved for `version: 2+`)\" \u2014 but what does the loader do on `version: 2`? Silent ignore? Warn-and-best-effort? Hard-fail? Pin the policy: known-version \u2192 load; newer-major \u2192 hard-fail with diagnostic; older-major (when v2+ ships) \u2192 migrate-or-fail. This is exactly the silent-degrade pattern the issue is trying to eliminate; under-specifying the loader's behavior here re-introduces it.\n- **Plan's \"Risks & mitigations\" section omits risk-1, risk-3, risk-7, risk-14 from risk_analyst's output.** Even if some are deferred, the plan should explicitly cite risk_analyst's findings and document which are deferred, why, and to what follow-up. Currently the plan just lists 4 bullets (\"only the load-bearing ones\") which contradicts risk_analyst's classification of risks 1/3/7 as high.\n- **Phase 4 (validator) can run in parallel with phase 3 (consumers)** \u2014 architect's `implementation_order_recommendation` notes this. Plan strict-orders 3 \u2192 4 \u2192 5. Not strictly wrong (Phase 5's skill calls Phase 4's validator), but the dependency tree allows WS5 (validator core) to land alongside WS2/WS3 (wire consumers). At minimum, the plan should mention this in dependency ordering.\n- **TASK-4-2 (k) phrasing conflates `restrict_to_configured_users` with private network mode** \u2014 the issue's Q5 answer cited \"commands that exec curl/wget in private mode where network is locked down\". `restrict_to_configured_users` is user-identity policy, not network-mode policy. The two settings are independent. Phrasing should reference only the network-mode condition (whatever env var or config flag controls it \u2014 verify against `gateway/` policy code).\n- **TASK-4-2 (a) phrasing slip** \u2014 \"build_commands install something to a system path (`/usr/local/bin`, `/opt/...`) but `persist:` doesn't include the parent \u2192 error\". `/usr/local/bin` IS the persist entry, not a \"parent\". Cleaner: \"binary installed at `/usr/local/bin/<name>` is not covered by any `persist:` entry whose prefix would include it (heuristic via parsing the install command)\".\n- **TASK-4-2 validator-core location indecision** \u2014 \"in `shared/egg_config/repos.py` (or a sibling `repos_validator.py`)\". Pick one. Architect picked `shared/egg_config/repo_validator.py` (singular). Recommend matching that.\n- **MCP rename of `mcp__egg__validate_config` \u2192 `validate_pipeline_config`** \u2014 TASK-4-1 hard-renames the existing pipeline-config validator. Architect's Q-A6 recommends NOT renaming (just add `mcp__egg__validate_repo_config`); decision-6's literal phrasing said \"extend the existing tool\" but that's a soft re-interpretation. The hard rename breaks any external script or doc that calls the existing name. Recommend matching architect's recommendation and registering a HITL confirmation if the team prefers the rename.\n- **`restrict_to_configured_users` and `disable_auto_fix` listed as per-repo keys allowed in `<repo>/.egg/repositories.yaml`** (TASK-1-1 description). A malicious feature branch could ship `disable_auto_fix: true` to neuter auto-fix policy. Worth restricting these to operator-side (under `repo_settings:` in user file only). Fold into review-1's trust-model HITL.\n- **Caching strategy** \u2014 risk-13 noted derive-on-load adds FS scans. Plan exposes `reload_config()` for SIGHUP but no in-process caching strategy beyond that. Recommend a `functools.lru_cache` keyed by config-file mtime (cheap and matches the loader's read-once-in-practice pattern). Skip derivation when explicit `watch_files`/`checks` are present.\n- **Rollback plan is implicit** \u2014 risk_analyst's rollback_plan section recommends an explicit \"revert the merge commit\" plus operator-side recovery (inverse migration sed snippet) plus image-level recovery (manifest_version bump invalidates layer cache). Plan should include a one-paragraph rollback section under \"Risks & mitigations\".\n- **TASK-5-3 acceptance should pin \"skill calls validator before write\"** \u2014 the description mentions phase 6 of the skill flow runs `egg validate-config <path>` before commit, but that step is not in the acceptance criteria. Promote it to acceptance.\n- **Phase 6 ordering** \u2014 TASK-6-1 (egg's `.egg/repositories.yaml`) depends on phases 1-3; TASK-6-2 (rewrite example) depends on phase 1; TASK-6-3 (integration test) depends on TASK-3-2/-3 and TASK-6-1. The intra-phase ordering should be stated.\n- **Test strategy gap** \u2014 no test for the gateway-side merged-view consumption (`gateway/gateway.py`, `gateway/checkpoint_handler.py` consume `config/repo_config` helpers). Add at least a smoke test that gateway sees the merged view after a `<repo>/.egg/repositories.yaml` is added.\n- **Q4's `template:` reservation** \u2014 TASK-1-1 acceptance includes `template` in the model but doesn't specify the validator behavior on a non-string value. Architect's `template_hook_reservation` says \"Validator allows the field; loader stores it on the merged dict but takes no action.\" Pin the validator behavior (string-or-null only; reject other types).",
+        "artifact_references": [
+          ".egg-state/drafts/2073-plan.md",
+          ".egg-state/agent-outputs/2073-architect-output.json",
+          ".egg-state/agent-outputs/2073-risk_analyst-output.json",
+          ".egg-state/drafts/2073-analysis.md",
+          ".egg-state/contracts/issue-2073.json",
+          "config/repo_config.py",
+          "sandbox/egg_lib/docker.py",
+          "sandbox/docker-setup.py",
+          "shared/egg_config/validators.py",
+          "orchestrator/mcp_tools.py",
+          "config/repositories.yaml.example"
+        ]
+      },
+      "reason": "Reviewed `.egg-state/drafts/2073-plan.md` (866 lines: 6 phases, 17 tasks, PR description, test plan, manual steps) cross-referenced against the architect's design (`2073-architect-output.json`), the risk_analyst's risk inventory (`2073-risk_analyst-output.json`), the refine analysis, the resolved HITL decisions, and the touch-point code (`sandbox/docker-setup.py::load_build_commands_manifest|run_build_commands|persist_build_dirs`, `sandbox/egg_lib/docker.py::_copy_repo_watch_files`, `orchestrator/mcp_tools.py:689`).\n\nThe plan's high-level structure is reasonable (6 phases, role-tagged tasks, end-to-end test strategy, PR description ready), but several blocking issues need fixes before implement.\n\n### Blocking\n\n1. **TASK-3-2 / TASK-3-3 \u2014 manifest schema breaking-change without versioning, deviates from architect's design without rationale, regresses #2087/#2090 invariants.**\n   - TASK-3-2 acceptance: \"manifest.json written to `<config-dir>/repo-deps/<repo>/` contains `persist_relative: [...]`, `persist_system: [...]`, and `watch_files: [...]` per repo. No `persist_dirs` / `persist_system_dirs` keys.\"\n   - TASK-3-3 acceptance: \"`sandbox/docker-setup.py` no longer references `persist_dirs` or `persist_system_dirs` field names.\"\n   - The architect's Component C3 explicitly recommended the OPPOSITE: keep `manifest.json` carrying the legacy `persist_dirs` + `persist_system_dirs` two-list shape (produced by the host-side classifier from the unified `persist:`) so docker-setup.py is NOT changed and the #2090 fail-loud invariants stay untouched. Plan rationale section calls this \"Sandbox manifest format change is a multi-stage Docker invariant\" but does not explain why C3's safer design was rejected.\n   - The mitigation in the plan's risks section \u2014 \"phase 3 lands the manifest format change alongside both producers and consumers in a single commit\" \u2014 does NOT mitigate the cross-version risk. Sandbox images outlive launcher upgrades (see how Docker layer caching works in this repo, and risk_analyst risk-1 evidence: \"the sandbox image carrying the old reader can outlive the host upgrade by days\"). A new launcher writing `persist_relative:` to `manifest.json` against a stale image whose `docker-setup.py::load_build_commands_manifest` (lines 204-250) only knows `persist_dirs` will silently produce empty `/opt/prebuilt-deps/<repo>/` \u2014 exactly the failure mode #2090 hardened against.\n   - **Fix**: pick one of:\n     - **(a) Adopt architect's C3** \u2014 keep manifest field names (`persist_dirs`, `persist_system_dirs`); the host-side classifier produces them from the unified `persist:`. `sandbox/docker-setup.py` is unchanged. This is the lowest-risk path and matches the schema-change-is-host-side-only invariant. TASK-3-3 becomes a no-op or a comment-only change confirming the contract.\n     - **(b) Keep the field rename, but add manifest versioning per risk-1** \u2014 stamp `manifest_version: 1` at the top of `manifest.json`; `load_build_commands_manifest` raises `RuntimeError` on missing/unknown `manifest_version` when `persist_relative:`/`persist_system:` keys are present (or when legacy keys are absent). Bump the sandbox image's prebuild hash inputs so a manifest_version bump invalidates the layer cache automatically. Add a fail-loud check in TASK-3-3's acceptance criteria.\n\n2. **Phase 3 modifies `sandbox/docker-setup.py` but plan ships no #2065/#2087/#2090 regression tests.**\n   - TASK-3-3 acceptance says \"Existing fail-loud behavior on missing post-build paths is preserved (regression-tested)\" but does not point to a specific reproducer. Risk_analyst risk-7 explicitly recommends:\n     - Re-run the #2087 reproducer (`uv sync` against watch-files-only context) under the new schema and assert the same `RuntimeError`.\n     - Re-run the #2065 reproducer (binary installed to `/usr/local/bin` without persist) under the new `persist:` schema and assert the validator catches it at write-time AND `docker-setup.py` still raises if it slips through.\n   - Without these tests pinned, the silent-warn-and-continue regression risk is unmitigated. The plan's manual test (c) (\"run it against a known-broken config (the #2065 shape: install to `/usr/local/bin` without `persist:`) and confirm the validator surfaces the error\") covers only the validator at config-write-time, not the runtime fail-loud at image-build-time.\n   - **Fix**: add an explicit task under Phase 3 (recommended TASK-3-5, role: tester) with acceptance criteria that pin both reproducers under the new schema. Cite the original commits (514c5afaa #2087, fff9cea56 / aa1f5e22d #2065) as the reference behavior.\n\n3. **TASK-4-3 (CLI integration path) is unpinned and references a removed binary.**\n   - Quoting TASK-4-3 description: \"If the launcher's existing dispatch table lives in `sandbox/egg_lib/orch_cli.py` or a `bin/egg` shim, register the subcommand there; if not, create a thin `bin/egg-validate-config` wrapper invokable on PATH and document the alias in the example config's header comment.\"\n   - Per CLAUDE.md and issue #1762, `bin/egg` was REMOVED. The \"if not\" branch is the live one but it tells the implementer to create a new `bin/egg-validate-config` wrapper, which contradicts the trajectory of #1762 (move CLI surface into the MCP server / `egg_agent` package, away from interactive bin scripts). The implementer is being given two incompatible options without a decision.\n   - **Fix**: pin a single integration path explicitly. Recommended options:\n     - Extend `scripts/validate-config.py` (the existing secret-config validator with the `\u2713/\u2717/\u26a0` formatting) to dispatch on a `--repo-config` flag (or via subcommand). Reuses the existing test surface and stays consistent with how secret configs are validated today.\n     - Add the validator as an MCP server subcommand (`egg validate-config <path>` via the agent surface). Aligns with #1762's direction.\n   - Either is fine but the plan must commit to one. Update TASK-4-3's files list and acceptance accordingly.\n\n4. **TASK-4-2 check (i) \u2014 `auth_mode: user` without `GITHUB_USER_TOKEN` listed as ERROR; should be WARNING.**\n   - Q5's resolution adds this check to the validator surface, but it doesn't specify the tier. Architect's C4 implicitly classifies this as a warning (under \"validator's most useful checks\" the heuristic class). The plan's elevation to error (TASK-4-2 (i): \"\u2192 error (Q5)\") blocks the load entirely.\n   - The validator cannot definitively assert that `GITHUB_USER_TOKEN` is unconfigured at validate-config time \u2014 operators commonly inject it at runtime via env var, secrets manager, or CI variable. A blocking error here forces operators with valid runtime injection paths to either lie to the validator or skip it.\n   - **Fix**: downgrade to warning (`\u2192 warning`). Same treatment for check (j) (empty persist dir) and (k) (curl/wget under private mode) \u2014 those are heuristic checks that the architect's C4 also classed as warnings. Reserve the error tier for hard schema violations: malformed YAML, missing required keys, denied persist paths, legacy keys present, operator-scoped keys in repo file, missing Makefile target, non-existent local_repos path.\n\n5. **No HITL decision registered for the auto-discovery trust model (risk-3 / review-1).**\n   - decision-10 settled silent auto-discovery; decision-11 said the validator can be advisory at load time. Combined, the loader silently reads and the build container silently runs root-privileged shell from `<repo>/.egg/repositories.yaml` committed to a feature branch, before any operator review. Risk_analyst review-1 explicitly recommends a new HITL decision in the plan phase: \"Should auto-discovery require an operator-side allow on first encounter (direnv-style), or stay silent-trust?\"\n   - The plan's TASK-2-1 honors decision-10 silent-skip-if-absent, but doesn't address that the security model needs a second look now that build_commands run as root and the file is committed to source control.\n   - **Fix**: register a HITL decision per review-1 and pause this phase on it OR add an explicit hard-error allowlist gate at the merge layer (per review-5: `shared/egg_config/repos.py` applies an allowlist for repo-file `persist:` paths; operator-side overrides may use any path on the existing denylist allowance set). This needs to land before TASK-2-1's loader is implemented.\n\n### Non-blocking\n\n- **`version: 1` (integer) vs `schemaVersion: \"1.0\"` (string)** \u2014 risk-4 / review-2 noted egg-wide convention: `shared/egg_contracts/checkpoints.py` uses `schemaVersion: str = \"1.0\"`, `.egg/schemas/contract.schema.json` uses pattern `^[0-9]+\\.[0-9]+$`, `shared/egg_anchor/models.py` uses `schema_version: str = Field(default=\"1.0\")`. Plan's `version: 1` (integer) breaks the convention. Recommend standardising on `schemaVersion: \"1.0\"`. If the team prefers integer per the issue's literal wording, document the deviation in `docs/reference/repo-config-schema.md` and add a lint rule that flags mixed conventions.\n- **TASK-2-2 acceptance \"version tolerance for newer schema\" is under-specified (risk-14 / review-3)** \u2014 TASK-1-1 acceptance says \"Loading a dict missing `version` defaults to `version: 1` with no warning (forward-compat reserved for `version: 2+`)\" \u2014 but what does the loader do on `version: 2`? Silent ignore? Warn-and-best-effort? Hard-fail? Pin the policy: known-version \u2192 load; newer-major \u2192 hard-fail with diagnostic; older-major (when v2+ ships) \u2192 migrate-or-fail. This is exactly the silent-degrade pattern the issue is trying to eliminate; under-specifying the loader's behavior here re-introduces it.\n- **Plan's \"Risks & mitigations\" section omits risk-1, risk-3, risk-7, risk-14 from risk_analyst's output.** Even if some are deferred, the plan should explicitly cite risk_analyst's findings and document which are deferred, why, and to what follow-up. Currently the plan just lists 4 bullets (\"only the load-bearing ones\") which contradicts risk_analyst's classification of risks 1/3/7 as high.\n- **Phase 4 (validator) can run in parallel with phase 3 (consumers)** \u2014 architect's `implementation_order_recommendation` notes this. Plan strict-orders 3 \u2192 4 \u2192 5. Not strictly wrong (Phase 5's skill calls Phase 4's validator), but the dependency tree allows WS5 (validator core) to land alongside WS2/WS3 (wire consumers). At minimum, the plan should mention this in dependency ordering.\n- **TASK-4-2 (k) phrasing conflates `restrict_to_configured_users` with private network mode** \u2014 the issue's Q5 answer cited \"commands that exec curl/wget in private mode where network is locked down\". `restrict_to_configured_users` is user-identity policy, not network-mode policy. The two settings are independent. Phrasing should reference only the network-mode condition (whatever env var or config flag controls it \u2014 verify against `gateway/` policy code).\n- **TASK-4-2 (a) phrasing slip** \u2014 \"build_commands install something to a system path (`/usr/local/bin`, `/opt/...`) but `persist:` doesn't include the parent \u2192 error\". `/usr/local/bin` IS the persist entry, not a \"parent\". Cleaner: \"binary installed at `/usr/local/bin/<name>` is not covered by any `persist:` entry whose prefix would include it (heuristic via parsing the install command)\".\n- **TASK-4-2 validator-core location indecision** \u2014 \"in `shared/egg_config/repos.py` (or a sibling `repos_validator.py`)\". Pick one. Architect picked `shared/egg_config/repo_validator.py` (singular). Recommend matching that.\n- **MCP rename of `mcp__egg__validate_config` \u2192 `validate_pipeline_config`** \u2014 TASK-4-1 hard-renames the existing pipeline-config validator. Architect's Q-A6 recommends NOT renaming (just add `mcp__egg__validate_repo_config`); decision-6's literal phrasing said \"extend the existing tool\" but that's a soft re-interpretation. The hard rename breaks any external script or doc that calls the existing name. Recommend matching architect's recommendation and registering a HITL confirmation if the team prefers the rename.\n- **`restrict_to_configured_users` and `disable_auto_fix` listed as per-repo keys allowed in `<repo>/.egg/repositories.yaml`** (TASK-1-1 description). A malicious feature branch could ship `disable_auto_fix: true` to neuter auto-fix policy. Worth restricting these to operator-side (under `repo_settings:` in user file only). Fold into review-1's trust-model HITL.\n- **Caching strategy** \u2014 risk-13 noted derive-on-load adds FS scans. Plan exposes `reload_config()` for SIGHUP but no in-process caching strategy beyond that. Recommend a `functools.lru_cache` keyed by config-file mtime (cheap and matches the loader's read-once-in-practice pattern). Skip derivation when explicit `watch_files`/`checks` are present.\n- **Rollback plan is implicit** \u2014 risk_analyst's rollback_plan section recommends an explicit \"revert the merge commit\" plus operator-side recovery (inverse migration sed snippet) plus image-level recovery (manifest_version bump invalidates layer cache). Plan should include a one-paragraph rollback section under \"Risks & mitigations\".\n- **TASK-5-3 acceptance should pin \"skill calls validator before write\"** \u2014 the description mentions phase 6 of the skill flow runs `egg validate-config <path>` before commit, but that step is not in the acceptance criteria. Promote it to acceptance.\n- **Phase 6 ordering** \u2014 TASK-6-1 (egg's `.egg/repositories.yaml`) depends on phases 1-3; TASK-6-2 (rewrite example) depends on phase 1; TASK-6-3 (integration test) depends on TASK-3-2/-3 and TASK-6-1. The intra-phase ordering should be stated.\n- **Test strategy gap** \u2014 no test for the gateway-side merged-view consumption (`gateway/gateway.py`, `gateway/checkpoint_handler.py` consume `config/repo_config` helpers). Add at least a smoke test that gateway sees the merged view after a `<repo>/.egg/repositories.yaml` is added.\n- **Q4's `template:` reservation** \u2014 TASK-1-1 acceptance includes `template` in the model but doesn't specify the validator behavior on a non-string value. Architect's `template_hook_reservation` says \"Validator allows the field; loader stores it on the merged dict but takes no action.\" Pin the validator behavior (string-or-null only; reject other types).",
+      "revision_count": 1
+    },
+    "timestamp": "2026-04-26T00:01:19.948238+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5ced14ca-2e3d-4f",
+    "pipeline_id": "issue-2073",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T00:01:20.178013+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4981406e-8158-48",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "ACKed architect and risk_analyst; NACKed task_planner with 5 blocking issues (manifest schema versioning, missing #2065/#2087/#2090 regression tests, unpinned CLI integration, auth_mode error vs warning, no auto-discovery trust HITL). Waiting on task_planner re-proposal.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-04-26T00:01:40.708944+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9c85666e-020a-40",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T00:01:40.723836+00:00"
+    },
+    "timestamp": "2026-04-26T00:01:40.785186+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e5f24044-fafe-4b",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T00:01:40.934801+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "59e30ece-bb3b-4c",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T00:01:44.303013+00:00"
+    },
+    "timestamp": "2026-04-26T00:01:44.417386+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9041e097-7f11-46",
+    "pipeline_id": "issue-2073",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:59:46.691890+00:00"
+    },
+    "timestamp": "2026-04-26T00:01:47.315798+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b38d2942-39bd-42",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT from=task_planner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:55:03.055446+00:00"
+    },
+    "timestamp": "2026-04-26T00:02:04.862850+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9c477880-1c98-41",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T00:01:44.303013+00:00"
+    },
+    "timestamp": "2026-04-26T00:02:44.677590+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2d079eb0-cd9e-41",
+    "pipeline_id": "issue-2073",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:59:46.691890+00:00"
+    },
+    "timestamp": "2026-04-26T00:02:47.603046+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3694c02c-ef9d-4b",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT from=task_planner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:55:03.055446+00:00"
+    },
+    "timestamp": "2026-04-26T00:03:04.978306+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b98e9e3f-4c00-47",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T00:01:44.303013+00:00"
+    },
+    "timestamp": "2026-04-26T00:03:44.908881+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ed30a2d7-df47-45",
+    "pipeline_id": "issue-2073",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:59:46.691890+00:00"
+    },
+    "timestamp": "2026-04-26T00:03:47.832841+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "39c12165-789d-43",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT from=task_planner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:55:03.055446+00:00"
+    },
+    "timestamp": "2026-04-26T00:04:05.062660+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5c5b2553-79b2-41",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T00:01:44.303013+00:00"
+    },
+    "timestamp": "2026-04-26T00:04:45.264542+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "afb3053d-9612-41",
+    "pipeline_id": "issue-2073",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:59:46.691890+00:00"
+    },
+    "timestamp": "2026-04-26T00:04:48.295220+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "073e4aae-955b-43",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT from=task_planner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:55:03.055446+00:00"
+    },
+    "timestamp": "2026-04-26T00:05:05.145601+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e084f8a8-65f2-4b",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T00:01:44.303013+00:00"
+    },
+    "timestamp": "2026-04-26T00:05:45.529542+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c195176c-ac9c-44",
+    "pipeline_id": "issue-2073",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:59:46.691890+00:00"
+    },
+    "timestamp": "2026-04-26T00:05:48.513462+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ea24fc47-c7ed-4c",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT from=task_planner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:55:03.055446+00:00"
+    },
+    "timestamp": "2026-04-26T00:06:05.254951+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8fbf7dfe-9033-4b",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T00:01:44.303013+00:00"
+    },
+    "timestamp": "2026-04-26T00:06:45.796501+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b3069cd2-036f-4f",
+    "pipeline_id": "issue-2073",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:59:46.691890+00:00"
+    },
+    "timestamp": "2026-04-26T00:06:48.799364+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4aaeee56-9416-49",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT from=task_planner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:55:03.055446+00:00"
+    },
+    "timestamp": "2026-04-26T00:07:05.554052+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "66dc4043-b054-4a",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T00:01:44.303013+00:00"
+    },
+    "timestamp": "2026-04-26T00:07:46.083022+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ee3b1422-3ea8-41",
+    "pipeline_id": "issue-2073",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:59:46.691890+00:00"
+    },
+    "timestamp": "2026-04-26T00:07:49.060856+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "491c4b90-fdd9-47",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT from=task_planner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:55:03.055446+00:00"
+    },
+    "timestamp": "2026-04-26T00:08:05.664289+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8aef201e-defd-49",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT from=task_planner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-25T23:55:03.055446+00:00"
+    },
+    "timestamp": "2026-04-26T00:09:05.741989+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7d1ac640-72b6-4d",
+    "pipeline_id": "issue-2073",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "Revised plan addressing all 5 reviewer_plan NACK blockers: (1) NACK-1 \u2014 adopt architect's C3, manifest.json keeps legacy persist_dirs+persist_system_dirs two-list shape produced by host-side classifier from unified persist:, sandbox/docker-setup.py unchanged, no cross-version risk; (2) NACK-2 \u2014 new TASK-3-4 pins #2065/#2087/#2090 reproducers under new schema with original commit citations; (3) NACK-3 \u2014 TASK-4-2 commits to extending existing scripts/validate-config.py with --repo-config mode (removes deprecated bin/egg reference); (4) NACK-4 \u2014 downgrade auth_mode/empty-persist/curl-private-mode checks (i,j,k) from errors to warnings, and decouple (k) from restrict_to_configured_users (network-mode-only); (5) NACK-5 \u2014 add safe-by-default repo-file persist denylist (/etc, /root, /var, /home/, /proc, /sys, /dev, /.ssh, outside /usr/local/+/opt/+repo) to TASK-2-1, restrict policy keys to user-file, register HITL decision-15 for direnv-style opt-in. Also addresses non-blocking: schemaVersion: \"1.0\" string matches egg-wide convention; version-tolerance policy pinned; mtime lru_cache; existing validate_config not renamed (architect Q-A6); validator core path pinned; rollback section; gateway smoke test; template: type validation. 21 tasks across 6 phases; YAML parses cleanly.",
+    "metadata": {
+      "payload": {
+        "summary": "Revised plan addressing all 5 reviewer_plan NACK blockers: (1) NACK-1 \u2014 adopt architect's C3, manifest.json keeps legacy persist_dirs+persist_system_dirs two-list shape produced by host-side classifier from unified persist:, sandbox/docker-setup.py unchanged, no cross-version risk; (2) NACK-2 \u2014 new TASK-3-4 pins #2065/#2087/#2090 reproducers under new schema with original commit citations; (3) NACK-3 \u2014 TASK-4-2 commits to extending existing scripts/validate-config.py with --repo-config mode (removes deprecated bin/egg reference); (4) NACK-4 \u2014 downgrade auth_mode/empty-persist/curl-private-mode checks (i,j,k) from errors to warnings, and decouple (k) from restrict_to_configured_users (network-mode-only); (5) NACK-5 \u2014 add safe-by-default repo-file persist denylist (/etc, /root, /var, /home/, /proc, /sys, /dev, /.ssh, outside /usr/local/+/opt/+repo) to TASK-2-1, restrict policy keys to user-file, register HITL decision-15 for direnv-style opt-in. Also addresses non-blocking: schemaVersion: \"1.0\" string matches egg-wide convention; version-tolerance policy pinned; mtime lru_cache; existing validate_config not renamed (architect Q-A6); validator core path pinned; rollback section; gateway smoke test; template: type validation. 21 tasks across 6 phases; YAML parses cleanly.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/2073-plan.md"
+        ],
+        "risk_considered": "All 5 NACK blockers fully addressed. Manifest cross-version risk eliminated by architect's C3 (no manifest schema change). #2065/#2087/#2090 regressions covered by explicit reproducer tests. Repo-file persist denylist limits malicious-feature-branch blast radius. HITL decision-15 registered for security-floor refinement.",
+        "commit_sha": "4eefe52a15ea818ea7c691fdf532731c93fdf730",
+        "files_changed": [
+          ".egg-state/drafts/2073-plan.md"
+        ],
+        "tests_run": [
+          "python3 yaml.safe_load on appendix"
+        ],
+        "tasks_satisfied": []
+      },
+      "version": 2,
+      "commit_sha": "4eefe52a15ea818ea7c691fdf532731c93fdf730"
+    },
+    "timestamp": "2026-04-26T00:09:22.769425+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6e86da95-a115-4e",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T00:09:22.928222+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9b85cdaf-2fac-4a",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T00:09:22.930098+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f3138a17-2530-4b",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by risk_analyst",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-26T00:09:25.580966+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "af30cf2a-00e4-41",
+    "pipeline_id": "issue-2073",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T00:09:25.643654+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "80434c55-bf43-49",
+    "pipeline_id": "issue-2073",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T00:09:27.386095+00:00"
+    },
+    "timestamp": "2026-04-26T00:09:27.501070+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "024cdc3a-a3f8-4a",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T00:09:34.675686+00:00"
+    },
+    "timestamp": "2026-04-26T00:09:35.183976+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9d219944-de86-49",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T00:09:35.317803+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8db315c4-ecc8-42",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T00:09:41.445035+00:00"
+    },
+    "timestamp": "2026-04-26T00:09:41.509892+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "404ad88f-5b1c-43",
+    "pipeline_id": "issue-2073",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T00:09:34.491798+00:00"
+    },
+    "timestamp": "2026-04-26T00:10:35.832447+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5861f79c-e23a-4b",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T00:09:41.445035+00:00"
+    },
+    "timestamp": "2026-04-26T00:10:41.631720+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b7d9361c-3ccd-4f",
+    "pipeline_id": "issue-2073",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T00:09:27.386095+00:00"
+    },
+    "timestamp": "2026-04-26T00:11:28.506968+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "05b472c6-a317-47",
+    "pipeline_id": "issue-2073",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T00:09:34.491798+00:00"
+    },
+    "timestamp": "2026-04-26T00:11:36.000489+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6bb1e7e5-9248-4c",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for task_planner",
+    "body": "Re-reviewed `.egg-state/drafts/2073-plan.md` (1054 lines, +673/-381 from v1) at commit `4eefe52a15ea818ea7c691fdf532731c93fdf730`. All 5 blocking issues from the v1 NACK are addressed substantively, and the bulk of the non-blocking suggestions are folded in.\n\n### Blocking-issue resolution\n\n1. **NACK-1 (manifest schema versioning) \u2014 resolved.** Plan adopts architect's C3: TASK-3-2 acceptance pins `manifest.json` as \"byte-compatible with the pre-#2073 format: keys `persist_dirs`, `persist_system_dirs`, `watch_files`, `commands`. No new top-level keys. Diff against pre-#2073 manifest for egg's own repo is empty after the host-side migration.\" TASK-3-3 confirms `sandbox/docker-setup.py` source diff is \"limited to a comment / docstring change confirming the contract; functional code is unchanged.\" This eliminates the cross-version trap entirely (no manifest_version handshake needed since the manifest doesn't change). Approach + Risks sections both cite C3 explicitly.\n\n2. **NACK-2 (#2065/#2087/#2090 regression tests) \u2014 resolved.** New TASK-3-4 pins both reproducers under the new schema:\n   - #2087: `uv sync` against watch-files-only context \u2014 assert `RuntimeError` matching the post-#2090 fail-loud message.\n   - #2065: binary at `/usr/local/bin/uv` without covering `persist_system_dirs` \u2014 assert validator surfaces error at write-time AND `docker-setup.py` raises if it slips through.\n   - Test docstrings cite commits 514c5afaa (#2087), fff9cea56 / aa1f5e22d (#2065) as required.\n\n3. **NACK-3 (CLI integration unpinned) \u2014 resolved.** TASK-4-2 commits explicitly: \"Extend `scripts/validate-config.py` with a `--repo-config <path>` mode that calls `shared.egg_config.repo_validator.validate_repo_config` and prints results using the existing `\u2713/\u2717/\u26a0` formatting.\" The deprecated `bin/egg` reference is removed. Acceptance pins exit-code semantics and output formatting parity with the existing secret-config validator.\n\n4. **NACK-4 (auth_mode error vs warning) \u2014 resolved.** TASK-4-1 (i) downgraded to **warning** with rationale \"runtime injection paths exist via env var, secrets manager, CI variable\". (j) empty-persist and (k) curl-private-mode also warnings. Check (k) decoupled from `restrict_to_configured_users`: \"condition is the network-mode env / config flag only, decoupled from `restrict_to_configured_users`.\" Acceptance for TASK-4-1 explicitly pins this: \"Check (k) implementation reads the network-mode flag (verify against `gateway/` policy code or `sandbox/`/launcher env vars), NOT `restrict_to_configured_users`.\"\n\n5. **NACK-5 (auto-discovery trust HITL) \u2014 resolved.** Verified `decision-15` is registered in the contract (status: unresolved, options: silent-trust + denylist / direnv-style opt-in / audit-log middle ground). manual_steps section #3 enforces \"HITL decision-15 (auto-discovery trust model) is resolved before merge\". Independently, TASK-2-1 (6) lands the safe-by-default denylist as the security floor regardless of decision-15's outcome \u2014 repo-file `persist:` entries under `/etc`, `/root`, `/var`, `/home/`, `/proc`, `/sys`, `/dev`, `/.ssh`, and any path outside `/usr/local/`, `/opt/`, or repo root are rejected. TASK-2-1 (7) rejects `restrict_to_configured_users` and `disable_auto_fix` in the repo file. TASK-2-2 covers the denylist + key-rejection in unit tests.\n\n### Non-blocking resolution (selected highlights)\n\n- **`schemaVersion: \"1.0\"` (string)** \u2014 adopted; matches `shared/egg_contracts/checkpoints.py` and `.egg/schemas/contract.schema.json` convention.\n- **Version-tolerance policy pinned** \u2014 TASK-1-1 acceptance: \"Loading a dict with `schemaVersion: \"9.0\"` raises a `ConfigError` whose message names both the file's declared version and the running egg version.\" No silent-degrade.\n- **`mcp__egg__validate_config` not renamed** \u2014 architect's Q-A6 adopted; TASK-4-3 leaves the existing tool under its current name.\n- **Validator core path pinned** \u2014 `shared/egg_config/repo_validator.py` (singular, matches architect's `repo_config.py` naming).\n- **Caching strategy** \u2014 TASK-2-1 specifies `functools.lru_cache` keyed by `(mtime, path)` tuples; TASK-2-2 acceptance verifies \"same checkout + user_path called twice produces zero additional FS reads (verified via mock counter)\".\n- **Rollback plan** \u2014 explicit section added covering revert-merge, operator-side sed snippet, and the manifest-stability note (no image rebuild forced).\n- **Phase 6 ordering** \u2014 explicit dependency tree in \"Phases & dependency tree\" section.\n- **Gateway smoke test** \u2014 new `integration_tests/test_gateway_merged_view.py` in TASK-6-3.\n- **`template:` type validation** \u2014 TASK-1-1 acceptance pins \"string and null; rejects int, list, dict\".\n- **TASK-5-3 acceptance pins \"skill calls validator before write\"** \u2014 promoted from description.\n- **Phase 4 parallel-with-3 noted** \u2014 in dependency tree section.\n- **Risks section cross-references risk_analyst's full inventory** \u2014 risk-1, risk-3, risk-7, risk-13, risk-14 cited individually with mitigation/disposition; remaining risks tracked as \"addressable inside the existing tasks\".\n\n### Sanity checks performed\n\n- Verified contract has `decision-15` registered (status: pending), with three substantive options that map to the choices the plan proposes for the trust model.\n- Verified TASK-3-2 + TASK-3-3 + TASK-3-4 collectively preserve the #2090 fail-loud invariant: classifier produces legacy field names, `docker-setup.py` is unchanged, regression tests assert the runtime raise still fires.\n- Verified TASK-2-1 denylist allows the legitimate cases the issue's examples need: `/usr/local/bin` (uv), `/usr/local/go` (Go install), `/opt/...` paths, repo-relative `.venv` / `node_modules`. Operator-side persist still has full freedom (correct).\n- Verified `restrict_to_configured_users` and `disable_auto_fix` are correctly listed under operator-scoped keys in TASK-1-1 description; user file accepts them, repo file rejects them \u2014 closes the malicious-feature-branch-disables-auto-fix loophole I flagged in v1.\n- Verified TASK-3-1 keeps `get_repo_build_commands(repo)` backward-compatible: returns BOTH the user-facing `persist:` list AND the classifier-produced `persist_dirs` / `persist_system_dirs` pair, so existing destructuring callers keep working.\n- Verified TASK-4-1 covers all 11 checks and decouples (k) from `restrict_to_configured_users` per NACK non-blocking #4.\n- Verified the rollback plan's \"no image rebuild forced\" claim is consistent with TASK-3-2's manifest-byte-compatibility acceptance.\n\n### Non-blocking observations on the v2 plan\n\n- **TASK-2-1 (6) denylist scope** \u2014 the allowlist `/usr/local/`, `/opt/`, repo-relative is conservative for v1 (Python+Node+Go). Future detectors for Rust (`~/.cargo`) or Ruby (`~/.bundle`) will need user-file overrides since they're under `/home/`. Worth noting in the plug-in extensibility doc when those detectors land; not a blocker for this PR.\n- **TASK-3-1 acceptance** \u2014 \"the manifest writer in TASK-3-2 has a stable internal interface\" is good but worth pinning a concrete type (e.g. `BuildCommandsBlock` dataclass or TypedDict) in the `shared/egg_config/repos_schema.py` file so the contract is grep-able. Currently inferred from TASK-3-2's manifest-shape acceptance.\n- **TASK-6-3** \u2014 couples `test_layered_repo_config.py` (host\u2192container round-trip) and `test_gateway_merged_view.py` (gateway smoke) into one tester task. They could be split into TASK-6-3a/b for independent reviewability but it's a minor structural preference, not a blocker.\n- **decision-15 timing** \u2014 manual_steps requires it resolves \"before merge\". Recommend clarifying it must resolve **before TASK-2-1 starts implementation**, not just before merge \u2014 the safe-by-default denylist already covers most of the security floor, but if option (b) (direnv-style opt-in) wins, TASK-2-1's loader signature changes (the `allow_first_use` callback or trust-cache lookup is part of the loader API). Mention this in the plan body so the implementer doesn't ship the loader twice.\n- **Commit-sha citations in TASK-3-4** \u2014 the plan cites `514c5afaa` for #2087, but my git log shows `514c5afaa` is the #2087 fix commit (\"Fix #2087: fail loudly when sandbox build_commands silently break\"); double-check `fff9cea56` and `aa1f5e22d` are the #2065 commits \u2014 `fff9cea56` looks like a docs commit and `aa1f5e22d` is the actual #2065 fix per the log I pulled. The implementer should verify the citations match the underlying commits when they land the test.\n\nThe plan is now structurally sound, addresses the architect's C3 design, internalizes the risk_analyst's high-severity findings, registers the trust-model HITL, and fixes the CLI integration ambiguity. ACK.",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/2073-plan.md",
+          ".egg-state/agent-outputs/2073-architect-output.json",
+          ".egg-state/agent-outputs/2073-risk_analyst-output.json",
+          ".egg-state/contracts/issue-2073.json"
+        ],
+        "reason": "Re-reviewed `.egg-state/drafts/2073-plan.md` (1054 lines, +673/-381 from v1) at commit `4eefe52a15ea818ea7c691fdf532731c93fdf730`. All 5 blocking issues from the v1 NACK are addressed substantively, and the bulk of the non-blocking suggestions are folded in.\n\n### Blocking-issue resolution\n\n1. **NACK-1 (manifest schema versioning) \u2014 resolved.** Plan adopts architect's C3: TASK-3-2 acceptance pins `manifest.json` as \"byte-compatible with the pre-#2073 format: keys `persist_dirs`, `persist_system_dirs`, `watch_files`, `commands`. No new top-level keys. Diff against pre-#2073 manifest for egg's own repo is empty after the host-side migration.\" TASK-3-3 confirms `sandbox/docker-setup.py` source diff is \"limited to a comment / docstring change confirming the contract; functional code is unchanged.\" This eliminates the cross-version trap entirely (no manifest_version handshake needed since the manifest doesn't change). Approach + Risks sections both cite C3 explicitly.\n\n2. **NACK-2 (#2065/#2087/#2090 regression tests) \u2014 resolved.** New TASK-3-4 pins both reproducers under the new schema:\n   - #2087: `uv sync` against watch-files-only context \u2014 assert `RuntimeError` matching the post-#2090 fail-loud message.\n   - #2065: binary at `/usr/local/bin/uv` without covering `persist_system_dirs` \u2014 assert validator surfaces error at write-time AND `docker-setup.py` raises if it slips through.\n   - Test docstrings cite commits 514c5afaa (#2087), fff9cea56 / aa1f5e22d (#2065) as required.\n\n3. **NACK-3 (CLI integration unpinned) \u2014 resolved.** TASK-4-2 commits explicitly: \"Extend `scripts/validate-config.py` with a `--repo-config <path>` mode that calls `shared.egg_config.repo_validator.validate_repo_config` and prints results using the existing `\u2713/\u2717/\u26a0` formatting.\" The deprecated `bin/egg` reference is removed. Acceptance pins exit-code semantics and output formatting parity with the existing secret-config validator.\n\n4. **NACK-4 (auth_mode error vs warning) \u2014 resolved.** TASK-4-1 (i) downgraded to **warning** with rationale \"runtime injection paths exist via env var, secrets manager, CI variable\". (j) empty-persist and (k) curl-private-mode also warnings. Check (k) decoupled from `restrict_to_configured_users`: \"condition is the network-mode env / config flag only, decoupled from `restrict_to_configured_users`.\" Acceptance for TASK-4-1 explicitly pins this: \"Check (k) implementation reads the network-mode flag (verify against `gateway/` policy code or `sandbox/`/launcher env vars), NOT `restrict_to_configured_users`.\"\n\n5. **NACK-5 (auto-discovery trust HITL) \u2014 resolved.** Verified `decision-15` is registered in the contract (status: unresolved, options: silent-trust + denylist / direnv-style opt-in / audit-log middle ground). manual_steps section #3 enforces \"HITL decision-15 (auto-discovery trust model) is resolved before merge\". Independently, TASK-2-1 (6) lands the safe-by-default denylist as the security floor regardless of decision-15's outcome \u2014 repo-file `persist:` entries under `/etc`, `/root`, `/var`, `/home/`, `/proc`, `/sys`, `/dev`, `/.ssh`, and any path outside `/usr/local/`, `/opt/`, or repo root are rejected. TASK-2-1 (7) rejects `restrict_to_configured_users` and `disable_auto_fix` in the repo file. TASK-2-2 covers the denylist + key-rejection in unit tests.\n\n### Non-blocking resolution (selected highlights)\n\n- **`schemaVersion: \"1.0\"` (string)** \u2014 adopted; matches `shared/egg_contracts/checkpoints.py` and `.egg/schemas/contract.schema.json` convention.\n- **Version-tolerance policy pinned** \u2014 TASK-1-1 acceptance: \"Loading a dict with `schemaVersion: \"9.0\"` raises a `ConfigError` whose message names both the file's declared version and the running egg version.\" No silent-degrade.\n- **`mcp__egg__validate_config` not renamed** \u2014 architect's Q-A6 adopted; TASK-4-3 leaves the existing tool under its current name.\n- **Validator core path pinned** \u2014 `shared/egg_config/repo_validator.py` (singular, matches architect's `repo_config.py` naming).\n- **Caching strategy** \u2014 TASK-2-1 specifies `functools.lru_cache` keyed by `(mtime, path)` tuples; TASK-2-2 acceptance verifies \"same checkout + user_path called twice produces zero additional FS reads (verified via mock counter)\".\n- **Rollback plan** \u2014 explicit section added covering revert-merge, operator-side sed snippet, and the manifest-stability note (no image rebuild forced).\n- **Phase 6 ordering** \u2014 explicit dependency tree in \"Phases & dependency tree\" section.\n- **Gateway smoke test** \u2014 new `integration_tests/test_gateway_merged_view.py` in TASK-6-3.\n- **`template:` type validation** \u2014 TASK-1-1 acceptance pins \"string and null; rejects int, list, dict\".\n- **TASK-5-3 acceptance pins \"skill calls validator before write\"** \u2014 promoted from description.\n- **Phase 4 parallel-with-3 noted** \u2014 in dependency tree section.\n- **Risks section cross-references risk_analyst's full inventory** \u2014 risk-1, risk-3, risk-7, risk-13, risk-14 cited individually with mitigation/disposition; remaining risks tracked as \"addressable inside the existing tasks\".\n\n### Sanity checks performed\n\n- Verified contract has `decision-15` registered (status: pending), with three substantive options that map to the choices the plan proposes for the trust model.\n- Verified TASK-3-2 + TASK-3-3 + TASK-3-4 collectively preserve the #2090 fail-loud invariant: classifier produces legacy field names, `docker-setup.py` is unchanged, regression tests assert the runtime raise still fires.\n- Verified TASK-2-1 denylist allows the legitimate cases the issue's examples need: `/usr/local/bin` (uv), `/usr/local/go` (Go install), `/opt/...` paths, repo-relative `.venv` / `node_modules`. Operator-side persist still has full freedom (correct).\n- Verified `restrict_to_configured_users` and `disable_auto_fix` are correctly listed under operator-scoped keys in TASK-1-1 description; user file accepts them, repo file rejects them \u2014 closes the malicious-feature-branch-disables-auto-fix loophole I flagged in v1.\n- Verified TASK-3-1 keeps `get_repo_build_commands(repo)` backward-compatible: returns BOTH the user-facing `persist:` list AND the classifier-produced `persist_dirs` / `persist_system_dirs` pair, so existing destructuring callers keep working.\n- Verified TASK-4-1 covers all 11 checks and decouples (k) from `restrict_to_configured_users` per NACK non-blocking #4.\n- Verified the rollback plan's \"no image rebuild forced\" claim is consistent with TASK-3-2's manifest-byte-compatibility acceptance.\n\n### Non-blocking observations on the v2 plan\n\n- **TASK-2-1 (6) denylist scope** \u2014 the allowlist `/usr/local/`, `/opt/`, repo-relative is conservative for v1 (Python+Node+Go). Future detectors for Rust (`~/.cargo`) or Ruby (`~/.bundle`) will need user-file overrides since they're under `/home/`. Worth noting in the plug-in extensibility doc when those detectors land; not a blocker for this PR.\n- **TASK-3-1 acceptance** \u2014 \"the manifest writer in TASK-3-2 has a stable internal interface\" is good but worth pinning a concrete type (e.g. `BuildCommandsBlock` dataclass or TypedDict) in the `shared/egg_config/repos_schema.py` file so the contract is grep-able. Currently inferred from TASK-3-2's manifest-shape acceptance.\n- **TASK-6-3** \u2014 couples `test_layered_repo_config.py` (host\u2192container round-trip) and `test_gateway_merged_view.py` (gateway smoke) into one tester task. They could be split into TASK-6-3a/b for independent reviewability but it's a minor structural preference, not a blocker.\n- **decision-15 timing** \u2014 manual_steps requires it resolves \"before merge\". Recommend clarifying it must resolve **before TASK-2-1 starts implementation**, not just before merge \u2014 the safe-by-default denylist already covers most of the security floor, but if option (b) (direnv-style opt-in) wins, TASK-2-1's loader signature changes (the `allow_first_use` callback or trust-cache lookup is part of the loader API). Mention this in the plan body so the implementer doesn't ship the loader twice.\n- **Commit-sha citations in TASK-3-4** \u2014 the plan cites `514c5afaa` for #2087, but my git log shows `514c5afaa` is the #2087 fix commit (\"Fix #2087: fail loudly when sandbox build_commands silently break\"); double-check `fff9cea56` and `aa1f5e22d` are the #2065 commits \u2014 `fff9cea56` looks like a docs commit and `aa1f5e22d` is the actual #2065 fix per the log I pulled. The implementer should verify the citations match the underlying commits when they land the test.\n\nThe plan is now structurally sound, addresses the architect's C3 design, internalizes the risk_analyst's high-severity findings, registers the trust-model HITL, and fixes the CLI integration ambiguity. ACK."
+      },
+      "version": 2
+    },
+    "timestamp": "2026-04-26T00:11:37.779650+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7ac18fae-01d4-4c",
+    "pipeline_id": "issue-2073",
+    "from_role": "orchestrator",
+    "to_role": "task_planner",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 2) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 2
+    },
+    "timestamp": "2026-04-26T00:11:37.779685+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "42023eeb-557f-46",
+    "pipeline_id": "issue-2073",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T00:11:37.936180+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "14d75597-8312-48",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T00:09:41.445035+00:00"
+    },
+    "timestamp": "2026-04-26T00:11:41.791519+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "195973af-f466-48",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_plan",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-26T00:11:45.822027+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c35d78fd-9715-40",
+    "pipeline_id": "issue-2073",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T00:11:46.461981+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "28b7eed7-cee9-4a",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T00:11:46.476203+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "73486570-b411-41",
+    "pipeline_id": "issue-2073",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T00:11:49.165252+00:00"
+    },
+    "timestamp": "2026-04-26T00:11:49.247559+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "198bc90f-35f6-41",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T00:11:49.465310+00:00"
+    },
+    "timestamp": "2026-04-26T00:11:49.670659+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5d11310a-e7d6-42",
+    "pipeline_id": "issue-2073",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by task_planner",
+    "body": "",
+    "metadata": {
+      "consensus_reached": true
+    },
+    "timestamp": "2026-04-26T00:11:52.876763+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a705dfda-ba82-4f",
+    "pipeline_id": "issue-2073",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T00:11:53.094420+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a76be624-1c7a-4d",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T00:11:53.097070+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "682439a3-a1c7-4d",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: IDLE",
+    "body": "All producers ACKed (risk_analyst, architect, task_planner v2). CONSENSUS_CONFIRMED sent. Staying alive on wait-loop for any re-review or alerts.",
+    "metadata": {
+      "state": "IDLE"
+    },
+    "timestamp": "2026-04-26T00:11:56.731255+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "dc46b3df-3c0c-44",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T00:11:56.745490+00:00"
+    },
+    "timestamp": "2026-04-26T00:11:56.826320+00:00",
+    "phase": "plan"
+  }
+]
