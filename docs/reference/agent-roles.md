@@ -67,7 +67,7 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 - Blocked: All source code, contracts, drafts
 
 **Outputs**:
-- `.egg-state/reviews/{identifier}-refine-reviewer_refine-review.json` — Verdict file
+- `.egg-state/reviews/{identifier}-refine-refine-review.json` — Verdict file
 
 ### `reviewer_agent_design`
 
@@ -78,7 +78,7 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 **File access**: Same as `reviewer_refine`.
 
 **Outputs**:
-- `.egg-state/reviews/{identifier}-refine-reviewer_agent_design-review.json` — Verdict file
+- `.egg-state/reviews/{identifier}-refine-agent-design-review.json` — Verdict file
 
 ## Plan Phase
 
@@ -125,7 +125,7 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 **File access**: Same as `reviewer_refine`.
 
 **Outputs**:
-- `.egg-state/reviews/{identifier}-plan-reviewer_plan-review.json` — Verdict file
+- `.egg-state/reviews/{identifier}-plan-plan-review.json` — Verdict file
 
 ## Implement Phase
 
@@ -244,7 +244,7 @@ each surface so reviewers know to keep them in sync.
 **Subagent fan-out**: On large diffs (`files_changed > 10` OR `loc_added + loc_removed > 500`), `reviewer_code` fans out into Claude Agent SDK subagents — one per implement-phase task partition (capped at 6, with a 5-minute / 300-second per-subagent wall-clock timeout that NACKs the partition on overrun). Each subagent reviews its slice; the parent aggregates findings and emits the single ACK/NACK. A mandatory cross-partition consistency pass runs regardless of whether fan-out fires. Fan-out can be forced sequential via `phase_configs.implement.reviewer_code.parallel = false` (default: `true`).
 
 **Outputs**:
-- `.egg-state/reviews/{identifier}-implement-reviewer_code-review.json` — Verdict file
+- `.egg-state/reviews/{identifier}-implement-code-review.json` — Verdict file
 
 ### `reviewer_code_holistic`
 
@@ -263,7 +263,7 @@ each surface so reviewers know to keep them in sync.
 - Blocked: All source, docs, tests, contracts, drafts
 
 **Outputs**:
-- `.egg-state/reviews/{identifier}-implement-reviewer_code_holistic-review.json` — Verdict file
+- `.egg-state/reviews/{identifier}-implement-code-holistic-review.json` — Verdict file
 
 ### `reviewer_contract`
 
@@ -274,7 +274,7 @@ each surface so reviewers know to keep them in sync.
 - Blocked: All source, docs, tests, drafts
 
 **Outputs**:
-- `.egg-state/reviews/{identifier}-implement-reviewer_contract-review.json` — Verdict file
+- `.egg-state/reviews/{identifier}-implement-contract-review.json` — Verdict file
 
 ### `reviewer_security`
 
@@ -287,7 +287,7 @@ each surface so reviewers know to keep them in sync.
 - Blocked: All source, docs, tests, contracts, drafts
 
 **Outputs**:
-- `.egg-state/reviews/{identifier}-implement-reviewer_security-review.json` — Verdict file
+- `.egg-state/reviews/{identifier}-implement-security-review.json` — Verdict file
 
 ### `reviewer_concurrency`
 
@@ -300,7 +300,7 @@ each surface so reviewers know to keep them in sync.
 - Blocked: All source, docs, tests, contracts, drafts
 
 **Outputs**:
-- `.egg-state/reviews/{identifier}-implement-reviewer_concurrency-review.json` — Verdict file
+- `.egg-state/reviews/{identifier}-implement-concurrency-review.json` — Verdict file
 
 ## Utility Roles
 
