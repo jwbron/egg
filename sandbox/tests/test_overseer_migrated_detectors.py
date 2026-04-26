@@ -352,9 +352,7 @@ class TestRunMigratedDetectors:
         # Prior-phase alert bookkeeping cleared.
         assert "agent-stall" not in coder.alerted_anomalies
 
-    def test_silent_role_in_prior_phase_does_not_stall(
-        self, tmp_state_path: Path
-    ) -> None:
+    def test_silent_role_in_prior_phase_does_not_stall(self, tmp_state_path: Path) -> None:
         # A role that emitted progress in refine but is silent in
         # implement should NOT fire agent-stall — its entry belongs to
         # the prior phase. The detector skips entries whose phase
