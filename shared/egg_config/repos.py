@@ -39,7 +39,9 @@ Performance:
 
 from __future__ import annotations
 
+import configparser
 import os
+import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -87,9 +89,7 @@ _ALLOWED_ABS_PREFIXES: tuple[str, ...] = (
 
 # Per-repo blocks that the merge engine threads through.  Used both for
 # layering and to pinpoint list-replacement vs deep-merge behavior.
-_LIST_REPLACE_KEYS: frozenset[str] = frozenset(
-    {"persist", "watch_files", "checks"}
-)
+_LIST_REPLACE_KEYS: frozenset[str] = frozenset({"persist", "watch_files", "checks"})
 
 
 def _is_denylisted_abs_path(entry: str) -> bool:
@@ -103,8 +103,12 @@ def _is_denylisted_abs_path(entry: str) -> bool:
             return True
     # Hard prefix denylist for absolute paths.
     for prefix in _DENYLIST_ABS_PREFIXES:
-        if entry == prefix or entry.startswith(prefix + "/") or entry.startswith(
-            prefix + "\0"  # never matches; documents intent
+        if (
+            entry == prefix
+            or entry.startswith(prefix + "/")
+            or entry.startswith(
+                prefix + "\0"  # never matches; documents intent
+            )
         ):
             return True
         # /var, /etc, /root, /proc, /sys, /dev (no trailing slash variants)
@@ -113,17 +117,13 @@ def _is_denylisted_abs_path(entry: str) -> bool:
         if entry == prefix or entry.startswith(prefix + "/"):
             return True
     # Outside the safe set?
-    if entry.startswith("/") and not any(
-        entry.startswith(p) for p in _ALLOWED_ABS_PREFIXES
-    ):
+    if entry.startswith("/") and not any(entry.startswith(p) for p in _ALLOWED_ABS_PREFIXES):
         # Not in /usr/local/ or /opt/ → denied.
         return True
     return False
 
 
-def _enforce_repo_persist_denylist(
-    persist_entries: list[str], *, repo_label: str
-) -> None:
+def _enforce_repo_persist_denylist(persist_entries: list[str], *, repo_label: str) -> None:
     """Reject repo-file ``persist:`` entries that fall in the denylist.
 
     Repo-relative entries always pass — they're rooted at the checkout
@@ -235,16 +235,11 @@ def _read_yaml(path: Path) -> dict[str, Any]:
     if data is None:
         return {}
     if not isinstance(data, dict):
-        raise ConfigError(
-            f"{path}: top-level YAML must be a mapping; got "
-            f"{type(data).__name__}."
-        )
+        raise ConfigError(f"{path}: top-level YAML must be a mapping; got {type(data).__name__}.")
     return data
 
 
-def _merge_repo_block(
-    *, base: dict[str, Any], override: dict[str, Any]
-) -> dict[str, Any]:
+def _merge_repo_block(*, base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """Merge ``override`` onto ``base`` per the rules at the top of this module.
 
     * List-valued fields (``persist``, ``watch_files``, ``checks``)
@@ -279,9 +274,7 @@ def _merge_repo_block(
     return out
 
 
-def _merge_build_commands(
-    base: dict[str, Any], override: dict[str, Any]
-) -> dict[str, Any]:
+def _merge_build_commands(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """Deep-merge ``build_commands`` blocks.
 
     The block carries scalar fields (``commands``, ``watch_files``,
@@ -347,12 +340,8 @@ def load_merged_repo_config(
     user_resolved = _user_config_path(user_path)
     repo_resolved = _repo_config_path(checkout)
 
-    user_mtime = (
-        user_resolved.stat().st_mtime_ns if user_resolved is not None else 0
-    )
-    repo_mtime = (
-        repo_resolved.stat().st_mtime_ns if repo_resolved is not None else 0
-    )
+    user_mtime = user_resolved.stat().st_mtime_ns if user_resolved is not None else 0
+    repo_mtime = repo_resolved.stat().st_mtime_ns if repo_resolved is not None else 0
 
     return _load_cached(
         str(user_resolved) if user_resolved is not None else "",
@@ -391,9 +380,7 @@ def _load_cached(
 
     repo_defaults: RepoDefaultsFile | None = None
     if repo_path is not None:
-        repo_defaults = RepoDefaultsFile.from_dict(
-            repo_dict, file_label=str(repo_path)
-        )
+        repo_defaults = RepoDefaultsFile.from_dict(repo_dict, file_label=str(repo_path))
         # Repo-side persist denylist enforcement (NACK-5).
         _enforce_repo_persist_denylist(
             repo_defaults.persist,
@@ -408,23 +395,73 @@ def _load_cached(
     # find it regardless.
     merged: dict[str, dict[str, Any]] = {}
 
-    repo_block_dict: dict[str, Any] = (
-        repo_defaults.to_dict() if repo_defaults is not None else {}
-    )
+    repo_block_dict: dict[str, Any] = repo_defaults.to_dict() if repo_defaults is not None else {}
+
+    # Identify which user-file repo the repo-defaults block applies to.
+    # The repo-defaults file lives inside a single checkout and should
+    # only target the user-file entry that names that checkout's
+    # GitHub repo (decision-10). Cascading the block onto every
+    # repo_settings entry is wrong — see #2073's regression test
+    # coverage.
+    checkout_repo_name: str | None = None
+    if repo_path is not None:
+        checkout_repo_name = _resolve_checkout_repo_name(checkout=repo_path.parent.parent)
 
     user_repo_settings = user_file.repo_settings
     for repo_name, override_block in user_repo_settings.items():
-        merged[repo_name] = _merge_repo_block(
-            base=repo_block_dict, override=override_block
-        )
+        if (
+            repo_block_dict
+            and checkout_repo_name is not None
+            and repo_name.lower() == checkout_repo_name.lower()
+        ):
+            merged[repo_name] = _merge_repo_block(base=repo_block_dict, override=override_block)
+        else:
+            # No repo-defaults to merge in — surface the user override
+            # alone so existing callers see the same shape they always
+            # have.
+            merged[repo_name] = dict(override_block)
 
     # Surface the repo-defaults block under a synthetic ``__checkout__``
-    # key when no explicit repo_settings entry exists — useful for the
-    # validator and the onboard skill.
-    if repo_defaults is not None and not merged:
+    # key when no explicit repo_settings entry maps to it — useful for
+    # the validator and the onboard skill.
+    if repo_defaults is not None and (
+        checkout_repo_name is None
+        or all(k.lower() != checkout_repo_name.lower() for k in user_repo_settings)
+    ):
         merged["__checkout__"] = repo_block_dict
 
     return MergedRepoConfig(user_file=user_file.raw, repo_blocks=merged)
+
+
+def _resolve_checkout_repo_name(checkout: Path) -> str | None:
+    """Return ``"owner/name"`` for ``checkout`` from its git remote, or None.
+
+    Reads ``.git/config`` directly (no subprocess call needed) so this
+    works inside readonly sandboxes and tests. Recognises HTTPS and
+    SSH GitHub remotes.
+    """
+    git_config = checkout / ".git" / "config"
+    if not git_config.is_file():
+        return None
+    try:
+        parser = configparser.ConfigParser()
+        parser.read(git_config)
+    except (configparser.Error, OSError):
+        return None
+    for section in parser.sections():
+        if not section.startswith('remote "'):
+            continue
+        url = parser.get(section, "url", fallback=None)
+        if not url:
+            continue
+        match = re.match(
+            r"(?:https?://[^/]+/|git@[^:]+:)([^/]+)/(.+?)(?:\.git)?/?$",
+            url.strip(),
+        )
+        if match:
+            owner, name = match.group(1), match.group(2)
+            return f"{owner}/{name}"
+    return None
 
 
 def reload_config() -> None:

@@ -125,9 +125,7 @@ def _load_config() -> dict[str, Any]:
         return raw
 
     try:
-        merged = load_merged_repo_config(
-            checkout=_checkout_path(), user_path=config_path
-        )
+        merged = load_merged_repo_config(checkout=_checkout_path(), user_path=config_path)
     except Exception:
         # Schema errors here would surface during validate-config; fall
         # back to the raw view so existing callers keep working until
@@ -632,9 +630,7 @@ def get_repo_build_commands(repo: str) -> dict[str, Any]:
     watch_files_raw = block.get("watch_files")
     if not isinstance(watch_files_raw, list):
         watch_files_raw = build_cmds.get("watch_files", [])
-    watch_files = (
-        [str(f) for f in watch_files_raw] if isinstance(watch_files_raw, list) else []
-    )
+    watch_files = [str(f) for f in watch_files_raw] if isinstance(watch_files_raw, list) else []
 
     # persist: unified list at the per-repo top level. Run it through
     # the classifier to produce the legacy two-list shape consumed by
@@ -678,6 +674,10 @@ def get_all_build_commands() -> dict[str, dict[str, Any]]:
 
     result: dict[str, dict[str, Any]] = {}
     for repo_name, settings in repo_settings.items():
+        # Skip synthetic keys emitted by the layered loader
+        # (e.g. "__checkout__" — see shared/egg_config/repos.py).
+        if repo_name.startswith("__"):
+            continue
         if not isinstance(settings, dict):
             continue
         build_cmds = settings.get("build_commands")

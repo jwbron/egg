@@ -76,9 +76,7 @@ _TAR_TO_USR_LOCAL_RE = re.compile(r"tar\b[^|;&]*-C\s+(/usr/local/?\S*)")
 _PIP_INSTALL_NEEDS_SOURCE_RE = re.compile(
     r"\bpip\s+install\b[^;|&]*\b-e\s+\.|\bpip\s+install\b[^;|&]*\bsetup\.py"
 )
-_UV_SYNC_NEEDS_SOURCE_RE = re.compile(
-    r"\buv\s+sync\b(?![^;|&]*--no-install-project)"
-)
+_UV_SYNC_NEEDS_SOURCE_RE = re.compile(r"\buv\s+sync\b(?![^;|&]*--no-install-project)")
 _NPM_INSTALL_RE = re.compile(r"\bnpm\s+(?:ci|install|i)\b")
 _CURL_OR_WGET_RE = re.compile(r"\b(?:curl|wget)\b")
 
@@ -93,10 +91,7 @@ def _read_yaml(path: Path) -> dict[str, Any]:
     if data is None:
         return {}
     if not isinstance(data, dict):
-        raise ConfigError(
-            f"{path}: top-level YAML must be a mapping; got "
-            f"{type(data).__name__}."
-        )
+        raise ConfigError(f"{path}: top-level YAML must be a mapping; got {type(data).__name__}.")
     return data
 
 
@@ -451,9 +446,7 @@ def _check_watch_files_match_commands(
             )
         )
     if has_uv:
-        expected_for_signal.append(
-            ("uv", {"pyproject.toml", "uv.lock"})
-        )
+        expected_for_signal.append(("uv", {"pyproject.toml", "uv.lock"}))
     if has_npm:
         expected_for_signal.append(
             ("npm", {"package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"})
@@ -514,9 +507,7 @@ def validate_repo_config(
 
     # Schema validation — surface schema errors via the validator.
     if repo_path is not None:
-        _check_repo_file_operator_keys(
-            repo_path=repo_path, repo_dict=repo_dict, result=result
-        )
+        _check_repo_file_operator_keys(repo_path=repo_path, repo_dict=repo_dict, result=result)
         try:
             RepoDefaultsFile.from_dict(repo_dict, file_label=str(repo_path))
         except ConfigError as exc:
@@ -543,9 +534,7 @@ def validate_repo_config(
         return result
 
     # Operator-scoped checks (run on the user dict).
-    _check_local_repos_paths(
-        user_dict=merged.user_file, user_path=user_resolved, result=result
-    )
+    _check_local_repos_paths(user_dict=merged.user_file, user_path=user_resolved, result=result)
     _check_writable_repos_have_settings(
         user_dict=merged.user_file, user_path=user_resolved, result=result
     )
@@ -566,9 +555,7 @@ def validate_repo_config(
     repo_blocks = merged.repo_blocks or {}
     repo_root = Path(checkout) if checkout is not None else None
     for repo_name, block in repo_blocks.items():
-        repo_label = (
-            f"{user_resolved or '<user>'} :: repo_settings[{repo_name!r}]"
-        )
+        repo_label = f"{user_resolved or '<user>'} :: repo_settings[{repo_name!r}]"
         build_cmds = block.get("build_commands") or {}
         commands: list[str] = []
         if isinstance(build_cmds, dict):
@@ -577,18 +564,10 @@ def validate_repo_config(
                 commands = [str(c) for c in cmds_raw]
 
         watch_files_raw = block.get("watch_files") or []
-        watch_files = (
-            [str(f) for f in watch_files_raw]
-            if isinstance(watch_files_raw, list)
-            else []
-        )
+        watch_files = [str(f) for f in watch_files_raw] if isinstance(watch_files_raw, list) else []
 
         persist_raw = block.get("persist") or []
-        persist = (
-            [str(p) for p in persist_raw]
-            if isinstance(persist_raw, list)
-            else []
-        )
+        persist = [str(p) for p in persist_raw] if isinstance(persist_raw, list) else []
 
         checks_raw = block.get("checks") or []
         checks = checks_raw if isinstance(checks_raw, list) else []

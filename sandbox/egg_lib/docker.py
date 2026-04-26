@@ -233,13 +233,22 @@ def _load_repos_config() -> dict[str, Any]:
         and no checkout-side defaults are discoverable.
     """
     config_path = Config.REPOS_CONFIG_FILE
+    if not config_path.exists():
+        # Preserve the legacy "no user file → empty config" contract
+        # so unrelated callers (e.g. build-hash inputs that key off the
+        # absence of a config) keep working. The layered loader needs
+        # an active user file to be useful.
+        return {}
+
     user_dict: dict[str, Any] = {}
-    if config_path.exists():
-        try:
-            with config_path.open() as handle:
-                user_dict = yaml.safe_load(handle) or {}
-        except Exception:
-            user_dict = {}
+    try:
+        with config_path.open() as handle:
+            user_dict = yaml.safe_load(handle) or {}
+    except Exception:
+        user_dict = {}
+
+    if not user_dict:
+        return {}
 
     try:
         from egg_config.repos import load_merged_repo_config
@@ -249,7 +258,7 @@ def _load_repos_config() -> dict[str, Any]:
     try:
         merged = load_merged_repo_config(
             checkout=Path.cwd(),
-            user_path=config_path if config_path.exists() else None,
+            user_path=config_path,
         )
     except Exception:
         # Schema errors here would surface during validate-config; fall
@@ -414,6 +423,7 @@ def _copy_repo_watch_files(quiet: bool = False) -> None:
     try:
         from egg_config.repos_schema import classify_persist_entry
     except ImportError:  # pragma: no cover — shared dir absent
+
         def classify_persist_entry(entry: str) -> str:  # type: ignore[no-redef]
             return "system" if isinstance(entry, str) and entry.startswith("/") else "repo"
 

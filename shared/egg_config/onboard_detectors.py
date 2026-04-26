@@ -102,9 +102,7 @@ def register_detector(detector: Detector | type[Detector]) -> Detector:
     """
     obj = detector() if isinstance(detector, type) else detector
     if not isinstance(obj, Detector):
-        raise TypeError(
-            f"register_detector expected a Detector, got {type(obj).__name__}"
-        )
+        raise TypeError(f"register_detector expected a Detector, got {type(obj).__name__}")
     _DETECTORS.append(obj)
     return obj
 
@@ -121,9 +119,10 @@ def _ordered_detectors() -> list[Detector]:
 
 def _read_json_safe(path: Path) -> dict[str, Any]:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        loaded = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
+    return loaded if isinstance(loaded, dict) else {}
 
 
 def _read_text_safe(path: Path) -> str:
@@ -155,8 +154,7 @@ class PythonUvDetector:
         return DetectionResult(
             language="python-uv",
             build_commands=[
-                "curl -LsSf https://astral.sh/uv/install.sh | "
-                "env UV_INSTALL_DIR=/usr/local/bin sh",
+                "curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh",
                 "uv sync --no-install-project",
             ],
             persist=["/usr/local/bin", ".venv"],
@@ -334,9 +332,7 @@ class GoDetector:
             watch_files=watch_files,
             checks=[],
             confidence=0.9,
-            reasoning=(
-                f"Found go.mod (Go {version_token}). Recommended `go mod download`."
-            ),
+            reasoning=(f"Found go.mod (Go {version_token}). Recommended `go mod download`."),
         )
 
 
@@ -369,9 +365,7 @@ def _builtin_detectors() -> list[Detector]:
     ]
 
 
-def run_detectors(
-    repo_path: Path, *, include_registered: bool = True
-) -> list[DetectionResult]:
+def run_detectors(repo_path: Path, *, include_registered: bool = True) -> list[DetectionResult]:
     """Run every applicable detector against ``repo_path``.
 
     Built-in detectors run first (always), followed by any plug-ins

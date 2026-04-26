@@ -138,9 +138,7 @@ def classify_persist_entry(entry: str) -> Literal["repo", "system"]:
     return "system" if entry.startswith("/") else "repo"
 
 
-def _check_legacy_persist_keys(
-    block: dict[str, Any], *, file_label: str
-) -> None:
+def _check_legacy_persist_keys(block: dict[str, Any], *, file_label: str) -> None:
     """Reject the hard-deprecated ``persist_dirs`` / ``persist_system_dirs``.
 
     The migration target message is fixed prose so docs don't drift —
@@ -177,13 +175,11 @@ def _check_schema_version(value: Any, *, file_label: str) -> str:
         major = int(head) if head else -1
     except ValueError as exc:
         raise ConfigError(
-            f"{file_label}: 'schemaVersion' must be a string like '1.0'; "
-            f"got {value!r}."
+            f"{file_label}: 'schemaVersion' must be a string like '1.0'; got {value!r}."
         ) from exc
     if major < 0:
         raise ConfigError(
-            f"{file_label}: 'schemaVersion' must be a string like '1.0'; "
-            f"got {value!r}."
+            f"{file_label}: 'schemaVersion' must be a string like '1.0'; got {value!r}."
         )
     if major > EGG_SCHEMA_MAJOR:
         raise ConfigError(
@@ -207,17 +203,12 @@ def _check_template(value: Any, *, file_label: str) -> str | None:
     )
 
 
-def _normalise_persist_list(
-    value: Any, *, file_label: str
-) -> list[str]:
+def _normalise_persist_list(value: Any, *, file_label: str) -> list[str]:
     """Normalise a ``persist:`` list and validate every entry."""
     if value is None:
         return []
     if not isinstance(value, list):
-        raise ConfigError(
-            f"{file_label}: 'persist' must be a list; got "
-            f"{type(value).__name__}."
-        )
+        raise ConfigError(f"{file_label}: 'persist' must be a list; got {type(value).__name__}.")
     out: list[str] = []
     for entry in value:
         # ``classify_persist_entry`` raises on non-string / empty input.
@@ -256,8 +247,7 @@ class RepoDefaultsFile:
         """
         if not isinstance(raw, dict):
             raise ConfigError(
-                f"{file_label}: top-level YAML must be a mapping; got "
-                f"{type(raw).__name__}."
+                f"{file_label}: top-level YAML must be a mapping; got {type(raw).__name__}."
             )
         _check_legacy_persist_keys(raw, file_label=file_label)
 
@@ -285,11 +275,7 @@ class RepoDefaultsFile:
 
         # Catch unknown keys early so typos surface at write-time
         # instead of silently being dropped.
-        unknown = sorted(
-            k
-            for k in raw
-            if k not in ALLOWED_REPO_DEFAULTS_KEYS
-        )
+        unknown = sorted(k for k in raw if k not in ALLOWED_REPO_DEFAULTS_KEYS)
         if unknown:
             raise ConfigError(
                 f"{file_label}: unknown keys {unknown!r}. Allowed keys "
@@ -297,27 +283,15 @@ class RepoDefaultsFile:
             )
 
         return cls(
-            schemaVersion=_check_schema_version(
-                raw.get("schemaVersion"), file_label=file_label
-            ),
-            template=_check_template(
-                raw.get("template"), file_label=file_label
-            ),
+            schemaVersion=_check_schema_version(raw.get("schemaVersion"), file_label=file_label),
+            template=_check_template(raw.get("template"), file_label=file_label),
             build_commands=_validate_build_commands(
                 raw.get("build_commands"), file_label=file_label
             ),
-            persist=_normalise_persist_list(
-                raw.get("persist"), file_label=file_label
-            ),
-            watch_files=_validate_watch_files(
-                raw.get("watch_files"), file_label=file_label
-            ),
-            checks=_validate_checks(
-                raw.get("checks"), file_label=file_label
-            ),
-            auth_mode=_validate_auth_mode(
-                raw.get("auth_mode"), file_label=file_label
-            ),
+            persist=_normalise_persist_list(raw.get("persist"), file_label=file_label),
+            watch_files=_validate_watch_files(raw.get("watch_files"), file_label=file_label),
+            checks=_validate_checks(raw.get("checks"), file_label=file_label),
+            auth_mode=_validate_auth_mode(raw.get("auth_mode"), file_label=file_label),
             checkpoint_repo=_validate_checkpoint_repo(
                 raw.get("checkpoint_repo"), file_label=file_label
             ),
@@ -366,8 +340,7 @@ class UserConfigFile:
             raw = {}
         if not isinstance(raw, dict):
             raise ConfigError(
-                f"{file_label}: top-level YAML must be a mapping; got "
-                f"{type(raw).__name__}."
+                f"{file_label}: top-level YAML must be a mapping; got {type(raw).__name__}."
             )
 
         # Top-level legacy persist keys are not valid here either —
@@ -375,9 +348,7 @@ class UserConfigFile:
         # surface a clean error if someone tried to bubble them up.
         _check_legacy_persist_keys(raw, file_label=file_label)
 
-        version = _check_schema_version(
-            raw.get("schemaVersion"), file_label=file_label
-        )
+        version = _check_schema_version(raw.get("schemaVersion"), file_label=file_label)
 
         repo_settings_raw = raw.get("repo_settings", {}) or {}
         if not isinstance(repo_settings_raw, dict):
@@ -419,16 +390,13 @@ class UserConfigFile:
         )
 
 
-def _validate_build_commands(
-    value: Any, *, file_label: str
-) -> dict[str, Any] | None:
+def _validate_build_commands(value: Any, *, file_label: str) -> dict[str, Any] | None:
     """Validate the ``build_commands:`` block as a mapping, if present."""
     if value is None:
         return None
     if not isinstance(value, dict):
         raise ConfigError(
-            f"{file_label}: 'build_commands' must be a mapping; got "
-            f"{type(value).__name__}."
+            f"{file_label}: 'build_commands' must be a mapping; got {type(value).__name__}."
         )
     # Per-key shape is loose here — the loader's classifier validates
     # ``persist:`` / ``watch_files:`` later.  We *do* reject the legacy
@@ -442,8 +410,7 @@ def _validate_watch_files(value: Any, *, file_label: str) -> list[str]:
         return []
     if not isinstance(value, list):
         raise ConfigError(
-            f"{file_label}: 'watch_files' must be a list; got "
-            f"{type(value).__name__}."
+            f"{file_label}: 'watch_files' must be a list; got {type(value).__name__}."
         )
     return [str(v) for v in value]
 
@@ -452,21 +419,16 @@ def _validate_checks(value: Any, *, file_label: str) -> list[dict[str, Any]]:
     if value is None:
         return []
     if not isinstance(value, list):
-        raise ConfigError(
-            f"{file_label}: 'checks' must be a list of "
-            "{name, command} entries."
-        )
+        raise ConfigError(f"{file_label}: 'checks' must be a list of {{name, command}} entries.")
     out: list[dict[str, Any]] = []
     for entry in value:
         if not isinstance(entry, dict):
             raise ConfigError(
-                f"{file_label}: each 'checks' entry must be a mapping; "
-                f"got {type(entry).__name__}."
+                f"{file_label}: each 'checks' entry must be a mapping; got {type(entry).__name__}."
             )
         if "name" not in entry or "command" not in entry:
             raise ConfigError(
-                f"{file_label}: each 'checks' entry must carry a 'name' "
-                "and a 'command'."
+                f"{file_label}: each 'checks' entry must carry a 'name' and a 'command'."
             )
         out.append({"name": str(entry["name"]), "command": str(entry["command"])})
     return out
@@ -476,10 +438,7 @@ def _validate_auth_mode(value: Any, *, file_label: str) -> str | None:
     if value is None:
         return None
     if value not in ("bot", "user"):
-        raise ConfigError(
-            f"{file_label}: 'auth_mode' must be 'bot' or 'user'; got "
-            f"{value!r}."
-        )
+        raise ConfigError(f"{file_label}: 'auth_mode' must be 'bot' or 'user'; got {value!r}.")
     return str(value)
 
 
@@ -493,15 +452,12 @@ def _validate_checkpoint_repo(value: Any, *, file_label: str) -> str | None:
         )
     if "/" not in value:
         raise ConfigError(
-            f"{file_label}: 'checkpoint_repo' must be of the form "
-            f"'owner/name'; got {value!r}."
+            f"{file_label}: 'checkpoint_repo' must be of the form 'owner/name'; got {value!r}."
         )
     return value
 
 
-def _validate_user_per_repo_block(
-    block: dict[str, Any], *, file_label: str
-) -> dict[str, Any]:
+def _validate_user_per_repo_block(block: dict[str, Any], *, file_label: str) -> dict[str, Any]:
     """Validate a per-repo override block as it appears in the user file.
 
     Operator-scoped per-repo keys (``restrict_to_configured_users`` /
@@ -540,9 +496,7 @@ def _validate_user_per_repo_block(
             out[key] = _validate_checkpoint_repo(value, file_label=file_label)
             continue
         # Unknown keys: reject so typos surface immediately.
-        raise ConfigError(
-            f"{file_label}: unknown override key {key!r}."
-        )
+        raise ConfigError(f"{file_label}: unknown override key {key!r}.")
     return out
 
 

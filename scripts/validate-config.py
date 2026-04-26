@@ -341,10 +341,7 @@ def verify_repo_config(repo_config_path: str) -> bool:
     if result.ok and not result.warnings:
         print("\n✓ Repo config validated successfully — no errors, no warnings.")
     elif result.ok:
-        print(
-            f"\n✓ Repo config validated with {len(result.warnings)} "
-            "warning(s) — see above."
-        )
+        print(f"\n✓ Repo config validated with {len(result.warnings)} warning(s) — see above.")
     else:
         print(
             f"\n✗ Repo config has {len(result.errors)} error(s) and "
