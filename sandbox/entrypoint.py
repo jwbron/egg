@@ -583,6 +583,31 @@ def setup_environment(config: Config) -> None:
     if "EGG_REPO_PATH" not in os.environ:
         os.environ["EGG_REPO_PATH"] = str(config.user_home / "repos")
 
+    # EGG_PIPELINE_REPO is the GitHub-style "owner/repo" string the
+    # overseer auto-issue verb (issue #1962) and the gateway's
+    # overseer guardrails rely on. The orchestrator MUST inject it
+    # for every spawned sandbox running the overseer role; we
+    # fail-fast (no `gh repo view` fallback) because a misconfigured
+    # pipeline filing an issue against the wrong repo is worse than a
+    # hard abort here. Skipped for the local CLI flow which doesn't
+    # run the overseer.
+    if "EGG_PIPELINE_REPO" not in os.environ and os.environ.get("EGG_AGENT_ROLE") in {"overseer"}:
+        # Structured stderr line so operators can grep for the symptom.
+        # We don't have access to the structured Logger here (setup_environment
+        # runs before logger is wired through), so write straight to stderr.
+        import sys as _sys
+
+        print(
+            "entrypoint: missing required env EGG_PIPELINE_REPO; "
+            "orchestrator must inject it for the overseer role. "
+            "Refusing to continue.",
+            file=_sys.stderr,
+        )
+        raise OSError(
+            "EGG_PIPELINE_REPO env var is required for the overseer role; "
+            "orchestrator must inject it. Refusing to continue."
+        )
+
     # Git editor - use 'true' (no-op) for non-interactive environment
     # This allows git rebase --continue to work without an interactive editor.
     # Side effects: git commit without -m creates empty messages, git rebase -i

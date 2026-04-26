@@ -114,6 +114,7 @@ SOURCE_PACKAGES: tuple[str, ...] = (
     "shared.egg_health",
     "shared.egg_logging",
     "shared.egg_orchestrator",
+    "shared.egg_overseer",
     "shared.egg_restrictions",
 )
 

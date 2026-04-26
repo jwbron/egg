@@ -2709,6 +2709,45 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
         if concurrent_data:
             data["concurrent"] = concurrent_data
 
+        # Issue #1962 TASK-1-2: include the overseer-relevant config
+        # subset in the status payload so the sandbox-side overseer
+        # monitor can read PipelineConfig values (advisor model,
+        # threshold knobs, host-detection flag) without a separate
+        # endpoint. Only the new + load-bearing knobs are exposed
+        # here to keep the response compact; full config is available
+        # via the dedicated config endpoint.
+        try:
+            cfg = getattr(pipeline, "config", None)
+            if cfg is not None:
+                data["config"] = {
+                    "overseer_advisor_model": getattr(cfg, "overseer_advisor_model", None),
+                    "overseer_auto_file_issues_mode": getattr(
+                        cfg, "overseer_auto_file_issues_mode", None
+                    ),
+                    "overseer_owns_host_detection": getattr(
+                        cfg, "overseer_owns_host_detection", False
+                    ),
+                    "overseer_stuck_phase_transition_seconds": getattr(
+                        cfg, "overseer_stuck_phase_transition_seconds", 180
+                    ),
+                    "overseer_agent_stall_seconds": getattr(
+                        cfg, "overseer_agent_stall_seconds", 180
+                    ),
+                    "overseer_silent_agent_threshold_seconds": getattr(
+                        cfg, "overseer_silent_agent_threshold_seconds", 600
+                    ),
+                    "overseer_long_running_phase_seconds": getattr(
+                        cfg, "overseer_long_running_phase_seconds", 3600
+                    ),
+                    "overseer_nack_unresolved_seconds": getattr(
+                        cfg, "overseer_nack_unresolved_seconds", 180
+                    ),
+                }
+        except (AttributeError, TypeError):
+            # Defensive: never let a config-shape change crash the
+            # status endpoint.
+            pass
+
         return make_success_response("Status retrieved", data=data)
 
     except InvalidPipelineIdError:

@@ -128,6 +128,21 @@ def progress_heartbeat(req: dict[str, Any]) -> dict[str, Any]:
 _VALID_OVERSEER_PRIORITIES = ("low", "medium", "high")
 
 
+# Body-size cap for ``recommendation_payload`` (issue #1962). 50 KB is the
+# same hard limit the gateway enforces on issue bodies; payloads larger
+# than this never need to round-trip through the message bus.
+_MAX_RECOMMENDATION_PAYLOAD_BYTES = 50_000
+
+# Schema-version semantics for OVERSEER_ALERT.metadata (issue #1962):
+# v1 = pre-#1962 alerts (no `recommendation` / `recommendation_payload`);
+# v2 = adds the two fields. /sdlc parsing reads the version (defaulting
+# to 1 if absent) and falls back gracefully on lower versions per
+# risk_analyst R-COMPAT-06.
+_OVERSEER_ALERT_SCHEMA_VERSION = 2
+
+_VALID_RECOMMENDATIONS = ("file_issue",)
+
+
 def progress_overseer_alert(req: dict[str, Any]) -> dict[str, Any]:
     """Broadcast an OVERSEER_ALERT message to the human operator.
 
@@ -147,6 +162,14 @@ def progress_overseer_alert(req: dict[str, Any]) -> dict[str, Any]:
         summary (str): required — one-line description.
         detail (str): optional longer description / observed evidence.
         recommend (str): optional recommended action for the human.
+        recommendation (str): optional structured advisor recommendation
+            (issue #1962). Currently the only legal value is
+            ``"file_issue"``; the human gates the actual filing via the
+            existing HITL flow. Carried in ``metadata.recommendation``
+            so legacy consumers see no schema change.
+        recommendation_payload (dict): optional opaque blob carrying the
+            advisor's composed ``issue_title`` / ``issue_body`` /
+            ``priority`` / ``anomaly_signature``. Bounded at 50 KB.
         pipeline_id, role: optional overrides (role defaults to
             EGG_AGENT_ROLE or ``overseer``).
 
@@ -186,13 +209,47 @@ def progress_overseer_alert(req: dict[str, Any]) -> dict[str, Any]:
         body_parts.append(f"\nRecommended action:\n{recommend}")
     body_text = "\n".join(body_parts).strip()
 
-    data = {
+    # Issue #1962: optional structured recommendation. The fields land
+    # as first-class optional fields on the OVERSEER_ALERT message
+    # envelope (orchestrator/message_store.py:Message) so the
+    # backwards-compat regression test in TASK-7-1 can distinguish
+    # "no field" from "metadata key missing". Pre-#1962 callers omit
+    # both fields and the message round-trips with schema_version=1
+    # (the pre-#1962 default); when either field is set the message
+    # records schema_version=2 so /sdlc parsers can branch on the
+    # version per risk_analyst R-COMPAT-06.
+    data: dict[str, Any] = {
         "from_role": role,
         "to_role": "all",
         "message_type": "OVERSEER_ALERT",
         "subject": f"{anomaly} [{priority}]",
         "body": body_text,
     }
+    recommendation = req.get("recommendation")
+    if recommendation is not None:
+        if not isinstance(recommendation, str):
+            raise HandlerError("'recommendation' must be a string")
+        if recommendation not in _VALID_RECOMMENDATIONS:
+            raise HandlerError(
+                f"'recommendation' must be one of {list(_VALID_RECOMMENDATIONS)}; "
+                f"got {recommendation!r}"
+            )
+        data["recommendation"] = recommendation
+        data["schema_version"] = _OVERSEER_ALERT_SCHEMA_VERSION
+    recommendation_payload = req.get("recommendation_payload")
+    if recommendation_payload is not None:
+        if not isinstance(recommendation_payload, dict):
+            raise HandlerError("'recommendation_payload' must be a dict")
+        # Cheap size cap; full content scan happens at the gateway.
+        import json as _json
+
+        encoded = _json.dumps(recommendation_payload).encode("utf-8")
+        if len(encoded) > _MAX_RECOMMENDATION_PAYLOAD_BYTES:
+            raise HandlerError(
+                f"'recommendation_payload' exceeds {_MAX_RECOMMENDATION_PAYLOAD_BYTES} bytes"
+            )
+        data["recommendation_payload"] = recommendation_payload
+        data["schema_version"] = _OVERSEER_ALERT_SCHEMA_VERSION
 
     result = orchestrator_request(f"/api/v1/pipelines/{pid}/messages", method="POST", data=data)
     if not result.get("success"):
