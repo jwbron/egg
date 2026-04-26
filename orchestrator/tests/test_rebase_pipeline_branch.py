@@ -118,13 +118,15 @@ class TestRebasePipelineBranchOntoBase:
             assert mock_run.call_count == 3
             spawner.gateway.push_worktree_branch.assert_not_called()
 
-    def test_skips_when_head_not_ancestor_of_branch(self):
-        """HEAD has commits not on origin/<branch> — defer to push reconcile.
+    def test_skips_when_head_on_neither_branch_nor_base(self):
+        """HEAD carries commits on neither origin/<branch> nor origin/<base>
+        — defer to push reconcile rather than blow away unpublished work.
 
-        This is the only case where ``merge-base --is-ancestor`` returns
-        non-zero with the worktree in a sane state: someone (or some other
-        path) staged commits on HEAD that haven't been published yet.
-        Resetting would discard them, so we skip.
+        Both supported resume paths land HEAD on one of those refs:
+        preserved-worktree → ancestor of origin/<branch> (state-file
+        commits already pushed); fresh-worktree → ancestor of
+        origin/<base> (recreated from base).  Only when *neither* holds
+        does HEAD carry truly unpublished commits worth preserving.
         """
         spawner = _make_spawner()
         with patch("routes.pipelines.subprocess.run") as mock_run:
@@ -133,10 +135,38 @@ class TestRebasePipelineBranchOntoBase:
                 _result(returncode=0),  # rev-parse origin/<base>
                 _result(stdout="70\n"),  # 70 commits behind base
                 _result(returncode=1),  # is-ancestor: HEAD NOT on origin/<branch>
+                _result(returncode=1),  # is-ancestor: HEAD NOT on origin/<base>
             ]
             _call(spawner)
-            assert mock_run.call_count == 4
+            assert mock_run.call_count == 5
             spawner.gateway.push_worktree_branch.assert_not_called()
+
+    def test_proceeds_when_head_is_ancestor_of_base(self):
+        """Fresh-worktree resume case: gateway recreated the orchestrator-
+        side worktree from origin/<base> after the prior worktree volume
+        was wiped (e.g. orchestrator redeploy onto a fresh PVC).  HEAD ==
+        origin/<base>, so HEAD is *not* an ancestor of origin/<branch>
+        (which is, by precondition, strictly behind base) but *is* an
+        ancestor of origin/<base>.  The narrowed branch-only ancestry
+        check would have wrongly skipped this path; the disjunctive check
+        must let it proceed so the rebase actually runs.
+        """
+        spawner = _make_spawner()
+        with patch("routes.pipelines.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                _result(returncode=0),  # rev-parse origin/<branch>
+                _result(returncode=0),  # rev-parse origin/<base>
+                _result(stdout="70\n"),  # 70 commits behind base
+                _result(returncode=1),  # is-ancestor: HEAD NOT on origin/<branch>
+                _result(returncode=0),  # is-ancestor: HEAD IS on origin/<base>
+                _result(returncode=0),  # reset --hard origin/<branch>
+                _result(returncode=0),  # rebase succeeds
+            ]
+            _call(spawner)
+            assert mock_run.call_count == 7
+            spawner.gateway.push_worktree_branch.assert_called_once()
+            push_kwargs = spawner.gateway.push_worktree_branch.call_args.kwargs
+            assert push_kwargs["force"] is True
 
     def test_proceeds_when_head_is_ancestor_of_branch(self):
         """Canonical preserved-worktree resume case (#2098).

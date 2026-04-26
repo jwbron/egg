@@ -5280,14 +5280,25 @@ def _rebase_pipeline_branch_onto_base(
        run — there's nothing to rebase).
     2. Skip when ``origin/<pipeline_branch>`` is not behind
        ``origin/<base_branch>`` (already up to date).
-    3. Skip when ``HEAD`` is *not* an ancestor of
-       ``origin/<pipeline_branch>``.  In the canonical resume path the
-       orchestrator-side worktree was preserved from a prior run; its
-       ``HEAD`` carries state-file commits that were already pushed, so
-       ``HEAD`` is a strict ancestor of ``origin/<branch>`` and the
-       reset-then-rebase below is lossless.  If that ancestry doesn't
-       hold, something unexpected lives on ``HEAD`` and we defer rather
-       than overwrite it.
+    3. Skip when ``HEAD`` is an ancestor of *neither*
+       ``origin/<pipeline_branch>`` *nor* ``origin/<base_branch>``.  Two
+       real resume paths satisfy the ancestry check:
+
+       (a) **Preserved worktree** (canonical #2098 case): the
+           orchestrator-side worktree was kept across a cancel/resubmit,
+           so ``HEAD`` carries state-file commits that were already
+           pushed to ``origin/<branch>``.  ``HEAD`` is a strict ancestor
+           of ``origin/<branch>``.
+       (b) **Fresh worktree**: the worktree volume was wiped between
+           cancel and resubmit (e.g. orchestrator redeploy onto a fresh
+           PVC), so the gateway recreated it from ``origin/<base>``.
+           ``HEAD == origin/<base>`` is a (trivial) ancestor of
+           ``origin/<base>``; resetting to ``origin/<branch>`` discards
+           no unique commits because every base commit is preserved as
+           the rebase target.
+
+       If neither ancestry holds, ``HEAD`` carries truly unpublished
+       work and we defer rather than overwrite it.
     4. Reset the worktree to ``origin/<pipeline_branch>``, ``git rebase
        origin/<base_branch>``, and force-push the rebased tip.  Git's
        built-in cherry-pick-skip drops commits already content-equivalent
@@ -5398,28 +5409,34 @@ def _rebase_pipeline_branch_onto_base(
         return
 
     # Step 4: Confirm reset-to-origin/<branch> is lossless before we
-    # overwrite HEAD.  In the canonical preserved-worktree resume path
-    # (#2098), the orchestrator-side worktree's HEAD carries state-file
-    # commits that were already pushed to origin/<branch>, so HEAD is a
-    # strict ancestor of origin/<branch> and resetting drops nothing.
-    # If HEAD has anything *not* on origin/<branch>, defer to the
-    # existing push-reconcile path rather than blow it away — an
-    # ahead-of-base check would have wrongly skipped the canonical case
-    # where state-file commits sit between origin/<base> and HEAD.
-    is_ancestor = _run_git(
-        [
-            "merge-base",
-            "--is-ancestor",
-            "HEAD",
-            f"origin/{pipeline_branch}",
-        ],
-        timeout=10,
-    )
-    if is_ancestor is None or is_ancestor.returncode != 0:
+    # overwrite HEAD.  Two real worktree states satisfy this:
+    #
+    #   (a) Preserved-worktree resume (#2098 canonical): the orchestrator-
+    #       side worktree was kept across a cancel/resubmit, so HEAD
+    #       carries state-file commits that were already pushed to
+    #       origin/<branch>.  HEAD is a strict ancestor of
+    #       origin/<branch> — resetting drops nothing.
+    #   (b) Fresh-worktree resume: the worktree volume was wiped between
+    #       cancel and resubmit (e.g. orchestrator redeploy onto a fresh
+    #       PVC, manual cleanup), so the gateway recreated the worktree
+    #       from origin/<base>.  HEAD == origin/<base>; resetting to
+    #       origin/<branch> discards no unique commits because every
+    #       commit on origin/<base> is preserved as the rebase target.
+    #
+    # If HEAD is on neither ref, something unexpected lives on it and
+    # we defer to the existing push-reconcile path rather than blow it
+    # away.  An ahead-of-base check would have wrongly skipped (a); a
+    # branch-only ancestry check would have wrongly skipped (b).
+    def _head_on(ref: str) -> bool:
+        result = _run_git(["merge-base", "--is-ancestor", "HEAD", ref], timeout=10)
+        return result is not None and result.returncode == 0
+
+    if not (_head_on(f"origin/{pipeline_branch}") or _head_on(f"origin/{base_branch}")):
         logger.info(
-            "rebase-on-resume: HEAD has commits not on origin/<branch> — skipping",
+            "rebase-on-resume: HEAD on neither origin/<branch> nor origin/<base> — skipping",
             pipeline_id=pipeline_id,
             branch=pipeline_branch,
+            base_branch=base_branch,
             behind_base=behind_count,
         )
         return
