@@ -190,16 +190,24 @@ error: it tells you what to wait for instead.
 **Fix:** the post-confirm STAY ALIVE wait is only legitimate **after**
 your own confirm has succeeded (status `confirmed`, not `pending_acks`).
 For a `pending_acks` recovery loop, the orchestrator re-arms the
-"ready to confirm" STATUS nudge on every rejection path ([#2100](https://github.com/jwbron/egg/issues/2100)), so in all cases you can wait for `CONSENSUS_STATUS` — it fires automatically when the blocking condition clears:
+"ready to confirm" `STATUS` nudge on every producer rejection path ([#2100](https://github.com/jwbron/egg/issues/2100)), so in all cases the producer can wait for `STATUS` — it fires automatically when the blocking condition clears:
 
 - **Global zero-proposal** (another producer hasn't proposed): wait on
-  `CONSENSUS_STATUS` (and `OVERSEER_ALERT`). The nudge fires when the
+  `STATUS` (and `OVERSEER_ALERT`). The nudge fires when the
   laggard proposes and the guard clears; do **not** manually re-issue
   `confirmed` before it arrives.
-- **Your reviewers haven't ACKed yet**: wait on `CONSENSUS_ACK,CONSENSUS_NACK`
-  per the producer-lifecycle Step 4 idiom, then re-issue confirm when
-  the orchestrator's directed STATUS nudge ("ready to confirm")
-  arrives.
+- **Your reviewers haven't ACKed yet**: wait on `STATUS` (and
+  `OVERSEER_ALERT`). The same re-arm covers `producer_not_fully_acked`
+  rejections, so the directed "ready to confirm" nudge fires once the
+  last reviewer ACKs — no manual `CONSENSUS_ACK,CONSENSUS_NACK` poll
+  or pre-emptive retry is needed.
+
+> **Disambiguator:** `MessageType.STATUS` is also used for unrelated
+> orchestrator notifications (e.g. "Producer X excused from consensus"
+> at `orchestrator/routes/signals.py:1666`). The "ready to confirm"
+> nudge is identified by `metadata.ready_to_confirm == True` (or the
+> subject prefix `"Ready to confirm"`); ignore other `STATUS` wakeups
+> and re-enter the wait.
 
 ## 3. Exit-Code Contract for `egg-orch message wait`
 
