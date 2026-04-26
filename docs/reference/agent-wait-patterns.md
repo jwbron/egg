@@ -189,11 +189,13 @@ error: it tells you what to wait for instead.
 
 **Fix:** the post-confirm STAY ALIVE wait is only legitimate **after**
 your own confirm has succeeded (status `confirmed`, not `pending_acks`).
-For a `pending_acks` recovery loop:
+For a `pending_acks` recovery loop, the orchestrator re-arms the
+"ready to confirm" STATUS nudge on every rejection path ([#2100](https://github.com/jwbron/egg/issues/2100)), so in all cases you can wait for `CONSENSUS_STATUS` — it fires automatically when the blocking condition clears:
 
 - **Global zero-proposal** (another producer hasn't proposed): wait on
-  `CONSENSUS_PROPOSE` (and `OVERSEER_ALERT`), then re-issue
-  `egg-orch consensus confirmed`.
+  `CONSENSUS_STATUS` (and `OVERSEER_ALERT`). The nudge fires when the
+  laggard proposes and the guard clears; do **not** manually re-issue
+  `confirmed` before it arrives.
 - **Your reviewers haven't ACKed yet**: wait on `CONSENSUS_ACK,CONSENSUS_NACK`
   per the producer-lifecycle Step 4 idiom, then re-issue confirm when
   the orchestrator's directed STATUS nudge ("ready to confirm")
