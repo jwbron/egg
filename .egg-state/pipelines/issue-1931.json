@@ -394,10 +394,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-26T23:23:26.681246Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-26T23:40:04.931148Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Permanent denylist for v1 and future writes (attachments are arbitrary-file uploads / downloads with unbounded payload surface; if needed later, scope as a separate ticket) (Recommended)\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -504,7 +504,7 @@
     }
   ],
   "created_at": "2026-04-26T23:05:30.164689Z",
-  "updated_at": "2026-04-26T23:40:02.727320Z",
+  "updated_at": "2026-04-26T23:40:04.965846Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -518,6 +518,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 38,
+  "version": 39,
   "jira_ticket": null
 }
