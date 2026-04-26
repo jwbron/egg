@@ -65,13 +65,43 @@ class TestClassifyPersistEntry:
             classify_persist_entry(["/usr/local/bin"])  # type: ignore[arg-type]
 
     def test_traversal_attempt_repo_relative(self):
-        # No leading slash → still repo-relative classification.
-        # (The denylist in shared/egg_config/repos.py is the security
-        # gate; the schema-layer classifier is purely textual.)
+        # No leading slash → still repo-relative classification at
+        # the schema layer. The schema-layer classifier is purely
+        # textual; for absolute-path entries the loader's denylist
+        # in shared/egg_config/repos.py rejects '..' via os.path.normpath.
+        # Repo-relative '..' is left to the symlink-time check at copy
+        # in sandbox/egg_lib/docker.py — not the schema's job.
         assert classify_persist_entry("../../etc/passwd") == "repo"
 
     def test_dotslash_path_classified_as_repo(self):
         assert classify_persist_entry("./relative") == "repo"
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "   ",
+            "\t",
+            "\n",
+            " /etc/passwd",
+            "/etc/passwd ",
+            "  ",
+            "\t\n",
+            " /usr/local/bin",
+            "/usr/local/bin\t",
+        ],
+    )
+    def test_whitespace_only_or_surrounding_rejected(self, bad):
+        """Reviewer_code NACK regression: whitespace-bypass closure.
+
+        v1's classify_persist_entry returned 'repo' for ' /etc/passwd'
+        (one leading space), letting it skip the system-path denylist
+        entirely. The schema-layer fix rejects whitespace-only inputs
+        and any input where ``entry != entry.strip()``. This test
+        pins both behaviours so a future refactor can't silently
+        re-open the bypass.
+        """
+        with pytest.raises(ConfigError, match="non-empty|surrounding whitespace"):
+            classify_persist_entry(bad)
 
 
 # ---------------------------------------------------------------------------

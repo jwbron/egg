@@ -430,6 +430,86 @@ class TestRepoFilePersistDenylist:
             ["/usr/local/bin", ".venv", "/opt/cache"], repo_label="<test>"
         )
 
+    @pytest.mark.parametrize(
+        "traversal_path",
+        [
+            "/usr/local/../../etc/passwd",
+            "/usr/local/..",
+            "/opt/../var/log/secrets",
+            "/usr/local/bin/../../etc/shadow",
+            "/usr/local/./bin/../../../etc",
+            "/opt/.",
+        ],
+    )
+    def test_path_traversal_rejected(self, tmp_path, traversal_path):
+        """Reviewer_code NACK regression: ``..`` traversal under safe prefixes.
+
+        v1's `_enforce_repo_persist_denylist` accepted
+        ``/usr/local/../../etc/passwd`` because it did pure-prefix
+        matching with no path normalisation. v2 fixed it
+        (``os.path.normpath`` + 'differs-from-input' rejection). Pin
+        the diagnostic prose so a future "let's just collapse the
+        normalisation step" refactor breaks the test loudly.
+        """
+        checkout = _make_checkout_with_remote(tmp_path, "foo")
+        _write_repo_defaults(
+            checkout,
+            {"schemaVersion": "1.0", "persist": [traversal_path]},
+        )
+        user_path = _write_user_file(tmp_path, {"schemaVersion": "1.0"})
+        with pytest.raises(ConfigError, match="not in normalised form"):
+            load_merged_repo_config(checkout=checkout, user_path=user_path)
+
+    @pytest.mark.parametrize(
+        "traversal_path",
+        [
+            "/usr/local/../../etc/passwd",
+            "/usr/local/..",
+            "/opt/../var/log/secrets",
+        ],
+    )
+    def test_path_traversal_rejected_at_helper(self, traversal_path):
+        """Same regression at the helper level (no FS round-trip)."""
+        with pytest.raises(ConfigError, match="not in normalised form"):
+            _enforce_repo_persist_denylist([traversal_path], repo_label="<test>")
+
+    @pytest.mark.parametrize(
+        "nul_path",
+        [
+            "/usr/local/foo\x00/etc/passwd",
+            "/usr/local/bin\x00",
+            "\x00/usr/local/bin",
+        ],
+    )
+    def test_nul_byte_in_persist_rejected(self, nul_path):
+        """Reviewer_code NACK regression: NUL-byte injection bypass closure.
+
+        v3 added explicit NUL-byte rejection to
+        ``_enforce_repo_persist_denylist`` in response to
+        reviewer_security feedback. Pin the rejection so a future
+        "we don't need to check for NUL — Python strings are bytes
+        already" refactor breaks the test loudly.
+        """
+        with pytest.raises(ConfigError, match="NUL byte"):
+            _enforce_repo_persist_denylist([nul_path], repo_label="<test>")
+
+    def test_repo_file_leading_space_persist_rejected(self, tmp_path):
+        """Reviewer_code NACK regression: whitespace-bypass at the loader level.
+
+        Pairs with TestClassifyPersistEntry's whitespace-rejection
+        test in test_repos_schema.py — confirms the asymmetric trust
+        boundary closes the leading-space bypass at both the schema
+        AND the loader layer.
+        """
+        checkout = _make_checkout_with_remote(tmp_path, "foo")
+        _write_repo_defaults(
+            checkout,
+            {"schemaVersion": "1.0", "persist": [" /etc/passwd"]},
+        )
+        user_path = _write_user_file(tmp_path, {"schemaVersion": "1.0"})
+        with pytest.raises(ConfigError, match="non-empty|surrounding whitespace"):
+            load_merged_repo_config(checkout=checkout, user_path=user_path)
+
     def test_is_denylisted_abs_path_helper(self):
         # /usr/local/bin is allowed.
         assert _is_denylisted_abs_path("/usr/local/bin") is False

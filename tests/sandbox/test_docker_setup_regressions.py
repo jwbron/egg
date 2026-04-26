@@ -162,9 +162,14 @@ class TestIssue2065Reproducer:
 
         # Must surface the missing-persist diagnostic for /usr/local/bin.
         joined = " ".join(result.errors)
-        assert "/usr/local/bin" in joined
+        assert "/usr/local/bin" in joined, f"Expected /usr/local/bin in errors: {result.errors}"
         assert "persist" in joined.lower()
-        assert "#2065" in joined or "covers it" in joined
+        # Diagnostic must explicitly cite #2065 so a future refactor of
+        # the validator's prose can't silently weaken this test.
+        # Pinned per reviewer_code non-blocking comment on tester v1.
+        assert "#2065" in joined, (
+            f"Diagnostic must cite #2065 to keep the trail to the original incident; got: {joined!r}"
+        )
 
     def test_persist_build_dirs_raises_for_missing_system_path(self, tmp_path):
         """Defense-in-depth: docker-setup.py raises when the path is absent."""

