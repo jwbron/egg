@@ -727,7 +727,7 @@ class TestScaledReEvaluation:
         assert r2["needs_escalation"] is False
 
     def test_full_implement_graph(self):
-        """Use the default implement graph (7 roles) and run a full
+        """Use the default implement graph (8 roles) and run a full
         propose/review/re-propose cycle to verify no invalidation bugs."""
         graph = get_default_implement_graph()
         t = PeerConsensusTracker("test-full", graph, cooldown_seconds=0)
@@ -757,6 +757,11 @@ class TestScaledReEvaluation:
         # All reviewers ACK coder
         t.handle_ack("reviewer_code", "coder", {"artifact_references": ["src/main.py"]})
         t.handle_ack(
+            "reviewer_code_holistic",
+            "coder",
+            {"artifact_references": ["src/main.py", "src/utils.py"]},
+        )
+        t.handle_ack(
             "reviewer_contract", "coder", {"artifact_references": ["src/main.py", "src/utils.py"]}
         )
         # tester (dual-role) ACKs coder
@@ -765,6 +770,11 @@ class TestScaledReEvaluation:
         # reviewer_code ACKs tester and documenter
         t.handle_ack("reviewer_code", "tester", {"artifact_references": ["tests/test_main.py"]})
         t.handle_ack("reviewer_code", "documenter", {"artifact_references": ["docs/README.md"]})
+
+        # reviewer_code_holistic ACKs tester (CRITICAL edge — issue #2126)
+        t.handle_ack(
+            "reviewer_code_holistic", "tester", {"artifact_references": ["tests/test_main.py"]}
+        )
 
         # Lens reviewers (advisory) ACK coder and tester
         t.handle_ack(
@@ -819,6 +829,12 @@ class TestScaledReEvaluation:
         t.handle_ack(
             "reviewer_code", "coder", {"artifact_references": ["src/main.py", "src/utils.py"]}
         )
+        # reviewer_code_holistic ACKed utils.py — invalidated, needs to re-ACK
+        t.handle_ack(
+            "reviewer_code_holistic",
+            "coder",
+            {"artifact_references": ["src/main.py", "src/utils.py"]},
+        )
         # reviewer_contract re-reviews and ACKs (invalidated, needs to re-ACK)
         t.handle_ack(
             "reviewer_contract", "coder", {"artifact_references": ["src/main.py", "src/utils.py"]}
@@ -844,6 +860,7 @@ class TestScaledReEvaluation:
             "tester",
             "documenter",
             "reviewer_code",
+            "reviewer_code_holistic",
             "reviewer_contract",
             "reviewer_security",
             "reviewer_concurrency",
