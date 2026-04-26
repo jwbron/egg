@@ -363,10 +363,28 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-12",
+      "question": "getConfluenceSpaces response — should we filter to allowlisted spaces?",
+      "context": "Open contract question decision-11, registered by an agent during the refine phase.",
+      "options": [
+        "Filter response so only allowlisted spaces are returned (agents cannot enumerate the full tenant space set) (Recommended)",
+        "Pass through Atlassian's full space list and rely on per-page allowlist to deny later access",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-26T23:23:26.319404Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-26T23:05:30.164689Z",
-  "updated_at": "2026-04-26T23:23:26.261843Z",
+  "updated_at": "2026-04-26T23:23:26.482773Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -380,6 +398,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 22,
+  "version": 23,
   "jira_ticket": null
 }
