@@ -343,6 +343,14 @@ shared/
 │   ├── __init__.py         # Public API: HealthTracker
 │   └── tracker.py          # Thread-safe healthy/unhealthy transition recorder with snapshot()
 ├── egg_logging/            # Structured logging
+├── egg_overseer/           # Shared overseer library (advisor, issue filing, priority, scrubbing, state)
+│   ├── __init__.py         # Package docstring only — import from submodules (e.g. `from egg_overseer.advisor import consult_advisor`)
+│   ├── advisor.py          # Opus advisor wrapper — consult_advisor(), AdvisorVerdict (decision: alert|file_issue|watch)
+│   ├── infra_error.py      # Infrastructure error detection helpers
+│   ├── issue_template.py   # Canonical issue body template (TEMPLATE_LITERAL)
+│   ├── priority.py         # Priority label helpers (label_to_alert, alert_to_label)
+│   ├── scrubbing.py        # scrub_secrets() — defense-in-depth secret scrubbing for issue bodies
+│   └── state.py            # FiledIssueRecord + load_filed_issues()/append_filed_issue(), AgentTimingState + load_agent_timing()/save_agent_timing(), compute_anomaly_signature()
 └── egg_orchestrator/       # Orchestrator integration layer
     ├── __init__.py         # Public API exports
     ├── client.py           # OrchestratorClient for API communication
