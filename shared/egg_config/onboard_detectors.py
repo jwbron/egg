@@ -30,6 +30,7 @@ first.  Within a single language, ties are broken by class name.
 from __future__ import annotations
 
 import json
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
@@ -92,6 +93,7 @@ class Detector(Protocol):
 # ---------------------------------------------------------------------------
 
 _DETECTORS: list[Detector] = []
+_DETECTORS_LOCK = threading.Lock()
 
 
 def register_detector(detector: Detector | type[Detector]) -> Detector:
@@ -99,17 +101,30 @@ def register_detector(detector: Detector | type[Detector]) -> Detector:
 
     Accepts either an instance or a zero-arg class for decorator-style
     use. The registry is process-global; ``run_detectors()`` reads it.
+
+    Thread-safe: a ``threading.Lock`` guards the registry so deferred
+    plug-in registration (advertised in the module docstring) doesn't
+    race with ``run_detectors()`` iteration (reviewer_concurrency
+    advisory).
     """
     obj = detector() if isinstance(detector, type) else detector
     if not isinstance(obj, Detector):
         raise TypeError(f"register_detector expected a Detector, got {type(obj).__name__}")
-    _DETECTORS.append(obj)
+    with _DETECTORS_LOCK:
+        _DETECTORS.append(obj)
     return obj
 
 
 def _ordered_detectors() -> list[Detector]:
-    """Return registered detectors sorted by priority (desc), tie-break by class name."""
-    return sorted(_DETECTORS, key=lambda d: (-d.priority, type(d).__name__))
+    """Return registered detectors sorted by priority (desc), tie-break by class name.
+
+    Snapshots ``_DETECTORS`` under ``_DETECTORS_LOCK`` before sorting so
+    a concurrent :func:`register_detector` call doesn't trigger a
+    ``RuntimeError: list changed size during iteration``.
+    """
+    with _DETECTORS_LOCK:
+        snapshot = list(_DETECTORS)
+    return sorted(snapshot, key=lambda d: (-d.priority, type(d).__name__))
 
 
 # ---------------------------------------------------------------------------

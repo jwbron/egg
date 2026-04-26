@@ -162,17 +162,33 @@ class MergedRepoConfig:
     in either file) to the merged per-repo dict that consumers should
     use. The dict shape mirrors the user-facing per-repo block — i.e. it
     contains ``persist`` (a single list), not the legacy two-list shape.
+
+    Cache-aliasing note (reviewer_concurrency advisory): the returned
+    object is shared by every caller via :func:`functools.lru_cache`.
+    Consumers MUST treat ``user_file`` and ``repo_blocks`` as read-only.
+    :meth:`get_repo` returns a deep copy so its caller may mutate the
+    returned block freely; the per-process consumers in
+    :mod:`config.repo_config` and :mod:`sandbox.egg_lib.docker` only
+    *read* from ``repo_blocks`` (verified at #2073 ship-time — see the
+    grep audit in the PR description).
     """
 
     user_file: dict[str, Any] = field(default_factory=dict)
     repo_blocks: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     def get_repo(self, repo: str) -> dict[str, Any]:
-        """Look up the merged per-repo block, case-insensitive."""
+        """Look up the merged per-repo block, case-insensitive.
+
+        Returns a deep copy so callers may mutate the returned dict
+        without leaking changes back into the cached
+        :class:`MergedRepoConfig` instance.
+        """
+        import copy
+
         repo_lower = repo.lower()
         for key, value in self.repo_blocks.items():
             if key.lower() == repo_lower:
-                return value
+                return copy.deepcopy(value)
         return {}
 
 
