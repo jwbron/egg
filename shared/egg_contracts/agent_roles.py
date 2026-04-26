@@ -52,8 +52,9 @@ class AgentRole(StrEnum):
 
     Execution roles: CODER, TESTER, DOCUMENTER
     Analysis roles: ARCHITECT, TASK_PLANNER, RISK_ANALYST, REFINER
-    Review roles: REVIEWER_CODE, REVIEWER_CONTRACT,
-                  REVIEWER_AGENT_DESIGN, REVIEWER_REFINE, REVIEWER_PLAN,
+    Review roles: REVIEWER_CODE, REVIEWER_CODE_HOLISTIC,
+                  REVIEWER_CONTRACT, REVIEWER_AGENT_DESIGN,
+                  REVIEWER_REFINE, REVIEWER_PLAN,
                   REVIEWER_SECURITY, REVIEWER_CONCURRENCY
     Utility roles: AUTOFIXER, CONFLICT_RESOLVER
     Interface roles: OVERSEER
@@ -70,6 +71,7 @@ class AgentRole(StrEnum):
     REFINER = "refiner"
     # Review roles
     REVIEWER_CODE = "reviewer_code"
+    REVIEWER_CODE_HOLISTIC = "reviewer_code_holistic"
     REVIEWER_CONTRACT = "reviewer_contract"
     REVIEWER_AGENT_DESIGN = "reviewer_agent_design"
     REVIEWER_REFINE = "reviewer_refine"
@@ -516,6 +518,35 @@ REVIEWER_CODE_ROLE = AgentRoleDefinition(
     requires_inputs=[],
 )
 
+# Holistic generalist counterpart to ``reviewer_code`` (issue #2126).
+# Always single-passes the full diff regardless of size — fan-out is
+# reserved for ``reviewer_code``. Its job is the architectural-coherence
+# question no fan-out slice owns: does the primary advertised use case
+# work end-to-end, do docs and code agree, do synthetic keys round-trip
+# across modules, are silent fallbacks hiding operator-visible failures.
+REVIEWER_CODE_HOLISTIC_ROLE = AgentRoleDefinition(
+    role=AgentRole.REVIEWER_CODE_HOLISTIC,
+    description="Single-pass holistic code review focused on cross-module coherence",
+    category=AgentCategory.REVIEW,
+    responsibilities=[
+        "Walk the primary advertised use case end-to-end across the full diff",
+        "Cross-check doc-claimed behaviour against what the code actually does",
+        "Audit synthetic keys, sentinels, and 'magic' values for cross-module agreement",
+        "Surface silent fallbacks that swallow operator-visible misconfiguration",
+    ],
+    dependencies=[AgentRole.TASK_PLANNER, AgentRole.RISK_ANALYST],
+    file_access=FileAccessPattern(
+        allowed_read=[],
+        allowed_write=[
+            ".egg-state/reviews/",
+            ".egg-state/agent-outputs/",
+        ],
+        blocked_write=_REVIEWER_BLOCKED_WRITE,
+    ),
+    produces_outputs=["review_verdict"],
+    requires_inputs=[],
+)
+
 # Contract reviewer needs write access to .egg-state/contracts/ to mark
 # items as done, so it uses a custom blocked_write list that excludes it.
 _REVIEWER_CONTRACT_BLOCKED_WRITE = [
@@ -873,6 +904,7 @@ AGENT_ROLES: dict[AgentRole, AgentRoleDefinition] = {
     AgentRole.REFINER: REFINER_ROLE,
     # Review roles
     AgentRole.REVIEWER_CODE: REVIEWER_CODE_ROLE,
+    AgentRole.REVIEWER_CODE_HOLISTIC: REVIEWER_CODE_HOLISTIC_ROLE,
     AgentRole.REVIEWER_CONTRACT: REVIEWER_CONTRACT_ROLE,
     AgentRole.REVIEWER_AGENT_DESIGN: REVIEWER_AGENT_DESIGN_ROLE,
     AgentRole.REVIEWER_REFINE: REVIEWER_REFINE_ROLE,
@@ -911,6 +943,7 @@ AGENT_ROLE_TO_CONTRACT_ROLE: dict[AgentRole, Role] = {
     AgentRole.REFINER: Role.IMPLEMENTER,
     # Review: verdicts and phase-status/current_phase mutations
     AgentRole.REVIEWER_CODE: Role.REVIEWER,
+    AgentRole.REVIEWER_CODE_HOLISTIC: Role.REVIEWER,
     AgentRole.REVIEWER_CONTRACT: Role.REVIEWER,
     AgentRole.REVIEWER_AGENT_DESIGN: Role.REVIEWER,
     AgentRole.REVIEWER_REFINE: Role.REVIEWER,
@@ -1081,6 +1114,7 @@ _PHASE_ROLES: dict[str, list[AgentRole]] = {
 _PHASE_REVIEWERS: dict[str, list[AgentRole]] = {
     "implement": [
         AgentRole.REVIEWER_CODE,
+        AgentRole.REVIEWER_CODE_HOLISTIC,
         AgentRole.REVIEWER_CONTRACT,
         AgentRole.REVIEWER_SECURITY,
         AgentRole.REVIEWER_CONCURRENCY,

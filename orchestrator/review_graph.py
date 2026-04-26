@@ -217,6 +217,9 @@ def get_default_implement_graph() -> ReviewGraph:
 
     Review adjacency per the BRC spec:
     - reviewer_code reviews coder and tester (critical)
+    - reviewer_code_holistic reviews coder and tester (critical) — issue
+      #2126: distinct CRITICAL role so a holistic NACK on architectural
+      coherence is not averaged with the fan-out reviewer's slice ACKs.
     - reviewer_contract reviews coder (critical)
     - tester reviews coder (critical, implicitly via tests and lint/type-checks)
     - reviewer_security reviews coder and tester (advisory) — lens reviewer
@@ -228,8 +231,9 @@ def get_default_implement_graph() -> ReviewGraph:
     issue #1997. Promotion to CRITICAL is intentionally deferred.
 
     Producers: coder, tester, documenter
-    Reviewers: reviewer_code, reviewer_contract, tester (dual-role),
-    reviewer_security (advisory), reviewer_concurrency (advisory)
+    Reviewers: reviewer_code, reviewer_code_holistic, reviewer_contract,
+    tester (dual-role), reviewer_security (advisory),
+    reviewer_concurrency (advisory)
     """
     return ReviewGraph(
         [
@@ -237,6 +241,10 @@ def get_default_implement_graph() -> ReviewGraph:
             ReviewEdge("reviewer_code", "coder", ReviewCriticality.CRITICAL),
             # reviewer_code reviews tester (critical)
             ReviewEdge("reviewer_code", "tester", ReviewCriticality.CRITICAL),
+            # reviewer_code_holistic reviews coder (critical — issue #2126)
+            ReviewEdge("reviewer_code_holistic", "coder", ReviewCriticality.CRITICAL),
+            # reviewer_code_holistic reviews tester (critical — issue #2126)
+            ReviewEdge("reviewer_code_holistic", "tester", ReviewCriticality.CRITICAL),
             # reviewer_contract reviews coder (critical)
             ReviewEdge("reviewer_contract", "coder", ReviewCriticality.CRITICAL),
             # tester reviews coder (critical — via writing/running tests and lint/type-checks)

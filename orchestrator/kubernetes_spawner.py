@@ -187,6 +187,7 @@ def _classify_spawn_error(e: BaseException | None) -> str | None:
 _ROLES_WITHOUT_WORKTREE: frozenset[AgentRole] = frozenset(
     {
         AgentRole.REVIEWER_CODE,
+        AgentRole.REVIEWER_CODE_HOLISTIC,
         AgentRole.REVIEWER_CONTRACT,
         AgentRole.REVIEWER_AGENT_DESIGN,
         AgentRole.REVIEWER_REFINE,

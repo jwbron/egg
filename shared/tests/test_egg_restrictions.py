@@ -21,6 +21,7 @@ from egg_restrictions.patterns import (
     OVERSEER_PATTERNS,
     REFINER_PATTERNS,
     REVIEWER_AGENT_DESIGN_PATTERNS,
+    REVIEWER_CODE_HOLISTIC_PATTERNS,
     REVIEWER_CODE_PATTERNS,
     REVIEWER_CONCURRENCY_PATTERNS,
     REVIEWER_CONTRACT_PATTERNS,
@@ -38,7 +39,7 @@ from egg_restrictions.patterns import (
 
 
 class TestAgentRole:
-    def test_all_18_roles_defined(self):
+    def test_all_19_roles_defined(self):
         roles = [
             AgentRole.CODER,
             AgentRole.TESTER,
@@ -48,6 +49,7 @@ class TestAgentRole:
             AgentRole.RISK_ANALYST,
             AgentRole.REFINER,
             AgentRole.REVIEWER_CODE,
+            AgentRole.REVIEWER_CODE_HOLISTIC,
             AgentRole.REVIEWER_CONTRACT,
             AgentRole.REVIEWER_AGENT_DESIGN,
             AgentRole.REVIEWER_REFINE,
@@ -59,9 +61,9 @@ class TestAgentRole:
             AgentRole.OVERSEER,
             AgentRole.INSPECTOR,
         ]
-        assert len(roles) == 18
+        assert len(roles) == 19
         # All unique
-        assert len(set(roles)) == 18
+        assert len(set(roles)) == 19
 
     def test_role_values_are_lowercase(self):
         for attr in dir(AgentRole):
@@ -75,8 +77,8 @@ class TestAgentRole:
 
 
 class TestAgentPatterns:
-    def test_registry_has_all_18_roles(self):
-        assert len(AGENT_PATTERNS) == 18
+    def test_registry_has_all_19_roles(self):
+        assert len(AGENT_PATTERNS) == 19
 
     def test_registry_keys_match_role_constants(self):
         expected_roles = {
@@ -88,6 +90,7 @@ class TestAgentPatterns:
             AgentRole.RISK_ANALYST,
             AgentRole.REFINER,
             AgentRole.REVIEWER_CODE,
+            AgentRole.REVIEWER_CODE_HOLISTIC,
             AgentRole.REVIEWER_CONTRACT,
             AgentRole.REVIEWER_AGENT_DESIGN,
             AgentRole.REVIEWER_REFINE,
@@ -110,6 +113,7 @@ class TestAgentPatterns:
         assert AGENT_PATTERNS[AgentRole.RISK_ANALYST] is RISK_ANALYST_PATTERNS
         assert AGENT_PATTERNS[AgentRole.REFINER] is REFINER_PATTERNS
         assert AGENT_PATTERNS[AgentRole.REVIEWER_CODE] is REVIEWER_CODE_PATTERNS
+        assert AGENT_PATTERNS[AgentRole.REVIEWER_CODE_HOLISTIC] is REVIEWER_CODE_HOLISTIC_PATTERNS
         assert AGENT_PATTERNS[AgentRole.REVIEWER_CONTRACT] is REVIEWER_CONTRACT_PATTERNS
         assert AGENT_PATTERNS[AgentRole.REVIEWER_AGENT_DESIGN] is REVIEWER_AGENT_DESIGN_PATTERNS
         assert AGENT_PATTERNS[AgentRole.REVIEWER_REFINE] is REVIEWER_REFINE_PATTERNS

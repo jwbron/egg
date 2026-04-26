@@ -55,7 +55,7 @@ class TestFanOutBlockPresence:
 
     @pytest.mark.parametrize(
         "reviewer_type",
-        ["contract", "agent-design", "refine", "plan"],
+        ["contract", "agent-design", "refine", "plan", "code-holistic"],
     )
     def test_absent_for_non_code_reviewer_types(self, reviewer_type: str) -> None:
         # Each non-code type uses an appropriate phase for that reviewer.
@@ -64,6 +64,10 @@ class TestFanOutBlockPresence:
             "agent-design": "refine",
             "refine": "refine",
             "plan": "plan",
+            # code-holistic runs in implement alongside reviewer_code but
+            # MUST NOT receive the fan-out block — it always single-passes
+            # the full diff (issue #2126).
+            "code-holistic": "implement",
         }[reviewer_type]
         prompt = _build_review_prompt(
             phase=phase_for_type,

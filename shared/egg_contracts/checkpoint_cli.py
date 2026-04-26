@@ -74,6 +74,7 @@ _REPO_PATTERN = re.compile(r"^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$")
 COMPOSITE_REVIEWER_ROLES: frozenset[str] = frozenset(
     {
         "reviewer_code",
+        "reviewer_code_holistic",
         "reviewer_contract",
         "reviewer_agent_design",
         "reviewer_refine",

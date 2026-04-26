@@ -162,6 +162,31 @@ class TestNoAttestationModelsForNewLensReviewers:
             "for rationale."
         )
 
+    def test_reviewer_code_holistic_has_no_attestation_model(self) -> None:
+        """Issue #2126: ``reviewer_code_holistic`` intentionally has no model.
+
+        The holistic reviewer follows the same attestation-less pattern as
+        the lens reviewers (``reviewer_security`` / ``reviewer_concurrency``)
+        and the other generalists (``reviewer_plan``, ``reviewer_refine``,
+        ``reviewer_agent_design``). The default empty-attestation path
+        works because ``validate_attestation`` only fires when
+        ``review.attestation`` is truthy. This explicit guard prevents a
+        future contributor from adding a partial ``ReviewerCodeAttestation``
+        copy without designing a holistic-specific schema first (e.g.
+        passes_run, findings_per_pass).
+        """
+        from attestation_schemas import REVIEWER_ATTESTATION_MODELS
+
+        assert "reviewer_code_holistic" not in REVIEWER_ATTESTATION_MODELS, (
+            "Pitfall-4: reviewer_code_holistic must NOT have an attestation "
+            "model. The holistic ACK shape intentionally diverges from "
+            "reviewer_code's slice attestation (files_reviewed / "
+            "issues_found) — silently registering ReviewerCodeAttestation "
+            "for the holistic role would force the wrong schema. If a "
+            "schema is needed, design a ReviewerCodeHolisticAttestation "
+            "around the four holistic passes and update this guard."
+        )
+
     def test_existing_attestation_models_unchanged(self) -> None:
         """Sanity check that the existing models stay registered.
 

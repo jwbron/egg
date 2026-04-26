@@ -421,6 +421,13 @@ REVIEWER_CODE_PATTERNS = AgentFilePattern(
     blocked_patterns=_REVIEWER_BLOCKED,
 )
 
+REVIEWER_CODE_HOLISTIC_PATTERNS = AgentFilePattern(
+    role=AgentRole.REVIEWER_CODE_HOLISTIC,
+    description="Holistic code reviewer agent: reviews and agent-outputs only",
+    allowed_patterns=_REVIEWER_ALLOWED,
+    blocked_patterns=_REVIEWER_BLOCKED,
+)
+
 # Contract reviewer needs write access to .egg-state/contracts/ to mark
 # items as done, so it uses custom lists that include/exclude contracts.
 _REVIEWER_CONTRACT_ALLOWED = [
@@ -695,6 +702,7 @@ AGENT_PATTERNS: dict[str, AgentFilePattern] = {
     AgentRole.TASK_PLANNER: TASK_PLANNER_PATTERNS,
     AgentRole.RISK_ANALYST: RISK_ANALYST_PATTERNS,
     AgentRole.REVIEWER_CODE: REVIEWER_CODE_PATTERNS,
+    AgentRole.REVIEWER_CODE_HOLISTIC: REVIEWER_CODE_HOLISTIC_PATTERNS,
     AgentRole.REVIEWER_CONTRACT: REVIEWER_CONTRACT_PATTERNS,
     AgentRole.REVIEWER_AGENT_DESIGN: REVIEWER_AGENT_DESIGN_PATTERNS,
     AgentRole.REFINER: REFINER_PATTERNS,
