@@ -746,6 +746,7 @@ class GatewayClient:
         mode: Literal["public", "private"] = "public",
         ref: str | None = None,
         base_branch: str | None = None,
+        force: bool = False,
     ) -> PushResult:
         """Push a branch to remote with launcher-auth (orchestrator-trusted).
 
@@ -780,6 +781,11 @@ class GatewayClient:
                 origin/{base_branch}`` so commits already on the base
                 branch are not replayed onto the pipeline branch (#1976).
                 Ignored when ``ref`` is set (reconcile is skipped there).
+            force: When ``True``, send ``--force`` so the push overwrites
+                a non-ancestor remote tip.  Used by the rebase-on-resume
+                helper to replace a stale ``origin/<branch>`` with a
+                rebased-onto-base version (#2098).  Skips reconcile on
+                failure since force-push has nothing to reconcile against.
 
         Returns:
             ``PushResult`` whose ``ok`` flag is ``True`` on success and
@@ -797,19 +803,22 @@ class GatewayClient:
             branch=branch,
             mode=mode,
             refspec=refspec,
+            force=force,
         )
         if first.ok:
             return first
 
         # Reconcile is only meaningful for worktree-HEAD pushes: the rebase
         # mutates the checkout at repo_path, which we only want to do when
-        # that checkout is a dedicated pipeline worktree.
-        if ref is not None:
+        # that checkout is a dedicated pipeline worktree.  Force pushes
+        # also skip reconcile — the caller has already decided to overwrite.
+        if ref is not None or force:
             logger.warning(
-                "Push failed for ref-based push (no reconcile available)",
+                "Push failed (no reconcile available)",
                 pipeline_id=pipeline_id,
                 branch=branch,
                 ref=ref,
+                force=force,
                 category=first.category,
                 detail=first.detail,
             )
@@ -832,6 +841,7 @@ class GatewayClient:
         branch: str,
         mode: Literal["public", "private"],
         refspec: str,
+        force: bool = False,
     ) -> PushResult:
         """Send a single push request to the gateway with launcher auth.
 
@@ -860,6 +870,7 @@ class GatewayClient:
                     "remote": "origin",
                     "refspec": refspec,
                     "mode": mode,
+                    "force": force,
                 },
                 use_launcher_auth=True,
             )
