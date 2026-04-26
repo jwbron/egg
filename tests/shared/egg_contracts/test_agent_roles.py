@@ -80,6 +80,7 @@ class TestAgentRole:
         "risk_analyst",
         "refiner",
         "reviewer_code",
+        "reviewer_code_holistic",
         "reviewer_contract",
         "reviewer_agent_design",
         "reviewer_refine",
@@ -114,6 +115,7 @@ class TestAgentRole:
 
     def test_review_roles(self):
         assert AgentRole.REVIEWER_CODE == "reviewer_code"
+        assert AgentRole.REVIEWER_CODE_HOLISTIC == "reviewer_code_holistic"
         assert AgentRole.REVIEWER_CONTRACT == "reviewer_contract"
         assert AgentRole.REVIEWER_AGENT_DESIGN == "reviewer_agent_design"
         assert AgentRole.REVIEWER_REFINE == "reviewer_refine"
@@ -305,6 +307,7 @@ class TestAgentRolesRegistry:
         """Review roles should have REVIEW category."""
         for role_name in [
             "reviewer_code",
+            "reviewer_code_holistic",
             "reviewer_contract",
             "reviewer_agent_design",
             "reviewer_refine",
@@ -390,13 +393,14 @@ class TestGetRolesByCategory:
         roles = get_roles_by_category(AgentCategory.REVIEW)
         role_values = {r.value if hasattr(r, "value") else r for r in roles}
         assert "reviewer_code" in role_values
+        assert "reviewer_code_holistic" in role_values
         assert "reviewer_contract" in role_values
         assert "reviewer_agent_design" in role_values
         assert "reviewer_refine" in role_values
         assert "reviewer_plan" in role_values
         assert "reviewer_security" in role_values
         assert "reviewer_concurrency" in role_values
-        assert len(roles) == 7
+        assert len(roles) == 8
 
     def test_utility_roles(self):
         from egg_contracts.agent_roles import get_roles_by_category

@@ -3499,6 +3499,38 @@ def _get_security_review_criteria(repo_path: str | None = None) -> str:
     )
 
 
+def _get_code_review_holistic_criteria(repo_path: str | None = None) -> str:
+    """Return holistic-lens review criteria (issue #2126).
+
+    The shared file inherits from ``code-review-criteria.md`` and adds
+    holistic-lens rules (end-to-end use-case walk, doc↔code symmetry,
+    synthetic-key / sentinel cross-module audit, silent-fallback hunt).
+    """
+    content = _read_shared_criteria(
+        "code-review-holistic-criteria.md",
+        user_override="code-review-holistic-rules.md",
+        repo_path=repo_path,
+    )
+    if content is not None:
+        return content
+    logger.warning("Shared code-review-holistic-criteria.md not found, using inline fallback")
+    return (
+        "Inherits from `code-review-criteria.md`; only holistic-lens rules "
+        "below override or extend it.\n\n"
+        "### Holistic lens (focus areas)\n"
+        "- Walk the primary advertised use case end-to-end across the "
+        "full diff. NACK silent dead-ends like the `__checkout__` bug "
+        "on PR #2105.\n"
+        "- Cross-check doc-claimed behaviour against what the code does. "
+        "NACK doc-claimed inference / migration paths that do not exist.\n"
+        "- Audit synthetic keys, sentinels, and magic values for "
+        "cross-module agreement.\n"
+        "- Hunt silent fallbacks that swallow operator-visible "
+        "misconfiguration.\n"
+        "- Defer line-by-line correctness to `reviewer_code`'s fan-out.\n"
+    )
+
+
 def _get_concurrency_review_criteria(repo_path: str | None = None) -> str:
     """Return concurrency-lens review criteria (issue #1965).
 
@@ -3536,6 +3568,8 @@ def _get_review_criteria_for_type(
         return _get_agent_design_criteria()
     elif reviewer_type == "code":
         return _get_code_review_criteria(repo_path=repo_path)
+    elif reviewer_type == "code-holistic":
+        return _get_code_review_holistic_criteria(repo_path=repo_path)
     elif reviewer_type == "contract":
         return _get_contract_review_criteria(repo_path=repo_path)
     elif reviewer_type == "refine":
@@ -3572,6 +3606,34 @@ def _get_reviewer_scope_preamble(reviewer_type: str, phase: str) -> str:
             "**Analysis format:** Provide file-by-file analysis covering each changed "
             "file. For each file, note what changed, whether the change is correct, "
             "and any issues or observations."
+        )
+    elif reviewer_type == "code-holistic":
+        return (
+            "This is a CRITICAL **holistic code review** (issue #2126). "
+            "You run alongside `reviewer_code`'s slice-by-slice fan-out — "
+            "your job is the cross-module coherence question no slice "
+            "owns. **Don't verify every line; the fan-out reviewer covers "
+            "that.**\n\n"
+            "**Lens scope:** read the diff once with the whole PR in mind, "
+            "then run all four passes from the criteria below: (1) walk "
+            "the primary advertised use case end-to-end (the `__checkout__` "
+            "dead-end on PR #2105 is the canonical miss); (2) check that "
+            "every doc-claimed behaviour is actually implemented and every "
+            "user-facing code path is documented; (3) confirm synthetic "
+            "keys / sentinels / magic values are recognised by every "
+            "consumer in another module; (4) hunt silent fallbacks "
+            "(`except Exception:`, swallowed `None`s, default no-op "
+            "branches) where the operator would expect a signal.\n\n"
+            "**Distinct CRITICAL role.** Your NACK gates consensus on its "
+            "own — it is not averaged against the fan-out reviewer's "
+            "slice ACKs. If the architectural-coherence question fails, "
+            "NACK even when every slice is internally consistent.\n\n"
+            "**Analysis format:** Name the pass that found the issue, the "
+            "producer / consumer modules the asymmetry spans, and the "
+            "user-visible failure shape. If all four passes come back "
+            "clean a concise ACK is acceptable, but the BRC bus enforces "
+            "a minimum content length on ACK / NACK bodies, so write at "
+            "least a sentence or two summarising what you checked."
         )
     elif reviewer_type == "contract":
         return (
@@ -4625,8 +4687,12 @@ def _build_review_prompt(
             f"1. Review the implementation using `git log --oneline -10` and `{diff_command}`"
         )
 
-    # Add procedural steps for code reviewer (matching GHA reviewer thoroughness)
-    if reviewer_type == "code" and not draft_path:
+    # Add procedural steps for code reviewers (matching GHA reviewer thoroughness).
+    # Both ``code`` and ``code-holistic`` get the same numbered procedural steps
+    # — the difference between them is the criteria block (line-by-line slice
+    # vs cross-module coherence) and the fan-out section (gated to ``code``
+    # only further below). See issue #2126.
+    if reviewer_type in ("code", "code-holistic") and not draft_path:
         lines.append("2. Get the full diff and **review every changed file systematically**")
         lines.append(
             "3. Read surrounding context — check how changed code integrates with the rest of the codebase"
@@ -4669,7 +4735,11 @@ def _build_review_prompt(
         # `git log A..HEAD --not origin/<base> -p` command is small by
         # construction and the parent's cross-partition pass would
         # contradict the delta-only directive above.
-        if phase == "implement" and not is_delta_review:
+        # Issue #2126: ``code-holistic`` also enters the procedural-steps
+        # branch above but MUST NOT receive the fan-out block — it always
+        # single-passes the full diff. The explicit ``reviewer_type ==
+        # "code"`` guard here keeps that invariant from drifting.
+        if reviewer_type == "code" and phase == "implement" and not is_delta_review:
             _parallel_word = "in parallel" if reviewer_code_parallel else "sequentially"
             lines.append("")
             lines.append("## Subagent Fan-Out Strategy\n")
@@ -4834,7 +4904,7 @@ def _build_review_prompt(
 
     # Review conventions — quality standards aligned with PR reviewer thoroughness
     lines.append("## Review Conventions\n")
-    if reviewer_type == "code":
+    if reviewer_type in ("code", "code-holistic"):
         lines.append(
             "You are a critical part of the engineering infrastructure — the last line "
             "of defense before code reaches production. Your review must meet these "
@@ -4867,7 +4937,7 @@ def _build_review_prompt(
     # Verdict classification — only for code reviewers (aligned with review-conventions.md)
     # Non-code reviewers get appropriate guidance from their type-specific criteria
     # (e.g., _get_plan_review_criteria() already says "flag as needs_revision")
-    if reviewer_type == "code":
+    if reviewer_type in ("code", "code-holistic"):
         _nack_label = "NACK" if concurrent else "`needs_revision`"
         _ack_label = "ACK" if concurrent else "`approved`"
         lines.append(f"### When to {_nack_label} vs {_ack_label}\n")
@@ -7908,6 +7978,7 @@ def _build_brc_preamble(
         )
         is_reviewer = role_value in (
             "reviewer_code",
+            "reviewer_code_holistic",
             "reviewer_contract",
             "tester",
             "reviewer_refine",
@@ -8190,6 +8261,12 @@ _ROLE_DESCRIPTIONS: dict[str, tuple[str, str]] = {
         "Reviews code quality, correctness, and security",
         "ACK/NACK with file-level feedback",
     ),
+    "reviewer_code_holistic": (
+        "Holistic single-pass review for cross-module coherence "
+        "(use-case end-to-end, doc↔code symmetry, synthetic-key audit, "
+        "silent-fallback hunt)",
+        "ACK/NACK with cross-module findings",
+    ),
     "reviewer_contract": (
         "Verifies implementation matches contract/requirements",
         "ACK/NACK with task-level verification",
@@ -8292,6 +8369,26 @@ def _build_reviewer_preparation(
                 "`tests_execution_blocked`: `tests_execution_blocked: true` is a "
                 "blocking concern unless clearly documented."
             )
+        if role_value == "reviewer_code_holistic":
+            return (
+                f"You are the holistic reviewer on an existing PR ({pr_hint}). "
+                f"(0) Check out the PR head: `{pr_checkout}` (required — "
+                "without this your worktree is on the base branch and the "
+                "diff below will be empty). "
+                "(1) **Skim the full diff once** at "
+                f"`git fetch origin && git diff {base_ref}...HEAD` to build "
+                "a mental map. Do not verify line-by-line — that is "
+                "`reviewer_code`'s slice work. "
+                "(a) Note the PR's stated intent (issue / description) — "
+                "this is the use case you will walk end-to-end. "
+                "(b) Identify the producer / consumer module pairs the diff "
+                "touches; you will audit them for synthetic-key and "
+                "silent-fallback asymmetries. "
+                "(c) Pull every doc claim into a checklist; you will grep "
+                "for code that implements each. "
+                "(d) Draft your ACK/NACK around the four passes (use case, "
+                "doc symmetry, synthetic keys, silent fallbacks)."
+            )
         if role_value == "tester":
             return (
                 f"You are reviewing an existing pull request ({pr_hint}). "
@@ -8330,6 +8427,25 @@ def _build_reviewer_preparation(
                 "documented and the tests are syntactically valid. "
                 "Also scrutinize low `tests_run` counts relative to change scope — "
                 "a multi-file change with only 1 test run warrants investigation."
+            )
+        elif role_value == "reviewer_code_holistic":
+            return (
+                "Start preparing immediately — do not wait idle for proposals. "
+                "(a) Read the contract with `egg-contract show` to extract "
+                "the primary advertised use case (this is the path you will "
+                "walk end-to-end once the producer proposes). "
+                "(b) Review the issue / PR description and any doc files "
+                "the contract names — collect the doc-claimed behaviours "
+                "into a checklist for the symmetry pass. "
+                "(c) Identify the producer / consumer module pairs the plan "
+                "touches; these are where synthetic-key and silent-fallback "
+                "asymmetries hide. "
+                "(d) Once commits land "
+                f"(`git fetch origin && git log --oneline {base_ref}..origin/{branch or '$(git branch --show-current)'}`), "
+                f"skim `git diff {base_ref}...HEAD` once with the whole PR "
+                "in mind — do not verify line-by-line; defer that to the "
+                "fan-out reviewer. Your job is the architectural-coherence "
+                "question no slice owns."
             )
         elif role_value == "reviewer_contract":
             return (
