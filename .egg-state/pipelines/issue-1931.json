@@ -271,10 +271,28 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-7",
+      "question": "Credential sharing between Jira and Confluence?",
+      "context": "Open contract question decision-6, registered by an agent during the refine phase.",
+      "options": [
+        "Shared ATLASSIAN_BASE_URL / _USERNAME / _API_TOKEN triple, with backward-compat fall-back to JIRA_* and CONFLUENCE_* placeholders (Recommended)",
+        "Independent JIRA_* and CONFLUENCE_* triples (status quo of secrets.template.env)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-26T23:23:25.943227Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-26T23:05:30.164689Z",
-  "updated_at": "2026-04-26T23:23:25.890156Z",
+  "updated_at": "2026-04-26T23:23:25.970295Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -288,6 +306,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 17,
+  "version": 18,
   "jira_ticket": null
 }
