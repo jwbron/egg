@@ -112,6 +112,26 @@ class TestRoleRegistration:
 
         assert get_contract_role("reviewer_code_holistic") == Role.REVIEWER
 
+    def test_in_roles_without_worktree(self) -> None:
+        """Holistic reviewer must spawn without a per-agent worktree.
+
+        Mirrors ``test_lens_reviewers_in_roles_without_worktree`` for the
+        new role: ``reviewer_code_holistic`` operates purely on the diff
+        via the BRC consensus bus and never writes code, so spawning it
+        with ``repos=[]`` must succeed and a spawn with a repo must not
+        provision a per-agent worktree. Without this membership a
+        ``KubernetesSpawnError("Cannot spawn reviewer_code_holistic …
+        no repos provided")`` would fire at spawn time.
+        """
+        from egg_contracts.agent_roles import AgentRole
+        from kubernetes_spawner import _ROLES_WITHOUT_WORKTREE
+
+        assert AgentRole.REVIEWER_CODE_HOLISTIC in _ROLES_WITHOUT_WORKTREE, (
+            "AgentRole.REVIEWER_CODE_HOLISTIC must be in "
+            "_ROLES_WITHOUT_WORKTREE — it reviews diffs via the BRC bus "
+            "and does not need a per-agent git worktree."
+        )
+
 
 # ---------------------------------------------------------------------------
 # Prompt assembly: criteria differentiation + always-on (no PR-size gate).
@@ -163,4 +183,32 @@ class TestHolisticPrompt:
         assert "fan-out" in prompt_lower or "slice" in prompt_lower, (
             "Holistic preamble must frame its job as complementary to "
             "reviewer_code's fan-out / slice work."
+        )
+
+    def test_procedural_step_does_not_demand_every_file_review(self) -> None:
+        """Step 2 must not contradict the criteria's "don't verify every line".
+
+        The unified procedural-steps block originally told every code
+        reviewer to "review every changed file systematically" — that
+        wording directly contradicted the holistic criteria file and the
+        scope preamble for ``reviewer_code_holistic``. The fix
+        differentiates step 2 by lens; this test pins that the holistic
+        prompt does not regress to the slice-style wording.
+        """
+        assert "review every changed file systematically" not in self.prompt, (
+            "Holistic procedural step 2 must not include the slice-style "
+            '"review every changed file systematically" wording — it '
+            "directly contradicts the holistic criteria's "
+            "'don't verify every line; the fan-out reviewer covers that' "
+            "(issue #2126)."
+        )
+
+    def test_procedural_step_references_holistic_passes(self) -> None:
+        """Step 8 should orient the agent to the four holistic passes."""
+        assert "four mandatory passes" in self.prompt or (
+            "end-to-end primary use case" in self.prompt and "synthetic-key" in self.prompt
+        ), (
+            "Holistic procedural step 8 must name the four mandatory "
+            "passes from the criteria so the model knows what shape of "
+            "review the criteria file is structuring."
         )

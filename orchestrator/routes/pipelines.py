@@ -4688,12 +4688,25 @@ def _build_review_prompt(
         )
 
     # Add procedural steps for code reviewers (matching GHA reviewer thoroughness).
-    # Both ``code`` and ``code-holistic`` get the same numbered procedural steps
-    # — the difference between them is the criteria block (line-by-line slice
-    # vs cross-module coherence) and the fan-out section (gated to ``code``
-    # only further below). See issue #2126.
+    # Both ``code`` and ``code-holistic`` get the same numbered procedural-step
+    # scaffold, but steps 2 and 8 differ by lens: ``code`` reviews every file
+    # systematically and evaluates against the slice criteria, while
+    # ``code-holistic`` skims the diff once and runs the four cross-module
+    # passes from the holistic criteria file. The fan-out section (further
+    # below) is gated to ``code`` only. See issue #2126 — the prior unified
+    # wording told the holistic reviewer to "review every changed file
+    # systematically", which directly contradicted the holistic criteria's
+    # "don't verify every line; the fan-out reviewer covers that".
     if reviewer_type in ("code", "code-holistic") and not draft_path:
-        lines.append("2. Get the full diff and **review every changed file systematically**")
+        if reviewer_type == "code-holistic":
+            lines.append(
+                "2. **Skim the full diff once** to build a mental map of "
+                "what the PR adds, who the user is, and what the user's "
+                "primary path through the change looks like — do not "
+                "re-verify every line; that is the fan-out reviewer's job"
+            )
+        else:
+            lines.append("2. Get the full diff and **review every changed file systematically**")
         lines.append(
             "3. Read surrounding context — check how changed code integrates with the rest of the codebase"
         )
@@ -4711,7 +4724,14 @@ def _build_review_prompt(
             "API usage patterns, and confirm the code follows current best practices"
         )
         lines.append("7. Consider edge cases the author may not have tested")
-        lines.append("8. Evaluate against the criteria below")
+        if reviewer_type == "code-holistic":
+            lines.append(
+                "8. Run the four mandatory passes from the criteria below "
+                "(end-to-end primary use case, doc ↔ code symmetry, "
+                "synthetic-key / sentinel coordination, silent-fallback hunt)"
+            )
+        else:
+            lines.append("8. Evaluate against the criteria below")
         if concurrent:
             lines.append(
                 "9. Deliver your full review via ACK/NACK (see BRC protocol below). "
