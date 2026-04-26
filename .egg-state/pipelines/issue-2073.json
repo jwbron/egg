@@ -490,7 +490,7 @@
       "phase": "pr",
       "status": "running",
       "started_at": "2026-04-26T01:22:09.031251Z",
-      "work_started_at": null,
+      "work_started_at": "2026-04-26T01:22:09.130476Z",
       "completed_at": null,
       "containers": [],
       "agents": [],
@@ -883,7 +883,7 @@
     }
   ],
   "created_at": "2026-04-25T23:09:30.400320Z",
-  "updated_at": "2026-04-26T01:22:09.031321Z",
+  "updated_at": "2026-04-26T01:22:09.130942Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -897,6 +897,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 63,
+  "version": 64,
   "jira_ticket": null
 }
