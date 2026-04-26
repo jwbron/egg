@@ -674,8 +674,12 @@ def get_all_build_commands() -> dict[str, dict[str, Any]]:
 
     result: dict[str, dict[str, Any]] = {}
     for repo_name, settings in repo_settings.items():
-        # Skip synthetic keys emitted by the layered loader
-        # (e.g. "__checkout__" — see shared/egg_config/repos.py).
+        # Skip synthetic keys emitted by the layered loader. The only
+        # one defined today is "__checkout__" (surfaces the
+        # repo-defaults block when no matching user-file repo exists —
+        # see shared/egg_config/repos.py). Reserve the whole "__"
+        # prefix namespace for future synthetic keys; do NOT widen
+        # this filter to legitimate names.
         if repo_name.startswith("__"):
             continue
         if not isinstance(settings, dict):

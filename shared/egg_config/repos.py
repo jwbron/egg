@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import configparser
 import os
+import os.path
 import re
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -87,8 +88,12 @@ _ALLOWED_ABS_PREFIXES: tuple[str, ...] = (
     "/opt/",
 )
 
-# Per-repo blocks that the merge engine threads through.  Used both for
-# layering and to pinpoint list-replacement vs deep-merge behavior.
+# Per-repo block keys whose lists replace by default during merge
+# (HITL decision-9). Operator-scoped top-level user-file fields
+# (``extra_packages.apt``/``dnf``, ``local_repos.paths``) deliberately
+# DON'T appear here: they live only in the user file and never get
+# merged across files (the repo-defaults schema rejects them outright),
+# so per-key merge behaviour doesn't apply.
 _LIST_REPLACE_KEYS: frozenset[str] = frozenset({"persist", "watch_files", "checks"})
 
 
@@ -96,6 +101,12 @@ def _is_denylisted_abs_path(entry: str) -> bool:
     """Return True if ``entry`` is an absolute path the repo file may NOT persist.
 
     Mirrors the security gate documented at the top of this module.
+
+    Defense-in-depth: callers MUST pass a normalised path (``..`` and
+    ``.`` segments collapsed) so a literal ``/usr/local/../../etc/passwd``
+    can't slip past the prefix check (reviewer_code NACK on #2073).
+    :func:`_enforce_repo_persist_denylist` performs the normalisation;
+    direct callers should mirror it.
     """
     # Substring check first — catches /.ssh in any guise.
     for marker in _DENYLIST_SUBSTRINGS:
@@ -103,13 +114,7 @@ def _is_denylisted_abs_path(entry: str) -> bool:
             return True
     # Hard prefix denylist for absolute paths.
     for prefix in _DENYLIST_ABS_PREFIXES:
-        if (
-            entry == prefix
-            or entry.startswith(prefix + "/")
-            or entry.startswith(
-                prefix + "\0"  # never matches; documents intent
-            )
-        ):
+        if entry == prefix or entry.startswith(prefix + "/"):
             return True
         # /var, /etc, /root, /proc, /sys, /dev (no trailing slash variants)
         if prefix.endswith("/"):
@@ -129,12 +134,37 @@ def _enforce_repo_persist_denylist(persist_entries: list[str], *, repo_label: st
     Repo-relative entries always pass — they're rooted at the checkout
     and can never escape the repo without symlink games (a separate
     concern handled at copy time in :mod:`sandbox.egg_lib.docker`).
+
+    Path-traversal defense (reviewer_code NACK on #2073): every entry
+    is normalised via :func:`os.path.normpath` before classification.
+    Entries whose normalised form differs from the original are
+    rejected outright — there is no legitimate reason to write
+    ``/usr/local/..`` when you mean ``/``. NUL bytes are also rejected.
     """
     for entry in persist_entries:
+        if not isinstance(entry, str) or not entry or not entry.strip():
+            raise ConfigError(
+                f"{repo_label}: persist entries must be non-empty strings; got {entry!r}."
+            )
+        # Reject NUL-byte injection outright.
+        if "\x00" in entry:
+            raise ConfigError(
+                f"{repo_label}: persist entry {entry!r} contains a NUL "
+                "byte; reject as malformed input."
+            )
+        # Normalise so '../' segments don't slip past the prefix gate.
+        normalized = os.path.normpath(entry)
+        if normalized != entry:
+            raise ConfigError(
+                f"{repo_label}: persist entry {entry!r} is not in "
+                f"normalised form (expected {normalized!r}). Path "
+                "traversal segments ('..', '.') and redundant '/' are "
+                "not permitted in repo-side persist paths."
+            )
         # Repo-relative entries are always safe at this layer.
-        if classify_persist_entry(entry) != "system":
+        if classify_persist_entry(normalized) != "system":
             continue
-        if _is_denylisted_abs_path(entry):
+        if _is_denylisted_abs_path(normalized):
             raise ConfigError(
                 f"{repo_label}: persist entry {entry!r} is not allowed "
                 "in a checked-in repo-defaults file. Repo-side persist "

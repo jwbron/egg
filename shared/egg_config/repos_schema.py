@@ -126,14 +126,25 @@ def classify_persist_entry(entry: str) -> Literal["repo", "system"]:
         paths.
 
     Raises:
-        ConfigError: If ``entry`` is not a non-empty string.
+        ConfigError: If ``entry`` is not a non-empty string, or if it
+            carries surrounding whitespace (a leading-space bypass
+            would otherwise classify ``' /etc/passwd'`` as
+            repo-relative and escape the denylist — see reviewer_code
+            NACK on #2073).
     """
-    if not isinstance(entry, str) or not entry:
+    if not isinstance(entry, str) or not entry or not entry.strip():
         raise ConfigError(
             "persist: entries must be non-empty strings; got "
             f"{entry!r}. Repo-relative paths (e.g. 'node_modules', "
             "'.venv') and absolute system paths (e.g. '/usr/local/bin') "
             "are both supported via leading-slash classification."
+        )
+    if entry != entry.strip():
+        raise ConfigError(
+            f"persist: entry {entry!r} carries surrounding whitespace. "
+            "Trim leading/trailing whitespace — a leading space would "
+            "otherwise bypass the leading-slash classifier and escape "
+            "the repo-side denylist (#2073 reviewer_code NACK)."
         )
     return "system" if entry.startswith("/") else "repo"
 
