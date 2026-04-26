@@ -700,6 +700,38 @@ PIPELINE_TOOLS = [
         },
     },
     {
+        "name": "validate_repo_config",
+        "description": (
+            "Validate a repository's <repo>/.egg/repositories.yaml plus the "
+            "operator's user file. Surfaces the known onboarding footguns "
+            "(install paths missing from `persist:`, watch-files-only build "
+            "context that breaks `uv sync`, missing Makefile targets, "
+            "operator-scoped keys in repo file, repo-file persist denylist "
+            "violations, etc.) at config-write time. Issue #2073."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "checkout_path": {
+                    "type": "string",
+                    "description": (
+                        "Path to a checkout directory whose .egg/repositories.yaml "
+                        "should be auto-discovered. Either checkout_path or "
+                        "user_path must be supplied."
+                    ),
+                },
+                "user_path": {
+                    "type": "string",
+                    "description": (
+                        "Optional explicit path to the operator-side "
+                        "~/.config/egg/repositories.yaml. Defaults to the "
+                        "historical search paths."
+                    ),
+                },
+            },
+        },
+    },
+    {
         "name": "restart_agent",
         "description": (
             "Restart a single agent in a pipeline. Stops the existing container, "
@@ -1118,6 +1150,7 @@ class PipelineToolHandler:
             "search_checkpoints": self._handle_search_checkpoints,
             "get_contract": self._handle_get_contract,
             "validate_config": self._handle_validate_config,
+            "validate_repo_config": self._handle_validate_repo_config,
             "restart_agent": self._handle_restart_agent,
             "restart_phase": self._handle_restart_phase,
             "advance_phase": self._handle_advance_phase,
@@ -1565,6 +1598,41 @@ class PipelineToolHandler:
             "status": "started",
             "message": f"Babysit-pr cycle started for PR #{pr_number}",
         }
+
+    def _handle_validate_repo_config(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Validate a repo config (issue #2073).
+
+        Dispatches to :func:`shared.egg_config.repo_validator.validate_repo_config`.
+        Returns a structured ``{ok, errors, warnings}`` dict matching the
+        CLI's exit-code-zero output.
+        """
+        from pathlib import Path
+
+        try:
+            from egg_config.repo_validator import validate_repo_config
+        except ImportError as exc:  # pragma: no cover
+            return {
+                "ok": False,
+                "errors": [f"Validator unavailable: {exc}"],
+                "warnings": [],
+            }
+
+        checkout_arg = args.get("checkout_path")
+        user_arg = args.get("user_path")
+        checkout = Path(str(checkout_arg)).expanduser() if checkout_arg else None
+        user_path = Path(str(user_arg)).expanduser() if user_arg else None
+
+        if checkout is None and user_path is None:
+            return {
+                "ok": False,
+                "errors": [
+                    "validate_repo_config requires checkout_path and/or user_path",
+                ],
+                "warnings": [],
+            }
+
+        result = validate_repo_config(checkout=checkout, user_path=user_path)
+        return result.to_dict()
 
     def _handle_validate_config(self, args: dict[str, Any]) -> dict[str, Any]:
         """Validate a pipeline configuration without creating a pipeline."""

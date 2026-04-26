@@ -281,14 +281,90 @@ def check_slack_app_token(app_token: str, timeout: float = 10.0) -> dict:
         return {"healthy": False, "message": str(e)}
 
 
+def verify_repo_config(repo_config_path: str) -> bool:
+    """Validate a repo config (issue #2073).
+
+    Accepts either:
+
+    * a path to a checkout directory (auto-discovers
+      ``<dir>/.egg/repositories.yaml``), or
+    * a direct path to ``<repo>/.egg/repositories.yaml`` itself.
+
+    Reuses the existing secret-config validator's ``✓ / ✗ / ⚠``
+    formatting so operators don't have to learn a new output style.
+    """
+    print("\n" + "=" * 60)
+    print(" REPO CONFIG VALIDATION")
+    print("=" * 60)
+
+    script_dir = Path(__file__).parent
+    repo_root = script_dir.parent
+    sys.path.insert(0, str(repo_root / "shared"))
+
+    try:
+        from egg_config.repo_validator import validate_repo_config
+    except ImportError as exc:  # pragma: no cover
+        print(f"\n✗ Could not import validator: {exc}")
+        return False
+
+    target = Path(repo_config_path).expanduser().resolve()
+
+    checkout: Path | None = None
+    user_path: Path | None = None
+    if target.is_dir():
+        checkout = target
+    elif target.name == "repositories.yaml" and target.parent.name == ".egg":
+        checkout = target.parent.parent
+    elif target.is_file():
+        # Treat as a user-file path.
+        user_path = target
+    else:
+        print(f"\n✗ Path does not exist: {target}")
+        return False
+
+    if checkout is not None:
+        print(f"  Checkout: {checkout}")
+    if user_path is not None:
+        print(f"  User file: {user_path}")
+
+    result = validate_repo_config(checkout=checkout, user_path=user_path)
+
+    if result.errors:
+        print("\nErrors:")
+        for err in result.errors:
+            print(f"  ✗ {err}")
+    if result.warnings:
+        print("\nWarnings:")
+        for warning in result.warnings:
+            print(f"  ⚠ {warning}")
+
+    if result.ok and not result.warnings:
+        print("\n✓ Repo config validated successfully — no errors, no warnings.")
+    elif result.ok:
+        print(
+            f"\n✓ Repo config validated with {len(result.warnings)} "
+            "warning(s) — see above."
+        )
+    else:
+        print(
+            f"\n✗ Repo config has {len(result.errors)} error(s) and "
+            f"{len(result.warnings)} warning(s) — fix the errors before "
+            "running egg."
+        )
+
+    return result.ok
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Validate egg configuration files",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s           Validate configuration files load correctly
-  %(prog)s --health  Also test API connectivity (Slack, GitHub, JIRA, Confluence)
+  %(prog)s                          Validate secret config files load correctly
+  %(prog)s --health                 Also test API connectivity (Slack, GitHub, JIRA, Confluence)
+  %(prog)s --repo-config <path>     Validate <repo>/.egg/repositories.yaml (issue #2073)
+  %(prog)s --repo-config .          Validate the current checkout's repo config
 """,
     )
     parser.add_argument(
@@ -296,8 +372,18 @@ Examples:
         action="store_true",
         help="Run API connectivity tests after validation",
     )
+    parser.add_argument(
+        "--repo-config",
+        metavar="PATH",
+        help="Validate a repository config (a checkout dir or a "
+        "<repo>/.egg/repositories.yaml file). Issue #2073.",
+    )
 
     args = parser.parse_args()
+
+    if args.repo_config:
+        success = verify_repo_config(args.repo_config)
+        sys.exit(0 if success else 1)
 
     success = verify_config(run_health_checks=args.health)
     sys.exit(0 if success else 1)
