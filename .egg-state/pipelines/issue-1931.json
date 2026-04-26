@@ -418,10 +418,28 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-15",
+      "question": "/execute passthrough endpoint?",
+      "context": "Open contract question decision-14, registered by an agent during the refine phase.",
+      "options": [
+        "Include it (GET-only, regex-allowlisted), parallel to Jira's escape hatch for read verbs not yet promoted to narrow routes (Recommended)",
+        "Skip /execute entirely; add narrow routes only",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-26T23:23:26.886614Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-26T23:05:30.164689Z",
-  "updated_at": "2026-04-26T23:23:26.833303Z",
+  "updated_at": "2026-04-26T23:23:26.912586Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -435,6 +453,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 25,
+  "version": 26,
   "jira_ticket": null
 }
