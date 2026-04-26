@@ -285,6 +285,65 @@ class TestRunOnce:
         assert report["terminal"] is True
         assert report["status"] == "failed"
 
+    @patch("overseer_monitor.send_heartbeat", return_value=True)
+    @patch("overseer_monitor.poll_messages", return_value=[])
+    @patch("overseer_monitor.query_progress", return_value=[])
+    @patch("overseer_monitor.query_health_alerts", return_value=[])
+    @patch("overseer_monitor.query_pipeline_status")
+    def test_run_once_includes_running_agents(
+        self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, capsys
+    ):
+        """Issue #2084: cycle report carries per-agent ``container_id`` /
+        ``started_at`` / ``elapsed_seconds`` so the overseer can anchor
+        stall-duration math on the live container, not message-bus history.
+        Only agents with ``status=='running'`` are surfaced."""
+        mock_status.return_value = {
+            "status": "running",
+            "phase": {"name": "implement"},
+            "concurrent": {
+                "consensus": {},
+                "agents": [
+                    {
+                        "role": "coder",
+                        "status": "running",
+                        "container_id": "f98c4fe6abcdef",
+                        "started_at": "2026-04-25T21:04:23+00:00",
+                        "elapsed_seconds": 152,
+                    },
+                    {
+                        "role": "tester",
+                        "status": "complete",
+                        "container_id": "old-finished",
+                    },
+                ],
+            },
+        }
+        report = run_once(PIPELINE_ID, base_url=BASE_URL)
+
+        running = report["running_agents"]
+        assert len(running) == 1
+        assert running[0]["role"] == "coder"
+        assert running[0]["container_id"] == "f98c4fe6abcdef"
+        assert running[0]["elapsed_seconds"] == 152
+
+    @patch("overseer_monitor.send_heartbeat", return_value=True)
+    @patch("overseer_monitor.poll_messages", return_value=[])
+    @patch("overseer_monitor.query_progress", return_value=[])
+    @patch("overseer_monitor.query_health_alerts", return_value=[])
+    @patch("overseer_monitor.query_pipeline_status")
+    def test_run_once_running_agents_empty_when_concurrent_absent(
+        self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, capsys
+    ):
+        """Sequential pipelines have no ``concurrent`` block — must default
+        to an empty ``running_agents`` list, not raise."""
+        mock_status.return_value = {
+            "status": "running",
+            "phase": {"name": "refine"},
+        }
+        report = run_once(PIPELINE_ID, base_url=BASE_URL)
+
+        assert report["running_agents"] == []
+
 
 class TestMainExitCodes:
     """Test main() exit code mapping for --once mode."""

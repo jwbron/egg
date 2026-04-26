@@ -2281,6 +2281,27 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
             error=str(e),
         )
 
+    # Reset health-monitor anchor so the pre-respawn _last_heartbeat does not
+    # generate a stale-elapsed heartbeat_timeout alert against the fresh
+    # container (issue #2084).
+    try:
+        try:
+            from health_monitor import get_health_monitor
+        except ImportError:
+            from ..health_monitor import (
+                get_health_monitor,  # type: ignore[import-not-found]
+            )
+        _hm = get_health_monitor()
+        if _hm is not None:
+            _hm.reset_agent(agent_role)
+    except Exception as e:
+        logger.warning(
+            "Failed to reset health-monitor state for restarted agent",
+            pipeline_id=pipeline_id,
+            agent_role=agent_role,
+            error=str(e),
+        )
+
     # Update pipeline state with new container/agent info
     lock = get_pipeline_state_lock(pipeline_id)
     with lock:
@@ -2296,6 +2317,14 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                 # Update or add agent execution entry
                 from models import AgentExecution  # type: ignore
 
+                # Refresh ``started_at`` to the new container's spawn time so
+                # ``_get_concurrent_status`` reports an ``elapsed_seconds``
+                # anchored on the live container.  Without this the field
+                # carries the original spawn timestamp and the overseer's
+                # phase_minimum_working_window suppression on the
+                # ``agent-heartbeat-stall`` trigger is structurally dead on
+                # the ``restart_agent`` path (issue #2084).
+                respawn_started_at = datetime.now(UTC)
                 found = False
                 for agent in fresh_phase_exec.agents:
                     if hasattr(agent, "role") and (
@@ -2304,6 +2333,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                     ):
                         agent.container_id = spawned.container_info.container_id
                         agent.status = AgentExecutionStatus.RUNNING
+                        agent.started_at = respawn_started_at
                         found = True
                         break
                 if not found:
@@ -2312,6 +2342,7 @@ def restart_agent(pipeline_id: str, agent_role: str) -> tuple[Response, int]:
                             role=role,
                             container_id=spawned.container_info.container_id,
                             status=AgentExecutionStatus.RUNNING,
+                            started_at=respawn_started_at,
                         )
                     )
 
@@ -2563,6 +2594,28 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
 
     # 6. Reset restart counts for this pipeline
     spawner.reset_restart_counts(pipeline_id)
+
+    # 6b. Drop health-monitor anchors for every respawned role so the Tier-1
+    #     heartbeat clock does not survive the restart and fire stale-elapsed
+    #     alerts that the overseer would faithfully escalate (issue #2084).
+    try:
+        try:
+            from health_monitor import get_health_monitor
+        except ImportError:
+            from ..health_monitor import (
+                get_health_monitor,  # type: ignore[import-not-found]
+            )
+        _hm = get_health_monitor()
+        if _hm is not None:
+            for role in agent_roles:
+                _hm.reset_agent(role.value)
+    except Exception as e:
+        logger.warning(
+            "Failed to reset health-monitor state during phase restart",
+            pipeline_id=pipeline_id,
+            phase=phase,
+            error=str(e),
+        )
 
     # 7. Launch a new _run_pipeline thread to monitor the restarted phase.
     #    Container spawning is handled by _run_concurrent_phase within the
@@ -3085,9 +3138,13 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
 
     # Agent lifecycle info from the phase execution record — shows which agents
     # are spawned for the current phase and their container-level status.
+    # Includes ``container_id`` and server-computed ``elapsed_seconds`` so the
+    # sandboxed overseer can anchor stall-duration math on the live container's
+    # ``started_at`` rather than pre-restart message-bus events (issue #2084).
     current_phase_name = pipeline.current_phase.value
     phase_exec = pipeline.phases.get(current_phase_name)
     if phase_exec and hasattr(phase_exec, "agents"):
+        now = datetime.now(UTC)
         agents_info = []
         for agent in phase_exec.agents:
             if hasattr(agent, "role"):
@@ -3098,7 +3155,29 @@ def _get_concurrent_status(pipeline: "Pipeline") -> dict | None:
                 status = agent.status.value if hasattr(agent.status, "value") else "unknown"
             else:
                 status = "unknown"
-            agents_info.append({"role": role, "status": status})
+
+            entry: dict[str, Any] = {"role": role, "status": status}
+
+            container_id = getattr(agent, "container_id", None)
+            if isinstance(container_id, str) and container_id:
+                entry["container_id"] = container_id
+
+            started_at = getattr(agent, "started_at", None)
+            started_dt: datetime | None = None
+            if isinstance(started_at, datetime):
+                started_dt = started_at
+            elif isinstance(started_at, str) and started_at:
+                try:
+                    started_dt = datetime.fromisoformat(started_at)
+                except ValueError:
+                    started_dt = None
+            if started_dt is not None:
+                if started_dt.tzinfo is None:
+                    started_dt = started_dt.replace(tzinfo=UTC)
+                entry["started_at"] = started_dt.isoformat()
+                entry["elapsed_seconds"] = max(0, int((now - started_dt).total_seconds()))
+
+            agents_info.append(entry)
         result["agents"] = agents_info
 
     return result

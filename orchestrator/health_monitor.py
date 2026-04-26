@@ -165,6 +165,38 @@ class HealthMonitor:
         with self._lock:
             return self._current_phase
 
+    def reset_agent(self, agent_id: str) -> None:
+        """Drop all per-agent tracking state for *agent_id*.
+
+        Called when an agent is respawned (``restart_agent`` /
+        ``restart_phase``).  The pre-respawn ``_last_heartbeat`` anchor would
+        otherwise survive the restart and let ``check_heartbeats`` fire a
+        ``heartbeat_timeout`` alert with a stale ``elapsed`` value, which the
+        Tier-2 overseer faithfully escalates as a false-positive
+        ``agent-heartbeat-stall`` (issue #2084).
+
+        Drops:
+          * ``_last_heartbeat[agent_id]`` — clock anchor.
+          * ``_agents[agent_id]`` — escalation flags, error counts, message
+            timestamps, last progress payload.
+          * ``_fully_acked_first_seen[agent_id]`` — BRC progress tracker.
+          * any ``_active_alerts`` whose ``agent_id`` matches — those
+            reference the dead container's anchor.
+
+        No-op if the agent is unknown.
+        """
+        with self._lock:
+            self._agents.pop(agent_id, None)
+            self._last_heartbeat.pop(agent_id, None)
+            self._fully_acked_first_seen.pop(agent_id, None)
+            # _active_alerts is a bounded deque (maxlen=200).  Filter in
+            # place via clear()+extend to preserve the bound — rebinding to
+            # ``deque(kept)`` would silently drop the maxlen and let the
+            # buffer grow unboundedly.
+            kept = [a for a in self._active_alerts if a.get("agent_id") != agent_id]
+            self._active_alerts.clear()
+            self._active_alerts.extend(kept)
+
     def _get_heartbeat_threshold(self) -> int:
         """Return the heartbeat timeout threshold for the current phase.
 

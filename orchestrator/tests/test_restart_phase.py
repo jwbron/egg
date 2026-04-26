@@ -980,3 +980,48 @@ class TestRunPipelineFatalErrorOnRestart:
         assert saved.status == PipelineStatus.FAILED, (
             "Expected pipeline to be marked FAILED after fatal error in _run_pipeline"
         )
+
+
+@pytest.mark.skipif(not _HAS_FLASK, reason="Flask not available")
+class TestRestartPhaseResetsHealthMonitor:
+    """Issue #2084: ``restart_phase`` must clear the Tier-1 heartbeat anchor
+    for every respawned role so the new containers are not judged against
+    the dead containers' clocks."""
+
+    @patch("routes.pipelines.threading.Thread")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_restart_phase_calls_reset_agent_for_each_role(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_thread, client
+    ):
+        mock_repo.return_value = "/repo"
+        pipeline = _make_pipeline_with_phase_agents()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_store.repo_path = Path("/repo")
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner_fn.return_value = mock_spawner
+
+        mock_hm = MagicMock()
+        with patch.dict(
+            "sys.modules",
+            {
+                "peer_consensus": MagicMock(
+                    get_peer_consensus_tracker=MagicMock(return_value=MagicMock())
+                ),
+                "consensus": MagicMock(get_consensus_evaluator=MagicMock(return_value=MagicMock())),
+                "health_monitor": MagicMock(get_health_monitor=MagicMock(return_value=mock_hm)),
+            },
+        ):
+            response = client.post(
+                "/api/v1/pipelines/issue-200/phases/implement/restart",
+                json={},
+            )
+
+        assert response.status_code == 200
+        reset_calls = {call.args[0] for call in mock_hm.reset_agent.call_args_list}
+        assert reset_calls == {"coder", "tester", "documenter"}

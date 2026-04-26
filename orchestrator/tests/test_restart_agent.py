@@ -1183,3 +1183,166 @@ class TestConsensusResetOrdering:
             # Consensus should have been reset after successful spawn
             mock_tracker.remove_agent.assert_called_once_with("coder")
             mock_evaluator.remove_agent.assert_called_once_with("issue-100", "coder")
+
+
+@pytest.mark.skipif(not _HAS_FLASK, reason="Flask not available")
+class TestRestartAgentResetsHealthMonitor:
+    """Issue #2084: ``restart_agent`` must clear the Tier-1 heartbeat anchor
+    so the respawned container is not judged against the dead container's
+    clock."""
+
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_successful_restart_calls_reset_agent(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
+    ):
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        new_container = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-container-xyz",
+                container_name="egg-issue-100-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-100",
+            environment={},
+        )
+        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        mock_hm = MagicMock()
+        with patch.dict(
+            "sys.modules",
+            {
+                "peer_consensus": MagicMock(
+                    get_peer_consensus_tracker=MagicMock(return_value=MagicMock())
+                ),
+                "consensus": MagicMock(get_consensus_evaluator=MagicMock(return_value=MagicMock())),
+                "health_monitor": MagicMock(get_health_monitor=MagicMock(return_value=mock_hm)),
+            },
+        ):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={"reason": "Agent stalled"},
+            )
+
+            assert response.status_code == 200
+            mock_hm.reset_agent.assert_called_once_with("coder")
+
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_successful_restart_refreshes_started_at(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
+    ):
+        """``restart_agent`` must overwrite ``agent.started_at`` with the new
+        spawn timestamp so ``_get_concurrent_status`` reports an
+        ``elapsed_seconds`` anchored on the live container, not the dead one
+        (issue #2084)."""
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+        # Pin the existing agent's ``started_at`` to a moment well before the
+        # restart so a refreshed value is unambiguously newer.
+        original_started_at = datetime.now(UTC) - timedelta(hours=1)
+        pipeline.phases["implement"].agents[0].started_at = original_started_at
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        new_container = SpawnedContainer(
+            container_info=ContainerInfo(
+                container_id="new-container-xyz",
+                container_name="egg-issue-100-coder",
+                status=ContainerStatus.RUNNING,
+            ),
+            session_info=None,
+            agent_role=AgentRole.CODER,
+            pipeline_id="issue-100",
+            environment={},
+        )
+        mock_spawner.restart_agent_container.return_value = new_container
+        mock_spawner.get_restart_count.return_value = 1
+        mock_spawner_fn.return_value = mock_spawner
+
+        with patch.dict(
+            "sys.modules",
+            {
+                "peer_consensus": MagicMock(
+                    get_peer_consensus_tracker=MagicMock(return_value=MagicMock())
+                ),
+                "consensus": MagicMock(get_consensus_evaluator=MagicMock(return_value=MagicMock())),
+                "health_monitor": MagicMock(get_health_monitor=MagicMock(return_value=MagicMock())),
+            },
+        ):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={"reason": "Agent stalled"},
+            )
+
+        assert response.status_code == 200
+
+        agent = pipeline.phases["implement"].agents[0]
+        assert agent.started_at is not None
+        assert agent.started_at > original_started_at, (
+            "restart_agent must refresh started_at to the new container's "
+            "spawn time so _get_concurrent_status reports an elapsed_seconds "
+            "anchored on the live container instead of the dead one."
+        )
+        # The refreshed timestamp should be very recent (the test just ran).
+        assert (datetime.now(UTC) - agent.started_at) < timedelta(seconds=30)
+
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    @patch("routes.pipelines.get_repo_path")
+    def test_failed_spawn_skips_reset_agent(
+        self, mock_repo, mock_resolve, mock_spawner_fn, mock_lock_fn, client
+    ):
+        """If the spawn fails, the heartbeat anchor must be preserved so the
+        old container's stall signal isn't silently swallowed."""
+        mock_repo.return_value = "/repo"
+        mock_lock_fn.return_value = MagicMock()
+        pipeline = _make_pipeline_with_running_agent()
+
+        mock_store = MagicMock()
+        mock_store.load_pipeline.return_value = pipeline
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner.restart_agent_container.side_effect = ContainerSpawnError("boom")
+        mock_spawner_fn.return_value = mock_spawner
+
+        mock_hm = MagicMock()
+        with patch.dict(
+            "sys.modules",
+            {
+                "peer_consensus": MagicMock(
+                    get_peer_consensus_tracker=MagicMock(return_value=MagicMock())
+                ),
+                "consensus": MagicMock(get_consensus_evaluator=MagicMock(return_value=MagicMock())),
+                "health_monitor": MagicMock(get_health_monitor=MagicMock(return_value=mock_hm)),
+            },
+        ):
+            response = client.post(
+                "/api/v1/pipelines/issue-100/agents/coder/restart",
+                json={"reason": "stalled"},
+            )
+
+            assert response.status_code == 500
+            mock_hm.reset_agent.assert_not_called()

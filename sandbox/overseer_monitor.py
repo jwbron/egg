@@ -163,7 +163,12 @@ def run_once(
     status = pipeline_data.get("status", "unknown")
     phase_info = pipeline_data.get("phase", {})
     phase_name = phase_info.get("name", "unknown") if isinstance(phase_info, dict) else "unknown"
-    consensus = pipeline_data.get("concurrent", {}).get("consensus", {})
+    concurrent = pipeline_data.get("concurrent", {}) or {}
+    consensus = concurrent.get("consensus", {})
+    # Per-agent lifecycle entries (role, status, container_id, started_at,
+    # elapsed_seconds) so the overseer can anchor stall-duration math on the
+    # live container rather than pre-restart message-bus events (issue #2084).
+    running_agents = [a for a in (concurrent.get("agents") or []) if a.get("status") == "running"]
 
     alerts = query_health_alerts(base_url, pipeline_id)
     progress = query_progress(base_url, pipeline_id)
@@ -180,6 +185,7 @@ def run_once(
         "progress_events": len(progress),
         "escalations": escalations,
         "consensus": consensus,
+        "running_agents": running_agents,
         "heartbeat_ok": heartbeat_ok,
         "cycle_duration_s": round(time.monotonic() - cycle_start, 2),
         "terminal": status in TERMINAL_STATES,
@@ -231,7 +237,11 @@ def run_monitor(
         phase_name = (
             phase_info.get("name", "unknown") if isinstance(phase_info, dict) else "unknown"
         )
-        consensus = pipeline_data.get("concurrent", {}).get("consensus", {})
+        concurrent = pipeline_data.get("concurrent", {}) or {}
+        consensus = concurrent.get("consensus", {})
+        running_agents = [
+            a for a in (concurrent.get("agents") or []) if a.get("status") == "running"
+        ]
 
         # 2. Health alerts
         alerts = query_health_alerts(base_url, pipeline_id)
@@ -256,6 +266,7 @@ def run_monitor(
             "progress_events": len(progress),
             "escalations": escalations,
             "consensus": consensus,
+            "running_agents": running_agents,
             "heartbeat_ok": heartbeat_ok,
             "cycle_duration_s": round(time.monotonic() - cycle_start, 2),
         }
