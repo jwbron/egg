@@ -1071,49 +1071,6 @@ PIPELINE_TOOLS = [
             },
         },
     },
-    # consult_advisor — issue #1962. The schema literal lives in
-    # orchestrator/mcp/tools/overseer_advisor.py; we re-import it
-    # here so the tool registers with FastMCP under the standard
-    # PIPELINE_TOOLS pipeline. Auth-gated to the overseer role at
-    # the handler level.
-    {
-        "name": "consult_advisor",
-        "description": (
-            "Consult the Opus advisor for a structured verdict on a "
-            "Haiku-flagged anomaly. Returns AdvisorVerdict JSON with "
-            "decision in {alert, file_issue, watch}. Reachability is "
-            "gated by the gateway's per-role allow-rules — only the "
-            "overseer role is permitted to reach this tool. The "
-            "handler does not re-check the caller role (no "
-            "session-aware role plumbing in the MCP server today; "
-            "see #1786)."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "classification": {
-                    "type": "object",
-                    "description": "Haiku classification (anomaly_type, confidence, reasoning).",
-                },
-                "health_alerts": {
-                    "type": "array",
-                    "items": {"type": "object"},
-                    "description": "Active Tier-1 health alerts.",
-                },
-                "progress_events": {
-                    "type": "array",
-                    "items": {"type": "object"},
-                    "description": "Last N progress events.",
-                },
-                "recent_log_lines": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Last K container log lines.",
-                },
-            },
-            "required": ["classification", "health_alerts"],
-        },
-    },
 ]
 
 
@@ -1173,7 +1130,6 @@ class PipelineToolHandler:
             "validate_network_isolation": self._handle_validate_network_isolation,
             "rebuild_and_rollout": self._handle_rebuild_and_rollout,
             "get_service_logs": self._handle_get_service_logs,
-            "consult_advisor": self._handle_consult_advisor,
         }
 
         handler = handlers.get(tool_name)
@@ -2945,61 +2901,3 @@ class PipelineToolHandler:
         else:
             payload["error"] = "wait_timeout"
         return payload
-
-    def _handle_consult_advisor(self, args: dict[str, Any]) -> dict[str, Any]:
-        """Forward a ``consult_advisor`` MCP tool call to the shared advisor.
-
-        Issue #1962. **Auth is enforced by the gateway, not by this
-        handler.** The earlier draft of this method read
-        ``EGG_AGENT_ROLE`` from the orchestrator process env and
-        passed it to the handler's role gate; that variable is unset
-        in the orchestrator pod, so the gate was a no-op (constant
-        ``"overseer"`` for any caller) — security paint, not security.
-
-        The MCP server is localhost-only inside the orchestrator pod
-        and is fronted by the gateway's per-role allow-rules; the
-        gateway is the sole enforcement boundary for which roles may
-        reach this tool. Plumbing the calling role through the FastMCP
-        request context (so this handler can re-check it) is tracked
-        under #1786 (per-session role plumbing) and is out of scope
-        here.
-
-        We use ``asyncio.run`` (not ``new_event_loop``+``close``) so
-        the loop's async-generator cleanup runs and the SDK's
-        background tasks get torn down cleanly between calls.
-
-        Args (parsed from MCP tool kwargs):
-            classification: Haiku classification dict.
-            health_alerts: Tier-1 health alerts.
-            progress_events: Recent progress events (optional).
-            recent_log_lines: Recent container log lines (optional).
-
-        Returns:
-            ``{"ok": true, "verdict": <AdvisorVerdict.model_dump()>}`` on
-            success; ``{"ok": false, "error": ...}`` on parse failure.
-        """
-        import asyncio
-
-        from mcp.tools.overseer_advisor import handle_consult_advisor
-
-        async def _run() -> dict[str, Any]:
-            # ``role="overseer"`` here is documentation-only: the
-            # gateway has already gated this request before it reached
-            # the MCP server, so by the time we are here the caller is
-            # guaranteed to be the overseer. The handler keeps the
-            # ``role`` parameter so the signature stays stable for the
-            # day a real session-aware role is plumbed through (#1786).
-            return await handle_consult_advisor(
-                classification=args.get("classification") or {},
-                health_alerts=args.get("health_alerts") or [],
-                progress_events=args.get("progress_events") or [],
-                recent_log_lines=args.get("recent_log_lines") or [],
-                role="overseer",
-                config=None,
-            )
-
-        try:
-            return asyncio.run(_run())
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.error("consult_advisor handler failed", error=str(exc))
-            return {"ok": False, "error": f"handler_error: {exc}"}

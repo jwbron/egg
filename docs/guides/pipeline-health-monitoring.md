@@ -430,7 +430,7 @@ The intersection gate keeps the heavy-tier model out of every poll cycle while s
 | `alert` | Emit an `OVERSEER_ALERT` carrying the advisor's `alert_summary`, `alert_detail`, and translated `priority`. The advisor returns `priority` as `p0..p3`; `egg_overseer.priority.label_to_alert` maps to the alert verb's `low|medium|high` dimension. |
 | `file_issue` | Emit an `OVERSEER_ALERT` whose `recommendation=file_issue` carries a fully composed `issue_title` + `issue_body` + `priority` + `anomaly_signature` in `recommendation_payload`. The CLI verb is **not** invoked here — see [Auto-Issue Filing (Shadow vs Live)](#auto-issue-filing-shadow-vs-live). |
 
-The advisor is exposed to the sandbox as a single orchestrator-side MCP tool (`mcp__overseer__consult_advisor`), auth-gated to the overseer role. The handler imports `consult_advisor` from `shared/egg_overseer/advisor.py` and forwards the keyword arguments (`classification`, `health_alerts`, `progress_events`, `recent_log_lines`, `config_subset`) that comprise the executor → advisor prompt contract.
+The advisor is exposed to the sandbox as a CLI verb (`egg-orch overseer consult-advisor`); the handler at `sandbox/egg_lib/orch_cli.py::cmd_overseer_consult_advisor` calls `consult_advisor` from `shared/egg_overseer/advisor.py` directly. The underlying `run_agent_async` Opus call therefore runs sandbox-side and stays on the LLM-execution side of the EGG200 boundary documented in [agent-mode-design.md](agent-mode-design.md) — the orchestrator pod never holds Anthropic credentials. The CLI verb reads the keyword arguments (`classification`, `health_alerts`, `progress_events`, `recent_log_lines`) that comprise the executor → advisor prompt contract from a JSON file passed via `--inputs-file`.
 
 **No advisor cap is enforced in this PR** — the existing `max_llm_cost_per_hour=$5` envelope at `sandbox/agent-config/rules/overseer.md` remains the only budget control. A follow-up issue tracks an `overseer_advisor_max_uses_per_phase` (or equivalent) knob if production data shows the cap is needed.
 
@@ -522,19 +522,18 @@ This is "host XOR overseer", not "host AND overseer" — the calibration window 
 
 When `overseer_owns_host_detection=true` and the host sees no `OVERSEER_ALERT` from the overseer for `2 × overseer_agent_stall_seconds` while running agents are present, the host raises a single `AskUserQuestion` ("Overseer appears unresponsive; would you like to (a) check the overseer container logs, (b) restart the overseer, (c) continue with host detection only for this pipeline, (d) cancel?"). A sentinel file at `.egg-state/oversight/sdlc-fallback-fired-{pipeline_id}-{phase}.flag` ensures the fallback fires at most once per phase.
 
-### MCP Advisor Tool: `mcp__overseer__consult_advisor`
+### Sandbox CLI Verb: `egg-orch overseer consult-advisor`
 
-The orchestrator exposes a single MCP tool that the sandbox-side overseer calls to invoke the advisor:
+The sandbox-side CLI verb is the one and only way the overseer invokes the advisor:
 
-| Field | Type | Description |
-|-------|------|-------------|
+| Inputs-file key | Type | Description |
+|-----------------|------|-------------|
 | `classification` | `dict` | Haiku classifier output — `{anomaly_type, confidence, reasoning, ...}` |
 | `health_alerts` | `list[dict]` | Tier-1 health alerts active for the agent |
 | `progress_events` | `list[dict]` | Recent structured progress events |
 | `recent_log_lines` | `list[str]` | Tail of agent container log lines |
-| `config_subset` | `dict` | Subset of `PipelineConfig` the advisor needs (model, mode, thresholds) |
 
-The tool registration lives at `orchestrator/mcp/tools/overseer_advisor.py` (`CONSULT_ADVISOR_TOOL` is the JSON-schema dict, `handle_consult_advisor` is the async handler). The handler is auth-gated to the `overseer` role (other roles get a permission error) and forwards to `egg_overseer.advisor.consult_advisor()`. The tool's output is the JSON-serialized `AdvisorVerdict`.
+The handler at `sandbox/egg_lib/orch_cli.py::cmd_overseer_consult_advisor` calls `egg_overseer.advisor.consult_advisor()` directly. Output is the JSON-serialized `AdvisorVerdict` written to `--output-file` (or stdout when omitted). The Opus `run_agent_async` call runs sandbox-side, keeping the LLM call on the LLM-execution side of the EGG200 boundary; the orchestrator pod never holds Anthropic credentials.
 
 **Backwards compatibility — top-level optional fields with omit-when-unset serialization.** The `OVERSEER_ALERT` schema gains three first-class optional fields on the `Message` envelope (`orchestrator/message_store.py`): `recommendation: str | None`, `recommendation_payload: dict | None`, and `schema_version: int = 1`. The `Message.to_dict()` serializer **omits** each of the three fields when they hold their defaults, so legacy callers that don't set them produce JSON byte-identical to the pre-#1962 shape. New consumers branch on the presence of `recommendation` (or, equivalently, `schema_version >= 2`); old consumers see no envelope change. The `egg-orch overseer alert` CLI gains `--recommendation file_issue --recommendation-payload-file /path/to/payload.json` flags that populate the new fields; the sandbox handler at `sandbox/egg_agent_tools/handlers/progress.py::progress_overseer_alert` enforces a 50 KB cap on the payload and validates that `recommendation` is one of the legal values (`file_issue` is currently the only accepted value).
 

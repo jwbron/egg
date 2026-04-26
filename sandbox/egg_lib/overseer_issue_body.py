@@ -85,7 +85,9 @@ def compose_issue_body(
         phase: Phase name.
         branch: Git branch name.
         commit_sha: Commit SHA at filing time.
-        parent_alert_message_id: ID of the parent ``OVERSEER_ALERT``.
+        parent_alert_message_id: Optional — ID of the parent
+            ``OVERSEER_ALERT``. Defaults to ``None``; the rendered
+            "Pipeline Links" sub-block emits ``(none)`` when omitted.
         classification: Haiku classification dict
             (``type``/``confidence``/``reasoning``).
         recent_log_lines: Recent container log lines.

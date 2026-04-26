@@ -854,8 +854,6 @@ class TestToolRouting:
             "validate_network_isolation",
             "rebuild_and_rollout",
             "get_service_logs",
-            # Overseer advisor MCP tool (#1962)
-            "consult_advisor",
         }
         assert tool_names == expected
 

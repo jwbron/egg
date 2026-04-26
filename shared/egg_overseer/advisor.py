@@ -7,6 +7,14 @@ an anomaly AND a Tier-1 health alert has tripped, this module is invoked
 to consult Opus for a richer verdict (alert composition, priority, file
 recommendation).
 
+The wrapper is invoked from the sandbox-side CLI verb
+``egg-orch overseer consult-advisor``
+(``sandbox/egg_lib/orch_cli.py::cmd_overseer_consult_advisor``). The
+underlying ``run_agent_async`` Opus call therefore runs sandbox-side and
+stays on the LLM-execution side of the EGG200 boundary documented in
+``docs/guides/agent-mode-design.md`` — the orchestrator pod never holds
+Anthropic credentials.
+
 Implementation choice: **Option B (two-call pattern)** per the SDK
 spike recorded at ``.egg-state/agent-outputs/1962-sdk-spike.md``. The
 vendored ``claude-agent-sdk==0.1.65`` does not expose the native

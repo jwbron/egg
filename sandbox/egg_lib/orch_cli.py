@@ -1675,9 +1675,7 @@ def cmd_overseer_file_issue(args: argparse.Namespace) -> int:
         except json.JSONDecodeError:
             issue_number = None
     if issue_number is None:
-        import re as _re
-
-        match = _re.search(r"/issues/(\d+)", raw_stdout)
+        match = re.search(r"/issues/(\d+)", raw_stdout)
         if match:
             try:
                 issue_number = int(match.group(1))
@@ -1743,6 +1741,95 @@ def cmd_overseer_file_issue(args: argparse.Namespace) -> int:
         print_json(filed_result)
     else:
         print(f"Filed issue #{issue_number} ({args.anomaly_type}, {args.priority})")
+    return 0
+
+
+def cmd_overseer_consult_advisor(args: argparse.Namespace) -> int:
+    """Consult the Opus advisor for a structured verdict (issue #1962).
+
+    Runs ``egg_overseer.advisor.consult_advisor`` itself, inside the
+    sandbox, so the underlying ``run_agent_async`` call lives on the
+    LLM-execution side of the EGG200 boundary (``docs/guides/agent-mode-design.md``)
+    and the orchestrator pod never touches Anthropic credentials.
+
+    Reads the inputs (Haiku classification + Tier-1 health alerts +
+    optional progress events / log lines) from a JSON file. Writes the
+    validated ``AdvisorVerdict`` JSON to ``--output-file`` (or stdout
+    when omitted). The caller (the overseer agent) is expected to gate
+    the call behind ``should_consult_advisor`` (Haiku confidence ≥ 0.8
+    AND a Tier-1 health alert active).
+
+    Output (JSON): the verdict dict from ``AdvisorVerdict.model_dump()``.
+    Exit code 0 on success; non-zero on input validation failure or an
+    advisor parse failure.
+    """
+    import asyncio
+
+    from egg_overseer.advisor import AdvisorParseError, consult_advisor
+
+    inputs_path = args.inputs_file
+    try:
+        with open(inputs_path, encoding="utf-8") as fh:
+            inputs = json.load(fh)
+    except OSError as exc:
+        print(f"Error: cannot read --inputs-file: {exc}", file=sys.stderr)
+        return 2
+    except json.JSONDecodeError as exc:
+        print(f"Error: --inputs-file is not valid JSON: {exc}", file=sys.stderr)
+        return 2
+
+    if not isinstance(inputs, dict):
+        print("Error: --inputs-file must be a JSON object", file=sys.stderr)
+        return 2
+
+    classification = inputs.get("classification") or {}
+    health_alerts = inputs.get("health_alerts") or []
+    progress_events = inputs.get("progress_events") or []
+    recent_log_lines = inputs.get("recent_log_lines") or []
+
+    if not isinstance(classification, dict):
+        print("Error: inputs.classification must be an object", file=sys.stderr)
+        return 2
+    if not isinstance(health_alerts, list):
+        print("Error: inputs.health_alerts must be an array", file=sys.stderr)
+        return 2
+    if not isinstance(progress_events, list):
+        print("Error: inputs.progress_events must be an array", file=sys.stderr)
+        return 2
+    if not isinstance(recent_log_lines, list):
+        print("Error: inputs.recent_log_lines must be an array", file=sys.stderr)
+        return 2
+
+    try:
+        verdict = asyncio.run(
+            consult_advisor(
+                classification=classification,
+                health_alerts=health_alerts,
+                progress_events=progress_events,
+                recent_log_lines=recent_log_lines,
+                config=None,
+            )
+        )
+    except AdvisorParseError as exc:
+        print(f"Error: advisor parse failure: {exc}", file=sys.stderr)
+        return 1
+
+    payload = verdict.model_dump()
+    rendered = json.dumps(payload, indent=2, sort_keys=True)
+
+    if args.output_file:
+        try:
+            with open(args.output_file, "w", encoding="utf-8") as fh:
+                fh.write(rendered)
+        except OSError as exc:
+            print(f"Error: cannot write --output-file: {exc}", file=sys.stderr)
+            return 2
+        if args.json:
+            print_json(payload)
+        else:
+            print(f"Wrote AdvisorVerdict to {args.output_file}")
+    else:
+        print(rendered)
     return 0
 
 
@@ -2963,6 +3050,40 @@ def create_parser() -> argparse.ArgumentParser:
     )
     _add_json_flag(ov_file)
     ov_file.set_defaults(func=cmd_overseer_file_issue)
+
+    # overseer consult-advisor (issue #1962, EGG200 boundary fix)
+    ov_advisor = overseer_sub.add_parser(
+        "consult-advisor",
+        help="Consult the Opus advisor for a structured verdict (sandbox-side LLM call)",
+        description=(
+            "Run egg_overseer.advisor.consult_advisor inside the "
+            "sandbox so the Opus run_agent_async invocation lives on "
+            "the LLM-execution side of the EGG200 boundary. The "
+            "orchestrator pod never touches Anthropic credentials. "
+            "Reads the inputs (Haiku classification + Tier-1 health "
+            "alerts + optional progress events / log lines) from a "
+            "JSON file and writes the validated AdvisorVerdict JSON "
+            "to --output-file (or stdout when omitted)."
+        ),
+    )
+    ov_advisor.add_argument(
+        "--inputs-file",
+        required=True,
+        help=(
+            "Path to a JSON file with keys: classification (object), "
+            "health_alerts (array), progress_events (array, optional), "
+            "recent_log_lines (array, optional)."
+        ),
+    )
+    ov_advisor.add_argument(
+        "--output-file",
+        help=(
+            "Path to write the AdvisorVerdict JSON. When omitted the "
+            "verdict is written to stdout (pretty-printed)."
+        ),
+    )
+    _add_json_flag(ov_advisor)
+    ov_advisor.set_defaults(func=cmd_overseer_consult_advisor)
 
     # --- push ---
     from egg_lib.cli_push import register_push_subcommand

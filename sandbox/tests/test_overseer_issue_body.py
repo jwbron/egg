@@ -125,6 +125,31 @@ class TestComposeIssueBody:
         # Container Logs section should NOT appear when no log lines.
         assert "### Container Logs" not in body
 
+    def test_body_renders_none_when_parent_alert_message_id_omitted(self) -> None:
+        # Default value path — caller has no parent message id available.
+        body = compose_issue_body(
+            anomaly_type="agent-stall",
+            agent_role="coder",
+            pipeline_id="issue-1",
+            phase="implement",
+            branch="b",
+            commit_sha="c",
+            repo="o/r",
+        )
+        assert "**Parent OVERSEER_ALERT message**: `(none)`" in body
+        # Sanity: passing None explicitly behaves the same as the default.
+        body_explicit = compose_issue_body(
+            anomaly_type="agent-stall",
+            agent_role="coder",
+            pipeline_id="issue-1",
+            phase="implement",
+            branch="b",
+            commit_sha="c",
+            parent_alert_message_id=None,
+            repo="o/r",
+        )
+        assert "**Parent OVERSEER_ALERT message**: `(none)`" in body_explicit
+
     def test_body_truncates_logs_to_last_50(self) -> None:
         many = [f"line {i}" for i in range(120)]
         body = compose_issue_body(

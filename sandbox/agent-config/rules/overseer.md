@@ -69,7 +69,17 @@ You only escalate on anomalies surfaced by the orchestrator or that you discover
 
 ### Tier-2 advisor gate
 
-The Sonnet decision tier is supplemented by an Opus 4.6 **advisor** (per the [advisor strategy](https://claude.com/blog/the-advisor-strategy)). The advisor is invoked through the orchestrator-side MCP tool `mcp__overseer__consult_advisor` (registration at `orchestrator/mcp/tools/overseer_advisor.py`; auth-gated to the `overseer` role; forwards to `egg_overseer.advisor.consult_advisor`).
+The Sonnet decision tier is supplemented by an Opus 4.6 **advisor** (per the [advisor strategy](https://claude.com/blog/the-advisor-strategy)). The advisor is invoked through the sandbox CLI verb `egg-orch overseer consult-advisor` (handler at `sandbox/egg_lib/orch_cli.py::cmd_overseer_consult_advisor`; calls `egg_overseer.advisor.consult_advisor` directly so the underlying `run_agent_async` invocation lives on the sandbox / LLM-execution side of the EGG200 boundary — the orchestrator pod never touches Anthropic credentials).
+
+Invocation pattern: write the inputs (Haiku classification + active Tier-1 health alerts + last N progress events + last K log lines) to a sandbox-local JSON file, then run:
+
+```bash
+egg-orch overseer consult-advisor \
+  --inputs-file /tmp/advisor-inputs.json \
+  --output-file /tmp/advisor-verdict.json
+```
+
+The verdict is the JSON-serialized `AdvisorVerdict` with the same fields documented below (decision / priority / alert_summary / alert_detail / issue_title / issue_body / reasoning).
 
 **Trigger gate (the load-bearing constraint).** Invoke the advisor only when **both** conditions hold simultaneously:
 

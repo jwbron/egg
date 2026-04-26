@@ -564,12 +564,10 @@ def should_consult_advisor(
     """Return True when the Tier-1 intersection gate is open.
 
     Pure predicate (no side effects). Used by the overseer agent to
-    decide whether to invoke the ``mcp__overseer__consult_advisor``
-    MCP tool through its own MCP client surface — the actual tool
-    invocation happens at the agent layer via the SDK's MCP client,
-    NOT via a REST endpoint (the orchestrator's MCP server is
-    exposed only over the FastMCP streamable-HTTP transport at
-    ``/mcp``; there is no ``/api/v1/mcp/tools/...`` REST surface).
+    decide whether to invoke the ``egg-orch overseer consult-advisor``
+    sandbox CLI verb (the underlying ``run_agent_async`` Opus call runs
+    sandbox-side so it stays on the LLM-execution side of the EGG200
+    boundary documented in ``docs/guides/agent-mode-design.md``).
 
     Issue #1962 TASK-4-2 gate spec:
         confidence ≥ HAIKU_CONFIDENCE_THRESHOLD (0.8)
