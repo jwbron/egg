@@ -30,10 +30,19 @@ first.  Within a single language, ties are broken by class name.
 from __future__ import annotations
 
 import json
+import re
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
+
+# Strict semver-ish gate for the ``go`` directive token in go.mod. Anything
+# that doesn't match falls back to the hardcoded default below — the value
+# is interpolated into a shell command, so a non-validated go.mod could
+# otherwise smuggle ``;``, ``"``, ``$()`` etc. into the build_commands
+# (reviewer_security NACK on #2073).
+_GO_VERSION_RE = re.compile(r"^\d+\.\d+(?:\.\d+)?$")
+_GO_VERSION_DEFAULT = "1.22.0"
 
 
 @dataclass
@@ -326,13 +335,20 @@ class GoDetector:
         if not mod.is_file():
             return None
         # Try to read the go directive so the install command pins it.
+        # Validate the token against a strict semver regex BEFORE
+        # interpolation: an attacker-controlled go.mod could otherwise
+        # smuggle shell metacharacters (``"``, ``;``, ``$()``) into the
+        # build_commands string we interpolate below
+        # (reviewer_security NACK on #2073).
         go_version = ""
         for line in _read_text_safe(mod).splitlines():
             stripped = line.strip()
             if stripped.startswith("go ") and len(stripped.split()) >= 2:
-                go_version = stripped.split()[1]
+                candidate = stripped.split()[1]
+                if _GO_VERSION_RE.match(candidate):
+                    go_version = candidate
                 break
-        version_token = go_version or "1.22.0"
+        version_token = go_version or _GO_VERSION_DEFAULT
         watch_files = ["go.mod"]
         if (repo_path / "go.sum").is_file():
             watch_files.append("go.sum")

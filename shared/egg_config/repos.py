@@ -262,11 +262,22 @@ def _user_config_path(user_path: Path | None) -> Path | None:
 
 
 def _repo_config_path(checkout: Path | None) -> Path | None:
-    """Auto-discover ``<checkout>/.egg/repositories.yaml`` (decision-10)."""
+    """Auto-discover ``<checkout>/.egg/repositories.yaml`` (decision-10).
+
+    Defence-in-depth (reviewer_security NACK non-blocking): symlinks
+    at the discovery target are rejected outright. A malicious feature
+    branch shipping ``.egg/repositories.yaml -> /etc/passwd`` would
+    otherwise cause ``yaml.safe_load`` to fail noisily; refusing the
+    symlink fails earlier and removes any info-disclosure surface.
+    """
     if checkout is None:
         return None
     candidate = Path(checkout) / ".egg" / "repositories.yaml"
-    return candidate if candidate.exists() else None
+    if not candidate.exists():
+        return None
+    if candidate.is_symlink():
+        return None
+    return candidate
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:

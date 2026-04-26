@@ -413,6 +413,19 @@ def _validate_build_commands(value: Any, *, file_label: str) -> dict[str, Any] |
     # ``persist:`` / ``watch_files:`` later.  We *do* reject the legacy
     # keys appearing inside the build_commands block as a safety net.
     _check_legacy_persist_keys(value, file_label=f"{file_label}.build_commands")
+    # Defence-in-depth (reviewer_security NACK non-blocking): refuse to
+    # silently accept operator-policy keys smuggled inside
+    # build_commands (e.g. build_commands.disable_auto_fix). Downstream
+    # consumers don't read those keys from this nesting, but a future
+    # reader getting careless would let a feature branch flip operator
+    # policy through this side door.
+    smuggled = sorted(set(value) & OPERATOR_SCOPED_PER_REPO_KEYS)
+    if smuggled:
+        raise ConfigError(
+            f"{file_label}.build_commands: operator-scoped policy keys "
+            f"{smuggled!r} are not allowed inside build_commands. They "
+            "belong only at the per-repo override level in the user file."
+        )
     return dict(value)
 
 
