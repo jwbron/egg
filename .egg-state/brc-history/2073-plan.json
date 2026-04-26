@@ -1759,5 +1759,106 @@
     },
     "timestamp": "2026-04-26T00:11:56.826320+00:00",
     "phase": "plan"
+  },
+  {
+    "id": "dbcfd6ee-80c7-44",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T00:11:57.118596+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7f2769f3-e90d-4d",
+    "pipeline_id": "issue-2073",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T00:11:58.533438+00:00"
+    },
+    "timestamp": "2026-04-26T00:11:59.047063+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "006d9933-61e5-4c",
+    "pipeline_id": "issue-2073",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T00:12:02.711882+00:00"
+    },
+    "timestamp": "2026-04-26T00:12:02.742566+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3b190507-5dbf-4b",
+    "pipeline_id": "issue-2073",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: IDLE",
+    "body": "Plan v2 confirmed by reviewer_plan; awaiting orchestrator stop or downstream events",
+    "metadata": {
+      "state": "IDLE"
+    },
+    "timestamp": "2026-04-26T00:12:05.653831+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "23dea0b3-e3d4-4a",
+    "pipeline_id": "issue-2073",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T00:12:09.994052+00:00"
+    },
+    "timestamp": "2026-04-26T00:12:10.034045+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "71fdb2d2-9b37-4a",
+    "pipeline_id": "issue-2073",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Plan BRC consensus reached at 00:11:52. Pipeline paused at decision-17 (plan approval HITL). Awaiting human review. Will resume monitoring when implement phase begins.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-26T00:13:03.560026+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "445f2bce-1f3b-4f",
+    "pipeline_id": "issue-2073",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Overseer monitoring HITL decision-17 (plan approval). Pipeline healthy, all plan agents complete. Awaiting human review of 6-phase implementation plan.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-26T00:16:25.627697+00:00",
+    "phase": "plan"
   }
 ]

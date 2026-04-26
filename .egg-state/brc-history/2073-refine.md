@@ -1,6 +1,6 @@
 # BRC Consensus History — refine phase
 
-Generated: 2026-04-25T23:23:59Z
+Generated: 2026-04-25T23:24:15Z
 Pipeline: issue-2073
 
 ### [2026-04-25T23:10:14Z] reviewer_refine (HEARTBEAT): heartbeat: WAITING_ON_ROLE
@@ -828,4 +828,51 @@ id: ae2517fa-e7e4-45
 phase: refine
 metadata:
   state: WORKING
+````
+
+### [2026-04-25T23:24:04Z] reviewer_agent_design (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT
+
+````yaml
+id: b6770a58-27d7-4a
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-25T23:24:04.175993+00:00'
+````
+
+### [2026-04-25T23:24:11Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: b852207e-6984-43
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-25T23:24:09.862137+00:00'
+````
+
+### [2026-04-25T23:24:12Z] refiner (HEARTBEAT): heartbeat: WORKING
+
+wait_loop exited
+
+````yaml
+id: dcdfb384-7626-47
+phase: refine
+metadata:
+  state: WORKING
+````
+
+### [2026-04-25T23:24:15Z] refiner (HEARTBEAT): heartbeat: WAITING_FOR_EVENT
+
+wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT
+
+````yaml
+id: fbd0e0e0-33de-41
+phase: refine
+metadata:
+  state: WAITING_FOR_EVENT
+  since: '2026-04-25T23:24:14.973036+00:00'
 ````
