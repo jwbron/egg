@@ -118,19 +118,52 @@ class TestRebasePipelineBranchOntoBase:
             assert mock_run.call_count == 3
             spawner.gateway.push_worktree_branch.assert_not_called()
 
-    def test_skips_when_worktree_has_local_commits(self):
-        """Mid-pipeline state — refuse to clobber HEAD ahead of base."""
+    def test_skips_when_head_not_ancestor_of_branch(self):
+        """HEAD has commits not on origin/<branch> — defer to push reconcile.
+
+        This is the only case where ``merge-base --is-ancestor`` returns
+        non-zero with the worktree in a sane state: someone (or some other
+        path) staged commits on HEAD that haven't been published yet.
+        Resetting would discard them, so we skip.
+        """
         spawner = _make_spawner()
         with patch("routes.pipelines.subprocess.run") as mock_run:
             mock_run.side_effect = [
                 _result(returncode=0),  # rev-parse origin/<branch>
                 _result(returncode=0),  # rev-parse origin/<base>
                 _result(stdout="70\n"),  # 70 commits behind base
-                _result(stdout="3\n"),  # HEAD is 3 ahead of base
+                _result(returncode=1),  # is-ancestor: HEAD NOT on origin/<branch>
             ]
             _call(spawner)
             assert mock_run.call_count == 4
             spawner.gateway.push_worktree_branch.assert_not_called()
+
+    def test_proceeds_when_head_is_ancestor_of_branch(self):
+        """Canonical preserved-worktree resume case (#2098).
+
+        After a cancelled run was preserved with ``preserve_worktrees=True``,
+        the orchestrator-side worktree's HEAD carries state-file commits
+        that were *already pushed* to ``origin/<branch>`` — i.e. HEAD is
+        a strict ancestor of ``origin/<branch>`` (commit-and-pushed, plus
+        old-base ancestors that diverged from new main).  The previous
+        ``rev-list base..HEAD > 0`` guard wrongly skipped this case; the
+        ancestry check must let it proceed so the rebase actually runs.
+        """
+        spawner = _make_spawner()
+        with patch("routes.pipelines.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                _result(returncode=0),  # rev-parse origin/<branch>
+                _result(returncode=0),  # rev-parse origin/<base>
+                _result(stdout="70\n"),  # 70 commits behind base
+                _result(returncode=0),  # is-ancestor: HEAD IS on origin/<branch>
+                _result(returncode=0),  # reset --hard origin/<branch>
+                _result(returncode=0),  # rebase succeeds
+            ]
+            _call(spawner)
+            assert mock_run.call_count == 6
+            spawner.gateway.push_worktree_branch.assert_called_once()
+            push_kwargs = spawner.gateway.push_worktree_branch.call_args.kwargs
+            assert push_kwargs["force"] is True
 
     def test_clean_rebase_force_pushes(self):
         """Branch is behind base, rebase succeeds, force-push fires."""
@@ -140,7 +173,7 @@ class TestRebasePipelineBranchOntoBase:
                 _result(returncode=0),  # rev-parse origin/<branch>
                 _result(returncode=0),  # rev-parse origin/<base>
                 _result(stdout="70\n"),  # 70 commits behind base
-                _result(stdout="0\n"),  # HEAD not ahead of base
+                _result(returncode=0),  # is-ancestor: HEAD on origin/<branch>
                 _result(returncode=0),  # reset --hard origin/<branch>
                 _result(returncode=0),  # rebase succeeds
             ]
@@ -153,6 +186,40 @@ class TestRebasePipelineBranchOntoBase:
             # Re-fetch happens after successful push (initial fetch + re-fetch)
             assert spawner.gateway.fetch_worktree_branch.call_count == 2
 
+    def test_clean_rebase_logs_skipped_commit_count(self):
+        """``warning: skipped previously applied commit`` lines on rebase
+        stderr should be counted and surfaced in the success log so
+        operators can confirm the helper actually dropped stale commits.
+        """
+        spawner = _make_spawner()
+        rebase_stderr = (
+            "warning: skipped previously applied commit aaa111\n"
+            "warning: skipped previously applied commit bbb222\n"
+            "warning: skipped previously applied commit ccc333\n"
+            "Successfully rebased and updated detached HEAD.\n"
+        )
+        with (
+            patch("routes.pipelines.subprocess.run") as mock_run,
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            mock_run.side_effect = [
+                _result(returncode=0),  # rev-parse origin/<branch>
+                _result(returncode=0),  # rev-parse origin/<base>
+                _result(stdout="70\n"),  # behind by 70
+                _result(returncode=0),  # is-ancestor ok
+                _result(returncode=0),  # reset
+                _result(returncode=0, stderr=rebase_stderr),  # rebase
+            ]
+            _call(spawner)
+            success_calls = [
+                c
+                for c in mock_logger.info.call_args_list
+                if c.args and "rebased and force-pushed" in c.args[0]
+            ]
+            assert success_calls, "expected success log line"
+            assert success_calls[0].kwargs["skipped_via_rebase"] == 3
+            assert success_calls[0].kwargs["dropped_stale_commits"] == 70
+
     def test_rebase_conflict_raises_stale_branch_error(self):
         """Rebase conflicts → abort + reset + raise."""
         spawner = _make_spawner()
@@ -161,7 +228,7 @@ class TestRebasePipelineBranchOntoBase:
                 _result(returncode=0),  # rev-parse origin/<branch>
                 _result(returncode=0),  # rev-parse origin/<base>
                 _result(stdout="70\n"),  # behind by 70
-                _result(stdout="0\n"),  # HEAD not ahead
+                _result(returncode=0),  # is-ancestor ok
                 _result(returncode=0),  # reset --hard origin/<branch>
                 _result(returncode=1, stderr="CONFLICT (content): foo.py"),  # rebase fails
                 _result(returncode=0),  # rebase --abort
@@ -176,6 +243,34 @@ class TestRebasePipelineBranchOntoBase:
             abort_call = mock_run.call_args_list[6]
             assert "--abort" in abort_call[0][0]
 
+    def test_rebase_timeout_aborts_and_raises(self):
+        """``subprocess.TimeoutExpired`` mid-rebase must not propagate;
+        abort + reset + raise as a ``StalePipelineBranchError`` instead.
+
+        Without this, the timeout would bubble past the
+        ``except StalePipelineBranchError`` handler in ``_run_pipeline``
+        and leave the worktree mid-rebase.
+        """
+        spawner = _make_spawner()
+
+        def _run_side_effect(args, **kwargs):
+            cmd = args
+            if "rebase" in cmd and "--abort" not in cmd:
+                raise subprocess.TimeoutExpired(cmd=cmd, timeout=120)
+            # rev-parse / rev-list / is-ancestor / reset / abort / reset
+            if "rev-list" in cmd:
+                return _result(stdout="70\n")
+            if "merge-base" in cmd:
+                return _result(returncode=0)
+            return _result(returncode=0)
+
+        with patch("routes.pipelines.subprocess.run", side_effect=_run_side_effect):
+            with pytest.raises(StalePipelineBranchError) as excinfo:
+                _call(spawner)
+        assert "rebasing it failed" in str(excinfo.value).lower()
+        assert "timed out" in str(excinfo.value).lower()
+        spawner.gateway.push_worktree_branch.assert_not_called()
+
     def test_force_push_failure_raises_stale_branch_error(self):
         """Rebase succeeds but force-push fails → reset + raise."""
         spawner = _make_spawner(push_ok=False)
@@ -184,7 +279,7 @@ class TestRebasePipelineBranchOntoBase:
                 _result(returncode=0),  # rev-parse origin/<branch>
                 _result(returncode=0),  # rev-parse origin/<base>
                 _result(stdout="70\n"),  # behind
-                _result(stdout="0\n"),  # not ahead
+                _result(returncode=0),  # is-ancestor ok
                 _result(returncode=0),  # reset to branch
                 _result(returncode=0),  # rebase succeeds
                 _result(returncode=0),  # reset to base after push fails
@@ -207,6 +302,15 @@ class TestRebasePipelineBranchOntoBase:
             assert mock_run.call_count == 3
             spawner.gateway.push_worktree_branch.assert_not_called()
 
+    def test_rev_parse_oserror_skips(self):
+        """If git itself fails to spawn (``OSError``), the helper must
+        treat that as a best-effort skip rather than crashing the pipeline.
+        """
+        spawner = _make_spawner()
+        with patch("routes.pipelines.subprocess.run", side_effect=OSError("git not found")):
+            _call(spawner)
+            spawner.gateway.push_worktree_branch.assert_not_called()
+
     def test_reset_to_branch_failure_skips(self):
         """If we can't reset to the stale tip, skip rather than risk corruption."""
         spawner = _make_spawner()
@@ -215,7 +319,7 @@ class TestRebasePipelineBranchOntoBase:
                 _result(returncode=0),  # rev-parse origin/<branch>
                 _result(returncode=0),  # rev-parse origin/<base>
                 _result(stdout="70\n"),  # behind
-                _result(stdout="0\n"),  # not ahead
+                _result(returncode=0),  # is-ancestor ok
                 _result(returncode=128, stderr="reset failed"),  # reset fails
             ]
             _call(spawner)

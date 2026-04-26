@@ -5273,17 +5273,21 @@ def _rebase_pipeline_branch_onto_base(
     main commits as ancestors — producing a final PR diff that buries
     the actual feature work under contamination (#2098).
 
-    This helper runs on the orchestrator-side worktree (whose ``HEAD`` is
-    fresh from base immediately after creation, before any pipeline
-    commits) and treats it as scratch space for the rebase:
+    This helper runs on the orchestrator-side worktree and treats it as
+    scratch space for the rebase:
 
     1. Skip when ``pipeline_branch`` doesn't exist on the remote (fresh
        run — there's nothing to rebase).
     2. Skip when ``origin/<pipeline_branch>`` is not behind
        ``origin/<base_branch>`` (already up to date).
-    3. Skip when the worktree has local commits beyond ``origin/<base>``
-       (mid-pipeline state we'd be destroying — let the existing push
-       reconcile handle this case).
+    3. Skip when ``HEAD`` is *not* an ancestor of
+       ``origin/<pipeline_branch>``.  In the canonical resume path the
+       orchestrator-side worktree was preserved from a prior run; its
+       ``HEAD`` carries state-file commits that were already pushed, so
+       ``HEAD`` is a strict ancestor of ``origin/<branch>`` and the
+       reset-then-rebase below is lossless.  If that ancestry doesn't
+       hold, something unexpected lives on ``HEAD`` and we defer rather
+       than overwrite it.
     4. Reset the worktree to ``origin/<pipeline_branch>``, ``git rebase
        origin/<base_branch>``, and force-push the rebased tip.  Git's
        built-in cherry-pick-skip drops commits already content-equivalent
@@ -5309,6 +5313,33 @@ def _rebase_pipeline_branch_onto_base(
         str(worktree_repo_path),
     ]
 
+    def _run_git(
+        args: list[str],
+        timeout: int,
+    ) -> subprocess.CompletedProcess[str] | None:
+        """Run a git command and convert ``TimeoutExpired`` / ``OSError``
+        into a ``None`` return so callers can decide what to do.
+
+        Mirrors the defensive pattern in ``_sync_worktree_with_remote``.
+        """
+        try:
+            return subprocess.run(
+                [*git_base, *args],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            logger.warning(
+                "rebase-on-resume: git command failed to run",
+                pipeline_id=pipeline_id,
+                branch=pipeline_branch,
+                git_args=args,
+                error=str(exc),
+            )
+            return None
+
     # Step 1: Fetch both refs through the gateway so we have current
     # origin/<branch> and origin/<base> tips locally.  fetch_worktree_branch
     # already runs `git fetch origin` (no refspec) which updates all
@@ -5328,24 +5359,12 @@ def _rebase_pipeline_branch_onto_base(
 
     # Step 2: Verify origin/<pipeline_branch> exists.  Fresh pipelines
     # haven't pushed yet, so there's nothing to rebase.
-    verify_branch = subprocess.run(
-        [*git_base, "rev-parse", "--verify", f"origin/{pipeline_branch}"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
-    )
-    if verify_branch.returncode != 0:
+    verify_branch = _run_git(["rev-parse", "--verify", f"origin/{pipeline_branch}"], timeout=10)
+    if verify_branch is None or verify_branch.returncode != 0:
         return
 
-    verify_base = subprocess.run(
-        [*git_base, "rev-parse", "--verify", f"origin/{base_branch}"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-        check=False,
-    )
-    if verify_base.returncode != 0:
+    verify_base = _run_git(["rev-parse", "--verify", f"origin/{base_branch}"], timeout=10)
+    if verify_base is None or verify_base.returncode != 0:
         logger.warning(
             "rebase-on-resume: origin/<base_branch> not resolvable, skipping",
             pipeline_id=pipeline_id,
@@ -5355,24 +5374,20 @@ def _rebase_pipeline_branch_onto_base(
         return
 
     # Step 3: Is the pipeline branch actually behind base?  If not, no-op.
-    behind = subprocess.run(
+    behind = _run_git(
         [
-            *git_base,
             "rev-list",
             "--count",
             f"origin/{pipeline_branch}..origin/{base_branch}",
         ],
-        capture_output=True,
-        text=True,
         timeout=10,
-        check=False,
     )
-    if behind.returncode != 0:
+    if behind is None or behind.returncode != 0:
         logger.warning(
             "rebase-on-resume: rev-list failed, skipping",
             pipeline_id=pipeline_id,
             branch=pipeline_branch,
-            stderr=behind.stderr.strip(),
+            stderr=(behind.stderr.strip() if behind is not None else None),
         )
         return
     try:
@@ -5382,35 +5397,32 @@ def _rebase_pipeline_branch_onto_base(
     if behind_count == 0:
         return
 
-    # Step 4: Refuse to clobber mid-pipeline state.  HEAD ahead of
-    # origin/<base_branch> means the worktree has uncommitted-to-remote
-    # work we shouldn't blow away.  Defer to the existing push reconcile.
-    head_ahead = subprocess.run(
+    # Step 4: Confirm reset-to-origin/<branch> is lossless before we
+    # overwrite HEAD.  In the canonical preserved-worktree resume path
+    # (#2098), the orchestrator-side worktree's HEAD carries state-file
+    # commits that were already pushed to origin/<branch>, so HEAD is a
+    # strict ancestor of origin/<branch> and resetting drops nothing.
+    # If HEAD has anything *not* on origin/<branch>, defer to the
+    # existing push-reconcile path rather than blow it away — an
+    # ahead-of-base check would have wrongly skipped the canonical case
+    # where state-file commits sit between origin/<base> and HEAD.
+    is_ancestor = _run_git(
         [
-            *git_base,
-            "rev-list",
-            "--count",
-            f"origin/{base_branch}..HEAD",
+            "merge-base",
+            "--is-ancestor",
+            "HEAD",
+            f"origin/{pipeline_branch}",
         ],
-        capture_output=True,
-        text=True,
         timeout=10,
-        check=False,
     )
-    if head_ahead.returncode == 0:
-        try:
-            ahead_count = int(head_ahead.stdout.strip() or "0")
-        except ValueError:
-            ahead_count = 0
-        if ahead_count > 0:
-            logger.info(
-                "rebase-on-resume: worktree has local commits — skipping (push reconcile will handle)",
-                pipeline_id=pipeline_id,
-                branch=pipeline_branch,
-                local_ahead=ahead_count,
-                behind_base=behind_count,
-            )
-            return
+    if is_ancestor is None or is_ancestor.returncode != 0:
+        logger.info(
+            "rebase-on-resume: HEAD has commits not on origin/<branch> — skipping",
+            pipeline_id=pipeline_id,
+            branch=pipeline_branch,
+            behind_base=behind_count,
+        )
+        return
 
     logger.info(
         "rebase-on-resume: pipeline branch is behind base, attempting rebase",
@@ -5422,64 +5434,52 @@ def _rebase_pipeline_branch_onto_base(
 
     # Step 5: Reset the worktree to the stale pipeline branch tip so we
     # can rebase it onto current base.
-    reset_to_branch = subprocess.run(
-        [*git_base, "reset", "--hard", f"origin/{pipeline_branch}"],
-        capture_output=True,
-        text=True,
-        timeout=30,
-        check=False,
-    )
-    if reset_to_branch.returncode != 0:
+    reset_to_branch = _run_git(["reset", "--hard", f"origin/{pipeline_branch}"], timeout=30)
+    if reset_to_branch is None or reset_to_branch.returncode != 0:
         logger.warning(
             "rebase-on-resume: reset to pipeline branch failed, skipping",
             pipeline_id=pipeline_id,
             branch=pipeline_branch,
-            stderr=reset_to_branch.stderr.strip(),
+            stderr=(reset_to_branch.stderr.strip() if reset_to_branch is not None else None),
         )
         return
 
     # Step 6: Rebase onto current base.  Plain ``git rebase
     # origin/<base>`` — git's cherry-pick-skip drops content-equivalent
     # commits already on base (the 70+ stale-variant commits in #2098).
-    rebase = subprocess.run(
-        [*git_base, "rebase", f"origin/{base_branch}"],
-        capture_output=True,
-        text=True,
-        timeout=120,
-        check=False,
-    )
-    if rebase.returncode != 0:
-        # Conflict (or other rebase failure).  Abort the rebase, restore
-        # the worktree to origin/<base> so the worktree isn't left in a
-        # half-resolved state for downstream callers, and raise so the
-        # operator gets an actionable error rather than a contaminated PR.
-        subprocess.run(
-            [*git_base, "rebase", "--abort"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
-        subprocess.run(
-            [*git_base, "reset", "--hard", f"origin/{base_branch}"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
+    rebase = _run_git(["rebase", f"origin/{base_branch}"], timeout=120)
+    if rebase is None or rebase.returncode != 0:
+        # Conflict, timeout, or other rebase failure.  Abort the rebase,
+        # restore the worktree to origin/<base> so it isn't left mid-
+        # rebase for downstream callers, and raise so the operator gets
+        # an actionable error rather than a contaminated PR.  ``rebase
+        # is None`` covers the timeout case where ``_run_git`` already
+        # logged the underlying exception.
+        _run_git(["rebase", "--abort"], timeout=30)
+        _run_git(["reset", "--hard", f"origin/{base_branch}"], timeout=30)
+        stderr_text = rebase.stderr.strip() if rebase is not None else "rebase command timed out"
         logger.error(
-            "rebase-on-resume: rebase failed (likely conflict) — aborting pipeline start",
+            "rebase-on-resume: rebase failed — aborting pipeline start",
             pipeline_id=pipeline_id,
             branch=pipeline_branch,
             base_branch=base_branch,
-            stderr=rebase.stderr.strip(),
+            stderr=stderr_text,
+            timed_out=rebase is None,
         )
         raise StalePipelineBranchError(
             f"origin/{pipeline_branch} is {behind_count} commits behind "
-            f"origin/{base_branch} and rebasing it hit a conflict. "
+            f"origin/{base_branch} and rebasing it failed. "
             f"Manually rebase the branch (or delete it to start fresh) "
-            f"and resubmit. Stderr: {rebase.stderr.strip()}"
+            f"and resubmit. Stderr: {stderr_text}"
         )
+
+    # Git emits ``warning: skipped previously applied commit <sha>`` on
+    # stderr for every cherry-pick-equivalent it dropped.  Counting them
+    # gives operators a quick sanity check that the helper actually
+    # discarded the stale-from-main commits (vs. e.g. silently no-op'd).
+    skipped_via_rebase = sum(
+        1 for line in rebase.stderr.splitlines() if "skipped previously applied commit" in line
+    )
 
     # Step 7: Force-push the rebased branch.  ``force=True`` is required
     # because the rebased tip has different SHAs from origin/<branch>;
@@ -5497,13 +5497,7 @@ def _rebase_pipeline_branch_onto_base(
         # Restore HEAD to origin/<base> so the worktree is in a known
         # state for downstream callers (the rebased commits stay in the
         # local reflog if needed for recovery).
-        subprocess.run(
-            [*git_base, "reset", "--hard", f"origin/{base_branch}"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
-        )
+        _run_git(["reset", "--hard", f"origin/{base_branch}"], timeout=30)
         logger.error(
             "rebase-on-resume: force-push of rebased branch failed",
             pipeline_id=pipeline_id,
@@ -5530,6 +5524,7 @@ def _rebase_pipeline_branch_onto_base(
         branch=pipeline_branch,
         base_branch=base_branch,
         dropped_stale_commits=behind_count,
+        skipped_via_rebase=skipped_via_rebase,
     )
 
 

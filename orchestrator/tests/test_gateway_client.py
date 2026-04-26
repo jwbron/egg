@@ -1095,6 +1095,44 @@ class TestPushWorktreeBranch:
                 == "refs/heads/egg/pipeline-state:refs/heads/egg/pipeline-state"
             )
 
+    def test_push_worktree_branch_force_flag_propagates(self, gateway_client, mock_gateway_server):
+        """``force=True`` must reach the ``/api/v1/git/push`` request body.
+
+        The rebase-on-resume helper (#2098) relies on this — without it,
+        the gateway never sees ``--force`` and the post-rebase push hits
+        the same non-fast-forward error the helper just rebased to fix.
+        """
+        with patch.object(
+            gateway_client, "_make_request", wraps=gateway_client._make_request
+        ) as mock_req:
+            gateway_client.push_worktree_branch(
+                pipeline_id="issue-42",
+                repo_path="/some/path",
+                branch="egg/issue-42",
+                force=True,
+            )
+            push_calls = [c for c in mock_req.call_args_list if c.args[0] == "/api/v1/git/push"]
+            assert len(push_calls) == 1
+            push_data = push_calls[0].kwargs["data"]
+            assert push_data["force"] is True
+
+    def test_push_worktree_branch_default_force_false(self, gateway_client, mock_gateway_server):
+        """Default callers must not silently force-push.  The body's
+        ``force`` field must be ``False`` unless explicitly opted in.
+        """
+        with patch.object(
+            gateway_client, "_make_request", wraps=gateway_client._make_request
+        ) as mock_req:
+            gateway_client.push_worktree_branch(
+                pipeline_id="issue-42",
+                repo_path="/some/path",
+                branch="egg/issue-42",
+            )
+            push_calls = [c for c in mock_req.call_args_list if c.args[0] == "/api/v1/git/push"]
+            assert len(push_calls) == 1
+            push_data = push_calls[0].kwargs["data"]
+            assert push_data["force"] is False
+
 
 class TestDeleteRemoteBranch:
     """Tests for delete_remote_branch method."""
