@@ -289,10 +289,28 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-8",
+      "question": "Network-mode gating shape for /api/v1/confluence/* routes?",
+      "context": "Open contract question decision-7, registered by an agent during the refine phase.",
+      "options": [
+        "@require_private_mode per route + route-enumeration regression test (Recommended — mirrors Jira)",
+        "Move to a Flask blueprint with before_request rejection (would also require migrating Jira; out of scope here)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-26T23:23:26.030014Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-26T23:05:30.164689Z",
-  "updated_at": "2026-04-26T23:23:25.970295Z",
+  "updated_at": "2026-04-26T23:23:26.060125Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -306,6 +324,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 18,
+  "version": 19,
   "jira_ticket": null
 }
