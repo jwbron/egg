@@ -436,10 +436,75 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-16",
+      "question": "Open feedback request feedback-1",
+      "context": "Open contract feedback feedback-1, registered by an agent during the refine phase.",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [
+        {
+          "id": "Q1",
+          "question": "Which Atlassian Confluence spaces should be on the v1 allowlist (space keys, comma-separated)?",
+          "answer": ""
+        },
+        {
+          "id": "Q2",
+          "question": "What is the expected request volume per pipeline (peak CQL searches/min, page reads/min, comment reads/min)? This informs rate-limit defaults and 429 retry behaviour.",
+          "answer": ""
+        },
+        {
+          "id": "Q3",
+          "question": "Are there custom Confluence fields, macros, or page properties known to hold PII or secrets that should be redacted before sandbox-visible responses (in addition to the accountId / emailAddress defaults)?",
+          "answer": ""
+        },
+        {
+          "id": "Q4",
+          "question": "For the future write phase (out of scope here), should the gateway enforce idempotency on comment/create (refuse duplicate within N seconds) or leave that to Atlassian's own semantics? Surfacing now so the design-once decision is consistent with Jira.",
+          "answer": ""
+        },
+        {
+          "id": "Q5",
+          "question": "What pageId / page-link patterns should the orchestrator extract from Jira tickets to feed Confluence reads? (E.g., should it scan ticket descriptions for https://<tenant>.atlassian.net/wiki/spaces/<KEY>/pages/<ID>/... and pre-resolve, or leave URL parsing to the agent?) This informs whether v1 needs a page/resolve-by-url verb.",
+          "answer": ""
+        },
+        {
+          "id": "Q6",
+          "question": "Should getConfluencePageDescendants enforce a maximum depth (e.g., 3) to prevent runaway responses on deeply nested page trees, or pass Atlassian's depth parameter through verbatim?",
+          "answer": ""
+        },
+        {
+          "id": "Q7",
+          "question": "Should the audit log treat reads of pages whose space is technically in the allowlist but whose page hierarchy is restricted at the Atlassian permission layer as a special audit category (e.g., confluence_upstream_403 separate from confluence_upstream_error)?",
+          "answer": ""
+        },
+        {
+          "id": "Q8",
+          "question": "For long-lived pages with extensive version history: is there a use case for exposing a version query parameter on getConfluencePage in v1, or should we default to current-version-only?",
+          "answer": ""
+        },
+        {
+          "id": "Q9",
+          "question": "The host-side mcp__confluence__* MCP authenticates as the consenting human user; the gateway will authenticate as a bot. Are there documents in operator workspaces that the human reads but the bot would not be able to (or vice versa)? If so, do we need a diagnostic command that surfaces the bot's effective access per space?",
+          "answer": ""
+        },
+        {
+          "id": "Q10",
+          "question": "Should the sandbox confluence wrapper expose MCP-style alias names (confluence get-page, confluence search-cql) in addition to Jira-style subcommands (confluence page get, confluence search), or pick one shape only?",
+          "answer": ""
+        }
+      ],
+      "status": "pending",
+      "created_at": "2026-04-26T23:23:26.969719Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-26T23:05:30.164689Z",
-  "updated_at": "2026-04-26T23:23:26.912586Z",
+  "updated_at": "2026-04-26T23:23:26.996498Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -453,6 +518,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 26,
+  "version": 27,
   "jira_ticket": null
 }
