@@ -195,10 +195,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-3",
+      "question": "Atlassian API version strategy for v1 of the wrapper?",
+      "context": "Open contract question decision-2, registered by an agent during the refine phase.",
+      "options": [
+        "v2-first hybrid: v2 for reads + v1 for CQL search + v1 fallback for known v2 comment bugs (Recommended)",
+        "v1-only across the board (simpler shape, locks into legacy)",
+        "v2-only across the board (CQL search would not be possible without shipping our own search index)",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-26T23:23:25.603141Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-26T23:05:30.164689Z",
-  "updated_at": "2026-04-26T23:23:25.547243Z",
+  "updated_at": "2026-04-26T23:23:25.632970Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -212,6 +231,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 13,
+  "version": 14,
   "jira_ticket": null
 }
