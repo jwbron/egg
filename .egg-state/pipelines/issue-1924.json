@@ -437,10 +437,28 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-16",
+      "question": "Cross-project parent on createJiraIssue (Open Q17)",
+      "context": "Open contract question decision-15, registered by an agent during the refine phase.",
+      "options": [
+        "Reject if parent.key project differs from new ticket project",
+        "Accept; let Atlassian decide",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-27T19:13:59.065952Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-27T18:38:49.382721Z",
-  "updated_at": "2026-04-27T19:13:59.016120Z",
+  "updated_at": "2026-04-27T19:13:59.092809Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -454,6 +472,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 26,
+  "version": 27,
   "jira_ticket": null
 }
