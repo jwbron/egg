@@ -443,6 +443,18 @@ def _detached_head_hint(
     if head_check.stdout.strip():
         return ""
     if head_check.stderr.strip():
+        # Symbolic-ref returncode==1 with empty stdout but non-empty stderr is
+        # ambiguous (e.g. future git versions writing config-deprecation
+        # warnings).  Log at debug so a missing hint is debuggable rather than
+        # silent, and bail out — telling the agent to run update-ref against
+        # an unclear HEAD state would be misleading.
+        logger.debug(
+            "detached_head_hint_suppressed_stderr",
+            repo_path=repo_path,
+            container_id=container_id,
+            assigned_branch=assigned,
+            stderr=head_check.stderr.strip()[:200],
+        )
         return ""
     logger.info(
         "detached_head_commit_hint",

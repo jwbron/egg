@@ -16,7 +16,7 @@ git update-ref refs/heads/<your-assigned-branch> <new-sha>
 
 That sets your work branch ref to the new commit. The implementation does **not** require the new value to be a descendant of the current ref — you can also use this to rewind your branch after a bad direction, or repoint it to an arbitrary commit you've made or fetched. After running the command, `propose` (which pushes your branch to origin) will include the work.
 
-**You will see a hint in stderr** after a successful `git commit` whenever HEAD is detached, telling you the exact command to run. If you see it, run that command and continue.
+**You will see a hint in stderr** after a `git commit` (successful or failed) whenever HEAD is detached, telling you the exact command to run. If you see it, run that command and continue.
 
 ## What is **not** allowed (and why)
 

@@ -161,6 +161,10 @@ class TestUpdateRefScope:
             # 400 from arg validation: --no-deref is no longer in the allowlist
             # because the gateway always injects it.
             assert response.status_code == 400
+            # Error message must name the flag so the agent can self-correct
+            # without escalating.
+            data = json.loads(response.data)
+            assert "--no-deref" in data.get("message", "")
 
     def test_update_ref_with_oldvalue_allowed(self, client, auth_with_branch):
         """The optional <oldvalue> third positional is accepted and reaches subprocess."""
