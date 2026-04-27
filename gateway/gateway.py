@@ -149,8 +149,8 @@ try:
         resolve_gh_api_template_variables,
         validate_gh_api_path,
     )
+    from .jira_adf import is_adf_dict as is_jira_adf_dict
     from .jira_client import (
-        DEFAULT_JIRA_LINK_TYPES,
         JIRA_COMMENT_MAX_CHARS,
         JIRA_DESCRIPTION_MAX_CHARS,
         JIRA_LABEL_MAX_CHARS,
@@ -176,7 +176,6 @@ try:
         is_project_allowed,
         reload_jira_policy,
     )
-    from .jira_adf import is_adf_dict as is_jira_adf_dict
     from .jira_search import extract_search_projects
     from .mode_gate import require_private_mode
     from .phase_filter import (
@@ -299,8 +298,10 @@ except ImportError:
     from confluence_search import (  # type: ignore[no-redef, import-untyped]
         extract_search_spaces,
     )
+    from jira_adf import (  # type: ignore[no-redef, import-untyped]
+        is_adf_dict as is_jira_adf_dict,
+    )
     from jira_client import (  # type: ignore[no-redef, import-untyped]
-        DEFAULT_JIRA_LINK_TYPES,
         JIRA_COMMENT_MAX_CHARS,
         JIRA_DESCRIPTION_MAX_CHARS,
         JIRA_LABEL_MAX_CHARS,
@@ -327,9 +328,6 @@ except ImportError:
         extract_project_key,
         is_project_allowed,
         reload_jira_policy,
-    )
-    from jira_adf import (  # type: ignore[no-redef, import-untyped]
-        is_adf_dict as is_jira_adf_dict,
     )
     from jira_search import (  # type: ignore[no-redef, import-untyped]
         extract_search_projects,
