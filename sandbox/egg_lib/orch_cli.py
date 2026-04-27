@@ -2359,6 +2359,17 @@ def _add_json_flag(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--json", action="store_true", help="Output raw JSON")
 
 
+def _non_negative_int(value: str) -> int:
+    """argparse type validator: reject negative ints, mirror PipelineConfig ge=0."""
+    try:
+        ivalue = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"{value!r} is not a valid integer") from exc
+    if ivalue < 0:
+        raise argparse.ArgumentTypeError(f"{ivalue} must be >= 0 (use 0 to disable)")
+    return ivalue
+
+
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser."""
     parser = argparse.ArgumentParser(
@@ -3113,13 +3124,14 @@ def create_parser() -> argparse.ArgumentParser:
     )
     ov_advisor.add_argument(
         "--recent-log-bytes-cap",
-        type=int,
+        type=_non_negative_int,
         default=None,
         help=(
             "Byte cap for the recent_log_lines block in the advisor "
             "prompt (issue #2120). When omitted, consult_advisor uses "
             "the PipelineConfig value or its 256 KiB default. 0 "
-            "disables the cap (not recommended)."
+            "disables the cap (not recommended). Negative values are "
+            "rejected (matches PipelineConfig ge=0)."
         ),
     )
     _add_json_flag(ov_advisor)

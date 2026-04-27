@@ -2722,7 +2722,7 @@ def get_pipeline_status(pipeline_id: str) -> tuple[Response, int]:
                 data["config"] = {
                     "overseer_advisor_model": getattr(cfg, "overseer_advisor_model", None),
                     "overseer_advisor_recent_log_bytes_cap": getattr(
-                        cfg, "overseer_advisor_recent_log_bytes_cap", 256_000
+                        cfg, "overseer_advisor_recent_log_bytes_cap", None
                     ),
                     "overseer_auto_file_issues_mode": getattr(
                         cfg, "overseer_auto_file_issues_mode", None

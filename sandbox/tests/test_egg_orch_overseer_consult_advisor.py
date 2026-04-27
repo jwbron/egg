@@ -85,6 +85,38 @@ class TestOverseerConsultAdvisorParser:
         )
         assert ns.recent_log_bytes_cap is None
 
+    def test_parser_recent_log_bytes_cap_rejects_negative(self) -> None:
+        # Issue #2120 review: PipelineConfig has ``ge=0`` on the matching
+        # field, so the CLI mirrors that — negatives raise rather than
+        # silently being treated as "disabled" by the truncation helper.
+        parser = create_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(
+                [
+                    "overseer",
+                    "consult-advisor",
+                    "--inputs-file",
+                    "/tmp/inputs.json",
+                    "--recent-log-bytes-cap",
+                    "-1",
+                ]
+            )
+
+    def test_parser_recent_log_bytes_cap_accepts_zero(self) -> None:
+        # 0 is the documented "disable" sentinel and must remain accepted.
+        parser = create_parser()
+        ns = parser.parse_args(
+            [
+                "overseer",
+                "consult-advisor",
+                "--inputs-file",
+                "/tmp/inputs.json",
+                "--recent-log-bytes-cap",
+                "0",
+            ]
+        )
+        assert ns.recent_log_bytes_cap == 0
+
 
 # ---------------------------------------------------------------------------
 # cmd_overseer_consult_advisor behaviour
