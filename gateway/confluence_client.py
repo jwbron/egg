@@ -61,9 +61,10 @@ Path safety:
 
 403 envelope (Q7, risk R15):
 
-- All read methods raise ``ConfluenceUpstreamForbidden`` on upstream 403
-  so the route layer can audit it as ``confluence_upstream_403`` (distinct
-  from generic upstream errors).
+- All read methods raise ``ConfluenceUpstreamForbidden`` on upstream 403.
+  Route-layer translation is per-call-site (primary route call vs.
+  auxiliary allowlist-resolution call); see
+  ``ConfluenceUpstreamForbidden`` for the full taxonomy.
 
 Response redaction (decision 10):
 
@@ -232,14 +233,23 @@ class ConfluenceUpstreamError(RuntimeError):
 class ConfluenceUpstreamForbidden(RuntimeError):
     """Raised when Atlassian returns HTTP 403 for a read endpoint.
 
-    Translation at the route layer is per-call-site rather than uniform
-    (Q7, risk R15):
+    Route-layer translation is per-call-site (Q7, risk R15):
 
-    - ``confluence_space_pages`` translates this directly to a
+    - **Primary route calls** (``confluence_page_get``,
+      ``confluence_page_descendants``, ``confluence_page_footer_comments``,
+      ``confluence_page_inline_comments``, ``confluence_space_pages``,
+      ``confluence_space_list``, ``confluence_search``,
+      ``confluence_execute``) translate this directly to a
       ``confluence_upstream_403`` audit event so operators can distinguish
       bot-account permission denials from other upstream errors.
-    - ``_resolve_space_key_via_list`` (used by ``confluence_search``) and
-      ``confluence_execute`` collapse the 403 into a fail-closed
+    - **Auxiliary allowlist-resolution calls** —
+      ``_resolve_space_key_via_list`` (invoked by
+      ``_check_post_fetch_space_allowlist``), the parent-page re-fetch
+      inside ``confluence_page_descendants`` /
+      ``confluence_page_footer_comments`` /
+      ``confluence_page_inline_comments``, and the cache-warm fallback
+      inside ``confluence_execute``'s ``space_id_in_path`` branch —
+      collapse the 403 into the route's fail-closed
       ``confluence_*_denied`` event with ``space_key=None`` because the
       403 surfaces *during* allowlist resolution and the route's
       contract is to deny rather than expose tenant-permission state.
