@@ -10997,8 +10997,9 @@ def _populate_contract_from_plan_safe(
         _populate_contract_from_plan(repo_path, pipeline_id, pipeline_mode, issue_number)
     except Exception as pop_err:
         logger.warning(
-            "Failed to populate contract from plan (continuing)",
+            "contract_phases_ingest_failed",
             pipeline_id=pipeline_id,
+            reason="unexpected_exception",
             error=str(pop_err),
         )
 
@@ -11017,25 +11018,41 @@ def _populate_contract_from_plan(
     try:
         from egg_contracts.loader import load_contract, save_contract
     except ImportError:
-        logger.warning("egg_contracts not available, skipping contract population")
+        logger.warning(
+            "contract_phases_ingest_failed",
+            pipeline_id=pipeline_id,
+            reason="egg_contracts_unavailable",
+        )
         return
 
     # Resolve draft path
     draft_rel = _get_draft_path("plan", issue_number=issue_number, pipeline_id=pipeline_id)
     if not draft_rel:
-        logger.warning("No draft path for plan phase", pipeline_id=pipeline_id)
+        logger.warning(
+            "contract_phases_ingest_failed",
+            pipeline_id=pipeline_id,
+            reason="no_draft_path",
+        )
         return
 
     plan_path = repo_path / draft_rel
     if not plan_path.exists():
-        logger.warning("Plan draft not found, skipping contract population", path=str(plan_path))
+        logger.warning(
+            "contract_phases_ingest_failed",
+            pipeline_id=pipeline_id,
+            reason="plan_draft_missing",
+            path=str(plan_path),
+        )
         return
 
     try:
         contract = load_contract(pipeline_id, repo_path)
-    except Exception:
+    except Exception as load_err:
         logger.warning(
-            "Contract not found for pipeline, skipping population", pipeline_id=pipeline_id
+            "contract_phases_ingest_failed",
+            pipeline_id=pipeline_id,
+            reason="contract_load_failed",
+            error=str(load_err),
         )
         return
 
@@ -11047,8 +11064,9 @@ def _populate_contract_from_plan(
 
         if not result.success:
             logger.warning(
-                "Plan parsing failed, skipping contract population",
+                "contract_phases_ingest_failed",
                 pipeline_id=pipeline_id,
+                reason="parse_failed",
                 error=result.error,
             )
             return
@@ -11084,7 +11102,7 @@ def _populate_contract_from_plan(
             save_contract(contract, repo_path)
             task_count = sum(len(p.tasks) for p in contract.phases)
             logger.info(
-                "Contract populated from plan",
+                "contract_phases_populated",
                 pipeline_id=pipeline_id,
                 phase_count=len(contract.phases),
                 task_count=task_count,
@@ -11093,8 +11111,9 @@ def _populate_contract_from_plan(
 
     except Exception as e:
         logger.warning(
-            "Failed to populate contract from plan",
+            "contract_phases_ingest_failed",
             pipeline_id=pipeline_id,
+            reason="unexpected_exception",
             error=str(e),
         )
 
