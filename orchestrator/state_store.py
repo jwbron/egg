@@ -212,6 +212,12 @@ class StateStore:
         # see the gateway's worktree paths (different bind mounts), so prune
         # would incorrectly remove admin dirs for active gateway worktrees,
         # breaking all container git operations.
+        #
+        # This early call covers the wt-gone case: the worktree directory was
+        # wiped (e.g., state volume reset) but the admin dir under
+        # `<repo>/.git/worktrees/` survived.  The forced call later in this
+        # method (line ~259) covers the wt-broken case: the worktree directory
+        # is on disk but rev-parse rejects it.
         self._remove_stale_admin_dir()
 
         wt = self._worktree_dir

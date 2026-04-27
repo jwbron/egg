@@ -1649,6 +1649,30 @@ class TestEnsureWorktreeIdempotency:
                 ):
                     store._ensure_worktree()
 
+    def test_transient_rev_parse_failure_recovers_on_retry(self, tmp_path):
+        """First rev-parse fails, second succeeds — worktree must be reused
+        without recreate.  Locks in the #1396 retry behavior so future
+        refactors don't accidentally collapse it to a single attempt."""
+        store, wt = self._make_store(tmp_path)
+        wt.mkdir()
+        (wt / ".git").write_text("gitdir: /fake\n")
+        (wt / "preserved.txt").write_text("survives transient contention")
+
+        with patch.object(
+            StateStore, "_run_git", side_effect=self._git_router(rev_parse_returncodes=[1, 0])
+        ) as mock_git:
+            with patch("state_store.time.sleep"):
+                result = store._ensure_worktree()
+
+        assert result == wt
+        # No recreate: rmtree never ran (file is preserved) and `git worktree
+        # add` was not invoked.
+        assert (wt / "preserved.txt").exists()
+        worktree_add_calls = [
+            c for c in mock_git.call_args_list if c.args[:2] == ("worktree", "add")
+        ]
+        assert worktree_add_calls == []
+
     def test_force_removes_admin_dir_when_worktree_present(self, tmp_path):
         """`_remove_stale_admin_dir(force=True)` clears the admin dir even
         when the worktree directory still exists. The default behavior
