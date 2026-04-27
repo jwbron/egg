@@ -170,16 +170,16 @@
       ],
       "decision_type": "phase_gate",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-27T06:38:18.473417Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-27T06:45:41.184427Z",
+      "resolution": "{\"action\": \"request_changes\", \"feedback\": \"The analysis has four issues that need correction before this can advance to plan:\\n\\n1. **Multi-PR delivery is not supported.** The recommended approach proposes a 4-PR sequence (PR-1 = #2134, PR-2 = rename, PR-3 = scheduler+gateway, PR-4 = roster cleanup). egg pipelines produce a single PR per pipeline. Drop the multi-PR shape entirely. This is one cohesive changeset. Also remove the corresponding feedback question Q2 ('single PR vs multi-PR') from feedback-1 — it has no valid 'multi-PR' answer.\\n\\n2. **#2134 must be bundled into this changeset, not declared a hard prereq.** Shape the #2134 silent-failure fix as part of this work — the orchestrator needs `slices[]` ingestion to be reliable to use it, so fix the silent-failure paths as part of building the slice scheduler. Update the analysis to reflect that #2134's changes are absorbed here (not just 'must land first').\\n\\n3. **Per-slice reviewer roster is wrong.** Each slice should look exactly like the current implement phase roster, minus the new subagent fan-out reviewers we are removing as part of this issue. That means each slice gets the full thorough reviewer set: `reviewer_code_holistic`, `reviewer_contract`, `reviewer_security`, `reviewer_concurrency`, plus the producers (coder/tester/documenter) and the dual-role tester→coder review. The current analysis suggests `reviewer_code_holistic` runs only ONCE on the merged pipeline branch and lens reviewers run per-slice in advisory mode — both wrong. Run the full reviewer set per slice. There is no 'merged pipeline branch holistic pass'.\\n\\n4. **Lens reviewers (`reviewer_security`, `reviewer_concurrency`) must be CRITICAL, not ADVISORY.** As part of this changeset, promote `reviewer_security` and `reviewer_concurrency` from ADVISORY to CRITICAL in `orchestrator/review_graph.py`. They should be able to block consensus same as `reviewer_code_holistic`. This obviates decision-13's framing (and the decision-3 supersession) — the lens reviewers are CRITICAL by the time this lands. Note that #1997 was the deferred work to make them CRITICAL; this issue absorbs that promotion. Update the analysis throughout to reflect the post-change state (lenses are CRITICAL, equal blocking power to other CRITICAL reviewers).\\n\\nWith those corrections:\\n- decision-1 (merge strategy), decision-2 (failure semantics), decision-5 (concurrency cap), decision-6 (sizing guidance), decision-9 (retry / max_cycles), decision-10 (deadlock detection), decision-11 (task→slice mapping), decision-14 (BRC namespacing), decision-15 (merge-endpoint authz) remain valid open questions.\\n- decision-3 (superseded), decision-4 (reviewer roster removal — answer is now 'remove the subagent fan-out reviewers; keep the full set otherwise'), decision-7 (rename strategy — just rename), decision-8 (babysit-PR carve-out — keep separate per issue), decision-12 (per-slice roster identity — answer is 'identical roster always'), decision-13 (lens scope — moot since lenses become CRITICAL) should be retired or pre-answered in the analysis itself rather than left as decisions.\\n- feedback-1 questions: drop Q2 (multi-PR); Q5 ('salvage anything from reviewer_code fan-out') becomes 'clean tear-out' (the answer is no salvage); the rest (Q1 slice count, Q3 branch naming, Q4 operational caps, Q6 regression benchmark) remain valid.\\n\\nRe-propose a corrected analysis with these changes applied.\"}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-27T06:14:49.797478Z",
-  "updated_at": "2026-04-27T06:39:04.204744Z",
+  "updated_at": "2026-04-27T06:45:41.211866Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -193,6 +193,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 12,
+  "version": 13,
   "jira_ticket": null
 }
