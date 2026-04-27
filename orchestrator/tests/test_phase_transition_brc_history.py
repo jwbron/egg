@@ -113,7 +113,7 @@ class TestAdvancePhasePersistsBrcHistory:
     clearing state (#1827).  Applies to both normal advances and
     ``force=true`` (the #1813 unstick path)."""
 
-    @patch("routes.phases.threading.Thread")
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
     @patch("routes.phases.get_pipeline_state_lock")
     @patch("routes.pipelines._persist_phase_brc_history")
     @patch("routes.phases._clear_concurrent_state")
@@ -154,7 +154,7 @@ class TestAdvancePhasePersistsBrcHistory:
         call_names = [c[0] for c in parent.mock_calls]
         assert call_names.index("persist") < call_names.index("clear")
 
-    @patch("routes.phases.threading.Thread")
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
     @patch("routes.phases.get_pipeline_state_lock")
     @patch("routes.pipelines._persist_phase_brc_history")
     @patch("routes.phases._clear_concurrent_state")

@@ -80,7 +80,7 @@ def _make_pipeline(
 class TestAdvancePhasePopulatesOnPlanExit:
     """advance_phase must invoke the populate step when leaving the plan phase."""
 
-    @patch("routes.phases.threading.Thread")
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
     @patch("routes.pipelines._commit_statefiles_to_worktree")
     @patch("routes.pipelines._populate_contract_from_plan_safe")
     @patch("routes.resolve_worktree_path")
@@ -120,7 +120,7 @@ class TestAdvancePhasePopulatesOnPlanExit:
         assert args[2] == "issue"
         assert args[3] == 1882
 
-    @patch("routes.phases.threading.Thread")
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
     @patch("routes.pipelines._commit_statefiles_to_worktree")
     @patch("routes.pipelines._populate_contract_from_plan_safe")
     @patch("routes.resolve_worktree_path")
@@ -188,7 +188,7 @@ class TestAdvancePhasePopulatesOnPlanExit:
             f"no commit followed populate; call_order={call_order}"
         )
 
-    @patch("routes.phases.threading.Thread")
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
     @patch("routes.pipelines._commit_statefiles_to_worktree")
     @patch("routes.pipelines._populate_contract_from_plan_safe")
     @patch("routes.resolve_worktree_path")
@@ -232,7 +232,7 @@ class TestAdvancePhasePopulatesOnPlanExit:
         ]
         assert exit_commits == []
 
-    @patch("routes.phases.threading.Thread")
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
     @patch("routes.pipelines._commit_statefiles_to_worktree")
     @patch("routes.pipelines._populate_contract_from_plan_safe")
     @patch("routes.resolve_worktree_path")
@@ -274,7 +274,7 @@ class TestAdvancePhasePopulatesOnPlanExit:
 
         assert resp.status_code == 200
         # thread still spawned — pipeline continues
-        mock_thread_cls.return_value.start.assert_called_once()
+        mock_thread_cls.assert_called_once()
 
 
 @pytest.mark.skipif(not _HAS_FLASK, reason="Flask not available")

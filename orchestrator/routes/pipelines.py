@@ -11360,6 +11360,28 @@ def _persist_phase_gate_resolution(
         )
 
 
+def _spawn_pipeline_run_thread(
+    pipeline_id: str,
+    repo_path: Path,
+    run_epoch: datetime,
+) -> threading.Thread:
+    """Spawn a fresh ``_run_pipeline`` driver thread.
+
+    Used by ``advance_phase`` and the auto-advance block in ``_run_pipeline``
+    so both paths spawn threads with identical naming and lifecycle. Without
+    a fresh thread per phase, a mid-execution exception in the new phase's
+    first iteration takes down the whole pipeline (#2165).
+    """
+    thread = threading.Thread(
+        target=_run_pipeline,
+        args=(pipeline_id, repo_path),
+        daemon=True,
+        name=f"pipeline-{pipeline_id}-{int(run_epoch.timestamp())}",
+    )
+    thread.start()
+    return thread
+
+
 def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
     """Run a pipeline by spawning containers for each phase.
 
@@ -13210,23 +13232,29 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 )
                 break
 
-            # Advance to next phase
+            # Advance to next phase by respawning a fresh _run_pipeline
+            # thread, mirroring advance_phase (#2165).  Bumping run_epoch
+            # makes this thread's finally cleanup detect itself as superseded
+            # and skip worktree teardown; the new thread drives the next
+            # phase from clean local state.  Without this, any exception in
+            # the new phase's first iteration takes the whole pipeline down.
             next_phase = next_phases[0]
             with get_pipeline_state_lock(pipeline_id):
                 pipeline = store.load_pipeline(pipeline_id)
                 pipeline.current_phase = next_phase
+                pipeline.run_epoch = datetime.now(UTC)
+                pipeline.updated_at = datetime.now(UTC)
                 store.save_pipeline(pipeline, force_commit=(pipeline.issue_number is None))
 
-            # Update health monitor phase threshold before agents spawn
-            if health_monitor_instance is not None:
-                health_monitor_instance.set_current_phase(next_phase.value)
-
             logger.info(
-                "Phase advanced",
+                "Phase advanced (auto), respawning driver thread",
                 pipeline_id=pipeline_id,
                 from_phase=current_phase.value,
                 to_phase=next_phase.value,
             )
+
+            _spawn_pipeline_run_thread(pipeline_id, repo_path, pipeline.run_epoch)
+            return
 
     except PipelineNotFoundError:
         # Pipeline was deleted while execution was in progress — exit gracefully
