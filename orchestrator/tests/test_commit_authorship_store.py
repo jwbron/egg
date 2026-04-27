@@ -554,3 +554,71 @@ class TestFactory:
         store = CommitAuthorshipStore(worktree_dir=worktree)
         store.register(_VALID_SHA, "coder", "issue-1882")
         assert worktree.exists()
+
+
+class TestResolveAuthorshipRepoPath:
+    """``_resolve_authorship_repo_path`` must handle the three shapes
+    ``EGG_REPO_PATH`` takes in the wild: single repo, parent dir with
+    multiple child repos, and missing/non-existent path."""
+
+    def test_single_git_repo(self, tmp_path: Path, monkeypatch):
+        """``EGG_REPO_PATH`` pointing at a single repo returns that repo."""
+        from commit_authorship_store import _resolve_authorship_repo_path
+
+        repo = tmp_path / "single"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        monkeypatch.setenv("EGG_REPO_PATH", str(repo))
+
+        assert _resolve_authorship_repo_path() == repo
+
+    def test_parent_dir_prefers_egg_repo(self, tmp_path: Path, monkeypatch):
+        """Parent dir with multiple repos picks ``egg`` by name when present."""
+        from commit_authorship_store import _resolve_authorship_repo_path
+
+        parent = tmp_path / "repos"
+        parent.mkdir()
+        for name in ("actions", "egg", "zzz"):
+            child = parent / name
+            child.mkdir()
+            (child / ".git").mkdir()
+        monkeypatch.setenv("EGG_REPO_PATH", str(parent))
+
+        assert _resolve_authorship_repo_path() == parent / "egg"
+
+    def test_parent_dir_falls_back_to_first_alpha(self, tmp_path: Path, monkeypatch):
+        """When ``egg`` is absent, fall back to the first repo alphabetically
+        so deployments without an ``egg`` repo get a deterministic choice."""
+        from commit_authorship_store import _resolve_authorship_repo_path
+
+        parent = tmp_path / "repos"
+        parent.mkdir()
+        for name in ("alpha", "beta"):
+            child = parent / name
+            child.mkdir()
+            (child / ".git").mkdir()
+        monkeypatch.setenv("EGG_REPO_PATH", str(parent))
+
+        assert _resolve_authorship_repo_path() == parent / "alpha"
+
+    def test_non_existent_path_returns_env_value(self, tmp_path: Path, monkeypatch):
+        """Non-existent path is returned verbatim — ``StateStore`` will
+        raise the actionable error when ``_ensure_worktree`` runs."""
+        from commit_authorship_store import _resolve_authorship_repo_path
+
+        missing = tmp_path / "nope"
+        monkeypatch.setenv("EGG_REPO_PATH", str(missing))
+
+        assert _resolve_authorship_repo_path() == missing
+
+    def test_parent_dir_with_no_repos_returns_env_value(self, tmp_path: Path, monkeypatch):
+        """Parent dir whose children are not git repos is returned
+        verbatim — ``StateStore`` will raise on access."""
+        from commit_authorship_store import _resolve_authorship_repo_path
+
+        parent = tmp_path / "non-repos"
+        parent.mkdir()
+        (parent / "not-a-repo").mkdir()  # No .git inside.
+        monkeypatch.setenv("EGG_REPO_PATH", str(parent))
+
+        assert _resolve_authorship_repo_path() == parent

@@ -1816,3 +1816,43 @@ class TestBranchHeldByPrunableWorktree:
         assert not admin_dir.exists()
         # Calling again — nothing left to remove.
         assert store._remove_admin_dir_for_path(unrelated_path) is False
+
+
+class TestEnsureWorktreeRepoPathGuard:
+    """Regression: ``_ensure_worktree`` must reject a non-repo
+    ``repo_path`` with an actionable error instead of letting ``git
+    worktree add`` produce an opaque "not a git repository" failure.
+
+    Repro case: a deployment sets ``EGG_REPO_PATH`` to a parent dir
+    containing several repos and a caller constructs ``StateStore``
+    directly (bypassing ``get_state_store``'s multi-repo discovery)."""
+
+    def test_non_repo_path_raises_actionable_error(self, tmp_path):
+        """``repo_path`` without a ``.git`` entry raises StateStoreError
+        naming ``EGG_REPO_PATH`` so operators can fix the env var."""
+        parent = tmp_path / "repos-parent"
+        parent.mkdir()
+        # No `.git` under parent — it's a parent of repos, not a repo.
+        store = StateStore(parent, worktree_dir=tmp_path / "wt")
+
+        with pytest.raises(StateStoreError) as exc_info:
+            store._ensure_worktree()
+
+        msg = str(exc_info.value)
+        assert "not a git repository" in msg
+        assert "EGG_REPO_PATH" in msg
+        assert str(parent) in msg
+
+    def test_repo_path_with_dot_git_passes_guard(self, tmp_path, mock_git):
+        """``repo_path`` with a ``.git`` dir clears the guard and reaches
+        the existing worktree-add path (mocked)."""
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        (repo_path / ".git").mkdir()
+        store = StateStore(repo_path, worktree_dir=tmp_path / "wt")
+        # Should not raise — falls through to mocked git operations.
+        # The mocked `_run_git` returns success, so the orphan-branch
+        # branch runs and tries to iterate the worktree dir; create it
+        # so iterdir() doesn't blow up.
+        (tmp_path / "wt").mkdir(parents=True, exist_ok=True)
+        store._ensure_worktree()

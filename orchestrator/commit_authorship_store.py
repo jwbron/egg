@@ -490,6 +490,43 @@ _singleton: CommitAuthorshipStore | None = None
 _singleton_lock = threading.Lock()
 
 
+def _resolve_authorship_repo_path() -> Path:
+    """Resolve ``EGG_REPO_PATH`` to a single git repo for the authorship store.
+
+    The authorship store keeps a single shared shard tree across all repos
+    (sharded by pipeline_id, with ``repo`` recorded as advisory metadata
+    on each entry — see ``register``).  It needs exactly one git repo
+    whose state branch can host that tree.
+
+    ``EGG_REPO_PATH`` may point at:
+
+    1. A single git repo (e.g. ``/home/egg/repos/egg``) — use it directly.
+    2. A parent directory containing several repos (e.g. ``/home/egg/repos``
+       with ``egg/``, ``actions/``, …) — pick one, preferring the ``egg``
+       repo by name (the orchestrator's own repo, where pipeline state
+       conventionally lives).  Falls back to the first repo alphabetically
+       when ``egg`` is absent so the failure mode is deterministic in
+       hand-rolled deployments.
+    3. A non-existent or non-repo path — return the env value verbatim and
+       let ``StateStore`` raise its own actionable error from
+       ``_ensure_worktree`` (the defensive fallback added alongside this
+       multi-repo fix).
+
+    Empty / unset ``EGG_REPO_PATH`` keeps the historical default
+    ``/home/egg/repos/egg`` for backwards compatibility with single-repo
+    deployments that never set the env var.
+    """
+    from state_store import discover_repo_paths  # type: ignore[import-not-found]
+
+    env_path = Path(os.environ.get("EGG_REPO_PATH", "/home/egg/repos/egg"))
+    repos: list[Path] = discover_repo_paths(env_path)
+    if len(repos) == 0:
+        return env_path
+    if len(repos) == 1:
+        return repos[0]
+    return next((r for r in repos if r.name == "egg"), repos[0])
+
+
 def get_store(state_store: StateStore | None = None) -> CommitAuthorshipStore:
     """Return a process-wide singleton backed by the state store.
 
@@ -505,7 +542,7 @@ def get_store(state_store: StateStore | None = None) -> CommitAuthorshipStore:
                 # module graph at import time.
                 from state_store import StateStore as _SS  # type: ignore[import-not-found]
 
-                repo_path = Path(os.environ.get("EGG_REPO_PATH", "/home/egg/repos/egg"))
+                repo_path = _resolve_authorship_repo_path()
                 _singleton = CommitAuthorshipStore(state_store=_SS(repo_path=repo_path))
             else:
                 _singleton = CommitAuthorshipStore(state_store=state_store)
