@@ -5862,10 +5862,19 @@ def confluence_execute() -> tuple[Response, int] | Response:
         resolved = client.space_cache.key_for_id(space_id_in_path)
         if resolved is None:
             # Walk paginated /wiki/api/v2/spaces so a target on page 2+
-            # still resolves.
+            # still resolves.  Catch ConfluenceUpstreamForbidden alongside
+            # the other upstream errors — it's a sibling of
+            # ConfluenceUpstreamError (both inherit from RuntimeError, not
+            # one from the other) and would otherwise escape as a Flask
+            # 500 when the bot lacks space:read globally.  Mirrors the
+            # handler at _resolve_space_key_via_list.
             try:
                 client.populate_space_cache()
-            except (ConfluenceCredentialsUnavailable, ConfluenceUpstreamError):
+            except (
+                ConfluenceCredentialsUnavailable,
+                ConfluenceUpstreamError,
+                ConfluenceUpstreamForbidden,
+            ):
                 resolved = None
             else:
                 resolved = client.space_cache.key_for_id(space_id_in_path)

@@ -756,6 +756,92 @@ class TestExecute:
         assert success
         assert success[-1]["details"]["spaceKey"] == "ENG"
 
+    def test_space_id_path_warm_403_fails_closed(
+        self, client, private_headers, allow_eng, captured_audit
+    ):
+        """If ``populate_space_cache`` raises ``ConfluenceUpstreamForbidden``
+        during a cache miss on the ``space_id_in_path`` branch, the route
+        must fail-closed with ``confluence_space_denied`` (HTTP 403) rather
+        than letting the exception escape as a Flask 500.  Regression for
+        the missing exception type at gateway.confluence_execute."""
+        fake = MagicMock()
+        fake.space_cache.key_for_id.return_value = None
+        fake.execute_raw.return_value = {"results": [{"id": "p1", "title": "leak-bait"}]}
+        fake.populate_space_cache.side_effect = ConfluenceUpstreamForbidden(
+            403, {"err": "no global space:read"}, "api/v2/spaces"
+        )
+        with _patch_client(fake):
+            resp = client.post(
+                "/api/v1/confluence/execute",
+                headers=private_headers,
+                data=json.dumps({"method": "GET", "path": "api/v2/spaces/1/pages"}),
+                content_type="application/json",
+            )
+        assert resp.status_code == 403
+        # Body must not be leaked when allowlist denial fires.
+        assert "leak-bait" not in resp.get_data(as_text=True)
+        denied = [a for a in captured_audit if a["event_type"] == "confluence_execute_denied"]
+        assert denied, "expected confluence_execute_denied audit entry"
+        assert denied[-1]["details"].get("spaceKey") is None
+
+    def test_space_id_path_warm_unresolved_fails_closed(
+        self, client, private_headers, allow_eng, captured_audit
+    ):
+        """``populate_space_cache`` succeeds but the requested ``space_id``
+        is still not present (e.g. wrong tenant or stale cursor) — the
+        route must return ``confluence_execute_denied`` with
+        ``space_key=None``."""
+        fake = MagicMock()
+        fake.space_cache.key_for_id.return_value = None  # never resolves
+        fake.populate_space_cache.return_value = None  # warms but no entry
+        fake.execute_raw.return_value = {"results": [{"id": "p1", "title": "leak-bait"}]}
+        with _patch_client(fake):
+            resp = client.post(
+                "/api/v1/confluence/execute",
+                headers=private_headers,
+                data=json.dumps({"method": "GET", "path": "api/v2/spaces/1/pages"}),
+                content_type="application/json",
+            )
+        assert resp.status_code == 403
+        assert "leak-bait" not in resp.get_data(as_text=True)
+        fake.populate_space_cache.assert_called_once()
+        denied = [a for a in captured_audit if a["event_type"] == "confluence_execute_denied"]
+        assert denied
+        assert denied[-1]["details"].get("spaceKey") is None
+
+    def test_space_id_path_warm_resolves_to_disallowed_space(
+        self, client, private_headers, allow_eng, captured_audit
+    ):
+        """``populate_space_cache`` resolves the id, but the resolved key
+        is not in the allowlist — must fail-closed with the resolved key
+        in the audit and no upstream payload reaching the agent."""
+        fake = MagicMock()
+        warmed: dict[str, bool] = {"done": False}
+
+        def key_for_id(sid: str) -> str | None:
+            if not warmed["done"] or sid != "1":
+                return None
+            return "SECRET"
+
+        def populate() -> None:
+            warmed["done"] = True
+
+        fake.space_cache.key_for_id.side_effect = key_for_id
+        fake.populate_space_cache.side_effect = populate
+        fake.execute_raw.return_value = {"results": [{"id": "p1", "title": "leak-bait"}]}
+        with _patch_client(fake):
+            resp = client.post(
+                "/api/v1/confluence/execute",
+                headers=private_headers,
+                data=json.dumps({"method": "GET", "path": "api/v2/spaces/1/pages"}),
+                content_type="application/json",
+            )
+        assert resp.status_code == 403
+        assert "leak-bait" not in resp.get_data(as_text=True)
+        denied = [a for a in captured_audit if a["event_type"] == "confluence_execute_denied"]
+        assert denied
+        assert denied[-1]["details"].get("spaceKey") == "SECRET"
+
 
 # -----------------------------------------------------------------------------
 # /api/v1/confluence/page/inline-comments — used_fallback observability

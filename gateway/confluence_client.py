@@ -1020,8 +1020,10 @@ def _extract_next_cursor(body_json: dict[str, Any]) -> str | None:
         return None
     # parse_qs defaults to keep_blank_values=False, so ``cursor=`` (empty
     # value) yields no entry and the caller's pagination loop terminates —
-    # the desired fail-safe behaviour.  If a future change flips that flag,
-    # also add an explicit ``cursor or None`` guard above the slice below.
+    # the desired fail-safe behaviour.  The ``cursor or None`` guard at the
+    # bottom of this function would also cover the empty-string case under
+    # ``keep_blank_values=True``, but verify and add explicit coverage if a
+    # future change flips that flag.
     qs = parse_qs(parsed.query)
     cursor_values = qs.get("cursor")
     if not cursor_values:
