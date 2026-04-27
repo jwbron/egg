@@ -193,12 +193,21 @@ def run_migrated_detectors(
     consensus: dict[str, Any],
     config_unavailable_cause: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Run the four migrated detectors for the current cycle.
+    """Run the migrated detectors plus the config-unavailable tripwire.
 
-    Detectors honour the ``overseer_owns_host_detection`` flag — when
-    False (calibration-window default), they short-circuit so /sdlc's
-    host detectors stay the active source. When True, the overseer is
-    the sole source of these alerts.
+    Four migrated detectors (``agent-stall``, ``agent-silent``,
+    ``agent-nack-unresolved``, ``phase-long-running``) honour the
+    ``overseer_owns_host_detection`` flag — when False (calibration-
+    window default), they emit alerts marked ``calibration_only=True``
+    so /sdlc's host detectors stay the authoritative source. When
+    True, the overseer is the sole source of these alerts.
+
+    The fifth path is the issue #2118 ``config-unavailable`` tripwire,
+    which fires when ``config_unavailable_cause`` is not None. It
+    deliberately ignores the calibration flag (``calibration_only=False``
+    unconditionally) because it is meta-detection: it signals that
+    the calibration data itself is degraded and the four detectors
+    above are running on hardcoded fallback thresholds.
 
     Args:
         base_url: Orchestrator base URL.
@@ -209,6 +218,9 @@ def run_migrated_detectors(
         progress_events: Recent progress events (used to update
             ``has_any_messages`` / ``last_seen``).
         consensus: Current consensus dict.
+        config_unavailable_cause: When non-None, append the issue
+            #2118 ``config-unavailable`` tripwire with this cause
+            string encoded in the alert. Pass None on the happy path.
 
     Returns:
         List of alert dicts the agent should consider emitting via
@@ -249,7 +261,9 @@ def run_migrated_detectors(
         # would mask the problem (zero overseer alerts forever, no
         # operator-visible signal); fail loud instead.
         # Only swallow when EGG_OVERSEER_TEST_MODE=1 (lightweight
-        # unit tests that mock the cycle).
+        # unit tests that mock the cycle). Note: this also masks the
+        # config-unavailable tripwire below, since the tripwire lives
+        # after this import-bail block.
         if os.environ.get("EGG_OVERSEER_TEST_MODE") == "1":
             return []
         # Emit a structured stderr line operators can grep for, then
