@@ -32,6 +32,7 @@ import confluence_policy
 import pytest
 import session_manager
 from confluence_client import (
+    ConfluenceUpstreamError,
     ConfluenceUpstreamForbidden,
 )
 from mode_gate import PRIVATE_MODE_MARKER_ATTR
@@ -297,6 +298,44 @@ class TestPageGet:
         assert upstream
         assert upstream[0]["details"]["pageId"] == "12345"
 
+    def test_upstream_error_body_is_redacted(
+        self, client, private_headers, allow_eng, captured_audit
+    ):
+        """Atlassian error envelopes can carry user identifiers (accountId,
+        emailAddress) and the success-path redactor only runs on 2xx
+        bodies — verify the gateway redacts error bodies too before they
+        cross the gateway/sandbox boundary."""
+        fake = MagicMock()
+        fake.get_page.side_effect = ConfluenceUpstreamError(
+            500,
+            {
+                "errorMessages": ["upstream blew up"],
+                "accountId": "557058:abcd-efgh-1234",
+                "emailAddress": "leak@example.com",
+                "data": {"accountId": "nested-leak"},
+            },
+            "api/v2/pages/12345",
+        )
+        with _patch_client(fake):
+            resp = client.post(
+                "/api/v1/confluence/page/get",
+                headers=private_headers,
+                data=json.dumps({"pageId": "12345"}),
+                content_type="application/json",
+            )
+        assert resp.status_code == 502
+        text = resp.get_data(as_text=True)
+        assert "557058:abcd-efgh-1234" not in text
+        assert "leak@example.com" not in text
+        assert "nested-leak" not in text
+        body = json.loads(text)
+        upstream_body = body["data"]["upstream_body"]
+        assert upstream_body["accountId"] == "<redacted>"
+        assert upstream_body["emailAddress"] == "<redacted>"
+        assert upstream_body["data"]["accountId"] == "<redacted>"
+        # Non-redacted fields pass through.
+        assert upstream_body["errorMessages"] == ["upstream blew up"]
+
 
 # -----------------------------------------------------------------------------
 # /api/v1/confluence/space/list — list_spaces filtering end-to-end (risk R13)
@@ -383,8 +422,39 @@ class TestSpacePages:
                 content_type="application/json",
             )
         assert resp.status_code == 200
-        # list_spaces should NOT be called when the cache is hot.
-        fake.list_spaces.assert_not_called()
+        # populate_space_cache should NOT be called when the cache is hot.
+        fake.populate_space_cache.assert_not_called()
+
+    def test_warms_paginated_space_cache_on_miss(
+        self, client, private_headers, allow_eng, captured_audit
+    ):
+        """When the cache is cold, the route walks paginated /wiki/api/v2/spaces
+        so a target space living on page 2+ still resolves."""
+        fake = MagicMock()
+        # First lookup (before warming) returns None; after populate_space_cache
+        # is called, we flip the side-effect to return the resolved id.
+        warmed: dict[str, bool] = {"done": False}
+
+        def id_for_key(key: str) -> str | None:
+            if not warmed["done"] or key != "ENG":
+                return None
+            return "1"
+
+        def populate() -> None:
+            warmed["done"] = True
+
+        fake.space_cache.id_for_key.side_effect = id_for_key
+        fake.populate_space_cache.side_effect = populate
+        fake.get_space_pages.return_value = {"results": [{"id": "p1"}]}
+        with _patch_client(fake):
+            resp = client.post(
+                "/api/v1/confluence/space/pages",
+                headers=private_headers,
+                data=json.dumps({"spaceKey": "ENG"}),
+                content_type="application/json",
+            )
+        assert resp.status_code == 200
+        fake.populate_space_cache.assert_called_once()
 
 
 # -----------------------------------------------------------------------------
@@ -555,14 +625,22 @@ class TestExecute:
     @pytest.mark.parametrize(
         "bypass_path",
         [
-            # Cycle-3 NACK fix (commit f3f552eb9): these four paths were
-            # dropped from the /execute allowlist because each was an
-            # exploitable cross-partition bypass.  The route layer must
-            # refuse them with confluence_execute_denied.
+            # Cycle-3 NACK fix (commit f3f552eb9): these four flat v2 paths
+            # were dropped from the /execute allowlist because each was an
+            # exploitable cross-partition bypass.
             "api/v2/spaces",
             "rest/api/search",
             "api/v2/footer-comments",
             "api/v2/inline-comments",
+            # PR #2141 review tightening: page-scoped descendant / comment
+            # subpaths also dropped — their response bodies have no
+            # top-level spaceId, so /execute always fail-closed and the
+            # paths were effectively unusable.  Agents reach these via the
+            # dedicated /api/v1/confluence/page/* routes.
+            "api/v2/pages/1/descendants",
+            "api/v2/pages/1/footer-comments",
+            "api/v2/pages/1/inline-comments",
+            "rest/api/content/1/child/comment",
         ],
     )
     def test_anti_bypass_paths_rejected_via_execute(
@@ -573,8 +651,10 @@ class TestExecute:
         captured_audit,
         bypass_path: str,
     ):
-        """Risk R2: /execute must NOT accept any of the four flat v2 paths
-        that bypass the narrow-route policy checks."""
+        """Risk R2: /execute must NOT accept any path that bypasses the
+        narrow-route policy checks (flat v2 endpoints) or whose response
+        shape makes the post-fetch allowlist check unreachable
+        (page-scoped descendants / comments)."""
         resp = client.post(
             "/api/v1/confluence/execute",
             headers=private_headers,

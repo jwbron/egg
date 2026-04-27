@@ -100,6 +100,7 @@ try:
         ConfluenceUpstreamError,
         ConfluenceUpstreamForbidden,
         get_confluence_client,
+        redact_response,
         validate_confluence_api_path,
     )
     from .confluence_credentials import reload_confluence_credentials
@@ -263,6 +264,7 @@ except ImportError:
         ConfluenceUpstreamError,
         ConfluenceUpstreamForbidden,
         get_confluence_client,
+        redact_response,
         validate_confluence_api_path,
     )
     from confluence_credentials import (  # type: ignore[no-redef, import-untyped]
@@ -4798,7 +4800,14 @@ def _session_confluence_context() -> dict[str, Any]:
 
 
 def _confluence_error_from_upstream(exc: ConfluenceUpstreamError) -> tuple[Response, int]:
-    """Translate a ``ConfluenceUpstreamError`` to an HTTP response."""
+    """Translate a ``ConfluenceUpstreamError`` to an HTTP response.
+
+    Atlassian error envelopes occasionally include user-identifying strings
+    (e.g. account ids embedded in messages) and space-enumeration leaks
+    (e.g. ``"valid keys are: ENG, DOCS, SECRET"``).  The success-path
+    redactor only runs on 2xx bodies, so we apply it here too before the
+    upstream body crosses the gateway/sandbox boundary.
+    """
     if 400 <= exc.status_code < 500:
         status = exc.status_code
     else:
@@ -4808,10 +4817,22 @@ def _confluence_error_from_upstream(exc: ConfluenceUpstreamError) -> tuple[Respo
         status_code=status,
         details={
             "upstream_status": exc.status_code,
-            "upstream_body": exc.body,
+            "upstream_body": _redact_upstream_error_body(exc.body),
             "path": exc.path,
         },
     )
+
+
+def _redact_upstream_error_body(body: Any) -> Any:
+    """Run ``redact_response`` over an Atlassian error envelope.
+
+    Atlassian returns errors as JSON dicts (and very occasionally as plain
+    text); the redactor mutates dicts/lists in place.  Non-container shapes
+    pass through unchanged.
+    """
+    if isinstance(body, (dict, list)):
+        return redact_response(body)
+    return body
 
 
 def _confluence_not_configured_error(
@@ -4931,21 +4952,27 @@ def _resolve_space_key_for_payload(payload: Any) -> str | None:
 
 
 def _resolve_space_key_via_list(allowed: frozenset[str], space_id: str | None) -> str | None:
-    """Look up a space key for a space id by calling list_spaces (cached).
+    """Look up a space key for a space id by warming the space cache.
 
     Used by the post-fetch allowlist check when the page response carries
     ``spaceId`` but the cache hasn't been populated yet.  Returns ``None``
     if the space isn't visible to the bot (which is itself a deny signal).
+
+    ``allowed`` is unused at this layer; the cache is populated with every
+    space the bot can see and the post-fetch allowlist check applies the
+    operator allowlist on the resolved key.
     """
+    del allowed  # cache holds every visible space; allowlist enforced upstream
     if not space_id:
         return None
     client = get_confluence_client()
     cached = client.space_cache.key_for_id(str(space_id))
     if cached is not None:
         return cached
-    # Force a fetch so the cache is hot for the next request.
+    # Walk paginated /wiki/api/v2/spaces so a target space on page 2+ still
+    # resolves.  populate_space_cache caps iterations defensively.
     try:
-        client.list_spaces(allowed_spaces=allowed)
+        client.populate_space_cache()
     except (
         ConfluenceCredentialsUnavailable,
         ConfluenceUpstreamError,
@@ -5483,14 +5510,15 @@ def confluence_space_pages() -> tuple[Response, int] | Response:
     except ValueError as exc:
         return make_error(f"Invalid limit: {exc}", status_code=400)
 
-    allowed = confluence_allowed_spaces()
     client = get_confluence_client()
 
-    # Resolve spaceKey → spaceId, using the cache when populated.
+    # Resolve spaceKey → spaceId, using the cache when populated.  Walk
+    # paginated /wiki/api/v2/spaces so tenants with more spaces than fit on
+    # one v2 page still resolve a target on page 2+.
     space_id = client.space_cache.id_for_key(space_key)
     if space_id is None:
         try:
-            client.list_spaces(allowed_spaces=allowed)
+            client.populate_space_cache()
         except ConfluenceCredentialsUnavailable as exc:
             return _confluence_not_configured_error(exc)
         except ConfluenceUpstreamForbidden as exc:
@@ -5761,18 +5789,14 @@ def confluence_execute() -> tuple[Response, int] | Response:
     head = stripped.split("/")
     page_id: str | None = None
     space_id_in_path: str | None = None
-    if len(head) >= 3 and head[0] == "api" and head[1] == "v2" and head[2] == "pages":
-        # api/v2/pages/<id>...
-        if len(head) >= 4 and head[3].isdigit():
+    if len(head) >= 4 and head[0] == "api" and head[1] == "v2" and head[2] == "pages":
+        # api/v2/pages/<id>
+        if head[3].isdigit():
             page_id = head[3]
-    elif len(head) >= 4 and head[0] == "api" and head[1] == "v2" and head[2] == "spaces":
+    elif len(head) >= 5 and head[0] == "api" and head[1] == "v2" and head[2] == "spaces":
         # api/v2/spaces/<id>/pages
         if head[3].isdigit():
             space_id_in_path = head[3]
-    elif len(head) >= 4 and head[0] == "rest" and head[1] == "api" and head[2] == "content":
-        # v1 fallback for inline comments — page-scoped.
-        if head[3].isdigit():
-            page_id = head[3]
 
     # Anti-bypass invariant (issue #1931 cycle-3 NACK from reviewer_code +
     # reviewer_security): the four path families an attacker could use to
@@ -5837,9 +5861,10 @@ def confluence_execute() -> tuple[Response, int] | Response:
     elif space_id_in_path is not None:
         resolved = client.space_cache.key_for_id(space_id_in_path)
         if resolved is None:
-            # Hot the cache by listing spaces.
+            # Walk paginated /wiki/api/v2/spaces so a target on page 2+
+            # still resolves.
             try:
-                client.list_spaces(allowed_spaces=allowed)
+                client.populate_space_cache()
             except (ConfluenceCredentialsUnavailable, ConfluenceUpstreamError):
                 resolved = None
             else:

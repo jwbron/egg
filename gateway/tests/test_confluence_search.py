@@ -96,11 +96,11 @@ class TestAdversarialNegatives:
             # 10. Missing space clause entirely.
             ('text ~ "RFC"', "no space clause"),
             # 11. Bare id clause without a space anchor.
-            ('id = "12345"', "id-level clause without space scope"),
+            ('id = "12345"', "id, content, and title clauses are not supported"),
             # 12. Bare title clause without a space anchor.
-            ('title ~ "RFC"', "id-level clause without space scope"),
+            ('title ~ "RFC"', "id, content, and title clauses are not supported"),
             # 13. Bare content clause without space anchor.
-            ('content = "12345"', "id-level clause without space scope"),
+            ('content = "12345"', "id, content, and title clauses are not supported"),
             # 14. Unicode homoglyph (Cyrillic Е U+0415, Н U+041D, Г U+0413).
             ("space = ЕНG", "non-ASCII"),
             # 15. Negated comparator (extractor cannot prove containment).
@@ -179,3 +179,14 @@ class TestExtractorEdges:
         result = extract_search_spaces("space = ENG AND space = SEC", ALLOWED)
         assert result.spaces is None
         assert "not allowlisted" in result.reason.lower()
+
+    def test_id_clause_rejected_even_with_space_anchor(self):
+        """``id`` / ``content`` / ``title`` clauses are rejected regardless of
+        any accompanying ``space`` anchor — the static extractor cannot prove
+        how those filters interact with the space scope, so the conservative
+        stance is to refuse them outright (the rejection message points
+        agents at ``text ~ ...`` which is the supported alternative)."""
+        result = extract_search_spaces('space = ENG AND id = "12345"', ALLOWED)
+        assert result.spaces is None
+        assert "id, content, and title" in result.reason.lower()
+        assert "text ~" in result.reason.lower()

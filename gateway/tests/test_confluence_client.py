@@ -75,11 +75,7 @@ class TestValidateConfluenceApiPath:
         "path",
         [
             "api/v2/pages/12345",
-            "api/v2/pages/1/descendants",
-            "api/v2/pages/1/footer-comments",
-            "api/v2/pages/1/inline-comments",
             "api/v2/spaces/42/pages",
-            "rest/api/content/12345/child/comment",
         ],
     )
     def test_positive_get_paths(self, path: str):
@@ -101,13 +97,29 @@ class TestValidateConfluenceApiPath:
             #     api/v2/inline-comments      page-id query param while spaceKey
             #                                 fakes the gate (Atlassian ignores
             #                                 spaceKey upstream).
-            # All four remain reachable INTERNALLY by ConfluenceClient methods
-            # that construct them directly; only the agent-facing /execute
-            # escape hatch is closed.
+            #
+            # Post-review tightening (PR #2141): the page-scoped descendant
+            # and comment subpaths
+            #   - api/v2/pages/<id>/descendants
+            #   - api/v2/pages/<id>/footer-comments
+            #   - api/v2/pages/<id>/inline-comments
+            #   - rest/api/content/<id>/child/comment
+            # are also dropped from /execute.  Their response bodies have no
+            # top-level spaceId so the /execute post-fetch allowlist check
+            # always fail-closed; agents reach those endpoints through the
+            # dedicated /api/v1/confluence/page/* routes which fetch the
+            # parent page and resolve spaceKey explicitly.  All four remain
+            # reachable INTERNALLY by ConfluenceClient methods that construct
+            # them directly; only the agent-facing /execute escape hatch is
+            # closed.
             "api/v2/spaces",
             "rest/api/search",
             "api/v2/footer-comments",
             "api/v2/inline-comments",
+            "api/v2/pages/1/descendants",
+            "api/v2/pages/1/footer-comments",
+            "api/v2/pages/1/inline-comments",
+            "rest/api/content/1/child/comment",
         ],
     )
     def test_anti_bypass_paths_rejected(self, path: str):
@@ -501,6 +513,99 @@ class TestListSpaces:
         client = _make_client(handler, fake_creds)
         with pytest.raises(ConfluenceUpstreamForbidden):
             client.list_spaces(frozenset())
+
+
+# -----------------------------------------------------------------------------
+# populate_space_cache — paginated cache warming for spaceKey↔spaceId lookups
+# -----------------------------------------------------------------------------
+
+
+class TestPopulateSpaceCache:
+    def test_walks_pagination_until_no_next(self, fake_creds: ConfluenceCredentials):
+        """The helper must follow ``_links.next`` so a target space living
+        on page 2+ still resolves through the cache."""
+        pages = iter(
+            [
+                {
+                    "results": [{"id": "1", "key": "ENG"}],
+                    "_links": {"next": "/wiki/api/v2/spaces?cursor=PAGE2"},
+                },
+                {
+                    "results": [{"id": "2", "key": "DOCS"}],
+                    "_links": {"next": "/wiki/api/v2/spaces?cursor=PAGE3"},
+                },
+                {
+                    "results": [{"id": "3", "key": "TARGET"}],
+                    "_links": {},
+                },
+            ]
+        )
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(200, json=next(pages))
+
+        client = _make_client(handler, fake_creds)
+        client.populate_space_cache()
+
+        assert len(captured) == 3
+        # First call: no cursor.  Subsequent calls: cursor lifted from _links.next.
+        assert "cursor" not in captured[0].url.params
+        assert captured[1].url.params.get("cursor") == "PAGE2"
+        assert captured[2].url.params.get("cursor") == "PAGE3"
+        assert client.space_cache.key_for_id("3") == "TARGET"
+        assert client.space_cache.id_for_key("TARGET") == "3"
+
+    def test_caps_iterations(self, fake_creds: ConfluenceCredentials):
+        """Defensive cap: never walk more than ``max_pages`` pages, even if
+        Atlassian keeps handing us a ``next`` cursor."""
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(
+                200,
+                json={
+                    "results": [{"id": str(len(captured)), "key": f"S{len(captured)}"}],
+                    "_links": {"next": "/wiki/api/v2/spaces?cursor=MORE"},
+                },
+            )
+
+        client = _make_client(handler, fake_creds)
+        client.populate_space_cache(max_pages=2)
+        assert len(captured) == 2
+
+    def test_403_raises_forbidden(self, fake_creds: ConfluenceCredentials):
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(403)
+
+        client = _make_client(handler, fake_creds)
+        with pytest.raises(ConfluenceUpstreamForbidden):
+            client.populate_space_cache()
+
+
+# -----------------------------------------------------------------------------
+# Lazy http client thread-safety
+# -----------------------------------------------------------------------------
+
+
+class TestLazyHttpClient:
+    def test_client_is_constructed_once(self, fake_creds: ConfluenceCredentials):
+        """``ConfluenceClient._client()`` must memoise the httpx.Client on
+        first call — concurrent first requests must not each leak an
+        instance.  We can only assert the single-thread invariant cheaply
+        (every call returns the same object); the lock-protected
+        double-check itself is exercised by the runtime, not by this test."""
+        # Construct a ConfluenceClient WITHOUT a pre-built http_client so
+        # the lazy path runs.
+        client = ConfluenceClient(creds_provider=lambda: fake_creds)
+        first = client._client()
+        second = client._client()
+        assert first is second
+        # Sanity: also single-init for parallel callers in the same thread.
+        for _ in range(5):
+            assert client._client() is first
 
 
 # -----------------------------------------------------------------------------

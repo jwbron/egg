@@ -93,12 +93,17 @@ def extract_search_spaces(cql: str, allowed: frozenset[str]) -> ScopeResult:
 
     # 2. Reject any OR (case-insensitive) at any depth.  ``space IN (K, K)``
     #    never contains an OR token, so any OR is a rejection.
-    if _contains_top_level_or(normalised):
+    if _contains_or(normalised):
         return ScopeResult(None, "space under OR")
 
-    # 3. Reject bare id / content / title clauses without a space anchor.
-    if _contains_bare_id_clause(normalised):
-        return ScopeResult(None, "id-level clause without space scope")
+    # 3. Reject id / content / title clauses entirely (regardless of any
+    #    accompanying space anchor).  Each one widens scope past what the
+    #    space-only extractor below can prove.
+    if _contains_id_clause(normalised):
+        return ScopeResult(
+            None,
+            "id, content, and title clauses are not supported; use 'text ~ ...' instead",
+        )
 
     tokens = _extract_space_clauses(normalised)
     if tokens is None:
@@ -143,14 +148,19 @@ def _normalise_strings(cql: str) -> str | None:
     return "".join(out)
 
 
-def _contains_top_level_or(cql: str) -> bool:
-    """Return True if the CQL contains an OR boolean operator (any depth)."""
+def _contains_or(cql: str) -> bool:
+    """Return True if the CQL contains an ``OR`` boolean operator at any depth."""
     return re.search(r"(?i)(?<![A-Za-z0-9_])or(?![A-Za-z0-9_])", cql) is not None
 
 
-def _contains_bare_id_clause(cql: str) -> bool:
-    """Return True if the CQL references ``id`` / ``content`` / ``title`` as a
-    filter clause without anchoring on ``space``.  These widen scope.
+def _contains_id_clause(cql: str) -> bool:
+    """Return True if the CQL references ``id`` / ``content`` / ``title``.
+
+    These clauses are rejected unconditionally — including when an
+    accompanying ``space`` anchor is present — because the static extractor
+    only proves space scope for the exact ``space = K`` / ``space IN (...)``
+    shapes and cannot reason about how an ``id`` / ``content`` / ``title``
+    filter widens (or fails to widen) the result set.
     """
     pattern = re.compile(
         r"(?i)(?<![A-Za-z0-9_])(id|content|title)\s*(=|!=|in|not\s+in|~|>|<)",

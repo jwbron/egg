@@ -89,6 +89,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 
@@ -163,8 +164,8 @@ _SPACE_ID = r"\d+"
 # Anti-bypass invariant (reviewer_code 9ae21669 + reviewer_security ec5985ff
 # cycle-3 NACK on issue #1931): the /execute path allowlist must NOT include
 # any path family that a narrow route already covers, because routing those
-# through /execute skips the route-level safeguards.  The four removed paths
-# and their bypass shapes:
+# through /execute skips the route-level safeguards.  The original removed
+# paths and their bypass shapes:
 #
 # - ``rest/api/search``       — bypasses extract_search_spaces (CQL extractor)
 # - ``api/v2/spaces``         — bypasses list_spaces' allowlist filter
@@ -172,6 +173,15 @@ _SPACE_ID = r"\d+"
 #                              spaceKey filter; post-fetch space-allowlist
 #                              check cannot resolve the targeted page
 # - ``api/v2/inline-comments`` (flat) — same flat-endpoint shape
+#
+# Additionally, the page-scoped descendant / comment subpaths
+# (``api/v2/pages/{id}/descendants`` etc.) are intentionally NOT in the
+# allowlist either: their response body has no top-level ``spaceId``, so
+# ``_check_post_fetch_space_allowlist`` always returns ``(False, None)`` and
+# the route always emits ``confluence_space_denied`` — i.e. they're
+# unusable via /execute.  Agents reach those endpoints through the
+# dedicated /api/v1/confluence/page/* routes, which fetch the parent page
+# and resolve spaceKey before the comment/descendant body ships.
 #
 # These paths remain reachable INTERNALLY (the client methods construct them
 # directly without going through validate_confluence_api_path) for the
@@ -182,13 +192,7 @@ _SPACE_ID = r"\d+"
 # reason (PR #1964).
 CONFLUENCE_API_ALLOWED_PATHS: list[re.Pattern[str]] = [
     re.compile(rf"^api/v2/pages/{_PAGE_ID}$"),
-    re.compile(rf"^api/v2/pages/{_PAGE_ID}/descendants$"),
-    re.compile(rf"^api/v2/pages/{_PAGE_ID}/footer-comments$"),
-    re.compile(rf"^api/v2/pages/{_PAGE_ID}/inline-comments$"),
     re.compile(rf"^api/v2/spaces/{_SPACE_ID}/pages$"),
-    # v1 fallback for inline comments (decision D1) — page-scoped, the
-    # /execute post-fetch space-allowlist check covers it.
-    re.compile(rf"^rest/api/content/{_PAGE_ID}/child/comment$"),
 ]
 
 # CQL search has a 200-result hard upper bound at Atlassian.  We clamp at
@@ -527,10 +531,18 @@ class ConfluenceClient:
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS
     space_cache: _SpaceCache = field(default_factory=_SpaceCache)
     _logged_default_body_format: bool = field(default=False, init=False, repr=False)
+    _http_client_lock: threading.Lock = field(
+        default_factory=threading.Lock, init=False, repr=False
+    )
 
     def _client(self) -> httpx.Client:
+        # Concurrent first requests must not each construct (and leak) an
+        # httpx.Client.  Double-check under the lock so the hot path stays
+        # lock-free once the client is initialised.
         if self.http_client is None:
-            self.http_client = httpx.Client(timeout=self.timeout_seconds)
+            with self._http_client_lock:
+                if self.http_client is None:
+                    self.http_client = httpx.Client(timeout=self.timeout_seconds)
         return self.http_client
 
     def _build_url(self, creds: ConfluenceCredentials, path: str) -> str:
@@ -801,6 +813,7 @@ class ConfluenceClient:
         _raise_for_status(response, path)
         body_json = _safe_json(response, path)
 
+        self._populate_cache_from_spaces_payload(body_json)
         results = body_json.get("results")
         if isinstance(results, list):
             kept: list[Any] = []
@@ -808,14 +821,52 @@ class ConfluenceClient:
                 if not isinstance(entry, dict):
                     continue
                 key = entry.get("key")
-                space_id = entry.get("id")
-                if isinstance(space_id, (str, int)) and isinstance(key, str):
-                    self.space_cache.put(str(space_id), key)
                 if isinstance(key, str) and key in allowed_spaces:
                     kept.append(entry)
             body_json["results"] = kept
 
         return _finalize_response(body_json, path)
+
+    def populate_space_cache(self, *, max_pages: int = 4) -> None:
+        """Walk ``GET /wiki/api/v2/spaces`` pagination to fill the cache.
+
+        Routes that translate ``spaceKey``↔``spaceId`` rely on the cache; if
+        the operator's tenant has more spaces than fit on a single v2 page,
+        a target sitting on page 2+ would otherwise look unresolvable and
+        the call would fail-closed.  Walks at most ``max_pages`` pages so a
+        very large tenant cannot pin the gateway on a slow upstream.
+
+        The 403 / non-2xx error shapes mirror ``list_spaces`` so callers can
+        catch the same exception types.
+        """
+        path = "api/v2/spaces"
+        cursor: str | None = None
+        for _ in range(max_pages):
+            query: dict[str, Any] = {}
+            if cursor:
+                query["cursor"] = cursor
+            response = self._request("GET", path, query=query or None)
+            if response.status_code == 403:
+                raise ConfluenceUpstreamForbidden(403, _safe_response_body(response), path)
+            _raise_for_status(response, path)
+            body_json = _safe_json(response, path)
+            self._populate_cache_from_spaces_payload(body_json)
+            cursor = _extract_next_cursor(body_json)
+            if not cursor:
+                return
+
+    def _populate_cache_from_spaces_payload(self, body_json: dict[str, Any]) -> None:
+        """Insert every ``{id, key}`` pair from a ``/wiki/api/v2/spaces`` page."""
+        results = body_json.get("results")
+        if not isinstance(results, list):
+            return
+        for entry in results:
+            if not isinstance(entry, dict):
+                continue
+            key = entry.get("key")
+            space_id = entry.get("id")
+            if isinstance(space_id, (str, int)) and isinstance(key, str):
+                self.space_cache.put(str(space_id), key)
 
     def get_space_pages(
         self,
@@ -948,6 +999,31 @@ def _finalize_response(body: dict[str, Any], path: str) -> dict[str, Any]:
     if size > CONFLUENCE_RESPONSE_MAX_BYTES:
         raise ConfluenceResponseTooLarge(size, path)
     return body
+
+
+def _extract_next_cursor(body_json: dict[str, Any]) -> str | None:
+    """Return the ``cursor`` value from ``_links.next`` if Atlassian set one.
+
+    The v2 API returns the next page as a relative URL with a ``cursor=...``
+    query parameter; absence of a cursor (or absence of ``_links.next``) means
+    the caller has reached the last page.
+    """
+    links = body_json.get("_links")
+    if not isinstance(links, dict):
+        return None
+    next_url = links.get("next")
+    if not isinstance(next_url, str) or not next_url:
+        return None
+    try:
+        parsed = urlparse(next_url)
+    except ValueError:
+        return None
+    qs = parse_qs(parsed.query)
+    cursor_values = qs.get("cursor")
+    if not cursor_values:
+        return None
+    cursor = cursor_values[0]
+    return cursor or None
 
 
 def _parse_retry_after(value: str | None) -> int:
