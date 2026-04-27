@@ -1523,3 +1523,147 @@ class TestCommitFailureResilience:
 
         with pytest.raises(PipelineNotFoundError, match="empty"):
             state_store.load_pipeline("issue-704")
+
+
+class TestEnsureWorktreeIdempotency:
+    """Regression tests for #2140 — `_ensure_worktree` must be idempotent
+    against worktree directories that exist on disk but are missing or
+    have a broken `.git` link."""
+
+    def _make_store(self, tmp_path):
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        (repo_path / ".git").mkdir()
+        worktree_dir = tmp_path / "wt"
+        store = StateStore(repo_path, worktree_dir=worktree_dir)
+        return store, worktree_dir
+
+    def _git_router(self, *, rev_parse_returncodes, branch_exists=True):
+        """Build a `_run_git` side_effect that routes by command.
+
+        - `rev-parse --is-inside-work-tree` → returncodes from
+          `rev_parse_returncodes` (one per call, in order).
+        - `rev-parse --verify refs/heads/...` → branch existence probe.
+        - Anything else → success.
+        """
+        rev_parse_iter = iter(rev_parse_returncodes)
+
+        def run_git(*args, check=True, cwd=None):
+            if args[:2] == ("rev-parse", "--is-inside-work-tree"):
+                rc = next(rev_parse_iter)
+                return MagicMock(stdout="", returncode=rc)
+            if args[:2] == ("rev-parse", "--verify"):
+                return MagicMock(stdout="", returncode=0 if branch_exists else 1)
+            return MagicMock(stdout="", returncode=0)
+
+        return run_git
+
+    def test_idempotent_when_worktree_healthy(self, tmp_path):
+        """Repeat _ensure_worktree calls reuse a healthy worktree —
+        `git worktree add` must NOT be invoked the second time."""
+        store, wt = self._make_store(tmp_path)
+        wt.mkdir()
+        (wt / ".git").write_text("gitdir: /fake\n")
+
+        with patch.object(
+            StateStore, "_run_git", side_effect=self._git_router(rev_parse_returncodes=[0, 0])
+        ) as mock_git:
+            assert store._ensure_worktree() == wt
+            assert store._ensure_worktree() == wt
+
+        # Neither call should have invoked `git worktree add` because the
+        # worktree validated cleanly both times.
+        worktree_add_calls = [
+            c for c in mock_git.call_args_list if c.args[:2] == ("worktree", "add")
+        ]
+        assert worktree_add_calls == []
+
+    def test_recreates_when_dot_git_missing(self, tmp_path):
+        """Worktree dir exists but `.git` link is missing (#2140 trigger).
+
+        Prior to the fix, the validity branch was gated on `(wt / ".git").exists()`,
+        so this case skipped the cleanup entirely and fell through to
+        `git worktree add`, which fails with "already exists"."""
+        store, wt = self._make_store(tmp_path)
+        wt.mkdir()
+        # Intentionally do not create wt/.git — simulates an orphaned admin dir
+        # whose admin metadata under <repo>/.git/worktrees/ is gone.
+        (wt / "leftover.txt").write_text("from cycle 0")
+
+        # rev-parse fails twice (no .git), forcing recreate.
+        with patch.object(
+            StateStore, "_run_git", side_effect=self._git_router(rev_parse_returncodes=[1, 1])
+        ) as mock_git:
+            with patch("state_store.time.sleep"):
+                result = store._ensure_worktree()
+
+        assert result == wt
+        # `git worktree add <wt> <STATE_BRANCH>` must have been called after
+        # cleanup — confirms we took the recreate path, not the failure path.
+        worktree_add_calls = [
+            c for c in mock_git.call_args_list if c.args[:2] == ("worktree", "add")
+        ]
+        assert len(worktree_add_calls) == 1
+        # And the leftover from cycle 0 must be gone (rmtree ran).
+        assert not (wt / "leftover.txt").exists()
+
+    def test_recreates_when_rev_parse_fails(self, tmp_path):
+        """Worktree dir + .git both exist but rev-parse fails twice.
+
+        Existing behavior, but previously cleanup used
+        `shutil.rmtree(..., ignore_errors=True)` which silently masked
+        failures. This test confirms the recreate path still runs."""
+        store, wt = self._make_store(tmp_path)
+        wt.mkdir()
+        (wt / ".git").write_text("gitdir: /broken\n")
+
+        with patch.object(
+            StateStore, "_run_git", side_effect=self._git_router(rev_parse_returncodes=[1, 1])
+        ) as mock_git:
+            with patch("state_store.time.sleep"):
+                result = store._ensure_worktree()
+
+        assert result == wt
+        worktree_add_calls = [
+            c for c in mock_git.call_args_list if c.args[:2] == ("worktree", "add")
+        ]
+        assert len(worktree_add_calls) == 1
+
+    def test_rmtree_failure_raises_git_error(self, tmp_path):
+        """If cleanup rmtree fails, we surface a GitOperationError instead
+        of silently falling through to `git worktree add` (which would
+        produce the cryptic "already exists" failure that motivates #2140)."""
+        store, wt = self._make_store(tmp_path)
+        wt.mkdir()
+        (wt / ".git").write_text("gitdir: /broken\n")
+
+        with patch.object(
+            StateStore, "_run_git", side_effect=self._git_router(rev_parse_returncodes=[1, 1])
+        ):
+            with (
+                patch("state_store.time.sleep"),
+                patch("state_store.shutil.rmtree", side_effect=OSError("permission denied")),
+            ):
+                with pytest.raises(
+                    GitOperationError, match="Failed to remove stale state worktree"
+                ):
+                    store._ensure_worktree()
+
+    def test_force_removes_admin_dir_when_worktree_present(self, tmp_path):
+        """`_remove_stale_admin_dir(force=True)` clears the admin dir even
+        when the worktree directory still exists. The default behavior
+        (force=False) preserves the admin dir in that case."""
+        store, wt = self._make_store(tmp_path)
+        wt.mkdir()  # worktree dir exists
+
+        admin_dir = store.repo_path / ".git" / "worktrees" / "wt"
+        admin_dir.mkdir(parents=True)
+        (admin_dir / "gitdir").write_text(f"{wt}/.git\n")
+
+        # Default: admin dir is preserved because wt exists.
+        store._remove_stale_admin_dir()
+        assert admin_dir.exists()
+
+        # Forced: admin dir is removed.
+        store._remove_stale_admin_dir(force=True)
+        assert not admin_dir.exists()

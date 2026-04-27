@@ -216,24 +216,55 @@ class StateStore:
 
         wt = self._worktree_dir
 
-        if wt.exists() and (wt / ".git").exists():
-            # Quick validity check with one retry for transient git
-            # contention (e.g., concurrent _commit_statefiles_to_worktree
-            # holding a lock on the shared .git directory).  See #1396.
+        if wt.exists():
+            # Validate against `git rev-parse` rather than relying on the
+            # presence of `wt/.git`.  The `.git` link can be missing or
+            # broken (e.g., the matching admin dir under
+            # `<repo>/.git/worktrees/...` was orphaned by a crash) while
+            # the worktree directory itself still sits on disk.  In that
+            # state, falling through to `git worktree add` below would
+            # fail with `'<wt>' already exists` and strand the pipeline
+            # on `request_changes` re-runs (#2140).  Probe with rev-parse
+            # and only treat the worktree as healthy when git agrees.
+            #
+            # One retry covers transient git contention (e.g., concurrent
+            # _commit_statefiles_to_worktree holding a lock on the shared
+            # .git directory).  See #1396.
+            healthy = False
             for _attempt in range(2):
                 result = self._run_git("rev-parse", "--is-inside-work-tree", cwd=wt, check=False)
                 if result.returncode == 0:
-                    return wt
+                    healthy = True
+                    break
                 if _attempt == 0:
                     time.sleep(0.1)
-            # Stale/broken — remove and recreate
+            if healthy:
+                return wt
+
             logger.warning(
-                "Worktree validation failed after retry, recreating: worktree=%s returncode=%s",
+                "Worktree validation failed, recreating: worktree=%s returncode=%s",
                 str(wt),
                 result.returncode,
             )
-            shutil.rmtree(wt, ignore_errors=True)
-            self._remove_stale_admin_dir()
+            try:
+                shutil.rmtree(wt)
+            except OSError as exc:
+                raise GitOperationError(
+                    f"Failed to remove stale state worktree at {wt}: {exc}"
+                ) from exc
+            # Force-remove the admin dir too — the matching wt directory
+            # was just removed, but `_remove_stale_admin_dir` checks
+            # `wt.exists()` before deleting, so call the forced variant
+            # to guarantee `git worktree add` won't refuse.
+            self._remove_stale_admin_dir(force=True)
+            if wt.exists():
+                # Defensive: rmtree returned without raising but the
+                # directory persists (e.g., a sub-mount).  Refuse to
+                # call `git worktree add` over it.
+                raise GitOperationError(
+                    f"State worktree at {wt} could not be removed; "
+                    "refusing to recreate over existing directory"
+                )
 
         wt.parent.mkdir(parents=True, exist_ok=True)
 
@@ -269,7 +300,7 @@ class StateStore:
 
         return wt
 
-    def _remove_stale_admin_dir(self) -> None:
+    def _remove_stale_admin_dir(self, force: bool = False) -> None:
         """Remove the git admin dir for the state worktree if it's stale.
 
         When the state worktree directory is gone but its admin dir still
@@ -278,6 +309,13 @@ class StateStore:
         admin dir that belongs to this state worktree — without touching
         admin dirs for other worktrees (e.g., gateway-managed container
         worktrees).
+
+        Args:
+            force: When True, remove the admin dir even if the worktree
+                directory still exists.  Used by ``_ensure_worktree`` after
+                it has just removed a broken worktree directory and is
+                about to recreate it; without this, the orphaned admin
+                dir would still cause ``git worktree add`` to refuse.
         """
         worktrees_dir = self.repo_path / ".git" / "worktrees"
         if not worktrees_dir.exists():
@@ -296,8 +334,7 @@ class StateStore:
                 gitdir_content = gitdir_file.read_text().strip()
                 if gitdir_content.rstrip("/") == expected_gitdir.rstrip("/"):
                     # This admin dir belongs to our state worktree
-                    if not wt.exists():
-                        # Worktree dir is gone — admin dir is stale
+                    if force or not wt.exists():
                         shutil.rmtree(entry, ignore_errors=True)
                     return
             except OSError:
