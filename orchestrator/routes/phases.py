@@ -6,7 +6,6 @@ Provides REST endpoints for advancing pipeline phases with validation.
 
 import json
 import sys
-import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -389,7 +388,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
             # Bump run_epoch so any stale _run_pipeline thread from the
             # previous phase detects the advance and exits gracefully.
             pipeline.run_epoch = datetime.now(UTC)
-            pipeline.updated_at = datetime.now(UTC)
+            # ``updated_at`` is unconditionally set by ``StateStore.save_pipeline``.
 
             # Save updated pipeline with optimistic locking
             store.save_pipeline(pipeline, expected_version=original_version)
@@ -463,16 +462,9 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
         # Launch a new _run_pipeline thread to process the target phase.
         # Without this, the pipeline stays in RUNNING state with no thread
         # driving agent spawning or consensus detection.  See #1672.
-        from routes.pipelines import _run_pipeline
+        from routes.pipelines import _spawn_pipeline_run_thread
 
-        repo_path_for_thread = store.repo_path
-        thread = threading.Thread(
-            target=_run_pipeline,
-            args=(pipeline_id, repo_path_for_thread),
-            daemon=True,
-            name=f"pipeline-{pipeline_id}-{int(pipeline.run_epoch.timestamp())}",
-        )
-        thread.start()
+        _spawn_pipeline_run_thread(pipeline_id, store.repo_path, pipeline.run_epoch)
 
         logger.info(
             "Phase advanced",

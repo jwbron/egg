@@ -373,7 +373,7 @@ class TestPhaseAdvanceHealthCheck:
             data = json.loads(resp.data)
             assert "health" in data.get("message", "").lower()
 
-    @patch("routes.phases.threading.Thread")
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
     @patch("routes.phases.get_pipeline_state_lock")
     @patch("routes.phases.get_state_store_for_pipeline")
     def test_force_flag_bypasses_health_checks(
@@ -410,7 +410,7 @@ class TestPhaseAdvanceHealthCheck:
             assert resp.status_code != 409
             mock_runner.run.assert_not_called()
 
-    @patch("routes.phases.threading.Thread")
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
     @patch("routes.phases.get_pipeline_state_lock")
     @patch("routes.phases.get_state_store_for_pipeline")
     def test_healthy_results_allow_phase_advance(
@@ -445,7 +445,7 @@ class TestPhaseAdvanceHealthCheck:
             )
             assert resp.status_code != 409
 
-    @patch("routes.phases.threading.Thread")
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
     @patch("routes.phases.get_pipeline_state_lock")
     @patch("routes.phases.get_state_store_for_pipeline")
     def test_health_check_exception_does_not_block_advance(
@@ -479,7 +479,7 @@ class TestPhaseAdvanceHealthCheck:
             # Should proceed despite exception
             assert resp.status_code != 409
 
-    @patch("routes.phases.threading.Thread")
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
     @patch("routes.phases.get_pipeline_state_lock")
     @patch("routes.phases.get_state_store_for_pipeline")
     def test_no_runner_allows_advance(
@@ -511,7 +511,7 @@ class TestPhaseAdvanceHealthCheck:
             )
             assert resp.status_code != 409
 
-    @patch("routes.phases.threading.Thread")
+    @patch("routes.pipelines._spawn_pipeline_run_thread")
     @patch("routes.phases.get_pipeline_state_lock")
     @patch("routes.phases.get_state_store_for_pipeline")
     def test_alert_action_allows_advance(
