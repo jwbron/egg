@@ -510,10 +510,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-20",
+      "question": "createIssueLink idempotency (Open Q28, surfaced by reviewer_refine) — Atlassian's POST /rest/api/3/issueLink does not dedupe identical (inward, outward, type) triples; a retry after a transient 5xx creates a duplicate link. How should the gateway / orchestrator handle this?",
+      "context": "Open contract question decision-19, registered by an agent during the refine phase.",
+      "options": [
+        "Extend the idempotency-key + cache (D1) to createIssueLink for symmetry with createJiraIssue / addCommentToJiraIssue",
+        "Document that orchestrator's plan-apply must scan existing inwardIssue links before retrying createIssueLink",
+        "Accept duplicates; orchestrator de-dups separately as a follow-up",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-27T19:13:59.347598Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-27T18:38:49.382721Z",
-  "updated_at": "2026-04-27T19:13:59.312884Z",
+  "updated_at": "2026-04-27T19:13:59.369159Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -527,6 +546,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 30,
+  "version": 31,
   "jira_ticket": null
 }
