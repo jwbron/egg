@@ -613,3 +613,69 @@ class TestDetachedHeadCommitHint:
             stderr = data.get("data", {}).get("stderr", "") or ""
             assert "HEAD is detached" in stderr
             assert "git update-ref refs/heads/egg/issue-42-coder/work HEAD" in stderr
+
+    def test_commit_symbolic_ref_nonempty_stderr_suppresses_hint(self, client, auth_pipeline):
+        """rc=1 with empty stdout but non-empty stderr suppresses the hint and logs at debug.
+
+        Locks in the contract added in the third review pass: if a future git
+        version (or the host environment) leaks a config-deprecation warning
+        onto stderr, the hint must stay silent — telling the agent to run
+        ``update-ref`` against an unclear HEAD state would be misleading — and
+        the suppression must be observable via a debug-level log so the
+        missing hint is debuggable rather than invisible.
+        """
+        headers, mock_result, mock_policy, current_sm = auth_pipeline
+
+        def side_effect(*args, **kwargs):
+            cmd = args[0] if args else kwargs.get("args", [])
+            cmd_str = " ".join(str(c) for c in cmd)
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = ""
+            result.stderr = ""
+            if "diff" in cmd_str and "--cached" in cmd_str:
+                result.stdout = ""
+            elif "symbolic-ref" in cmd_str:
+                # rc=1 (would normally trigger the hint) but stderr is non-empty:
+                # ambiguous state, hint must stay silent.
+                result.returncode = 1
+                result.stdout = ""
+                result.stderr = "warning: deprecated config option foo.bar\n"
+            else:
+                result.stdout = "ok"
+            return result
+
+        with (
+            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy),
+            patch.object(gateway, "audit_log"),
+            patch.object(gateway, "validate_repo_path", return_value=(True, "")),
+            patch.object(gateway, "map_container_path_to_worktree", return_value="/worktree/path"),
+            patch.object(gateway, "_lookup_commit_observer_fn", return_value=None),
+            patch("gateway.subprocess.run", side_effect=side_effect),
+            patch.object(gateway, "logger") as mock_logger,
+        ):
+            response = client.post(
+                "/api/v1/git/execute",
+                json={
+                    "repo_path": "/home/egg/repos/myrepo",
+                    "operation": "commit",
+                    "args": ["-m", "wip"],
+                },
+                headers=headers,
+            )
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            stderr = data.get("data", {}).get("stderr", "") or ""
+            # No hint surfaced — the stderr-non-empty branch suppresses it.
+            assert "HEAD is detached" not in stderr
+            assert "update-ref" not in stderr
+            # The suppression event was logged at debug so the missing hint
+            # is debuggable rather than silent.
+            debug_events = [
+                call.args[0] if call.args else call.kwargs.get("event", "")
+                for call in mock_logger.debug.call_args_list
+            ]
+            assert "detached_head_hint_suppressed_stderr" in debug_events, (
+                f"Expected detached_head_hint_suppressed_stderr debug log, got: {debug_events}"
+            )
