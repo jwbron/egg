@@ -271,6 +271,61 @@ class TestConsultAdvisor:
                 )
             )
 
+    def test_embedded_brace_in_string_value(self) -> None:
+        # Locks the string-aware contract: ``raw_decode`` must stop at
+        # the closing ``}`` of the JSON object even when value strings
+        # contain a literal ``}``. A naive brace-counting scan would
+        # truncate the payload and break validation.
+        runner = self._runner_returning(
+            'Verdict:\n{"decision": "watch", "reasoning": "value with } embedded brace"}'
+        )
+        verdict = asyncio.run(
+            consult_advisor(
+                classification={},
+                health_alerts=[],
+                progress_events=[],
+                recent_log_lines=[],
+                _agent_runner=runner,
+            )
+        )
+        assert verdict.decision == "watch"
+        assert verdict.reasoning == "value with } embedded brace"
+
+    def test_trailing_prose_after_payload(self) -> None:
+        # ``raw_decode`` accepts trailing data after a complete JSON
+        # value, so unfenced prose tacked on the end of a verdict is
+        # tolerated even though plain ``json.loads`` rejects it with
+        # "Extra data".
+        runner = self._runner_returning('{"decision": "watch", "reasoning": "r"} thanks!')
+        verdict = asyncio.run(
+            consult_advisor(
+                classification={},
+                health_alerts=[],
+                progress_events=[],
+                recent_log_lines=[],
+                _agent_runner=runner,
+            )
+        )
+        assert verdict.decision == "watch"
+
+    def test_stray_leading_brace_skipped(self) -> None:
+        # Leading prose contains a ``{`` that is NOT the start of the
+        # verdict (e.g. a templated placeholder). The loop must skip
+        # past the unparseable snippet and find the real JSON object.
+        runner = self._runner_returning(
+            'see {field_name} below: {"decision": "watch", "reasoning": "r"}'
+        )
+        verdict = asyncio.run(
+            consult_advisor(
+                classification={},
+                health_alerts=[],
+                progress_events=[],
+                recent_log_lines=[],
+                _agent_runner=runner,
+            )
+        )
+        assert verdict.decision == "watch"
+
     def test_schema_failure_raises_parse_error(self) -> None:
         runner = self._runner_returning({"decision": "alert"})  # missing reasoning
         with pytest.raises(AdvisorParseError, match="validation"):

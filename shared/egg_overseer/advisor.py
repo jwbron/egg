@@ -239,18 +239,29 @@ async def consult_advisor(
         # Under ``max_turns=1`` Claude often emits ``Here's the
         # verdict:\n{...}`` instead of pure JSON; ``raw_decode`` is
         # string-aware so braces inside JSON string values don't fool
-        # the scan.
-        start = cleaned.find("{")
-        if start == -1:
+        # the scan. Iterate over candidate ``{`` positions so a stray
+        # brace in leading prose (e.g. ``see {field} below: {...}``)
+        # doesn't lock us onto an unparseable snippet.
+        decoder = json.JSONDecoder()
+        payload = None
+        last_exc: json.JSONDecodeError | None = None
+        pos = 0
+        while True:
+            start = cleaned.find("{", pos)
+            if start == -1:
+                break
+            try:
+                payload, _ = decoder.raw_decode(cleaned[start:])
+                break
+            except json.JSONDecodeError as exc:
+                last_exc = exc
+                pos = start + 1
+        if payload is None:
+            # No `{` ever found → no useful inner exception; otherwise
+            # chain the most recent ``raw_decode`` failure for context.
             raise AdvisorParseError(
                 f"consult_advisor: SDK response is not valid JSON: {raw!r}"
-            ) from None
-        try:
-            payload, _ = json.JSONDecoder().raw_decode(cleaned[start:])
-        except json.JSONDecodeError as exc:
-            raise AdvisorParseError(
-                f"consult_advisor: SDK response is not valid JSON: {raw!r}"
-            ) from exc
+            ) from last_exc
 
     try:
         verdict = AdvisorVerdict.model_validate(payload)
