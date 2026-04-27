@@ -216,13 +216,15 @@ class TestCoderBlocklistComplement:
     def test_allows_sandbox_bin_egg_health_inspect(self):
         assert CODER_PATTERNS.can_write("sandbox/bin/egg-health-inspect")
 
-    def test_blocks_sandbox_scripts_gh_shim(self):
-        """sandbox/scripts/ is blocked (credential-routing invariant)."""
-        assert not CODER_PATTERNS.can_write("sandbox/scripts/gh")
+    def test_allows_sandbox_scripts_gh_shim(self):
+        """sandbox/scripts/ is writable; the gateway is the sole egress
+        chokepoint, so credential-shim modifications are reviewed by
+        reviewer_security rather than blocked at the role-pattern layer."""
+        assert CODER_PATTERNS.can_write("sandbox/scripts/gh")
 
-    def test_blocks_sandbox_scripts_git_credential_helper(self):
-        """sandbox/scripts/ is blocked (credential-routing invariant)."""
-        assert not CODER_PATTERNS.can_write("sandbox/scripts/git-credential-github-token")
+    def test_allows_sandbox_scripts_git_credential_helper(self):
+        """sandbox/scripts/ is writable; see test_allows_sandbox_scripts_gh_shim."""
+        assert CODER_PATTERNS.can_write("sandbox/scripts/git-credential-github-token")
 
     def test_blocks_github_workflows(self):
         """.github/ is blocked (branch-protection invariant)."""

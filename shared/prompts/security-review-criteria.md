@@ -91,7 +91,54 @@ Verification recipe:
 3. Flag broken symlinks (`ls -l <link>` returns a missing target) as a
    blocking finding regardless of code quality.
 
-### 5. Secret leakage
+### 5. Credential-shim modifications under `sandbox/scripts/`
+
+The wrappers under `sandbox/scripts/` (`gh`, `git`, `jira`, …) are the
+sandbox's **only** egress path to credential-bearing services. The
+gateway sidecar is the actual security boundary — these wrappers hold
+no credentials and any request they emit is independently re-validated
+by the gateway against its policy. So a compromised wrapper cannot
+bypass the gateway. **But** a compromised wrapper can still:
+
+- **Mislead the agent calling it** — return fake success on a request
+  the gateway rejected, swallow error output, or print misleading
+  diagnostics that hide a failed operation.
+- **Smuggle data into request bodies** — append attacker-chosen
+  fields the gateway happens to forward verbatim (e.g. PR body text,
+  issue comments, commit messages) to an external system.
+- **Re-route to a different gateway endpoint** that has a more
+  permissive policy than the one the wrapper's name implies (e.g.
+  `gh` quietly POSTing to a `/jira/` route).
+- **Exfiltrate session-scoped state** the wrapper has access to
+  (`EGG_SESSION_TOKEN`, environment, stdin) by including it in a
+  request the gateway *would* allow.
+
+The role-level write filter does **not** block writes under
+`sandbox/scripts/` — the credential-routing invariant is enforced by
+this lens, not by `patterns.py`. Treat any diff that touches
+`sandbox/scripts/*` as a trust-boundary change.
+
+Verification recipe:
+
+1. Enumerate every changed file under `sandbox/scripts/`. For each,
+   confirm it is a thin bash/POSIX wrapper that POSTs to a
+   `/api/v1/<service>/*` gateway route — no inline secrets, no calls
+   to the real `gh`/`git`/`jira` binaries, no network calls outside
+   the gateway URL, no writes outside the wrapper's documented stdout.
+2. Confirm the wrapper's gateway route matches its name (a wrapper
+   named `gh` POSTs to `/api/v1/github/*`, not `/api/v1/jira/*`).
+3. Confirm output handling is faithful: a non-2xx gateway response
+   surfaces as a non-zero exit and an error on stderr; the wrapper
+   does not silently swallow errors or fabricate success output.
+4. For NEW wrappers, confirm a corresponding gateway route exists
+   (or is added by the same diff) and is itself reviewed for policy
+   correctness — a permissive new route is a real security finding
+   even if the wrapper looks innocuous.
+
+This is a **blocking** finding regardless of code quality: any
+deviation from the documented wrapper shape is a NACK.
+
+### 6. Secret leakage
 
 Any new code path that may emit secrets, tokens, credentials, or
 identity-bearing tokens to:
@@ -108,7 +155,7 @@ Pay special attention to redaction-bypass patterns: a regex that
 redacts `password=...` but not `passwd=`; a sanitiser applied to one
 log channel but not another.
 
-### 6. Cross-file OWASP top-10 patterns
+### 7. Cross-file OWASP top-10 patterns
 
 OWASP top-10 patterns where the source and the sink live in **different
 changed files**. Common shapes:
@@ -134,7 +181,8 @@ flag them.
    the reach, you have not found the bug.
 3. Trust-boundary changes get extra scrutiny: any new public endpoint,
    any change to a decorator stack, any new file in `gateway/` or
-   `auth/`, any change to allowlists or regex patterns.
+   `auth/`, any change to allowlists or regex patterns, and any change
+   under `sandbox/scripts/` (the credential-shim wrappers).
 4. Cross-reference [`code-review-criteria.md`](./code-review-criteria.md)
    for the base review rules — your verdict format, severity classification,
    and BRC ACK/NACK lifecycle inherit from there.

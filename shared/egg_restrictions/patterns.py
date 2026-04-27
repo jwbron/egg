@@ -231,9 +231,6 @@ CODER_PATTERNS = AgentFilePattern(
         # Defense-in-depth: CI workflows and CODEOWNERS — preserves the
         # branch-protection invariant.
         ".github/",
-        # Defense-in-depth: gateway credential shims — preserves the
-        # credential-routing invariant.
-        "sandbox/scripts/",
     ],
     block_exempt_patterns=[
         # Coder's handoff directory — the only .egg-state/ subdir the coder
@@ -257,14 +254,6 @@ CODER_PATTERNS = AgentFilePattern(
         "sandbox/agent-config/commands/*.md",
         # Top-level skills directory (skill definitions are functional code)
         "skills/",
-        # Jira sandbox wrapper — new in #1556.  ``sandbox/scripts/`` is
-        # blocked wholesale to keep agents from retargeting the existing
-        # ``gh`` / ``git`` credential shims; this exemption lets the coder
-        # land the NEW ``jira`` wrapper alongside them.  The file is
-        # functionally identical in shape (bash wrapper that POSTs to a
-        # gateway REST endpoint — never holds credentials locally) and is
-        # the only addition permitted under the broader block.
-        "sandbox/scripts/jira",
     ],
 )
 
