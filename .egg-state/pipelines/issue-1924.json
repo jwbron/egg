@@ -419,10 +419,28 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-15",
+      "question": "Idempotency cache scope (Open Q16)",
+      "context": "Open contract question decision-14, registered by an agent during the refine phase.",
+      "options": [
+        "In-memory per-gateway-process, 5-minute TTL",
+        "Persisted (disk or Redis) for multi-replica deployments",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-27T19:13:58.986803Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-27T18:38:49.382721Z",
-  "updated_at": "2026-04-27T19:13:58.928290Z",
+  "updated_at": "2026-04-27T19:13:59.016120Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -436,6 +454,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 25,
+  "version": 26,
   "jira_ticket": null
 }
