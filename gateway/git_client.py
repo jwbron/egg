@@ -274,7 +274,7 @@ ALLOWED_FLAG_VALUES: dict[str, set[str]] = {
 
 # Per-operation allowlist of flags that are permitted
 # This is more secure than a blocklist - unknown flags are rejected by default
-GIT_ALLOWED_COMMANDS = {
+GIT_ALLOWED_COMMANDS: dict[str, dict[str, list[str]]] = {
     # === Network operations (require authentication) ===
     "fetch": {
         "allowed_flags": [
@@ -859,6 +859,18 @@ GIT_ALLOWED_COMMANDS = {
             "--batch",
             "--batch-check",
         ],
+    },
+    # update-ref is restricted to the safe two-arg form
+    # (`update-ref <ref> <newvalue> [<oldvalue>]`). The gateway additionally
+    # scopes the target ref to ``refs/heads/<assigned_branch>`` for pipeline
+    # sessions and force-prepends ``--no-deref`` server-side (defense in depth
+    # against symref-following) — see the update-ref guard in gateway.py.
+    # ``--stdin``/``-d``/``-z``/``--create-reflog`` are intentionally absent
+    # from the allowlist (and therefore rejected) to keep the surface area
+    # tight: ref deletion and batch updates are not part of the supported
+    # recovery flow. Issue #2162.
+    "update-ref": {
+        "allowed_flags": [],
     },
 }
 

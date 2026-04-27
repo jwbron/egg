@@ -68,6 +68,15 @@ Sandbox agents see in-process Claude Agent SDK MCP tools for HITL / BRC / phase 
   - Step-by-step: read anchor → catch up messages → verify files → resume
   - Full guide: `$EGG_REPO_PATH/docs/guides/anchor-recovery.md`
 
+- **branch-recovery.md** - Detached-HEAD recovery in pipeline sessions
+  - When you end up on detached HEAD, advance your work branch with
+    `git update-ref refs/heads/<your-branch> <sha>`
+  - Background: #2162
+
+- **push-recovery.md** - Recovering from a rejected push
+  - What happens when the gateway rejects `git push` for restricted-path
+    modifications, and the conditional-ACK pattern from #1998
+
 ## Design Principles
 
 - **Index, Don't Dump** - Rules are concise; detailed docs are referenced

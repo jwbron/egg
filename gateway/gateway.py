@@ -396,6 +396,79 @@ def _lookup_commit_observer_fn(name: str) -> Any:
     return getattr(mod, name, None)
 
 
+def _detached_head_hint(
+    operation: str,
+    exec_path: str,
+    repo_path: str,
+    container_id: str | None,
+) -> str:
+    """Return a recovery hint string when a `commit` lands on detached HEAD.
+
+    Used by the git-execute handler to surface the exact ``update-ref``
+    invocation an agent needs to set its work branch to the new commit
+    (issue #2162).  The empty string means "no hint" — caller appends as-is.
+
+    The trigger is intentionally narrow:
+
+    * Only ``operation == "commit"`` and only when the session has an
+      ``assigned_branch`` — we do not want to noise non-pipeline sessions.
+    * ``git symbolic-ref --quiet HEAD`` must return exactly 1 with empty
+      stdout AND empty stderr.  Returncode 128 (corrupt repo, .git missing,
+      "fatal: ...") and any non-empty stderr are treated as ambiguous and
+      yield no hint — telling the agent to run ``update-ref`` against a
+      broken repository would be misleading.
+    """
+    if operation != "commit":
+        return ""
+    session = getattr(g, "session", None)
+    assigned = getattr(session, "assigned_branch", None) if session else None
+    if not isinstance(assigned, str) or not assigned:
+        return ""
+    try:
+        head_check = subprocess.run(
+            git_cmd("symbolic-ref", "--quiet", "HEAD"),
+            cwd=exec_path,
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    # Tight check: returncode 1 with no stdout and no stderr is unambiguously
+    # detached HEAD.  Anything else (corrupt repo, missing .git, EAGAIN) gets
+    # no hint.
+    if head_check.returncode != 1:
+        return ""
+    if head_check.stdout.strip():
+        return ""
+    if head_check.stderr.strip():
+        # Symbolic-ref returncode==1 with empty stdout but non-empty stderr is
+        # ambiguous (e.g. future git versions writing config-deprecation
+        # warnings).  Log at debug so a missing hint is debuggable rather than
+        # silent, and bail out — telling the agent to run update-ref against
+        # an unclear HEAD state would be misleading.
+        logger.debug(
+            "detached_head_hint_suppressed_stderr",
+            repo_path=repo_path,
+            container_id=container_id,
+            assigned_branch=assigned,
+            stderr=head_check.stderr.strip()[:200],
+        )
+        return ""
+    logger.info(
+        "detached_head_commit_hint",
+        repo_path=repo_path,
+        container_id=container_id,
+        assigned_branch=assigned,
+    )
+    return (
+        f"\n[gateway] HEAD is detached. Your commit is not on "
+        f"branch '{assigned}'. To set the branch to this commit, run:\n"
+        f"  git update-ref refs/heads/{assigned} HEAD\n"
+    )
+
+
 def _is_checkpoint_repo_for_request(owner: str, repo: str) -> bool:
     """Check if a repository is a checkpoint repo, using all available signals.
 
@@ -2009,6 +2082,47 @@ def git_execute() -> tuple[Response, int] | Response:
         )
         return make_error(args_error, status_code=400)
 
+    # SECURITY: Scope `git update-ref` to the agent's own assigned branch.
+    # update-ref is the supported recovery primitive when an agent ends up on
+    # detached HEAD with a useful commit (see issue #2162). To keep the blast
+    # radius tight, the gateway rejects any update-ref that is not of the form
+    # `update-ref <ref> <newvalue> [<oldvalue>]` and force-prepends
+    # `--no-deref` below so symref-following semantics never apply.
+    if operation == "update-ref":
+        session = getattr(g, "session", None)
+        assigned = getattr(session, "assigned_branch", None) if session else None
+        positional = [a for a in validated_args if not a.startswith("-")]
+        denial_reason: str | None = None
+        if not isinstance(assigned, str) or not assigned:
+            denial_reason = (
+                "git update-ref is only allowed in pipeline sessions with an assigned branch."
+            )
+        elif len(positional) < 2 or len(positional) > 3:
+            denial_reason = (
+                "git update-ref must be of the form `git update-ref <ref> <newvalue> [<oldvalue>]`."
+            )
+        else:
+            expected_ref = f"refs/heads/{assigned}"
+            if positional[0] != expected_ref:
+                denial_reason = (
+                    f"git update-ref target '{positional[0]}' is not allowed. "
+                    f"Only '{expected_ref}' (your assigned branch) may be updated."
+                )
+        if denial_reason is not None:
+            audit_log(
+                "git_execute_blocked",
+                operation,
+                success=False,
+                details={
+                    "repo_path": repo_path,
+                    "git_args": validated_args,
+                    "container_id": container_id,
+                    "assigned_branch": assigned,
+                    "reason": denial_reason,
+                },
+            )
+            return make_error(denial_reason, status_code=403)
+
     # SECURITY: Block branch-switching for pipeline sessions.
     # Pipeline containers are locked to their worktree branch to prevent
     # cross-contamination between pipeline tasks.
@@ -2193,6 +2307,14 @@ def git_execute() -> tuple[Response, int] | Response:
     if operation in ("commit", "merge", "am"):
         validated_args = ["--no-verify", *validated_args]
 
+    # SECURITY: Force-prepend `--no-deref` for `update-ref` (#2162). Without it,
+    # update-ref follows symref targets — the underlying ref is updated, not
+    # `refs/heads/<assigned_branch>`. In practice agent branches are never
+    # symrefs, but the gateway is a defense-in-depth boundary and the recovery
+    # flow never wants symref-following semantics.
+    if operation == "update-ref":
+        validated_args = ["--no-deref", *validated_args]
+
     # Build command
     cmd = git_cmd(operation, *validated_args)
 
@@ -2294,11 +2416,19 @@ def git_execute() -> tuple[Response, int] | Response:
                     "container_id": container_id,
                 },
             )
+
+            # Detached-HEAD recovery hint (#2162). After a successful commit
+            # in a pipeline session, surface a clear hint if HEAD is detached
+            # so the agent doesn't spend minutes guessing at policy bypasses
+            # to update its work branch ref.
+            hint = _detached_head_hint(operation, exec_path, repo_path, container_id)
+            stderr_out = (result.stderr or "") + hint if hint else result.stderr
+
             return make_success(
                 f"git {operation} successful",
                 {
                     "stdout": result.stdout,
-                    "stderr": result.stderr,
+                    "stderr": stderr_out,
                     "returncode": result.returncode,
                 },
             )
@@ -2334,12 +2464,18 @@ def git_execute() -> tuple[Response, int] | Response:
                     },
                 )
 
+            # Surface the detached-HEAD recovery hint on failure too. Common
+            # cases (rebase --onto mid-conflict, missing --allow-empty, index
+            # locks) produce a *failed* commit while detached, and the hint is
+            # exactly what cuts that confusion short.
+            failure_hint = _detached_head_hint(operation, exec_path, repo_path, container_id)
+            failure_stderr = (result.stderr or "") + failure_hint if failure_hint else result.stderr
             return make_error(
                 f"git {operation} failed",
                 status_code=500,
                 details={
                     "stdout": result.stdout,
-                    "stderr": result.stderr,
+                    "stderr": failure_stderr,
                     "returncode": result.returncode,
                 },
             )
