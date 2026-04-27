@@ -15,7 +15,10 @@ Verified outcomes:
   - ``plan_draft_missing``
   - ``contract_load_failed``
   - ``parse_failed``
-  - ``unexpected_exception`` (inner catch-all + outer ``_safe`` wrapper)
+  - ``empty_result`` — parse succeeded but yielded no phases / no PR
+    metadata (the #1931 failure mode)
+  - ``unexpected_exception`` with ``source="parse_save"`` (inner catch)
+    or ``source="safe_wrapper"`` (outer ``_safe`` wrapper)
 
 structlog output bypasses pytest's ``caplog`` fixture in this codebase
 (see ``test_decisions_routes.py``), so we patch the module-level
@@ -244,7 +247,57 @@ class TestFailureEvents:
         failures = _ingest_failed_calls(mock_logger)
         assert len(failures) == 1
         assert failures[0].kwargs["reason"] == "unexpected_exception"
+        # source distinguishes inner catch from the outer _safe wrapper.
+        assert failures[0].kwargs["source"] == "parse_save"
         assert "parser exploded" in failures[0].kwargs["error"]
+        # Tracebacks must be preserved for unexpected exceptions.
+        assert failures[0].kwargs.get("exc_info") is True
+
+    def test_empty_result_emits_discriminator(self, tmp_path):
+        """Parse success with no phases and no PR metadata emits empty_result.
+
+        This is the #1931 failure mode: ``parse_plan`` returns
+        ``success=True`` but ``to_contract_phases()`` yields ``[]`` and
+        ``pr_title`` is None — the contract stays empty.  Without this
+        event the gap is invisible to operators.
+        """
+        from egg_contracts.loader import create_contract
+        from routes.pipelines import _populate_contract_from_plan
+
+        pipeline_id = "pipeline-empty-parse"
+        create_contract(pipeline_id=pipeline_id, title="Test", repo_root=tmp_path)
+
+        drafts_dir = tmp_path / ".egg-state" / "drafts"
+        drafts_dir.mkdir(parents=True, exist_ok=True)
+        (drafts_dir / f"{pipeline_id}-plan.md").write_text("# Plan\n")
+
+        # Force parse_plan to return success with no phases or PR metadata.
+        fake_result = MagicMock()
+        fake_result.success = True
+        fake_result.warnings = []
+        fake_result.to_contract_phases.return_value = []
+        fake_result.pr_title = None
+        fake_result.pr_description = None
+        fake_result.pr_test_plan = None
+        fake_result.pr_manual_steps = None
+
+        with (
+            patch("egg_contracts.plan_parser.parse_plan", return_value=fake_result),
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            _populate_contract_from_plan(tmp_path, pipeline_id, "local")
+
+        failures = _ingest_failed_calls(mock_logger)
+        assert len(failures) == 1
+        assert failures[0].kwargs["reason"] == "empty_result"
+        assert failures[0].kwargs["pipeline_id"] == pipeline_id
+        # Success event must NOT be emitted in this case.
+        success_calls = [
+            c
+            for c in mock_logger.info.call_args_list
+            if c.args and c.args[0] == "contract_phases_populated"
+        ]
+        assert success_calls == []
 
 
 class TestSafeWrapper:
@@ -266,8 +319,12 @@ class TestSafeWrapper:
         failures = _ingest_failed_calls(mock_logger)
         assert len(failures) == 1
         assert failures[0].kwargs["reason"] == "unexpected_exception"
+        # source distinguishes the outer wrapper from the inner catch.
+        assert failures[0].kwargs["source"] == "safe_wrapper"
         assert failures[0].kwargs["pipeline_id"] == "pipeline-wrap"
         assert "inner blew up" in failures[0].kwargs["error"]
+        # Tracebacks must be preserved for unexpected exceptions.
+        assert failures[0].kwargs.get("exc_info") is True
 
     def test_safe_wrapper_does_not_propagate(self, tmp_path):
         """Inner failures must not escape — HITL gate must remain reachable (#1890)."""

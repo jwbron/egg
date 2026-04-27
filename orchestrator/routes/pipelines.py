@@ -11000,7 +11000,9 @@ def _populate_contract_from_plan_safe(
             "contract_phases_ingest_failed",
             pipeline_id=pipeline_id,
             reason="unexpected_exception",
+            source="safe_wrapper",
             error=str(pop_err),
+            exc_info=True,
         )
 
 
@@ -11108,13 +11110,25 @@ def _populate_contract_from_plan(
                 task_count=task_count,
                 has_pr_metadata=contract.pr is not None,
             )
+        else:
+            # Parse succeeded but yielded neither phases nor PR metadata —
+            # this is the #1931 failure mode (empty contract with no error).
+            # Emit a discriminator so the gap is visible in audit logs.
+            logger.warning(
+                "contract_phases_ingest_failed",
+                pipeline_id=pipeline_id,
+                reason="empty_result",
+                warning_count=len(result.warnings),
+            )
 
     except Exception as e:
         logger.warning(
             "contract_phases_ingest_failed",
             pipeline_id=pipeline_id,
             reason="unexpected_exception",
+            source="parse_save",
             error=str(e),
+            exc_info=True,
         )
 
 
