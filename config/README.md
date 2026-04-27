@@ -290,7 +290,7 @@ confluence:
     - DOCS     # Documentation space
 ```
 
-- **Keys must match Atlassian space key format**: leading letter followed by letters, digits, or underscores (`[A-Z][A-Z0-9_]*`). Case-sensitive.
-- **Empty list** (`spaces: []`): No Confluence spaces accessible — all page/search/execute requests return 403.
+- **Keys must match Atlassian space-key shape**: leading letter followed by letters, digits, or underscores (`[a-zA-Z][a-zA-Z0-9_]*`). Lookups are case-sensitive (e.g., `ENG` ≠ `eng`). Invalid entries are logged and ignored.
+- **Empty list** (`spaces: []`): No Confluence spaces accessible — all page, space, search, and execute requests return 403.
 - **Hot-reloadable**: Changes are picked up via `POST /api/v1/config/reload` or SIGHUP without restarting the gateway.
 - **CQL scope enforcement**: `confluence search` CQL queries must statically reference only allowlisted spaces — see [Confluence Wrapper Reference](../docs/reference/confluence-wrapper.md) for the extractor rules.
