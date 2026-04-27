@@ -118,6 +118,7 @@ class TestBrcAck:
                     "producer_role": "coder",
                     "reason": "x" * 60,
                     "files_reviewed": ["a.py"],
+                    "ack_version": 1,
                 }
             )
         assert resp["ok"] is True
@@ -147,6 +148,7 @@ class TestBrcAck:
                         "role": "r",
                         "producer_role": "coder",
                         "reason": "y",
+                        "ack_version": 1,
                     }
                 )
 
@@ -163,6 +165,7 @@ class TestBrcNack:
                     "role": "reviewer_code",
                     "producer_role": "coder",
                     "reason": "blocking",
+                    "nack_version": 1,
                 }
             )
         assert resp["ok"] is True
@@ -185,6 +188,7 @@ class TestBrcNack:
                         "role": "r",
                         "producer_role": "coder",
                         "reason": "why",
+                        "nack_version": 1,
                     }
                 )
 
