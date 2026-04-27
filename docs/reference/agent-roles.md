@@ -243,16 +243,14 @@ each surface so reviewers know to keep them in sync.
 - Allowed writes: `.egg-state/reviews/`, `.egg-state/agent-outputs/`
 - Blocked: All source, docs, tests, contracts, drafts
 
-**Subagent fan-out**: On large diffs (`files_changed > 10` OR `loc_added + loc_removed > 500`), `reviewer_code` fans out into Claude Agent SDK subagents — one per implement-phase task partition (capped at 6, with a 5-minute / 300-second per-subagent wall-clock timeout that NACKs the partition on overrun). Each subagent reviews its slice; the parent aggregates findings and emits the single ACK/NACK. A mandatory cross-partition consistency pass runs regardless of whether fan-out fires. Fan-out can be forced sequential via `phase_configs.implement.reviewer_code.parallel = false` (default: `true`).
-
 **Outputs**:
 - `.egg-state/reviews/{identifier}-implement-code-review.json` — Verdict file
 
 ### `reviewer_code_holistic`
 
-**Purpose**: Single-pass holistic code review focused on cross-module coherence. Runs alongside `reviewer_code`'s slice-by-slice fan-out — its job is the architectural-coherence question no fan-out slice owns.
+**Purpose**: Single-pass holistic code review focused on cross-module coherence. Runs alongside `reviewer_code` — its job is the architectural-coherence question line-by-line review does not own.
 
-**Criticality**: CRITICAL — NACKs block consensus on their own and are not averaged against `reviewer_code`'s fan-out ACKs.
+**Criticality**: CRITICAL — NACKs block consensus on their own, independent of `reviewer_code`'s verdict.
 
 **Focus areas** (four mandatory passes):
 1. Walk the primary advertised use case end-to-end across the full diff.
@@ -280,9 +278,9 @@ each surface so reviewers know to keep them in sync.
 
 ### `reviewer_security`
 
-**Purpose**: ADVISORY security-lens reviewer. Focuses exclusively on cross-file security invariants that a general code reviewer may miss: cross-file allowlist mismatches, handler-vs-validator path mismatches, information-disclosure and authorization-bypass patterns, uncommitted-artifact/Dockerfile-symlink mismatches, secret leakage, and OWASP top-10 patterns spanning multiple changed files.
+**Purpose**: Security-lens reviewer. Focuses exclusively on cross-file security invariants that a general code reviewer may miss: cross-file allowlist mismatches, handler-vs-validator path mismatches, information-disclosure and authorization-bypass patterns, uncommitted-artifact/Dockerfile-symlink mismatches, secret leakage, and OWASP top-10 patterns spanning multiple changed files.
 
-**Criticality**: ADVISORY — NACKs block consensus informally but do not deadlock BRC until severity-tagged NACK signalling lands. Promotion to CRITICAL is intentionally deferred.
+**Criticality**: CRITICAL — a NACK blocks consensus until the producer re-proposes ([#2139](https://github.com/jwbron/egg/issues/2139); promoted from ADVISORY, closing [#1997](https://github.com/jwbron/egg/issues/1997)).
 
 **File access**:
 - Allowed writes: `.egg-state/reviews/`, `.egg-state/agent-outputs/`
@@ -293,9 +291,9 @@ each surface so reviewers know to keep them in sync.
 
 ### `reviewer_concurrency`
 
-**Purpose**: ADVISORY concurrency-lens reviewer. Focuses exclusively on concurrency invariants: race conditions, deadlocks, shared-state mutation without synchronization, async-context leakage, retry-storm patterns, resource-cleanup ordering bugs, and BRC-protocol invariants (send→wait ordering, cursor threading, heartbeat-stall windows).
+**Purpose**: Concurrency-lens reviewer. Focuses exclusively on concurrency invariants: race conditions, deadlocks, shared-state mutation without synchronization, async-context leakage, retry-storm patterns, resource-cleanup ordering bugs, and BRC-protocol invariants (send→wait ordering, cursor threading, heartbeat-stall windows).
 
-**Criticality**: ADVISORY — same deferral rationale as `reviewer_security` above.
+**Criticality**: CRITICAL — same as `reviewer_security` above ([#2139](https://github.com/jwbron/egg/issues/2139)).
 
 **File access**:
 - Allowed writes: `.egg-state/reviews/`, `.egg-state/agent-outputs/`

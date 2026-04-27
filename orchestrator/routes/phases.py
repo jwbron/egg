@@ -1048,9 +1048,10 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
         )
     except Exception as e:
         logger.error(
-            "Failed to populate contract",
+            "contract_populate_endpoint_failed",
             pipeline_id=pipeline_id,
             error=str(e),
+            exc_info=True,
         )
         return make_error_response(
             f"Failed to populate contract: {e}",

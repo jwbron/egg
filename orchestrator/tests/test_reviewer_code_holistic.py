@@ -4,11 +4,11 @@ The holistic reviewer is the always-on generalist counterpart to
 ``reviewer_code``. It must:
 
 1. Be registered alongside ``reviewer_code`` in the implement-phase
-   review graph as a *distinct CRITICAL* role so its NACKs are not
-   averaged with the fan-out reviewer's slice ACKs.
-2. Run on every implement pipeline (no fan-out gate, no PR-size gate).
-3. Use a holistic-lens prompt (not the fan-out / line-by-line code
-   review criteria).
+   review graph as a *distinct CRITICAL* role so its NACK gates
+   consensus on its own.
+2. Run on every implement pipeline (no PR-size gate).
+3. Use a holistic-lens prompt (not the line-by-line code review
+   criteria).
 
 These asserts are deterministic — they do not run the LLM.
 """
@@ -148,21 +148,6 @@ class TestHolisticPrompt:
             issue_number=100,
         )
 
-    def test_no_fan_out_block(self) -> None:
-        """Holistic always single-passes — no fan-out section, ever."""
-        assert "Subagent Fan-Out Strategy" not in self.prompt, (
-            "reviewer_code_holistic must not include the fan-out block — "
-            "it always reads the whole diff itself (issue #2126)."
-        )
-
-    def test_no_subagent_threshold_text(self) -> None:
-        """The 10-files / 500-LOC gate is reviewer_code's, not holistic's."""
-        # Be conservative: the holistic prompt may reference review
-        # criteria that mention "10" or "500" for unrelated reasons, so
-        # only assert on the gate phrase itself.
-        assert "files_changed > 10" not in self.prompt
-        assert "(loc_added + loc_removed) > 500" not in self.prompt
-
     def test_carries_holistic_scope_marker(self) -> None:
         """The scope preamble must identify this as the holistic lens."""
         prompt_lower = self.prompt.lower()
@@ -180,9 +165,9 @@ class TestHolisticPrompt:
     def test_complementary_framing(self) -> None:
         """The preamble must tell the reviewer to defer line-by-line work."""
         prompt_lower = self.prompt.lower()
-        assert "fan-out" in prompt_lower or "slice" in prompt_lower, (
+        assert "reviewer_code" in prompt_lower or "line-by-line" in prompt_lower, (
             "Holistic preamble must frame its job as complementary to "
-            "reviewer_code's fan-out / slice work."
+            "reviewer_code's line-by-line work."
         )
 
     def test_procedural_step_does_not_demand_every_file_review(self) -> None:
@@ -193,13 +178,13 @@ class TestHolisticPrompt:
         wording directly contradicted the holistic criteria file and the
         scope preamble for ``reviewer_code_holistic``. The fix
         differentiates step 2 by lens; this test pins that the holistic
-        prompt does not regress to the slice-style wording.
+        prompt does not regress to the line-by-line wording.
         """
         assert "review every changed file systematically" not in self.prompt, (
-            "Holistic procedural step 2 must not include the slice-style "
+            "Holistic procedural step 2 must not include the line-by-line "
             '"review every changed file systematically" wording — it '
             "directly contradicts the holistic criteria's "
-            "'don't verify every line; the fan-out reviewer covers that' "
+            "'don't verify every line; reviewer_code covers that' "
             "(issue #2126)."
         )
 

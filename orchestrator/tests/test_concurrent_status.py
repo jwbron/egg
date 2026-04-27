@@ -250,6 +250,25 @@ class TestPipelineStatusConcurrentEndpoint:
 
     @patch("routes.pipelines.get_repo_path", return_value="/tmp/test-repo")
     @patch("routes.pipelines._resolve_pipeline")
+    def test_status_exposes_overseer_advisor_recent_log_bytes_cap(
+        self, mock_resolve, mock_repo_path, client
+    ):
+        """Issue #2120: the status endpoint exposes the byte-cap config field
+        so the overseer agent can forward it to ``consult-advisor``."""
+        pipeline = _make_concurrent_pipeline(
+            overseer_advisor_recent_log_bytes_cap=65_536,
+        )
+        mock_store = MagicMock()
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        resp = client.get("/api/v1/pipelines/issue-999/status")
+        assert resp.status_code == 200
+        data = json.loads(resp.data)
+        cfg = data["data"]["config"]
+        assert cfg["overseer_advisor_recent_log_bytes_cap"] == 65_536
+
+    @patch("routes.pipelines.get_repo_path", return_value="/tmp/test-repo")
+    @patch("routes.pipelines._resolve_pipeline")
     def test_concurrent_section_absent_for_non_concurrent(
         self, mock_resolve, mock_repo_path, client
     ):

@@ -519,11 +519,12 @@ REVIEWER_CODE_ROLE = AgentRoleDefinition(
 )
 
 # Holistic generalist counterpart to ``reviewer_code`` (issue #2126).
-# Always single-passes the full diff regardless of size — fan-out is
-# reserved for ``reviewer_code``. Its job is the architectural-coherence
-# question no fan-out slice owns: does the primary advertised use case
-# work end-to-end, do docs and code agree, do synthetic keys round-trip
-# across modules, are silent fallbacks hiding operator-visible failures.
+# Skims the full diff once and runs four cross-module passes rather
+# than verifying every line — that is ``reviewer_code``'s job. Its
+# focus is the architectural-coherence question line-by-line review
+# does not own: does the primary advertised use case work end-to-end,
+# do docs and code agree, do synthetic keys round-trip across modules,
+# are silent fallbacks hiding operator-visible failures.
 REVIEWER_CODE_HOLISTIC_ROLE = AgentRoleDefinition(
     role=AgentRole.REVIEWER_CODE_HOLISTIC,
     description="Single-pass holistic code review focused on cross-module coherence",

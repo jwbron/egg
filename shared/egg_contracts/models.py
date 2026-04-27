@@ -298,25 +298,6 @@ class CheckResult(BaseModel):
     fixable: bool = Field(default=False, description="Whether this failure can be auto-fixed")
 
 
-class ReviewerCodeConfig(BaseModel):
-    """Per-pipeline configuration for the ``reviewer_code`` BRC reviewer.
-
-    Currently exposes a single knob: whether subagent fan-out (added in
-    issue #1965) runs partitions in parallel or sequentially. Default is
-    parallel; flip to ``False`` to force sequential review for cost or
-    quota reasons. Absence of this config preserves legacy behaviour
-    (treated as ``parallel=True``).
-    """
-
-    parallel: bool = Field(
-        default=True,
-        description=(
-            "Fan out reviewer_code subagents in parallel (default true). "
-            "Set false to force sequential review for cost or quota reasons."
-        ),
-    )
-
-
 class PhaseConfig(BaseModel):
     """Configuration for a pipeline phase."""
 
@@ -330,50 +311,6 @@ class PhaseConfig(BaseModel):
         default=HumanReviewMechanism.ISSUE_CHECKBOX,
         description="Mechanism for human review",
     )
-    reviewer_code: ReviewerCodeConfig | None = Field(
-        default=None,
-        description=(
-            "Optional reviewer_code-specific overrides (issue #1965). "
-            "Absent / None preserves the default (parallel fan-out)."
-        ),
-    )
-
-
-def get_reviewer_code_parallel(contract: Any) -> bool:
-    """Return whether ``reviewer_code`` should fan out subagents in parallel.
-
-    Centralises the lookup for ``phase_configs[implement].reviewer_code.parallel``
-    so callers don't have to plumb three optional layers (``phase_configs``
-    is None, ``phase_configs[implement]`` is missing, or
-    ``phase_configs[implement].reviewer_code`` is None). Default is
-    ``True`` — parallel fan-out matches the issue #1965 plan default.
-
-    Accepts either a ``Contract`` instance or any object exposing a
-    ``phase_configs`` attribute / mapping; returns ``True`` when the field
-    is unreachable. Callers without a contract (e.g. unit tests) can pass
-    ``None`` to get the default.
-    """
-    if contract is None:
-        return True
-    phase_configs = getattr(contract, "phase_configs", None)
-    if phase_configs is None:
-        return True
-    # ``phase_configs`` may be a Pydantic dict[PipelinePhase, PhaseConfig].
-    implement_cfg = None
-    try:
-        implement_cfg = phase_configs.get(PipelinePhase.IMPLEMENT)
-    except (AttributeError, TypeError):
-        # Not a mapping — try the string form for resilient duck typing.
-        try:
-            implement_cfg = phase_configs.get("implement")
-        except (AttributeError, TypeError):  # pragma: no cover — defensive
-            return True
-    if implement_cfg is None:
-        return True
-    reviewer_code = getattr(implement_cfg, "reviewer_code", None)
-    if reviewer_code is None:
-        return True
-    return bool(getattr(reviewer_code, "parallel", True))
 
 
 class FeedbackQuestion(BaseModel):

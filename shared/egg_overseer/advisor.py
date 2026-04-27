@@ -66,6 +66,14 @@ _PROMPT_SYSTEM = (
 )
 
 
+# Default byte cap for the ``recent_log_lines`` block (issue #2120). The
+# advisor model is opus-class with ~200k token context; 256 KiB sits
+# well under that with comfortable headroom for the system prompt,
+# classification, health alerts, progress events, and instructions.
+# Tunable per-pipeline via ``PipelineConfig.overseer_advisor_recent_log_bytes_cap``.
+_DEFAULT_RECENT_LOG_BYTES_CAP = 256_000
+
+
 class AdvisorVerdict(BaseModel):
     """Structured verdict returned by ``consult_advisor``."""
 
@@ -103,17 +111,59 @@ class AdvisorParseError(RuntimeError):
     """Raised when the advisor returns text that doesn't parse to AdvisorVerdict."""
 
 
+def _truncate_log_lines_by_bytes(
+    lines: list[str],
+    cap_bytes: int,
+) -> tuple[list[str], int, int]:
+    """Drop oldest lines until the joined block fits under ``cap_bytes``.
+
+    Walks from the most-recent line backward so the tail (highest-signal
+    for the advisor) is preserved. Byte accounting matches the join
+    used in :func:`_build_prompt`: each line's UTF-8 length plus one
+    byte for the newline that joins it to its neighbor.
+
+    A single line larger than ``cap_bytes`` is dropped along with
+    everything before it; the prompt section will fall through to
+    "(none)" and the caller logs the truncation event so pathological
+    producers stay observable.
+
+    Returns ``(kept_lines, dropped_line_count, dropped_byte_count)``.
+    ``cap_bytes <= 0`` disables the cap and returns the input unchanged.
+    """
+    if cap_bytes <= 0 or not lines:
+        return list(lines), 0, 0
+    kept_reversed: list[str] = []
+    total_bytes = 0
+    for line in reversed(lines):
+        size = len(line.encode("utf-8")) + 1  # +1 == joining "\n"
+        if total_bytes + size > cap_bytes:
+            break
+        kept_reversed.append(line)
+        total_bytes += size
+    kept = list(reversed(kept_reversed))
+    dropped_count = len(lines) - len(kept)
+    if dropped_count == 0:
+        return kept, 0, 0
+    dropped_bytes = sum(len(line.encode("utf-8")) + 1 for line in lines[:dropped_count])
+    return kept, dropped_count, dropped_bytes
+
+
 def _build_prompt(
     *,
     classification: dict[str, Any],
     health_alerts: list[dict[str, Any]],
     progress_events: list[dict[str, Any]],
     recent_log_lines: list[str],
+    truncation_marker: str | None = None,
 ) -> str:
     """Build the single-turn user prompt per ``decision-20`` opt-3.
 
     Distilled summary: classification + last N progress events + active
     health alerts + last K log lines.
+
+    ``truncation_marker``, when non-None, is rendered above the log
+    block so the advisor knows the prompt-builder dropped earlier
+    lines to fit the byte cap (issue #2120).
     """
     sections: list[str] = []
     sections.append("## Haiku classification")
@@ -132,9 +182,11 @@ def _build_prompt(
         sections.append("(none)")
     sections.append("")
     sections.append("## Recent container log lines (last K)")
+    if truncation_marker is not None:
+        sections.append(truncation_marker)
     if recent_log_lines:
         sections.append("\n".join(recent_log_lines))
-    else:
+    elif truncation_marker is None:
         sections.append("(none)")
     sections.append("")
     sections.append(
@@ -153,6 +205,7 @@ async def consult_advisor(
     progress_events: list[dict[str, Any]],
     recent_log_lines: list[str],
     config: PipelineConfig | None = None,
+    recent_log_bytes_cap: int | None = None,
     _agent_runner: Any = None,
 ) -> AdvisorVerdict:
     """Issue the advisor call and return the structured verdict.
@@ -165,6 +218,10 @@ async def consult_advisor(
         recent_log_lines: Last K container log lines.
         config: ``PipelineConfig`` with at least ``overseer_advisor_model``
             populated. Defaults to ``opus`` when None.
+        recent_log_bytes_cap: Optional byte cap for the
+            ``recent_log_lines`` prompt block (issue #2120). Resolution
+            order: explicit arg → ``config.overseer_advisor_recent_log_bytes_cap``
+            → ``_DEFAULT_RECENT_LOG_BYTES_CAP``. ``0`` disables the cap.
         _agent_runner: Test seam — pass an awaitable callable
             ``(prompt: str, model: str) -> str`` to override the default
             ``run_agent_async`` invocation. Production callers leave
@@ -179,11 +236,46 @@ async def consult_advisor(
             valid AdvisorVerdict.
     """
     model = config.overseer_advisor_model if config is not None else "opus"
+    if recent_log_bytes_cap is None:
+        recent_log_bytes_cap = (
+            getattr(config, "overseer_advisor_recent_log_bytes_cap", None)
+            if config is not None
+            else None
+        )
+    if recent_log_bytes_cap is None:
+        recent_log_bytes_cap = _DEFAULT_RECENT_LOG_BYTES_CAP
+
+    kept_lines, dropped_lines, dropped_bytes = _truncate_log_lines_by_bytes(
+        recent_log_lines, recent_log_bytes_cap
+    )
+    truncation_marker: str | None = None
+    if dropped_lines > 0:
+        truncation_marker = (
+            f"[... {dropped_lines} earlier line(s) dropped (~{dropped_bytes} bytes) "
+            f"to fit recent_log_lines byte cap ({recent_log_bytes_cap} bytes); "
+            "most-recent lines retained ...]"
+        )
+        # Metric: pathological log producers show up as a stream of
+        # ``advisor_log_truncated`` events. Emitted before the SDK call
+        # so even an SDK failure leaves the truncation observable.
+        logger.info(
+            "overseer_event",
+            extra={
+                "event": "advisor_log_truncated",
+                "dropped_lines": dropped_lines,
+                "dropped_bytes": dropped_bytes,
+                "cap_bytes": recent_log_bytes_cap,
+                "input_line_count": len(recent_log_lines),
+                "model": model,
+            },
+        )
+
     prompt = _build_prompt(
         classification=classification,
         health_alerts=health_alerts,
         progress_events=progress_events,
-        recent_log_lines=recent_log_lines,
+        recent_log_lines=kept_lines,
+        truncation_marker=truncation_marker,
     )
 
     if _agent_runner is None:
@@ -234,10 +326,34 @@ async def consult_advisor(
 
     try:
         payload = json.loads(cleaned)
-    except json.JSONDecodeError as exc:
-        raise AdvisorParseError(
-            f"consult_advisor: SDK response is not valid JSON: {raw!r}"
-        ) from exc
+    except json.JSONDecodeError:
+        # Fall-back: pull the first balanced JSON object out of prose.
+        # Under ``max_turns=1`` Claude often emits ``Here's the
+        # verdict:\n{...}`` instead of pure JSON; ``raw_decode`` is
+        # string-aware so braces inside JSON string values don't fool
+        # the scan. Iterate over candidate ``{`` positions so a stray
+        # brace in leading prose (e.g. ``see {field} below: {...}``)
+        # doesn't lock us onto an unparseable snippet.
+        decoder = json.JSONDecoder()
+        payload = None
+        last_exc: json.JSONDecodeError | None = None
+        pos = 0
+        while True:
+            start = cleaned.find("{", pos)
+            if start == -1:
+                break
+            try:
+                payload, _ = decoder.raw_decode(cleaned[start:])
+                break
+            except json.JSONDecodeError as exc:
+                last_exc = exc
+                pos = start + 1
+        if payload is None:
+            # No `{` ever found → no useful inner exception; otherwise
+            # chain the most recent ``raw_decode`` failure for context.
+            raise AdvisorParseError(
+                f"consult_advisor: SDK response is not valid JSON: {raw!r}"
+            ) from last_exc
 
     try:
         verdict = AdvisorVerdict.model_validate(payload)

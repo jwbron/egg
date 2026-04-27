@@ -1,19 +1,18 @@
-"""Review-graph wiring for the new lens reviewers (issue #1965 / TASK-1-3 (a)).
+"""Review-graph wiring for the security / concurrency lens reviewers.
 
-Asserts the four new ADVISORY edges added to ``get_default_implement_graph()``:
+Asserts the four lens edges added to ``get_default_implement_graph()``:
 
-- ``("reviewer_security", "coder", ADVISORY)``
-- ``("reviewer_security", "tester", ADVISORY)``
-- ``("reviewer_concurrency", "coder", ADVISORY)``
-- ``("reviewer_concurrency", "tester", ADVISORY)``
+- ``("reviewer_security", "coder", CRITICAL)``
+- ``("reviewer_security", "tester", CRITICAL)``
+- ``("reviewer_concurrency", "coder", CRITICAL)``
+- ``("reviewer_concurrency", "tester", CRITICAL)``
 
 …and that the existing CRITICAL edges
 (``reviewer_code → coder/tester``, ``reviewer_contract → coder``,
 ``tester → coder``) are unchanged.
 
-The new edges are ADVISORY by design: they cannot deadlock consensus on
-day 1 — promotion to CRITICAL waits for #1997's severity-tagged NACK
-signalling.
+Issue #2139 promoted both lens reviewers from ADVISORY to CRITICAL: a
+NACK from either now blocks consensus until the producer re-proposes.
 """
 
 from __future__ import annotations
@@ -24,33 +23,33 @@ from review_graph import (
 )
 
 
-class TestNewLensReviewersAdvisoryEdges:
-    def test_security_reviews_coder_advisory(self) -> None:
+class TestLensReviewersCriticalEdges:
+    def test_security_reviews_coder_critical(self) -> None:
         graph = get_default_implement_graph()
         edge = graph.get_edge("reviewer_security", "coder")
         assert edge is not None, "reviewer_security → coder edge missing"
-        assert edge.criticality is ReviewCriticality.ADVISORY
+        assert edge.criticality is ReviewCriticality.CRITICAL
 
-    def test_security_reviews_tester_advisory(self) -> None:
+    def test_security_reviews_tester_critical(self) -> None:
         graph = get_default_implement_graph()
         edge = graph.get_edge("reviewer_security", "tester")
         assert edge is not None, "reviewer_security → tester edge missing"
-        assert edge.criticality is ReviewCriticality.ADVISORY
+        assert edge.criticality is ReviewCriticality.CRITICAL
 
-    def test_concurrency_reviews_coder_advisory(self) -> None:
+    def test_concurrency_reviews_coder_critical(self) -> None:
         graph = get_default_implement_graph()
         edge = graph.get_edge("reviewer_concurrency", "coder")
         assert edge is not None, "reviewer_concurrency → coder edge missing"
-        assert edge.criticality is ReviewCriticality.ADVISORY
+        assert edge.criticality is ReviewCriticality.CRITICAL
 
-    def test_concurrency_reviews_tester_advisory(self) -> None:
+    def test_concurrency_reviews_tester_critical(self) -> None:
         graph = get_default_implement_graph()
         edge = graph.get_edge("reviewer_concurrency", "tester")
         assert edge is not None, "reviewer_concurrency → tester edge missing"
-        assert edge.criticality is ReviewCriticality.ADVISORY
+        assert edge.criticality is ReviewCriticality.CRITICAL
 
 
-class TestNewLensReviewersInReviewersForProducer:
+class TestLensReviewersInReviewersForProducer:
     def test_coder_reviewers_include_lens(self) -> None:
         graph = get_default_implement_graph()
         reviewers = graph.reviewers_for("coder")
@@ -63,24 +62,21 @@ class TestNewLensReviewersInReviewersForProducer:
         assert "reviewer_security" in reviewers
         assert "reviewer_concurrency" in reviewers
 
-    def test_advisory_reviewers_for_coder_include_lens(self) -> None:
+    def test_critical_reviewers_for_coder_include_lens(self) -> None:
         graph = get_default_implement_graph()
-        advisory = graph.advisory_reviewers_for("coder")
-        assert "reviewer_security" in advisory
-        assert "reviewer_concurrency" in advisory
+        critical = graph.critical_reviewers_for("coder")
+        assert "reviewer_security" in critical
+        assert "reviewer_concurrency" in critical
 
-    def test_advisory_reviewers_for_tester_include_lens(self) -> None:
+    def test_critical_reviewers_for_tester_include_lens(self) -> None:
         graph = get_default_implement_graph()
-        advisory = graph.advisory_reviewers_for("tester")
-        assert "reviewer_security" in advisory
-        assert "reviewer_concurrency" in advisory
+        critical = graph.critical_reviewers_for("tester")
+        assert "reviewer_security" in critical
+        assert "reviewer_concurrency" in critical
 
 
 class TestExistingCriticalEdgesUnchanged:
-    """Regression guard: previous CRITICAL edges must remain CRITICAL.
-
-    If a future PR accidentally demotes one, this test fires.
-    """
+    """Regression guard: previous CRITICAL edges must remain CRITICAL."""
 
     def test_reviewer_code_coder_still_critical(self) -> None:
         graph = get_default_implement_graph()
@@ -108,7 +104,7 @@ class TestExistingCriticalEdgesUnchanged:
 
 
 class TestLensReviewersDoNotReviewDocumenter:
-    """Plan adds edges for coder + tester only; documenter is unaffected."""
+    """Lens edges cover coder + tester only; documenter is unaffected."""
 
     def test_documenter_reviewer_security_absent(self) -> None:
         graph = get_default_implement_graph()
