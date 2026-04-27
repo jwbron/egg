@@ -352,6 +352,13 @@ class TestRunOnceConfigTripwire:
     The three causes (pipeline_unreachable / config_key_missing /
     config_block_empty) must be distinguishable from the alert detail."""
 
+    @pytest.fixture(autouse=True)
+    def _isolate_timing_state(self, tmp_path, monkeypatch):
+        """Each test gets its own AGENT_TIMING_PATH so suppression
+        bookkeeping (the synthetic _config_unavailable entry) does not
+        leak across tests in this class."""
+        monkeypatch.setenv("AGENT_TIMING_PATH", str(tmp_path / "agent-timing.json"))
+
     @staticmethod
     def _config_alerts(report: dict[str, object]) -> list[dict[str, object]]:
         return [
@@ -377,7 +384,11 @@ class TestRunOnceConfigTripwire:
         tripwires = self._config_alerts(report)
         assert len(tripwires) == 1
         assert tripwires[0]["priority"] == "high"
+        assert tripwires[0]["role"] == "overseer"
         assert tripwires[0]["calibration_only"] is False
+        # Pin both summary and detail so a refactor that moves the
+        # cause string from one to the other is caught.
+        assert "pipeline_unreachable" in cast(str, tripwires[0]["summary"])
         assert "pipeline_unreachable" in cast(str, tripwires[0]["detail"])
 
     @patch("overseer_monitor.send_heartbeat", return_value=True)
@@ -400,6 +411,7 @@ class TestRunOnceConfigTripwire:
 
         tripwires = self._config_alerts(report)
         assert len(tripwires) == 1
+        assert "config_key_missing" in cast(str, tripwires[0]["summary"])
         assert "config_key_missing" in cast(str, tripwires[0]["detail"])
 
     @patch("overseer_monitor.send_heartbeat", return_value=True)
@@ -423,6 +435,7 @@ class TestRunOnceConfigTripwire:
 
         tripwires = self._config_alerts(report)
         assert len(tripwires) == 1
+        assert "config_block_empty" in cast(str, tripwires[0]["summary"])
         assert "config_block_empty" in cast(str, tripwires[0]["detail"])
 
     @patch("overseer_monitor.send_heartbeat", return_value=True)
@@ -445,6 +458,26 @@ class TestRunOnceConfigTripwire:
         report = run_once(PIPELINE_ID, base_url=BASE_URL)
 
         assert self._config_alerts(report) == []
+
+    @patch("overseer_monitor.send_heartbeat", return_value=True)
+    @patch("overseer_monitor.poll_messages", return_value=[])
+    @patch("overseer_monitor.query_progress", return_value=[])
+    @patch("overseer_monitor.query_health_alerts", return_value=[])
+    @patch("overseer_monitor.query_pipeline_status")
+    def test_tripwire_suppressed_within_window(
+        self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, monkeypatch
+    ):
+        """Sustained outage: the second cycle within the suppression
+        window must not re-emit, so detector_alerts stays bounded under
+        --once polling cadence (issue #2157 review feedback)."""
+        monkeypatch.setenv("EGG_OVERSEER_TEST_MODE", "1")
+        mock_status.return_value = {}
+
+        first = run_once(PIPELINE_ID, base_url=BASE_URL)
+        second = run_once(PIPELINE_ID, base_url=BASE_URL)
+
+        assert len(self._config_alerts(first)) == 1
+        assert self._config_alerts(second) == []
 
 
 class TestMainExitCodes:
