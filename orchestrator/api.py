@@ -145,27 +145,30 @@ def log_request_end(response: Response) -> Response:
 @app.errorhandler(Exception)
 def handle_unhandled_exception(e: Exception) -> tuple[Response, int]:
     """Return JSON for all unhandled exceptions."""
+    from state_store import GitOperationError
     from werkzeug.exceptions import HTTPException
 
-    # Surface state-store infrastructure failures (e.g. ``git worktree``
+    # Surface state-store infrastructure failures (``git worktree``
     # contention) with the actual error so operators can diagnose without
     # grepping logs.  Routes used to swallow ``GitOperationError`` as
     # ``PipelineNotFoundError`` and return 404, masking a recoverable
     # wedge as "missing pipeline" (#2167).
-    try:
-        from state_store import StateStoreError
-
-        if isinstance(e, StateStoreError):
-            logger.error("State store error", error=str(e), exc_info=True)
-            return jsonify(
-                {
-                    "success": False,
-                    "message": f"State store unavailable: {e}",
-                    "error_type": type(e).__name__,
-                }
-            ), 500
-    except ImportError:  # pragma: no cover — defensive
-        pass
+    #
+    # Narrowed to ``GitOperationError`` deliberately: other ``StateStoreError``
+    # subclasses (``PipelineNotFoundError``, ``InvalidPipelineIdError``,
+    # ``StateValidationError``, ``VersionConflictError``) have correct
+    # status codes when handled at the route level; catching them here
+    # would surface a future "forgot to handle PipelineNotFoundError" as
+    # 500 instead of 404.
+    if isinstance(e, GitOperationError):
+        logger.error("State store error", error=str(e), exc_info=True)
+        return jsonify(
+            {
+                "success": False,
+                "message": f"State store unavailable: {e}",
+                "error_type": type(e).__name__,
+            }
+        ), 500
 
     if isinstance(e, HTTPException):
         return jsonify(

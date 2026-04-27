@@ -35,7 +35,7 @@ def _probe_state_store() -> tuple[bool, str]:
     """Probe whether the state-store worktree is loadable.
 
     Walks the configured ``EGG_REPO_PATH`` (or each child repo in
-    multi-repo mode) and calls ``_ensure_worktree`` on each.  Reports
+    multi-repo mode) and accesses ``store.worktree`` on each.  Reports
     degraded if any probe raises — typically ``GitOperationError`` from
     ``git worktree add`` contention or a stale ``prunable`` admin dir
     (#2167).  Returns the actual error message so the operator sees it
@@ -43,12 +43,17 @@ def _probe_state_store() -> tuple[bool, str]:
 
     Probe is cheap when healthy: ``_ensure_worktree`` short-circuits
     on a valid worktree via ``git rev-parse --is-inside-work-tree``.
+
+    NOTE: This is not a side-effect-free GET.  ``store.worktree``
+    triggers ``_add_worktree_with_branch_recovery`` on a wedged repo,
+    which may ``shutil.rmtree`` a stale admin dir and retry the
+    ``git worktree add``.  Frequent pollers of ``/api/v1/health``
+    (Prometheus, operator dashboards, ``deployment.py``) will therefore
+    drive recovery attempts during a wedge — the desired behavior, but
+    operators should be aware the probe is curative, not just observational.
     """
-    try:
-        from routes import get_repo_path
-        from state_store import discover_repo_paths, get_state_store
-    except ImportError as exc:  # pragma: no cover — defensive
-        return True, f"probe-skipped: imports unavailable ({exc})"
+    from routes import get_repo_path
+    from state_store import discover_repo_paths, get_state_store
 
     try:
         base_path = get_repo_path()
@@ -68,7 +73,7 @@ def _probe_state_store() -> tuple[bool, str]:
     for repo_path in repos:
         try:
             store = get_state_store(repo_path)
-            store._ensure_worktree()
+            _ = store.worktree
         except Exception as exc:
             return False, f"{type(exc).__name__}: {exc}"
 
