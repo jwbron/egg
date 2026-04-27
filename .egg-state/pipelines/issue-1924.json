@@ -326,10 +326,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-10",
+      "question": "createIssueLink project allowlist semantics (Open Q9)",
+      "context": "Open contract question decision-9, registered by an agent during the refine phase.",
+      "options": [
+        "Both inwardIssue and outwardIssue projects must be allowlisted (strict)",
+        "Only one needs to be allowlisted (loose)",
+        "One in main allowlist, the other in a separate 'linkable-only' config list",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-27T19:13:58.585093Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-27T18:38:49.382721Z",
-  "updated_at": "2026-04-27T19:13:58.537362Z",
+  "updated_at": "2026-04-27T19:13:58.612330Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -343,6 +362,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 20,
+  "version": 21,
   "jira_ticket": null
 }
