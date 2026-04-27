@@ -5770,48 +5770,20 @@ def confluence_execute() -> tuple[Response, int] | Response:
         if head[3].isdigit():
             space_id_in_path = head[3]
     elif len(head) >= 4 and head[0] == "rest" and head[1] == "api" and head[2] == "content":
+        # v1 fallback for inline comments — page-scoped.
         if head[3].isdigit():
             page_id = head[3]
 
-    # Path families without an obvious id (api/v2/footer-comments,
-    # api/v2/inline-comments) require a spaceKey query parameter so the
-    # operator can audit the call.
-    requires_space_key = stripped in (
-        "api/v2/footer-comments",
-        "api/v2/inline-comments",
-        "api/v2/spaces",
-        "rest/api/search",
-    )
-    explicit_space_key = None
-    if isinstance(query, dict):
-        explicit_space_key = query.get("spaceKey")
-    if requires_space_key and stripped != "api/v2/spaces" and stripped != "rest/api/search":
-        if not isinstance(explicit_space_key, str) or not _CONFLUENCE_SPACE_KEY_RE.fullmatch(
-            explicit_space_key
-        ):
-            audit_log(
-                "confluence_execute_rejected",
-                "confluence_execute",
-                success=False,
-                details={
-                    "reason": "spaceKey required for this path",
-                    "path": stripped,
-                    **_session_confluence_context(),
-                },
-            )
-            return make_error(
-                "spaceKey query parameter required for this path",
-                status_code=400,
-                details={"path": stripped},
-            )
-        if not is_confluence_space_allowed(explicit_space_key):
-            return _confluence_space_denied_response(
-                event="confluence_execute_denied",
-                page_id=None,
-                space_key=explicit_space_key,
-                reason="space not allowlisted",
-                extra={"method": method_upper, "path": stripped},
-            )
+    # Anti-bypass invariant (issue #1931 cycle-3 NACK from reviewer_code +
+    # reviewer_security): the four path families an attacker could use to
+    # bypass narrow-route safeguards — ``rest/api/search`` (CQL extractor
+    # bypass), ``api/v2/spaces`` (allowlist-filter bypass),
+    # ``api/v2/footer-comments`` / ``api/v2/inline-comments`` (flat
+    # endpoints with page-id-in-query and no upstream spaceKey filter) —
+    # are dropped from CONFLUENCE_API_ALLOWED_PATHS in confluence_client.py,
+    # so reaching this point implies a page- or space-scoped path family.
+    # All of those carry an id inline that the post-fetch allowlist check
+    # below resolves to a spaceKey.
 
     if query is not None and not isinstance(query, dict):
         return make_error("query must be an object", status_code=400)
@@ -5849,9 +5821,7 @@ def confluence_execute() -> tuple[Response, int] | Response:
         return _confluence_error_from_upstream(exc)
 
     # Post-fetch allowlist check for path families that carry an id inline.
-    audited_space_key: str | None = (
-        explicit_space_key if isinstance(explicit_space_key, str) else None
-    )
+    audited_space_key: str | None = None
     if page_id is not None and isinstance(body, dict) and body.get("status") != "not_found":
         ok_space, audited_space_key = _check_post_fetch_space_allowlist(
             body, allowed=allowed, page_id=page_id

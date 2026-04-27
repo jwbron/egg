@@ -160,17 +160,34 @@ DEFAULT_BODY_FORMAT: tuple[str, ...] = ("storage",)
 _PAGE_ID = r"\d+"
 _SPACE_ID = r"\d+"
 
+# Anti-bypass invariant (reviewer_code 9ae21669 + reviewer_security ec5985ff
+# cycle-3 NACK on issue #1931): the /execute path allowlist must NOT include
+# any path family that a narrow route already covers, because routing those
+# through /execute skips the route-level safeguards.  The four removed paths
+# and their bypass shapes:
+#
+# - ``rest/api/search``       — bypasses extract_search_spaces (CQL extractor)
+# - ``api/v2/spaces``         — bypasses list_spaces' allowlist filter
+# - ``api/v2/footer-comments`` (flat) — page-id-in-query, no upstream
+#                              spaceKey filter; post-fetch space-allowlist
+#                              check cannot resolve the targeted page
+# - ``api/v2/inline-comments`` (flat) — same flat-endpoint shape
+#
+# These paths remain reachable INTERNALLY (the client methods construct them
+# directly without going through validate_confluence_api_path) for the
+# include_replies side-call inside get_page_footer_comments and the v2-bug
+# fallback inside get_page_inline_comments.  They are simply not exposed to
+# the agent via the /execute escape hatch.  Mirrors gateway/jira_client.py's
+# permanent denylist of search/jql + bare project for the same anti-bypass
+# reason (PR #1964).
 CONFLUENCE_API_ALLOWED_PATHS: list[re.Pattern[str]] = [
     re.compile(rf"^api/v2/pages/{_PAGE_ID}$"),
     re.compile(rf"^api/v2/pages/{_PAGE_ID}/descendants$"),
     re.compile(rf"^api/v2/pages/{_PAGE_ID}/footer-comments$"),
     re.compile(rf"^api/v2/pages/{_PAGE_ID}/inline-comments$"),
-    re.compile(r"^api/v2/footer-comments$"),
-    re.compile(r"^api/v2/inline-comments$"),
-    re.compile(r"^api/v2/spaces$"),
     re.compile(rf"^api/v2/spaces/{_SPACE_ID}/pages$"),
-    re.compile(r"^rest/api/search$"),
-    # v1 fallback for inline / footer comments (decision D1).
+    # v1 fallback for inline comments (decision D1) — page-scoped, the
+    # /execute post-fetch space-allowlist check covers it.
     re.compile(rf"^rest/api/content/{_PAGE_ID}/child/comment$"),
 ]
 
