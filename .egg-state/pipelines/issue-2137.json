@@ -5,7 +5,7 @@
   "branch": "egg/issue-2137",
   "base_branch": null,
   "prompt": null,
-  "status": "failed",
+  "status": "cancelled",
   "current_phase": "refine",
   "config": {
     "auto_create_pr": true,
@@ -179,7 +179,7 @@
     }
   ],
   "created_at": "2026-04-27T06:14:49.797478Z",
-  "updated_at": "2026-04-27T06:45:41.211866Z",
+  "updated_at": "2026-04-27T06:53:01.380110Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -193,6 +193,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 13,
+  "version": 14,
   "jira_ticket": null
 }
