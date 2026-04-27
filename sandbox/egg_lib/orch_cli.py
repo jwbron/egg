@@ -84,6 +84,25 @@ class ApiError(Exception):
         self.details = details
 
 
+def _proposal_version_type(raw: str) -> int:
+    """argparse type for ``--ack-version`` / ``--nack-version``.
+
+    Mirrors the handler-side ``_require_version_int`` constraint at parse time
+    so the error surfaces in ``--help`` and the rejection lands before the
+    request is built.  v0 is meaningless because it predates the producer's
+    first ``CONSENSUS_PROPOSE``.
+    """
+    try:
+        version = int(raw)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"must be an integer; got {raw!r}") from exc
+    if version < 1:
+        raise argparse.ArgumentTypeError(
+            f"must be >= 1; got {version} (v0 means no proposal exists yet)"
+        )
+    return version
+
+
 def validate_id(value: str, name: str) -> str:
     """Validate that an ID is safe for use in URL paths.
 
@@ -2788,13 +2807,14 @@ def create_parser() -> argparse.ArgumentParser:
     cons_ack.add_argument(
         "--ack-version",
         dest="ack_version",
-        type=int,
+        type=_proposal_version_type,
         required=True,
         help=(
-            "The producer's proposal version you reviewed. The orchestrator "
-            "rejects the ACK with HTTP 409 (stale_version) if the producer has "
-            "since re-proposed (#2142). Read it from the CONSENSUS_PROPOSE "
-            "message you waited on, or from `egg-orch consensus status --json`."
+            "The producer's proposal version you reviewed (must be >= 1). "
+            "The orchestrator rejects the ACK with HTTP 409 (stale_version) "
+            "if the producer has since re-proposed (#2142). Read it from the "
+            "CONSENSUS_PROPOSE message you waited on, or from "
+            "`egg-orch consensus status --json`."
         ),
     )
     cons_ack.add_argument(
@@ -2826,13 +2846,14 @@ def create_parser() -> argparse.ArgumentParser:
     cons_nack.add_argument(
         "--nack-version",
         dest="nack_version",
-        type=int,
+        type=_proposal_version_type,
         required=True,
         help=(
-            "The producer's proposal version you reviewed. The orchestrator "
-            "rejects the NACK with HTTP 409 (stale_version) if the producer has "
-            "since re-proposed (#2142). Read it from the CONSENSUS_PROPOSE "
-            "message you waited on, or from `egg-orch consensus status --json`."
+            "The producer's proposal version you reviewed (must be >= 1). "
+            "The orchestrator rejects the NACK with HTTP 409 (stale_version) "
+            "if the producer has since re-proposed (#2142). Read it from the "
+            "CONSENSUS_PROPOSE message you waited on, or from "
+            "`egg-orch consensus status --json`."
         ),
     )
     _add_json_flag(cons_nack)

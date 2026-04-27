@@ -680,6 +680,27 @@ class TestAckHandlerThreadsAckVersion:
                     }
                 )
 
+    def test_zero_ack_version_raises(self):
+        """v0 means no proposal exists yet — handler must reject."""
+        from egg_agent_tools.handlers import brc as handlers
+        from egg_agent_tools.handlers.errors import HandlerError
+
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value={"success": True, "data": {}},
+        ):
+            with pytest.raises(HandlerError, match=r"v0 means no proposal exists yet"):
+                handlers.brc_ack(
+                    {
+                        "pipeline_id": "issue-42",
+                        "role": "reviewer_code",
+                        "producer_role": "coder",
+                        "reason": "Reviewed src/auth.py over fifty chars to satisfy the validator",
+                        "files_reviewed": ["src/auth.py"],
+                        "ack_version": 0,
+                    }
+                )
+
 
 class TestNackHandlerThreadsNackVersion:
     """``brc_nack`` posts the version field to the orchestrator (#2142).
@@ -730,6 +751,92 @@ class TestNackHandlerThreadsNackVersion:
                         "files_reviewed": ["src/auth.py"],
                     }
                 )
+
+    def test_zero_nack_version_raises(self):
+        """v0 means no proposal exists yet — handler must reject."""
+        from egg_agent_tools.handlers import brc as handlers
+        from egg_agent_tools.handlers.errors import HandlerError
+
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value={"success": True, "data": {}},
+        ):
+            with pytest.raises(HandlerError, match=r"v0 means no proposal exists yet"):
+                handlers.brc_nack(
+                    {
+                        "pipeline_id": "issue-42",
+                        "role": "reviewer_code",
+                        "producer_role": "coder",
+                        "reason": "src/auth.py:42 raises — substantive blocker text comfortably over the threshold",
+                        "files_reviewed": ["src/auth.py"],
+                        "nack_version": 0,
+                    }
+                )
+
+
+class TestProposalVersionArgparseType:
+    """``--ack-version`` / ``--nack-version`` reject v=0 and non-integers at parse time.
+
+    Defense-in-depth alongside the handler-side ``_require_version_int``
+    check: surfacing the ``>= 1`` constraint at argparse keeps ``--help``
+    accurate and rejects the bad value before payload construction (#2142).
+    """
+
+    def _ack_argv(self, version: str) -> list[str]:
+        return [
+            "consensus",
+            "ack",
+            "coder",
+            "issue-42",
+            "--files-reviewed",
+            "src/a.py",
+            "--reason",
+            "Reviewed src/a.py: substantive multi-file review well over fifty chars",
+            "--ack-version",
+            version,
+        ]
+
+    def _nack_argv(self, version: str) -> list[str]:
+        return [
+            "consensus",
+            "nack",
+            "coder",
+            "issue-42",
+            "--files-reviewed",
+            "src/a.py",
+            "--reason",
+            "src/a.py:42 raises on empty input — substantive blocker over fifty chars",
+            "--nack-version",
+            version,
+        ]
+
+    def test_ack_version_zero_rejected_at_parse_time(self, capsys):
+        parser = create_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(self._ack_argv("0"))
+        assert exc_info.value.code != 0
+        err = capsys.readouterr().err
+        assert "v0 means no proposal exists yet" in err
+
+    def test_nack_version_zero_rejected_at_parse_time(self, capsys):
+        parser = create_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(self._nack_argv("0"))
+        assert exc_info.value.code != 0
+        err = capsys.readouterr().err
+        assert "v0 means no proposal exists yet" in err
+
+    def test_ack_version_negative_rejected_at_parse_time(self):
+        parser = create_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(self._ack_argv("-1"))
+        assert exc_info.value.code != 0
+
+    def test_ack_version_non_integer_rejected_at_parse_time(self):
+        parser = create_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(self._ack_argv("abc"))
+        assert exc_info.value.code != 0
 
 
 class TestRenderStaleVersionRejection:
