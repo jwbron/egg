@@ -230,10 +230,10 @@
         {
           "container_id": "b3d2be20-1ff4-48e0-bdff-87c513a54067",
           "container_name": "egg-sandbox-egg-agent-issue-1931-reviewer-code-holistic",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-27T00:11:18.337932Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-27T00:55:21.165834Z",
+          "exit_code": -1,
           "agent_role": "reviewer_code_holistic",
           "session_token": null,
           "pod_name": null,
@@ -335,14 +335,14 @@
         },
         {
           "role": "reviewer_code_holistic",
-          "status": "running",
+          "status": "failed",
           "container_id": "b3d2be20-1ff4-48e0-bdff-87c513a54067",
           "container_info": null,
           "started_at": "2026-04-27T00:11:18.337934Z",
-          "completed_at": null,
+          "completed_at": "2026-04-27T00:55:21.185501Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -777,7 +777,7 @@
     }
   ],
   "created_at": "2026-04-26T23:05:30.164689Z",
-  "updated_at": "2026-04-27T00:55:21.111301Z",
+  "updated_at": "2026-04-27T00:55:21.185604Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -791,6 +791,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 59,
+  "version": 60,
   "jira_ticket": null
 }
