@@ -1,0 +1,2015 @@
+[
+  {
+    "id": "8b9ff94c-60fe-49",
+    "pipeline_id": "issue-1931",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Overseer (ec29a51a-293) online. Cycle 1 parsed. Refine phase confirmed complete (consensus_reached=true). Analyzing plan phase readiness and HITL blocking status.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T23:43:31.588236+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2124f752-4cd1-4b",
+    "pipeline_id": "issue-1931",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Plan phase agent launch watch. HITL resolved 23:42:46Z. Running_agents still empty at +67s. Waiting for architect/risk_analyst/task_planner containers to appear (threshold 180s).",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:42:46Z"
+    },
+    "timestamp": "2026-04-26T23:44:17.858832+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d561a7c3-cc8d-48",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:45:28.729802+00:00"
+    },
+    "timestamp": "2026-04-26T23:45:28.817972+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b30b2fd2-0ec1-41",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:45:28.729802+00:00"
+    },
+    "timestamp": "2026-04-26T23:46:29.007535+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c0d7cbe4-edcf-4a",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:45:28.729802+00:00"
+    },
+    "timestamp": "2026-04-26T23:47:29.403487+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "91daed0b-9329-46",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:45:28.729802+00:00"
+    },
+    "timestamp": "2026-04-26T23:48:29.693017+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "03bddbcd-bc67-4a",
+    "pipeline_id": "issue-1931",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 5. reviewer_plan alive (60s cadence). risk_analyst: appeared at ~23:45:36, no heartbeats yet, 135s elapsed \u2014 watching for 180s threshold. architect/task_planner not yet visible.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T23:48:53.676474+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "85002524-df02-4a",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:45:28.729802+00:00"
+    },
+    "timestamp": "2026-04-26T23:49:29.899970+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "46433538-bdcc-49",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:45:28.729802+00:00"
+    },
+    "timestamp": "2026-04-26T23:50:30.148297+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "68f6e7f1-145e-42",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from architect",
+    "body": "Architecture analysis for issue #1931 (Confluence gateway v1, read-only). Captures the structural copy of #1556's Jira wrapper across four new gateway modules (confluence_client.py, confluence_credentials.py, confluence_policy.py, confluence_search.py), one Confluence route block in gateway.py, a sandbox/scripts/confluence wrapper, two config files (context-filters.yaml + secrets.template.env), and four doc files (confluence-wrapper.md plus three updates). Records the architectural consequences of all 14 HITL decisions resolved in refine: TD1 Jira-style verb-noun URL paths (decision-1); TD2 per-verb v2-first / v1-fallback hybrid (decision-2 + decision-4); TD3 conservative CQL static-scope extractor (decision-3); TD4 body-format=storage default with override (decision-5 HITL narrowing); TD5 shared ATLASSIAN_* credential triple with JIRA_* / CONFLUENCE_* fallback (decision-6 + decision-9); TD6 @require_private_mode per route + enumeration regression (decision-7); TD7 confluence.spaces in context-filters.yaml (decision-8); TD8 accountId / emailAddress / _links.webui redaction (decision-10); TD9 space-list filtering (decision-11); TD10 attachments permanent denylist (decision-12); TD11 no EGG_CONFLUENCE_* env vars (decision-13); TD12 GET-only /execute passthrough (decision-14); TD13 distinct confluence_upstream_403 audit category (feedback Q7); TD14 verbatim depth pass-through (feedback Q6); TD15 current-version-only on getConfluencePage (feedback Q8); TD16 no resolve-by-url verb (feedback Q5). Documents per-route validation (page allowlist verified against the page response's spaceId/spaceKey), 404 envelope, v1-fallback paths for footer / inline comments, and the data flow for both happy-path and rejection paths. Lists 14 alternatives considered and rejected with reasons. Proposes a 6-workstream implementation order (creds + policy + CQL extractor \u2192 client \u2192 routes \u2192 sandbox wrapper \u2192 docs) for the task_planner to refine into tasks. Surfaces 4 plan-phase open questions (bot-vs-human caveat in docs, double-fetch vs LRU cache for comment routes, fallback-event payload, shared-credential refactor deferral). No code authored \u2014 analysis only, written to .egg-state/agent-outputs/1931-architect-output.json. Tests run: JSON validation only (no production code touched).",
+    "metadata": {
+      "payload": {
+        "summary": "Architecture analysis for issue #1931 (Confluence gateway v1, read-only). Captures the structural copy of #1556's Jira wrapper across four new gateway modules (confluence_client.py, confluence_credentials.py, confluence_policy.py, confluence_search.py), one Confluence route block in gateway.py, a sandbox/scripts/confluence wrapper, two config files (context-filters.yaml + secrets.template.env), and four doc files (confluence-wrapper.md plus three updates). Records the architectural consequences of all 14 HITL decisions resolved in refine: TD1 Jira-style verb-noun URL paths (decision-1); TD2 per-verb v2-first / v1-fallback hybrid (decision-2 + decision-4); TD3 conservative CQL static-scope extractor (decision-3); TD4 body-format=storage default with override (decision-5 HITL narrowing); TD5 shared ATLASSIAN_* credential triple with JIRA_* / CONFLUENCE_* fallback (decision-6 + decision-9); TD6 @require_private_mode per route + enumeration regression (decision-7); TD7 confluence.spaces in context-filters.yaml (decision-8); TD8 accountId / emailAddress / _links.webui redaction (decision-10); TD9 space-list filtering (decision-11); TD10 attachments permanent denylist (decision-12); TD11 no EGG_CONFLUENCE_* env vars (decision-13); TD12 GET-only /execute passthrough (decision-14); TD13 distinct confluence_upstream_403 audit category (feedback Q7); TD14 verbatim depth pass-through (feedback Q6); TD15 current-version-only on getConfluencePage (feedback Q8); TD16 no resolve-by-url verb (feedback Q5). Documents per-route validation (page allowlist verified against the page response's spaceId/spaceKey), 404 envelope, v1-fallback paths for footer / inline comments, and the data flow for both happy-path and rejection paths. Lists 14 alternatives considered and rejected with reasons. Proposes a 6-workstream implementation order (creds + policy + CQL extractor \u2192 client \u2192 routes \u2192 sandbox wrapper \u2192 docs) for the task_planner to refine into tasks. Surfaces 4 plan-phase open questions (bot-vs-human caveat in docs, double-fetch vs LRU cache for comment routes, fallback-event payload, shared-credential refactor deferral). No code authored \u2014 analysis only, written to .egg-state/agent-outputs/1931-architect-output.json. Tests run: JSON validation only (no production code touched).",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/1931-architect-output.json"
+        ],
+        "risk_considered": "",
+        "commit_sha": "256521c4b5c59341e9366cb87c08cfebc8a853f9",
+        "files_changed": [
+          ".egg-state/agent-outputs/1931-architect-output.json"
+        ],
+        "tests_run": [
+          "python3 -c 'import json; json.load(open(...))'"
+        ],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "256521c4b5c59341e9366cb87c08cfebc8a853f9"
+    },
+    "timestamp": "2026-04-26T23:51:01.769042+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5ca29dca-bc40-4f",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T23:51:03.255028+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c514135c-620a-45",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:51:09.440487+00:00"
+    },
+    "timestamp": "2026-04-26T23:51:09.505033+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "55ad8763-c5b4-4f",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T23:51:09.592804+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "88d1cbb3-d6fb-44",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:51:12.779966+00:00"
+    },
+    "timestamp": "2026-04-26T23:51:14.142654+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0cdec22a-94e6-4a",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from risk_analyst",
+    "body": "Plan-phase risk assessment for #1931 (Confluence gateway read-only v1). 18 risks identified across security (6), performance (3), compatibility (2), operational (3), data-privacy (1), external-dependency (1), test-coverage (1), and future-write (1). Severity: 1 high (CQL extractor adversarial coverage), 7 medium, 10 low. Three risks flagged for human review at implement time: R1 CQL-extractor parity (CQL grammar differs from JQL \u2014 text ~ contains, space.category() functions, etc.), R14 attachments / restrictions / permissions permanent-denylist enforcement across both narrow routes and /execute, R15 bot-account effective-access asymmetry (per refine feedback Q9). External research covered Atlassian April-2026 v1-deprecation status (endpoint-specific, CQL search has no v2 successor), the March-2026 points-based rate-limit rollout, and confirmed no public CQL-injection CVE. Output includes a four-level rollback plan (config-only \u2192 route-disable \u2192 credential-revoke \u2192 full-revert) and an 18-item implement-phase checklist that maps each risk to a reviewer-verifiable mitigation. Aligns with the architect's analysis (R3 covers v2 inline-404 fallback / Q3, R11 covers shared-creds module / Q4, R15 covers bot-vs-human caveat / Q1). No production code touched; output is a single JSON state file under .egg-state/agent-outputs/.",
+    "metadata": {
+      "payload": {
+        "summary": "Plan-phase risk assessment for #1931 (Confluence gateway read-only v1). 18 risks identified across security (6), performance (3), compatibility (2), operational (3), data-privacy (1), external-dependency (1), test-coverage (1), and future-write (1). Severity: 1 high (CQL extractor adversarial coverage), 7 medium, 10 low. Three risks flagged for human review at implement time: R1 CQL-extractor parity (CQL grammar differs from JQL \u2014 text ~ contains, space.category() functions, etc.), R14 attachments / restrictions / permissions permanent-denylist enforcement across both narrow routes and /execute, R15 bot-account effective-access asymmetry (per refine feedback Q9). External research covered Atlassian April-2026 v1-deprecation status (endpoint-specific, CQL search has no v2 successor), the March-2026 points-based rate-limit rollout, and confirmed no public CQL-injection CVE. Output includes a four-level rollback plan (config-only \u2192 route-disable \u2192 credential-revoke \u2192 full-revert) and an 18-item implement-phase checklist that maps each risk to a reviewer-verifiable mitigation. Aligns with the architect's analysis (R3 covers v2 inline-404 fallback / Q3, R11 covers shared-creds module / Q4, R15 covers bot-vs-human caveat / Q1). No production code touched; output is a single JSON state file under .egg-state/agent-outputs/.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/1931-risk_analyst-output.json"
+        ],
+        "risk_considered": "CQL-extractor adversarial coverage (R1) is the single high-severity risk; mitigation is a deny-on-ambiguity parser mirroring jira_search.py with adversarial fixtures targeting CQL-specific grammar (text-contains, OR widening, CQL functions, mixed-script keys). Permanent denylist for attachments / restrictions / permissions / space.admin / users / DELETE / PUT / PATCH is enforced at the path validator layer with test variants for case, URL-encoding, and nested positions. /execute escape hatch is GET-only, regex-allowlisted, and explicitly anti-tested to confirm narrow-route path families cannot be reached through it. private-mode gate enforced via @require_private_mode decorator + route-enumeration regression test. Squid allowlist already excludes *.atlassian.net (covered by existing test_allowed_domains.py regression). PII redaction (accountId, emailAddress, _links.webui) walks ADF mention nodes recursively. Body-format default is storage-only per HITL decision-5 to avoid token-budget blow-up; hard payload-size cap recommended at the route layer. v1 dependency on CQL search is documented with a 'last reviewed against Atlassian docs' marker; deprecation is endpoint-specific and not imminent. Shared Atlassian credential block coupling (decision-6) means a botched token rotation breaks both Jira and Confluence simultaneously \u2014 mitigated by mtime-based reload and a diagnostics endpoint. context-filters.yaml fail-closed empty default mitigated by a boot-time log line announcing the loaded allowlist size. Test coverage gap risk addressed by requiring each test_confluence_*.py file to have at least one fixture justified as Confluence-original (not a JQL\u2192CQL transliteration). Four-level rollback plan covers config-only, route-disable, credential-revoke, and full-revert.",
+        "commit_sha": "4151ef6b35de33b17551f5c6dbde9e45e277e88c",
+        "files_changed": [
+          ".egg-state/agent-outputs/1931-risk_analyst-output.json"
+        ],
+        "tests_run": [
+          "json.load validation of .egg-state/agent-outputs/1931-risk_analyst-output.json"
+        ],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "4151ef6b35de33b17551f5c6dbde9e45e277e88c"
+    },
+    "timestamp": "2026-04-26T23:52:13.464518+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8891ecd1-5a2a-4e",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:51:12.779966+00:00"
+    },
+    "timestamp": "2026-04-26T23:52:14.226064+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "050145ac-e61f-4d",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:52:27.443103+00:00"
+    },
+    "timestamp": "2026-04-26T23:52:27.519750+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7aa52f73-486f-4b",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:51:12.779966+00:00"
+    },
+    "timestamp": "2026-04-26T23:53:14.440735+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "591ca84e-611d-4d",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:52:27.443103+00:00"
+    },
+    "timestamp": "2026-04-26T23:53:27.929929+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8db40599-fce1-43",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "architect",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for architect",
+    "body": "\nReviewed `.egg-state/agent-outputs/1931-architect-output.json` end-to-end against the analysis (`1931-analysis.md`), the resolved HITL decisions (decision-1 through decision-14 + feedback Q1\u2013Q10), and the Jira sister files (`gateway/jira_client.py` 567 LoC, `jira_search.py` 250 LoC, `jira_credentials.py` 213 LoC, `jira_policy.py` 253 LoC, `sandbox/scripts/jira` 358 LoC, `docs/reference/jira-wrapper.md` 173 LoC, `config/context-filters.yaml`).\n\n**Alignment with analysis + HITL** \u2014 all 14 multiple-choice decisions are correctly threaded into the architecture: A1 (Jira-shape paths) \u2192 TD1, B1 (v2-first hybrid) \u2192 TD2, C1 (static CQL extractor) \u2192 TD3, D1 (v2 + v1 fallback) \u2192 TD2, E (storage default with override) \u2192 TD4 *correctly noting the HITL resolution narrowed the analysis-recommended dual default*, F1 (shared ATLASSIAN_*) \u2192 TD5, G1 (per-route mode gate) \u2192 TD6, H1 (`confluence.spaces` in context-filters.yaml) \u2192 TD7, decision-9 \u2192 TD5, decision-10 \u2192 TD8, decision-11 \u2192 TD9, decision-12 \u2192 TD10, decision-13 \u2192 TD11, decision-14 \u2192 TD12. All 10 free-form feedback answers are wired in (Q1 \u2192 fail-closed empty allowlist, Q2 \u2192 reuse Jira's 429 retry, Q5 \u2192 no resolve-by-url, Q6 \u2192 depth passthrough TD14, Q7 \u2192 distinct `confluence_upstream_403` audit TD13, Q8 \u2192 current-version-only TD15, Q9 \u2192 bot-vs-human caveat in wrapper docs, Q10 \u2192 Jira-style subcommands only).\n\n**Architecture coherence** \u2014 the module breakdown mirrors the Jira split (client / credentials / policy / search) with size estimates (550-650 / 230-260 / 240-270 / 260-290) that are believable against the Jira reference (567/213/253/250). Workstream sequencing (WS1+WS3 parallel, WS2 after WS1, WS4 after WS1/2/3, WS5/WS6 after WS4) is correct: the client depends on credentials, routes depend on all three, sandbox-wrapper smoke tests depend on routes. Permanent denylist `CONFLUENCE_WRITE_VERBS_DENIED = {restrictions, permissions, space.admin, users, attachments, DELETE, PUT, PATCH}` correctly bakes in decision-12 and the future-write-readiness invariant. Audit shape (`confluence_*` events + distinct `confluence_upstream_403` + `confluence_v1_fallback`) is consistent with the Jira convention. The `_redact()` helper at the client layer is the right placement (pre-route) \u2014 agents cannot accidentally bypass redaction by going through `/execute`.\n\n**404 envelope discipline** \u2014 get_page / list_pages_in_space / get_page_descendants / get_footer_comments / get_inline_comments return `{status: not_found, ...}`; CQL search and execute_raw raise `ConfluenceUpstreamError`. Mirrors Jira (`get_ticket`/`get_comments` envelope vs `search`/`execute_raw` raise). \u2713\n\n**Route-enumeration regression** \u2014 `test_confluence_routes.py` walks `app.url_map` for `/api/v1/confluence/*` and asserts `__egg_requires_private_mode__ = True` on every view. Identical to `test_jira_routes.py::test_every_jira_route_has_private_mode_marker`. \u2713\n\n**Open questions deferred to plan phase** (Q1\u2013Q4 in `open_questions_for_plan_phase`) are reasonable scoping calls \u2014 the bot-vs-human docs paragraph (Q1) and per-page double-fetch trade-off (Q2) belong in the task plan, not the architecture, and the v1_fallback audit-field detail (Q3) and the shared-credential refactor (Q4) are correctly deferred to a follow-up.\n\n### Non-blocking\n- **`include_replies` flag for footer-comments** (route block: `POST /api/v1/confluence/page/footer-comments`) \u2014 the architect promotes this to a request-body parameter rather than the analysis's \"fallback when v2 misses replies\" auto-trigger. This is fine but means callers must opt in; consider documenting in `docs/reference/confluence-wrapper.md` that omitting `include_replies` will silently miss nested replies even when v2 returns the buggy shape. Suggested fix: add a paragraph in the wrapper reference's \"v1 fallback\" section calling this out explicitly so the planner can write a corresponding doc task.\n- **Search pagination naming** (`ConfluenceClient.search_cql(cql, limit, cursor)`) \u2014 Atlassian's v1 search uses `start` (numeric offset) and returns `_links.next`; v2 uses cursor. Exposing it as a `cursor` string at the wrapper layer is fine but warrants a one-line note in the architecture that the gateway extracts/encodes the v1 `start=N` from `_links.next` so callers don't have to know they're talking to v1. Suggested fix: have `task_planner` add a sub-task \"translate v1 search pagination into a single opaque `next_page_token` string\" under WS2.\n- **Response envelope normalisation** \u2014 the architect says \"Wrapper methods normalise both response shapes to a single envelope so /api/v1/confluence/* responses are version-agnostic for the agent\" but doesn't fully specify the envelope. Acceptable at architecture level; flagging so the task_planner explicitly carves out a \"define and document the unified response envelope\" task in WS2 rather than leaving it as implicit work.\n- **`/execute` path-validator regex** \u2014 `validate_confluence_api_path` is named but the accepted-path families aren't enumerated (Jira's analogue accepts `^issue/[A-Z][A-Z0-9_]*-\\d+$` etc.). Confluence's path families differ from Jira (numeric IDs, both `/wiki/api/v2/...` and `/wiki/rest/api/...` prefixes). Suggested fix: have `task_planner` make \"enumerate `/execute` accepted path patterns\" an explicit sub-task in WS4 with a recommended starting set: `pages/<digits>(/.*)?`, `spaces/<digits>(/.*)?`, `search` (under v1), and the v1-fallback comment paths.\n- **`_links.webui` redaction** \u2014 the architect strips webui \"when it points at user-profile URLs\" but Atlassian uses `_links.webui` for both pages (`/wiki/spaces/KEY/pages/ID/...`) and people (`/wiki/people/<accountId>`). The task `_redact()` needs a path-pattern check, not a blanket strip. Suggested fix: have `task_planner` make the redaction predicate a tested helper (e.g., `_is_user_profile_webui(path)`) with a tabulated test matrix in `test_confluence_client.py`.\n- **Space ID \u2194 key resolution** \u2014 `space/pages` requires an extra upstream call to map numeric `space_id` \u2192 `space.key` for allowlist verification. Worth surfacing as a task-level decision (accept double-call in v1 vs. cache key\u2194id map at gateway start). The architect raises Q2 for `pageId \u2192 spaceKey` but not the symmetric case. Suggested fix: have `risk_analyst` cover this latency-amplification risk and `task_planner` include \"decide space ID/key resolution strategy\" as a WS4 task.\n- **Existing references to `confluence` in sandbox** \u2014 `sandbox/agent-config/commands/show-metrics.md:12` references `~/context-sync/confluence/` and line 36 mentions `confluence/ENG`. These are unrelated (the legacy context-sync cache, not the gateway). Worth a one-line audit task to confirm the show-metrics doc is out of scope for #1931 so the implementer doesn't accidentally rewrite it.\n- **Migration semantics in `secrets.template.env`** \u2014 TD5's \"remove `CONFLUENCE_SPACE_KEYS`\" is correct (decision-8 moved it to YAML), but live deployments may have `CONFLUENCE_SPACE_KEYS` populated. Suggested fix: have `task_planner` include a \"migration-note doc paragraph\" sub-task under WS6 telling operators that any populated `CONFLUENCE_SPACE_KEYS` is now ignored and they must migrate to `confluence.spaces:` in `config/context-filters.yaml`.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/1931-architect-output.json",
+          ".egg-state/drafts/1931-analysis.md",
+          ".egg-state/contracts/issue-1931.json",
+          "gateway/jira_client.py",
+          "gateway/jira_search.py",
+          "gateway/jira_credentials.py",
+          "gateway/jira_policy.py",
+          "gateway/mode_gate.py",
+          "sandbox/scripts/jira",
+          "config/context-filters.yaml"
+        ],
+        "reason": "\nReviewed `.egg-state/agent-outputs/1931-architect-output.json` end-to-end against the analysis (`1931-analysis.md`), the resolved HITL decisions (decision-1 through decision-14 + feedback Q1\u2013Q10), and the Jira sister files (`gateway/jira_client.py` 567 LoC, `jira_search.py` 250 LoC, `jira_credentials.py` 213 LoC, `jira_policy.py` 253 LoC, `sandbox/scripts/jira` 358 LoC, `docs/reference/jira-wrapper.md` 173 LoC, `config/context-filters.yaml`).\n\n**Alignment with analysis + HITL** \u2014 all 14 multiple-choice decisions are correctly threaded into the architecture: A1 (Jira-shape paths) \u2192 TD1, B1 (v2-first hybrid) \u2192 TD2, C1 (static CQL extractor) \u2192 TD3, D1 (v2 + v1 fallback) \u2192 TD2, E (storage default with override) \u2192 TD4 *correctly noting the HITL resolution narrowed the analysis-recommended dual default*, F1 (shared ATLASSIAN_*) \u2192 TD5, G1 (per-route mode gate) \u2192 TD6, H1 (`confluence.spaces` in context-filters.yaml) \u2192 TD7, decision-9 \u2192 TD5, decision-10 \u2192 TD8, decision-11 \u2192 TD9, decision-12 \u2192 TD10, decision-13 \u2192 TD11, decision-14 \u2192 TD12. All 10 free-form feedback answers are wired in (Q1 \u2192 fail-closed empty allowlist, Q2 \u2192 reuse Jira's 429 retry, Q5 \u2192 no resolve-by-url, Q6 \u2192 depth passthrough TD14, Q7 \u2192 distinct `confluence_upstream_403` audit TD13, Q8 \u2192 current-version-only TD15, Q9 \u2192 bot-vs-human caveat in wrapper docs, Q10 \u2192 Jira-style subcommands only).\n\n**Architecture coherence** \u2014 the module breakdown mirrors the Jira split (client / credentials / policy / search) with size estimates (550-650 / 230-260 / 240-270 / 260-290) that are believable against the Jira reference (567/213/253/250). Workstream sequencing (WS1+WS3 parallel, WS2 after WS1, WS4 after WS1/2/3, WS5/WS6 after WS4) is correct: the client depends on credentials, routes depend on all three, sandbox-wrapper smoke tests depend on routes. Permanent denylist `CONFLUENCE_WRITE_VERBS_DENIED = {restrictions, permissions, space.admin, users, attachments, DELETE, PUT, PATCH}` correctly bakes in decision-12 and the future-write-readiness invariant. Audit shape (`confluence_*` events + distinct `confluence_upstream_403` + `confluence_v1_fallback`) is consistent with the Jira convention. The `_redact()` helper at the client layer is the right placement (pre-route) \u2014 agents cannot accidentally bypass redaction by going through `/execute`.\n\n**404 envelope discipline** \u2014 get_page / list_pages_in_space / get_page_descendants / get_footer_comments / get_inline_comments return `{status: not_found, ...}`; CQL search and execute_raw raise `ConfluenceUpstreamError`. Mirrors Jira (`get_ticket`/`get_comments` envelope vs `search`/`execute_raw` raise). \u2713\n\n**Route-enumeration regression** \u2014 `test_confluence_routes.py` walks `app.url_map` for `/api/v1/confluence/*` and asserts `__egg_requires_private_mode__ = True` on every view. Identical to `test_jira_routes.py::test_every_jira_route_has_private_mode_marker`. \u2713\n\n**Open questions deferred to plan phase** (Q1\u2013Q4 in `open_questions_for_plan_phase`) are reasonable scoping calls \u2014 the bot-vs-human docs paragraph (Q1) and per-page double-fetch trade-off (Q2) belong in the task plan, not the architecture, and the v1_fallback audit-field detail (Q3) and the shared-credential refactor (Q4) are correctly deferred to a follow-up.\n\n### Non-blocking\n- **`include_replies` flag for footer-comments** (route block: `POST /api/v1/confluence/page/footer-comments`) \u2014 the architect promotes this to a request-body parameter rather than the analysis's \"fallback when v2 misses replies\" auto-trigger. This is fine but means callers must opt in; consider documenting in `docs/reference/confluence-wrapper.md` that omitting `include_replies` will silently miss nested replies even when v2 returns the buggy shape. Suggested fix: add a paragraph in the wrapper reference's \"v1 fallback\" section calling this out explicitly so the planner can write a corresponding doc task.\n- **Search pagination naming** (`ConfluenceClient.search_cql(cql, limit, cursor)`) \u2014 Atlassian's v1 search uses `start` (numeric offset) and returns `_links.next`; v2 uses cursor. Exposing it as a `cursor` string at the wrapper layer is fine but warrants a one-line note in the architecture that the gateway extracts/encodes the v1 `start=N` from `_links.next` so callers don't have to know they're talking to v1. Suggested fix: have `task_planner` add a sub-task \"translate v1 search pagination into a single opaque `next_page_token` string\" under WS2.\n- **Response envelope normalisation** \u2014 the architect says \"Wrapper methods normalise both response shapes to a single envelope so /api/v1/confluence/* responses are version-agnostic for the agent\" but doesn't fully specify the envelope. Acceptable at architecture level; flagging so the task_planner explicitly carves out a \"define and document the unified response envelope\" task in WS2 rather than leaving it as implicit work.\n- **`/execute` path-validator regex** \u2014 `validate_confluence_api_path` is named but the accepted-path families aren't enumerated (Jira's analogue accepts `^issue/[A-Z][A-Z0-9_]*-\\d+$` etc.). Confluence's path families differ from Jira (numeric IDs, both `/wiki/api/v2/...` and `/wiki/rest/api/...` prefixes). Suggested fix: have `task_planner` make \"enumerate `/execute` accepted path patterns\" an explicit sub-task in WS4 with a recommended starting set: `pages/<digits>(/.*)?`, `spaces/<digits>(/.*)?`, `search` (under v1), and the v1-fallback comment paths.\n- **`_links.webui` redaction** \u2014 the architect strips webui \"when it points at user-profile URLs\" but Atlassian uses `_links.webui` for both pages (`/wiki/spaces/KEY/pages/ID/...`) and people (`/wiki/people/<accountId>`). The task `_redact()` needs a path-pattern check, not a blanket strip. Suggested fix: have `task_planner` make the redaction predicate a tested helper (e.g., `_is_user_profile_webui(path)`) with a tabulated test matrix in `test_confluence_client.py`.\n- **Space ID \u2194 key resolution** \u2014 `space/pages` requires an extra upstream call to map numeric `space_id` \u2192 `space.key` for allowlist verification. Worth surfacing as a task-level decision (accept double-call in v1 vs. cache key\u2194id map at gateway start). The architect raises Q2 for `pageId \u2192 spaceKey` but not the symmetric case. Suggested fix: have `risk_analyst` cover this latency-amplification risk and `task_planner` include \"decide space ID/key resolution strategy\" as a WS4 task.\n- **Existing references to `confluence` in sandbox** \u2014 `sandbox/agent-config/commands/show-metrics.md:12` references `~/context-sync/confluence/` and line 36 mentions `confluence/ENG`. These are unrelated (the legacy context-sync cache, not the gateway). Worth a one-line audit task to confirm the show-metrics doc is out of scope for #1931 so the implementer doesn't accidentally rewrite it.\n- **Migration semantics in `secrets.template.env`** \u2014 TD5's \"remove `CONFLUENCE_SPACE_KEYS`\" is correct (decision-8 moved it to YAML), but live deployments may have `CONFLUENCE_SPACE_KEYS` populated. Suggested fix: have `task_planner` include a \"migration-note doc paragraph\" sub-task under WS6 telling operators that any populated `CONFLUENCE_SPACE_KEYS` is now ignored and they must migrate to `confluence.spaces:` in `config/context-filters.yaml`.\n"
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-26T23:53:34.235934+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "666dce7c-96d1-4e",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T23:53:34.319230+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0a7ace19-1bd6-44",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:53:40.179778+00:00"
+    },
+    "timestamp": "2026-04-26T23:53:40.274650+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7c1c739c-79d9-46",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect (pending_acks)",
+    "body": "Agent architect cannot confirm: producers ['task_planner'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-26T23:53:45.212352+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "bcc19efe-50e4-4d",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T23:53:45.382126+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "26f1f7a3-f2e2-48",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:53:50.219548+00:00"
+    },
+    "timestamp": "2026-04-26T23:53:50.309680+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a0d028fc-7c68-4a",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "ACKed by reviewer_plan; awaiting task_planner proposal before confirm",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-04-26T23:53:51.573148+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "09314431-df41-49",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:53:51.584828+00:00"
+    },
+    "timestamp": "2026-04-26T23:53:51.664317+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f805dce9-cb0a-47",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T23:53:51.846241+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "39e445fb-2d2f-4c",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:53:54.994915+00:00"
+    },
+    "timestamp": "2026-04-26T23:53:55.071332+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "85c9fdf8-2524-44",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:52:27.443103+00:00"
+    },
+    "timestamp": "2026-04-26T23:54:28.073796+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e73fc84c-cc8d-4d",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:53:50.219548+00:00"
+    },
+    "timestamp": "2026-04-26T23:54:50.396451+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a7c9399e-bb32-4d",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:53:54.994915+00:00"
+    },
+    "timestamp": "2026-04-26T23:54:55.241624+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "23c61c1e-86b2-41",
+    "pipeline_id": "issue-1931",
+    "from_role": "orchestrator",
+    "to_role": "risk_analyst",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "BRC confirmation timeout \u2014 call mcp__brc__confirm",
+    "body": "You are PROPOSED and fully ACKed but have not confirmed in 180s. Call `mcp__brc__confirm` now. If it returns `status='pending_acks'`, read `message` for the guard reason and wait on the prerequisite events instead: `CONSENSUS_PROPOSE` if a producer hasn't proposed (`zero_proposal_producers`), `CONSENSUS_ACK` / `CONSENSUS_RE_REVIEW` if a reviewer's ACK is stale or unresolved. Then retry confirm.",
+    "metadata": {
+      "alert_type": "brc_confirmation_timeout",
+      "elapsed_seconds": 180,
+      "source": "health_monitor"
+    },
+    "timestamp": "2026-04-26T23:55:23.175081+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ddda38a2-747f-42",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T23:55:23.402943+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e14bf09e-7c21-47",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by risk_analyst (pending_acks)",
+    "body": "Agent risk_analyst cannot confirm: producers ['task_planner'] have never proposed (proposal_version == 0). All producers must propose before any agent can confirm consensus.",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-26T23:55:26.671450+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5b1ffa87-9359-45",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T23:55:26.755652+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5974c015-007a-4b",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT from=task_planner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:55:31.349035+00:00"
+    },
+    "timestamp": "2026-04-26T23:55:31.439264+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3074f5ff-867c-49",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T23:55:31.623217+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d78d7a36-d032-48",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:55:35.320204+00:00"
+    },
+    "timestamp": "2026-04-26T23:55:35.488229+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2f2b6104-bb01-44",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:53:54.994915+00:00"
+    },
+    "timestamp": "2026-04-26T23:55:55.549507+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "47e1e8b7-8045-4e",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:55:35.320204+00:00"
+    },
+    "timestamp": "2026-04-26T23:56:35.779487+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ffe396ce-53c1-4e",
+    "pipeline_id": "issue-1931",
+    "from_role": "orchestrator",
+    "to_role": "architect",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "BRC confirmation timeout \u2014 call mcp__brc__confirm",
+    "body": "You are PROPOSED and fully ACKed but have not confirmed in 181s. Call `mcp__brc__confirm` now. If it returns `status='pending_acks'`, read `message` for the guard reason and wait on the prerequisite events instead: `CONSENSUS_PROPOSE` if a producer hasn't proposed (`zero_proposal_producers`), `CONSENSUS_ACK` / `CONSENSUS_RE_REVIEW` if a reviewer's ACK is stale or unresolved. Then retry confirm.",
+    "metadata": {
+      "alert_type": "brc_confirmation_timeout",
+      "elapsed_seconds": 181,
+      "source": "health_monitor"
+    },
+    "timestamp": "2026-04-26T23:56:54.163430+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d8a0f97a-3954-44",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T23:56:54.441330+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0e8930e8-7b7a-4a",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:57:00.206525+00:00"
+    },
+    "timestamp": "2026-04-26T23:57:00.283284+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2383f2be-fa42-42",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:55:35.320204+00:00"
+    },
+    "timestamp": "2026-04-26T23:57:35.890992+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9ab232fb-b646-41",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "risk_analyst",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for risk_analyst",
+    "body": "\nReviewed `.egg-state/agent-outputs/1931-risk_analyst-output.json` against the analysis, architect output, and the Jira sister patterns it references (`gateway/jira_client.py:120-236` for `validate_jira_api_path`/`JIRA_API_ALLOWED_PATHS`; `gateway/allowed_domains.txt:31-36` confirming `*.atlassian.net` exclusion).\n\n**Coverage assessment** \u2014 18 risks across security (6), performance (3), compatibility (2), operational (3), data-privacy (1), external-dependency (1), test-coverage (1), future-compat (1) is a thorough inventory. One HIGH severity (R1 CQL extractor), seven MEDIUM (R2/R3/R4/R5/R6/R7/R10/R17), ten LOW. Three flagged for human review (R1 CQL adversarial coverage, R14 attachments denylist, R15 bot-vs-human access caveat) \u2014 all genuinely warrant security or operational eyes at implement time.\n\n**Mitigation quality** \u2014 every risk has actionable, verifiable mitigations. R1's adversarial test-suite list (empty CQL, quoted keys, OR at depth, CQL functions, mixed-script, `text ~` widening, `space != BAD` negation, URL-encoded operators, leading whitespace/BOM) covers concrete CQL grammar features absent from JQL \u2014 this directly addresses my biggest worry about R17 (test-port copy-paste). R2's anti-bypass test (every narrow route's path family must be rejected by `/execute`) is the right shape \u2014 it inverts the contract so a future widening of `/execute` cannot silently shadow a narrow route. R6's recursive-walker requirement explicitly covering ADF mention nodes (`type: 'mention'`, `attrs.id`) is essential \u2014 a top-level-only redactor would miss every page body's inline @-mentions. R14's variant matrix (case, URL-encoded, nested) maps directly onto the future-writes invariant that decision-12 demands.\n\n**Implement-phase checklist** maps each risk to a verifiable gate. Reviewer-friendly format. Global rollback plan (config-only \u2192 route-disable \u2192 credential-revoke \u2192 full-revert) gives operators graduated levers.\n\n**External research** \u2014 the cited sources (community.developer.atlassian.com threads on the v2 inline-404 bug and footer-comment nested-reply gap, the Apr 2026 Confluence Cloud changelog, the v1-deprecation timeline thread) are the right primary sources for R3 / R9 / R10. Findings are dated and specific (Apr 14 2026 internal API, Aug 5 2026 Convert content body, March 2026 points-based rate limiting rollout). Good due diligence.\n\n**No HIGH-severity unmitigated risk** \u2014 the only HIGH-severity entry (R1) has comprehensive mitigations. Acceptable.\n\n### Non-blocking\n- **R8 (descendants depth) conflicts with architect TD14** \u2014 the risk analyst recommends `default depth=1` if caller omits, while the architect's TD14 (citing HITL feedback Q6) says \"depth passes through verbatim with no gateway-imposed cap\". The HITL answer is ambiguous on whether \"verbatim passthrough\" means \"no default added\" or \"no upper cap\". The two readings produce different request shapes when the caller omits `depth`. Suggested fix: have `task_planner` resolve this explicitly \u2014 recommended reading is \"no cap (don't constrain caller's explicit depth) but apply a sensible default of 1 when caller omits it\" because Atlassian's unbounded default is both expensive and almost never what an agent actually wants.\n- **R11's `EGG_ATLASSIAN_SHARED_CREDS=0` feature flag and `POST /api/v1/atlassian/diagnostics` endpoint** are net-new surface not present in the architect's plan. The flag is plausibly over-engineering for v1 (the architect's `ATLASSIAN_*` \u2192 `JIRA_*`/`CONFLUENCE_*` fall-back chain already gives operators an in-place rollback path). The diagnostics endpoint *is* a useful addition (would also satisfy R12's \"boot-time announcement\" need and R15's \"bot effective-access verification\" need), but if added it must be `@require_session_auth + @require_private_mode` gated and audit-logged like every other route. Suggested fix: have `task_planner` either (a) drop the feature flag and rely on the fall-back chain, or (b) carve the diagnostics endpoint into its own task with explicit decorator + redaction requirements (no echoing token bytes).\n- **R7's `body_truncated: true` response flag** is net-new response envelope shape. Reasonable defensive design but should be coordinated with the architect's overall envelope definition. Suggested fix: have `task_planner` make \"define unified Confluence response envelope (success / not_found / forbidden / body_truncated)\" an explicit deliverable in WS2.\n- **R15's structured forbidden envelope `{status: 'forbidden', upstream_status: 403, reason: 'bot_account_lacks_read_access'}`** is a useful agent-facing distinction beyond the architect's plain `confluence_upstream_403` audit. Suggested fix: have `task_planner` add a sub-task to translate upstream 403 into the structured envelope (so agents can tell \"denied by gateway allowlist\" from \"denied by Atlassian permission\" without parsing audit logs).\n- **R8's net-new audit field `descendant_count`, R11's `body_bytes`, R13's `confluence_spaces_filtered`** \u2014 multiple new audit categories beyond what the architect listed. Suggested fix: `task_planner` should consolidate all proposed audit fields into one \"audit-log schema\" task so the eventual implementation has a single source of truth for confluence_* event names and field sets.\n- **R6's `displayName` redaction status** \u2014 the analyst writes \"verify decision-10 didn't include it\". Decision-10's resolution is settled and excludes `displayName` (only `accountId` / `emailAddress` / `_links.webui` are stripped). The \"verify\" phrasing implies uncertainty that is no longer present. Cosmetic only; does not affect implementation correctness.\n- **R3's \"Distinguish v2 inline-404 from a real not-found by checking the response body shape\"** \u2014 Atlassian's v2 bug response shape is not formally documented in the linked thread; relying on a body-shape heuristic is fragile. A safer mitigation is \"always retry once on 404 against v1; if v1 also returns 404, surface as not_found; emit `confluence_v1_fallback` audit on every retry\". The double-call cost is bounded (one extra HTTP round-trip per inline-comments call) and avoids the false-positive of misclassifying a deleted page as the v2 bug. Suggested fix: have `task_planner` adopt the always-retry-on-404 pattern for v2 inline-comments and document the cost in the wrapper reference.\n- **R16 (ADF prompt injection) severity rating** \u2014 rated low/low/low. Defensible since v1's stance is documentation + agent-side hardening, but worth flagging that a Confluence page authored by a contractor with edit access *is* a realistic prompt-injection vector for any refine-phase pipeline pulling linked Confluence pages. Suggested fix: ensure `docs/architecture/network-isolation.md` AND `sandbox/agent-config/rules/security.md` both name Confluence as an untrusted input source, not just the wrapper reference.\n- **R5's existing `test_allowed_domains.py` regression** \u2014 verified `gateway/allowed_domains.txt:31-36` does carry the `*.atlassian.net / *.atlassian.com / api.atlassian.com are intentionally NOT here` comment. The risk analyst's \"verify the existing test\" mitigation is satisfied for the Jira case; the Confluence ride-along claim is correct. Non-blocking; just confirming.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/1931-risk_analyst-output.json",
+          ".egg-state/agent-outputs/1931-architect-output.json",
+          ".egg-state/drafts/1931-analysis.md",
+          "gateway/allowed_domains.txt",
+          "gateway/jira_client.py"
+        ],
+        "reason": "\nReviewed `.egg-state/agent-outputs/1931-risk_analyst-output.json` against the analysis, architect output, and the Jira sister patterns it references (`gateway/jira_client.py:120-236` for `validate_jira_api_path`/`JIRA_API_ALLOWED_PATHS`; `gateway/allowed_domains.txt:31-36` confirming `*.atlassian.net` exclusion).\n\n**Coverage assessment** \u2014 18 risks across security (6), performance (3), compatibility (2), operational (3), data-privacy (1), external-dependency (1), test-coverage (1), future-compat (1) is a thorough inventory. One HIGH severity (R1 CQL extractor), seven MEDIUM (R2/R3/R4/R5/R6/R7/R10/R17), ten LOW. Three flagged for human review (R1 CQL adversarial coverage, R14 attachments denylist, R15 bot-vs-human access caveat) \u2014 all genuinely warrant security or operational eyes at implement time.\n\n**Mitigation quality** \u2014 every risk has actionable, verifiable mitigations. R1's adversarial test-suite list (empty CQL, quoted keys, OR at depth, CQL functions, mixed-script, `text ~` widening, `space != BAD` negation, URL-encoded operators, leading whitespace/BOM) covers concrete CQL grammar features absent from JQL \u2014 this directly addresses my biggest worry about R17 (test-port copy-paste). R2's anti-bypass test (every narrow route's path family must be rejected by `/execute`) is the right shape \u2014 it inverts the contract so a future widening of `/execute` cannot silently shadow a narrow route. R6's recursive-walker requirement explicitly covering ADF mention nodes (`type: 'mention'`, `attrs.id`) is essential \u2014 a top-level-only redactor would miss every page body's inline @-mentions. R14's variant matrix (case, URL-encoded, nested) maps directly onto the future-writes invariant that decision-12 demands.\n\n**Implement-phase checklist** maps each risk to a verifiable gate. Reviewer-friendly format. Global rollback plan (config-only \u2192 route-disable \u2192 credential-revoke \u2192 full-revert) gives operators graduated levers.\n\n**External research** \u2014 the cited sources (community.developer.atlassian.com threads on the v2 inline-404 bug and footer-comment nested-reply gap, the Apr 2026 Confluence Cloud changelog, the v1-deprecation timeline thread) are the right primary sources for R3 / R9 / R10. Findings are dated and specific (Apr 14 2026 internal API, Aug 5 2026 Convert content body, March 2026 points-based rate limiting rollout). Good due diligence.\n\n**No HIGH-severity unmitigated risk** \u2014 the only HIGH-severity entry (R1) has comprehensive mitigations. Acceptable.\n\n### Non-blocking\n- **R8 (descendants depth) conflicts with architect TD14** \u2014 the risk analyst recommends `default depth=1` if caller omits, while the architect's TD14 (citing HITL feedback Q6) says \"depth passes through verbatim with no gateway-imposed cap\". The HITL answer is ambiguous on whether \"verbatim passthrough\" means \"no default added\" or \"no upper cap\". The two readings produce different request shapes when the caller omits `depth`. Suggested fix: have `task_planner` resolve this explicitly \u2014 recommended reading is \"no cap (don't constrain caller's explicit depth) but apply a sensible default of 1 when caller omits it\" because Atlassian's unbounded default is both expensive and almost never what an agent actually wants.\n- **R11's `EGG_ATLASSIAN_SHARED_CREDS=0` feature flag and `POST /api/v1/atlassian/diagnostics` endpoint** are net-new surface not present in the architect's plan. The flag is plausibly over-engineering for v1 (the architect's `ATLASSIAN_*` \u2192 `JIRA_*`/`CONFLUENCE_*` fall-back chain already gives operators an in-place rollback path). The diagnostics endpoint *is* a useful addition (would also satisfy R12's \"boot-time announcement\" need and R15's \"bot effective-access verification\" need), but if added it must be `@require_session_auth + @require_private_mode` gated and audit-logged like every other route. Suggested fix: have `task_planner` either (a) drop the feature flag and rely on the fall-back chain, or (b) carve the diagnostics endpoint into its own task with explicit decorator + redaction requirements (no echoing token bytes).\n- **R7's `body_truncated: true` response flag** is net-new response envelope shape. Reasonable defensive design but should be coordinated with the architect's overall envelope definition. Suggested fix: have `task_planner` make \"define unified Confluence response envelope (success / not_found / forbidden / body_truncated)\" an explicit deliverable in WS2.\n- **R15's structured forbidden envelope `{status: 'forbidden', upstream_status: 403, reason: 'bot_account_lacks_read_access'}`** is a useful agent-facing distinction beyond the architect's plain `confluence_upstream_403` audit. Suggested fix: have `task_planner` add a sub-task to translate upstream 403 into the structured envelope (so agents can tell \"denied by gateway allowlist\" from \"denied by Atlassian permission\" without parsing audit logs).\n- **R8's net-new audit field `descendant_count`, R11's `body_bytes`, R13's `confluence_spaces_filtered`** \u2014 multiple new audit categories beyond what the architect listed. Suggested fix: `task_planner` should consolidate all proposed audit fields into one \"audit-log schema\" task so the eventual implementation has a single source of truth for confluence_* event names and field sets.\n- **R6's `displayName` redaction status** \u2014 the analyst writes \"verify decision-10 didn't include it\". Decision-10's resolution is settled and excludes `displayName` (only `accountId` / `emailAddress` / `_links.webui` are stripped). The \"verify\" phrasing implies uncertainty that is no longer present. Cosmetic only; does not affect implementation correctness.\n- **R3's \"Distinguish v2 inline-404 from a real not-found by checking the response body shape\"** \u2014 Atlassian's v2 bug response shape is not formally documented in the linked thread; relying on a body-shape heuristic is fragile. A safer mitigation is \"always retry once on 404 against v1; if v1 also returns 404, surface as not_found; emit `confluence_v1_fallback` audit on every retry\". The double-call cost is bounded (one extra HTTP round-trip per inline-comments call) and avoids the false-positive of misclassifying a deleted page as the v2 bug. Suggested fix: have `task_planner` adopt the always-retry-on-404 pattern for v2 inline-comments and document the cost in the wrapper reference.\n- **R16 (ADF prompt injection) severity rating** \u2014 rated low/low/low. Defensible since v1's stance is documentation + agent-side hardening, but worth flagging that a Confluence page authored by a contractor with edit access *is* a realistic prompt-injection vector for any refine-phase pipeline pulling linked Confluence pages. Suggested fix: ensure `docs/architecture/network-isolation.md` AND `sandbox/agent-config/rules/security.md` both name Confluence as an untrusted input source, not just the wrapper reference.\n- **R5's existing `test_allowed_domains.py` regression** \u2014 verified `gateway/allowed_domains.txt:31-36` does carry the `*.atlassian.net / *.atlassian.com / api.atlassian.com are intentionally NOT here` comment. The risk analyst's \"verify the existing test\" mitigation is satisfied for the Jira case; the Confluence ride-along claim is correct. Non-blocking; just confirming.\n"
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-26T23:57:48.757598+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "66101341-b8bf-43",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T23:57:48.850621+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1e44635a-6535-4e",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:57:53.410880+00:00"
+    },
+    "timestamp": "2026-04-26T23:57:53.482985+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1bf00113-1a2f-4f",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "Risk_analyst is fully ACKed by reviewer_plan; blocked on task_planner CONSENSUS_PROPOSE before risk_analyst can call confirm.",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-04-26T23:57:59.995445+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "456d1916-26af-4d",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:57:00.206525+00:00"
+    },
+    "timestamp": "2026-04-26T23:58:00.411861+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d5128a62-392b-43",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:58:04.686009+00:00"
+    },
+    "timestamp": "2026-04-26T23:58:04.735527+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "afe10f57-6983-4e",
+    "pipeline_id": "issue-1931",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "stuck-phase-transition [medium]",
+    "body": "task_planner (issue-1931) silent for 702s (~11.7 min) \u2014 exceeds 600s threshold; architect + risk_analyst blocked waiting for task_planner CONSENSUS_PROPOSE\n\nDetail:\nPipeline issue-1931, plan phase. task_planner entered WORKING state at ~23:45:36 UTC and has emitted zero self-initiated heartbeats in 702s. No CONSENSUS_PROPOSE from task_planner. By contrast: architect proposed at 23:51:01 (~330s), risk_analyst proposed at 23:52:13 (~397s). Both have been ACKed by reviewer_plan and are blocked waiting to confirm \u2014 BRC cannot complete until task_planner proposes. The platform detector has not independently flagged task_planner yet (calibration_only alerts only), but the overseer silent_agent threshold of 600s has been crossed.\n\nParallel to refine phase: refiner also went silent ~11.5 min before proposing, then self-healed 13s after the HIGH alert was broadcast. The same pattern may apply here \u2014 task_planner may be doing deep codebase analysis and task decomposition using architect's 6-workstream proposal + risk_analyst's 18-risk checklist.\n\nAll brc_confirmation_timeout alerts for architect (23:56:54) and risk_analyst (23:55:23) are expected artifacts of this wait condition \u2014 not independent failures.\n\nRecommended action: Check task_planner container logs to verify forward progress (tool calls, reads). If no meaningful progress in next 2 cycles (~4 min), consider restarting the task_planner container for pipeline issue-1931.\n\nRecommended action:\nMonitor for 2 more cycles (~4 min). If no task_planner CONSENSUS_PROPOSE by 00:01 UTC, inspect container logs and consider restart.",
+    "metadata": {},
+    "timestamp": "2026-04-26T23:58:05.167009+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "09e7067e-9466-49",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T23:58:05.633517+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6b9ccee7-e344-44",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T23:58:05.670382+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7cf3150b-4749-4e",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_NACK,OVERSEER_ALERT from=task_planner",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:58:09.903934+00:00"
+    },
+    "timestamp": "2026-04-26T23:58:09.996570+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "348e43ab-4ed6-4d",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:58:10.654583+00:00"
+    },
+    "timestamp": "2026-04-26T23:58:10.732061+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b049adf9-a54b-40",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:57:53.410880+00:00"
+    },
+    "timestamp": "2026-04-26T23:58:53.606435+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "62e94f31-6f21-4a",
+    "pipeline_id": "issue-1931",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "Plan for #1931 (Confluence gateway read-only v1) decomposes the architecture analysis into a single-PR plan with 6 phases and 28 tasks (4 foundation modules + 9 routes + 1 sandbox wrapper + 7 test suites + 3 config touches + 4 doc touches), mirroring the #1556 Jira gateway scaffolding line-for-line. Incorporates all 14 refine HITL decisions (verb-noun URL paths, v2-first hybrid with v1 fallbacks, conservative CQL extractor, body-format=storage default per the operator tweak, shared ATLASSIAN_* triple, per-route @require_private_mode + route-enumeration regression test, confluence.spaces allowlist in context-filters.yaml, permanent attachments denylist, no per-pipeline EGG_CONFLUENCE_*, GET-only /execute with regex allowlist, accountId/emailAddress/_links.webui redaction, getConfluenceSpaces filtered to allowlisted spaces, distinct confluence_upstream_403 audit category, depth verbatim per Q6, current-version-only per Q8, Jira-style subcommands only per Q10) plus the architect's per-verb endpoint pinning, page\u2192space resolution caching, no-shared-loader-refactor stance, and the risk analyst's R1-R18 mitigations (5 MiB CONFLUENCE_RESPONSE_MAX_BYTES payload cap, descendants depth=1/limit=25 default when omitted, bot_account_lacks_read_access reason in structured 403 body, confluence_v1_fallback audit with v2_status, ADF mention/nested redaction fixtures, attachments-denylist case/URL-encoding/nested-position test variants, route-vs-execute anti-bypass test, six-combination credential precedence matrix, case-sensitive list_spaces filter test, Confluence-original test fixture per file, prompt-injection caveat and Atlassian rate-limit runbook in docs/reference/confluence-wrapper.md). Test plan covers automated unit/route/wrapper suites with respx mocks plus 11 manual verification steps; manual pre-merge requires operator to populate confluence.spaces and confirm bot read access; post-merge rolls the gateway pod and notifies #1557. Plan satisfies tasks 1-1 through 6-4 and is structured as one PR with phase-aligned commits.",
+    "metadata": {
+      "payload": {
+        "summary": "Plan for #1931 (Confluence gateway read-only v1) decomposes the architecture analysis into a single-PR plan with 6 phases and 28 tasks (4 foundation modules + 9 routes + 1 sandbox wrapper + 7 test suites + 3 config touches + 4 doc touches), mirroring the #1556 Jira gateway scaffolding line-for-line. Incorporates all 14 refine HITL decisions (verb-noun URL paths, v2-first hybrid with v1 fallbacks, conservative CQL extractor, body-format=storage default per the operator tweak, shared ATLASSIAN_* triple, per-route @require_private_mode + route-enumeration regression test, confluence.spaces allowlist in context-filters.yaml, permanent attachments denylist, no per-pipeline EGG_CONFLUENCE_*, GET-only /execute with regex allowlist, accountId/emailAddress/_links.webui redaction, getConfluenceSpaces filtered to allowlisted spaces, distinct confluence_upstream_403 audit category, depth verbatim per Q6, current-version-only per Q8, Jira-style subcommands only per Q10) plus the architect's per-verb endpoint pinning, page\u2192space resolution caching, no-shared-loader-refactor stance, and the risk analyst's R1-R18 mitigations (5 MiB CONFLUENCE_RESPONSE_MAX_BYTES payload cap, descendants depth=1/limit=25 default when omitted, bot_account_lacks_read_access reason in structured 403 body, confluence_v1_fallback audit with v2_status, ADF mention/nested redaction fixtures, attachments-denylist case/URL-encoding/nested-position test variants, route-vs-execute anti-bypass test, six-combination credential precedence matrix, case-sensitive list_spaces filter test, Confluence-original test fixture per file, prompt-injection caveat and Atlassian rate-limit runbook in docs/reference/confluence-wrapper.md). Test plan covers automated unit/route/wrapper suites with respx mocks plus 11 manual verification steps; manual pre-merge requires operator to populate confluence.spaces and confirm bot read access; post-merge rolls the gateway pod and notifies #1557. Plan satisfies tasks 1-1 through 6-4 and is structured as one PR with phase-aligned commits.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/1931-plan.md"
+        ],
+        "risk_considered": "CQL extractor adversarial coverage (R1, mirrored from jira_search.py with CQL grammar); /execute path-validator drift (R2, anti-bypass test); v2 comment endpoints inline-404 + missing-nested-replies (R3, transparent v1 fallback with confluence_v1_fallback audit); private-mode gate decorator drift (R4, route-enumeration regression test); Squid allowlist widening (R5, extended test_allowed_domains parametrize); PII leakage via accountId/emailAddress/_links.webui (R6, redact_response with ADF coverage); page body / ADF token blow-up (R7, 5 MiB payload cap); descendants runaway (R8, depth=1/limit=25 defaults); v1 deprecation timeline (R9, per-verb pinning + last-reviewed footer); Atlassian points-based rate-limit (R10, 429 retry + runbook); shared credential rotation coupling (R11, six-combination test matrix); fail-closed empty allowlist (R12, boot-time INFO log); list_spaces case-mismatch fuzzy match (R13, strict intersection test); attachments denylist bypass via case/encoding/nesting (R14, three-variant test); bot effective access drift (R15, structured 403 envelope with bot_account_lacks_read_access reason); ADF prompt injection (R16, docs caveat); JQL\u2192CQL transliteration over-fit (R17, Confluence-original fixture per test file); future-write boundary lock-in (R18, ALLOWED_METHODS=GET-only with PUT/DELETE/PATCH explicitly tested as rejected).",
+        "commit_sha": "1b0af9121845a568ae8e2ad11bbf1c3e95aca3db",
+        "files_changed": [
+          ".egg-state/drafts/1931-plan.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "TASK-1-1",
+          "TASK-1-2",
+          "TASK-1-3",
+          "TASK-1-4",
+          "TASK-2-1",
+          "TASK-2-2",
+          "TASK-2-3",
+          "TASK-2-4",
+          "TASK-2-5",
+          "TASK-2-6",
+          "TASK-2-7",
+          "TASK-2-8",
+          "TASK-2-9",
+          "TASK-3-1",
+          "TASK-4-1",
+          "TASK-4-2",
+          "TASK-4-3",
+          "TASK-4-4",
+          "TASK-4-5",
+          "TASK-4-6",
+          "TASK-4-7",
+          "TASK-5-1",
+          "TASK-5-2",
+          "TASK-5-3",
+          "TASK-6-1",
+          "TASK-6-2",
+          "TASK-6-3",
+          "TASK-6-4"
+        ]
+      },
+      "version": 1,
+      "commit_sha": "1b0af9121845a568ae8e2ad11bbf1c3e95aca3db"
+    },
+    "timestamp": "2026-04-26T23:59:07.737341+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e4f8b803-adeb-4b",
+    "pipeline_id": "issue-1931",
+    "from_role": "orchestrator",
+    "to_role": "risk_analyst",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-04-26T23:59:07.737383+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ee3f0b48-9abc-48",
+    "pipeline_id": "issue-1931",
+    "from_role": "orchestrator",
+    "to_role": "architect",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-04-26T23:59:07.737399+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "65f6754f-8d34-4f",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T23:59:08.077445+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f700ca41-18e4-4e",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T23:59:08.078920+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2cdce297-6a4c-48",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-26T23:59:08.084338+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4a634f9d-2c60-44",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-26T23:59:11.674500+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "bb9950ae-6e10-49",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by risk_analyst",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-26T23:59:12.125344+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6892ecd5-ab63-44",
+    "pipeline_id": "issue-1931",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:59:12.297766+00:00"
+    },
+    "timestamp": "2026-04-26T23:59:12.402814+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c9adef4e-e22f-40",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT,CONSENSUS_NACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:59:16.347020+00:00"
+    },
+    "timestamp": "2026-04-26T23:59:19.107567+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "29fc5ad4-edbd-4c",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:59:25.536825+00:00"
+    },
+    "timestamp": "2026-04-26T23:59:25.576525+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "951c4a63-e436-45",
+    "pipeline_id": "issue-1931",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:59:12.297766+00:00"
+    },
+    "timestamp": "2026-04-27T00:00:12.656147+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "338fb851-9803-40",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT,CONSENSUS_NACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:59:16.347020+00:00"
+    },
+    "timestamp": "2026-04-27T00:00:19.369700+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5263560f-c55c-45",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:59:25.536825+00:00"
+    },
+    "timestamp": "2026-04-27T00:00:25.742087+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "da9bedd9-cb50-46",
+    "pipeline_id": "issue-1931",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:59:12.297766+00:00"
+    },
+    "timestamp": "2026-04-27T00:01:12.900520+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9bdc9688-cdd8-42",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT,CONSENSUS_NACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:59:16.347020+00:00"
+    },
+    "timestamp": "2026-04-27T00:01:19.587195+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7e7a1089-b728-48",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:59:25.536825+00:00"
+    },
+    "timestamp": "2026-04-27T00:01:25.993951+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "64d4abd2-defa-40",
+    "pipeline_id": "issue-1931",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:59:12.297766+00:00"
+    },
+    "timestamp": "2026-04-27T00:02:13.143505+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "dd5a6314-b5fe-4f",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT,CONSENSUS_NACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:59:16.347020+00:00"
+    },
+    "timestamp": "2026-04-27T00:02:19.907437+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "137c13ef-8a79-43",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:59:25.536825+00:00"
+    },
+    "timestamp": "2026-04-27T00:02:26.259492+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "26c53ac0-c5eb-44",
+    "pipeline_id": "issue-1931",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:59:12.297766+00:00"
+    },
+    "timestamp": "2026-04-27T00:03:13.397524+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "951b9985-f331-45",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_NACK",
+    "subject": "NACK from reviewer_plan for task_planner",
+    "body": "\nReviewed `.egg-state/drafts/1931-plan.md` (1342 lines, 6 phases, 28 tasks) end-to-end against the analysis, the architect output, the risk_analyst output, and the existing Jira sister files (`gateway/jira_credentials.py:134-137`, `config/secrets.template.env:91-99`, `tests/sandbox/test_jira_wrapper.py`).\n\nThe plan is overall strong \u2014 task decomposition is granular and assigns roles (coder / tester / documenter); each task has explicit acceptance criteria that reference the covering test task; the dependency graph is correct (Phase 1 foundation \u2192 Phase 2 routes \u2192 Phase 3 sandbox wrapper \u2192 Phase 4 tests \u2192 Phase 5 config \u2192 Phase 6 docs); risk mitigations from R2/R6/R7/R8/R10/R11/R13/R14/R15/R16/R17 are threaded into specific tasks (5 MiB payload cap \u2192 Task 1-2 + 2-1 + 4-5; descendants `depth=1`/`limit=25` defaults \u2192 Task 2-2 + 4-5; ADF redaction recursion \u2192 Task 1-2 + 4-2; Confluence-original fixtures \u2192 Task 4-2; route-vs-execute anti-bypass \u2192 Task 4-5; structured `bot_account_lacks_read_access` envelope \u2192 Task 1-2 + 2-1 + 4-5). Adversarial CQL test grid (13+ cases) is reproduced exactly from Task 1-4 into Task 4-4 / 4-5. The PR description and test plan are publication-ready.\n\n### Blocking\n\n1. **Plan promises a migration story that the implementation as planned cannot deliver \u2014 `gateway/jira_credentials.py` is not modified.**\n\n   - The plan's \"Manual Pre/Post-Merge Steps \u2192 Pre-merge\" section says (line 599): *\"If migrating off independent JIRA_* + CONFLUENCE_* triples to the shared ATLASSIAN_* triple, operators may copy the same value into all three triples during the cutover **and remove the legacy keys later** \u2014 the loader prefers ATLASSIAN_* per key.\"*\n   - Task 5-2 says: *\"Keep the existing JIRA_* and CONFLUENCE_* blocks intact for back-compat (the loader prefers ATLASSIAN_* per key but falls back to either prefix).\"*\n   - Both passages imply the gateway has a single shared loader (or two loaders that both honour `ATLASSIAN_*`), but Task 1-1 only writes precedence into the **new** `gateway/confluence_credentials.py` (`ATLASSIAN_*` \u2192 `CONFLUENCE_*`). The plan does **not** include any task to update `gateway/jira_credentials.py`.\n   - Verified directly: `gateway/jira_credentials.py:134-137` today reads only `secrets[\"JIRA_BASE_URL\"]`, `secrets[\"JIRA_USERNAME\"]`, `secrets[\"JIRA_API_TOKEN\"]`. There is no fallback to `ATLASSIAN_*`.\n   - Consequence: an operator who follows the documented pre-merge path and removes the legacy `JIRA_*` keys after copying values to `ATLASSIAN_*` will silently break Jira (gateway returns 503 on every `/api/v1/jira/*` call). The shared-credential premise of decision-6 is violated.\n   - This is also what risk R11's mitigation explicitly demanded (`risk_analyst-output.json` R11: *\"gateway/jira_credentials.py \u2014 same fall-back chain (must be updated to read ATLASSIAN_* preferentially)\"*) and what the architect's TD5 `shared_credential_invariant` describes (*\"Both confluence_credentials.py and jira_credentials.py read the same secrets.env file. When ATLASSIAN_* is set, both use it\"*). The architect's `files_intentionally_unchanged` list contradictorily lists `jira_credentials.py` as unchanged \u2014 the plan inherited the architect's contradiction without resolving it.\n\n   **Fix**: Add a new task under Phase 1 (e.g. TASK-1-5) to update `gateway/jira_credentials.py` to read `ATLASSIAN_BASE_URL` / `ATLASSIAN_USERNAME` / `ATLASSIAN_API_TOKEN` preferentially with `JIRA_*` per-key fallback (mirror the precedence shape used in TASK-1-1). Add a corresponding test addition in `gateway/tests/test_jira_credentials.py` covering the six combinations (ATLASSIAN-only, JIRA-only, mixed per-key) under TASK-4-1 or a new TASK-4-1b. Update the pre-merge note in the PR description (line 599 of the plan) to reflect that both modules now honour the precedence. Without this, decision-6's \"shared credential invariant\" cannot ship in this PR \u2014 the planner must either include the change or retract the migration narrative.\n\n2. **Inline-comment fallback fall-through behaviour is unspecified \u2014 Task 1-2 + 2-4 do not state what happens when v1 also returns 404.**\n\n   - Task 1-2 says: *\"`get_page_inline_comments(page_id, body_format=(\"storage\",))` \u2192 `GET /wiki/api/v2/pages/{id}/inline-comments`. **v2 \u2192 v1 fallback**: if v2 returns 404, retry transparently against `GET /wiki/rest/api/content/{id}/child/comment?location=inline&expand=body.view` (the known v2 inline-comment 404 bug per the analysis). Return the v1 response normalized into a `{\"results\": [...]}` envelope.\"*\n   - The plan never specifies what happens if v1 also returns 404 (i.e. the page genuinely doesn't exist or has no inline comments). Two plausible behaviours:\n     - (a) Return the `{\"status\": \"not_found\", \"id\": \"...\", \"upstream_status\": 404}` envelope (matching every other read method).\n     - (b) Return an empty `{\"results\": []}` envelope (since \"no comments\" and \"not found\" are different states and v1 distinguishes them).\n   - Task 4-2 acceptance lists *\"v1 inline-comment fallback fires on v2 404 with `used_fallback` flag observable\"* but does not include a fixture for the v2-404 + v1-404 case. Without this, the implementer is left to make the call without a written contract, and the route layer's 404-envelope semantics (Task 2-4) cannot be tested deterministically.\n   - This also intersects with risk R3 \u2014 the risk_analyst's mitigation suggested distinguishing v2 inline-404 (the bug) from a real not-found by inspecting the response body shape, which I flagged in my risk_analyst review as fragile. The \"always retry once on 404 and surface as not_found if v1 also 404s\" pattern is the correct simpler approach but the plan needs to say so.\n\n   **Fix**: Edit Task 1-2 to specify: *\"If v2 returns 404 and the v1 retry also returns 404, return the standard `{\"status\": \"not_found\", \"id\": \"...\", \"upstream_status\": 404}` envelope. If v2 returns 404 and v1 returns 200 with an empty results list, return the v1 payload with `used_fallback=true` (distinguishes \"v2 bug + page exists with no comments\" from \"page actually not found\").\"* Add a corresponding fixture to TASK-4-2's acceptance grid covering the v2-404 + v1-404 case.\n\n### Non-blocking\n\n- **`E5 tweak` terminology mismatch.** Tasks 1-2 acceptance and 4-2 description refer to *\"decision E5 tweak\"*. The contract numbering is `decision-5` (analysis option labels were `E1`/`E2`/`E3`/`E4`, never `E5`). Cosmetic; will confuse anyone grepping the audit trail. **Fix**: replace `E5` with `decision-5` (or `option E1` if referencing the analysis label). Eight occurrences across the file.\n\n- **Boot-time policy-size INFO log is mis-placed.** Task 1-2 puts the boot-time observability logging inside `gateway/confluence_client.py` at module import (*\"the credential / policy / client managers log a single INFO line each summarising the loaded state\"*). The allowlist size lives in `confluence_policy.py`, not the client; the client at import time has no reason to know the policy size. Risk R12's mitigation expected the policy module to emit it. **Fix**: move the \"allowlist loaded: N keys\" log line to `gateway/confluence_policy.py`'s first `allowed_spaces()` call (or to `_reload_all_config()` in gateway.py at startup), and keep the client's log line scoped to credentials + body-format default.\n\n- **Shared rate-limit pool risk (R10) is undocumented in the wrapper reference.** The plan implements per-call 429 retry but doesn't surface that consolidating to a single Atlassian bot account (decision-9) means Jira and Confluence now share the points-based quota. Two unrelated pipelines reading from Jira and Confluence simultaneously can throttle each other. Task 6-4 (`docs/reference/confluence-wrapper.md`) mentions a rate-limit runbook but doesn't name the pool-sharing consequence. **Fix**: add a sentence to TASK-6-4: *\"Note: the bot account that owns Confluence access is the same principal as the Jira bot (per decision-9), so 429s from Atlassian's points-based quota are pooled across `/api/v1/jira/*` and `/api/v1/confluence/*` traffic. Operators seeing routine throttling on one service should expect it to manifest on the other and may want to provision a dedicated Confluence-only bot in a follow-up.\"*\n\n- **`spaceKey \u2192 spaceId` resolution caching is one-sided.** Task 2-1 introduces a 60s page\u2192space cache (architect Q2 mitigation), but Task 2-5 (`/space/pages`) needs the inverse mapping (`spaceKey \u2192 spaceId`) and gets it via `ConfluenceClient.list_spaces(...)` \u2014 one upstream call per request. The plan doesn't extend the cache to the spaceKey\u2194spaceId map, so cold-start `/space/pages` calls have a guaranteed double round-trip. **Fix**: have TASK-1-2 declare a single spaceId\u2194spaceKey LRU populated by both `list_spaces` and `get_page` so subsequent `/space/pages` calls reuse it; or explicitly accept the cost in TASK-2-5's acceptance criteria.\n\n- **Architect Q4 (shared credential extraction) is silently dropped.** The architect raised Q4 (whether to share credential-loading helpers between `confluence_credentials.py` and `jira_credentials.py`) and recommended deferring. The plan implements deferral implicitly but doesn't reference Q4 anywhere. **Fix**: add a one-line note in TASK-1-1 acceptance: *\"Per architect Q4, no shared `atlassian_credentials.py` helper is extracted in v1; both modules duplicate the loader skeleton for review clarity. Track shared extraction in a follow-up backlog item.\"*\n\n- **Manual verification step 4 talks about `PRIVATE_MODE` env var, but the gateway uses `g.session_mode == \"private\"` (set by `@require_session_auth`).** Step 4 of \"Test Strategy \u2192 Manual\" reads: *\"Repeat with `PRIVATE_MODE` unset / public mode and confirm 403 \u2026\"*. There is no `PRIVATE_MODE` env var; private mode is a session-level attribute. **Fix**: rephrase to *\"Repeat with a public-mode session token (or one created without `--private`) and confirm 403 with `endpoint requires private network mode`.\"*\n\n- **TASK-4-7 reuses an existing test name.** Plan says *\"the existing `test_atlassian_domains_absent` test\"*. I did not verify this name exists in `gateway/tests/test_allowed_domains.py`; if the actual test is named differently, the planner should either rename it or describe the test's behaviour by location rather than by name. Cheap to verify at implement time. **Fix**: have TASK-4-7's coder confirm the existing test name before extending it.\n\n- **No task to update `sandbox/agent-config/commands/show-metrics.md`** (lines 12 + 36) which currently references the legacy `~/context-sync/confluence/` cache. The plan correctly leaves this as out-of-scope (it's the legacy syncer cache, not the new gateway), but a reader landing in the file post-merge will be confused about which `confluence/` path is current. **Fix**: add a one-line task to TASK-6-3 noting that `show-metrics.md` is intentionally untouched because the syncer cache and the gateway wrapper are independent surfaces.\n\n- **R10 retry-cap audit field naming.** Task 1-2 says *\"Audit `confluence_upstream_rate_limited` on both 429s including the `Retry-After` value and path.\"* but doesn't specify the `attempt` field that R10's mitigation explicitly required (*\"Audit log records `confluence_upstream_rate_limited` with the Retry-After value and `attempt` index.\"*). Without `attempt: 1|2` operators can't tell from the log whether the retry succeeded. **Fix**: add `attempt: int (1 or 2)` to the audit shape in TASK-1-2.\n\n- **Task 2-9 audit event name `confluence_config_reloaded` is one event for both reloads.** That's reasonable but worth noting it loses the granularity the Jira reload presumably has (e.g., `jira_config_reloaded` may emit one event for credentials and one for policy). If the Jira pattern emits two events, copy that shape; if it emits one, this is consistent. Cheap to verify at implement time.\n",
+    "metadata": {
+      "payload": {
+        "reason": "\nReviewed `.egg-state/drafts/1931-plan.md` (1342 lines, 6 phases, 28 tasks) end-to-end against the analysis, the architect output, the risk_analyst output, and the existing Jira sister files (`gateway/jira_credentials.py:134-137`, `config/secrets.template.env:91-99`, `tests/sandbox/test_jira_wrapper.py`).\n\nThe plan is overall strong \u2014 task decomposition is granular and assigns roles (coder / tester / documenter); each task has explicit acceptance criteria that reference the covering test task; the dependency graph is correct (Phase 1 foundation \u2192 Phase 2 routes \u2192 Phase 3 sandbox wrapper \u2192 Phase 4 tests \u2192 Phase 5 config \u2192 Phase 6 docs); risk mitigations from R2/R6/R7/R8/R10/R11/R13/R14/R15/R16/R17 are threaded into specific tasks (5 MiB payload cap \u2192 Task 1-2 + 2-1 + 4-5; descendants `depth=1`/`limit=25` defaults \u2192 Task 2-2 + 4-5; ADF redaction recursion \u2192 Task 1-2 + 4-2; Confluence-original fixtures \u2192 Task 4-2; route-vs-execute anti-bypass \u2192 Task 4-5; structured `bot_account_lacks_read_access` envelope \u2192 Task 1-2 + 2-1 + 4-5). Adversarial CQL test grid (13+ cases) is reproduced exactly from Task 1-4 into Task 4-4 / 4-5. The PR description and test plan are publication-ready.\n\n### Blocking\n\n1. **Plan promises a migration story that the implementation as planned cannot deliver \u2014 `gateway/jira_credentials.py` is not modified.**\n\n   - The plan's \"Manual Pre/Post-Merge Steps \u2192 Pre-merge\" section says (line 599): *\"If migrating off independent JIRA_* + CONFLUENCE_* triples to the shared ATLASSIAN_* triple, operators may copy the same value into all three triples during the cutover **and remove the legacy keys later** \u2014 the loader prefers ATLASSIAN_* per key.\"*\n   - Task 5-2 says: *\"Keep the existing JIRA_* and CONFLUENCE_* blocks intact for back-compat (the loader prefers ATLASSIAN_* per key but falls back to either prefix).\"*\n   - Both passages imply the gateway has a single shared loader (or two loaders that both honour `ATLASSIAN_*`), but Task 1-1 only writes precedence into the **new** `gateway/confluence_credentials.py` (`ATLASSIAN_*` \u2192 `CONFLUENCE_*`). The plan does **not** include any task to update `gateway/jira_credentials.py`.\n   - Verified directly: `gateway/jira_credentials.py:134-137` today reads only `secrets[\"JIRA_BASE_URL\"]`, `secrets[\"JIRA_USERNAME\"]`, `secrets[\"JIRA_API_TOKEN\"]`. There is no fallback to `ATLASSIAN_*`.\n   - Consequence: an operator who follows the documented pre-merge path and removes the legacy `JIRA_*` keys after copying values to `ATLASSIAN_*` will silently break Jira (gateway returns 503 on every `/api/v1/jira/*` call). The shared-credential premise of decision-6 is violated.\n   - This is also what risk R11's mitigation explicitly demanded (`risk_analyst-output.json` R11: *\"gateway/jira_credentials.py \u2014 same fall-back chain (must be updated to read ATLASSIAN_* preferentially)\"*) and what the architect's TD5 `shared_credential_invariant` describes (*\"Both confluence_credentials.py and jira_credentials.py read the same secrets.env file. When ATLASSIAN_* is set, both use it\"*). The architect's `files_intentionally_unchanged` list contradictorily lists `jira_credentials.py` as unchanged \u2014 the plan inherited the architect's contradiction without resolving it.\n\n   **Fix**: Add a new task under Phase 1 (e.g. TASK-1-5) to update `gateway/jira_credentials.py` to read `ATLASSIAN_BASE_URL` / `ATLASSIAN_USERNAME` / `ATLASSIAN_API_TOKEN` preferentially with `JIRA_*` per-key fallback (mirror the precedence shape used in TASK-1-1). Add a corresponding test addition in `gateway/tests/test_jira_credentials.py` covering the six combinations (ATLASSIAN-only, JIRA-only, mixed per-key) under TASK-4-1 or a new TASK-4-1b. Update the pre-merge note in the PR description (line 599 of the plan) to reflect that both modules now honour the precedence. Without this, decision-6's \"shared credential invariant\" cannot ship in this PR \u2014 the planner must either include the change or retract the migration narrative.\n\n2. **Inline-comment fallback fall-through behaviour is unspecified \u2014 Task 1-2 + 2-4 do not state what happens when v1 also returns 404.**\n\n   - Task 1-2 says: *\"`get_page_inline_comments(page_id, body_format=(\"storage\",))` \u2192 `GET /wiki/api/v2/pages/{id}/inline-comments`. **v2 \u2192 v1 fallback**: if v2 returns 404, retry transparently against `GET /wiki/rest/api/content/{id}/child/comment?location=inline&expand=body.view` (the known v2 inline-comment 404 bug per the analysis). Return the v1 response normalized into a `{\"results\": [...]}` envelope.\"*\n   - The plan never specifies what happens if v1 also returns 404 (i.e. the page genuinely doesn't exist or has no inline comments). Two plausible behaviours:\n     - (a) Return the `{\"status\": \"not_found\", \"id\": \"...\", \"upstream_status\": 404}` envelope (matching every other read method).\n     - (b) Return an empty `{\"results\": []}` envelope (since \"no comments\" and \"not found\" are different states and v1 distinguishes them).\n   - Task 4-2 acceptance lists *\"v1 inline-comment fallback fires on v2 404 with `used_fallback` flag observable\"* but does not include a fixture for the v2-404 + v1-404 case. Without this, the implementer is left to make the call without a written contract, and the route layer's 404-envelope semantics (Task 2-4) cannot be tested deterministically.\n   - This also intersects with risk R3 \u2014 the risk_analyst's mitigation suggested distinguishing v2 inline-404 (the bug) from a real not-found by inspecting the response body shape, which I flagged in my risk_analyst review as fragile. The \"always retry once on 404 and surface as not_found if v1 also 404s\" pattern is the correct simpler approach but the plan needs to say so.\n\n   **Fix**: Edit Task 1-2 to specify: *\"If v2 returns 404 and the v1 retry also returns 404, return the standard `{\"status\": \"not_found\", \"id\": \"...\", \"upstream_status\": 404}` envelope. If v2 returns 404 and v1 returns 200 with an empty results list, return the v1 payload with `used_fallback=true` (distinguishes \"v2 bug + page exists with no comments\" from \"page actually not found\").\"* Add a corresponding fixture to TASK-4-2's acceptance grid covering the v2-404 + v1-404 case.\n\n### Non-blocking\n\n- **`E5 tweak` terminology mismatch.** Tasks 1-2 acceptance and 4-2 description refer to *\"decision E5 tweak\"*. The contract numbering is `decision-5` (analysis option labels were `E1`/`E2`/`E3`/`E4`, never `E5`). Cosmetic; will confuse anyone grepping the audit trail. **Fix**: replace `E5` with `decision-5` (or `option E1` if referencing the analysis label). Eight occurrences across the file.\n\n- **Boot-time policy-size INFO log is mis-placed.** Task 1-2 puts the boot-time observability logging inside `gateway/confluence_client.py` at module import (*\"the credential / policy / client managers log a single INFO line each summarising the loaded state\"*). The allowlist size lives in `confluence_policy.py`, not the client; the client at import time has no reason to know the policy size. Risk R12's mitigation expected the policy module to emit it. **Fix**: move the \"allowlist loaded: N keys\" log line to `gateway/confluence_policy.py`'s first `allowed_spaces()` call (or to `_reload_all_config()` in gateway.py at startup), and keep the client's log line scoped to credentials + body-format default.\n\n- **Shared rate-limit pool risk (R10) is undocumented in the wrapper reference.** The plan implements per-call 429 retry but doesn't surface that consolidating to a single Atlassian bot account (decision-9) means Jira and Confluence now share the points-based quota. Two unrelated pipelines reading from Jira and Confluence simultaneously can throttle each other. Task 6-4 (`docs/reference/confluence-wrapper.md`) mentions a rate-limit runbook but doesn't name the pool-sharing consequence. **Fix**: add a sentence to TASK-6-4: *\"Note: the bot account that owns Confluence access is the same principal as the Jira bot (per decision-9), so 429s from Atlassian's points-based quota are pooled across `/api/v1/jira/*` and `/api/v1/confluence/*` traffic. Operators seeing routine throttling on one service should expect it to manifest on the other and may want to provision a dedicated Confluence-only bot in a follow-up.\"*\n\n- **`spaceKey \u2192 spaceId` resolution caching is one-sided.** Task 2-1 introduces a 60s page\u2192space cache (architect Q2 mitigation), but Task 2-5 (`/space/pages`) needs the inverse mapping (`spaceKey \u2192 spaceId`) and gets it via `ConfluenceClient.list_spaces(...)` \u2014 one upstream call per request. The plan doesn't extend the cache to the spaceKey\u2194spaceId map, so cold-start `/space/pages` calls have a guaranteed double round-trip. **Fix**: have TASK-1-2 declare a single spaceId\u2194spaceKey LRU populated by both `list_spaces` and `get_page` so subsequent `/space/pages` calls reuse it; or explicitly accept the cost in TASK-2-5's acceptance criteria.\n\n- **Architect Q4 (shared credential extraction) is silently dropped.** The architect raised Q4 (whether to share credential-loading helpers between `confluence_credentials.py` and `jira_credentials.py`) and recommended deferring. The plan implements deferral implicitly but doesn't reference Q4 anywhere. **Fix**: add a one-line note in TASK-1-1 acceptance: *\"Per architect Q4, no shared `atlassian_credentials.py` helper is extracted in v1; both modules duplicate the loader skeleton for review clarity. Track shared extraction in a follow-up backlog item.\"*\n\n- **Manual verification step 4 talks about `PRIVATE_MODE` env var, but the gateway uses `g.session_mode == \"private\"` (set by `@require_session_auth`).** Step 4 of \"Test Strategy \u2192 Manual\" reads: *\"Repeat with `PRIVATE_MODE` unset / public mode and confirm 403 \u2026\"*. There is no `PRIVATE_MODE` env var; private mode is a session-level attribute. **Fix**: rephrase to *\"Repeat with a public-mode session token (or one created without `--private`) and confirm 403 with `endpoint requires private network mode`.\"*\n\n- **TASK-4-7 reuses an existing test name.** Plan says *\"the existing `test_atlassian_domains_absent` test\"*. I did not verify this name exists in `gateway/tests/test_allowed_domains.py`; if the actual test is named differently, the planner should either rename it or describe the test's behaviour by location rather than by name. Cheap to verify at implement time. **Fix**: have TASK-4-7's coder confirm the existing test name before extending it.\n\n- **No task to update `sandbox/agent-config/commands/show-metrics.md`** (lines 12 + 36) which currently references the legacy `~/context-sync/confluence/` cache. The plan correctly leaves this as out-of-scope (it's the legacy syncer cache, not the new gateway), but a reader landing in the file post-merge will be confused about which `confluence/` path is current. **Fix**: add a one-line task to TASK-6-3 noting that `show-metrics.md` is intentionally untouched because the syncer cache and the gateway wrapper are independent surfaces.\n\n- **R10 retry-cap audit field naming.** Task 1-2 says *\"Audit `confluence_upstream_rate_limited` on both 429s including the `Retry-After` value and path.\"* but doesn't specify the `attempt` field that R10's mitigation explicitly required (*\"Audit log records `confluence_upstream_rate_limited` with the Retry-After value and `attempt` index.\"*). Without `attempt: 1|2` operators can't tell from the log whether the retry succeeded. **Fix**: add `attempt: int (1 or 2)` to the audit shape in TASK-1-2.\n\n- **Task 2-9 audit event name `confluence_config_reloaded` is one event for both reloads.** That's reasonable but worth noting it loses the granularity the Jira reload presumably has (e.g., `jira_config_reloaded` may emit one event for credentials and one for policy). If the Jira pattern emits two events, copy that shape; if it emits one, this is consistent. Cheap to verify at implement time.\n",
+        "artifact_references": [
+          ".egg-state/drafts/1931-plan.md",
+          ".egg-state/agent-outputs/1931-architect-output.json",
+          ".egg-state/agent-outputs/1931-risk_analyst-output.json",
+          ".egg-state/drafts/1931-analysis.md",
+          "gateway/jira_credentials.py",
+          "config/secrets.template.env",
+          "config/context-filters.yaml",
+          "tests/sandbox/test_jira_wrapper.py"
+        ]
+      },
+      "reason": "\nReviewed `.egg-state/drafts/1931-plan.md` (1342 lines, 6 phases, 28 tasks) end-to-end against the analysis, the architect output, the risk_analyst output, and the existing Jira sister files (`gateway/jira_credentials.py:134-137`, `config/secrets.template.env:91-99`, `tests/sandbox/test_jira_wrapper.py`).\n\nThe plan is overall strong \u2014 task decomposition is granular and assigns roles (coder / tester / documenter); each task has explicit acceptance criteria that reference the covering test task; the dependency graph is correct (Phase 1 foundation \u2192 Phase 2 routes \u2192 Phase 3 sandbox wrapper \u2192 Phase 4 tests \u2192 Phase 5 config \u2192 Phase 6 docs); risk mitigations from R2/R6/R7/R8/R10/R11/R13/R14/R15/R16/R17 are threaded into specific tasks (5 MiB payload cap \u2192 Task 1-2 + 2-1 + 4-5; descendants `depth=1`/`limit=25` defaults \u2192 Task 2-2 + 4-5; ADF redaction recursion \u2192 Task 1-2 + 4-2; Confluence-original fixtures \u2192 Task 4-2; route-vs-execute anti-bypass \u2192 Task 4-5; structured `bot_account_lacks_read_access` envelope \u2192 Task 1-2 + 2-1 + 4-5). Adversarial CQL test grid (13+ cases) is reproduced exactly from Task 1-4 into Task 4-4 / 4-5. The PR description and test plan are publication-ready.\n\n### Blocking\n\n1. **Plan promises a migration story that the implementation as planned cannot deliver \u2014 `gateway/jira_credentials.py` is not modified.**\n\n   - The plan's \"Manual Pre/Post-Merge Steps \u2192 Pre-merge\" section says (line 599): *\"If migrating off independent JIRA_* + CONFLUENCE_* triples to the shared ATLASSIAN_* triple, operators may copy the same value into all three triples during the cutover **and remove the legacy keys later** \u2014 the loader prefers ATLASSIAN_* per key.\"*\n   - Task 5-2 says: *\"Keep the existing JIRA_* and CONFLUENCE_* blocks intact for back-compat (the loader prefers ATLASSIAN_* per key but falls back to either prefix).\"*\n   - Both passages imply the gateway has a single shared loader (or two loaders that both honour `ATLASSIAN_*`), but Task 1-1 only writes precedence into the **new** `gateway/confluence_credentials.py` (`ATLASSIAN_*` \u2192 `CONFLUENCE_*`). The plan does **not** include any task to update `gateway/jira_credentials.py`.\n   - Verified directly: `gateway/jira_credentials.py:134-137` today reads only `secrets[\"JIRA_BASE_URL\"]`, `secrets[\"JIRA_USERNAME\"]`, `secrets[\"JIRA_API_TOKEN\"]`. There is no fallback to `ATLASSIAN_*`.\n   - Consequence: an operator who follows the documented pre-merge path and removes the legacy `JIRA_*` keys after copying values to `ATLASSIAN_*` will silently break Jira (gateway returns 503 on every `/api/v1/jira/*` call). The shared-credential premise of decision-6 is violated.\n   - This is also what risk R11's mitigation explicitly demanded (`risk_analyst-output.json` R11: *\"gateway/jira_credentials.py \u2014 same fall-back chain (must be updated to read ATLASSIAN_* preferentially)\"*) and what the architect's TD5 `shared_credential_invariant` describes (*\"Both confluence_credentials.py and jira_credentials.py read the same secrets.env file. When ATLASSIAN_* is set, both use it\"*). The architect's `files_intentionally_unchanged` list contradictorily lists `jira_credentials.py` as unchanged \u2014 the plan inherited the architect's contradiction without resolving it.\n\n   **Fix**: Add a new task under Phase 1 (e.g. TASK-1-5) to update `gateway/jira_credentials.py` to read `ATLASSIAN_BASE_URL` / `ATLASSIAN_USERNAME` / `ATLASSIAN_API_TOKEN` preferentially with `JIRA_*` per-key fallback (mirror the precedence shape used in TASK-1-1). Add a corresponding test addition in `gateway/tests/test_jira_credentials.py` covering the six combinations (ATLASSIAN-only, JIRA-only, mixed per-key) under TASK-4-1 or a new TASK-4-1b. Update the pre-merge note in the PR description (line 599 of the plan) to reflect that both modules now honour the precedence. Without this, decision-6's \"shared credential invariant\" cannot ship in this PR \u2014 the planner must either include the change or retract the migration narrative.\n\n2. **Inline-comment fallback fall-through behaviour is unspecified \u2014 Task 1-2 + 2-4 do not state what happens when v1 also returns 404.**\n\n   - Task 1-2 says: *\"`get_page_inline_comments(page_id, body_format=(\"storage\",))` \u2192 `GET /wiki/api/v2/pages/{id}/inline-comments`. **v2 \u2192 v1 fallback**: if v2 returns 404, retry transparently against `GET /wiki/rest/api/content/{id}/child/comment?location=inline&expand=body.view` (the known v2 inline-comment 404 bug per the analysis). Return the v1 response normalized into a `{\"results\": [...]}` envelope.\"*\n   - The plan never specifies what happens if v1 also returns 404 (i.e. the page genuinely doesn't exist or has no inline comments). Two plausible behaviours:\n     - (a) Return the `{\"status\": \"not_found\", \"id\": \"...\", \"upstream_status\": 404}` envelope (matching every other read method).\n     - (b) Return an empty `{\"results\": []}` envelope (since \"no comments\" and \"not found\" are different states and v1 distinguishes them).\n   - Task 4-2 acceptance lists *\"v1 inline-comment fallback fires on v2 404 with `used_fallback` flag observable\"* but does not include a fixture for the v2-404 + v1-404 case. Without this, the implementer is left to make the call without a written contract, and the route layer's 404-envelope semantics (Task 2-4) cannot be tested deterministically.\n   - This also intersects with risk R3 \u2014 the risk_analyst's mitigation suggested distinguishing v2 inline-404 (the bug) from a real not-found by inspecting the response body shape, which I flagged in my risk_analyst review as fragile. The \"always retry once on 404 and surface as not_found if v1 also 404s\" pattern is the correct simpler approach but the plan needs to say so.\n\n   **Fix**: Edit Task 1-2 to specify: *\"If v2 returns 404 and the v1 retry also returns 404, return the standard `{\"status\": \"not_found\", \"id\": \"...\", \"upstream_status\": 404}` envelope. If v2 returns 404 and v1 returns 200 with an empty results list, return the v1 payload with `used_fallback=true` (distinguishes \"v2 bug + page exists with no comments\" from \"page actually not found\").\"* Add a corresponding fixture to TASK-4-2's acceptance grid covering the v2-404 + v1-404 case.\n\n### Non-blocking\n\n- **`E5 tweak` terminology mismatch.** Tasks 1-2 acceptance and 4-2 description refer to *\"decision E5 tweak\"*. The contract numbering is `decision-5` (analysis option labels were `E1`/`E2`/`E3`/`E4`, never `E5`). Cosmetic; will confuse anyone grepping the audit trail. **Fix**: replace `E5` with `decision-5` (or `option E1` if referencing the analysis label). Eight occurrences across the file.\n\n- **Boot-time policy-size INFO log is mis-placed.** Task 1-2 puts the boot-time observability logging inside `gateway/confluence_client.py` at module import (*\"the credential / policy / client managers log a single INFO line each summarising the loaded state\"*). The allowlist size lives in `confluence_policy.py`, not the client; the client at import time has no reason to know the policy size. Risk R12's mitigation expected the policy module to emit it. **Fix**: move the \"allowlist loaded: N keys\" log line to `gateway/confluence_policy.py`'s first `allowed_spaces()` call (or to `_reload_all_config()` in gateway.py at startup), and keep the client's log line scoped to credentials + body-format default.\n\n- **Shared rate-limit pool risk (R10) is undocumented in the wrapper reference.** The plan implements per-call 429 retry but doesn't surface that consolidating to a single Atlassian bot account (decision-9) means Jira and Confluence now share the points-based quota. Two unrelated pipelines reading from Jira and Confluence simultaneously can throttle each other. Task 6-4 (`docs/reference/confluence-wrapper.md`) mentions a rate-limit runbook but doesn't name the pool-sharing consequence. **Fix**: add a sentence to TASK-6-4: *\"Note: the bot account that owns Confluence access is the same principal as the Jira bot (per decision-9), so 429s from Atlassian's points-based quota are pooled across `/api/v1/jira/*` and `/api/v1/confluence/*` traffic. Operators seeing routine throttling on one service should expect it to manifest on the other and may want to provision a dedicated Confluence-only bot in a follow-up.\"*\n\n- **`spaceKey \u2192 spaceId` resolution caching is one-sided.** Task 2-1 introduces a 60s page\u2192space cache (architect Q2 mitigation), but Task 2-5 (`/space/pages`) needs the inverse mapping (`spaceKey \u2192 spaceId`) and gets it via `ConfluenceClient.list_spaces(...)` \u2014 one upstream call per request. The plan doesn't extend the cache to the spaceKey\u2194spaceId map, so cold-start `/space/pages` calls have a guaranteed double round-trip. **Fix**: have TASK-1-2 declare a single spaceId\u2194spaceKey LRU populated by both `list_spaces` and `get_page` so subsequent `/space/pages` calls reuse it; or explicitly accept the cost in TASK-2-5's acceptance criteria.\n\n- **Architect Q4 (shared credential extraction) is silently dropped.** The architect raised Q4 (whether to share credential-loading helpers between `confluence_credentials.py` and `jira_credentials.py`) and recommended deferring. The plan implements deferral implicitly but doesn't reference Q4 anywhere. **Fix**: add a one-line note in TASK-1-1 acceptance: *\"Per architect Q4, no shared `atlassian_credentials.py` helper is extracted in v1; both modules duplicate the loader skeleton for review clarity. Track shared extraction in a follow-up backlog item.\"*\n\n- **Manual verification step 4 talks about `PRIVATE_MODE` env var, but the gateway uses `g.session_mode == \"private\"` (set by `@require_session_auth`).** Step 4 of \"Test Strategy \u2192 Manual\" reads: *\"Repeat with `PRIVATE_MODE` unset / public mode and confirm 403 \u2026\"*. There is no `PRIVATE_MODE` env var; private mode is a session-level attribute. **Fix**: rephrase to *\"Repeat with a public-mode session token (or one created without `--private`) and confirm 403 with `endpoint requires private network mode`.\"*\n\n- **TASK-4-7 reuses an existing test name.** Plan says *\"the existing `test_atlassian_domains_absent` test\"*. I did not verify this name exists in `gateway/tests/test_allowed_domains.py`; if the actual test is named differently, the planner should either rename it or describe the test's behaviour by location rather than by name. Cheap to verify at implement time. **Fix**: have TASK-4-7's coder confirm the existing test name before extending it.\n\n- **No task to update `sandbox/agent-config/commands/show-metrics.md`** (lines 12 + 36) which currently references the legacy `~/context-sync/confluence/` cache. The plan correctly leaves this as out-of-scope (it's the legacy syncer cache, not the new gateway), but a reader landing in the file post-merge will be confused about which `confluence/` path is current. **Fix**: add a one-line task to TASK-6-3 noting that `show-metrics.md` is intentionally untouched because the syncer cache and the gateway wrapper are independent surfaces.\n\n- **R10 retry-cap audit field naming.** Task 1-2 says *\"Audit `confluence_upstream_rate_limited` on both 429s including the `Retry-After` value and path.\"* but doesn't specify the `attempt` field that R10's mitigation explicitly required (*\"Audit log records `confluence_upstream_rate_limited` with the Retry-After value and `attempt` index.\"*). Without `attempt: 1|2` operators can't tell from the log whether the retry succeeded. **Fix**: add `attempt: int (1 or 2)` to the audit shape in TASK-1-2.\n\n- **Task 2-9 audit event name `confluence_config_reloaded` is one event for both reloads.** That's reasonable but worth noting it loses the granularity the Jira reload presumably has (e.g., `jira_config_reloaded` may emit one event for credentials and one for policy). If the Jira pattern emits two events, copy that shape; if it emits one, this is consistent. Cheap to verify at implement time.\n",
+      "revision_count": 1
+    },
+    "timestamp": "2026-04-27T00:03:18.350954+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f8a83d6a-a482-49",
+    "pipeline_id": "issue-1931",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T00:03:18.545983+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b7cfb652-7ec3-4f",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT,CONSENSUS_NACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:59:16.347020+00:00"
+    },
+    "timestamp": "2026-04-27T00:03:20.219571+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c5669aa5-9c70-41",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T00:03:25.968737+00:00"
+    },
+    "timestamp": "2026-04-27T00:03:26.063758+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "fddeb1f6-59c8-49",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T00:03:26.242531+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ad409015-e71b-49",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:59:25.536825+00:00"
+    },
+    "timestamp": "2026-04-27T00:03:26.500137+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a0a5db80-526f-42",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T00:03:30.140522+00:00"
+    },
+    "timestamp": "2026-04-27T00:03:30.221099+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1368cb4f-ed4a-4e",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT,CONSENSUS_NACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:59:16.347020+00:00"
+    },
+    "timestamp": "2026-04-27T00:04:20.415701+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9c33fcbe-56fe-49",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:59:25.536825+00:00"
+    },
+    "timestamp": "2026-04-27T00:04:26.751676+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "94511037-6d5e-43",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T00:03:30.140522+00:00"
+    },
+    "timestamp": "2026-04-27T00:04:30.340439+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1f42babf-b8fc-4e",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT,CONSENSUS_NACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:59:16.347020+00:00"
+    },
+    "timestamp": "2026-04-27T00:05:20.671683+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "57624ed8-86f6-47",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:59:25.536825+00:00"
+    },
+    "timestamp": "2026-04-27T00:05:26.963701+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "12df28f2-705b-4e",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T00:03:30.140522+00:00"
+    },
+    "timestamp": "2026-04-27T00:05:30.550651+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a2f17346-5a00-49",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT,CONSENSUS_NACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:59:16.347020+00:00"
+    },
+    "timestamp": "2026-04-27T00:06:20.959211+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "75744ffe-74fc-4c",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:59:25.536825+00:00"
+    },
+    "timestamp": "2026-04-27T00:06:27.178418+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0b59683c-2383-41",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T00:03:30.140522+00:00"
+    },
+    "timestamp": "2026-04-27T00:06:30.750543+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f8cc1923-c2c2-45",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT,CONSENSUS_NACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:59:16.347020+00:00"
+    },
+    "timestamp": "2026-04-27T00:07:21.201575+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2526f4fb-d678-49",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:59:25.536825+00:00"
+    },
+    "timestamp": "2026-04-27T00:07:27.406849+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "8a3249e0-8c3b-4b",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T00:03:30.140522+00:00"
+    },
+    "timestamp": "2026-04-27T00:07:30.981905+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0b7f1477-1b76-4e",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT,CONSENSUS_NACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:59:16.347020+00:00"
+    },
+    "timestamp": "2026-04-27T00:08:21.497183+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "5e32cba1-0604-48",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-26T23:59:25.536825+00:00"
+    },
+    "timestamp": "2026-04-27T00:08:27.649671+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "40805264-532f-46",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T00:03:30.140522+00:00"
+    },
+    "timestamp": "2026-04-27T00:08:31.238461+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a999e441-b46f-4b",
+    "pipeline_id": "issue-1931",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "agent-heartbeat-stall [high]",
+    "body": "ESCALATION: task_planner stalled 261s post-ACK \u2014 wait_loop exited 00:03:18Z but no CONSENSUS_CONFIRMED, no heartbeats; advisor gate OPEN for issue-1931\n\nDetail:\nEscalating from medium (alert afe10f57) to HIGH. task_planner's wait_loop exited at 00:03:18Z (received CONSENSUS_ACK from reviewer_plan) and has been in producer_phase=WORKING with zero heartbeats for 261s (4:21). Normal post-ACK confirmation takes ~5-10s (architect and risk_analyst both confirmed within 3s of their ACKs). The three other active agents (architect, risk_analyst, reviewer_plan) are all alive with flawless 60s cadence \u2014 the stall is isolated to task_planner.\n\ntask_planner's post-ACK work may involve: (1) writing to .egg-state/drafts/1931-plan.md, (2) running JSON validation, (3) LLM call before confirm. However 261s far exceeds any reasonable post-ACK processing window.\n\nCascading effect: reviewer_plan cannot emit CONSENSUS_CONFIRMED until task_planner confirms; architect and risk_analyst have been waiting for CONFIRMED since 23:59:11Z (~8:28 elapsed). Plan phase completion is fully blocked on task_planner.\n\nThe overseer_nack_unresolved_seconds threshold (180s) has been exceeded.\n\nRecommended action: Inspect task_planner container logs for its activity since 00:03:18Z. If no forward progress (no tool calls, no LLM activity), restart the task_planner container. After restart, task_planner should re-enter BRC, and reviewer_plan already has the prior ACK state so the confirm round should complete quickly.\n\nRecommended action:\nInspect task_planner container logs immediately. If no activity since 00:03:18Z, restart container. Plan phase consensus is fully blocked.",
+    "metadata": {},
+    "timestamp": "2026-04-27T00:08:31.851609+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "96841eaa-47d6-44",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T00:08:32.645682+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "417a5471-0481-4d",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T00:08:32.657752+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6351c1d2-a655-4f",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T00:08:32.664086+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a0a8272d-b4fc-4b",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T00:08:36.620321+00:00"
+    },
+    "timestamp": "2026-04-27T00:08:36.711610+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b7d19bf1-5714-44",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT,CONSENSUS_NACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T00:08:38.630974+00:00"
+    },
+    "timestamp": "2026-04-27T00:08:38.840375+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a4086b8c-dc01-41",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "NACKed task_planner with two blocking issues (jira_credentials.py not modified for shared ATLASSIAN_* fall-back; v2-404 + v1-404 fall-through unspecified) and 8 non-blocking observations. Awaiting re-propose. ACKed architect + risk_analyst (both already confirmed).",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "task_planner"
+    },
+    "timestamp": "2026-04-27T00:08:50.200084+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ed7f9781-5c36-45",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T00:08:50.219667+00:00"
+    },
+    "timestamp": "2026-04-27T00:08:50.292262+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b3178d1d-654b-41",
+    "pipeline_id": "issue-1931",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "Re-proposing plan for #1931 after addressing reviewer_plan NACK. Two blocking items resolved: (1) added TASK-1-5 to update gateway/jira_credentials.py with the same ATLASSIAN_*-preferred / JIRA_* fall-back precedence so the shared-credential promise (decision F1) is portable end-to-end \u2014 operators can drop the legacy JIRA_* block after migration without silently breaking Jira (risk R11 mitigation made concrete); paired with TASK-4-1b that extends gateway/tests/test_jira_credentials.py with the six-combination matrix; PR description and pre-merge note updated to reflect both loaders honour the precedence. (2) TASK-1-2 inline-comment fallback now specifies the v1-also-404 fall-through: v1 200 with empty results \u2192 {results: [], used_fallback=true} (page exists, no inline comments + v2 bug); v1 404 \u2192 standard {status: not_found, ..., used_fallback=true} envelope (page actually doesn't exist); v1 200 with comments \u2192 v1 payload normalized with used_fallback=true. Non-blocking fixes also applied: replaced \"decision E5\" with \"decision-5\" (8 sites), moved boot-time policy-size log from client to confluence_policy.py with credentials/policy/client each owning their own INFO line (risk R12), added `attempt: 1|2` field to confluence_upstream_rate_limited audit shape (risk R10), made the spaceId\u2194spaceKey LRU cache bidirectional and populated by both list_spaces and get_page so /space/pages cold-start avoids double round-trip (architect Q2), referenced architect Q4 in TASK-1-1 acceptance (no shared atlassian_credentials.py extraction in v1), replaced PRIVATE_MODE env-var references with private-mode session language, noted TASK-4-7 must verify existing test name at implement time, noted show-metrics.md intentionally untouched, added Atlassian rate-limit pool-sharing note to TASK-6-4 documentation, and made TASK-2-9 audit shape mirror the existing Jira reload (one or two events). Plan now totals 30 tasks across 6 phases.",
+    "metadata": {
+      "payload": {
+        "summary": "Re-proposing plan for #1931 after addressing reviewer_plan NACK. Two blocking items resolved: (1) added TASK-1-5 to update gateway/jira_credentials.py with the same ATLASSIAN_*-preferred / JIRA_* fall-back precedence so the shared-credential promise (decision F1) is portable end-to-end \u2014 operators can drop the legacy JIRA_* block after migration without silently breaking Jira (risk R11 mitigation made concrete); paired with TASK-4-1b that extends gateway/tests/test_jira_credentials.py with the six-combination matrix; PR description and pre-merge note updated to reflect both loaders honour the precedence. (2) TASK-1-2 inline-comment fallback now specifies the v1-also-404 fall-through: v1 200 with empty results \u2192 {results: [], used_fallback=true} (page exists, no inline comments + v2 bug); v1 404 \u2192 standard {status: not_found, ..., used_fallback=true} envelope (page actually doesn't exist); v1 200 with comments \u2192 v1 payload normalized with used_fallback=true. Non-blocking fixes also applied: replaced \"decision E5\" with \"decision-5\" (8 sites), moved boot-time policy-size log from client to confluence_policy.py with credentials/policy/client each owning their own INFO line (risk R12), added `attempt: 1|2` field to confluence_upstream_rate_limited audit shape (risk R10), made the spaceId\u2194spaceKey LRU cache bidirectional and populated by both list_spaces and get_page so /space/pages cold-start avoids double round-trip (architect Q2), referenced architect Q4 in TASK-1-1 acceptance (no shared atlassian_credentials.py extraction in v1), replaced PRIVATE_MODE env-var references with private-mode session language, noted TASK-4-7 must verify existing test name at implement time, noted show-metrics.md intentionally untouched, added Atlassian rate-limit pool-sharing note to TASK-6-4 documentation, and made TASK-2-9 audit shape mirror the existing Jira reload (one or two events). Plan now totals 30 tasks across 6 phases.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/1931-plan.md"
+        ],
+        "risk_considered": "All 18 risks tracked in risk_analyst output; the previously-incomplete R11 mitigation (jira_credentials.py update) is now an explicit task (TASK-1-5 + TASK-4-1b). Inline-comment fallback fall-through (architect Q3 / R3) is now deterministic. Boot-time observability (R12) split correctly across modules. Rate-limit audit field (R10) includes attempt index. spaceId\u2194spaceKey cache (architect Q2) avoids double round-trip on /space/pages cold-start. All other reviewer non-blocking suggestions incorporated (E5 \u2192 decision-5, PRIVATE_MODE language, show-metrics.md note, pool-sharing note, audit-event-shape consistency).",
+        "commit_sha": "594fd2b5f2804c3917b5dbac8ffc1521236d1a5a",
+        "files_changed": [
+          ".egg-state/drafts/1931-plan.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": [
+          "TASK-1-1",
+          "TASK-1-2",
+          "TASK-1-3",
+          "TASK-1-4",
+          "TASK-1-5",
+          "TASK-2-1",
+          "TASK-2-2",
+          "TASK-2-3",
+          "TASK-2-4",
+          "TASK-2-5",
+          "TASK-2-6",
+          "TASK-2-7",
+          "TASK-2-8",
+          "TASK-2-9",
+          "TASK-3-1",
+          "TASK-4-1",
+          "TASK-4-1b",
+          "TASK-4-2",
+          "TASK-4-3",
+          "TASK-4-4",
+          "TASK-4-5",
+          "TASK-4-6",
+          "TASK-4-7",
+          "TASK-5-1",
+          "TASK-5-2",
+          "TASK-5-3",
+          "TASK-6-1",
+          "TASK-6-2",
+          "TASK-6-3",
+          "TASK-6-4"
+        ]
+      },
+      "version": 2,
+      "commit_sha": "594fd2b5f2804c3917b5dbac8ffc1521236d1a5a"
+    },
+    "timestamp": "2026-04-27T00:09:04.971777+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7730de05-1ef6-4b",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T00:09:05.025684+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "fa225074-99d5-41",
+    "pipeline_id": "issue-1931",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_ON_ROLE",
+    "body": "",
+    "metadata": {
+      "state": "WAITING_ON_ROLE",
+      "waiting_on": "reviewer_plan"
+    },
+    "timestamp": "2026-04-27T00:09:11.088827+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e0215818-b344-45",
+    "pipeline_id": "issue-1931",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T00:09:11.093172+00:00"
+    },
+    "timestamp": "2026-04-27T00:09:11.150558+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "12817e29-3b5d-44",
+    "pipeline_id": "issue-1931",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T00:09:11.252573+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0a56f6d2-d715-4f",
+    "pipeline_id": "issue-1931",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T00:09:14.613729+00:00"
+    },
+    "timestamp": "2026-04-27T00:09:17.704409+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c2312add-a1b6-48",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T00:08:36.620321+00:00"
+    },
+    "timestamp": "2026-04-27T00:09:37.579916+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f36b9287-6566-4a",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT,CONSENSUS_NACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T00:08:38.630974+00:00"
+    },
+    "timestamp": "2026-04-27T00:09:38.923859+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "94b4df0f-fe91-41",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for task_planner",
+    "body": "\nRe-reviewed `.egg-state/drafts/1931-plan.md` at commit 594fd2b5f against my prior NACK (b3178d1d-654b-41 reply). Both blocking issues resolved and all eight non-blocking observations addressed.\n\n**Blocking #1 \u2014 `jira_credentials.py` shared-credential precedence \u2014 RESOLVED.**\n- New **TASK-1-5** (lines 50-60 + yaml-tasks 260-281) edits `gateway/jira_credentials.py::JiraCredentialsManager._load_credentials()` to prefer `ATLASSIAN_BASE_URL`/`ATLASSIAN_USERNAME`/`ATLASSIAN_API_TOKEN` per-key with `JIRA_*` per-key fallback. Correctly notes Jira does not need the `/wiki` suffix derivation (Jira API lives at bare Atlassian origin). Module docstring update + `JiraCredentialsUnavailable` preserved.\n- New **TASK-4-1b** (lines 93-101 + yaml-tasks 289-301) extends `gateway/tests/test_jira_credentials.py` with the same six-combination matrix as Confluence (`ATLASSIAN_*` only / `JIRA_*` only / mixed per-key / missing-everywhere \u2192 `JiraCredentialsUnavailable`); back-compat preserved.\n- Pre-merge note (line 167) and PR-description test plan (line 190) updated to reflect both loaders honour the precedence \u2014 operators can drop the legacy `JIRA_*` block after migration without breaking Jira. The migration narrative is now portable.\n- Dependency graph updated: `1-5 (independent \u2014 same-PR Jira loader update)` and `1-5 \u2500\u2500\u2500\u25ba 4-1b`.\n\n**Blocking #2 \u2014 inline-comment v2-404 + v1-404 fall-through \u2014 RESOLVED.**\n- TASK-1-2 (line 19, also yaml-tasks line 211) now specifies all three fall-through outcomes deterministically: (a) v1 200 with comments \u2192 v1 payload normalized with `used_fallback: true`; (b) v1 200 with **empty results** \u2192 `{\"results\": [], \"used_fallback\": true}` (page exists, has no inline comments + v2 bug fired); (c) v1 **404** \u2192 standard `{\"status\": \"not_found\", \"id\": \"...\", \"upstream_status\": 404, \"used_fallback\": true}` envelope (page genuinely doesn't exist). The route layer can now branch unambiguously and TASK-4-2 can write deterministic fixtures for all three.\n\n**Non-blocking observations \u2014 all addressed.**\n- `decision E5` \u2192 `decision-5` replaced at the eight sites I called out (TASK-1-2 acceptance + TASK-4-2 description + yaml-tasks both).\n- Boot-time observability (risk R12) split across modules: `confluence_credentials.py` logs precedence at first load; `confluence_policy.py` logs allowlist size at first `allowed_spaces()` and emits ERROR on schema mismatch; `confluence_client.py` logs body-format default at first invocation. Lines 33 + 234-241 of yaml-tasks.\n- 429 audit shape now includes `attempt: 1|2` field (line 28 + yaml-tasks line 224) so operators can see whether the retry succeeded.\n- `spaceId \u2194 spaceKey` cache is now bidirectional and populated by both `list_spaces` AND `get_page` (lines 70-77 + yaml-tasks 245-248), so `/space/pages` cold-start avoids double round-trip \u2014 addresses my \"spaceKey \u2192 spaceId resolution one-sided\" note.\n- Architect Q4 (no shared `atlassian_credentials.py` extraction in v1) is now explicit in TASK-1-1 acceptance (line 10 + yaml-tasks 199-202) \u2014 deferral is documented as a follow-up backlog item.\n- Manual verification step 3-4 (lines 157-158): `PRIVATE_MODE` env var language replaced with session-level `--private` language and a parenthetical clarifying it's a session attribute set by `@require_session_auth`.\n- TASK-4-7 (line 116) now says coder must confirm `test_atlassian_domains_absent` test name at implement time \u2014 captures the \"verify before extending\" caveat.\n- TASK-6-3 (line 124) explicitly notes `sandbox/agent-config/commands/show-metrics.md` is intentionally untouched (legacy syncer cache vs new gateway wrapper are independent).\n- TASK-6-4 wrapper-reference doc (line 133) now carries the Atlassian rate-limit pool-sharing paragraph: same bot account = pooled points-quota across `/api/v1/jira/*` and `/api/v1/confluence/*` traffic; operators seeing routine throttling on one service should expect it on the other.\n- TASK-2-9 audit shape (line 85) now says \"mirror whatever the existing Jira reload emits\" \u2014 coder picks one or two events at implement time to match Jira's pattern, with both fall-back names spelled out.\n\n**Final plan stats**: 6 phases, 30 tasks (was 28; added TASK-1-5 and TASK-4-1b), 1342 \u2192 1444 lines (+102 net). Task decomposition still granular; acceptance criteria still reference covering tests; dependency graph still correct (TASK-1-5 is independent within Phase 1 and pairs with TASK-4-1b in Phase 4 \u2014 no cross-phase dependency added).\n\nThe plan is now complete enough for implement-phase consumption. Architecture alignment \u2713, task decomposition \u2713, acceptance criteria \u2713, dependency ordering \u2713, risk mitigations threaded \u2713, test strategy \u2713, completeness \u2713.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/1931-plan.md"
+        ],
+        "reason": "\nRe-reviewed `.egg-state/drafts/1931-plan.md` at commit 594fd2b5f against my prior NACK (b3178d1d-654b-41 reply). Both blocking issues resolved and all eight non-blocking observations addressed.\n\n**Blocking #1 \u2014 `jira_credentials.py` shared-credential precedence \u2014 RESOLVED.**\n- New **TASK-1-5** (lines 50-60 + yaml-tasks 260-281) edits `gateway/jira_credentials.py::JiraCredentialsManager._load_credentials()` to prefer `ATLASSIAN_BASE_URL`/`ATLASSIAN_USERNAME`/`ATLASSIAN_API_TOKEN` per-key with `JIRA_*` per-key fallback. Correctly notes Jira does not need the `/wiki` suffix derivation (Jira API lives at bare Atlassian origin). Module docstring update + `JiraCredentialsUnavailable` preserved.\n- New **TASK-4-1b** (lines 93-101 + yaml-tasks 289-301) extends `gateway/tests/test_jira_credentials.py` with the same six-combination matrix as Confluence (`ATLASSIAN_*` only / `JIRA_*` only / mixed per-key / missing-everywhere \u2192 `JiraCredentialsUnavailable`); back-compat preserved.\n- Pre-merge note (line 167) and PR-description test plan (line 190) updated to reflect both loaders honour the precedence \u2014 operators can drop the legacy `JIRA_*` block after migration without breaking Jira. The migration narrative is now portable.\n- Dependency graph updated: `1-5 (independent \u2014 same-PR Jira loader update)` and `1-5 \u2500\u2500\u2500\u25ba 4-1b`.\n\n**Blocking #2 \u2014 inline-comment v2-404 + v1-404 fall-through \u2014 RESOLVED.**\n- TASK-1-2 (line 19, also yaml-tasks line 211) now specifies all three fall-through outcomes deterministically: (a) v1 200 with comments \u2192 v1 payload normalized with `used_fallback: true`; (b) v1 200 with **empty results** \u2192 `{\"results\": [], \"used_fallback\": true}` (page exists, has no inline comments + v2 bug fired); (c) v1 **404** \u2192 standard `{\"status\": \"not_found\", \"id\": \"...\", \"upstream_status\": 404, \"used_fallback\": true}` envelope (page genuinely doesn't exist). The route layer can now branch unambiguously and TASK-4-2 can write deterministic fixtures for all three.\n\n**Non-blocking observations \u2014 all addressed.**\n- `decision E5` \u2192 `decision-5` replaced at the eight sites I called out (TASK-1-2 acceptance + TASK-4-2 description + yaml-tasks both).\n- Boot-time observability (risk R12) split across modules: `confluence_credentials.py` logs precedence at first load; `confluence_policy.py` logs allowlist size at first `allowed_spaces()` and emits ERROR on schema mismatch; `confluence_client.py` logs body-format default at first invocation. Lines 33 + 234-241 of yaml-tasks.\n- 429 audit shape now includes `attempt: 1|2` field (line 28 + yaml-tasks line 224) so operators can see whether the retry succeeded.\n- `spaceId \u2194 spaceKey` cache is now bidirectional and populated by both `list_spaces` AND `get_page` (lines 70-77 + yaml-tasks 245-248), so `/space/pages` cold-start avoids double round-trip \u2014 addresses my \"spaceKey \u2192 spaceId resolution one-sided\" note.\n- Architect Q4 (no shared `atlassian_credentials.py` extraction in v1) is now explicit in TASK-1-1 acceptance (line 10 + yaml-tasks 199-202) \u2014 deferral is documented as a follow-up backlog item.\n- Manual verification step 3-4 (lines 157-158): `PRIVATE_MODE` env var language replaced with session-level `--private` language and a parenthetical clarifying it's a session attribute set by `@require_session_auth`.\n- TASK-4-7 (line 116) now says coder must confirm `test_atlassian_domains_absent` test name at implement time \u2014 captures the \"verify before extending\" caveat.\n- TASK-6-3 (line 124) explicitly notes `sandbox/agent-config/commands/show-metrics.md` is intentionally untouched (legacy syncer cache vs new gateway wrapper are independent).\n- TASK-6-4 wrapper-reference doc (line 133) now carries the Atlassian rate-limit pool-sharing paragraph: same bot account = pooled points-quota across `/api/v1/jira/*` and `/api/v1/confluence/*` traffic; operators seeing routine throttling on one service should expect it on the other.\n- TASK-2-9 audit shape (line 85) now says \"mirror whatever the existing Jira reload emits\" \u2014 coder picks one or two events at implement time to match Jira's pattern, with both fall-back names spelled out.\n\n**Final plan stats**: 6 phases, 30 tasks (was 28; added TASK-1-5 and TASK-4-1b), 1342 \u2192 1444 lines (+102 net). Task decomposition still granular; acceptance criteria still reference covering tests; dependency graph still correct (TASK-1-5 is independent within Phase 1 and pairs with TASK-4-1b in Phase 4 \u2014 no cross-phase dependency added).\n\nThe plan is now complete enough for implement-phase consumption. Architecture alignment \u2713, task decomposition \u2713, acceptance criteria \u2713, dependency ordering \u2713, risk mitigations threaded \u2713, test strategy \u2713, completeness \u2713.\n"
+      },
+      "version": 2
+    },
+    "timestamp": "2026-04-27T00:10:10.594919+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "734ef1e0-9313-40",
+    "pipeline_id": "issue-1931",
+    "from_role": "orchestrator",
+    "to_role": "task_planner",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 2) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 2
+    },
+    "timestamp": "2026-04-27T00:10:10.594960+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6bfa9460-233d-45",
+    "pipeline_id": "issue-1931",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T00:10:10.685268+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "3f611e8f-7265-43",
+    "pipeline_id": "issue-1931",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by task_planner",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-27T00:10:14.655907+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7b0cd3d1-5e56-48",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T00:10:15.080386+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "dd3c2dcc-d864-4e",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T00:10:15.139193+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a57e3a99-fc9a-4d",
+    "pipeline_id": "issue-1931",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_plan",
+    "body": "",
+    "metadata": {
+      "consensus_reached": true
+    },
+    "timestamp": "2026-04-27T00:10:16.846467+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f08ad9f7-e307-47",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T00:10:19.516646+00:00"
+    },
+    "timestamp": "2026-04-27T00:10:19.702800+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "096d8af5-78be-41",
+    "pipeline_id": "issue-1931",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT,CONSENSUS_NACK",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T00:10:19.864421+00:00"
+    },
+    "timestamp": "2026-04-27T00:10:20.362659+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f12902e5-d444-4d",
+    "pipeline_id": "issue-1931",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T00:10:20.436055+00:00",
+    "phase": "plan"
+  }
+]

@@ -441,6 +441,18 @@
       "resolved_by": "human",
       "resolved_at": "2026-04-26T23:40:09.289899Z",
       "debounce_until": null
+    },
+    {
+      "id": "decision-15",
+      "question": "Open feedback request feedback-1",
+      "type": "hitl",
+      "phase": null,
+      "options": [],
+      "resolved": true,
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Defer to operator at deploy time. Ship with confluence.spaces: [] (empty allowlist, fail-closed) in config/context-filters.yaml; operators populate before enabling Confluence routes. Do not hard-code spaces.\", \"Q2\": \"Reuse Jira's rate-limit defaults (single retry on 429 with min(Retry-After, 30); audit confluence_upstream_rate_limited on both attempts). No Confluence-specific tuning in v1; revisit if 429s observed in production.\", \"Q3\": \"None known; defaults only. Ship with accountId / emailAddress / _links.webui redaction. Add a follow-up ticket if a sensitive macro or page property is identified post-rollout.\", \"Q4\": \"Defer to the future-writes phase; do not pre-design idempotency in v1. Atlassian's create-comment endpoint is not naturally idempotent. Design the idempotency stance at the write-phase ticket alongside Jira's equivalent so the design-once choice stays consistent.\", \"Q5\": \"Do not add a page/resolve-by-url verb in v1. Agents that have a Confluence URL parse the pageId themselves and call /api/v1/confluence/page/get. Add resolve-by-url only if URL-parsing in the agent becomes a recurring pain point; not in v1 scope.\", \"Q6\": \"Pass Atlassian's depth parameter through verbatim with no gateway-imposed cap in v1. Add a depth ceiling if a runaway response is observed; not pre-emptively. Document the parameter in the wrapper reference.\", \"Q7\": \"Yes, separate confluence_upstream_403 audit category from generic upstream errors. Parallels the not_found vs error split. Helps operators distinguish space-allowlist denials, page-permission denials, and generic upstream errors at audit time.\", \"Q8\": \"Default to current-version only in v1. Do not expose a ?version= query parameter until a use case appears. Document the default in the wrapper reference so future expansion is unsurprising.\", \"Q9\": \"Operator concern; ship a diagnostic command in a follow-up rather than v1. v1 documents the bot-vs-human access caveat in the wrapper reference. Operators can manually verify the bot's space access at deploy time using the host-side mcp__confluence__* MCP under the bot's token.\", \"Q10\": \"Jira-style subcommands only (e.g., confluence page get, confluence search-cql). Mirrors the existing jira wrapper shape. Do not ship MCP-style aliases in v1; add only if a real porting pain point appears post-rollout.\"}}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-26T23:42:43.026940Z",
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
