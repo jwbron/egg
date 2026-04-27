@@ -1,0 +1,706 @@
+{
+  "issue": 1924,
+  "phase": "plan",
+  "agent": "architect",
+  "title": "Add write operations to Jira gateway (create/update/comment/link)",
+
+  "summary": "Architecture analysis for the v1.1 write extension of the Jira gateway. The work is a pure additive extension of the v1 read-only surface that #1556 landed (gateway/jira_client.py, gateway/jira_policy.py, gateway/jira_credentials.py, sandbox/scripts/jira, gateway/tests/test_jira_*.py) — same gateway sidecar, same @require_session_auth + @require_private_mode chain, same context-filters.yaml-driven project allowlist, same audit shape, same httpx.MockTransport test harness, same Squid '*.atlassian.net never in allowed_domains' invariant. The write-specific complexity sits in five places: (a) four narrow per-verb routes (createJiraIssue / editJiraIssue / addCommentToJiraIssue / createIssueLink) instead of a single generic /execute path, with each route bypassing validate_jira_api_path because every write path is hardcoded by the per-verb client method; (b) a method-allowlist split that keeps /execute and validate_jira_api_path locked to GET-only forever while the new write client methods issue POST/PUT directly through _request; (c) curated request-body schemas per verb (project/ticket allowlist, issuetype, summary length, label cap, optional epicLink shorthand, optional notifyUsers) instead of passthrough of arbitrary Atlassian fields; (d) an in-process gateway-level idempotency cache keyed by (verb, project, idempotency_key) with a 5-minute TTL covering createJiraIssue and addCommentToJiraIssue (editJiraIssue and createIssueLink omitted — see notes); (e) a plain-text → ADF wrapper helper so sandbox agents pass --description / --body strings and never hand-roll Atlassian Document Format JSON. The permanent denylist (transitions, worklog, attachments, watchers, DELETE) is unchanged and continues to apply to /execute and validate_jira_api_path; the write client methods bypass that path validator only because each method hardcodes a single upstream path that does not contain any denied segment. Several refine HITL questions remain open at the time of this analysis and gate concrete design choices (custom-field exposure, epic-link mechanism, idempotency requirement, link-type allowlist source, notifyUsers default, body input format, issuetype identifier, link allowlist semantics, per-role / per-phase write gating, response shapes, body-size caps, cross-project parent acceptance, sandbox flag ergonomics, audit redaction, adversarial test location, multi-tenant hooks, link-comment payload, dry-run, plan-apply rollback, error envelope, doc home); this analysis records the architectural baseline that satisfies every required invariant and names the slots where each unresolved decision lands so plan tasks can be written deterministically once HITL closes.",
+
+  "problem_statement": {
+    "description": "The v1 Jira gateway (#1556) landed read-only — sandboxed agents can fetch tickets, search via JQL, and read comments, but they cannot write. #1557 (Jira-epic SDLC pipelines) is now blocked on writes: refine needs to push the agent-authored analysis to the epic's Description (editJiraIssue), plan needs to create child tickets under the epic with parent/Epic Link set (createJiraIssue), edit existing children when scope shifts (editJiraIssue), drop comments pointing at survivors during consolidation (addCommentToJiraIssue), and wire cross-task dependency edges (createIssueLink). #1924 is the bounded write extension that closes that gap.",
+    "goals": [
+      "Add four narrow Atlassian write verbs behind dedicated /api/v1/jira/* routes: createJiraIssue, editJiraIssue, addCommentToJiraIssue, createIssueLink.",
+      "Inherit every v1 invariant: zero credentials in the sandbox, private-mode-only routing, project allowlist enforcement on every write, structured per-verb audit, fail-closed on missing creds (HTTP 503) / missing allowlist / public mode (HTTP 403).",
+      "Keep transitions / worklogs / attachments / watchers / DELETE permanently denied at validate_jira_api_path; the write extension does NOT widen that escape hatch.",
+      "Land as a pure additive extension — no re-architecture of jira_client.py, jira_policy.py, gateway.py route layer, sandbox/scripts/jira, or the gateway/tests/test_jira_*.py harness.",
+      "Make sandbox agents idempotency-safe by exposing a caller-supplied idempotency_key on createJiraIssue and addCommentToJiraIssue, served from an in-process gateway cache.",
+      "Hide ADF construction from the sandbox: agents pass plain-text --description / --body strings; the gateway wraps them in a minimal Atlassian Document Format paragraph node before calling Atlassian.",
+      "Preserve the route-enumeration regression: every /api/v1/jira/* view function carries __egg_requires_private_mode__ = True (test_jira_routes.py) and the new routes extend that test."
+    ],
+    "non_goals": [
+      "Workflow transitions (status changes) — explicitly out of scope; orchestrator handles transitions with its own creds, never via the agent-facing gateway.",
+      "Worklogs, attachments, watchers, deletions — permanent denylist; no v1.1 carve-out.",
+      "Markdown / HTML → ADF rendering — gateway only wraps plain text in a single ADF paragraph; richer rendering deferred.",
+      "Multi-tenant Atlassian — single-tenant inherited from #1556 with no further work in #1924.",
+      "Persistent (disk / Redis) idempotency cache — in-memory per-process is enough for the realistic retry window (orchestrator retries within seconds of a transient 5xx); revisit only on multi-replica gateway deployments.",
+      "Generic /execute write surface — /execute stays GET-only forever; writes are exposed only through the four dedicated routes."
+    ],
+    "consumers_unblocked": [
+      "#1557 — Jira-epic SDLC pipelines: refine apply (editJiraIssue → epic Description), plan apply fresh-epic (createJiraIssue with parent/Epic Link → child tickets), plan apply reassess (editJiraIssue + createJiraIssue + addCommentToJiraIssue + createIssueLink), Won't-Done transitions stay out of scope (orchestrator-only).",
+      "Future impact-analysis / pipeline-control skills that need to drop bot comments or link related tickets without holding Atlassian creds in the sandbox."
+    ]
+  },
+
+  "current_architecture": {
+    "description": "Gateway sidecar is the existing choke point between sandbox and external services. #1556 generalised the Jira plumbing — credentials, mode-gate, context-filters allowlist, audit log, route-enumeration regression test, sandbox bash wrapper. Adding writes is a structural extension: every reusable building block stays where it is, every new file follows an existing pattern, and the only edit to existing code is the path/method validator's separation between '/execute enforcement' (stays GET-only) and 'write client methods' (hardcoded paths, bypass the validator entirely).",
+    "reusable_infrastructure": [
+      {
+        "component": "@require_session_auth → @require_private_mode decorator chain",
+        "location": "gateway/auth.py + gateway/mode_gate.py",
+        "reuse": "Apply unchanged to every new write route. mode_gate.py's __egg_requires_private_mode__ marker is asserted by the route-enumeration regression test in gateway/tests/test_jira_routes.py."
+      },
+      {
+        "component": "Squid network-allowlist with *.atlassian.net excluded",
+        "location": "gateway/allowed_domains.txt + gateway/tests/test_allowed_domains.py::test_atlassian_domains_absent",
+        "reuse": "No change. Containers cannot bypass the gateway via direct REST. The existing regression continues to enforce this for the write routes by extension."
+      },
+      {
+        "component": "Mtime-cached credential loader (Atlassian basic auth)",
+        "location": "gateway/jira_credentials.py (JiraCredentialsManager, JiraCredentialsUnavailable)",
+        "reuse": "Unchanged. Write routes call the same get_jira_credentials() / creds_provider arg, so missing creds still surface as HTTP 503 with the same error envelope."
+      },
+      {
+        "component": "Mtime-cached YAML project allowlist",
+        "location": "gateway/jira_policy.py (JiraPolicy.allowed_projects / is_project_allowed / extract_project_key)",
+        "reuse": "Unchanged. Write routes call is_project_allowed against (a) request.body.fields.project.key for createJiraIssue, (b) the parsed project of the request ticket key for editJiraIssue / addCommentToJiraIssue, (c) both inwardIssue and outwardIssue projects for createIssueLink (strict semantics — refine decision pending)."
+      },
+      {
+        "component": "JiraClient._request (single HTTP call + GET-only 429 retry)",
+        "location": "gateway/jira_client.py:299-381",
+        "reuse": "Unchanged. The retryable check at line 322 (`retryable = method.upper() == 'GET'`) and the early-exit at line 376 already encode 'writes never auto-retry on 429' — no change needed. Write client methods invoke _request with method='POST' or 'PUT' and inherit the one-shot semantics."
+      },
+      {
+        "component": "Path/method validator (validate_jira_api_path) and JIRA_API_ALLOWED_PATHS",
+        "location": "gateway/jira_client.py:179-236, ALLOWED_METHODS = {'GET'}, JIRA_WRITE_VERBS_DENIED = {'transitions','worklog','attachments','watchers','DELETE','PUT','PATCH'}",
+        "reuse": "Unchanged for /execute. The validator's contract stays narrow: only /execute calls it, and /execute remains GET-only forever. The four write client methods (create_issue, edit_issue, add_comment, create_issue_link) bypass the validator because they hardcode their upstream paths in code, none of which contain a denied segment."
+      },
+      {
+        "component": "Audit-log helper",
+        "location": "gateway/gateway.py audit_log() + _session_jira_context() (lines 4292-4308)",
+        "reuse": "Unchanged. New event names follow the jira_* convention: jira_ticket_create / jira_ticket_create_rejected / jira_ticket_create_denied / jira_ticket_create_upstream_error / jira_upstream_rate_limited (already emitted on 429), and analogous suites for ticket_edit, comment_add, issue_link_create. _session_jira_context() needs no changes (session_mode, pipeline_id, agent_role, jira_ticket are already captured)."
+      },
+      {
+        "component": "Route-enumeration regression test pattern",
+        "location": "gateway/tests/test_jira_routes.py (walks app.url_map, asserts __egg_requires_private_mode__ on every /api/v1/jira/* view function)",
+        "reuse": "Extend in place: the existing test will pick up the four new routes automatically; no new test file is required for the regression."
+      },
+      {
+        "component": "POST /api/v1/config/reload hook",
+        "location": "gateway/gateway.py reload_jira_credentials() / reload_jira_policy() (around lines 880-910)",
+        "reuse": "Unchanged. Writes use the same loaders, so the existing reload covers them."
+      },
+      {
+        "component": "Sandbox bash wrapper pattern",
+        "location": "sandbox/scripts/jira (call_gateway helper, EGG_SESSION_TOKEN Bearer, gateway-availability probe, JSON body construction via Python heredocs)",
+        "reuse": "Extend in place. Four new subcommands (jira ticket create, jira ticket edit, jira ticket comment add, jira link create) reuse call_gateway and the existing JSON-construction helper. Optional --idempotency-key is forwarded as a body field; --description / --body / --body-file / --body-stdin produce the input string passed to the gateway, which wraps it in ADF."
+      },
+      {
+        "component": "Wrapper reference doc pattern",
+        "location": "docs/reference/jira-wrapper.md",
+        "reuse": "Extended (not replaced) with a Write Endpoints section: per-verb table, request-body schema, ADF wrapping rules, idempotency semantics, audit event names. Doc home subject to refine HITL Q27 (extend existing, new file, or both)."
+      }
+    ],
+    "v1_constraints_carried_forward": [
+      "Zero Atlassian credentials in the sandbox — write routes use the same creds_provider=get_jira_credentials pattern.",
+      "Private-mode-only — every new route gets @require_session_auth + @require_private_mode and is asserted by test_jira_routes.py route-enumeration.",
+      "Project allowlist enforced before any Atlassian call — fail-closed when the project is not in jira.projects.",
+      "Permanent path denylist: transitions / worklog / attachments / watchers / DELETE rejected by validate_jira_api_path (unchanged); write client methods do not name any of these segments in their hardcoded paths.",
+      "/execute stays GET-only forever — ALLOWED_METHODS in jira_client.py is unchanged.",
+      "Writes never auto-retry on 429 — _request's retryable=GET-only check already encodes this; route layer surfaces 429 with jira_upstream_rate_limited audit and lets the caller (orchestrator) decide.",
+      "Audit on success and rejection — every write call emits an audit record; rejected calls never reach Atlassian.",
+      "*.atlassian.net never in Squid allowed_domains — direct egress remains impossible (test_allowed_domains.py regression covers writes by extension)."
+    ]
+  },
+
+  "external_constraints": {
+    "atlassian_v3_endpoints_used": [
+      {
+        "verb": "createJiraIssue",
+        "upstream": "POST /rest/api/3/issue",
+        "body_shape": "{fields: {project:{key:'FOO'}, issuetype:{name:'Task' or id:'10001'}, summary:'...', description:ADF, labels:[...], parent:{key:'FOO-1'} OR customfield_10014:'FOO-1'}}",
+        "response": "201 with {id, key, self}",
+        "quirks": "Epic Link mechanism varies per project (parent.key on next-gen / company-managed; customfield_10014 on classic / team-managed) — refine decision-2 pending. Custom fields are out of scope unless explicitly opted in (refine decision-1 pending)."
+      },
+      {
+        "verb": "editJiraIssue",
+        "upstream": "PUT /rest/api/3/issue/{issueIdOrKey}",
+        "body_shape": "{fields:{summary:'...', description:ADF, labels:['a','b']}, update:{labels:[{add:'x'},{remove:'y'}]}}",
+        "response": "204 No Content (no body)",
+        "quirks": "Supports ?notifyUsers=false (suppress email — refine decision-5 pending) and ?returnIssue=true (echo post-edit body — refine decision-14 pending). gateway translates route-layer addLabels/removeLabels into Atlassian's update.labels add/remove block."
+      },
+      {
+        "verb": "addCommentToJiraIssue",
+        "upstream": "POST /rest/api/3/issue/{issueIdOrKey}/comment",
+        "body_shape": "{body: ADF, visibility?: {type:'role',value:'Administrators'}}",
+        "response": "201 with full comment object",
+        "quirks": "visibility (role/group restriction) deferred per refine decision-6 pending. ADF body required — gateway wraps plain-text input."
+      },
+      {
+        "verb": "createIssueLink",
+        "upstream": "POST /rest/api/3/issueLink",
+        "body_shape": "{type:{name:'Blocks'}, inwardIssue:{key:'FOO-1'}, outwardIssue:{key:'FOO-2'}, comment?:{body:ADF}}",
+        "response": "201 Created (no body in v3)",
+        "quirks": "Type names are per-instance — refine decision-4 pending (hardcoded {Blocks, Relates}, operator-configurable, or accept upstream's set). NOT idempotent at Atlassian — duplicate (inward, outward, type) triples create duplicate links on retry; refine decision-19 (Q28) addresses this."
+      }
+    ],
+    "method_allowlist_split": {
+      "decision": "validate_jira_api_path keeps ALLOWED_METHODS = {'GET'}. New write client methods (create_issue, edit_issue, add_comment, create_issue_link) bypass the path validator because each hardcodes its upstream path in code. The path-segment denylist (transitions/worklog/attachments/watchers) remains permanent — verified by code review that no write client method names any denied segment.",
+      "rationale": "Defense-in-depth: a future maintainer who adds POST/PUT to ALLOWED_METHODS for a read use case cannot accidentally expose a write surface, because writes are not gated by the validator. Per analysis B1; B2 was rejected for tight coupling between /execute and the write surface."
+    },
+    "idempotency_cache": {
+      "scope": "In-memory per-gateway-process, 5-minute TTL (refine decision-14 pending; default per analysis D1).",
+      "key_shape": "(verb, project, idempotency_key) → (timestamp, response)",
+      "verbs_covered": "createJiraIssue, addCommentToJiraIssue (both have non-idempotent semantics under retry — duplicate ticket / double-post). editJiraIssue is naturally idempotent on a stable ticket; createIssueLink is NOT idempotent at Atlassian and is gated by refine decision-19 (Q28) — extend the same cache to createIssueLink for symmetry, OR document that orchestrator must scan existing inwardIssue links before retry, OR accept duplicates and de-dup elsewhere.",
+      "memory_envelope": "Bounded — one process, short TTL, small dict; eviction is lazy (on insert / lookup). Tests verify TTL expiry and per-key isolation."
+    },
+    "adf_wrapping": {
+      "policy": "Gateway wraps plain-text description / body input in a minimal ADF paragraph node: {type:'doc', version:1, content:[{type:'paragraph', content:[{type:'text', text:S}]}]}.",
+      "passthrough": "Refine decision-7 pending — analysis recommends 'both' (accept plain-text and pre-built ADF dict; gateway distinguishes by isinstance check).",
+      "wrapper_helper_location": "New gateway/jira_adf.py with a single wrap_text(s) function (≤30 lines). Called by the four write routes before invoking the JiraClient method."
+    },
+    "rate_limiting": {
+      "policy": "Writes never auto-retry on 429 — already encoded in JiraClient._request line 322 (retryable=GET-only). The route emits jira_upstream_rate_limited on the (single) 429 attempt and surfaces 429 to the caller (refine feedback Q1 pending — confirms the audit event still fires).",
+      "rationale": "Atlassian's per-user write quota is tighter than read; auto-retrying writes risks compounding the duplicate-ticket / double-post problem. Orchestrator decides retry strategy with idempotency keys."
+    },
+    "redaction": {
+      "audit_body_redaction": "Refine feedback Q5 pending — analysis recommends logging only structural metadata (field names changed, content lengths, label counts, link type names) and never body content. label values may be safe to log (low PII); confirm with HITL.",
+      "rationale": "Description / comment bodies may contain PII or sensitive context; the audit log is high-stakes and persistent."
+    },
+    "permanent_denylist_unchanged": [
+      "transitions",
+      "worklog",
+      "attachments",
+      "watchers",
+      "HTTP DELETE",
+      "HTTP PATCH (path validator only — write client methods use POST or PUT)"
+    ]
+  },
+
+  "proposed_architecture": {
+    "module_breakdown": [
+      {
+        "module": "gateway/jira_client.py",
+        "purpose": "Extend the v1 client with four write methods; reuse _request unchanged.",
+        "additions": [
+          "JiraClient.create_issue(project_key, issuetype, summary, description=None, labels=None, parent=None, epic_link=None, custom_fields=None) -> dict — issues POST /rest/api/3/issue with hardcoded path; translates route-layer args to Atlassian fields; returns Atlassian's {id, key, self} (refine decision-12 pending — raw vs normalised envelope).",
+          "JiraClient.edit_issue(ticket, summary=None, description=None, labels=None, add_labels=None, remove_labels=None, custom_fields=None, notify_users=None, return_issue=False) -> dict — issues PUT /rest/api/3/issue/{ticket}?notifyUsers=...&returnIssue=...; translates add_labels/remove_labels into Atlassian update.labels add/remove; returns 204 envelope or echoed ticket per refine decision-13.",
+          "JiraClient.add_comment(ticket, body, idempotency_response=None) -> dict — issues POST /rest/api/3/issue/{ticket}/comment with ADF body; returns Atlassian's full comment object.",
+          "JiraClient.create_issue_link(link_type, inward_issue, outward_issue, comment=None) -> dict — issues POST /rest/api/3/issueLink; returns 201 envelope.",
+          "JiraUpstreamWriteError (subclass of existing JiraUpstreamError, OR the existing one extended) — carries field-level Atlassian error messages (errorMessages / errors dict) for the route layer to surface per refine feedback Q9 pending."
+        ],
+        "non_changes": [
+          "_request body unchanged (lines 299-381) — already encodes GET-only 429 retry.",
+          "validate_jira_api_path unchanged (lines 179-236) — write client methods do NOT call it.",
+          "ALLOWED_METHODS = {'GET'} unchanged.",
+          "JIRA_WRITE_VERBS_DENIED set unchanged."
+        ],
+        "approximate_added_lines": "~250-350 (each write method ~50-80 lines including docstrings and Atlassian-shape translation; shared helpers ~50 lines)."
+      },
+      {
+        "module": "gateway/jira_adf.py (new)",
+        "purpose": "Plain-text → minimal ADF paragraph wrapping helper (no Markdown / HTML).",
+        "key_functions": [
+          "wrap_text(s: str) -> dict — returns {type:'doc',version:1,content:[{type:'paragraph',content:[{type:'text',text:s}]}]}; splits multi-line input into one paragraph per non-empty line if needed.",
+          "is_adf_dict(o) -> bool — duck-type check used by routes when accepting both plain-text and pre-built ADF (refine decision-7 pending)."
+        ],
+        "rationale": "Bash construction of ADF in sandbox/scripts/jira is awkward and bug-prone; centralising the wrap in the gateway means agents pass --description '...' as plain text and the wire body remains valid ADF. Module is tiny (≤80 lines) and has no third-party deps.",
+        "approximate_size": "60-80 lines."
+      },
+      {
+        "module": "gateway/jira_idempotency.py (new)",
+        "purpose": "In-process gateway-level idempotency cache for create / comment writes.",
+        "key_classes_or_functions": [
+          "IdempotencyCache (dataclass-style; threading.Lock-guarded dict; configurable TTL — default 300s)",
+          "IdempotencyCache.get(verb, project, key) -> dict | None — returns cached response if present and not expired.",
+          "IdempotencyCache.set(verb, project, key, response) -> None — stores (timestamp, response).",
+          "IdempotencyCache.evict_expired() -> None — lazy eviction on insert / lookup."
+        ],
+        "scope": "Single module-level instance; per-gateway-process; TTL 300s (refine decision-14 pending — could become persistent for multi-replica).",
+        "shared_use_consideration": "Future Confluence / Confluence-write surface might reuse this — module name is 'jira_idempotency' for v1.1; rename to 'idempotency.py' if a second consumer lands.",
+        "approximate_size": "120-160 lines (including thread-safety + TTL + eviction)."
+      },
+      {
+        "module": "gateway/jira_policy.py",
+        "additions": [
+          "Optional: link_type_allowlist() -> frozenset[str] — reads jira.link_types from config/context-filters.yaml if refine decision-4 picks the configurable option. Default fallback {'Blocks', 'Relates'} only if hardcoded option chosen.",
+          "Optional: custom_field_allowlist() -> frozenset[str] — reads jira.custom_fields if refine decision-1 picks the operator-configured option."
+        ],
+        "non_changes": [
+          "is_project_allowed / extract_project_key / allowed_projects — unchanged; reused verbatim by every write route."
+        ],
+        "approximate_added_lines": "0-80 depending on HITL outcomes."
+      },
+      {
+        "module": "gateway/gateway.py — Jira write route block",
+        "purpose": "Add four narrow write routes mirroring the v1 read route block (currently 4365-4759).",
+        "new_routes": [
+          {
+            "route": "POST /api/v1/jira/ticket/create",
+            "decorators": ["@require_session_auth", "@require_private_mode"],
+            "request_body_schema": "{projectKey, issuetype, summary, description?, labels?, parent?, epicLink?, customFields?, idempotency_key?, notifyUsers?}",
+            "validation": [
+              "projectKey must be in JiraPolicy.allowed_projects().",
+              "issuetype must match the configured shape (name / id / both — refine decision-8 pending). For name, accept Task/Story/Bug/Epic/Sub-task by default.",
+              "summary length ≤ refine feedback Q2 cap (Atlassian's 255 default).",
+              "description (if present) is plain-text ≤ refine feedback Q2 cap OR pre-built ADF dict (refine decision-7).",
+              "labels list count + per-label length ≤ refine feedback Q2 caps; per-label shape ^[A-Za-z0-9._-]+$.",
+              "parent.key (if present) must be a valid TICKET-KEY in an allowlisted project; cross-project parent gated by refine decision-15 (Q17).",
+              "epicLink shorthand: refine decision-2 picks parent.key vs customfield_10014 vs both.",
+              "customFields map: refine decision-1 (none / operator-allowlisted / structural).",
+              "idempotency_key: refine decision-3 (required / optional / none).",
+              "If idempotency_key present, consult IdempotencyCache.get(verb='create', project=projectKey, key=k); short-circuit on hit."
+            ],
+            "upstream": "JiraClient.create_issue(...)",
+            "audit_event": "jira_ticket_create / jira_ticket_create_rejected / jira_ticket_create_denied / jira_ticket_create_upstream_error / jira_ticket_create_idempotent_hit / jira_upstream_rate_limited (on 429)",
+            "response_shape": "Refine decision-12 (raw {id, key, self} OR normalised {key, id, browse_url, status:'created'}).",
+            "approximate_lines": "~120 (route handler + audit + response shaping)"
+          },
+          {
+            "route": "POST /api/v1/jira/ticket/edit",
+            "decorators": ["@require_session_auth", "@require_private_mode"],
+            "request_body_schema": "{ticket, summary?, description?, labels?, addLabels?, removeLabels?, customFields?, notifyUsers?}",
+            "validation": [
+              "ticket must parse as TICKET-KEY (^[A-Z][A-Z0-9_]*-\\d+$); JiraPolicy.is_project_allowed(extract_project_key(ticket)) gates.",
+              "summary / description / labels caps as for create.",
+              "addLabels / removeLabels: lists of well-formed labels; combine with Atlassian update.labels.",
+              "notifyUsers: bool, default per refine decision-5; routed as ?notifyUsers=... query string.",
+              "customFields per refine decision-1."
+            ],
+            "upstream": "JiraClient.edit_issue(...)",
+            "audit_event": "jira_ticket_edit / jira_ticket_edit_rejected / jira_ticket_edit_denied / jira_ticket_edit_upstream_error / jira_upstream_rate_limited",
+            "response_shape": "Refine decision-13 ({status:'updated', key} OR echoed post-edit ticket via ?returnIssue=true).",
+            "approximate_lines": "~110"
+          },
+          {
+            "route": "POST /api/v1/jira/ticket/comment/add",
+            "decorators": ["@require_session_auth", "@require_private_mode"],
+            "request_body_schema": "{ticket, body, idempotency_key?}",
+            "validation": [
+              "ticket allowlist as for edit.",
+              "body: plain-text or ADF dict per refine decision-7; length ≤ refine feedback Q2 cap.",
+              "idempotency_key: refine decision-3.",
+              "If idempotency_key present, consult IdempotencyCache.get(verb='comment', project=extract_project_key(ticket), key=k); short-circuit on hit.",
+              "visibility field NOT exposed (refine decision-6 pending — analysis recommends hidden in v1)."
+            ],
+            "upstream": "JiraClient.add_comment(ticket, ADF_body)",
+            "audit_event": "jira_comment_add / jira_comment_add_rejected / jira_comment_add_denied / jira_comment_add_upstream_error / jira_comment_add_idempotent_hit / jira_upstream_rate_limited",
+            "response_shape": "Atlassian's full comment object (id, body rendered, author, created).",
+            "approximate_lines": "~90"
+          },
+          {
+            "route": "POST /api/v1/jira/issue-link/create",
+            "decorators": ["@require_session_auth", "@require_private_mode"],
+            "request_body_schema": "{type, inwardIssue, outwardIssue, comment?, idempotency_key?}",
+            "validation": [
+              "type name: refine decision-4 (hardcoded {Blocks, Relates} OR operator-configurable jira.link_types OR upstream-recognised any-name).",
+              "inwardIssue and outwardIssue: TICKET-KEY shape.",
+              "Project allowlist semantics: refine decision-9 (both / either / one-allowlist + linkable-only-list).",
+              "comment payload: refine decision-16 (Q23) — surface 'comment' field OR require separate addCommentToJiraIssue.",
+              "idempotency_key for createIssueLink: refine decision-19 (Q28) — extend IdempotencyCache, OR scan existing inwardIssue links upstream first, OR accept duplicates (the third option is the simplest; the first is most aligned with create / comment for symmetry)."
+            ],
+            "upstream": "JiraClient.create_issue_link(...)",
+            "audit_event": "jira_issue_link_create / jira_issue_link_create_rejected / jira_issue_link_create_denied / jira_issue_link_create_upstream_error / jira_upstream_rate_limited",
+            "response_shape": "{status:'created', type, inwardIssue, outwardIssue} (Atlassian returns 201 with no body).",
+            "approximate_lines": "~100"
+          }
+        ],
+        "shared_helpers_to_add": [
+          "_jira_write_audit_context(verb, body, response_status) — emits structural-only audit (field names changed, content lengths, label counts) per refine feedback Q5; never logs body content.",
+          "_jira_write_error_from_upstream(exc) — extends _jira_error_from_upstream with field-level errorMessages / errors surfacing per refine feedback Q9 (decision pending: passthrough vs richer envelope).",
+          "_resolve_adf_or_text(input) — accepts plain-text str OR ADF dict per refine decision-7; calls jira_adf.wrap_text on the str path.",
+          "_validate_idempotency_key(k) — opaque-string shape check (≤128 chars, ASCII)."
+        ],
+        "phase_filter_integration": "Refine decision-11 (Q11) picks per-phase write gating. If chosen, gateway/phase_filter.py grows a JIRA_WRITE_VERBS_PER_PHASE map (e.g., refine→{ticket_edit}, plan→{ticket_create, ticket_edit, comment_add, issue_link_create}); routes consult phase via g.session_phase before policy / Atlassian.",
+        "per_role_gating": "Refine decision-10 (Q10) picks per-role write gating. If chosen, a small map (planner→{ticket_create, issue_link_create}, refiner→{ticket_edit}, etc.) is checked against g.session.agent_role before policy.",
+        "approximate_added_lines": "~500-650 in gateway.py (matching the v1 read block size; Jira reads are ~485 lines for 4 routes; writes are 4 routes plus richer body validation, so somewhat larger)."
+      },
+      {
+        "module": "sandbox/scripts/jira",
+        "purpose": "Sandbox bash wrapper. Extend with four new subcommands.",
+        "subcommands": [
+          "jira ticket create --project KEY --type Task --summary \"...\" [--description \"...\"|--description-file PATH|--description-stdin] [--labels a,b] [--parent FOO-1] [--epic-link FOO-2] [--idempotency-key K] [--no-notify]",
+          "jira ticket edit TICKET [--summary \"...\"] [--description \"...\"|--description-file PATH|--description-stdin] [--labels a,b] [--add-labels x,y] [--remove-labels z] [--no-notify] [--return-issue]",
+          "jira ticket comment add TICKET [--body \"...\"|--body-file PATH|--body-stdin] [--idempotency-key K]",
+          "jira link create --type Blocks --inward FOO-1 --outward FOO-2 [--comment \"...\"|--comment-file PATH|--comment-stdin] [--idempotency-key K]"
+        ],
+        "naming_decision": "Verb-noun subcommands matching the v1 read style (jira ticket get, jira ticket comments) — confirmed by analysis E1 and refine feedback Q4 pending.",
+        "shared_environment": "EGG_SESSION_TOKEN + GATEWAY_URL same as v1; reuse call_gateway helper; reuse fail-closed messaging.",
+        "ergonomic_inputs": "--description / --body accept inline text; --*-file reads from a path; --*-stdin reads from stdin (multi-line bodies).",
+        "approximate_added_lines": "~300-450 in the existing wrapper (subcommand dispatch + flag parsing + JSON construction)."
+      },
+      {
+        "module": "config/context-filters.yaml",
+        "additions": [
+          "Optional jira.link_types: [Blocks, Relates] (only if refine decision-4 picks operator-configurable).",
+          "Optional jira.custom_fields: [customfield_10014, customfield_10100] (only if refine decision-1 picks operator-allowlist)."
+        ],
+        "fail_closed": "Empty list / missing section behaves identically to v1 — defaults match the analysis recommendation per HITL outcome."
+      },
+      {
+        "module": "config/secrets.template.env",
+        "non_changes": "ATLASSIAN_BASE_URL / _USERNAME / _API_TOKEN already shared with #1931; no secrets-template changes for #1924."
+      },
+      {
+        "module": "sandbox/agent-config/rules/environment.md",
+        "additions": [
+          "Update the existing Jira wrapper subsection (current lines 50-65) with the four new subcommands and their --idempotency-key / --no-notify / --return-issue / --description-file / --body-stdin flags.",
+          "Note the ADF wrapping invariant — agents pass plain text, gateway wraps."
+        ]
+      },
+      {
+        "module": "docs/reference/jira-wrapper.md",
+        "purpose": "Extend the existing user-facing reference with a Write Endpoints section. (Refine decision-18 / Q27 picks: extend, new file, or both.)",
+        "sections_to_add": [
+          "Write endpoint surface (table of /api/v1/jira/ticket/create / edit / comment/add / issue-link/create + upstream Atlassian endpoints).",
+          "Per-route request body schema, validation rules, response shape, audit event names.",
+          "ADF wrapping invariant (plain-text accepted; ADF dict passthrough per refine decision-7).",
+          "Idempotency semantics (caller-supplied key, 5-minute TTL, per-process cache, applies to create / comment).",
+          "Permanent denylist reminder (transitions / worklog / attachments / watchers / DELETE — unchanged).",
+          "Configuration: jira.link_types and jira.custom_fields (only if refine decisions land on the configurable options)."
+        ]
+      },
+      {
+        "module": "docs/architecture/network-isolation.md",
+        "addition": "Add the four new /api/v1/jira/* write routes to the private-mode endpoint table; note the exception is identical to the v1 reads."
+      },
+      {
+        "module": "gateway/tests/test_jira_*.py",
+        "files_to_create_or_extend": [
+          "test_jira_client.py — extend with per-method shape tests for create_issue / edit_issue / add_comment / create_issue_link via httpx.MockTransport; ADF body assembly; addLabels/removeLabels translation; ?notifyUsers=...&returnIssue=... query construction; 429 surfaces (no auto-retry); 4xx field-level error envelope.",
+          "test_jira_routes.py — extend with per-route 200 / 400 / 403 / 503 grid for the four new routes; project-allowlist gating; ticket-allowlist gating; private-mode 403; missing creds 503; route-enumeration regression already covers __egg_requires_private_mode__ on the new routes; audit assertions per route.",
+          "test_jira_idempotency.py (new) — IdempotencyCache hit / miss / TTL expiry / per-key isolation / per-verb isolation; verifies eviction is lazy and thread-safe.",
+          "test_jira_adf.py (new) — wrap_text shape; multi-line splitting; is_adf_dict duck-type; Unicode handling.",
+          "test_jira_writes_adversarial.py (new — refine feedback Q6 pending; analysis recommends a separate file for clarity) — oversized summary / description / labels; unknown issuetype name; custom-field smuggling (refine decision-1 path); non-allowlisted link type; cross-project parent (refine decision-15 path); malformed idempotency key; unicode in TICKET-KEY; pre-built ADF with disallowed mark types.",
+          "test_jira_policy.py — extend with link_type_allowlist / custom_field_allowlist tests if refine HITL picks the configurable options.",
+          "tests/sandbox/test_jira_wrapper.py (new — if missing) — subcommand smoke tests with mocked gateway: every new subcommand produces the expected JSON body and posts to the right route."
+        ]
+      }
+    ],
+    "data_flow": {
+      "happy_path_create_issue": [
+        "1. Sandbox agent runs `jira ticket create --project ENG --type Task --summary 'Wire reviewer_security' --description 'Long description' --parent ENG-100 --idempotency-key plan-node-42`.",
+        "2. sandbox/scripts/jira POSTs JSON {projectKey:'ENG', issuetype:{name:'Task'}, summary:'...', description:'Long description', parent:{key:'ENG-100'}, idempotency_key:'plan-node-42'} to GATEWAY_URL/api/v1/jira/ticket/create with EGG_SESSION_TOKEN Bearer.",
+        "3. @require_session_auth populates g.session_mode + g.session.",
+        "4. @require_private_mode rejects unless g.session_mode == 'private'.",
+        "5. Route validates body: projectKey ∈ allowed_projects(); issuetype shape; summary length; description present; parent.key parse; idempotency_key shape.",
+        "6. Route consults IdempotencyCache.get('create', 'ENG', 'plan-node-42') — cache miss.",
+        "7. Route calls jira_adf.wrap_text('Long description') → ADF dict.",
+        "8. Route calls JiraClient.create_issue(project_key='ENG', issuetype={'name':'Task'}, summary='...', description=ADF, parent={'key':'ENG-100'}).",
+        "9. Client loads creds via get_jira_credentials(); issues POST /rest/api/3/issue with Basic auth and Atlassian-shape body.",
+        "10. _request returns 201 with {id, key:'ENG-101', self}; on 429 surfaces as upstream error (no retry); on 4xx with errorMessages, JiraUpstreamError carries the field-level details.",
+        "11. Route stashes (timestamp, response) in IdempotencyCache.set('create', 'ENG', 'plan-node-42', response).",
+        "12. Route emits audit jira_ticket_create with structural-only body context (summary length, has_description, label_count, parent_key, agent_role, pipeline_id, jira_ticket).",
+        "13. Route returns response (raw or normalised envelope per refine decision-12) to wrapper; wrapper prints to stdout."
+      ],
+      "rejected_path_non_allowlisted_project": [
+        "1. Agent runs `jira ticket create --project SECURITY --type Task --summary '...'`.",
+        "2. Wrapper POSTs to /api/v1/jira/ticket/create.",
+        "3. Route validates body: SECURITY ∉ allowed_projects().",
+        "4. Route emits audit jira_ticket_create_denied (reason=project_not_allowed, project=SECURITY).",
+        "5. Route returns HTTP 403 {error:'project_not_allowed', project:'SECURITY'} — no Atlassian call made."
+      ],
+      "rejected_path_public_mode": [
+        "1. Agent in public-mode session runs any write subcommand.",
+        "2. @require_private_mode rejects → HTTP 403 {error:'private_mode_required'}.",
+        "3. Audit jira_<verb>_denied (reason=private_mode_required) — no Atlassian call."
+      ],
+      "rejected_path_missing_creds": [
+        "1. Agent runs write subcommand; gateway has no Atlassian creds in secrets.env.",
+        "2. Route calls JiraClient.create_issue → JiraCredentialsUnavailable raised.",
+        "3. Route translates to HTTP 503 with same envelope as v1 reads.",
+        "4. Audit jira_<verb>_upstream_error (reason=credentials_unavailable)."
+      ],
+      "idempotent_hit_path": [
+        "1. Orchestrator retries createJiraIssue with the same idempotency_key='plan-node-42' within the 5-minute TTL after a transient gateway crash.",
+        "2. IdempotencyCache.get returns the cached response.",
+        "3. Route emits audit jira_ticket_create_idempotent_hit (verb=create, project=ENG, key=plan-node-42).",
+        "4. Route returns the cached response (same {id, key, self}) — no Atlassian call. The orchestrator's 'did this already succeed?' problem is solved without involving Atlassian."
+      ]
+    }
+  },
+
+  "design_decisions": [
+    {
+      "decision": "Four dedicated narrow routes (A1) vs generalised /execute write surface (A2) vs RESTful HTTP-method paths (A3)",
+      "chosen": "A1 — four narrow routes (POST /api/v1/jira/ticket/create / edit / comment/add / issue-link/create)",
+      "rationale": "A1 preserves the verb allowlist by construction (one Python handler per Atlassian write), gives each verb its own audit operation name and per-route test grid, mirrors the gh wrapper structure operators already see, and keeps /execute's GET-only invariant unbreakable. A2 collapses audit naming and couples /execute's read-only invariant to the write logic. A3 (RESTful HTTP methods) is inconsistent with v1's POST-everywhere convention.",
+      "alternatives_rejected": ["A2: /execute write surface", "A3: RESTful HTTP-method paths"]
+    },
+    {
+      "decision": "Method-allowlist split (B1) vs widened validate_jira_api_path (B2)",
+      "chosen": "B1 — validate_jira_api_path stays GET-only; write client methods bypass it by hardcoding paths",
+      "rationale": "B1 means a future maintainer who widens ALLOWED_METHODS for a read use case cannot accidentally expose a write surface. The path-segment denylist (transitions/worklog/attachments/watchers) remains permanent because no write client method names a denied segment in its hardcoded path. B2 couples /execute exposure to write-method config — a regression hazard.",
+      "alternatives_rejected": ["B2: widen validate_jira_api_path"]
+    },
+    {
+      "decision": "Curated field allowlist + structural validation (C1) vs Atlassian-passthrough (C2) vs minimal validation (C3)",
+      "chosen": "C1 — curated per-verb body schemas with project / ticket / issuetype / labels / size validation",
+      "rationale": "C1 rejects garbage at the route layer before any Atlassian call, makes custom fields explicitly opt-in (so agents cannot accidentally smuggle Security Level / Sprint / Components / watchers — refine decision-1 controls the exposure scope), and makes the bash wrapper trivial because the gateway handles ADF wrapping. C2 lets agents set arbitrary custom fields — escalation risk. C3 is too permissive on size / shape and shares C2's custom-field problem.",
+      "alternatives_rejected": ["C2: Atlassian passthrough", "C3: minimal validation"]
+    },
+    {
+      "decision": "Caller-supplied idempotency key + gateway-level cache (D1) vs Atlassian-native (D2 — not an option) vs orchestrator-only (D3)",
+      "chosen": "D1 — caller-supplied idempotency_key, gateway in-process dict, 5-minute TTL, applies to createJiraIssue and addCommentToJiraIssue",
+      "rationale": "D1 solves the duplicate-ticket / double-post problem without involving Atlassian. The orchestrator can derive the key from (pipeline_id, plan_node_id) for stable retries. Memory bounded — small dict, short TTL, single-replica gateway. D2 isn't possible (Atlassian doesn't support idempotency keys). D3 pushes the burden onto every consumer (#1557 plan-apply, future skills, manual scripts) and the gateway audit log doesn't help the orchestrator across retries.",
+      "alternatives_rejected": ["D2: Atlassian-native (not an option)", "D3: orchestrator-only"]
+    },
+    {
+      "decision": "Plain-text + flag-based ergonomic input (E1) vs raw ADF passthrough (E2) vs Markdown→ADF (E3)",
+      "chosen": "E1 — wrapper accepts --description / --body / --*-file / --*-stdin plain text; gateway wraps in ADF",
+      "rationale": "E1 keeps agent prompts simple (no ADF construction), mirrors gh wrapper's --body-file ergonomics, and supports multi-line bodies via stdin / file. E2 forces ADF construction into agent code — bug-prone. E3 (Markdown→ADF) introduces a third-party dep with surprising edge cases (tables, code blocks); revisit only if needed.",
+      "alternatives_rejected": ["E2: raw ADF passthrough only", "E3: Markdown→ADF in wrapper"]
+    },
+    {
+      "decision": "Idempotency cache file location",
+      "chosen": "gateway/jira_idempotency.py for v1.1; rename to gateway/idempotency.py only when a second consumer (e.g. Confluence writes) lands",
+      "rationale": "Avoid premature generalisation. Module is small (~150 lines), reuse cost is low when the second consumer arrives."
+    },
+    {
+      "decision": "ADF wrapper file location",
+      "chosen": "gateway/jira_adf.py for v1.1; rename to gateway/atlassian_adf.py if Confluence adopts the same wrapping (Confluence uses storage-format default, so this is unlikely)",
+      "rationale": "Module is tiny (~80 lines). Premature generalisation has higher refactor cost than later rename."
+    },
+    {
+      "decision": "Audit-body redaction policy",
+      "chosen": "Structural-only (field names changed, content lengths, label counts, link type names); never body content; labels values are logged (low PII surface)",
+      "rationale": "Description / comment bodies may contain PII or sensitive context; the audit log is high-stakes and persistent. Labels are typically engineering / project tags, low PII. Refine feedback Q5 confirms.",
+      "subject_to_hitl": "Refine feedback Q5"
+    },
+    {
+      "decision": "Adversarial test file location",
+      "chosen": "Separate test_jira_writes_adversarial.py",
+      "rationale": "Per-route 403 grid (test_jira_routes.py) is already large; mixing in oversized-body / unicode / smuggled-customfield tests doubles its size and obscures the route grid. Separate file gives the adversarial suite its own discoverable home.",
+      "subject_to_hitl": "Refine feedback Q6"
+    }
+  ],
+
+  "complexity": "medium",
+
+  "complexity_justification": "Four narrow per-verb routes added to a well-established pattern, plus a small idempotency cache module and a tiny ADF wrapper helper. Each verb is a self-contained slice (route + client method + body validator + sandbox subcommand + tests) and could be implemented in parallel after a small foundation step (idempotency cache module, ADF wrapper helper, write_audit_context helper). The implementation surface is bounded: ~600 LoC in gateway/ (250-350 in jira_client.py for the four methods, 60-80 in jira_adf.py, 120-160 in jira_idempotency.py, 500-650 in gateway.py for the four routes), ~300-450 in sandbox/scripts/jira for four new subcommands, ~300-500 in tests. The medium rating (vs low) is driven by (a) the large unresolved HITL surface — 19 decisions and 9 feedback questions outstanding at the time of this analysis, each gating a body-schema or audit detail; (b) Atlassian per-instance variation (Epic Link mechanism, link types, custom fields) that needs explicit operator configuration; (c) the idempotency cache and ADF wrapping are net-new gateway modules with their own thread-safety / TTL / unicode test obligations; (d) the cross-project-parent and createIssueLink-idempotency edge cases each have multiple plausible answers and either needs an Atlassian probe or accepts duplicates with documented orchestrator responsibility. Once HITL closes, plan tasks decompose cleanly into per-verb slices.",
+
+  "key_files": [
+    {
+      "path": "gateway/jira_client.py",
+      "change_type": "extend",
+      "lines_affected_estimate": "+250-350",
+      "purpose": "Add create_issue / edit_issue / add_comment / create_issue_link methods; reuse _request unchanged."
+    },
+    {
+      "path": "gateway/jira_adf.py",
+      "change_type": "create",
+      "lines_affected_estimate": "60-80",
+      "purpose": "Plain-text → minimal ADF paragraph wrapping helper."
+    },
+    {
+      "path": "gateway/jira_idempotency.py",
+      "change_type": "create",
+      "lines_affected_estimate": "120-160",
+      "purpose": "In-process gateway-level idempotency cache (TTL 300s, threading.Lock-guarded)."
+    },
+    {
+      "path": "gateway/jira_policy.py",
+      "change_type": "extend",
+      "lines_affected_estimate": "0-80 (HITL-conditional)",
+      "purpose": "Optional link_type_allowlist() and custom_field_allowlist() if refine HITL picks the configurable options."
+    },
+    {
+      "path": "gateway/gateway.py",
+      "change_type": "extend",
+      "lines_affected_estimate": "+500-650",
+      "purpose": "Four new routes (POST /api/v1/jira/ticket/create / edit / comment/add / issue-link/create) + shared write helpers (audit context, error mapping, ADF resolution, idempotency-key validation)."
+    },
+    {
+      "path": "sandbox/scripts/jira",
+      "change_type": "extend",
+      "lines_affected_estimate": "+300-450",
+      "purpose": "Four new subcommands (jira ticket create / edit, jira ticket comment add, jira link create) with --description-file / --body-stdin / --idempotency-key / --no-notify / --return-issue flags."
+    },
+    {
+      "path": "config/context-filters.yaml",
+      "change_type": "extend (HITL-conditional)",
+      "lines_affected_estimate": "0-30",
+      "purpose": "Optional jira.link_types and jira.custom_fields sections per refine decisions 1 and 4."
+    },
+    {
+      "path": "sandbox/agent-config/rules/environment.md",
+      "change_type": "extend",
+      "lines_affected_estimate": "+30-60",
+      "purpose": "Document the four new write subcommands and the ADF-wrapping invariant in the existing Jira wrapper subsection."
+    },
+    {
+      "path": "docs/reference/jira-wrapper.md",
+      "change_type": "extend (or create docs/reference/jira-writes.md per refine HITL Q27)",
+      "lines_affected_estimate": "+150-250",
+      "purpose": "Write-endpoint surface table, per-verb body schema, ADF wrapping rules, idempotency semantics, audit event names, configuration."
+    },
+    {
+      "path": "docs/architecture/network-isolation.md",
+      "change_type": "extend",
+      "lines_affected_estimate": "+5-10",
+      "purpose": "Add the four new /api/v1/jira/* write routes to the private-mode endpoint table."
+    },
+    {
+      "path": "gateway/tests/test_jira_client.py",
+      "change_type": "extend",
+      "lines_affected_estimate": "+250-400",
+      "purpose": "Per-method shape tests for the four write methods (httpx.MockTransport): ADF body assembly, addLabels/removeLabels translation, query construction, 429 surfaces (no auto-retry), 4xx field-level error envelope."
+    },
+    {
+      "path": "gateway/tests/test_jira_routes.py",
+      "change_type": "extend",
+      "lines_affected_estimate": "+400-600",
+      "purpose": "Per-route 200 / 400 / 403 / 503 grid for the four new routes; project-allowlist gating; ticket-allowlist gating; private-mode 403; missing creds 503; audit assertions; route-enumeration regression already covers __egg_requires_private_mode__."
+    },
+    {
+      "path": "gateway/tests/test_jira_idempotency.py",
+      "change_type": "create",
+      "lines_affected_estimate": "150-250",
+      "purpose": "IdempotencyCache hit / miss / TTL expiry / per-key isolation / per-verb isolation / thread-safety."
+    },
+    {
+      "path": "gateway/tests/test_jira_adf.py",
+      "change_type": "create",
+      "lines_affected_estimate": "80-150",
+      "purpose": "wrap_text shape; multi-line splitting; is_adf_dict duck-type; Unicode handling."
+    },
+    {
+      "path": "gateway/tests/test_jira_writes_adversarial.py",
+      "change_type": "create (refine feedback Q6 pending)",
+      "lines_affected_estimate": "200-350",
+      "purpose": "Oversized summary / description / labels; unknown issuetype name; custom-field smuggling; non-allowlisted link type; cross-project parent; malformed idempotency key; unicode in TICKET-KEY; pre-built ADF with disallowed mark types."
+    },
+    {
+      "path": "tests/sandbox/test_jira_wrapper.py",
+      "change_type": "create-or-extend",
+      "lines_affected_estimate": "150-300",
+      "purpose": "Subcommand smoke tests with mocked gateway: every new subcommand produces the expected JSON body and posts to the right route."
+    }
+  ],
+
+  "dependencies": [
+    {
+      "name": "#1556 (v1 read-only Jira gateway)",
+      "kind": "internal",
+      "status": "landed",
+      "reason": "All write extension code reuses #1556's modules verbatim. v1 must remain green; #1924 is purely additive."
+    },
+    {
+      "name": "#1557 (Jira-epic SDLC pipelines)",
+      "kind": "internal",
+      "status": "blocked-on-this-issue",
+      "reason": "#1557 is the primary consumer; its plan-phase apply step calls all four new verbs and its refine-phase apply calls editJiraIssue. The body shapes #1924 ships must match what #1557's apply step expects."
+    },
+    {
+      "name": "Atlassian Cloud Jira REST API v3",
+      "kind": "external",
+      "status": "stable",
+      "endpoints": [
+        "POST /rest/api/3/issue",
+        "PUT /rest/api/3/issue/{issueIdOrKey}?notifyUsers=...&returnIssue=...",
+        "POST /rest/api/3/issue/{issueIdOrKey}/comment",
+        "POST /rest/api/3/issueLink"
+      ],
+      "reason": "Wire format + response shapes inherited from Atlassian; ADF schema is part of the API contract."
+    },
+    {
+      "name": "httpx (httpx.MockTransport)",
+      "kind": "external",
+      "status": "already-used",
+      "reason": "All write tests reuse the v1 mock transport for unit tests; no new test infra."
+    },
+    {
+      "name": "config/context-filters.yaml schema",
+      "kind": "internal",
+      "status": "extend-in-place",
+      "reason": "Optional jira.link_types and jira.custom_fields keys added per HITL outcomes; existing jira.projects unchanged."
+    },
+    {
+      "name": "secrets.env (ATLASSIAN_* / JIRA_* triple)",
+      "kind": "internal",
+      "status": "no-change",
+      "reason": "Same creds used by reads cover writes. No new env-var work in #1924."
+    }
+  ],
+
+  "open_questions_for_plan_phase": [
+    "All 19 refine HITL decisions and 9 feedback questions are unresolved at the time of this analysis. The architectural baseline above lands the recommended option for each axis; if HITL picks a different option, plan tasks should be added/dropped per the slot reservations in proposed_architecture.module_breakdown:",
+    "decision-1 (custom-field exposure) — picks whether jira_policy.py grows custom_field_allowlist() and whether routes accept a customFields map.",
+    "decision-2 (Epic Link mechanism) — picks whether create_issue translates --epic-link to parent.key, customfield_10014, or auto-detects.",
+    "decision-3 (idempotency_key requirement) — picks whether routes 400 on missing key vs warn vs no-cache.",
+    "decision-4 (link type allowlist source) — picks hardcoded {Blocks, Relates} vs jira.link_types yaml vs upstream-passthrough.",
+    "decision-5 (notifyUsers default) — picks default true (Atlassian default) vs false (quiet).",
+    "decision-6 (visibility on comments) — picks v1 hides vs v1 exposes.",
+    "decision-7 (body input format) — picks plain-text only vs ADF passthrough only vs both.",
+    "decision-8 (issuetype identifier) — picks name only vs ID only vs both.",
+    "decision-9 (createIssueLink project allowlist semantics) — picks strict-both vs loose-either vs main+linkable-only.",
+    "decision-10 (per-role write gating) — picks unrestricted vs per-verb-role-allowlist vs defer.",
+    "decision-11 (per-phase write gating) — picks unrestricted vs phase_filter.py extension vs defer.",
+    "decision-12 (createJiraIssue response shape) — picks raw {id,key,self} vs normalised envelope.",
+    "decision-13 (editJiraIssue response shape) — picks {status:updated,key} vs ?returnIssue=true echo.",
+    "decision-14 (idempotency cache scope) — picks in-memory per-process vs persisted (disk/Redis).",
+    "decision-15 (cross-project parent) — picks reject vs accept-and-let-Atlassian-decide.",
+    "decision-16 (createIssueLink comment payload) — picks surface comment field vs require separate addCommentToJiraIssue.",
+    "decision-17 (dry-run mode) — picks ?dry_run=true on each write vs orchestrator-only preview.",
+    "decision-18 (doc home) — picks extend jira-wrapper.md vs new jira-writes.md vs both.",
+    "decision-19 (createIssueLink idempotency, surfaced by reviewer_refine) — picks extend cache vs orchestrator pre-scan vs accept duplicates.",
+    "feedback Q1 (rate-limit policy + audit on 429) — confirm 429 still emits jira_upstream_rate_limited.",
+    "feedback Q2 (body-size caps) — pick numeric limits.",
+    "feedback Q3 (existing-issue probe) — confirm idempotency key alone is sufficient.",
+    "feedback Q4 (sandbox flag ergonomics) — confirm --description / --description-file / --description-stdin shape.",
+    "feedback Q5 (audit body redaction) — confirm structural-only logging; labels / link names exempt.",
+    "feedback Q6 (adversarial test location) — confirm separate test_jira_writes_adversarial.py.",
+    "feedback Q7 (multi-tenant) — confirm v1 stays single-tenant; no further work in #1924.",
+    "feedback Q8 (rollback for batched plan apply) — confirm orchestrator owns rollback; gateway is stateless.",
+    "feedback Q9 (error envelope shape) — pick passthrough _jira_error_from_upstream vs richer field-level surfacing."
+  ],
+
+  "risks_for_risk_analyst": [
+    "Idempotency cache loss on gateway restart — restart inside a 5-minute TTL window, orchestrator retries, second create succeeds at Atlassian → duplicate ticket. Mitigation: (a) document the restart hazard, (b) refine decision-14 may pick persisted cache for multi-replica deployments.",
+    "Method-allowlist split silently regresses if a future maintainer routes a write through validate_jira_api_path — defense-in-depth fails. Mitigation: code review checklist, regression test that asserts the four write client methods do NOT call validate_jira_api_path.",
+    "Custom-field smuggling via the customFields map (refine decision-1 path) — agent sets Security Level / Components / watchers. Mitigation: operator-allowlist option in decision-1 + adversarial test in test_jira_writes_adversarial.py.",
+    "Cross-project parent on createJiraIssue (refine decision-15 path) — agent creates a ticket in project A under an epic in project B, cross-project hierarchy that the operator may not have intended. Mitigation: strict reject default; HITL can loosen.",
+    "createIssueLink duplicates on retry (refine decision-19 path) — Atlassian doesn't dedup identical (inward, outward, type) triples. Mitigation: pick option 1 (extend idempotency cache) for symmetry with create / comment.",
+    "ADF body length explosion in audit log if an agent passes a multi-megabyte description — audit retention cost. Mitigation: cap length per refine feedback Q2; truncate-with-marker in audit context, never the full body.",
+    "Bash wrapper flag-shadowing — --description and --description-file both set; ambiguity. Mitigation: wrapper validates exclusive use client-side and reports the ambiguity before posting.",
+    "Idempotency key collision across pipelines — if two pipelines pick the same key by accident, second caller gets the first's response. Mitigation: cache key includes (verb, project, idempotency_key); document that callers should namespace their keys (e.g., '<pipeline_id>:<plan_node_id>'); test_jira_idempotency covers per-key isolation.",
+    "Plan-apply partial failure leaves Jira in an inconsistent state (refine feedback Q8) — gateway has no transactions; orchestrator must implement compensating actions. Mitigation: clarified in docs and HITL.",
+    "Per-instance Atlassian variation (Epic Link mechanism, link type names, issuetype IDs) means a config change in production requires gateway restart or YAML reload. Mitigation: config/context-filters.yaml is mtime-cached; reload hook covers link_types / custom_fields if added."
+  ],
+
+  "tasks_for_task_planner": [
+    "Foundation: gateway/jira_idempotency.py (IdempotencyCache class, threading.Lock, TTL, lazy eviction).",
+    "Foundation: gateway/jira_adf.py (wrap_text, is_adf_dict).",
+    "Foundation: gateway/jira_client.py — add JiraClient.create_issue / edit_issue / add_comment / create_issue_link methods (each ~50-80 lines).",
+    "Foundation: gateway/gateway.py — add _resolve_adf_or_text, _validate_idempotency_key, _jira_write_audit_context, _jira_write_error_from_upstream helpers.",
+    "Per-verb route 1: POST /api/v1/jira/ticket/create + body validation + audit + idempotency hookup.",
+    "Per-verb route 2: POST /api/v1/jira/ticket/edit + body validation + audit + addLabels/removeLabels translation + notifyUsers.",
+    "Per-verb route 3: POST /api/v1/jira/ticket/comment/add + body validation + audit + idempotency hookup.",
+    "Per-verb route 4: POST /api/v1/jira/issue-link/create + body validation + audit + (link type allowlist per refine decision-4) + (idempotency per refine decision-19).",
+    "Sandbox wrapper: extend sandbox/scripts/jira with the four new subcommands and their flag set.",
+    "HITL-conditional: gateway/jira_policy.py extensions for link_type_allowlist / custom_field_allowlist (only if refine decisions 1 / 4 pick the configurable options).",
+    "HITL-conditional: gateway/phase_filter.py write-verb gate (only if refine decision-11 picks per-phase gating).",
+    "HITL-conditional: per-role write gate inline in gateway.py routes (only if refine decision-10 picks per-role gating).",
+    "Tests: extend gateway/tests/test_jira_client.py with the four write-method shape tests.",
+    "Tests: extend gateway/tests/test_jira_routes.py with the per-route 200/400/403/503 grid for the four new routes.",
+    "Tests: create gateway/tests/test_jira_idempotency.py.",
+    "Tests: create gateway/tests/test_jira_adf.py.",
+    "Tests: create gateway/tests/test_jira_writes_adversarial.py (or merge into routes per refine feedback Q6).",
+    "Tests: create-or-extend tests/sandbox/test_jira_wrapper.py for new subcommands.",
+    "Docs: extend docs/reference/jira-wrapper.md with Write Endpoints section (or create docs/reference/jira-writes.md per refine decision-18).",
+    "Docs: update docs/architecture/network-isolation.md with the four new routes.",
+    "Docs: update sandbox/agent-config/rules/environment.md with the new subcommands and ADF invariant."
+  ],
+
+  "validation_plan": [
+    "make lint passes (ruff, shellcheck on sandbox/scripts/jira, yamllint on config/context-filters.yaml).",
+    "make test passes — full unit + integration suite, including the new test_jira_idempotency.py / test_jira_adf.py / test_jira_writes_adversarial.py.",
+    "Route-enumeration regression in gateway/tests/test_jira_routes.py picks up the four new routes and asserts __egg_requires_private_mode__ on each.",
+    "Squid allowed_domains regression unchanged and continues to assert *.atlassian.net is NOT allowlisted.",
+    "Manual smoke test in a private-mode sandbox session: jira ticket create / edit / comment add / link create against a test Atlassian instance with a single allowlisted project; verify audit log records every call with the expected operation name and structural-only context.",
+    "Idempotency manual test: invoke jira ticket create twice with the same --idempotency-key within 5 minutes; assert the second call returns the cached response and emits jira_ticket_create_idempotent_hit; wait past TTL and confirm a third call hits Atlassian.",
+    "Public-mode regression: every new route returns 403 with private_mode_required envelope.",
+    "Missing-creds regression: every new route returns 503 with credentials_unavailable envelope.",
+    "Project-allowlist regression: write to a non-allowlisted project returns 403 with project_not_allowed envelope; no Atlassian call made.",
+    "Permanent denylist regression: an attempt to drive a write through /execute (POST/PUT) is rejected with the unchanged validate_jira_api_path error envelope."
+  ],
+
+  "out_of_scope_for_this_issue": [
+    "Workflow transitions (status changes) — orchestrator-only, never agent-facing gateway.",
+    "Worklogs, attachments, watchers, deletions — permanent denylist.",
+    "Markdown / HTML → ADF rendering — gateway only wraps plain text.",
+    "Multi-tenant Atlassian — single-tenant inherited from #1556.",
+    "Persistent (disk / Redis) idempotency cache — in-memory only in v1.1.",
+    "Generic /execute write surface — /execute stays GET-only forever.",
+    "Bot vs human attribution beyond what #1556 already chose (API token + bot account)."
+  ]
+}
