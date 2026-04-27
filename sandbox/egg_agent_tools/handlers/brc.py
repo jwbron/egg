@@ -134,7 +134,28 @@ def brc_propose(req: dict[str, Any]) -> dict[str, Any]:
     if req.get("changed_artifacts"):
         data["changed_artifacts"] = list(req["changed_artifacts"])
 
-    result = orchestrator_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    try:
+        result = orchestrator_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    except GatewayError as exc:
+        # Open-NACK barrier (#2142): the orchestrator returns 409 with a
+        # structured envelope when re-propose is blocked because NACKs
+        # against the current version haven't been delivered to the
+        # producer yet.  Surface it as structured return data so the
+        # agent can read the inlined NACK list and aggregate fixes
+        # without parsing stderr.
+        if (
+            getattr(exc, "status_code", None) == 409
+            and isinstance(exc.details, dict)
+            and exc.details.get("status") == "open_nacks_blocked"
+        ):
+            return {
+                "ok": False,
+                "role": role,
+                "status": "open_nacks_blocked",
+                "message": exc.message,
+                "rejection": exc.details,
+            }
+        raise
     if not result.get("success"):
         raise GatewayError(result.get("message", "propose failed"))
 
@@ -181,7 +202,28 @@ def brc_ack(req: dict[str, Any]) -> dict[str, Any]:
         "producer_role": producer_role,
         "payload": payload,
     }
-    result = orchestrator_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    try:
+        result = orchestrator_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    except GatewayError as exc:
+        # Stale-version rejection (#2142): the orchestrator returns 409
+        # with the producer's current proposal snapshot inlined when the
+        # ACK targeted a superseded version.  Surface it as structured
+        # data so the reviewer can re-fetch and re-review without
+        # parsing stderr.
+        if (
+            getattr(exc, "status_code", None) == 409
+            and isinstance(exc.details, dict)
+            and exc.details.get("status") == "stale_version"
+        ):
+            return {
+                "ok": False,
+                "role": role,
+                "producer_role": producer_role,
+                "status": "stale_version",
+                "message": exc.message,
+                "rejection": exc.details,
+            }
+        raise
     if not result.get("success"):
         raise GatewayError(result.get("message", "ack failed"))
     return {"ok": True, "role": role, "producer_role": producer_role, "signal": result}
@@ -214,7 +256,25 @@ def brc_nack(req: dict[str, Any]) -> dict[str, Any]:
             "artifact_references": list(req.get("files_reviewed") or []),
         },
     }
-    result = orchestrator_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    try:
+        result = orchestrator_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    except GatewayError as exc:
+        # Stale-version rejection (#2142): same envelope as ACK.  See
+        # ``brc_ack`` for full rationale.
+        if (
+            getattr(exc, "status_code", None) == 409
+            and isinstance(exc.details, dict)
+            and exc.details.get("status") == "stale_version"
+        ):
+            return {
+                "ok": False,
+                "role": role,
+                "producer_role": producer_role,
+                "status": "stale_version",
+                "message": exc.message,
+                "rejection": exc.details,
+            }
+        raise
     if not result.get("success"):
         raise GatewayError(result.get("message", "nack failed"))
     return {"ok": True, "role": role, "producer_role": producer_role, "signal": result}

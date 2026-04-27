@@ -254,6 +254,23 @@ class TestCheckNackGuard:
         result = check_nack_guard("reviewer_code", "coder", graph, matrix=matrix)
         assert result.allowed is True
 
+    def test_nack_version_match_allowed(self, graph, matrix):
+        """NACK version matches current proposal version -> allowed (#2142)."""
+        matrix.record_proposal("coder")  # v1
+        result = check_nack_guard("reviewer_code", "coder", graph, matrix=matrix, nack_version=1)
+        assert result.allowed is True
+
+    def test_nack_version_mismatch_rejected(self, graph, matrix):
+        """NACK targeting a superseded version is rejected (#2142)."""
+        matrix.record_proposal("coder")  # v1
+        matrix.record_proposal("coder")  # v2
+        result = check_nack_guard("reviewer_code", "coder", graph, matrix=matrix, nack_version=1)
+        assert result.allowed is False
+        assert "version mismatch" in result.reason.lower()
+        assert result.details["guard"] == "version_mismatch"
+        assert result.details["nack_version"] == 1
+        assert result.details["current_version"] == 2
+
 
 # ---------------------------------------------------------------------------
 # check_confirm_guard

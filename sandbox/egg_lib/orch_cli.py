@@ -1910,6 +1910,37 @@ def _consensus_push() -> int:
     return rc
 
 
+def _render_stale_version_rejection(
+    args: argparse.Namespace, resp: dict[str, Any], verdict: str
+) -> int:
+    """Render a stale-version ACK / NACK rejection (#2142).
+
+    The orchestrator returns the producer's current proposal snapshot
+    inline so the reviewer can re-fetch and re-review without a separate
+    call.  Always exits 2 to signal "retry after re-review."
+    """
+    rejection = resp.get("rejection", {}) or {}
+    if getattr(args, "json", False):
+        print_json(rejection)
+        return 2
+    snap = rejection.get("current_proposal", {}) or {}
+    print(
+        f"{verdict} rejected: producer "
+        f"{rejection.get('reviewer') or resp.get('producer_role')} "
+        f"is at v{snap.get('version')} (you reviewed an older version).",
+        file=sys.stderr,
+    )
+    if snap.get("commit_sha"):
+        print(f"  Current commit: {snap['commit_sha']}", file=sys.stderr)
+    if snap.get("artifacts"):
+        print(f"  Current artifacts: {', '.join(snap['artifacts'])}", file=sys.stderr)
+    print(
+        "Re-fetch the branch, re-review against the current version, and re-submit your verdict.",
+        file=sys.stderr,
+    )
+    return 2
+
+
 def cmd_consensus_propose(args: argparse.Namespace) -> int:
     """Send CONSENSUS_PROPOSE signal, optionally pushing code first.
 
@@ -1975,6 +2006,34 @@ def cmd_consensus_propose(args: argparse.Namespace) -> int:
     except (GatewayError, HandlerError) as err:
         return _render_handler_error(err)
 
+    # Open-NACK barrier rejection (#2142): brc_propose returns a
+    # structured ``open_nacks_blocked`` payload instead of raising so
+    # the agent can introspect the inline NACK list and aggregate
+    # fixes.  Render the rejection cleanly and exit non-zero so shell
+    # callers can branch on it.
+    if resp.get("status") == "open_nacks_blocked":
+        rejection = resp.get("rejection", {}) or {}
+        if args.json:
+            print_json(rejection)
+            return 2
+        nacks = rejection.get("nacks") or []
+        print(
+            f"Re-propose blocked: {len(nacks)} unresolved NACK(s) "
+            f"on v{rejection.get('current_version')}",
+            file=sys.stderr,
+        )
+        for nack in nacks:
+            print(
+                f"  [{nack.get('reviewer')}] (v{nack.get('version')}) {nack.get('reason', '')}",
+                file=sys.stderr,
+            )
+        print(
+            "Address every finding above and re-propose. "
+            "The retry will succeed once you've been notified of the full set.",
+            file=sys.stderr,
+        )
+        return 2
+
     signal = resp.get("signal", {})
     if args.json:
         print_json(signal)
@@ -2010,6 +2069,10 @@ def cmd_consensus_ack(args: argparse.Namespace) -> int:
     except (GatewayError, HandlerError) as err:
         return _render_handler_error(err)
 
+    # Stale-version rejection (#2142): re-fetch and re-review.
+    if resp.get("status") == "stale_version":
+        return _render_stale_version_rejection(args, resp, "ACK")
+
     if args.json:
         print_json(resp.get("signal", {}))
         return 0
@@ -2044,6 +2107,10 @@ def cmd_consensus_nack(args: argparse.Namespace) -> int:
         resp = _handlers.brc_nack(req)
     except (GatewayError, HandlerError) as err:
         return _render_handler_error(err)
+
+    # Stale-version rejection (#2142): re-fetch and re-review.
+    if resp.get("status") == "stale_version":
+        return _render_stale_version_rejection(args, resp, "NACK")
 
     if args.json:
         print_json(resp.get("signal", {}))

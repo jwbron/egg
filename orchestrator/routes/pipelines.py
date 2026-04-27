@@ -8060,8 +8060,19 @@ def _build_brc_preamble(
                 "The `--summary` must be ≥50 chars of substantive content describing what was "
                 "built, what was tested, and which contract tasks it satisfies. "
                 "Boilerplate like 'looks good' or 'approved' will be rejected.",
-                "4. **RESPOND TO REVIEWS**: Poll for ACK/NACK from reviewers. "
-                "Handle NACKs by fixing issues and re-proposing.",
+                "4. **RESPOND TO REVIEWS**: Poll for ACK/NACK from reviewers via "
+                "`egg-orch message wait-loop`. On the first NACK, start fixing "
+                "immediately — don't wait. **Aggregation is enforced by the "
+                "orchestrator, not by you (#2142):** when you call "
+                "`egg-orch consensus propose --changed-artifacts ...` (re-propose), "
+                "if any NACK landed against your current version that you have "
+                "not yet been notified of, the call is rejected with HTTP 409 "
+                "and the response `details` inline every unresolved NACK "
+                "(reviewer, reason, artifact_refs). Read every NACK in the "
+                "rejection, fix them all, and re-propose again — the retry "
+                "succeeds once you've been informed of the full set. Don't "
+                "re-propose addressing only one reviewer's NACK; the orchestrator "
+                "will kick you back with the rest.",
                 "5. **CONFIRM**: When all reviewers ACK: `egg-orch consensus confirmed`",
                 "6. **STAY ALIVE**: Block on the next BRC event with "
                 "`egg-orch message wait-loop --for CONSENSUS_CONFIRMED "
@@ -8160,7 +8171,18 @@ def _build_brc_preamble(
                 "   ```\n"
                 "\n"
                 "   `--reason` must be ≥50 chars of substantive content. "
-                "Boilerplate like 'lgtm' or 'no issues' will be rejected.",
+                "Boilerplate like 'lgtm' or 'no issues' will be rejected.\n"
+                "\n"
+                "   **Stale-version rejection (#2142):** if the producer "
+                "re-proposed while your verdict was in flight, your ACK / "
+                "NACK is rejected with HTTP 409 and the response `details` "
+                "inline the producer's current proposal snapshot "
+                "(`current_proposal.version`, `artifacts`, `commit_sha`). "
+                "Re-fetch (`git fetch && git merge`), re-review against the "
+                "new commit (often a small diff against what you just read), "
+                "and re-submit your verdict. Don't retry blindly with the "
+                "same payload — the orchestrator will reject again until you "
+                "review the current version.",
                 "6. **CONFIRM**: When all assigned producers reviewed: "
                 "`egg-orch consensus confirmed`",
                 "7. **STAY ALIVE**: Block on the next BRC event with "
