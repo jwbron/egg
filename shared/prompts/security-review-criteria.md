@@ -135,8 +135,13 @@ Verification recipe:
    correctness — a permissive new route is a real security finding
    even if the wrapper looks innocuous.
 
-This is a **blocking** finding regardless of code quality: any
-deviation from the documented wrapper shape is a NACK.
+Any deviation from the documented wrapper shape is a **mandatory NACK**
+— do not silently approve a credential-shim diff that fails the recipe
+above. Note that the security lens is advisory today (see *Scope* at the
+top of this file), so the NACK is recorded as a finding on the approval
+matrix rather than deadlocking consensus; promotion to a critical
+(deadlock-capable) reviewer for `sandbox/scripts/*` diffs is tracked in
+[#1997](https://github.com/jwbron/egg/issues/1997).
 
 ### 6. Secret leakage
 
