@@ -529,10 +529,70 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-21",
+      "question": "Open feedback request feedback-1",
+      "context": "Open contract feedback feedback-1, registered by an agent during the refine phase.",
+      "options": [],
+      "decision_type": "feedback",
+      "questions": [
+        {
+          "id": "Q1",
+          "question": "Open Q12 — write rate-limit policy: confirm 'no auto-retry on 429 for writes' is correct (matches v1 _request); should writes still emit jira_upstream_rate_limited audit on 429?",
+          "answer": ""
+        },
+        {
+          "id": "Q2",
+          "question": "Open Q15 — body size caps: pick numeric limits for summary (default 255 from Atlassian), description, labels (count + per-label length), comment body, customFields map size.",
+          "answer": ""
+        },
+        {
+          "id": "Q3",
+          "question": "Open Q18 — existing-issue probe before create / edit: is the idempotency key sufficient, or do we add a 'is there already a ticket matching this' safety check?",
+          "answer": ""
+        },
+        {
+          "id": "Q4",
+          "question": "Open Q19 — sandbox wrapper input flags: confirm --description / --description-file / --description-stdin (and the analogous comment body flags) match expected agent ergonomics.",
+          "answer": ""
+        },
+        {
+          "id": "Q5",
+          "question": "Open Q20 — audit body redaction: confirm we log only structural metadata (field names, content lengths, label counts) and never body content; any exceptions (labels, link type names)?",
+          "answer": ""
+        },
+        {
+          "id": "Q6",
+          "question": "Open Q21 — adversarial body tests location: same file as the route 403 grid, or a separate test_jira_writes_adversarial.py?",
+          "answer": ""
+        },
+        {
+          "id": "Q7",
+          "question": "Open Q22 — multi-tenant hooks: confirm v1 stays single-tenant exactly as #1556 left it, with no further work in #1924?",
+          "answer": ""
+        },
+        {
+          "id": "Q8",
+          "question": "Open Q25 — failure recovery for batched plan apply: confirm rollback is the orchestrator's responsibility (gateway implements no transactions or compensating actions).",
+          "answer": ""
+        },
+        {
+          "id": "Q9",
+          "question": "Open Q26 — error envelope for write upstream errors: reuse _jira_error_from_upstream verbatim, or surface field-level Atlassian error messages (e.g., 'Field parent cannot be set...') in a richer shape?",
+          "answer": ""
+        }
+      ],
+      "status": "pending",
+      "created_at": "2026-04-27T19:13:59.406954Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-27T18:38:49.382721Z",
-  "updated_at": "2026-04-27T19:13:59.369159Z",
+  "updated_at": "2026-04-27T19:13:59.428838Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -546,6 +606,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 31,
+  "version": 32,
   "jira_ticket": null
 }
