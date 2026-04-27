@@ -13262,12 +13262,16 @@ def _run_pipeline(
         try:
             _verify_store = get_state_store(repo_path)
         except Exception as verify_store_err:
-            # Couldn't even open the state store — be conservative and
-            # treat as transient; tearing down worktrees on an
-            # infrastructure blip is strictly worse than leaving them.
+            # Couldn't even open the state store — treat as transient
+            # (corrupt-but-present > deletion) so we skip the respawn
+            # rather than amplifying an infrastructure blip.  Note: with
+            # ``_verify_store=None`` the bump path below short-circuits,
+            # so worktree preservation depends on whether ``run_epoch``
+            # was set before the initial PNFE — this path avoids the
+            # cascade but does not unconditionally preserve worktrees.
             logger.warning(
                 "Failed to obtain state store after PipelineNotFoundError; "
-                "treating as transient and preserving worktrees",
+                "treating as transient infrastructure failure and skipping respawn",
                 pipeline_id=pipeline_id,
                 error=str(verify_store_err),
             )

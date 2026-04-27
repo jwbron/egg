@@ -270,7 +270,8 @@ class TestSpuriousPNFERecovery:
         ]
         mock_get_store.return_value = mock_store
 
-        mock_get_spawner.return_value = MagicMock()
+        mock_spawner = MagicMock()
+        mock_get_spawner.return_value = mock_spawner
         mock_state_lock.return_value.__enter__ = MagicMock(return_value=None)
         mock_state_lock.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -294,6 +295,12 @@ class TestSpuriousPNFERecovery:
         assert save_calls, "Expected pipeline to be saved with FAILED status"
         failed_pipeline = save_calls[0].args[0]
         assert "exhausted" in (failed_pipeline.error or "").lower()
+
+        # FAILED status preserves worktrees so an operator can investigate
+        # via ``restart_phase`` (see the FAILED branch in finally at
+        # ``pipelines.py``).  Locks in the explicit promise made in the
+        # cap-exhausted log message.
+        mock_spawner.gateway.delete_worktrees.assert_not_called()
 
     @patch(_PATCHES[6])
     @patch(_PATCHES[5])
