@@ -232,9 +232,20 @@ class ConfluenceUpstreamError(RuntimeError):
 class ConfluenceUpstreamForbidden(RuntimeError):
     """Raised when Atlassian returns HTTP 403 for a read endpoint.
 
-    The route layer translates this to a ``confluence_upstream_403`` audit
-    event so operators can distinguish bot-account permission denials from
-    space-allowlist denials and other upstream errors (Q7, risk R15).
+    Translation at the route layer is per-call-site rather than uniform
+    (Q7, risk R15):
+
+    - ``confluence_space_pages`` translates this directly to a
+      ``confluence_upstream_403`` audit event so operators can distinguish
+      bot-account permission denials from other upstream errors.
+    - ``_resolve_space_key_via_list`` (used by ``confluence_search``) and
+      ``confluence_execute`` collapse the 403 into a fail-closed
+      ``confluence_*_denied`` event with ``space_key=None`` because the
+      403 surfaces *during* allowlist resolution and the route's
+      contract is to deny rather than expose tenant-permission state.
+      Operators investigating a bot losing ``space:read`` globally can
+      cross-reference these denials with upstream-403 logs at the HTTP
+      client layer.
     """
 
     def __init__(self, status_code: int, body: Any, path: str):
