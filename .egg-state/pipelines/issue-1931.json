@@ -5,7 +5,7 @@
   "branch": "egg/issue-1931",
   "base_branch": null,
   "prompt": null,
-  "status": "running",
+  "status": "failed",
   "current_phase": "implement",
   "config": {
     "auto_create_pr": true,
@@ -183,10 +183,10 @@
     },
     "implement": {
       "phase": "implement",
-      "status": "running",
+      "status": "failed",
       "started_at": "2026-04-27T00:11:13.133496Z",
       "work_started_at": "2026-04-27T00:11:13.294890Z",
-      "completed_at": null,
+      "completed_at": "2026-04-27T00:55:21.544386Z",
       "containers": [
         {
           "container_id": "1a9df2ab-9bb0-4aa6-8a2b-45cddd332e9f",
@@ -405,12 +405,12 @@
         {
           "cycle": 0,
           "started_at": "2026-04-27T00:11:13.294890Z",
-          "completed_at": null,
+          "completed_at": "2026-04-27T00:55:21.544337Z",
           "commit_sha": "9e8b405112e74d4c1b95c2be22da0dba0986075d"
         }
       ],
       "artifacts": {},
-      "error": null,
+      "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n\n--- reviewer_code_holistic (exit=-1) ---\n\n--- reviewer_code (exit=-1) ---\n\n--- documenter (exit=-1) ---\n\n--- reviewer_concurrency (exit=-1) ---\n\n--- reviewer_security (exit=-1) ---",
       "hitl_feedback": null,
       "phase_start_sha": "9e8b405112e74d4c1b95c2be22da0dba0986075d"
     }
@@ -777,7 +777,7 @@
     }
   ],
   "created_at": "2026-04-26T23:05:30.164689Z",
-  "updated_at": "2026-04-27T00:55:21.506000Z",
+  "updated_at": "2026-04-27T00:55:21.544605Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -785,12 +785,12 @@
   "pr_head_sha": null,
   "active_roles": null,
   "has_contract": true,
-  "error": null,
+  "error": "Container exited with code 1\n--- container logs (last 10 lines) ---\n\n--- reviewer_code_holistic (exit=-1) ---\n\n--- reviewer_code (exit=-1) ---\n\n--- documenter (exit=-1) ---\n\n--- reviewer_concurrency (exit=-1) ---\n\n--- reviewer_security (exit=-1) ---",
   "analysis": null,
   "plan": null,
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 64,
+  "version": 65,
   "jira_ticket": null
 }
