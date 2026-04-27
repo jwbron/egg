@@ -1445,9 +1445,14 @@ class TestGetStatusWedgedNoSuccessor:
         assert "wedged_no_successor" not in result
 
     def test_no_wedge_when_pending_decision_present(self, handler):
-        """Pending HITL gate is the expected pre-advance state, not a wedge."""
+        """Pending HITL gate is the expected pre-advance state, not a wedge.
+
+        Pin ``pipeline_status="running"`` (default) so the pending decision
+        is the *only* clause blocking the wedge — otherwise the watchdog
+        short-circuits on the status guard and never evaluates
+        ``pending_decisions``.
+        """
         resp = self._wedged_pipeline_response(
-            pipeline_status="awaiting_human",
             decisions=[{"id": "d1", "status": "pending", "type": "phase_gate"}],
         )
         with patch.object(
@@ -1530,6 +1535,54 @@ class TestGetStatusWedgedNoSuccessor:
 
         assert "wedged_no_successor" in result
         assert 95 <= result["wedged_no_successor"]["since_seconds"] <= 110
+
+    def test_wedge_with_real_pipeline_model_dump(self, handler):
+        """Watchdog fires for a fixture grounded in ``Pipeline.model_dump(mode="json")``.
+
+        The other tests in this class hand-roll a minimal dict shape. This
+        one constructs a real ``Pipeline`` (matching what
+        ``routes/pipelines.py`` returns) so a future field rename in
+        ``PhaseExecution`` (e.g. renaming ``completed_at``) would break
+        this test instead of silently passing.
+        """
+        from datetime import UTC, datetime, timedelta
+
+        from egg_contracts.models import PipelinePhase
+
+        from orchestrator.models import (
+            PhaseExecution,
+            Pipeline,
+            PipelineStatus,
+        )
+
+        completed_at = datetime.now(UTC) - timedelta(seconds=120)
+        pipeline = Pipeline(
+            id="issue-42",
+            issue_number=42,
+            repo="org/repo",
+            current_phase=PipelinePhase.PLAN,
+            status=PipelineStatus.RUNNING,
+            phases={
+                "plan": PhaseExecution(
+                    phase=PipelinePhase.PLAN,
+                    status=PipelineStatus.COMPLETE,
+                    completed_at=completed_at,
+                ),
+            },
+        )
+        resp = {"data": {"pipeline": pipeline.model_dump(mode="json")}}
+
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[resp, self._messages_response()],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        assert "wedged_no_successor" in result
+        wedge = result["wedged_no_successor"]
+        assert wedge["phase"] == "plan"
+        assert 115 <= wedge["since_seconds"] <= 130
 
 
 class TestGetStatusWait:
