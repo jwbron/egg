@@ -54,11 +54,28 @@
     "phase_spawn_max_retries": 2,
     "phase_spawn_retry_initial_backoff_seconds": 30.0
   },
-  "phases": {},
+  "phases": {
+    "refine": {
+      "phase": "refine",
+      "status": "running",
+      "started_at": "2026-04-27T18:38:56.000380Z",
+      "work_started_at": null,
+      "completed_at": null,
+      "containers": [],
+      "agents": [],
+      "review_cycles": 0,
+      "hitl_review_cycles": 0,
+      "cycle_timings": [],
+      "artifacts": {},
+      "error": null,
+      "hitl_feedback": null,
+      "phase_start_sha": "13c61bc0e30545fe1ad55216d20a6c8f091cc473"
+    }
+  },
   "decisions": [],
   "created_at": "2026-04-27T18:38:49.382721Z",
-  "updated_at": "2026-04-27T18:38:51.382635Z",
-  "contract_synced": false,
+  "updated_at": "2026-04-27T18:38:56.000504Z",
+  "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
   "pr_number": null,
@@ -71,6 +88,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 3,
+  "version": 5,
   "jira_ticket": null
 }
