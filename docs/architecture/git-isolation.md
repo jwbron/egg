@@ -280,6 +280,7 @@ The gateway implements an explicit allowlist. Operations not on this list are re
 | Branch | `checkout`, `switch`, `branch` (create/delete own branches) | Branch management |
 | Network | `push`, `fetch`, `pull` | Credentials injected by gateway |
 | GitHub | `gh pr create`, `gh pr comment`, `gh issue` | API calls via gateway |
+| Recovery | `update-ref` | Pipeline sessions only; scoped to `refs/heads/<assigned_branch>`; detached-HEAD recovery primitive (issue #2162) |
 
 ### Blocked Operations
 
