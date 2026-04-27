@@ -11357,7 +11357,24 @@ def _persist_phase_gate_resolution(
         )
 
 
-def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
+# Tunables for the spurious-PipelineNotFoundError recovery path in
+# ``_run_pipeline``.  The verify retry covers the empty-file race window
+# during a ``git commit`` truncate-and-rewrite on the state worktree
+# (typical: <100ms); 3 × 200ms gives ~600ms of total slack.  The respawn
+# cap bounds how aggressively a persistent transient can leak threads,
+# overseer containers, and state-branch commits before we fail the
+# pipeline outright.  See #2155.
+_PNFE_VERIFY_ATTEMPTS = 3
+_PNFE_VERIFY_INTERVAL = 0.2  # seconds between verify retries
+_PNFE_RESPAWN_MAX_ATTEMPTS = 5  # cap on respawn cascade
+_PNFE_RESPAWN_BACKOFF_CAP = 30  # seconds, exponential backoff ceiling
+
+
+def _run_pipeline(
+    pipeline_id: str,
+    repo_path: Path,
+    _respawn_attempt: int = 0,
+) -> None:
     """Run a pipeline by spawning containers for each phase.
 
     This runs in a background thread. For each phase it:
@@ -11371,6 +11388,11 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
     Args:
         pipeline_id: Pipeline ID
         repo_path: Path to repository
+        _respawn_attempt: Internal — counts how many times this thread
+            has been respawned by the spurious-PNFE recovery path.
+            Bounded by ``_PNFE_RESPAWN_MAX_ATTEMPTS`` to prevent a
+            persistent transient from cascading into an unbounded
+            thread/overseer/commit storm.
     """
     from routes.phases import PHASE_TRANSITIONS
 
@@ -13236,55 +13258,137 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
         # destructive worktree teardown, then relaunch ``_run_pipeline`` so
         # the next phase keeps making progress.  See #2155.
         pipeline_still_exists = False
+        _verify_store = None
         try:
             _verify_store = get_state_store(repo_path)
-            for _attempt in range(3):
-                time.sleep(0.2)
+        except Exception as verify_store_err:
+            # Couldn't even open the state store — be conservative and
+            # treat as transient; tearing down worktrees on an
+            # infrastructure blip is strictly worse than leaving them.
+            logger.warning(
+                "Failed to obtain state store after PipelineNotFoundError; "
+                "treating as transient and preserving worktrees",
+                pipeline_id=pipeline_id,
+                error=str(verify_store_err),
+            )
+            pipeline_still_exists = True
+
+        if _verify_store is not None:
+            for _attempt in range(_PNFE_VERIFY_ATTEMPTS):
+                time.sleep(_PNFE_VERIFY_INTERVAL)
                 try:
                     _verify_store.load_pipeline(pipeline_id)
                     pipeline_still_exists = True
                     break
                 except PipelineNotFoundError:
                     continue
-        except Exception as verify_err:
-            logger.warning(
-                "Failed to verify pipeline existence after PipelineNotFoundError",
-                pipeline_id=pipeline_id,
-                error=str(verify_err),
-            )
+                except StateValidationError:
+                    # Corrupt JSON or schema mismatch means the file
+                    # exists but is unreadable right now — that's not
+                    # deletion.  Treat as transient: better to risk a
+                    # wasted respawn than to nuke the worktrees on a
+                    # transient corruption.
+                    pipeline_still_exists = True
+                    break
+                except StateStoreError as verify_err:
+                    # Other state-store failures (transient git read
+                    # errors, etc.) are also not evidence of deletion.
+                    logger.warning(
+                        "State-store error verifying pipeline existence; "
+                        "treating as transient and preserving worktrees",
+                        pipeline_id=pipeline_id,
+                        error=str(verify_err),
+                    )
+                    pipeline_still_exists = True
+                    break
 
         if pipeline_still_exists:
-            logger.error(
-                "Spurious PipelineNotFoundError during execution — pipeline "
-                "still exists after retry; relaunching driver thread and "
-                "preserving worktrees",
-                pipeline_id=pipeline_id,
-                exc_info=pnf_err,
-            )
-            # Bump run_epoch so the finally cleanup at line ~13327
-            # observes this thread as superseded (mirrors the
-            # advance_phase pattern) and skips worktree teardown.
-            try:
-                with get_pipeline_state_lock(pipeline_id):
-                    _bumped = _verify_store.load_pipeline(pipeline_id)
-                    _bumped.run_epoch = datetime.now(UTC)
-                    _verify_store.save_pipeline(_bumped)
-            except Exception as bump_err:
-                logger.warning(
-                    "Failed to bump run_epoch during spurious-PNFE recovery "
-                    "(worktrees will be torn down)",
+            # Cap the respawn cascade so a persistent transient can't
+            # leak threads, overseer containers, and state-branch
+            # commits without bound.  The recovery code is what runs
+            # exactly when the system is misbehaving — it must not
+            # amplify the misbehaviour.
+            if _respawn_attempt >= _PNFE_RESPAWN_MAX_ATTEMPTS:
+                logger.error(
+                    "Spurious-PipelineNotFoundError recovery exhausted "
+                    "respawn budget; marking pipeline FAILED so an "
+                    "operator can investigate via restart_phase",
                     pipeline_id=pipeline_id,
-                    error=str(bump_err),
+                    attempts=_respawn_attempt,
+                    exc_info=pnf_err,
                 )
+                if _verify_store is not None:
+                    try:
+                        with get_pipeline_state_lock(pipeline_id):
+                            _failed_pipeline = _verify_store.load_pipeline(pipeline_id)
+                            _failed_pipeline.status = PipelineStatus.FAILED
+                            _failed_pipeline.error = (
+                                "Transient PipelineNotFoundError recovery "
+                                f"exhausted after {_respawn_attempt} respawns"
+                            )
+                            _verify_store.save_pipeline(_failed_pipeline)
+                    except Exception as fail_err:
+                        logger.warning(
+                            "Failed to mark pipeline FAILED after exhausting "
+                            "respawn budget",
+                            pipeline_id=pipeline_id,
+                            error=str(fail_err),
+                        )
+            else:
+                # Recoverable transient — log at warning so it doesn't
+                # trip error-rate dashboards every time it self-heals.
+                logger.warning(
+                    "Spurious PipelineNotFoundError during execution — "
+                    "pipeline still exists after retry; relaunching driver "
+                    "thread and preserving worktrees",
+                    pipeline_id=pipeline_id,
+                    attempt=_respawn_attempt,
+                    exc_info=pnf_err,
+                )
+                # Bump run_epoch so the finally cleanup observes this
+                # thread as superseded (mirrors the advance_phase
+                # pattern) and skips worktree teardown.  Capture the
+                # pre-bump epoch into the local ``run_epoch`` so the
+                # finally guard works even when the *initial* load
+                # raised PNFE (in that case run_epoch was never set
+                # at line 11393).
+                bump_succeeded = False
+                if _verify_store is not None:
+                    try:
+                        with get_pipeline_state_lock(pipeline_id):
+                            _bumped = _verify_store.load_pipeline(pipeline_id)
+                            run_epoch = _bumped.run_epoch or _bumped.created_at
+                            _bumped.run_epoch = datetime.now(UTC)
+                            _verify_store.save_pipeline(_bumped)
+                            bump_succeeded = True
+                    except Exception as bump_err:
+                        logger.warning(
+                            "Failed to bump run_epoch during spurious-PNFE "
+                            "recovery; skipping respawn so the existing "
+                            "finally cleanup runs without racing a new thread",
+                            pipeline_id=pipeline_id,
+                            error=str(bump_err),
+                        )
 
-            # Relaunch _run_pipeline so the next phase keeps progressing.
-            # Defer the import to avoid a self-reference at module scope.
-            threading.Thread(
-                target=_run_pipeline,
-                args=(pipeline_id, repo_path),
-                daemon=True,
-                name=f"pipeline-{pipeline_id}-respawn-{int(datetime.now(UTC).timestamp())}",
-            ).start()
+                if bump_succeeded:
+                    # Exponential backoff between respawn attempts so a
+                    # tight cascade can't fire dozens of respawns per
+                    # second.  attempt=0 → 1s, 1 → 2s, 2 → 4s, 3 → 8s,
+                    # 4 → 16s, capped at _PNFE_RESPAWN_BACKOFF_CAP.
+                    _backoff = min(
+                        2**_respawn_attempt, _PNFE_RESPAWN_BACKOFF_CAP
+                    )
+                    time.sleep(_backoff)
+                    threading.Thread(
+                        target=_run_pipeline,
+                        args=(pipeline_id, repo_path),
+                        kwargs={"_respawn_attempt": _respawn_attempt + 1},
+                        daemon=True,
+                        name=(
+                            f"pipeline-{pipeline_id}-respawn-"
+                            f"{_respawn_attempt + 1}-{time.monotonic_ns()}"
+                        ),
+                    ).start()
         else:
             logger.info(
                 "Pipeline was deleted during execution, exiting",
