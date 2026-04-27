@@ -174,11 +174,11 @@ Only `GET` is accepted. The `path` is validated against a hardened regex allowli
 - Allowed path families (GET-only): `^api/v2/pages/\d+$`, `^api/v2/pages/\d+/descendants$`, `^api/v2/pages/\d+/footer-comments$`, `^api/v2/pages/\d+/inline-comments$`, `^api/v2/footer-comments$`, `^api/v2/inline-comments$`, `^api/v2/spaces$`, `^api/v2/spaces/\d+/pages$`, `^rest/api/search$`, `^rest/api/content/\d+/child/comment$` (the v1 fallback for inline comments).
 - Any path containing `restrictions`, `permissions`, `space.admin`, `users`, or `attachments` is rejected — these are the permanent "out of scope ever" verbs (decision 12). The `CONFLUENCE_DENIED_VERBS` frozenset checks for the term in any path position so `pages/123/attachments` is refused as well.
 
-For path families that target a specific resource (`pages/{id}`, `spaces/{id}/pages`), the post-fetch space-allowlist check runs once the upstream response arrives, identical to the narrow routes. For families that don't carry an obvious `spaceId` in the response (e.g., `api/v2/footer-comments?page-id=...`), the route requires a `spaceKey` query parameter and validates it up-front before issuing the upstream call.
+For path families that target a specific resource (`pages/{id}`), the post-fetch space-allowlist check runs once the upstream response arrives, identical to the narrow routes. For families that don't carry an obvious `spaceId` in the response (e.g., `api/v2/footer-comments?page-id=...`), the route requires the agent to supply a `spaceKey` query parameter and validates it up-front before issuing the upstream call.
 
-**Anti-bypass invariant.** `/execute` does **not** accept paths that the narrow routes already cover (`api/v2/pages/{id}`, `api/v2/spaces/{id}/pages`, `rest/api/search`); routing those through `/execute` is refused with the same `confluence_execute_denied` audit category. This prevents an attacker from bypassing narrow-route policy checks (e.g., the CQL extractor) by re-routing through `/execute`. A regression test asserts that every narrow-route path family fails the `/execute` validator.
+**Known gap (tracked under issue #1931 cycle-2 NACK).** As of v1, the `/execute` regex allowlist also accepts the path families that the narrow routes already cover — `api/v2/pages/{id}`, `api/v2/spaces/{id}/pages`, and `rest/api/search`. Routing those through `/execute` does **not** apply the narrow route's policy (e.g., the CQL static space-scope extractor on `rest/api/search`, or the response-side allowlist filtering on `api/v2/spaces`). This is a real bypass surface and is being closed in a follow-up commit on this PR; the reviewer_code NACK on the underlying code change drives that work. Until that fix lands, treat `/execute` as authorised against the same regex + denied-verbs gate but **without** the narrow-route policy layered on top — operators relying on the anti-bypass property must wait for the cycle-2 fix.
 
-`/execute` is a pragmatic escape hatch for future read verbs not yet promoted to narrow routes. It is **not** a general passthrough — the regex allowlist plus the anti-bypass invariant is the fence.
+`/execute` is a pragmatic escape hatch for future read verbs not yet promoted to narrow routes. The regex allowlist plus the `CONFLUENCE_DENIED_VERBS` frozenset is the fence today; once the cycle-2 fix lands, `/execute` will additionally refuse paths that overlap with narrow-route coverage and emit `confluence_execute_denied` for those attempts, restoring the strict anti-bypass invariant.
 
 ## `not_found` envelope
 
@@ -203,7 +203,7 @@ Every successful response body is sanitised by `redact_response(payload)` in `ga
 - Replaces every `accountId` value (at any depth) with `"<redacted>"`.
 - Replaces every `emailAddress` value (at any depth) with `"<redacted>"`.
 - Strips `_links.webui` user-profile URLs — any URL whose path begins with `/people/` or matches an Atlassian user-profile shape. **Page and space `_links.webui` URLs are preserved** — those are addressable resources the agent legitimately needs.
-- Strips `_links.self` URLs that match the Atlassian v2 user-profile shape (`/api/vN/users/{accountId}`). v2 user objects expose `_links.self` pointing at the user-profile API endpoint; this is **defense-in-depth** so a future Atlassian schema change that drops the `accountId` field but keeps the link does not silently start leaking identifiers. Page and space `_links.self` URLs (which point at `/api/vN/pages/...` or `/api/vN/spaces/...`) are preserved.
+- Strips `_links.self` URLs that match the Atlassian v2 user-profile shape (regex `/api/v\d+/users/`, so `/api/v2/users/{accountId}` and any future v3+ users endpoint shape are both covered). v2 user objects expose `_links.self` pointing at the user-profile API endpoint; this is **defense-in-depth** so a future Atlassian schema change that drops the `accountId` field but keeps the link does not silently start leaking identifiers. Page and space `_links.self` URLs (which point at `/api/vN/pages/...` or `/api/vN/spaces/...`) are preserved.
 
 The walker handles nested ADF mention nodes and `body.atlas_doc_format.content` trees, so the redaction holds for storage-format, ADF, and view-format bodies alike.
 
@@ -218,7 +218,7 @@ If a tenant carries custom Confluence macros, page properties, or fields known t
 | 403 | Public mode (private-mode gate) | `private_mode_required` |
 | 403 | Resolved space not in `confluence.spaces` | `confluence_space_denied` |
 | 403 | `/search` CQL fails the static scope extractor | `confluence_search_rejected` with the specific reason |
-| 403 | `/execute` denied verb, non-GET method, path traversal, disallowed path family, duplicate slash, non-ASCII, narrow-route bypass attempt | `confluence_execute_denied` with reason |
+| 403 | `/execute` denied verb, non-GET method, path traversal, disallowed path family, duplicate slash, non-ASCII | `confluence_execute_denied` with reason (the narrow-route bypass refusal is being added in the cycle-2 fix — see the "Known gap" note in the [`/execute`](#post-apiv1confluenceexecute) section above) |
 | 403 | Atlassian returned 403 (bot lacks read access on the resource) | `confluence_upstream_403` (distinct from generic `confluence_upstream_error`) — body: `{"status": "forbidden", "reason": "bot_account_lacks_read_access", "pageId" \| "spaceKey": "..."}` |
 | 413 | Response body exceeds `CONFLUENCE_RESPONSE_MAX_BYTES` (5 MiB) post-redaction | `confluence_response_too_large` |
 | 503 | Atlassian credentials not configured (`ConfluenceCredentialsUnavailable`) | `confluence_credentials_unavailable` |
@@ -325,21 +325,6 @@ Base-URL derivation:
 This precedence (ATLASSIAN-wins, CONFLUENCE as per-key back-compat fallback) is consistent with the Jira loader's per-key behaviour. The same precedence applies to `USERNAME` and `API_TOKEN` independently — `ATLASSIAN_USERNAME` + `CONFLUENCE_BASE_URL` is a valid combination during partial migrations.
 
 The Confluence loader (`gateway/confluence_credentials.py`) and the Jira loader (`gateway/jira_credentials.py`, updated as part of #1931 task 1-5) duplicate the loader skeleton in v1 — extracting a shared `atlassian_credentials.py` helper is tracked as a follow-up backlog item (architect Q4).
-
-## Pre-merge obligation: sandbox script staging
-
-The sandbox-side wrapper (`sandbox/scripts/confluence`) is staged in this PR at `.egg-state/agent-outputs/1931-sandbox-scripts-confluence` rather than at its final on-disk location. Reason: the producer roster's file-boundary policy in `shared/egg_restrictions/patterns.py` wholesale-blocks `sandbox/scripts/` for the coder role (the same posture used for `sandbox/scripts/jira` in [#1556](https://github.com/jwbron/egg/issues/1556)), so the coder cannot push the file to its target path through BRC. The PR adds a `block_exempt_patterns` entry for `sandbox/scripts/confluence` so future re-proposes land directly, but that exemption only takes effect once this PR's `patterns.py` change is live on the gateway pod.
-
-**After merge, a maintainer must:**
-
-```bash
-git mv .egg-state/agent-outputs/1931-sandbox-scripts-confluence \
-       sandbox/scripts/confluence
-chmod +x sandbox/scripts/confluence
-git commit -m "chore: move staged Confluence wrapper to sandbox/scripts/confluence (#1931)"
-```
-
-This is surfaced as a "Pre-merge Obligations" entry on the auto-created PR body via the BRC conditional-ACK mechanism. The wrapper is fully functional in the staged location for review; only the on-disk location changes.
 
 ## Related documentation
 
