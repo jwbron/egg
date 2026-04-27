@@ -259,16 +259,22 @@ async def consult_advisor(
         if payload is None:
             # No `{` ever found → no useful inner exception; otherwise
             # chain the most recent ``raw_decode`` failure for context.
+            # Scrub before raising: ``raw`` is the unparsed model output
+            # and ends up in stderr via ``cmd_overseer_consult_advisor``.
             raise AdvisorParseError(
-                f"consult_advisor: SDK response is not valid JSON: {raw!r}"
+                scrub_secrets(f"consult_advisor: SDK response is not valid JSON: {raw!r}")
             ) from last_exc
 
     try:
         verdict = AdvisorVerdict.model_validate(payload)
     except Exception as exc:
+        # Scrub: ``payload`` and the pydantic error both echo input
+        # values that may include credentials the model parroted back.
         raise AdvisorParseError(
-            f"consult_advisor: SDK response failed AdvisorVerdict "
-            f"validation: {exc}; payload={payload!r}"
+            scrub_secrets(
+                f"consult_advisor: SDK response failed AdvisorVerdict "
+                f"validation: {exc}; payload={payload!r}"
+            )
         ) from exc
 
     # Defense-in-depth: scrub the body before it leaves this function.

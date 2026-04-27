@@ -339,6 +339,47 @@ class TestConsultAdvisor:
                 )
             )
 
+    def test_invalid_json_error_message_is_scrubbed(self) -> None:
+        # Raw model output is embedded in the AdvisorParseError message
+        # and ends up in stderr via cmd_overseer_consult_advisor. If the
+        # model parrots a credential in its prose, the error must not
+        # surface it verbatim.
+        runner = self._runner_returning(f"oops, leaked {_GH_PAT} not json")
+        with pytest.raises(AdvisorParseError) as excinfo:
+            asyncio.run(
+                consult_advisor(
+                    classification={},
+                    health_alerts=[],
+                    progress_events=[],
+                    recent_log_lines=[],
+                    _agent_runner=runner,
+                )
+            )
+        message = str(excinfo.value)
+        assert _GH_PAT not in message
+        assert "[REDACTED:gh-pat]" in message
+
+    def test_validation_error_message_is_scrubbed(self) -> None:
+        # Same concern on the schema-validation path: the payload repr
+        # and pydantic error both echo input values back into the
+        # message string.
+        runner = self._runner_returning(
+            {"decision": "alert", "alert_summary": f"saw token {_GH_PAT}"}
+        )
+        with pytest.raises(AdvisorParseError) as excinfo:
+            asyncio.run(
+                consult_advisor(
+                    classification={},
+                    health_alerts=[],
+                    progress_events=[],
+                    recent_log_lines=[],
+                    _agent_runner=runner,
+                )
+            )
+        message = str(excinfo.value)
+        assert _GH_PAT not in message
+        assert "[REDACTED:gh-pat]" in message
+
     def test_default_model_used_when_config_none(self) -> None:
         seen: dict[str, str] = {}
 
