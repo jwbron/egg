@@ -81,6 +81,8 @@ egg-orch overseer consult-advisor \
   --output-file /tmp/advisor-verdict.json
 ```
 
+The verb auto-resolves `pipeline_id` from `EGG_PIPELINE_ID` (always set in the overseer context) and reads `PipelineConfig.overseer_advisor_model` from the orchestrator status endpoint to pass the configured alias to the advisor; if both the env var and the optional positional `pipeline_id` are absent — or the orchestrator is unreachable — the verb falls back to the `opus` default.
+
 The verdict is the JSON-serialized `AdvisorVerdict` with the same fields documented below (decision / priority / alert_summary / alert_detail / issue_title / issue_body / reasoning).
 
 **Trigger gate (the load-bearing constraint).** Invoke the advisor only when **both** conditions hold simultaneously:

@@ -1773,6 +1773,7 @@ def cmd_overseer_consult_advisor(args: argparse.Namespace) -> int:
             as a model-output drift
     """
     import asyncio
+    from types import SimpleNamespace
 
     from egg_overseer.advisor import AdvisorParseError, consult_advisor
 
@@ -1809,6 +1810,57 @@ def cmd_overseer_consult_advisor(args: argparse.Namespace) -> int:
         print("Error: inputs.recent_log_lines must be an array", file=sys.stderr)
         return 2
 
+    # Resolve overseer_advisor_model from PipelineConfig when a
+    # pipeline-id is available (issue #2113). The orchestrator's
+    # status endpoint exposes the overseer-relevant config subset
+    # (orchestrator/routes/pipelines.py); we read overseer_advisor_model
+    # and pass a duck-typed config to consult_advisor. Falling back to
+    # config=None keeps the historic "opus" default for callers that
+    # do not provide a pipeline-id, and for any failure (orchestrator
+    # unreachable, malformed env, missing client module) — never crash
+    # the verb on the lookup path. NOTE: extend SimpleNamespace below
+    # if consult_advisor ever reads more `config.*` attributes; the
+    # duck-typed surface silently falls back to AttributeError today.
+    advisor_config: Any = None
+    pid = getattr(args, "pipeline_id", None) or get_pipeline_id_from_env()
+    if pid and _SAFE_ID_PATTERN.match(pid):
+        # Nested try so ImportError is handled before OrchestratorError is
+        # referenced — combining them in a single except clause raises
+        # NameError when the import itself fails (OrchestratorError is
+        # never bound). See review feedback on PR #2158.
+        try:
+            from egg_lib.orch_client import OrchClient, OrchestratorError
+        except ImportError as exc:
+            print(
+                f"Warning: cannot import egg_lib.orch_client ({exc}); "
+                f"falling back to default advisor model",
+                file=sys.stderr,
+            )
+        else:
+            try:
+                status = OrchClient().get_pipeline_status(quote(pid, safe=""))
+                cfg_dict = status.get("config") if isinstance(status, dict) else None
+                model = (
+                    cfg_dict.get("overseer_advisor_model") if isinstance(cfg_dict, dict) else None
+                )
+                if model:
+                    advisor_config = SimpleNamespace(overseer_advisor_model=model)
+            except OrchestratorError as exc:
+                print(
+                    f"Warning: cannot read PipelineConfig for {pid} "
+                    f"({exc}); falling back to default advisor model",
+                    file=sys.stderr,
+                )
+    elif pid:
+        # Malformed pipeline-id (e.g. corrupted EGG_PIPELINE_ID): skip
+        # the lookup silently rather than crashing via validate_id's
+        # sys.exit(1), which would collide with AdvisorParseError's
+        # exit-code semantics. See review feedback on PR #2158.
+        print(
+            f"Warning: pipeline_id {pid!r} is not a safe ID; falling back to default advisor model",
+            file=sys.stderr,
+        )
+
     recent_log_bytes_cap = getattr(args, "recent_log_bytes_cap", None)
     try:
         verdict = asyncio.run(
@@ -1817,7 +1869,7 @@ def cmd_overseer_consult_advisor(args: argparse.Namespace) -> int:
                 health_alerts=health_alerts,
                 progress_events=progress_events,
                 recent_log_lines=recent_log_lines,
-                config=None,
+                config=advisor_config,
                 recent_log_bytes_cap=recent_log_bytes_cap,
             )
         )
@@ -3101,6 +3153,17 @@ def create_parser() -> argparse.ArgumentParser:
             "alerts + optional progress events / log lines) from a "
             "JSON file and writes the validated AdvisorVerdict JSON "
             "to --output-file (or stdout when omitted)."
+        ),
+    )
+    ov_advisor.add_argument(
+        "pipeline_id",
+        nargs="?",
+        help=(
+            "Optional pipeline ID. When provided (or EGG_PIPELINE_ID is "
+            "set), the verb reads PipelineConfig.overseer_advisor_model "
+            "from the orchestrator status endpoint and passes the "
+            "configured alias to consult_advisor. Omitted: falls back "
+            "to the 'opus' default."
         ),
     )
     ov_advisor.add_argument(
