@@ -1,0 +1,319 @@
+"""
+Tests for gateway/jira_policy.py.
+
+Covers:
+- allowlist round-trip from a tmp ``context-filters.yaml`` using the
+  authoritative ``jira.projects`` key
+- mtime-based reload
+- ``reload_jira_policy()`` forces a re-read
+- fail-closed on missing file, missing ``jira:`` section, malformed YAML,
+  wrong top-level shape, non-list ``projects`` value
+- invalid project keys skipped (non-string, bad shape)
+- ``extract_project_key`` on good / bad / non-string input
+- module-level singleton + ``reset`` helper
+"""
+
+from __future__ import annotations
+
+import os
+import time
+from pathlib import Path
+
+# Modules loaded via conftest.py.
+import jira_policy
+import pytest
+from jira_policy import (
+    JiraPolicy,
+    extract_project_key,
+    reload_jira_policy,
+    reset_jira_policy,
+)
+from jira_policy import (
+    allowed_projects as allowed_projects_singleton,
+)
+from jira_policy import (
+    is_project_allowed as is_allowed_singleton,
+)
+
+
+@pytest.fixture
+def tmp_yaml(tmp_path: Path) -> Path:
+    return tmp_path / "context-filters.yaml"
+
+
+def _write_yaml(path: Path, content: str) -> None:
+    path.write_text(content)
+
+
+class TestAllowlistRoundTrip:
+    def test_loads_projects_list(self, tmp_yaml: Path):
+        _write_yaml(
+            tmp_yaml,
+            "jira:\n  projects: [ENG, DEVOPS]\n",
+        )
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.allowed_projects() == frozenset({"ENG", "DEVOPS"})
+
+    def test_empty_projects_list_is_empty_set(self, tmp_yaml: Path):
+        _write_yaml(tmp_yaml, "jira:\n  projects: []\n")
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.allowed_projects() == frozenset()
+
+    def test_is_project_allowed(self, tmp_yaml: Path):
+        _write_yaml(tmp_yaml, "jira:\n  projects: [ENG]\n")
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.is_project_allowed("ENG") is True
+        assert policy.is_project_allowed("SEC") is False
+        assert policy.is_project_allowed("") is False
+
+    def test_invalid_project_keys_skipped(self, tmp_yaml: Path):
+        _write_yaml(
+            tmp_yaml,
+            "jira:\n  projects: [ENG, lowercase_bad, 'with space', '1starts_with_digit']\n",
+        )
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.allowed_projects() == frozenset({"ENG"})
+
+    def test_non_string_entry_skipped(self, tmp_yaml: Path):
+        _write_yaml(tmp_yaml, "jira:\n  projects: [ENG, 42]\n")
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.allowed_projects() == frozenset({"ENG"})
+
+
+class TestFailClosed:
+    def test_missing_file(self, tmp_path: Path):
+        policy = JiraPolicy(tmp_path / "does-not-exist.yaml")
+        assert policy.allowed_projects() == frozenset()
+
+    def test_missing_jira_section(self, tmp_yaml: Path):
+        _write_yaml(tmp_yaml, "other: stuff\n")
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.allowed_projects() == frozenset()
+
+    def test_jira_section_not_a_mapping(self, tmp_yaml: Path):
+        _write_yaml(tmp_yaml, "jira: not-a-mapping\n")
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.allowed_projects() == frozenset()
+
+    def test_projects_missing(self, tmp_yaml: Path):
+        _write_yaml(tmp_yaml, "jira: {}\n")
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.allowed_projects() == frozenset()
+
+    def test_projects_not_a_list(self, tmp_yaml: Path):
+        _write_yaml(tmp_yaml, "jira:\n  projects: ENG\n")
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.allowed_projects() == frozenset()
+
+    def test_malformed_yaml_does_not_crash(self, tmp_yaml: Path):
+        _write_yaml(tmp_yaml, "jira:\n  projects: [\n")
+        policy = JiraPolicy(tmp_yaml)
+        # Must return a frozenset (not raise).
+        result = policy.allowed_projects()
+        assert result == frozenset()
+
+    def test_top_level_not_mapping(self, tmp_yaml: Path):
+        _write_yaml(tmp_yaml, "- just\n- a\n- list\n")
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.allowed_projects() == frozenset()
+
+    def test_empty_file(self, tmp_yaml: Path):
+        _write_yaml(tmp_yaml, "")
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.allowed_projects() == frozenset()
+
+
+class TestCacheReload:
+    def test_mtime_change_triggers_reload(self, tmp_yaml: Path):
+        _write_yaml(tmp_yaml, "jira:\n  projects: [ENG]\n")
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.allowed_projects() == frozenset({"ENG"})
+
+        # Bump the mtime and rewrite.
+        new_mtime = tmp_yaml.stat().st_mtime + 2
+        _write_yaml(tmp_yaml, "jira:\n  projects: [SEC]\n")
+        os.utime(tmp_yaml, (new_mtime, new_mtime))
+
+        assert policy.allowed_projects() == frozenset({"SEC"})
+
+    def test_reload_clears_cache(self, tmp_yaml: Path):
+        _write_yaml(tmp_yaml, "jira:\n  projects: [ENG]\n")
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.allowed_projects() == frozenset({"ENG"})
+
+        # Rewrite WITHOUT changing mtime; cache holds old value.
+        original_mtime = tmp_yaml.stat().st_mtime
+        _write_yaml(tmp_yaml, "jira:\n  projects: [SEC]\n")
+        os.utime(tmp_yaml, (original_mtime, original_mtime))
+        time.sleep(0.001)
+        assert policy.allowed_projects() == frozenset({"ENG"})
+
+        policy.reload()
+        assert policy.allowed_projects() == frozenset({"SEC"})
+
+    def test_file_disappearing_clears_cache(self, tmp_yaml: Path):
+        _write_yaml(tmp_yaml, "jira:\n  projects: [ENG]\n")
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.allowed_projects() == frozenset({"ENG"})
+
+        tmp_yaml.unlink()
+        assert policy.allowed_projects() == frozenset()
+
+
+class TestExtractProjectKey:
+    @pytest.mark.parametrize(
+        "ticket, expected",
+        [
+            ("FOO-123", "FOO"),
+            ("ENG-1", "ENG"),
+            ("PROJ_X-42", "PROJ_X"),
+            ("A1B2-9", "A1B2"),
+            ("  ENG-1  ", "ENG"),  # surrounding whitespace tolerated
+        ],
+    )
+    def test_valid_tickets(self, ticket: str, expected: str):
+        assert extract_project_key(ticket) == expected
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "",
+            "foo",
+            "foo-1",  # lowercase not allowed
+            "FOO",  # missing -<digits>
+            "FOO-",  # missing digits
+            "-123",  # missing project key
+            "FOO-abc",  # non-digit trailing
+        ],
+    )
+    def test_invalid_tickets_return_empty(self, bad: str):
+        assert extract_project_key(bad) == ""
+
+    def test_non_string_returns_empty(self):
+        assert extract_project_key(None) == ""  # type: ignore[arg-type]
+        assert extract_project_key(123) == ""  # type: ignore[arg-type]
+
+
+class TestModuleSingleton:
+    def test_reset_drops_singleton(self, tmp_yaml: Path, monkeypatch):
+        _write_yaml(tmp_yaml, "jira:\n  projects: [ENG]\n")
+        monkeypatch.setattr(jira_policy, "_DEFAULT_CONFIG_PATH", tmp_yaml)
+        reset_jira_policy()
+        first = jira_policy.get_jira_policy()
+        # Point the freshly-created instance at our tmp file.
+        first._config_path = tmp_yaml
+        assert is_allowed_singleton("ENG") is True
+        assert "ENG" in allowed_projects_singleton()
+
+        reset_jira_policy()
+        second = jira_policy.get_jira_policy()
+        assert first is not second
+
+    def test_reload_jira_policy_forces_reread(self, tmp_yaml: Path, monkeypatch):
+        _write_yaml(tmp_yaml, "jira:\n  projects: [ENG]\n")
+        monkeypatch.setattr(jira_policy, "_DEFAULT_CONFIG_PATH", tmp_yaml)
+        reset_jira_policy()
+        policy = jira_policy.get_jira_policy()
+        policy._config_path = tmp_yaml
+        assert allowed_projects_singleton() == frozenset({"ENG"})
+
+        # Rewrite WITHOUT bumping mtime.
+        original_mtime = tmp_yaml.stat().st_mtime
+        _write_yaml(tmp_yaml, "jira:\n  projects: [SEC]\n")
+        os.utime(tmp_yaml, (original_mtime, original_mtime))
+        time.sleep(0.001)
+        # Without reload we still see the old value.
+        assert allowed_projects_singleton() == frozenset({"ENG"})
+
+        reload_jira_policy()
+        assert allowed_projects_singleton() == frozenset({"SEC"})
+
+
+# -----------------------------------------------------------------------------
+# Issue #1924 — link types + epic_link_field
+# -----------------------------------------------------------------------------
+
+
+class TestLinkTypeAllowlist:
+    def test_default_when_absent(self, tmp_yaml: Path):
+        _write_yaml(tmp_yaml, "jira:\n  projects: [ENG]\n")
+        policy = JiraPolicy(tmp_yaml)
+        # Default = ("Blocks", "Relates")
+        assert policy.allowed_link_types() == ("Blocks", "Relates")
+
+    def test_operator_overrides(self, tmp_yaml: Path):
+        _write_yaml(
+            tmp_yaml,
+            "jira:\n  projects: [ENG]\n  link_types: [Blocks, Relates, 'is duplicated by']\n",
+        )
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.allowed_link_types() == (
+            "Blocks",
+            "Relates",
+            "is duplicated by",
+        )
+
+    def test_empty_list_means_no_links_allowed(self, tmp_yaml: Path):
+        """Operators can disable linking entirely with ``link_types: []``."""
+        _write_yaml(tmp_yaml, "jira:\n  projects: [ENG]\n  link_types: []\n")
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.allowed_link_types() == ()
+
+    def test_malformed_link_types_falls_back_to_default(self, tmp_yaml: Path):
+        _write_yaml(tmp_yaml, "jira:\n  projects: [ENG]\n  link_types: 42\n")
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.allowed_link_types() == ("Blocks", "Relates")
+
+    def test_non_string_entries_skipped(self, tmp_yaml: Path):
+        _write_yaml(
+            tmp_yaml,
+            "jira:\n  projects: [ENG]\n  link_types: [Blocks, 42, '']\n",
+        )
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.allowed_link_types() == ("Blocks",)
+
+    def test_oversize_entries_skipped(self, tmp_yaml: Path):
+        oversize = "x" * 100  # > 64 char cap
+        _write_yaml(
+            tmp_yaml,
+            f"jira:\n  projects: [ENG]\n  link_types: [Blocks, '{oversize}']\n",
+        )
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.allowed_link_types() == ("Blocks",)
+
+    def test_is_link_type_allowed_helper(self, tmp_yaml: Path, monkeypatch):
+        _write_yaml(tmp_yaml, "jira:\n  projects: [ENG]\n  link_types: [Blocks]\n")
+        monkeypatch.setattr(jira_policy, "_DEFAULT_CONFIG_PATH", tmp_yaml)
+        reset_jira_policy()
+        jira_policy.get_jira_policy()._config_path = tmp_yaml
+        assert jira_policy.is_link_type_allowed("Blocks") is True
+        assert jira_policy.is_link_type_allowed("Relates") is False
+        assert jira_policy.is_link_type_allowed("") is False
+        assert jira_policy.is_link_type_allowed(None) is False  # type: ignore[arg-type]
+
+
+class TestEpicLinkField:
+    def test_default_is_parent(self, tmp_yaml: Path):
+        _write_yaml(tmp_yaml, "jira:\n  projects: [ENG]\n")
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.epic_link_field() == "parent"
+
+    def test_explicit_customfield(self, tmp_yaml: Path):
+        _write_yaml(
+            tmp_yaml,
+            "jira:\n  projects: [ENG]\n  epic_link_field: customfield_10014\n",
+        )
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.epic_link_field() == "customfield_10014"
+
+    @pytest.mark.parametrize(
+        "value",
+        ["unknown", "", 42, "PARENT", "customfield_999"],
+    )
+    def test_malformed_falls_back_to_default(self, tmp_yaml: Path, value):
+        _write_yaml(
+            tmp_yaml,
+            f"jira:\n  projects: [ENG]\n  epic_link_field: {value!r}\n",
+        )
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.epic_link_field() == "parent"

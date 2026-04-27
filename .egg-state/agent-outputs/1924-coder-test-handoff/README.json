@@ -1,0 +1,17 @@
+{
+  "issue": 1924,
+  "from_role": "coder",
+  "to_role": "tester",
+  "purpose": "Drafted test files for the four Jira write verbs. The coder role is path-restricted out of gateway/tests/* and tests/sandbox/* — the tester role owns those paths and should drop these files into place verbatim (or rewrite to taste).",
+  "files": {
+    "gateway/tests/test_jira_idempotency.py": "test_jira_idempotency.py",
+    "gateway/tests/test_jira_adf.py": "test_jira_adf.py",
+    "gateway/tests/conftest.py": "conftest.py.patch_against_origin (full file — diff against origin/egg/issue-1924 to see what to merge: loads jira_idempotency + jira_adf BEFORE jira_client, plus the import_replacement entries for the .jira_idempotency / .jira_adf relative imports)",
+    "gateway/tests/test_jira_client.py": "test_jira_client.py.append_to_origin (full file — diff against origin to see TestCreateIssue / TestEditIssue / TestAddComment / TestCreateIssueLink classes appended)",
+    "gateway/tests/test_jira_routes.py": "test_jira_routes.py.append_to_origin (full file — diff against origin to see TestTicketCreate / TestTicketEdit / TestTicketCommentAdd / TestIssueLinkCreate classes appended; route-enumeration test extended)",
+    "gateway/tests/test_jira_policy.py": "test_jira_policy.py.append_to_origin (full file — TestLinkTypeAllowlist / TestEpicLinkField classes appended)",
+    "tests/sandbox/test_jira_wrapper.py": "test_jira_wrapper.py.append_to_origin (full file — TestTicketCreate / TestTicketEdit / TestTicketCommentAdd / TestLinkCreate classes appended)"
+  },
+  "verified": "All 279 tests pass locally (pytest) against the production code in this branch. ruff check + shellcheck both clean.",
+  "notes": "The conftest changes are mandatory — without them the new jira_idempotency and jira_adf modules cannot be loaded by the test harness. Apply that diff first, then drop the test files into place."
+}
