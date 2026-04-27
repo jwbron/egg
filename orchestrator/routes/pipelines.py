@@ -13225,12 +13225,72 @@ def _run_pipeline(pipeline_id: str, repo_path: Path) -> None:
                 to_phase=next_phase.value,
             )
 
-    except PipelineNotFoundError:
-        # Pipeline was deleted while execution was in progress — exit gracefully
-        logger.info(
-            "Pipeline was deleted during execution, exiting",
-            pipeline_id=pipeline_id,
-        )
+    except PipelineNotFoundError as pnf_err:
+        # `PipelineNotFoundError` can be raised either because the pipeline
+        # was actually deleted or because of a transient state-store read
+        # (e.g., empty content while a concurrent commit on the state
+        # worktree races with the read).  Re-verify before treating it as
+        # deletion: if the pipeline is still on disk after retry, the
+        # original exception was spurious — bump ``run_epoch`` so the
+        # finally cleanup detects this thread as superseded and skips the
+        # destructive worktree teardown, then relaunch ``_run_pipeline`` so
+        # the next phase keeps making progress.  See #2155.
+        pipeline_still_exists = False
+        try:
+            _verify_store = get_state_store(repo_path)
+            for _attempt in range(3):
+                time.sleep(0.2)
+                try:
+                    _verify_store.load_pipeline(pipeline_id)
+                    pipeline_still_exists = True
+                    break
+                except PipelineNotFoundError:
+                    continue
+        except Exception as verify_err:
+            logger.warning(
+                "Failed to verify pipeline existence after PipelineNotFoundError",
+                pipeline_id=pipeline_id,
+                error=str(verify_err),
+            )
+
+        if pipeline_still_exists:
+            logger.error(
+                "Spurious PipelineNotFoundError during execution — pipeline "
+                "still exists after retry; relaunching driver thread and "
+                "preserving worktrees",
+                pipeline_id=pipeline_id,
+                exc_info=pnf_err,
+            )
+            # Bump run_epoch so the finally cleanup at line ~13327
+            # observes this thread as superseded (mirrors the
+            # advance_phase pattern) and skips worktree teardown.
+            try:
+                with get_pipeline_state_lock(pipeline_id):
+                    _bumped = _verify_store.load_pipeline(pipeline_id)
+                    _bumped.run_epoch = datetime.now(UTC)
+                    _verify_store.save_pipeline(_bumped)
+            except Exception as bump_err:
+                logger.warning(
+                    "Failed to bump run_epoch during spurious-PNFE recovery "
+                    "(worktrees will be torn down)",
+                    pipeline_id=pipeline_id,
+                    error=str(bump_err),
+                )
+
+            # Relaunch _run_pipeline so the next phase keeps progressing.
+            # Defer the import to avoid a self-reference at module scope.
+            threading.Thread(
+                target=_run_pipeline,
+                args=(pipeline_id, repo_path),
+                daemon=True,
+                name=f"pipeline-{pipeline_id}-respawn-{int(datetime.now(UTC).timestamp())}",
+            ).start()
+        else:
+            logger.info(
+                "Pipeline was deleted during execution, exiting",
+                pipeline_id=pipeline_id,
+                exc_info=pnf_err,
+            )
     except Exception as e:
         logger.error(
             "Pipeline execution failed", pipeline_id=pipeline_id, error=str(e), exc_info=True
