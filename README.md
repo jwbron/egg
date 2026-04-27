@@ -102,7 +102,7 @@ Human gate        Human gate                              Human merge
 
 1. **Refine**: Agents analyze the task, research the codebase, produce requirements. Reviewers validate. Human approves before planning.
 2. **Plan**: Architect recommends approach, task planner breaks it into discrete tasks with acceptance criteria, risk analyst flags concerns. Human approves before any code is written.
-3. **Implement**: Coder writes code, tester writes tests and runs linters/type-checkers, documenter updates docs. Code and contract reviewers provide line-level feedback; advisory security and concurrency lens reviewers add targeted cross-file analysis. Cycles continue until all checks pass and BRC consensus is reached.
+3. **Implement**: Coder writes code, tester writes tests and runs linters/type-checkers, documenter updates docs. Code and contract reviewers provide line-level feedback; security and concurrency lens reviewers add targeted cross-file analysis and block consensus on a NACK. Cycles continue until all checks pass and BRC consensus is reached.
 4. **PR**: Orchestrator auto-creates the PR from plan metadata. Only a human can merge via GitHub UI.
 
 Within each phase, specialized agents run concurrently via BRC (enabled by default for refine, plan, and implement). Here's what a completed pipeline looks like:
