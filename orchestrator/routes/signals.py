@@ -958,6 +958,41 @@ def _emit_ready_to_confirm_nudges(
             )
 
 
+def _stale_version_rejection(
+    tracker: Any,
+    producer_role: str,
+    err_message: str,
+    reviewer_role: str,
+    verdict: str,
+) -> tuple[Response, int] | None:
+    """Build a structured 409 for stale-version ACK / NACK rejections (#2142).
+
+    Returns the (response, status) tuple when ``err_message`` came from the
+    version-match guard, or ``None`` to let the caller raise normally.  The
+    rejection inlines the producer's current proposal snapshot so the
+    reviewer can re-review the latest version without a separate fetch.
+    """
+    if "version mismatch" not in err_message.lower():
+        return None
+    snapshot = tracker.get_current_proposal_snapshot(producer_role)
+    logger.warning(
+        f"{verdict} rejected: stale proposal version",
+        reviewer=reviewer_role,
+        producer=producer_role,
+        current_version=snapshot.get("version"),
+    )
+    return make_error_response(
+        err_message,
+        status_code=409,
+        details={
+            "status": "stale_version",
+            "reviewer": reviewer_role,
+            "verdict": verdict,
+            "current_proposal": snapshot,
+        },
+    )
+
+
 def handle_consensus_propose_signal(
     pipeline_id: str,
     data: dict[str, Any],
@@ -1035,6 +1070,25 @@ def handle_consensus_propose_signal(
             result = tracker.handle_re_propose(agent_role, payload, changed_artifacts)
         else:
             result = tracker.handle_propose(agent_role, payload)
+
+        # Open-NACK barrier rejection (#2142): re_propose returned a
+        # structured rejection because NACKs against the current version
+        # had not yet been delivered to the producer.  Surface every NACK
+        # inline (full reason text + artifact refs) so the producer can
+        # aggregate them into one re-propose without a separate fetch.
+        if isinstance(result, dict) and result.get("status") == "open_nacks_blocked":
+            logger.warning(
+                "re_propose blocked by open NACKs",
+                pipeline_id=pipeline_id,
+                role=agent_role,
+                version=result.get("current_version"),
+                nacking_reviewers=result.get("nacking_reviewers"),
+            )
+            return make_error_response(
+                result.get("message", "Re-propose blocked: unresolved NACKs"),
+                status_code=409,
+                details=result,
+            )
 
         # Write consensus message to message bus
         from message_store import Message, MessageType, get_message_store
@@ -1145,7 +1199,15 @@ def handle_consensus_ack_signal(
         return make_error_response(f"No consensus tracker for pipeline {pipeline_id}", 404)
 
     try:
-        result = tracker.handle_ack(reviewer_role, producer_role, payload)
+        try:
+            result = tracker.handle_ack(reviewer_role, producer_role, payload)
+        except ValueError as ack_err:
+            stale_response = _stale_version_rejection(
+                tracker, producer_role, str(ack_err), reviewer_role, "ACK"
+            )
+            if stale_response is not None:
+                return stale_response
+            raise
 
         from message_store import Message, MessageType, get_message_store
 
@@ -1201,6 +1263,11 @@ def handle_consensus_nack_signal(
 
     payload = data.get("payload", {})
 
+    # Forward nack_version from signal data into the payload so the
+    # version-match guard can detect stale NACKs (#2142).
+    if "nack_version" in data and "nack_version" not in payload:
+        payload["nack_version"] = int(data["nack_version"])
+
     # Validate NACK reason content (#1716)
     reason_error = _validate_brc_content(payload.get("reason", ""), "NACK reason")
     if reason_error:
@@ -1216,7 +1283,15 @@ def handle_consensus_nack_signal(
         return make_error_response(f"No consensus tracker for pipeline {pipeline_id}", 404)
 
     try:
-        result = tracker.handle_nack(reviewer_role, producer_role, payload)
+        try:
+            result = tracker.handle_nack(reviewer_role, producer_role, payload)
+        except ValueError as nack_err:
+            stale_response = _stale_version_rejection(
+                tracker, producer_role, str(nack_err), reviewer_role, "NACK"
+            )
+            if stale_response is not None:
+                return stale_response
+            raise
 
         from message_store import Message, MessageType, get_message_store
 

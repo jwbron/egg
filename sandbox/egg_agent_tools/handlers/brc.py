@@ -43,6 +43,34 @@ def _require_role(req: dict[str, Any]) -> str:
     return role
 
 
+def _require_version_int(req: dict[str, Any], key: str) -> int:
+    """Require an integer version field on the request.
+
+    The producer's current proposal version must be plumbed through ACK / NACK
+    so the orchestrator's version-match guard can detect stale verdicts and
+    reject with a structured 409 (#2142).  Without this, the guard's fallback
+    silently passes whenever the caller omits the field.
+
+    Enforces ``version >= 1`` because v0 is meaningless: there is no proposal
+    to ACK / NACK before the producer's first ``CONSENSUS_PROPOSE``.  Catching
+    this at the handler boundary surfaces a callers-confused-the-units bug
+    before the request hits the wire.
+    """
+    raw = req.get(key)
+    if raw is None:
+        raise HandlerError(
+            f"'{key}' is required (the producer's current proposal version "
+            "you reviewed; read it from the CONSENSUS_PROPOSE message)"
+        )
+    try:
+        version = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise HandlerError(f"'{key}' must be an integer; got {raw!r}") from exc
+    if version < 1:
+        raise HandlerError(f"'{key}' must be >= 1; got {version} (v0 means no proposal exists yet)")
+    return version
+
+
 def _resolve_head_sha() -> str:
     cwd = os.environ.get("EGG_REPO_PATH") or None
     try:
@@ -134,7 +162,28 @@ def brc_propose(req: dict[str, Any]) -> dict[str, Any]:
     if req.get("changed_artifacts"):
         data["changed_artifacts"] = list(req["changed_artifacts"])
 
-    result = orchestrator_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    try:
+        result = orchestrator_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    except GatewayError as exc:
+        # Open-NACK barrier (#2142): the orchestrator returns 409 with a
+        # structured envelope when re-propose is blocked because NACKs
+        # against the current version haven't been delivered to the
+        # producer yet.  Surface it as structured return data so the
+        # agent can read the inlined NACK list and aggregate fixes
+        # without parsing stderr.
+        if (
+            getattr(exc, "status_code", None) == 409
+            and isinstance(exc.details, dict)
+            and exc.details.get("status") == "open_nacks_blocked"
+        ):
+            return {
+                "ok": False,
+                "role": role,
+                "status": "open_nacks_blocked",
+                "message": exc.message,
+                "rejection": exc.details,
+            }
+        raise
     if not result.get("success"):
         raise GatewayError(result.get("message", "propose failed"))
 
@@ -166,10 +215,12 @@ def brc_ack(req: dict[str, Any]) -> dict[str, Any]:
     reason = req.get("reason")
     if not reason:
         raise HandlerError("'reason' is required")
+    ack_version = _require_version_int(req, "ack_version")
 
     payload: dict[str, Any] = {
         "artifact_references": list(req.get("files_reviewed") or []),
         "reason": reason,
+        "ack_version": ack_version,
     }
     pre_merge_condition = req.get("pre_merge_condition") or ""
     if pre_merge_condition:
@@ -181,7 +232,28 @@ def brc_ack(req: dict[str, Any]) -> dict[str, Any]:
         "producer_role": producer_role,
         "payload": payload,
     }
-    result = orchestrator_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    try:
+        result = orchestrator_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    except GatewayError as exc:
+        # Stale-version rejection (#2142): the orchestrator returns 409
+        # with the producer's current proposal snapshot inlined when the
+        # ACK targeted a superseded version.  Surface it as structured
+        # data so the reviewer can re-fetch and re-review without
+        # parsing stderr.
+        if (
+            getattr(exc, "status_code", None) == 409
+            and isinstance(exc.details, dict)
+            and exc.details.get("status") == "stale_version"
+        ):
+            return {
+                "ok": False,
+                "role": role,
+                "producer_role": producer_role,
+                "status": "stale_version",
+                "message": exc.message,
+                "rejection": exc.details,
+            }
+        raise
     if not result.get("success"):
         raise GatewayError(result.get("message", "ack failed"))
     return {"ok": True, "role": role, "producer_role": producer_role, "signal": result}
@@ -204,6 +276,7 @@ def brc_nack(req: dict[str, Any]) -> dict[str, Any]:
     reason = req.get("reason")
     if not reason:
         raise HandlerError("'reason' is required")
+    nack_version = _require_version_int(req, "nack_version")
 
     data = {
         "signal_type": "consensus_nack",
@@ -212,9 +285,28 @@ def brc_nack(req: dict[str, Any]) -> dict[str, Any]:
         "payload": {
             "reason": reason,
             "artifact_references": list(req.get("files_reviewed") or []),
+            "nack_version": nack_version,
         },
     }
-    result = orchestrator_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    try:
+        result = orchestrator_request(f"/api/v1/pipelines/{pid}/signal", method="POST", data=data)
+    except GatewayError as exc:
+        # Stale-version rejection (#2142): same envelope as ACK.  See
+        # ``brc_ack`` for full rationale.
+        if (
+            getattr(exc, "status_code", None) == 409
+            and isinstance(exc.details, dict)
+            and exc.details.get("status") == "stale_version"
+        ):
+            return {
+                "ok": False,
+                "role": role,
+                "producer_role": producer_role,
+                "status": "stale_version",
+                "message": exc.message,
+                "rejection": exc.details,
+            }
+        raise
     if not result.get("success"):
         raise GatewayError(result.get("message", "nack failed"))
     return {"ok": True, "role": role, "producer_role": producer_role, "signal": result}

@@ -282,6 +282,8 @@ class TestCmdConsensusAckNackParity:
             "producer_role": "coder",
             "reason": "looks good " * 10,
             "files_reviewed": ["a.py"],
+            "ack_version": 1,
+            "nack_version": 1,
             "json": False,
         }
         base.update(extra)

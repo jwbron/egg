@@ -14,6 +14,7 @@ Verifies:
 import argparse
 import sys
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -45,6 +46,8 @@ class TestAckReasonRequired:
                     "issue-42",
                     "--files-reviewed",
                     "src/a.py",
+                    "--ack-version",
+                    "1",
                 ]
             )
         assert exc_info.value.code != 0
@@ -62,11 +65,14 @@ class TestAckReasonRequired:
                 "src/a.py",
                 "--reason",
                 "Reviewed src/a.py: logic is correct, tests cover all branches",
+                "--ack-version",
+                "3",
             ]
         )
         assert args.reason == "Reviewed src/a.py: logic is correct, tests cover all branches"
         assert args.producer_role == "coder"
         assert args.files_reviewed == ["src/a.py"]
+        assert args.ack_version == 3
 
 
 class TestAckReasonInPayload:
@@ -86,17 +92,21 @@ class TestAckReasonInPayload:
                 "src/models.py",
                 "--reason",
                 "Checked auth.py and models.py: parameterized queries throughout, no injection risk",
+                "--ack-version",
+                "2",
             ]
         )
         # Simulate what cmd_consensus_ack would build
         payload = {
             "artifact_references": args.files_reviewed,
             "reason": args.reason,
+            "ack_version": args.ack_version,
         }
         assert payload["reason"] == (
             "Checked auth.py and models.py: parameterized queries throughout, no injection risk"
         )
         assert payload["artifact_references"] == ["src/auth.py", "src/models.py"]
+        assert payload["ack_version"] == 2
 
 
 class TestAckConditionalFlag:
@@ -115,6 +125,8 @@ class TestAckConditionalFlag:
                 "src/a.py",
                 "--reason",
                 "All looks good, reviewed a.py and confirmed auth flow is correct",
+                "--ack-version",
+                "1",
             ]
         )
         assert getattr(args, "pre_merge_condition", "") == ""
@@ -134,9 +146,127 @@ class TestAckConditionalFlag:
                 "Approved, but a file move must happen before merging",
                 "--pre-merge-condition",
                 "A human must `git mv legacy/x new/x` before merge",
+                "--ack-version",
+                "1",
             ]
         )
         assert args.pre_merge_condition == "A human must `git mv legacy/x new/x` before merge"
+
+
+# ---------------------------------------------------------------------------
+# ACK/NACK: --ack-version / --nack-version are required (#2142)
+# ---------------------------------------------------------------------------
+
+
+class TestAckVersionRequired:
+    """``egg-orch consensus ack`` requires --ack-version (#2142)."""
+
+    def test_ack_exits_nonzero_without_version(self):
+        """Omitting --ack-version causes argparse to exit non-zero."""
+        parser = create_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(
+                [
+                    "consensus",
+                    "ack",
+                    "coder",
+                    "issue-42",
+                    "--files-reviewed",
+                    "src/a.py",
+                    "--reason",
+                    "Reviewed src/a.py: logic is correct",
+                ]
+            )
+        assert exc_info.value.code != 0
+
+    def test_ack_rejects_non_integer_version(self):
+        """--ack-version with a non-integer value exits non-zero."""
+        parser = create_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(
+                [
+                    "consensus",
+                    "ack",
+                    "coder",
+                    "issue-42",
+                    "--files-reviewed",
+                    "src/a.py",
+                    "--reason",
+                    "Reviewed src/a.py: logic is correct",
+                    "--ack-version",
+                    "not-an-int",
+                ]
+            )
+        assert exc_info.value.code != 0
+
+
+class TestNackRequiredArgs:
+    """``egg-orch consensus nack`` requires --nack-version, --reason, --files-reviewed."""
+
+    def test_nack_succeeds_with_all_required(self):
+        """All required args present: parses successfully and threads version."""
+        parser = create_parser()
+        args = parser.parse_args(
+            [
+                "consensus",
+                "nack",
+                "coder",
+                "issue-42",
+                "--files-reviewed",
+                "src/a.py",
+                "--reason",
+                "src/a.py:42 raises on empty input — needs guard",
+                "--nack-version",
+                "4",
+            ]
+        )
+        assert args.producer_role == "coder"
+        assert args.files_reviewed == ["src/a.py"]
+        assert args.reason == "src/a.py:42 raises on empty input — needs guard"
+        assert args.nack_version == 4
+
+    def test_nack_exits_nonzero_without_version(self):
+        """Omitting --nack-version causes argparse to exit non-zero."""
+        parser = create_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(
+                [
+                    "consensus",
+                    "nack",
+                    "coder",
+                    "issue-42",
+                    "--files-reviewed",
+                    "src/a.py",
+                    "--reason",
+                    "Issue blocking",
+                ]
+            )
+        assert exc_info.value.code != 0
+
+    def test_nack_payload_threads_version(self):
+        """cmd_consensus_nack builds payload with nack_version from parsed args."""
+        parser = create_parser()
+        args = parser.parse_args(
+            [
+                "consensus",
+                "nack",
+                "coder",
+                "issue-42",
+                "--files-reviewed",
+                "src/a.py",
+                "--reason",
+                "src/a.py:42 raises on empty input",
+                "--nack-version",
+                "5",
+            ]
+        )
+        # Simulate what cmd_consensus_nack builds
+        payload = {
+            "artifact_references": args.files_reviewed,
+            "reason": args.reason,
+            "nack_version": args.nack_version,
+        }
+        assert payload["nack_version"] == 5
 
 
 # ---------------------------------------------------------------------------
@@ -495,6 +625,321 @@ class TestMessagePollBodyDisplay:
         assert "    Line two" in output
         assert "    Line three" in output
 
+
+# ---------------------------------------------------------------------------
+# ACK/NACK: handler threads version field into orchestrator signal payload (#2142)
+# ---------------------------------------------------------------------------
+
+
+class TestAckHandlerThreadsAckVersion:
+    """``brc_ack`` posts the version field to the orchestrator (#2142).
+
+    This is the regression for the silent-pass bug where the version field
+    failed to reach the version-match guard. Asserts the wire payload sent
+    to ``/api/v1/pipelines/<id>/signal`` includes ``ack_version``.
+    """
+
+    def test_payload_includes_ack_version(self):
+        from egg_agent_tools.handlers import brc as handlers
+
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value={"success": True, "data": {}},
+        ) as mock_request:
+            handlers.brc_ack(
+                {
+                    "pipeline_id": "issue-42",
+                    "role": "reviewer_code",
+                    "producer_role": "coder",
+                    "reason": "Reviewed src/auth.py: substantive multi-file review well over fifty chars",
+                    "files_reviewed": ["src/auth.py"],
+                    "ack_version": 7,
+                }
+            )
+
+        assert mock_request.called
+        data = mock_request.call_args.kwargs["data"]
+        assert data["payload"]["ack_version"] == 7
+
+    def test_missing_ack_version_raises(self):
+        from egg_agent_tools.handlers import brc as handlers
+        from egg_agent_tools.handlers.errors import HandlerError
+
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value={"success": True, "data": {}},
+        ):
+            with pytest.raises(HandlerError, match="ack_version"):
+                handlers.brc_ack(
+                    {
+                        "pipeline_id": "issue-42",
+                        "role": "reviewer_code",
+                        "producer_role": "coder",
+                        "reason": "Reviewed src/auth.py over fifty chars to satisfy the validator",
+                        "files_reviewed": ["src/auth.py"],
+                    }
+                )
+
+    def test_zero_ack_version_raises(self):
+        """v0 means no proposal exists yet — handler must reject."""
+        from egg_agent_tools.handlers import brc as handlers
+        from egg_agent_tools.handlers.errors import HandlerError
+
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value={"success": True, "data": {}},
+        ):
+            with pytest.raises(HandlerError, match=r"v0 means no proposal exists yet"):
+                handlers.brc_ack(
+                    {
+                        "pipeline_id": "issue-42",
+                        "role": "reviewer_code",
+                        "producer_role": "coder",
+                        "reason": "Reviewed src/auth.py over fifty chars to satisfy the validator",
+                        "files_reviewed": ["src/auth.py"],
+                        "ack_version": 0,
+                    }
+                )
+
+
+class TestNackHandlerThreadsNackVersion:
+    """``brc_nack`` posts the version field to the orchestrator (#2142).
+
+    Mirror of the ACK regression: confirms the CLI builder path threads
+    ``nack_version`` into the wire payload that reaches the version-match
+    guard. Without this, a stale NACK would silently land against the new
+    proposal version instead of being rejected with HTTP 409.
+    """
+
+    def test_payload_includes_nack_version(self):
+        from egg_agent_tools.handlers import brc as handlers
+
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value={"success": True, "data": {}},
+        ) as mock_request:
+            handlers.brc_nack(
+                {
+                    "pipeline_id": "issue-42",
+                    "role": "reviewer_code",
+                    "producer_role": "coder",
+                    "reason": "src/auth.py:42 raises on empty input — substantive blocker over fifty chars",
+                    "files_reviewed": ["src/auth.py"],
+                    "nack_version": 9,
+                }
+            )
+
+        assert mock_request.called
+        data = mock_request.call_args.kwargs["data"]
+        assert data["payload"]["nack_version"] == 9
+
+    def test_missing_nack_version_raises(self):
+        from egg_agent_tools.handlers import brc as handlers
+        from egg_agent_tools.handlers.errors import HandlerError
+
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value={"success": True, "data": {}},
+        ):
+            with pytest.raises(HandlerError, match="nack_version"):
+                handlers.brc_nack(
+                    {
+                        "pipeline_id": "issue-42",
+                        "role": "reviewer_code",
+                        "producer_role": "coder",
+                        "reason": "src/auth.py:42 raises — substantive blocker text comfortably over the threshold",
+                        "files_reviewed": ["src/auth.py"],
+                    }
+                )
+
+    def test_zero_nack_version_raises(self):
+        """v0 means no proposal exists yet — handler must reject."""
+        from egg_agent_tools.handlers import brc as handlers
+        from egg_agent_tools.handlers.errors import HandlerError
+
+        with patch(
+            "egg_agent_tools.handlers.brc.orchestrator_request",
+            return_value={"success": True, "data": {}},
+        ):
+            with pytest.raises(HandlerError, match=r"v0 means no proposal exists yet"):
+                handlers.brc_nack(
+                    {
+                        "pipeline_id": "issue-42",
+                        "role": "reviewer_code",
+                        "producer_role": "coder",
+                        "reason": "src/auth.py:42 raises — substantive blocker text comfortably over the threshold",
+                        "files_reviewed": ["src/auth.py"],
+                        "nack_version": 0,
+                    }
+                )
+
+
+class TestProposalVersionArgparseType:
+    """``--ack-version`` / ``--nack-version`` reject v=0 and non-integers at parse time.
+
+    Defense-in-depth alongside the handler-side ``_require_version_int``
+    check: surfacing the ``>= 1`` constraint at argparse keeps ``--help``
+    accurate and rejects the bad value before payload construction (#2142).
+    """
+
+    def _ack_argv(self, version: str) -> list[str]:
+        return [
+            "consensus",
+            "ack",
+            "coder",
+            "issue-42",
+            "--files-reviewed",
+            "src/a.py",
+            "--reason",
+            "Reviewed src/a.py: substantive multi-file review well over fifty chars",
+            "--ack-version",
+            version,
+        ]
+
+    def _nack_argv(self, version: str) -> list[str]:
+        return [
+            "consensus",
+            "nack",
+            "coder",
+            "issue-42",
+            "--files-reviewed",
+            "src/a.py",
+            "--reason",
+            "src/a.py:42 raises on empty input — substantive blocker over fifty chars",
+            "--nack-version",
+            version,
+        ]
+
+    def test_ack_version_zero_rejected_at_parse_time(self, capsys):
+        parser = create_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(self._ack_argv("0"))
+        assert exc_info.value.code != 0
+        err = capsys.readouterr().err
+        assert "v0 means no proposal exists yet" in err
+
+    def test_nack_version_zero_rejected_at_parse_time(self, capsys):
+        parser = create_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(self._nack_argv("0"))
+        assert exc_info.value.code != 0
+        err = capsys.readouterr().err
+        assert "v0 means no proposal exists yet" in err
+
+    def test_ack_version_negative_rejected_at_parse_time(self):
+        parser = create_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(self._ack_argv("-1"))
+        assert exc_info.value.code != 0
+
+    def test_ack_version_non_integer_rejected_at_parse_time(self):
+        parser = create_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(self._ack_argv("abc"))
+        assert exc_info.value.code != 0
+
+    def test_nack_version_negative_rejected_at_parse_time(self):
+        parser = create_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(self._nack_argv("-1"))
+        assert exc_info.value.code != 0
+
+    def test_nack_version_non_integer_rejected_at_parse_time(self):
+        parser = create_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(self._nack_argv("abc"))
+        assert exc_info.value.code != 0
+
+
+class TestRenderStaleVersionRejection:
+    """``_render_stale_version_rejection`` labels the producer correctly (#2142).
+
+    Regression for the bug where the rendered message read
+    ``producer <reviewer> is at v...`` because the formatter pulled from
+    ``rejection.reviewer`` instead of the snapshot's ``producer`` field.
+    The fix reads ``current_proposal.producer`` (with the response's
+    ``producer_role`` as fallback) so operators see the correct actor.
+    """
+
+    @staticmethod
+    def _stale_response(
+        producer: str = "coder", reviewer: str = "reviewer_security"
+    ) -> dict[str, Any]:
+        return {
+            "status": "stale_version",
+            "producer_role": producer,
+            "rejection": {
+                "reviewer": reviewer,
+                "current_proposal": {
+                    "producer": producer,
+                    "version": 7,
+                    "commit_sha": "deadbeef",
+                    "artifacts": ["src/a.py", "src/b.py"],
+                },
+            },
+        }
+
+    def test_stderr_labels_producer_not_reviewer(self, capsys):
+        """The rendered line names the producer, not the reviewer."""
+        from egg_lib.orch_cli import _render_stale_version_rejection
+
+        args = argparse.Namespace(json=False)
+        rc = _render_stale_version_rejection(args, self._stale_response(), "ACK")
+        assert rc == 2
+        err = capsys.readouterr().err
+        assert "producer coder is at v7" in err
+        assert "reviewer_security" not in err
+
+    def test_json_output_emits_rejection_envelope(self, capsys):
+        """--json prints the rejection envelope verbatim (no producer label issue)."""
+        from egg_lib.orch_cli import _render_stale_version_rejection
+
+        args = argparse.Namespace(json=True)
+        resp = self._stale_response()
+        rc = _render_stale_version_rejection(args, resp, "NACK")
+        assert rc == 2
+        import json as _json
+
+        out = capsys.readouterr().out
+        parsed = _json.loads(out)
+        assert parsed == resp["rejection"]
+
+    def test_falls_back_to_response_producer_role(self, capsys):
+        """If snapshot omits ``producer``, fall back to ``producer_role``."""
+        from egg_lib.orch_cli import _render_stale_version_rejection
+
+        resp = self._stale_response()
+        # Drop the snapshot's ``producer`` field — fallback must engage.
+        del resp["rejection"]["current_proposal"]["producer"]
+        args = argparse.Namespace(json=False)
+        _render_stale_version_rejection(args, resp, "ACK")
+        err = capsys.readouterr().err
+        assert "producer coder is at v7" in err
+
+    def test_cmd_consensus_ack_renders_stale_version(self, capsys):
+        """End-to-end: cmd_consensus_ack routes a stale_version response to the renderer."""
+        from egg_lib import orch_cli
+
+        args = argparse.Namespace(
+            pipeline_id="issue-42",
+            role="reviewer_security",
+            producer_role="coder",
+            reason="Reviewed src/a.py over fifty chars to satisfy the validator",
+            files_reviewed=["src/a.py"],
+            pre_merge_condition="",
+            ack_version=3,
+            json=False,
+        )
+        resp = self._stale_response()
+        with patch("egg_agent_tools.handlers.brc.brc_ack", return_value=resp):
+            rc = orch_cli.cmd_consensus_ack(args)
+        assert rc == 2
+        err = capsys.readouterr().err
+        assert "ACK rejected: producer coder is at v7" in err
+        assert "reviewer_security" not in err
+
+
+class TestMessagePollEmptyBody:
     @patch("egg_lib.orch_cli.orch_request")
     def test_empty_body_not_printed(self, mock_request, capsys):
         """Messages with empty bodies don't produce extra blank lines."""

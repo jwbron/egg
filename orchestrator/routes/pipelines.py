@@ -7914,8 +7914,20 @@ def _build_brc_preamble(
                 "The `--summary` must be ≥50 chars of substantive content describing what was "
                 "built, what was tested, and which contract tasks it satisfies. "
                 "Boilerplate like 'looks good' or 'approved' will be rejected.",
-                "4. **RESPOND TO REVIEWS**: Poll for ACK/NACK from reviewers. "
-                "Handle NACKs by fixing issues and re-proposing.",
+                "4. **RESPOND TO REVIEWS**: Poll for ACK/NACK from reviewers via "
+                "`egg-orch message wait-loop`. On the first NACK, start fixing "
+                "immediately — don't wait. **Aggregation is enforced by the "
+                "orchestrator, not by you (#2142):** when **two or more distinct "
+                "reviewers** have NACKed the current version and you call "
+                "`egg-orch consensus propose --changed-artifacts ...` (re-propose), "
+                "the call is rejected with HTTP 409 and the response `details` "
+                "inline every unresolved NACK (reviewer, reason, artifact_refs). "
+                "A single-reviewer NACK does **not** trigger the barrier — there "
+                "is nothing to aggregate, so re-propose proceeds normally. Read "
+                "every NACK in the rejection, fix them all, and re-propose again "
+                "— the retry succeeds once you've been informed of the full set. "
+                "Don't re-propose addressing only one reviewer's NACK; the "
+                "orchestrator will kick you back with the rest.",
                 "5. **CONFIRM**: When all reviewers ACK: `egg-orch consensus confirmed`",
                 "6. **STAY ALIVE**: Block on the next BRC event with "
                 "`egg-orch message wait-loop --for CONSENSUS_CONFIRMED "
@@ -7972,11 +7984,18 @@ def _build_brc_preamble(
                 "the referenced code artifacts. Read the actual files — do not rely "
                 "solely on the proposal summary.",
                 "5. **ACK/NACK**: Your `--reason` IS your review. Put your **full analysis** "
-                "there — this is what the producer reads and acts on.\n"
+                "there — this is what the producer reads and acts on. **Always "
+                "pass `--ack-version` / `--nack-version`** with the producer's "
+                "current proposal version (#2142) — read it from the "
+                "`CONSENSUS_PROPOSE` message that triggered your review (the "
+                "`version` field). The orchestrator rejects the verdict with "
+                "`stale_version` if the producer has re-proposed since you "
+                "started reviewing.\n"
                 "\n"
                 "   **NACK format** (use when blocking issues exist):\n"
                 "   ```\n"
-                '   egg-orch consensus nack <role> --files-reviewed "f1" "f2" --reason "\n'
+                '   egg-orch consensus nack <role> --files-reviewed "f1" "f2" '
+                '--nack-version <N> --reason "\n'
                 "   ### Blocking\n"
                 "   1. **file.py:123** — Description of the issue. Fix: suggested fix.\n"
                 "   2. **file.py:456** — Description of the issue. Fix: suggested fix.\n"
@@ -7987,7 +8006,8 @@ def _build_brc_preamble(
                 "\n"
                 "   **ACK format** (use when no blocking issues):\n"
                 "   ```\n"
-                '   egg-orch consensus ack <role> --files-reviewed "f1" "f2" --reason "\n'
+                '   egg-orch consensus ack <role> --files-reviewed "f1" "f2" '
+                '--ack-version <N> --reason "\n'
                 "   Reviewed [N files / specific areas]. Verified [what was checked].\n"
                 "   [Specific observations about correctness, security, etc.]\n"
                 "   ### Non-blocking\n"
@@ -8008,13 +8028,24 @@ def _build_brc_preamble(
                 "   Example:\n"
                 "   ```\n"
                 '   egg-orch consensus ack <role> --files-reviewed "f1" '
-                '--reason "Code is correct but …" '
+                '--ack-version <N> --reason "Code is correct but …" '
                 '--pre-merge-condition "A human must `git mv legacy/x '
                 'new/x` before merging — agents cannot push renames through"\n'
                 "   ```\n"
                 "\n"
                 "   `--reason` must be ≥50 chars of substantive content. "
-                "Boilerplate like 'lgtm' or 'no issues' will be rejected.",
+                "Boilerplate like 'lgtm' or 'no issues' will be rejected.\n"
+                "\n"
+                "   **Stale-version rejection (#2142):** if the producer "
+                "re-proposed while your verdict was in flight, your ACK / "
+                "NACK is rejected with HTTP 409 and the response `details` "
+                "inline the producer's current proposal snapshot "
+                "(`current_proposal.version`, `artifacts`, `commit_sha`). "
+                "Re-fetch (`git fetch && git merge`), re-review against the "
+                "new commit (often a small diff against what you just read), "
+                "and re-submit your verdict. Don't retry blindly with the "
+                "same payload — the orchestrator will reject again until you "
+                "review the current version.",
                 "6. **CONFIRM**: When all assigned producers reviewed: "
                 "`egg-orch consensus confirmed`",
                 "7. **STAY ALIVE**: Block on the next BRC event with "
