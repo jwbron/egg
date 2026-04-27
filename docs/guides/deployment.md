@@ -318,6 +318,27 @@ The k8s Deployment includes liveness and readiness probes on port 9851:
 - Failure threshold: 12
 - Initial delay: 30 seconds
 
+### Orchestrator health
+
+The orchestrator health endpoint (`GET /api/v1/health` on port 9849) always returns HTTP 200 — k8s liveness and readiness probes use `/live` and `/ready` instead. Branch on the `status` field in the JSON body:
+
+```bash
+kubectl exec -n egg-system deploy/orchestrator -- curl -s http://localhost:9849/api/v1/health
+```
+
+Normal response:
+
+```json
+{
+  "status": "healthy",
+  "service": "egg-orchestrator",
+  "components": {"state_store": "ok", "docker": "unknown"},
+  ...
+}
+```
+
+If the state-store worktree is wedged (for example, after a state-volume reset that left a stale `.git/worktrees/` admin dir), `status` becomes `"degraded"` and `components.state_store` shows the underlying git error. The probe is **curative**: each `/api/v1/health` call attempts to remove the stale admin dir and retry `git worktree add`. Under normal conditions the orchestrator recovers without operator intervention within a few poll cycles. See [Orchestrator status: degraded](#orchestrator-status-degraded-state-store-wedge) if degraded persists.
+
 ## Troubleshooting
 
 > **Tip**: For most deployment failures, start with the two diagnostic
@@ -452,6 +473,22 @@ host_gid: 1000  # output of id -g
 If `.git` directories already have root-owned files:
 ```bash
 sudo chown -R $(id -u):$(id -g) ~/repos/*/.git
+```
+
+### Orchestrator status: degraded (state-store wedge)
+
+If `GET /api/v1/health` returns `"status": "degraded"` with a `components.state_store` error mentioning `"is already used by worktree"`, the state branch is pinned by a stale git admin dir — typically left behind after a state-volume reset or a deployment that changed the worktree path.
+
+The health probe self-heals automatically; wait 30–60 seconds and re-check. If `degraded` persists, the self-heal may have failed to match the stale entry. Check orchestrator logs for `State store error` entries:
+
+```bash
+kubectl logs -n egg-system deploy/orchestrator | grep "State store"
+```
+
+If the error recurs across pod restarts, the stale admin dir survived a volume remount. Rolling the orchestrator pod clears the in-memory worktree cache and forces a fresh `_ensure_worktree` call, which re-runs the self-heal path:
+
+```bash
+kubectl rollout restart -n egg-system deploy/orchestrator
 ```
 
 ## Security Considerations
