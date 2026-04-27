@@ -488,11 +488,11 @@ Because k8s probes hit `/api/v1/health` every 10–15s (see [Orchestrator health
 kubectl logs -n egg-system deploy/orchestrator | grep "State store"
 ```
 
-When the self-heal cannot match, the stale admin dir must be removed manually from the persistent state volume. The path is reported in the `components.state_store` error string; resolve it to the matching admin dir under `<repo>/.git/worktrees/<name>/` (the `gitdir` file inside each admin dir points to the worktree it was created for) and `rm -rf` that single admin dir. After removal, the next k8s probe will succeed at `git worktree add` and the orchestrator returns to `healthy` without further action. Rolling the pod is not required and will not help on its own — without removing the admin dir, the wedge reproduces immediately on restart:
+When the self-heal cannot match, the stale admin dir must be removed manually from the volume holding the source repo at `EGG_REPO_PATH` (mounted at `/home/egg/repos` in the local overlay; production deployments should substitute their own `EGG_REPO_PATH`). The state volume at `/home/egg/.egg-state` only holds the worktree itself (`pipeline-worktree-<repo>`) — admin dirs live in the source repo's `.git/worktrees/`. The path is reported in the `components.state_store` error string; resolve it to the matching admin dir under `<repo>/.git/worktrees/<name>/` (the `gitdir` file inside each admin dir points to the worktree it was created for) and `rm -rf` that single admin dir. After removal, the next k8s probe will succeed at `git worktree add` and the orchestrator returns to `healthy` without further action. Rolling the pod is not required and will not help on its own — without removing the admin dir, the wedge reproduces immediately on restart:
 
 ```bash
-# After locating the matching admin dir on the state volume:
-kubectl exec -n egg-system deploy/orchestrator -- rm -rf /home/egg/.egg-state/<repo>/.git/worktrees/<stale-entry>
+# After locating the matching admin dir under EGG_REPO_PATH:
+kubectl exec -n egg-system deploy/orchestrator -- rm -rf /home/egg/repos/<repo>/.git/worktrees/<stale-entry>
 ```
 
 ## Security Considerations
