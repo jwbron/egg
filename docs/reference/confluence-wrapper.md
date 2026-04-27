@@ -71,7 +71,7 @@ When the caller omits `depth` and `limit`, the route applies sensible defaults (
 }
 ```
 
-Calls `ConfluenceClient.get_page_footer_comments(...)`. When `includeReplies=true`, the client follows up with `GET /wiki/api/v2/footer-comments?page-id={id}&depth=all` and merges the nested replies into the response under a normalized envelope (`{"results": [...], "_replies": {...}}`). The v2 endpoint alone returns only top-level footer comments; the secondary call closes that gap. Same post-fetch space-allowlist check as `/page/get`.
+Calls `ConfluenceClient.get_page_footer_comments(...)`. When `includeReplies=true`, the client follows up with `GET /wiki/api/v2/footer-comments?page-id={id}&depth=all` and merges the nested replies into the response under a normalized envelope (`{"results": [...], "_replies": {...}}`). The v2 endpoint alone returns only top-level footer comments; the secondary call closes that gap. Same post-fetch space-allowlist check as `/page/get` — the route fetches the parent page first to resolve `spaceKey`, and **fails closed** with `confluence_space_denied` if the parent fetch errors (transient 5xx, upstream 403, missing credentials) or returns the `not_found` envelope, so a comment body is never shipped without an allowlist match.
 
 ### `POST /api/v1/confluence/page/inline-comments`
 
@@ -94,7 +94,7 @@ Calls `ConfluenceClient.get_page_inline_comments(...)`. The client targets `GET 
 | 404 | 200 empty `results` | `{"results": [], "used_fallback": true}` (page exists, has no inline comments) |
 | 404 | 404 | [`not_found` envelope](#not_found-envelope) with `used_fallback=true` (page genuinely missing) |
 
-Each fallback also emits a `confluence_v1_fallback` audit entry with `{endpoint, v2_status, page_id}` so operators can monitor whether Atlassian has fixed the v2 bug and we can retire the fallback later. Same post-fetch space-allowlist check as `/page/get`.
+Each fallback also emits a `confluence_v1_fallback` audit entry with `{endpoint, v2_status, page_id}` so operators can monitor whether Atlassian has fixed the v2 bug and we can retire the fallback later. Same post-fetch space-allowlist check as `/page/get` — the route fetches the parent page first to resolve `spaceKey`, and **fails closed** with `confluence_space_denied` if the parent fetch errors or returns the `not_found` envelope. The space-allowlist gate runs against the resolved `spaceKey` regardless of which Atlassian API version answered the inline-comments request.
 
 ### `POST /api/v1/confluence/space/pages`
 
@@ -203,10 +203,11 @@ Every successful response body is sanitised by `redact_response(payload)` in `ga
 - Replaces every `accountId` value (at any depth) with `"<redacted>"`.
 - Replaces every `emailAddress` value (at any depth) with `"<redacted>"`.
 - Strips `_links.webui` user-profile URLs — any URL whose path begins with `/people/` or matches an Atlassian user-profile shape. **Page and space `_links.webui` URLs are preserved** — those are addressable resources the agent legitimately needs.
+- Strips `_links.self` URLs that match the Atlassian v2 user-profile shape (`/api/vN/users/{accountId}`). v2 user objects expose `_links.self` pointing at the user-profile API endpoint; this is **defense-in-depth** so a future Atlassian schema change that drops the `accountId` field but keeps the link does not silently start leaking identifiers. Page and space `_links.self` URLs (which point at `/api/vN/pages/...` or `/api/vN/spaces/...`) are preserved.
 
 The walker handles nested ADF mention nodes and `body.atlas_doc_format.content` trees, so the redaction holds for storage-format, ADF, and view-format bodies alike.
 
-If a tenant carries custom Confluence macros, page properties, or fields known to hold PII or secrets beyond the three default keys, file a follow-up to extend the redaction list — the v1 design ships defaults only (refine-phase Q3).
+If a tenant carries custom Confluence macros, page properties, or fields known to hold PII or secrets beyond the four default keys, file a follow-up to extend the redaction list — the v1 design ships defaults only (refine-phase Q3).
 
 ## Error cases
 
@@ -318,10 +319,27 @@ The Confluence wrapper credentials and the Jira wrapper credentials both prefer 
 
 Base-URL derivation:
 
-- If `CONFLUENCE_BASE_URL` is set, the loader uses it verbatim. Operators have already added the `/wiki` suffix.
-- If `CONFLUENCE_BASE_URL` is unset and `ATLASSIAN_BASE_URL` is set, the loader **derives** the Confluence base URL by appending `/wiki` to `ATLASSIAN_BASE_URL`. (Jira's base URL is the bare Atlassian origin; Confluence lives under `/wiki`.)
+- If `ATLASSIAN_BASE_URL` is set, the Confluence loader uses it and **appends `/wiki`** automatically — Confluence Cloud lives at `<tenant>/wiki/...` while Jira lives at the bare origin, so the same `ATLASSIAN_BASE_URL` value covers both services without operator-side suffix juggling.
+- If `ATLASSIAN_BASE_URL` is unset and `CONFLUENCE_BASE_URL` is set, the loader uses `CONFLUENCE_BASE_URL` verbatim — operators must include the `/wiki` suffix in this legacy form.
+
+This precedence (ATLASSIAN-wins, CONFLUENCE as per-key back-compat fallback) is consistent with the Jira loader's per-key behaviour. The same precedence applies to `USERNAME` and `API_TOKEN` independently — `ATLASSIAN_USERNAME` + `CONFLUENCE_BASE_URL` is a valid combination during partial migrations.
 
 The Confluence loader (`gateway/confluence_credentials.py`) and the Jira loader (`gateway/jira_credentials.py`, updated as part of #1931 task 1-5) duplicate the loader skeleton in v1 — extracting a shared `atlassian_credentials.py` helper is tracked as a follow-up backlog item (architect Q4).
+
+## Pre-merge obligation: sandbox script staging
+
+The sandbox-side wrapper (`sandbox/scripts/confluence`) is staged in this PR at `.egg-state/agent-outputs/1931-sandbox-scripts-confluence` rather than at its final on-disk location. Reason: the producer roster's file-boundary policy in `shared/egg_restrictions/patterns.py` wholesale-blocks `sandbox/scripts/` for the coder role (the same posture used for `sandbox/scripts/jira` in [#1556](https://github.com/jwbron/egg/issues/1556)), so the coder cannot push the file to its target path through BRC. The PR adds a `block_exempt_patterns` entry for `sandbox/scripts/confluence` so future re-proposes land directly, but that exemption only takes effect once this PR's `patterns.py` change is live on the gateway pod.
+
+**After merge, a maintainer must:**
+
+```bash
+git mv .egg-state/agent-outputs/1931-sandbox-scripts-confluence \
+       sandbox/scripts/confluence
+chmod +x sandbox/scripts/confluence
+git commit -m "chore: move staged Confluence wrapper to sandbox/scripts/confluence (#1931)"
+```
+
+This is surfaced as a "Pre-merge Obligations" entry on the auto-created PR body via the BRC conditional-ACK mechanism. The wrapper is fully functional in the staged location for review; only the on-disk location changes.
 
 ## Related documentation
 

@@ -202,8 +202,10 @@ CONFLUENCE_API_TOKEN="ATATT3x..."
 
 **Base-URL derivation.** Confluence lives under `/wiki` on Atlassian Cloud:
 
-- If `CONFLUENCE_BASE_URL` is set, the loader uses it verbatim. Operators have already added `/wiki`.
-- If `CONFLUENCE_BASE_URL` is unset and `ATLASSIAN_BASE_URL` is set, the loader **derives** the Confluence base URL by appending `/wiki` to `ATLASSIAN_BASE_URL`. Jira's base URL is the bare Atlassian origin and uses `ATLASSIAN_BASE_URL` verbatim.
+- If `ATLASSIAN_BASE_URL` is set, the loader uses it and **appends `/wiki`** automatically — `ATLASSIAN_BASE_URL` is the bare Atlassian origin shared with Jira (which uses it verbatim).
+- If `ATLASSIAN_BASE_URL` is unset and `CONFLUENCE_BASE_URL` is set, the loader uses `CONFLUENCE_BASE_URL` verbatim — operators must include the `/wiki` suffix when setting the legacy block directly.
+
+This precedence (ATLASSIAN-wins, CONFLUENCE as back-compat fallback) matches the Jira loader's per-key precedence and keeps the two services consistent.
 
 **Loader:** `gateway/confluence_credentials.py` mirrors `gateway/jira_credentials.py` exactly (mtime-based cache refresh, thread-safe singleton, override via `EGG_SECRETS_PATH`). `get_confluence_credentials()` returns a `ConfluenceCredentials` dataclass with `base_url`, `username`, `api_token`, and a `basic_auth_header()` helper that emits the base64-encoded `Basic` header. Missing values raise `ConfluenceCredentialsUnavailable`, which the route layer translates to HTTP 503. `reload_confluence_credentials()` is wired into the gateway's `_reload_all_config()` hook so `POST /api/v1/config/reload` picks up rotated tokens without a process restart, alongside the Jira reload.
 
