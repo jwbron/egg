@@ -712,16 +712,16 @@
           "answer": ""
         }
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-27T19:13:59.406954Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-27T19:20:00.874308Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Confirmed: no auto-retry on 429 for writes (matches v1 _request which restricts retry to GET). Yes — writes should still emit a jira_upstream_rate_limited audit on 429. Since the dedicated write client methods bypass _request's retry loop, the audit must fire from the write methods themselves (operation = jira_ticket_create / jira_ticket_edit / jira_comment_add / jira_issue_link_create) so 429s are still recorded.\", \"Q2\": \"summary: 255 chars (Atlassian default). description: 32 KB (32768 chars). labels: max 30 entries, each up to 50 chars. comment body: 32 KB. customFields map: max 32 entries (matches MAX_FIELDS in v1).\", \"Q3\": \"Idempotency key is sufficient for v1; no existing-issue probe. The idempotency cache (D1) covers the realistic retry window (transient 5xx within minutes); a probe would add upstream latency and a second failure surface for marginal benefit.\", \"Q4\": \"Confirmed: --description / --description-file / --description-stdin (and analogous --body / --body-file / --body-stdin for comment) match expected agent ergonomics. Mirrors gh wrapper conventions.\", \"Q5\": \"Yes — log only structural metadata (field names present, content lengths, label counts). Labels and link type names ARE loggable (operator-controlled, low-PII). Body content (summary, description, comment body) is NEVER logged verbatim.\", \"Q6\": \"Separate test_jira_writes_adversarial.py for adversarial body tests (oversized fields, custom-field smuggling, unknown issuetype, non-allowlisted link type). The per-route 403 grid stays in test_jira_routes.py.\", \"Q7\": \"Confirmed — v1 stays single-tenant exactly as #1556 left it. No multi-tenant work in #1924.\", \"Q8\": \"Confirmed — rollback / compensation is the orchestrator's responsibility. The gateway implements no transactions or compensating actions.\", \"Q9\": \"Reuse _jira_error_from_upstream verbatim for v1. Richer field-level error shapes are a follow-up if #1557 needs them.\"}}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-27T18:38:49.382721Z",
-  "updated_at": "2026-04-27T19:19:44.350877Z",
+  "updated_at": "2026-04-27T19:20:00.904974Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -735,6 +735,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 56,
+  "version": 57,
   "jira_ticket": null
 }
