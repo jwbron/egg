@@ -10,11 +10,33 @@
 # - JQL scope extraction prevents cross-project data access
 #
 # Verbs:
-#   jira ticket get <KEY> [--fields f1,f2]
-#   jira ticket comments <KEY>
-#   jira search <JQL> [--max-results N] [--fields f1,f2] [--next-page-token TOK]
-#   jira execute <METHOD> <PATH> [--query key=val,key2=val2]
-#   jira help
+#   Read (issue #1556 — v1):
+#     jira ticket get <KEY> [--fields f1,f2]
+#     jira ticket comments <KEY>
+#     jira search <JQL> [--max-results N] [--fields f1,f2] [--next-page-token TOK]
+#     jira execute <METHOD> <PATH> [--query key=val,key2=val2]
+#
+#   Write (issue #1924):
+#     jira ticket create   --project KEY --type Task --summary "..."
+#                          [--description "..." | --description-file PATH | --description-stdin]
+#                          [--labels a,b]
+#                          [--parent FOO-1] [--epic-link FOO-2]
+#                          [--idempotency-key K]
+#     jira ticket edit     <KEY>
+#                          [--summary "..."]
+#                          [--description "..." | --description-file PATH | --description-stdin]
+#                          [--labels a,b]                  # replace mode
+#                          [--add-labels x] [--remove-labels y]   # incremental
+#                          [--no-notify]
+#     jira ticket comment add <KEY>
+#                          [--body "..." | --body-file PATH | --body-stdin]
+#                          [--idempotency-key K]
+#     jira link create     --type Blocks --inward FOO-1 --outward FOO-2
+#                          [--comment "..."]
+#                          [--idempotency-key K]
+#
+#   Help:
+#     jira help
 #
 
 set -euo pipefail
@@ -76,7 +98,7 @@ show_usage() {
     cat << 'EOF'
 Usage: jira <command> [options]
 
-Commands:
+Read commands:
   jira ticket get <KEY> [--fields f1,f2]
       Fetch a Jira ticket by key (e.g. ENG-123).
 
@@ -88,6 +110,32 @@ Commands:
 
   jira execute <METHOD> <PATH> [--query key=val,key2=val2]
       Execute a raw read-only Jira REST API call through the gateway.
+
+Write commands (issue #1924):
+  jira ticket create --project KEY --type Task --summary "..."
+                     [--description "..." | --description-file PATH | --description-stdin]
+                     [--labels a,b] [--parent FOO-1] [--epic-link FOO-2]
+                     [--idempotency-key K]
+      Create a new Jira ticket (decision-13: returns key, id, browse_url).
+
+  jira ticket edit <KEY> [--summary "..."]
+                         [--description "..." | --description-file PATH | --description-stdin]
+                         [--labels a,b]                       # replace mode
+                         [--add-labels x] [--remove-labels y] # incremental
+                         [--no-notify]
+      Edit an existing Jira ticket. Replace and incremental label modes
+      are mutually exclusive.
+
+  jira ticket comment add <KEY>
+                          [--body "..." | --body-file PATH | --body-stdin]
+                          [--idempotency-key K]
+      Add a comment to a Jira ticket. Body may be plain text (auto-wrapped
+      to ADF) or pre-built ADF JSON loaded from --body-file / --body-stdin.
+
+  jira link create --type Blocks --inward FOO-1 --outward FOO-2
+                   [--comment "..."] [--idempotency-key K]
+      Create a Jira issue link between two tickets. Both projects must be
+      allowlisted; link type must be in jira.link_types.
 
   jira help
       Show this usage information.
@@ -159,6 +207,52 @@ else:
 " "$tmpfile" "$http_code"
 
     return $?
+}
+
+# --- Body-source helpers (write verbs) ---
+#
+# The write verbs accept three mutually exclusive ways to supply the
+# description / comment body:
+#
+#   --description "...inline..."
+#   --description-file PATH        (slurp the file)
+#   --description-stdin            (read from STDIN)
+#
+# The same trio applies to comments (--body, --body-file, --body-stdin).
+# This helper resolves the trio for a given flag prefix and exits on
+# conflict / missing input.
+#
+# Usage: resolve_body_source <flag-prefix> <inline> <file_path> <stdin_flag>
+# Returns: the resolved body on stdout, or exits non-zero on error.
+resolve_body_source() {
+    local prefix="$1" inline="$2" file_path="$3" stdin_flag="$4"
+    local sources=0
+    [ -n "$inline" ] && sources=$((sources + 1))
+    [ -n "$file_path" ] && sources=$((sources + 1))
+    [ "$stdin_flag" = "1" ] && sources=$((sources + 1))
+
+    if [ "$sources" -gt 1 ]; then
+        echo "ERROR: --${prefix}, --${prefix}-file, and --${prefix}-stdin are mutually exclusive" >&2
+        exit 1
+    fi
+    if [ -n "$inline" ]; then
+        printf '%s' "$inline"
+        return 0
+    fi
+    if [ -n "$file_path" ]; then
+        if [ ! -f "$file_path" ]; then
+            echo "ERROR: --${prefix}-file: '$file_path' not found" >&2
+            exit 1
+        fi
+        cat "$file_path"
+        return 0
+    fi
+    if [ "$stdin_flag" = "1" ]; then
+        cat
+        return 0
+    fi
+    # No source — caller decides whether the field is optional.
+    return 0
 }
 
 # --- Verb handlers ---
@@ -312,6 +406,292 @@ print(json.dumps(body))
     call_gateway "/api/v1/jira/execute" "$payload"
 }
 
+handle_ticket_create() {
+    shift  # consume "create"
+    local project="" type="" summary=""
+    local desc_inline="" desc_file="" desc_stdin=0
+    local labels="" parent="" epic_link="" idempotency_key=""
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --project)
+                shift; project="${1:-}"; shift || true
+                ;;
+            --type)
+                shift; type="${1:-}"; shift || true
+                ;;
+            --summary)
+                shift; summary="${1:-}"; shift || true
+                ;;
+            --description)
+                shift; desc_inline="${1:-}"; shift || true
+                ;;
+            --description-file)
+                shift; desc_file="${1:-}"; shift || true
+                ;;
+            --description-stdin)
+                desc_stdin=1; shift
+                ;;
+            --labels)
+                shift; labels="${1:-}"; shift || true
+                ;;
+            --parent)
+                shift; parent="${1:-}"; shift || true
+                ;;
+            --epic-link)
+                shift; epic_link="${1:-}"; shift || true
+                ;;
+            --idempotency-key)
+                shift; idempotency_key="${1:-}"; shift || true
+                ;;
+            *)
+                echo "ERROR: Unknown flag '$1' for 'jira ticket create'" >&2
+                exit 1
+                ;;
+        esac
+    done
+
+    if [ -z "$project" ] || [ -z "$type" ] || [ -z "$summary" ]; then
+        echo "ERROR: --project, --type, and --summary are required" >&2
+        exit 1
+    fi
+
+    local description
+    description=$(resolve_body_source "description" "$desc_inline" "$desc_file" "$desc_stdin")
+
+    local payload
+    payload=$(DESCRIPTION="$description" python3 -c "
+import json, os, sys
+
+body = {
+    'projectKey': sys.argv[1],
+    'issuetype': sys.argv[2],
+    'summary': sys.argv[3],
+}
+description = os.environ.get('DESCRIPTION', '')
+have_desc = sys.argv[4] == '1'
+labels = sys.argv[5]
+parent = sys.argv[6]
+epic_link = sys.argv[7]
+idempotency_key = sys.argv[8]
+
+if have_desc:
+    body['description'] = description
+if labels:
+    body['labels'] = [s.strip() for s in labels.split(',') if s.strip()]
+if parent:
+    body['parent'] = parent
+if epic_link:
+    body['epicLink'] = epic_link
+if idempotency_key:
+    body['idempotencyKey'] = idempotency_key
+print(json.dumps(body))
+" "$project" "$type" "$summary" \
+    "$([ -n "$desc_inline$desc_file" ] || [ "$desc_stdin" = "1" ] && echo 1 || echo 0)" \
+    "$labels" "$parent" "$epic_link" "$idempotency_key")
+
+    call_gateway "/api/v1/jira/ticket/create" "$payload"
+}
+
+handle_ticket_edit() {
+    shift  # consume "edit"
+    if [ $# -lt 1 ]; then
+        echo "ERROR: Ticket key required. Usage: jira ticket edit <KEY> [...]" >&2
+        exit 1
+    fi
+    local ticket="$1"
+    shift
+
+    local summary="" labels="" add_labels="" remove_labels=""
+    local desc_inline="" desc_file="" desc_stdin=0
+    local notify_users=1   # default true; --no-notify flips to 0
+    local explicit_summary=0 explicit_labels=0 explicit_add=0 explicit_remove=0
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --summary)
+                shift; summary="${1:-}"; explicit_summary=1; shift || true
+                ;;
+            --description)
+                shift; desc_inline="${1:-}"; shift || true
+                ;;
+            --description-file)
+                shift; desc_file="${1:-}"; shift || true
+                ;;
+            --description-stdin)
+                desc_stdin=1; shift
+                ;;
+            --labels)
+                shift; labels="${1:-}"; explicit_labels=1; shift || true
+                ;;
+            --add-labels)
+                shift; add_labels="${1:-}"; explicit_add=1; shift || true
+                ;;
+            --remove-labels)
+                shift; remove_labels="${1:-}"; explicit_remove=1; shift || true
+                ;;
+            --no-notify)
+                notify_users=0; shift
+                ;;
+            *)
+                echo "ERROR: Unknown flag '$1' for 'jira ticket edit'" >&2
+                exit 1
+                ;;
+        esac
+    done
+
+    if [ "$explicit_labels" = "1" ] && { [ "$explicit_add" = "1" ] || [ "$explicit_remove" = "1" ]; }; then
+        echo "ERROR: --labels (replace mode) and --add-labels/--remove-labels (incremental) are mutually exclusive" >&2
+        exit 1
+    fi
+
+    local description
+    description=$(resolve_body_source "description" "$desc_inline" "$desc_file" "$desc_stdin")
+
+    local payload
+    payload=$(DESCRIPTION="$description" python3 -c "
+import json, os, sys
+
+body = {'ticket': sys.argv[1]}
+have_summary = sys.argv[2] == '1'
+have_labels = sys.argv[3] == '1'
+have_add = sys.argv[4] == '1'
+have_remove = sys.argv[5] == '1'
+have_desc = sys.argv[6] == '1'
+notify = sys.argv[7] == '1'
+
+if have_summary:
+    body['summary'] = sys.argv[8]
+if have_desc:
+    body['description'] = os.environ.get('DESCRIPTION', '')
+if have_labels:
+    body['labels'] = [s.strip() for s in sys.argv[9].split(',') if s.strip()]
+if have_add:
+    body['addLabels'] = [s.strip() for s in sys.argv[10].split(',') if s.strip()]
+if have_remove:
+    body['removeLabels'] = [s.strip() for s in sys.argv[11].split(',') if s.strip()]
+body['notifyUsers'] = notify
+print(json.dumps(body))
+" "$ticket" \
+    "$explicit_summary" "$explicit_labels" "$explicit_add" "$explicit_remove" \
+    "$([ -n "$desc_inline$desc_file" ] || [ "$desc_stdin" = "1" ] && echo 1 || echo 0)" \
+    "$notify_users" \
+    "$summary" "$labels" "$add_labels" "$remove_labels")
+
+    call_gateway "/api/v1/jira/ticket/edit" "$payload"
+}
+
+handle_ticket_comment_add() {
+    shift  # consume "add"
+    if [ $# -lt 1 ]; then
+        echo "ERROR: Ticket key required. Usage: jira ticket comment add <KEY> [...]" >&2
+        exit 1
+    fi
+    local ticket="$1"
+    shift
+
+    local body_inline="" body_file="" body_stdin=0 idempotency_key=""
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --body)
+                shift; body_inline="${1:-}"; shift || true
+                ;;
+            --body-file)
+                shift; body_file="${1:-}"; shift || true
+                ;;
+            --body-stdin)
+                body_stdin=1; shift
+                ;;
+            --idempotency-key)
+                shift; idempotency_key="${1:-}"; shift || true
+                ;;
+            *)
+                echo "ERROR: Unknown flag '$1' for 'jira ticket comment add'" >&2
+                exit 1
+                ;;
+        esac
+    done
+
+    if [ -z "$body_inline" ] && [ -z "$body_file" ] && [ "$body_stdin" != "1" ]; then
+        echo "ERROR: comment body is required (--body, --body-file, or --body-stdin)" >&2
+        exit 1
+    fi
+
+    local body_text
+    body_text=$(resolve_body_source "body" "$body_inline" "$body_file" "$body_stdin")
+
+    local payload
+    payload=$(BODY_TEXT="$body_text" python3 -c "
+import json, os, sys
+
+out = {
+    'ticket': sys.argv[1],
+    'body': os.environ.get('BODY_TEXT', ''),
+}
+idempotency_key = sys.argv[2]
+if idempotency_key:
+    out['idempotencyKey'] = idempotency_key
+print(json.dumps(out))
+" "$ticket" "$idempotency_key")
+
+    call_gateway "/api/v1/jira/ticket/comment/add" "$payload"
+}
+
+handle_link_create() {
+    shift  # consume "create"
+    local link_type="" inward="" outward="" comment="" idempotency_key=""
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --type)
+                shift; link_type="${1:-}"; shift || true
+                ;;
+            --inward)
+                shift; inward="${1:-}"; shift || true
+                ;;
+            --outward)
+                shift; outward="${1:-}"; shift || true
+                ;;
+            --comment)
+                shift; comment="${1:-}"; shift || true
+                ;;
+            --idempotency-key)
+                shift; idempotency_key="${1:-}"; shift || true
+                ;;
+            *)
+                echo "ERROR: Unknown flag '$1' for 'jira link create'" >&2
+                exit 1
+                ;;
+        esac
+    done
+
+    if [ -z "$link_type" ] || [ -z "$inward" ] || [ -z "$outward" ]; then
+        echo "ERROR: --type, --inward, and --outward are required" >&2
+        exit 1
+    fi
+
+    local payload
+    payload=$(python3 -c "
+import json, sys
+
+body = {
+    'type': sys.argv[1],
+    'inwardIssue': sys.argv[2],
+    'outwardIssue': sys.argv[3],
+}
+comment = sys.argv[4]
+idempotency_key = sys.argv[5]
+if comment:
+    body['comment'] = comment
+if idempotency_key:
+    body['idempotencyKey'] = idempotency_key
+print(json.dumps(body))
+" "$link_type" "$inward" "$outward" "$comment" "$idempotency_key")
+
+    call_gateway "/api/v1/jira/issue-link/create" "$payload"
+}
+
 # --- Main dispatch ---
 
 if [ $# -lt 1 ]; then
@@ -323,7 +703,7 @@ case "$1" in
     ticket)
         shift
         if [ $# -lt 1 ]; then
-            echo "ERROR: Missing ticket subcommand. Usage: jira ticket get|comments <KEY>" >&2
+            echo "ERROR: Missing ticket subcommand. Usage: jira ticket get|comments|create|edit|comment <KEY>" >&2
             exit 1
         fi
         case "$1" in
@@ -333,8 +713,22 @@ case "$1" in
             comments)
                 handle_ticket_comments "$@"
                 ;;
+            create)
+                handle_ticket_create "$@"
+                ;;
+            edit)
+                handle_ticket_edit "$@"
+                ;;
+            comment)
+                shift  # consume "comment"
+                if [ $# -lt 1 ] || [ "$1" != "add" ]; then
+                    echo "ERROR: Missing 'add' subcommand. Usage: jira ticket comment add <KEY> [...]" >&2
+                    exit 1
+                fi
+                handle_ticket_comment_add "$@"
+                ;;
             *)
-                echo "ERROR: Unknown ticket subcommand '$1'. Use: get, comments" >&2
+                echo "ERROR: Unknown ticket subcommand '$1'. Use: get, comments, create, edit, comment" >&2
                 exit 1
                 ;;
         esac
@@ -347,12 +741,20 @@ case "$1" in
         shift
         handle_execute "$@"
         ;;
+    link)
+        shift
+        if [ $# -lt 1 ] || [ "$1" != "create" ]; then
+            echo "ERROR: Missing 'create' subcommand. Usage: jira link create --type ... --inward ... --outward ..." >&2
+            exit 1
+        fi
+        handle_link_create "$@"
+        ;;
     help|--help|-h)
         show_usage
         exit 0
         ;;
     *)
-        echo "ERROR: Unknown command '$1'. Use: ticket, search, execute, help" >&2
+        echo "ERROR: Unknown command '$1'. Use: ticket, search, execute, link, help" >&2
         exit 1
         ;;
 esac
