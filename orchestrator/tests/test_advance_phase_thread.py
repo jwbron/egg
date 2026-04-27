@@ -9,6 +9,7 @@ first iteration takes down the whole pipeline along with the dying thread
 """
 
 import inspect
+import re
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -259,19 +260,23 @@ class TestAutoAdvanceRespawnsThread:
     the manual path end-to-end via Flask).
     """
 
+    # Explicit token that brackets the auto-advance block.  Tests grep
+    # for this rather than free-text comment prose so refactoring the
+    # surrounding wording does not silently lose coverage.  If the block
+    # is moved or removed, update both the source marker and this token.
+    _BLOCK_MARKER = "TEST_MARKER: auto_advance_block"
+
     def _auto_advance_block(self) -> str:
         """Extract the auto-advance block from _run_pipeline's source."""
         from routes import pipelines
 
         source = inspect.getsource(pipelines._run_pipeline)
-        # The block lives between the "Advance to next phase" comment and
-        # the surrounding except clause.
-        marker = "Advance to next phase by respawning"
-        assert marker in source, (
-            "Could not find auto-advance marker in _run_pipeline source. "
-            "Tests rely on this marker being present."
+        assert self._BLOCK_MARKER in source, (
+            f"Could not find {self._BLOCK_MARKER!r} in _run_pipeline source. "
+            "Tests rely on this token bracketing the auto-advance block; "
+            "if the block was moved or removed, update both source and tests."
         )
-        idx = source.index(marker)
+        idx = source.index(self._BLOCK_MARKER)
         # Take a generous window so the block including the return is included.
         return source[idx : idx + 2000]
 
@@ -290,10 +295,12 @@ class TestAutoAdvanceRespawnsThread:
 
     def test_auto_advance_returns_after_spawn(self):
         block = self._auto_advance_block()
-        spawn_idx = block.index("_spawn_pipeline_run_thread(")
-        # The next non-empty line after the spawn call should be ``return``.
-        tail = block[spawn_idx:]
-        assert "\n            return\n" in tail, (
+        # Indentation-tolerant: spawn call followed by a bare ``return`` on
+        # the next non-blank line at any matching indent level.
+        assert re.search(
+            r"_spawn_pipeline_run_thread\([^)]*\)\s*\n\s*return\b",
+            block,
+        ), (
             "Auto-advance must return after spawning so the current "
             "thread's finally block runs (and skips worktree cleanup via "
             "epoch mismatch)."

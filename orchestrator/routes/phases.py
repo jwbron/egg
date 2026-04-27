@@ -388,7 +388,7 @@ def advance_phase(pipeline_id: str) -> tuple[Response, int]:
             # Bump run_epoch so any stale _run_pipeline thread from the
             # previous phase detects the advance and exits gracefully.
             pipeline.run_epoch = datetime.now(UTC)
-            pipeline.updated_at = datetime.now(UTC)
+            # ``updated_at`` is unconditionally set by ``StateStore.save_pipeline``.
 
             # Save updated pipeline with optimistic locking
             store.save_pipeline(pipeline, expected_version=original_version)

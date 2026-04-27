@@ -2625,13 +2625,7 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
     agents_to_restart = [role.value for role in agent_roles]
     repo_path_for_thread = store.repo_path
 
-    thread = threading.Thread(
-        target=_run_pipeline,
-        args=(pipeline_id, repo_path_for_thread),
-        daemon=True,
-        name=f"pipeline-{pipeline_id}-{int(datetime.now(UTC).timestamp())}",
-    )
-    thread.start()
+    _spawn_pipeline_run_thread(pipeline_id, repo_path_for_thread, pipeline.run_epoch)
 
     logger.info(
         "Phase restarted",
@@ -11398,10 +11392,19 @@ def _spawn_pipeline_run_thread(
 ) -> threading.Thread:
     """Spawn a fresh ``_run_pipeline`` driver thread.
 
-    Used by ``advance_phase`` and the auto-advance block in ``_run_pipeline``
-    so both paths spawn threads with identical naming and lifecycle. Without
-    a fresh thread per phase, a mid-execution exception in the new phase's
-    first iteration takes down the whole pipeline (#2165).
+    Callers (all use the ``pipeline-{id}-{epoch}`` naming scheme):
+
+    - ``advance_phase`` (manual phase advance via REST)
+    - ``restart_phase`` (manual phase restart via REST)
+    - the auto-advance block in ``_run_pipeline`` (#2165)
+
+    The other ``_run_pipeline`` thread spawn sites — ``start_pipeline``'s
+    initial-spawn and AWAITING_HUMAN-recovery paths, plus the spurious-PNFE
+    respawn inside ``_run_pipeline`` — use different naming or take extra
+    kwargs (e.g. ``_respawn_attempt``) and are deliberately left inline.
+
+    Without a fresh thread per phase, a mid-execution exception in the new
+    phase's first iteration takes down the whole pipeline (#2165).
     """
     thread = threading.Thread(
         target=_run_pipeline,
@@ -13285,6 +13288,9 @@ def _run_pipeline(
                 )
                 break
 
+            # TEST_MARKER: auto_advance_block (load-bearing: brackets the
+            # block for TestAutoAdvanceRespawnsThread; do not remove without
+            # updating that test class).
             # Advance to next phase by respawning a fresh _run_pipeline
             # thread, mirroring advance_phase (#2165).  Bumping run_epoch
             # makes this thread's finally cleanup detect itself as superseded
@@ -13296,7 +13302,7 @@ def _run_pipeline(
                 pipeline = store.load_pipeline(pipeline_id)
                 pipeline.current_phase = next_phase
                 pipeline.run_epoch = datetime.now(UTC)
-                pipeline.updated_at = datetime.now(UTC)
+                # ``updated_at`` is unconditionally set by ``StateStore.save_pipeline``.
                 store.save_pipeline(pipeline, force_commit=(pipeline.issue_number is None))
 
             logger.info(
