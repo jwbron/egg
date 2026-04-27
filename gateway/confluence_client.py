@@ -358,12 +358,28 @@ def _is_user_profile_link(value: Any) -> bool:
     return _USER_PROFILE_WEBUI_RE.search(value) is not None
 
 
+# v2 user objects expose ``_links.self`` pointing at
+# ``/wiki/api/v2/users/{accountId}``.  Strip them defensively so a future
+# Atlassian schema change that drops the ``accountId`` field but keeps
+# ``_links.self`` doesn't silently start leaking identifiers (reviewer_security
+# non-blocking note, issue #1931).
+_USER_PROFILE_SELF_RE = re.compile(r"/api/v\d+/users/")
+
+
+def _is_user_profile_self_link(value: Any) -> bool:
+    if not isinstance(value, str) or not value:
+        return False
+    return _USER_PROFILE_SELF_RE.search(value) is not None
+
+
 def redact_response(payload: Any) -> Any:
     """Walk ``payload`` and strip user-identifying fields in-place.
 
     - ``accountId`` / ``emailAddress`` keys at any depth → ``"<redacted>"``
     - ``_links.webui`` URLs that look like user profile links →
       ``"<redacted>"``
+    - ``_links.self`` URLs that point at ``/api/vN/users/...`` →
+      ``"<redacted>"`` (defense-in-depth against future schema drift).
     - Page / space ``_links.webui`` URLs are preserved.
 
     The walker mutates dicts in place and returns the same object (for
@@ -378,6 +394,9 @@ def redact_response(payload: Any) -> Any:
                 webui = value.get("webui")
                 if _is_user_profile_link(webui):
                     value["webui"] = _REDACTED_VALUE
+                self_link = value.get("self")
+                if _is_user_profile_self_link(self_link):
+                    value["self"] = _REDACTED_VALUE
                 # Walk into the rest of _links so nested user-profile
                 # references inside ``self`` etc. still get scrubbed.
                 redact_response(value)
@@ -649,6 +668,7 @@ class ConfluenceClient:
         """
         page_id = _validate_page_id(page_id)
         formats = _validate_body_format(body_format) or list(DEFAULT_BODY_FORMAT)
+        self._log_default_body_format(formats)
         query: dict[str, Any] = {"body-format": ",".join(formats)}
         if limit is not None:
             query["limit"] = limit
@@ -710,6 +730,7 @@ class ConfluenceClient:
         """
         page_id = _validate_page_id(page_id)
         formats = _validate_body_format(body_format) or list(DEFAULT_BODY_FORMAT)
+        self._log_default_body_format(formats)
         query: dict[str, Any] = {"body-format": ",".join(formats)}
         if limit is not None:
             query["limit"] = limit
@@ -802,6 +823,7 @@ class ConfluenceClient:
         """List pages in a Confluence space (by numeric space id, v2)."""
         space_id = _validate_space_id(space_id)
         formats = _validate_body_format(body_format) or list(DEFAULT_BODY_FORMAT)
+        self._log_default_body_format(formats)
         query: dict[str, Any] = {"body-format": ",".join(formats)}
         if limit is not None:
             query["limit"] = limit

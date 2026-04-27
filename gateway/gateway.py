@@ -4946,7 +4946,15 @@ def _resolve_space_key_via_list(allowed: frozenset[str], space_id: str | None) -
     # Force a fetch so the cache is hot for the next request.
     try:
         client.list_spaces(allowed_spaces=allowed)
-    except (ConfluenceCredentialsUnavailable, ConfluenceUpstreamError):
+    except (
+        ConfluenceCredentialsUnavailable,
+        ConfluenceUpstreamError,
+        ConfluenceUpstreamForbidden,
+    ):
+        # Forbidden on /wiki/api/v2/spaces (bot lacks space:read globally)
+        # is not its own ConfluenceUpstreamError subclass — catch it here
+        # so the outer post-fetch check fail-closes through
+        # confluence_space_denied rather than leaking a Flask 500.
         return None
     return client.space_cache.key_for_id(str(space_id))
 

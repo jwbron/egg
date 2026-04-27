@@ -163,16 +163,21 @@ class ConfluenceCredentialsManager:
             or (secrets.get("CONFLUENCE_API_TOKEN") or "").strip()
         )
 
-        # Base URL derivation — CONFLUENCE_BASE_URL wins when set (operators
-        # have already added /wiki).  Otherwise derive from ATLASSIAN_BASE_URL
-        # by appending /wiki.
+        # Base URL derivation (decision F1, per-key precedence): ATLASSIAN
+        # wins when set; CONFLUENCE_BASE_URL is the back-compat fallback used
+        # only when ATLASSIAN_BASE_URL is empty.  When ATLASSIAN wins, append
+        # ``/wiki`` because Confluence Cloud lives at <tenant>/wiki/...; when
+        # CONFLUENCE_BASE_URL wins, use it verbatim because operators have
+        # already added the ``/wiki`` suffix.  This matches the per-key
+        # precedence shape used for username and api_token below, and matches
+        # the equivalent loader in gateway/jira_credentials.py.
         base_source: str
-        if confluence_base:
-            base_url = confluence_base
-            base_source = "CONFLUENCE_BASE_URL"
-        elif atlassian_base:
+        if atlassian_base:
             base_url = f"{atlassian_base}/wiki"
             base_source = "ATLASSIAN_BASE_URL+/wiki"
+        elif confluence_base:
+            base_url = confluence_base
+            base_source = "CONFLUENCE_BASE_URL"
         else:
             base_url = ""
             base_source = ""

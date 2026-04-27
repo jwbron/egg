@@ -265,6 +265,12 @@ CODER_PATTERNS = AgentFilePattern(
         # gateway REST endpoint — never holds credentials locally) and is
         # the only addition permitted under the broader block.
         "sandbox/scripts/jira",
+        # Confluence sandbox wrapper — new in #1931.  Same rationale as the
+        # Jira wrapper above: bash wrapper that POSTs to /api/v1/confluence/*
+        # — never holds credentials locally.  Adding the exemption here
+        # means future re-proposes of the Confluence wrapper land under the
+        # coder role without manual intervention.
+        "sandbox/scripts/confluence",
     ],
 )
 

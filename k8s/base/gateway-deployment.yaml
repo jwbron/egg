@@ -53,9 +53,21 @@ spec:
             # Credential keys discovered in secrets.env (no new mount needed):
             #   ANTHROPIC_API_KEY / CLAUDE_CODE_OAUTH_TOKEN   — gateway/anthropic_credentials.py
             #   GITHUB_TOKEN / GITHUB_READONLY_TOKEN / GITHUB_USER_TOKEN — gateway/git_client.py
-            #   JIRA_BASE_URL / JIRA_USERNAME / JIRA_API_TOKEN — gateway/jira_credentials.py (issue #1556)
+            #   ATLASSIAN_BASE_URL / ATLASSIAN_USERNAME / ATLASSIAN_API_TOKEN
+            #     — recommended primary triple for both Jira and Confluence (issue #1931).
+            #     The shared Atlassian bot account covers both services; legacy
+            #     JIRA_* / CONFLUENCE_* triples remain as per-key back-compat fallbacks.
+            #   JIRA_BASE_URL / JIRA_USERNAME / JIRA_API_TOKEN — gateway/jira_credentials.py
+            #     (issue #1556 — fallback when ATLASSIAN_* is unset for that key).
+            #   CONFLUENCE_BASE_URL / CONFLUENCE_USERNAME / CONFLUENCE_API_TOKEN
+            #     — gateway/confluence_credentials.py (issue #1931 — fallback when
+            #     ATLASSIAN_* is unset for that key; CONFLUENCE_BASE_URL must include
+            #     the /wiki suffix while ATLASSIAN_BASE_URL has /wiki appended
+            #     automatically).
             # The Jira project allowlist lives alongside the gateway config
-            # at config/context-filters.yaml (jira.projects).
+            # at config/context-filters.yaml (jira.projects); the Confluence
+            # space allowlist lives at config/context-filters.yaml
+            # (confluence.spaces).
             - name: EGG_CONFIG_DIR
               value: "/secrets"
             - name: EGG_SECRETS_PATH
