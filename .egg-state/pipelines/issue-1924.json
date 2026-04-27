@@ -364,10 +364,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-12",
+      "question": "Phase gating for writes (Open Q11) — restrict per SDLC phase?",
+      "context": "Open contract question decision-11, registered by an agent during the refine phase.",
+      "options": [
+        "Unrestricted across phases",
+        "Per-phase verb allowlist via gateway/phase_filter.py",
+        "Defer to a follow-up issue",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-27T19:13:58.739371Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-27T18:38:49.382721Z",
-  "updated_at": "2026-04-27T19:13:58.692030Z",
+  "updated_at": "2026-04-27T19:13:58.763968Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -381,6 +400,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 22,
+  "version": 23,
   "jira_ticket": null
 }
