@@ -160,10 +160,10 @@
     },
     "plan": {
       "phase": "plan",
-      "status": "running",
+      "status": "complete",
       "started_at": "2026-04-26T23:42:49.122951Z",
       "work_started_at": "2026-04-26T23:42:49.272753Z",
-      "completed_at": null,
+      "completed_at": "2026-04-27T00:10:18.824740Z",
       "containers": [],
       "agents": [],
       "review_cycles": 0,
@@ -527,7 +527,7 @@
     }
   ],
   "created_at": "2026-04-26T23:05:30.164689Z",
-  "updated_at": "2026-04-27T00:10:18.658721Z",
+  "updated_at": "2026-04-27T00:10:18.824815Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -541,6 +541,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 47,
+  "version": 48,
   "jira_ticket": null
 }
