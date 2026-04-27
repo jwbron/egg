@@ -112,6 +112,14 @@ Pipeline sessions are locked to their assigned worktree branch. The gateway bloc
 - `Branch switching is not allowed in pipeline sessions. You are locked to branch '<branch>'.` (HTTP 403)
 - `Off-lineage 'git reset' is not allowed in pipeline sessions. Target ref '<ref>' is not an ancestor of HEAD on your assigned branch '<branch>'. To incorporate new commits from the remote, use 'git rebase origin/<branch>' instead.` (HTTP 403)
 
+**Detached-HEAD recovery:** If an agent commits while HEAD is detached, the gateway appends a recovery hint to the `git commit` response (both success and failure):
+```
+[gateway] HEAD is detached. Your commit is not on branch '<assigned>'.
+To set the branch to this commit, run:
+  git update-ref refs/heads/<assigned> HEAD
+```
+`git update-ref` is allowed in pipeline sessions but scoped to `refs/heads/<assigned_branch>` only. The gateway force-prepends `--no-deref` and rejects any attempt to update a different ref or use flags like `--stdin` / `-d` / `-z`. (Issue #2162)
+
 ### Push-Target Enforcement (Pipeline Sessions)
 
 Pipeline sessions must push only to their assigned branch. This prevents agents from improvising branch names when a push fails (e.g., pushing to `egg/issue-42-refine` instead of `egg/issue-42/work`), which would leave commits on an unexpected branch and break pipeline state tracking.
