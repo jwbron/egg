@@ -1841,9 +1841,7 @@ def cmd_overseer_consult_advisor(args: argparse.Namespace) -> int:
                 status = OrchClient().get_pipeline_status(quote(pid, safe=""))
                 cfg_dict = status.get("config") if isinstance(status, dict) else None
                 model = (
-                    cfg_dict.get("overseer_advisor_model")
-                    if isinstance(cfg_dict, dict)
-                    else None
+                    cfg_dict.get("overseer_advisor_model") if isinstance(cfg_dict, dict) else None
                 )
                 if model:
                     advisor_config = SimpleNamespace(overseer_advisor_model=model)
