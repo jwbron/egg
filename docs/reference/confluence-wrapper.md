@@ -171,14 +171,23 @@ The extractor is the hard boundary — if it cannot prove the query is scoped to
 Only `GET` is accepted. The `path` is validated against a hardened regex allowlist in `validate_confluence_api_path`:
 
 - Leading/trailing slashes are stripped, query strings are stripped, `..` segments are rejected, duplicate slashes are rejected, non-ASCII / non-normalized Unicode is rejected, URL-encoded smuggling (e.g., `%61ttachments`) is rejected.
-- Allowed path families (GET-only): `^api/v2/pages/\d+$`, `^api/v2/pages/\d+/descendants$`, `^api/v2/pages/\d+/footer-comments$`, `^api/v2/pages/\d+/inline-comments$`, `^api/v2/footer-comments$`, `^api/v2/inline-comments$`, `^api/v2/spaces$`, `^api/v2/spaces/\d+/pages$`, `^rest/api/search$`, `^rest/api/content/\d+/child/comment$` (the v1 fallback for inline comments).
+- Allowed path families (GET-only, all carry an inline id): `^api/v2/pages/\d+$`, `^api/v2/pages/\d+/descendants$`, `^api/v2/pages/\d+/footer-comments$`, `^api/v2/pages/\d+/inline-comments$`, `^api/v2/spaces/\d+/pages$`, `^rest/api/content/\d+/child/comment$` (the v1 fallback for inline comments). The four flat-v2 endpoints (`api/v2/footer-comments`, `api/v2/inline-comments`, `api/v2/spaces`, `rest/api/search`) are **deliberately excluded** — see the [Anti-bypass invariant](#anti-bypass-invariant) below.
 - Any path containing `restrictions`, `permissions`, `space.admin`, `users`, or `attachments` is rejected — these are the permanent "out of scope ever" verbs (decision 12). The `CONFLUENCE_DENIED_VERBS` frozenset checks for the term in any path position so `pages/123/attachments` is refused as well.
 
-For path families that target a specific resource (`pages/{id}`), the post-fetch space-allowlist check runs once the upstream response arrives, identical to the narrow routes. For families that don't carry an obvious `spaceId` in the response (e.g., `api/v2/footer-comments?page-id=...`), the route requires the agent to supply a `spaceKey` query parameter and validates it up-front before issuing the upstream call.
+All path families that the `/execute` allowlist accepts target a specific resource — either a page (`pages/{id}`, `pages/{id}/descendants`, `pages/{id}/footer-comments`, `pages/{id}/inline-comments`, `rest/api/content/{id}/child/comment` v1 fallback) or a space (`spaces/{id}/pages`). The post-fetch space-allowlist check resolves each request's `spaceKey` once the upstream response arrives, identical to the narrow routes. The cycle-3 fix dropped the `requires_space_key` branch from the `/execute` route handler — there is no longer any path family in the allowlist that lacks an inline id.
 
-**Known gap (tracked under issue #1931 cycle-2 NACK).** As of v1, the `/execute` regex allowlist also accepts the path families that the narrow routes already cover — `api/v2/pages/{id}`, `api/v2/spaces/{id}/pages`, and `rest/api/search`. Routing those through `/execute` does **not** apply the narrow route's policy (e.g., the CQL static space-scope extractor on `rest/api/search`, or the response-side allowlist filtering on `api/v2/spaces`). This is a real bypass surface and is being closed in a follow-up commit on this PR; the reviewer_code NACK on the underlying code change drives that work. Until that fix lands, treat `/execute` as authorised against the same regex + denied-verbs gate but **without** the narrow-route policy layered on top — operators relying on the anti-bypass property must wait for the cycle-2 fix.
+**Anti-bypass invariant.** `/execute` does **not** accept the four "flat-v2" path families that would skip narrow-route policy:
 
-`/execute` is a pragmatic escape hatch for future read verbs not yet promoted to narrow routes. The regex allowlist plus the `CONFLUENCE_DENIED_VERBS` frozenset is the fence today; once the cycle-2 fix lands, `/execute` will additionally refuse paths that overlap with narrow-route coverage and emit `confluence_execute_denied` for those attempts, restoring the strict anti-bypass invariant.
+| Removed path | Bypass that would have been possible |
+|--------------|--------------------------------------|
+| `rest/api/search` | Arbitrary CQL bypassing `extract_search_spaces` (the static space-scope extractor) |
+| `api/v2/spaces` | Full tenant-space enumeration bypassing `list_spaces`'s allowlist filter (defeats decision-11) |
+| `api/v2/footer-comments` (flat) | `page-id`-in-query with no upstream `spaceKey` filter — post-fetch allowlist cannot resolve the targeted page |
+| `api/v2/inline-comments` (flat) | Same flat-endpoint shape as footer-comments |
+
+These four paths remain reachable **internally** by `ConfluenceClient` methods that construct them directly (`get_page_footer_comments`'s `include_replies` side-call against `api/v2/footer-comments?page-id=...&depth=all`, and `get_page_inline_comments`'s v2-bug v1 fallback against `rest/api/content/{id}/child/comment`) — those internal calls do **not** go through `validate_confluence_api_path`. Only the agent-facing `/execute` escape hatch refuses them. A regression test in `gateway/tests/test_confluence_client.py` parametrizes the four removed paths and asserts they fail the validator; an end-to-end regression test in `gateway/tests/test_confluence_routes.py` asserts the same paths return 403 `confluence_execute_denied` through the Flask test client. Mirrors `gateway/jira_client.py`'s permanent denylist of `search/jql` + bare `project` for the same anti-bypass reason (PR #1964).
+
+`/execute` is a pragmatic escape hatch for future read verbs not yet promoted to narrow routes. It is **not** a general passthrough — the regex allowlist (page- and space-scoped paths only), the `CONFLUENCE_DENIED_VERBS` frozenset, and the anti-bypass invariant together are the fence.
 
 ## `not_found` envelope
 
@@ -218,7 +227,7 @@ If a tenant carries custom Confluence macros, page properties, or fields known t
 | 403 | Public mode (private-mode gate) | `private_mode_required` |
 | 403 | Resolved space not in `confluence.spaces` | `confluence_space_denied` |
 | 403 | `/search` CQL fails the static scope extractor | `confluence_search_rejected` with the specific reason |
-| 403 | `/execute` denied verb, non-GET method, path traversal, disallowed path family, duplicate slash, non-ASCII | `confluence_execute_denied` with reason (the narrow-route bypass refusal is being added in the cycle-2 fix — see the "Known gap" note in the [`/execute`](#post-apiv1confluenceexecute) section above) |
+| 403 | `/execute` denied verb, non-GET method, path traversal, disallowed path family (including the four flat-v2 anti-bypass paths), duplicate slash, non-ASCII | `confluence_execute_denied` with reason |
 | 403 | Atlassian returned 403 (bot lacks read access on the resource) | `confluence_upstream_403` (distinct from generic `confluence_upstream_error`) — body: `{"status": "forbidden", "reason": "bot_account_lacks_read_access", "pageId" \| "spaceKey": "..."}` |
 | 413 | Response body exceeds `CONFLUENCE_RESPONSE_MAX_BYTES` (5 MiB) post-redaction | `confluence_response_too_large` |
 | 503 | Atlassian credentials not configured (`ConfluenceCredentialsUnavailable`) | `confluence_credentials_unavailable` |
