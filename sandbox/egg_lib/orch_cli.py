@@ -1824,20 +1824,35 @@ def cmd_overseer_consult_advisor(args: argparse.Namespace) -> int:
     advisor_config: Any = None
     pid = getattr(args, "pipeline_id", None) or get_pipeline_id_from_env()
     if pid and _SAFE_ID_PATTERN.match(pid):
+        # Nested try so ImportError is handled before OrchestratorError is
+        # referenced — combining them in a single except clause raises
+        # NameError when the import itself fails (OrchestratorError is
+        # never bound). See review feedback on PR #2158.
         try:
             from egg_lib.orch_client import OrchClient, OrchestratorError
-
-            status = OrchClient().get_pipeline_status(quote(pid, safe=""))
-            cfg_dict = status.get("config") if isinstance(status, dict) else None
-            model = cfg_dict.get("overseer_advisor_model") if isinstance(cfg_dict, dict) else None
-            if model:
-                advisor_config = SimpleNamespace(overseer_advisor_model=model)
-        except (OrchestratorError, ImportError) as exc:
+        except ImportError as exc:
             print(
-                f"Warning: cannot read PipelineConfig for {pid} "
-                f"({exc}); falling back to default advisor model",
+                f"Warning: cannot import egg_lib.orch_client ({exc}); "
+                f"falling back to default advisor model",
                 file=sys.stderr,
             )
+        else:
+            try:
+                status = OrchClient().get_pipeline_status(quote(pid, safe=""))
+                cfg_dict = status.get("config") if isinstance(status, dict) else None
+                model = (
+                    cfg_dict.get("overseer_advisor_model")
+                    if isinstance(cfg_dict, dict)
+                    else None
+                )
+                if model:
+                    advisor_config = SimpleNamespace(overseer_advisor_model=model)
+            except OrchestratorError as exc:
+                print(
+                    f"Warning: cannot read PipelineConfig for {pid} "
+                    f"({exc}); falling back to default advisor model",
+                    file=sys.stderr,
+                )
     elif pid:
         # Malformed pipeline-id (e.g. corrupted EGG_PIPELINE_ID): skip
         # the lookup silently rather than crashing via validate_id's

@@ -447,6 +447,48 @@ class TestOverseerConsultAdvisorCommand:
         assert captured["config"] is None
         assert "is not a safe ID" in capsys.readouterr().err
 
+    def test_orch_client_import_failure_falls_back_without_crashing(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """If ``egg_lib.orch_client`` cannot be imported (e.g. the module
+        is unavailable in a stripped runtime), the verb must warn and
+        fall back to ``config=None`` rather than crashing with NameError
+        from a combined ``except (OrchestratorError, ImportError)`` that
+        cannot resolve ``OrchestratorError``. Review feedback on PR
+        #2158.
+        """
+        import builtins
+
+        inputs = tmp_path / "inputs.json"
+        _write_inputs(inputs)
+
+        captured: dict[str, object] = {}
+
+        async def _fake(**kwargs: object) -> AdvisorVerdict:
+            captured.update(kwargs)
+            return AdvisorVerdict(decision="watch", reasoning="ok")
+
+        real_import = builtins.__import__
+
+        def _import(name: str, *args: object, **kwargs: object) -> object:
+            if name == "egg_lib.orch_client":
+                raise ImportError("simulated missing orch_client")
+            return real_import(name, *args, **kwargs)  # type: ignore[arg-type]
+
+        with (
+            patch("egg_overseer.advisor.consult_advisor", side_effect=_fake),
+            patch.object(builtins, "__import__", side_effect=_import),
+        ):
+            rc = cmd_overseer_consult_advisor(
+                _make_args(inputs_file=inputs, pipeline_id="pipe-noimport")
+            )
+
+        assert rc == 0
+        assert captured["config"] is None
+        err = capsys.readouterr().err
+        assert "cannot import egg_lib.orch_client" in err
+        assert "falling back to default advisor model" in err
+
     def test_parser_accepts_positional_pipeline_id(self) -> None:
         """The new positional arg must coexist with the existing flags."""
         parser = create_parser()
