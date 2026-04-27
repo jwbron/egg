@@ -17,10 +17,14 @@ Endpoints:
     POST /api/v1/gh/pr/edit     - Edit PR (policy: pr_ownership)
     POST /api/v1/gh/pr/close    - Close PR (policy: pr_ownership)
     POST /api/v1/gh/execute     - Generic gh command (policy: filtered)
-    POST /api/v1/jira/ticket/get       - Read Jira issue (policy: private-mode, project allowlist)
-    POST /api/v1/jira/search           - JQL search (policy: private-mode, statically project-scoped)
-    POST /api/v1/jira/ticket/comments  - Read Jira issue comments (policy: private-mode, project allowlist)
-    POST /api/v1/jira/execute          - Generic read-only Jira REST call (policy: private-mode, allowlisted path)
+    POST /api/v1/jira/ticket/get          - Read Jira issue (policy: private-mode, project allowlist)
+    POST /api/v1/jira/search              - JQL search (policy: private-mode, statically project-scoped)
+    POST /api/v1/jira/ticket/comments     - Read Jira issue comments (policy: private-mode, project allowlist)
+    POST /api/v1/jira/execute             - Generic read-only Jira REST call (policy: private-mode, allowlisted path)
+    POST /api/v1/jira/ticket/create       - Create a new Jira issue (policy: private-mode, project allowlist, body schema)
+    POST /api/v1/jira/ticket/edit         - Edit an existing Jira issue (policy: private-mode, project allowlist, body schema)
+    POST /api/v1/jira/ticket/comment/add  - Add a comment to a Jira issue (policy: private-mode, project allowlist, body schema)
+    POST /api/v1/jira/issue-link/create   - Create an issue-link between two Jira issues (policy: private-mode, both projects allowlisted, link-type allowlist)
     POST /api/v1/confluence/page/get             - Read Confluence page (policy: private-mode, space allowlist)
     POST /api/v1/confluence/page/descendants     - List page descendants (policy: private-mode, space allowlist)
     POST /api/v1/confluence/page/footer-comments - Read page footer comments (policy: private-mode, space allowlist)
@@ -146,6 +150,12 @@ try:
         validate_gh_api_path,
     )
     from .jira_client import (
+        DEFAULT_JIRA_LINK_TYPES,
+        JIRA_COMMENT_MAX_CHARS,
+        JIRA_DESCRIPTION_MAX_CHARS,
+        JIRA_LABEL_MAX_CHARS,
+        JIRA_LABEL_MAX_COUNT,
+        JIRA_SUMMARY_MAX_CHARS,
         JiraCredentialsUnavailable,
         JiraUpstreamError,
         get_jira_client,
@@ -156,10 +166,17 @@ try:
     )
     from .jira_credentials import reload_jira_credentials
     from .jira_policy import (
+        allowed_link_types as jira_allowed_link_types,
+    )
+    from .jira_policy import (
+        epic_link_field as jira_epic_link_field,
+    )
+    from .jira_policy import (
         extract_project_key,
         is_project_allowed,
         reload_jira_policy,
     )
+    from .jira_adf import is_adf_dict as is_jira_adf_dict
     from .jira_search import extract_search_projects
     from .mode_gate import require_private_mode
     from .phase_filter import (
@@ -283,6 +300,12 @@ except ImportError:
         extract_search_spaces,
     )
     from jira_client import (  # type: ignore[no-redef, import-untyped]
+        DEFAULT_JIRA_LINK_TYPES,
+        JIRA_COMMENT_MAX_CHARS,
+        JIRA_DESCRIPTION_MAX_CHARS,
+        JIRA_LABEL_MAX_CHARS,
+        JIRA_LABEL_MAX_COUNT,
+        JIRA_SUMMARY_MAX_CHARS,
         JiraCredentialsUnavailable,
         JiraUpstreamError,
         get_jira_client,
@@ -295,9 +318,18 @@ except ImportError:
         reload_jira_credentials,
     )
     from jira_policy import (  # type: ignore[no-redef, import-untyped]
+        allowed_link_types as jira_allowed_link_types,
+    )
+    from jira_policy import (  # type: ignore[no-redef]
+        epic_link_field as jira_epic_link_field,
+    )
+    from jira_policy import (  # type: ignore[no-redef]
         extract_project_key,
         is_project_allowed,
         reload_jira_policy,
+    )
+    from jira_adf import (  # type: ignore[no-redef, import-untyped]
+        is_adf_dict as is_jira_adf_dict,
     )
     from jira_search import (  # type: ignore[no-redef, import-untyped]
         extract_search_projects,
@@ -4758,6 +4790,1141 @@ def jira_execute() -> tuple[Response, int] | Response:
         },
     )
     return make_success("Jira API call executed", body)
+
+
+# -----------------------------------------------------------------------------
+# Jira write verbs (issue #1924)
+# -----------------------------------------------------------------------------
+#
+# Four narrow routes — one per Atlassian write verb — extending the v1
+# read-only surface with a bounded mutation surface.  Each route:
+#
+# 1. Validates the body schema (size caps + field allowlist; reject custom-
+#    field smuggling via the strict allowlist; reject cross-project parent).
+# 2. Resolves the project allowlist via ``JiraPolicy``.
+# 3. ADF-wraps plain-text rich-text fields (or accepts ADF dicts).
+# 4. Calls the corresponding ``JiraClient`` write method.
+# 5. Emits an audit record with structural metadata only (no body content).
+# 6. Returns the agreed response envelope.
+#
+# Per architect decision-1 the v1 surface does NOT expose a generic
+# ``customFields`` map.  Adding a custom field means adding a new shorthand
+# (like the existing ``epicLink``) and re-reviewing the policy.
+#
+# Per architect decision-10/11 the v1 surface does NOT gate writes by agent
+# role or pipeline phase — those are deferred to a follow-up issue once the
+# real consumer (#1557) lands.
+
+# Atlassian link-type names: printable, ≤ 64 chars (matches policy loader).
+_JIRA_LINK_TYPE_RE = re.compile(r"^[\w\s-]{1,64}$")
+
+
+def _validate_jira_label(value: Any) -> str:
+    """Reject labels that fail Atlassian's character / length constraints.
+
+    Returns the trimmed string on success, or raises ``ValueError`` with an
+    actionable message.  Atlassian rejects whitespace inside labels — the
+    web UI replaces spaces with hyphens — so we surface that as a 400
+    rather than letting the upstream return a confusing error.
+    """
+    if not isinstance(value, str):
+        raise ValueError(f"label must be a string, got {type(value).__name__}")
+    cleaned = value.strip()
+    if not cleaned:
+        raise ValueError("label must not be empty")
+    if len(cleaned) > JIRA_LABEL_MAX_CHARS:
+        raise ValueError(f"label exceeds {JIRA_LABEL_MAX_CHARS} chars")
+    if any(ch.isspace() for ch in cleaned):
+        raise ValueError("label must not contain whitespace")
+    return cleaned
+
+
+def _validate_jira_label_list(value: Any, *, name: str) -> list[str]:
+    """Validate a list-of-labels payload field.  Empty list is fine."""
+    if not isinstance(value, list):
+        raise ValueError(f"{name} must be a list of strings")
+    if len(value) > JIRA_LABEL_MAX_COUNT:
+        raise ValueError(f"{name} exceeds {JIRA_LABEL_MAX_COUNT} entries")
+    cleaned: list[str] = []
+    for entry in value:
+        cleaned.append(_validate_jira_label(entry))
+    return cleaned
+
+
+def _validate_jira_richtext(
+    value: Any, *, name: str, max_chars: int
+) -> str | dict[str, Any]:
+    """Validate a description / comment field — text or ADF passthrough.
+
+    Returns the original string (with length-checked, non-empty preserved)
+    or the ADF dict unchanged.  ``None`` is rejected — the caller decides
+    whether the field is optional and skips this helper accordingly.
+    """
+    if isinstance(value, str):
+        if len(value) > max_chars:
+            raise ValueError(f"{name} exceeds {max_chars} chars")
+        return value
+    if is_jira_adf_dict(value):
+        # ADF size — bound the JSON serialization so an attacker cannot
+        # smuggle a 100 MiB description by pre-wrapping it in ADF.
+        encoded = json.dumps(value)
+        if len(encoded) > max_chars:
+            raise ValueError(f"{name} exceeds {max_chars} chars (ADF size)")
+        return value
+    raise ValueError(
+        f"{name} must be a string or a valid ADF document dict"
+    )
+
+
+def _audit_jira_write(
+    *,
+    event_type: str,
+    operation: str,
+    success: bool,
+    details: dict[str, Any],
+) -> None:
+    """Audit-log helper that always merges in session context.
+
+    Routes use this so the redaction grid (Q20 default) is centralised:
+    the only callers are this module and tests should never see the raw
+    ``audit_log`` for write events.
+    """
+    payload: dict[str, Any] = dict(details)
+    payload.update(_session_jira_context())
+    audit_log(event_type, operation, success=success, details=payload)
+
+
+# Body field allowlists — anything outside these sets gets a 400 with a
+# named violation.  We keep them as module-level constants so the four
+# routes share the policy and the test suite can introspect the
+# enumeration directly.
+
+_JIRA_TICKET_CREATE_ALLOWED_FIELDS: frozenset[str] = frozenset(
+    {
+        "projectKey",
+        "issuetype",
+        "summary",
+        "description",
+        "labels",
+        "parent",
+        "epicLink",
+        "idempotencyKey",
+    }
+)
+
+_JIRA_TICKET_EDIT_ALLOWED_FIELDS: frozenset[str] = frozenset(
+    {
+        "ticket",
+        "summary",
+        "description",
+        "labels",
+        "addLabels",
+        "removeLabels",
+        "notifyUsers",
+    }
+)
+
+_JIRA_COMMENT_ADD_ALLOWED_FIELDS: frozenset[str] = frozenset(
+    {
+        "ticket",
+        "body",
+        "idempotencyKey",
+    }
+)
+
+_JIRA_LINK_CREATE_ALLOWED_FIELDS: frozenset[str] = frozenset(
+    {
+        "type",
+        "inwardIssue",
+        "outwardIssue",
+        "comment",
+        "idempotencyKey",
+    }
+)
+
+
+def _reject_unknown_fields(
+    body: dict[str, Any],
+    *,
+    allowed: frozenset[str],
+    operation: str,
+) -> str | None:
+    """Return a 400-error reason if ``body`` contains a field not in ``allowed``.
+
+    Returning ``None`` means the body passed.  The caller emits the audit
+    record + 400 response from the returned reason; this helper is silent.
+    """
+    extras = sorted(set(body.keys()) - allowed)
+    if extras:
+        return (
+            f"unknown field(s) for {operation}: {', '.join(repr(k) for k in extras)}"
+        )
+    return None
+
+
+def _validate_idempotency_key(value: Any) -> str | None:
+    """Validate ``idempotencyKey`` body field.
+
+    Atlassian-side caps don't apply (the key never reaches Atlassian) but a
+    pathological 1 MiB key would bloat audit logs and the cache, so we
+    cap the length here.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("idempotencyKey must be a string")
+    if not value or len(value) > 128:
+        raise ValueError("idempotencyKey must be 1..128 chars")
+    return value
+
+
+@app.route("/api/v1/jira/ticket/create", methods=["POST"])
+@require_session_auth
+@require_private_mode
+def jira_ticket_create() -> tuple[Response, int] | Response:
+    """Create a new Jira issue.
+
+    Request body::
+
+        {
+          "projectKey": "ENG",
+          "issuetype": "Task",                       // or numeric id
+          "summary": "Investigate flaky pipeline",   // required, ≤ 255 chars
+          "description": "...",                      // optional, str or ADF
+          "labels": ["a", "b"],                      // optional
+          "parent": "ENG-1234",                      // optional
+          "epicLink": "ENG-9999",                    // optional
+          "idempotencyKey": "..."                    // optional
+        }
+
+    Per architect decision-1 the body **must not** carry arbitrary
+    ``customfield_*`` keys; the field allowlist rejects them with 400.
+    """
+    op = "jira_ticket_create"
+    data = request.get_json(silent=True) or {}
+
+    if not isinstance(data, dict):
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={"reason": "body must be an object"},
+        )
+        return make_error("body must be an object", status_code=400)
+
+    extras = _reject_unknown_fields(
+        data, allowed=_JIRA_TICKET_CREATE_ALLOWED_FIELDS, operation=op
+    )
+    if extras is not None:
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={"reason": extras},
+        )
+        return make_error(extras, status_code=400)
+
+    project_key = data.get("projectKey")
+    issuetype = data.get("issuetype")
+    summary = data.get("summary")
+    description = data.get("description")
+    labels = data.get("labels")
+    parent = data.get("parent")
+    epic_link = data.get("epicLink")
+    idempotency_key = data.get("idempotencyKey")
+
+    # Project key shape — uppercase letter + alnum/_.
+    if not isinstance(project_key, str) or not re.fullmatch(r"[A-Z][A-Z0-9_]*", project_key):
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={"reason": "projectKey shape invalid", "projectKey": project_key},
+        )
+        return make_error("projectKey is required and must be a Jira project key", status_code=400)
+
+    # Allowlist gate.
+    if not is_project_allowed(project_key):
+        return _project_not_allowlisted_response(
+            event=f"{op}_denied",
+            ticket=None,
+            project=project_key,
+            reason="project not allowlisted",
+        )
+
+    # issuetype required.
+    if not isinstance(issuetype, (str, int)) or isinstance(issuetype, bool):
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={"reason": "issuetype must be a string name or numeric id"},
+        )
+        return make_error("issuetype must be a string name or numeric id", status_code=400)
+    if isinstance(issuetype, str) and not issuetype.strip():
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={"reason": "issuetype must not be empty"},
+        )
+        return make_error("issuetype must not be empty", status_code=400)
+
+    # Summary required, capped.
+    if not isinstance(summary, str) or not summary.strip():
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={"reason": "summary required"},
+        )
+        return make_error("summary is required", status_code=400)
+    if len(summary) > JIRA_SUMMARY_MAX_CHARS:
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={
+                "reason": f"summary exceeds {JIRA_SUMMARY_MAX_CHARS} chars",
+                "summary_length": len(summary),
+            },
+        )
+        return make_error(
+            f"summary exceeds {JIRA_SUMMARY_MAX_CHARS} chars",
+            status_code=400,
+        )
+
+    # Description optional.
+    cleaned_description: str | dict[str, Any] | None = None
+    if description is not None:
+        try:
+            cleaned_description = _validate_jira_richtext(
+                description,
+                name="description",
+                max_chars=JIRA_DESCRIPTION_MAX_CHARS,
+            )
+        except ValueError as exc:
+            _audit_jira_write(
+                event_type=f"{op}_rejected",
+                operation=op,
+                success=False,
+                details={"reason": str(exc)},
+            )
+            return make_error(str(exc), status_code=400)
+
+    # Labels optional.
+    cleaned_labels: list[str] | None = None
+    if labels is not None:
+        try:
+            cleaned_labels = _validate_jira_label_list(labels, name="labels")
+        except ValueError as exc:
+            _audit_jira_write(
+                event_type=f"{op}_rejected",
+                operation=op,
+                success=False,
+                details={"reason": str(exc)},
+            )
+            return make_error(str(exc), status_code=400)
+
+    # Parent / epicLink — at most one (route-level reject).
+    if parent is not None and epic_link is not None:
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={"reason": "parent and epicLink are mutually exclusive"},
+        )
+        return make_error(
+            "parent and epicLink are mutually exclusive — pass at most one",
+            status_code=400,
+        )
+
+    if parent is not None:
+        if not isinstance(parent, str) or not _JIRA_TICKET_KEY_RE.fullmatch(parent):
+            _audit_jira_write(
+                event_type=f"{op}_rejected",
+                operation=op,
+                success=False,
+                details={"reason": "parent must be a Jira ticket key"},
+            )
+            return make_error(
+                "parent must be a Jira ticket key (e.g. 'FOO-1')", status_code=400
+            )
+        parent_project = extract_project_key(parent)
+        # Cross-project parent reject (decision-17): the new ticket is in
+        # ``project_key`` and the parent is in ``parent_project`` — refuse
+        # the implicit allowlist widening.
+        if parent_project != project_key:
+            _audit_jira_write(
+                event_type=f"{op}_rejected",
+                operation=op,
+                success=False,
+                details={
+                    "reason": "parent project differs from projectKey",
+                    "projectKey": project_key,
+                    "parent_project": parent_project,
+                    "parent": parent,
+                },
+            )
+            return make_error(
+                "parent must belong to the same project as projectKey",
+                status_code=400,
+            )
+
+    if epic_link is not None:
+        if not isinstance(epic_link, str) or not _JIRA_TICKET_KEY_RE.fullmatch(epic_link):
+            _audit_jira_write(
+                event_type=f"{op}_rejected",
+                operation=op,
+                success=False,
+                details={"reason": "epicLink must be a Jira ticket key"},
+            )
+            return make_error(
+                "epicLink must be a Jira ticket key (e.g. 'FOO-1')", status_code=400
+            )
+        # Allowlist gate the epic key too — epics live in their own project,
+        # which must also be allowlisted.
+        epic_project = extract_project_key(epic_link)
+        if not is_project_allowed(epic_project):
+            return _project_not_allowlisted_response(
+                event=f"{op}_denied",
+                ticket=epic_link,
+                project=epic_project,
+                reason="epic project not allowlisted",
+                extra={"projectKey": project_key},
+            )
+
+    # Idempotency key.
+    try:
+        cleaned_idem_key = _validate_idempotency_key(idempotency_key)
+    except ValueError as exc:
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={"reason": str(exc)},
+        )
+        return make_error(str(exc), status_code=400)
+
+    # All checks passed — make the upstream call.
+    try:
+        upstream = get_jira_client().create_issue(
+            project_key=project_key,
+            issuetype=issuetype,
+            summary=summary,
+            description=cleaned_description,
+            labels=cleaned_labels,
+            parent=parent,
+            epic_link=epic_link,
+            epic_link_field=jira_epic_link_field(),
+            idempotency_key=cleaned_idem_key,
+        )
+    except JiraCredentialsUnavailable as exc:
+        return _jira_not_configured_error(exc)
+    except JiraUpstreamError as exc:
+        _audit_jira_write(
+            event_type=f"{op}_upstream_error",
+            operation=op,
+            success=False,
+            details={
+                "projectKey": project_key,
+                "upstream_status": exc.status_code,
+            },
+        )
+        return _jira_error_from_upstream(exc)
+
+    new_key = upstream.get("key") if isinstance(upstream, dict) else None
+    new_id = upstream.get("id") if isinstance(upstream, dict) else None
+
+    # Build the normalized envelope (decision-13).  ``browse_url`` is the
+    # canonical Atlassian web URL; the gateway derives it from the
+    # configured base URL so the orchestrator can drop it straight into a
+    # PR description / Slack notification.
+    browse_url: str | None = None
+    if new_key:
+        try:
+            base = get_jira_client().creds_provider().base_url
+            browse_url = f"{base.rstrip('/')}/browse/{new_key}"
+        except Exception:  # pragma: no cover — defensive
+            browse_url = None
+
+    envelope: dict[str, Any] = {"status": "created"}
+    if new_key:
+        envelope["key"] = new_key
+    if new_id:
+        envelope["id"] = new_id
+    if browse_url:
+        envelope["browse_url"] = browse_url
+
+    # Idempotency-key absent → emit a no-key audit so operators can spot
+    # agents that retry without dedup (decision-3 documented warning).
+    if cleaned_idem_key is None:
+        _audit_jira_write(
+            event_type="jira_ticket_create_no_idempotency_key",
+            operation=op,
+            success=True,
+            details={"projectKey": project_key},
+        )
+
+    fields_changed = ["summary"]
+    if cleaned_description is not None:
+        fields_changed.append("description")
+    if cleaned_labels is not None:
+        fields_changed.append("labels")
+    if parent is not None:
+        fields_changed.append("parent")
+    if epic_link is not None:
+        fields_changed.append("epicLink")
+
+    _audit_jira_write(
+        event_type=op,
+        operation=op,
+        success=True,
+        details={
+            "projectKey": project_key,
+            "key": new_key,
+            "issuetype": issuetype if isinstance(issuetype, str) else f"id:{issuetype}",
+            "summary_length": len(summary),
+            "description_length": (
+                None
+                if description is None
+                else (
+                    len(description)
+                    if isinstance(description, str)
+                    else len(json.dumps(cleaned_description))
+                )
+            ),
+            "label_count": len(cleaned_labels) if cleaned_labels is not None else 0,
+            "labels": cleaned_labels or [],
+            "fields_changed": fields_changed,
+            "parent": parent,
+            "epic_link": epic_link,
+            "epic_link_field": jira_epic_link_field() if epic_link is not None else None,
+            "idempotency_key_present": cleaned_idem_key is not None,
+        },
+    )
+
+    return make_success("Jira ticket created", envelope)
+
+
+@app.route("/api/v1/jira/ticket/edit", methods=["POST"])
+@require_session_auth
+@require_private_mode
+def jira_ticket_edit() -> tuple[Response, int] | Response:
+    """Edit an existing Jira issue.
+
+    Request body::
+
+        {
+          "ticket": "ENG-4242",
+          "summary": "...",          // optional
+          "description": "...",      // optional, str or ADF
+          "labels": ["a", "b"],      // optional REPLACE mode
+          "addLabels": ["new"],      // optional INCREMENTAL mode
+          "removeLabels": ["old"],   // optional INCREMENTAL mode
+          "notifyUsers": false       // optional, defaults to false
+        }
+    """
+    op = "jira_ticket_edit"
+    data = request.get_json(silent=True) or {}
+
+    if not isinstance(data, dict):
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={"reason": "body must be an object"},
+        )
+        return make_error("body must be an object", status_code=400)
+
+    extras = _reject_unknown_fields(
+        data, allowed=_JIRA_TICKET_EDIT_ALLOWED_FIELDS, operation=op
+    )
+    if extras is not None:
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={"reason": extras},
+        )
+        return make_error(extras, status_code=400)
+
+    ticket = data.get("ticket")
+    summary = data.get("summary")
+    description = data.get("description")
+    labels = data.get("labels")
+    add_labels = data.get("addLabels")
+    remove_labels = data.get("removeLabels")
+    notify_users = data.get("notifyUsers", False)
+
+    if not isinstance(ticket, str) or not _JIRA_TICKET_KEY_RE.fullmatch(ticket):
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={"reason": "invalid ticket shape", "ticket": ticket},
+        )
+        return make_error(
+            "Invalid ticket key (expected e.g. 'FOO-123')",
+            status_code=400,
+        )
+
+    project = extract_project_key(ticket)
+    if not is_project_allowed(project):
+        return _project_not_allowlisted_response(
+            event=f"{op}_denied",
+            ticket=ticket,
+            project=project,
+            reason="project not allowlisted",
+        )
+
+    # Mutually-exclusive label modes.
+    if labels is not None and (add_labels is not None or remove_labels is not None):
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={
+                "reason": "labels (replace) and addLabels/removeLabels (incremental) are mutually exclusive",
+                "ticket": ticket,
+            },
+        )
+        return make_error(
+            "Pass either 'labels' OR 'addLabels'/'removeLabels', not both",
+            status_code=400,
+        )
+
+    cleaned_summary: str | None = None
+    if summary is not None:
+        if not isinstance(summary, str) or not summary.strip():
+            _audit_jira_write(
+                event_type=f"{op}_rejected",
+                operation=op,
+                success=False,
+                details={"reason": "summary must be non-empty when provided"},
+            )
+            return make_error("summary must be non-empty when provided", status_code=400)
+        if len(summary) > JIRA_SUMMARY_MAX_CHARS:
+            _audit_jira_write(
+                event_type=f"{op}_rejected",
+                operation=op,
+                success=False,
+                details={"reason": f"summary exceeds {JIRA_SUMMARY_MAX_CHARS} chars"},
+            )
+            return make_error(
+                f"summary exceeds {JIRA_SUMMARY_MAX_CHARS} chars", status_code=400
+            )
+        cleaned_summary = summary
+
+    cleaned_description: str | dict[str, Any] | None = None
+    if description is not None:
+        try:
+            cleaned_description = _validate_jira_richtext(
+                description,
+                name="description",
+                max_chars=JIRA_DESCRIPTION_MAX_CHARS,
+            )
+        except ValueError as exc:
+            _audit_jira_write(
+                event_type=f"{op}_rejected",
+                operation=op,
+                success=False,
+                details={"reason": str(exc), "ticket": ticket},
+            )
+            return make_error(str(exc), status_code=400)
+
+    cleaned_labels: list[str] | None = None
+    if labels is not None:
+        try:
+            cleaned_labels = _validate_jira_label_list(labels, name="labels")
+        except ValueError as exc:
+            _audit_jira_write(
+                event_type=f"{op}_rejected",
+                operation=op,
+                success=False,
+                details={"reason": str(exc), "ticket": ticket},
+            )
+            return make_error(str(exc), status_code=400)
+
+    cleaned_add: list[str] | None = None
+    if add_labels is not None:
+        try:
+            cleaned_add = _validate_jira_label_list(add_labels, name="addLabels")
+        except ValueError as exc:
+            _audit_jira_write(
+                event_type=f"{op}_rejected",
+                operation=op,
+                success=False,
+                details={"reason": str(exc), "ticket": ticket},
+            )
+            return make_error(str(exc), status_code=400)
+
+    cleaned_remove: list[str] | None = None
+    if remove_labels is not None:
+        try:
+            cleaned_remove = _validate_jira_label_list(remove_labels, name="removeLabels")
+        except ValueError as exc:
+            _audit_jira_write(
+                event_type=f"{op}_rejected",
+                operation=op,
+                success=False,
+                details={"reason": str(exc), "ticket": ticket},
+            )
+            return make_error(str(exc), status_code=400)
+
+    # No-op guard: the route requires *some* change.
+    if (
+        cleaned_summary is None
+        and cleaned_description is None
+        and cleaned_labels is None
+        and not cleaned_add
+        and not cleaned_remove
+    ):
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={
+                "reason": "edit body must mutate at least one field",
+                "ticket": ticket,
+            },
+        )
+        return make_error(
+            "edit body must mutate at least one field "
+            "(summary, description, labels, addLabels, or removeLabels)",
+            status_code=400,
+        )
+
+    if not isinstance(notify_users, bool):
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={"reason": "notifyUsers must be a boolean", "ticket": ticket},
+        )
+        return make_error("notifyUsers must be a boolean", status_code=400)
+
+    try:
+        get_jira_client().edit_issue(
+            key=ticket,
+            summary=cleaned_summary,
+            description=cleaned_description,
+            labels=cleaned_labels,
+            add_labels=cleaned_add,
+            remove_labels=cleaned_remove,
+            notify_users=notify_users,
+        )
+    except JiraCredentialsUnavailable as exc:
+        return _jira_not_configured_error(exc)
+    except JiraUpstreamError as exc:
+        _audit_jira_write(
+            event_type=f"{op}_upstream_error",
+            operation=op,
+            success=False,
+            details={
+                "ticket": ticket,
+                "project": project,
+                "upstream_status": exc.status_code,
+            },
+        )
+        return _jira_error_from_upstream(exc)
+
+    fields_changed: list[str] = []
+    if cleaned_summary is not None:
+        fields_changed.append("summary")
+    if cleaned_description is not None:
+        fields_changed.append("description")
+    if cleaned_labels is not None:
+        fields_changed.append("labels")
+    if cleaned_add is not None:
+        fields_changed.append("addLabels")
+    if cleaned_remove is not None:
+        fields_changed.append("removeLabels")
+
+    _audit_jira_write(
+        event_type=op,
+        operation=op,
+        success=True,
+        details={
+            "ticket": ticket,
+            "project": project,
+            "fields_changed": fields_changed,
+            "summary_length": len(cleaned_summary) if cleaned_summary is not None else 0,
+            "description_length": (
+                0
+                if cleaned_description is None
+                else (
+                    len(cleaned_description)
+                    if isinstance(cleaned_description, str)
+                    else len(json.dumps(cleaned_description))
+                )
+            ),
+            "labels": cleaned_labels or [],
+            "add_labels": cleaned_add or [],
+            "remove_labels": cleaned_remove or [],
+            "notify_users": notify_users,
+        },
+    )
+
+    return make_success("Jira ticket updated", {"status": "updated", "key": ticket})
+
+
+@app.route("/api/v1/jira/ticket/comment/add", methods=["POST"])
+@require_session_auth
+@require_private_mode
+def jira_ticket_comment_add() -> tuple[Response, int] | Response:
+    """Add a comment to a Jira issue.
+
+    Request body::
+
+        {
+          "ticket": "ENG-4242",
+          "body": "Plain text or ADF dict",
+          "idempotencyKey": "..."
+        }
+    """
+    op = "jira_comment_add"
+    data = request.get_json(silent=True) or {}
+
+    if not isinstance(data, dict):
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={"reason": "body must be an object"},
+        )
+        return make_error("body must be an object", status_code=400)
+
+    extras = _reject_unknown_fields(
+        data, allowed=_JIRA_COMMENT_ADD_ALLOWED_FIELDS, operation=op
+    )
+    if extras is not None:
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={"reason": extras},
+        )
+        return make_error(extras, status_code=400)
+
+    ticket = data.get("ticket")
+    body_value = data.get("body")
+    idempotency_key = data.get("idempotencyKey")
+
+    if not isinstance(ticket, str) or not _JIRA_TICKET_KEY_RE.fullmatch(ticket):
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={"reason": "invalid ticket shape", "ticket": ticket},
+        )
+        return make_error(
+            "Invalid ticket key (expected e.g. 'FOO-123')", status_code=400
+        )
+
+    project = extract_project_key(ticket)
+    if not is_project_allowed(project):
+        return _project_not_allowlisted_response(
+            event=f"{op}_denied",
+            ticket=ticket,
+            project=project,
+            reason="project not allowlisted",
+        )
+
+    if body_value is None:
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={"reason": "body required", "ticket": ticket},
+        )
+        return make_error("body is required", status_code=400)
+
+    try:
+        cleaned_body = _validate_jira_richtext(
+            body_value, name="body", max_chars=JIRA_COMMENT_MAX_CHARS
+        )
+    except ValueError as exc:
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={"reason": str(exc), "ticket": ticket},
+        )
+        return make_error(str(exc), status_code=400)
+
+    try:
+        cleaned_idem_key = _validate_idempotency_key(idempotency_key)
+    except ValueError as exc:
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={"reason": str(exc), "ticket": ticket},
+        )
+        return make_error(str(exc), status_code=400)
+
+    try:
+        upstream = get_jira_client().add_comment(
+            key=ticket, body=cleaned_body, idempotency_key=cleaned_idem_key
+        )
+    except JiraCredentialsUnavailable as exc:
+        return _jira_not_configured_error(exc)
+    except JiraUpstreamError as exc:
+        _audit_jira_write(
+            event_type=f"{op}_upstream_error",
+            operation=op,
+            success=False,
+            details={
+                "ticket": ticket,
+                "project": project,
+                "upstream_status": exc.status_code,
+            },
+        )
+        return _jira_error_from_upstream(exc)
+
+    if cleaned_idem_key is None:
+        _audit_jira_write(
+            event_type="jira_comment_add_no_idempotency_key",
+            operation=op,
+            success=True,
+            details={"ticket": ticket, "project": project},
+        )
+
+    body_length = (
+        len(cleaned_body) if isinstance(cleaned_body, str) else len(json.dumps(cleaned_body))
+    )
+
+    _audit_jira_write(
+        event_type=op,
+        operation=op,
+        success=True,
+        details={
+            "ticket": ticket,
+            "project": project,
+            "comment_length": body_length,
+            "comment_id": (
+                upstream.get("id") if isinstance(upstream, dict) else None
+            ),
+            "idempotency_key_present": cleaned_idem_key is not None,
+        },
+    )
+
+    return make_success("Jira comment added", upstream if isinstance(upstream, dict) else {})
+
+
+@app.route("/api/v1/jira/issue-link/create", methods=["POST"])
+@require_session_auth
+@require_private_mode
+def jira_issue_link_create() -> tuple[Response, int] | Response:
+    """Create a Jira issue link between two tickets.
+
+    Request body::
+
+        {
+          "type": "Blocks",
+          "inwardIssue": "ENG-1234",
+          "outwardIssue": "ENG-5678",
+          "comment": "Optional explanation",
+          "idempotencyKey": "..."
+        }
+    """
+    op = "jira_issue_link_create"
+    data = request.get_json(silent=True) or {}
+
+    if not isinstance(data, dict):
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={"reason": "body must be an object"},
+        )
+        return make_error("body must be an object", status_code=400)
+
+    extras = _reject_unknown_fields(
+        data, allowed=_JIRA_LINK_CREATE_ALLOWED_FIELDS, operation=op
+    )
+    if extras is not None:
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={"reason": extras},
+        )
+        return make_error(extras, status_code=400)
+
+    link_type = data.get("type")
+    inward = data.get("inwardIssue")
+    outward = data.get("outwardIssue")
+    comment_body = data.get("comment")
+    idempotency_key = data.get("idempotencyKey")
+
+    # Link-type validation — shape + allowlist.
+    if not isinstance(link_type, str) or not _JIRA_LINK_TYPE_RE.fullmatch(link_type):
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={"reason": "type must be a printable string ≤ 64 chars"},
+        )
+        return make_error(
+            "type must be a printable Atlassian link-type name", status_code=400
+        )
+    allowed_types = jira_allowed_link_types()
+    if link_type not in allowed_types:
+        _audit_jira_write(
+            event_type=f"{op}_denied",
+            operation=op,
+            success=False,
+            details={
+                "reason": "link type not allowlisted",
+                "type": link_type,
+                "allowed": list(allowed_types),
+            },
+        )
+        return make_error(
+            "Jira link type not allowlisted",
+            status_code=403,
+            details={"type": link_type, "allowed": list(allowed_types)},
+        )
+
+    if not isinstance(inward, str) or not _JIRA_TICKET_KEY_RE.fullmatch(inward):
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={"reason": "inwardIssue must be a Jira ticket key"},
+        )
+        return make_error(
+            "inwardIssue must be a Jira ticket key", status_code=400
+        )
+    if not isinstance(outward, str) or not _JIRA_TICKET_KEY_RE.fullmatch(outward):
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={"reason": "outwardIssue must be a Jira ticket key"},
+        )
+        return make_error(
+            "outwardIssue must be a Jira ticket key", status_code=400
+        )
+
+    inward_project = extract_project_key(inward)
+    outward_project = extract_project_key(outward)
+
+    # Strict — both projects allowlisted (decision-9).
+    if not is_project_allowed(inward_project):
+        return _project_not_allowlisted_response(
+            event=f"{op}_denied",
+            ticket=inward,
+            project=inward_project,
+            reason="inward project not allowlisted",
+            extra={"type": link_type, "outwardIssue": outward},
+        )
+    if not is_project_allowed(outward_project):
+        return _project_not_allowlisted_response(
+            event=f"{op}_denied",
+            ticket=outward,
+            project=outward_project,
+            reason="outward project not allowlisted",
+            extra={"type": link_type, "inwardIssue": inward},
+        )
+
+    cleaned_comment: str | dict[str, Any] | None = None
+    if comment_body is not None:
+        try:
+            cleaned_comment = _validate_jira_richtext(
+                comment_body, name="comment", max_chars=JIRA_COMMENT_MAX_CHARS
+            )
+        except ValueError as exc:
+            _audit_jira_write(
+                event_type=f"{op}_rejected",
+                operation=op,
+                success=False,
+                details={"reason": str(exc)},
+            )
+            return make_error(str(exc), status_code=400)
+
+    try:
+        cleaned_idem_key = _validate_idempotency_key(idempotency_key)
+    except ValueError as exc:
+        _audit_jira_write(
+            event_type=f"{op}_rejected",
+            operation=op,
+            success=False,
+            details={"reason": str(exc)},
+        )
+        return make_error(str(exc), status_code=400)
+
+    try:
+        get_jira_client().create_issue_link(
+            link_type=link_type,
+            inward_key=inward,
+            outward_key=outward,
+            comment=cleaned_comment,
+            idempotency_key=cleaned_idem_key,
+        )
+    except JiraCredentialsUnavailable as exc:
+        return _jira_not_configured_error(exc)
+    except JiraUpstreamError as exc:
+        _audit_jira_write(
+            event_type=f"{op}_upstream_error",
+            operation=op,
+            success=False,
+            details={
+                "type": link_type,
+                "inwardIssue": inward,
+                "outwardIssue": outward,
+                "upstream_status": exc.status_code,
+            },
+        )
+        return _jira_error_from_upstream(exc)
+
+    if cleaned_idem_key is None:
+        _audit_jira_write(
+            event_type="jira_issue_link_create_no_idempotency_key",
+            operation=op,
+            success=True,
+            details={
+                "type": link_type,
+                "inwardIssue": inward,
+                "outwardIssue": outward,
+            },
+        )
+
+    _audit_jira_write(
+        event_type=op,
+        operation=op,
+        success=True,
+        details={
+            "type": link_type,
+            "inwardIssue": inward,
+            "outwardIssue": outward,
+            "inward_project": inward_project,
+            "outward_project": outward_project,
+            "comment_present": cleaned_comment is not None,
+            "comment_length": (
+                None
+                if cleaned_comment is None
+                else (
+                    len(cleaned_comment)
+                    if isinstance(cleaned_comment, str)
+                    else len(json.dumps(cleaned_comment))
+                )
+            ),
+            "idempotency_key_present": cleaned_idem_key is not None,
+        },
+    )
+
+    return make_success(
+        "Jira issue link created",
+        {
+            "status": "created",
+            "type": link_type,
+            "inwardIssue": inward,
+            "outwardIssue": outward,
+        },
+    )
 
 
 # =============================================================================
