@@ -69,14 +69,10 @@ class TestWrapTextAsAdf:
 
 class TestIsAdfDict:
     def test_valid_minimal_doc(self):
-        assert jira_adf.is_adf_dict(
-            {"type": "doc", "version": 1, "content": []}
-        )
+        assert jira_adf.is_adf_dict({"type": "doc", "version": 1, "content": []})
 
     def test_valid_doc_with_paragraph(self):
-        assert jira_adf.is_adf_dict(
-            jira_adf.wrap_text_as_adf("hello")
-        )
+        assert jira_adf.is_adf_dict(jira_adf.wrap_text_as_adf("hello"))
 
     @pytest.mark.parametrize(
         "bad",
@@ -97,28 +93,20 @@ class TestIsAdfDict:
         assert not jira_adf.is_adf_dict({"version": 1, "content": []})
 
     def test_wrong_type_rejected(self):
-        assert not jira_adf.is_adf_dict(
-            {"type": "paragraph", "version": 1, "content": []}
-        )
+        assert not jira_adf.is_adf_dict({"type": "paragraph", "version": 1, "content": []})
 
     def test_missing_version_rejected(self):
         assert not jira_adf.is_adf_dict({"type": "doc", "content": []})
 
     def test_string_version_rejected(self):
-        assert not jira_adf.is_adf_dict(
-            {"type": "doc", "version": "1", "content": []}
-        )
+        assert not jira_adf.is_adf_dict({"type": "doc", "version": "1", "content": []})
 
     def test_bool_version_rejected(self):
         """Python booleans are a subclass of int — guard against truthy bools sneaking in."""
-        assert not jira_adf.is_adf_dict(
-            {"type": "doc", "version": True, "content": []}
-        )
+        assert not jira_adf.is_adf_dict({"type": "doc", "version": True, "content": []})
 
     def test_missing_content_rejected(self):
         assert not jira_adf.is_adf_dict({"type": "doc", "version": 1})
 
     def test_non_list_content_rejected(self):
-        assert not jira_adf.is_adf_dict(
-            {"type": "doc", "version": 1, "content": "not a list"}
-        )
+        assert not jira_adf.is_adf_dict({"type": "doc", "version": 1, "content": "not a list"})

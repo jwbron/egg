@@ -131,8 +131,7 @@ class TestGetOrRun:
 class TestCanonicalLinkId:
     def test_stable_format(self):
         assert (
-            jira_idempotency.canonical_link_id("ENG-1", "ENG-2", "Blocks")
-            == "ENG-1|ENG-2|Blocks"
+            jira_idempotency.canonical_link_id("ENG-1", "ENG-2", "Blocks") == "ENG-1|ENG-2|Blocks"
         )
 
     def test_distinct_triples_distinct_ids(self):
