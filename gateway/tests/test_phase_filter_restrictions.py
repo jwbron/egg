@@ -597,9 +597,7 @@ class TestThreeRoleFileRestrictions:
         layer coverage of both `gh` and `git-credential-github-token`."""
         result = check_file_restrictions("coder", ["sandbox/scripts/gh"])
         assert result.allowed is True
-        result = check_file_restrictions(
-            "coder", ["sandbox/scripts/git-credential-github-token"]
-        )
+        result = check_file_restrictions("coder", ["sandbox/scripts/git-credential-github-token"])
         assert result.allowed is True
 
     # --- tester role ---
