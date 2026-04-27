@@ -722,6 +722,40 @@ class TestExecute:
         )
         assert resp.status_code == 400
 
+    def test_warms_paginated_space_cache_on_space_id_path_miss(
+        self, client, private_headers, allow_eng, captured_audit
+    ):
+        """``api/v2/spaces/<id>/pages`` via /execute must walk paginated
+        ``/wiki/api/v2/spaces`` when the space-id is not yet cached so a
+        target on page 2+ still resolves.  Direct coverage for the
+        ``space_id_in_path`` branch in ``confluence_execute``."""
+        fake = MagicMock()
+        warmed: dict[str, bool] = {"done": False}
+
+        def key_for_id(sid: str) -> str | None:
+            if not warmed["done"] or sid != "1":
+                return None
+            return "ENG"
+
+        def populate() -> None:
+            warmed["done"] = True
+
+        fake.space_cache.key_for_id.side_effect = key_for_id
+        fake.populate_space_cache.side_effect = populate
+        fake.execute_raw.return_value = {"results": [{"id": "p1"}]}
+        with _patch_client(fake):
+            resp = client.post(
+                "/api/v1/confluence/execute",
+                headers=private_headers,
+                data=json.dumps({"method": "GET", "path": "api/v2/spaces/1/pages"}),
+                content_type="application/json",
+            )
+        assert resp.status_code == 200
+        fake.populate_space_cache.assert_called_once()
+        success = [a for a in captured_audit if a["event_type"] == "confluence_execute"]
+        assert success
+        assert success[-1]["details"]["spaceKey"] == "ENG"
+
 
 # -----------------------------------------------------------------------------
 # /api/v1/confluence/page/inline-comments — used_fallback observability
