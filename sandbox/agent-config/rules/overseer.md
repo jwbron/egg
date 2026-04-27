@@ -76,10 +76,12 @@ The Sonnet decision tier is supplemented by an Opus 4.6 **advisor** (per the [ad
 Invocation pattern: write the inputs (Haiku classification + active Tier-1 health alerts + last N progress events + last K log lines) to a sandbox-local JSON file, then run:
 
 ```bash
-egg-orch overseer consult-advisor \
+egg-orch overseer consult-advisor "$EGG_PIPELINE_ID" \
   --inputs-file /tmp/advisor-inputs.json \
   --output-file /tmp/advisor-verdict.json
 ```
+
+The positional `pipeline_id` (also auto-resolved from `EGG_PIPELINE_ID`) lets the verb read `PipelineConfig.overseer_advisor_model` from the orchestrator status endpoint and pass the configured alias to the advisor; omit it to fall back to the `opus` default.
 
 The verdict is the JSON-serialized `AdvisorVerdict` with the same fields documented below (decision / priority / alert_summary / alert_detail / issue_title / issue_body / reasoning).
 

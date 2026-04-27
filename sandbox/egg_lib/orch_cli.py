@@ -1773,6 +1773,7 @@ def cmd_overseer_consult_advisor(args: argparse.Namespace) -> int:
             as a model-output drift
     """
     import asyncio
+    from types import SimpleNamespace
 
     from egg_overseer.advisor import AdvisorParseError, consult_advisor
 
@@ -1809,6 +1810,31 @@ def cmd_overseer_consult_advisor(args: argparse.Namespace) -> int:
         print("Error: inputs.recent_log_lines must be an array", file=sys.stderr)
         return 2
 
+    # Resolve overseer_advisor_model from PipelineConfig when a
+    # pipeline-id is available (issue #2113). The orchestrator's
+    # status endpoint exposes the overseer-relevant config subset
+    # (orchestrator/routes/pipelines.py); we read overseer_advisor_model
+    # and pass a duck-typed config to consult_advisor. Falling back to
+    # config=None keeps the historic "opus" default for callers that
+    # do not provide a pipeline-id.
+    advisor_config: Any = None
+    pid = getattr(args, "pipeline_id", None) or get_pipeline_id_from_env()
+    if pid:
+        try:
+            from egg_lib.orch_client import OrchClient, OrchestratorError
+
+            status = OrchClient().get_pipeline_status(validate_id(pid, "pipeline_id"))
+            cfg_dict = status.get("config") if isinstance(status, dict) else None
+            model = cfg_dict.get("overseer_advisor_model") if isinstance(cfg_dict, dict) else None
+            if model:
+                advisor_config = SimpleNamespace(overseer_advisor_model=model)
+        except OrchestratorError as exc:
+            print(
+                f"Warning: cannot read PipelineConfig for {pid} "
+                f"({exc}); falling back to default advisor model",
+                file=sys.stderr,
+            )
+
     try:
         verdict = asyncio.run(
             consult_advisor(
@@ -1816,7 +1842,7 @@ def cmd_overseer_consult_advisor(args: argparse.Namespace) -> int:
                 health_alerts=health_alerts,
                 progress_events=progress_events,
                 recent_log_lines=recent_log_lines,
-                config=None,
+                config=advisor_config,
             )
         )
     except AdvisorParseError as exc:
@@ -3088,6 +3114,17 @@ def create_parser() -> argparse.ArgumentParser:
             "alerts + optional progress events / log lines) from a "
             "JSON file and writes the validated AdvisorVerdict JSON "
             "to --output-file (or stdout when omitted)."
+        ),
+    )
+    ov_advisor.add_argument(
+        "pipeline_id",
+        nargs="?",
+        help=(
+            "Optional pipeline ID. When provided (or EGG_PIPELINE_ID is "
+            "set), the verb reads PipelineConfig.overseer_advisor_model "
+            "from the orchestrator status endpoint and passes the "
+            "configured alias to consult_advisor. Omitted: falls back "
+            "to the 'opus' default."
         ),
     )
     ov_advisor.add_argument(
