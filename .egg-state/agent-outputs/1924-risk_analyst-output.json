@@ -1,0 +1,543 @@
+{
+  "schemaVersion": "1.0",
+  "issue": 1924,
+  "phase": "plan",
+  "agent_role": "risk_analyst",
+  "summary": "Risk assessment for #1924 — Jira gateway WRITE-verb extension (createJiraIssue, editJiraIssue, addCommentToJiraIssue, createIssueLink). The change is a bounded extension of #1556's read-only v1 surface and inherits its scaffolding (private-mode gate, project allowlist, gateway-held credentials, structured audit, Squid allowlist). That retires most architectural risk. Residual risk concentrates in five buckets: (1) **write-verb body smuggling** — custom-field, Epic Link, ADF, and link-type body shapes are richer than any v1 read input; a permissive validator lets agents change Security Level / Sprint / watchers / story points; (2) **non-idempotent writes** — Atlassian's REST API has no native idempotency keys and explicitly does NOT dedupe POST /issueLink, so any retry after a transient failure can create duplicate tickets, comments, or links; (3) **method-allowlist drift** — `editJiraIssue` is upstream PUT, which collides with v1's `JIRA_WRITE_VERBS_DENIED = {DELETE, PUT, PATCH}`; the separation between `/execute` (GET-only forever) and dedicated write client methods has to be airtight; (4) **rate-limit blast radius** — Atlassian's March 2026 points-based quotas + per-issue write throttling (`jira-per-issue-on-write`) make a runaway plan-apply much more disruptive than read traffic; (5) **HITL-blocking unresolved decisions** — 19 unresolved decisions and 9 unresolved feedback items from refine cover security-load-bearing choices (custom-field allowlist, idempotency requirement, link-type source, role/phase gating, body-size caps); the implementation cannot start safely until they resolve. Three risks are flagged for human review (R1 custom-field exposure, R7 idempotency policy, R10 phase/role gating). No HIGH-severity unmitigated risks remain after applying the recommended mitigations; six MEDIUM-severity risks require explicit implement-phase action.",
+  "scoring_legend": {
+    "impact": {
+      "low": "User-visible inconvenience; no security/data exposure; recoverable via retry or wrapper override.",
+      "medium": "Functional regression, partial outage, audit-log noise, or duplicate Jira artifacts that an operator can clean up via Jira UI.",
+      "high": "Security boundary breach, credential exposure, project-allowlist bypass, sandbox escape, or pipeline-blocking outage of Jira-coupled phases."
+    },
+    "likelihood": {
+      "low": "Requires multiple independent failures or adversarial intent; not expected in normal operation.",
+      "medium": "Plausible under realistic operator config, agent behavior, or Atlassian upstream churn within 6 months.",
+      "high": "Will occur in routine use unless explicitly mitigated."
+    },
+    "severity": {
+      "low": "Track and document; no implement-phase action required.",
+      "medium": "Implement-phase mitigation required; reviewer must verify mitigation is in place before ACK.",
+      "high": "Block release until mitigation is verified end-to-end (test + audit) and operator runbook updated."
+    }
+  },
+  "risks": [
+    {
+      "id": "R1",
+      "title": "Custom-field smuggling — agent escalates ticket via fields the operator did not intend to expose",
+      "category": "security",
+      "description": "Atlassian's POST /rest/api/3/issue and PUT /rest/api/3/issue/{key} accept an open `fields` map with no per-field allowlist on the upstream side. Agents calling createJiraIssue / editJiraIssue can therefore set fields the operator never intended: Security Level (visibility scoping), Sprint (sprint-board manipulation), Components (alerting), watchers (notification spam), Story Points (planning fraud), Assignee (impersonation by accountId), or arbitrary `customfield_NNNN` values. The refine analysis explicitly flagged this (Open Q1) but the decision is unresolved (decision-1). A pure-passthrough body validator (rejected option C2) would inherit Atlassian's default of accepting anything; the architect's recommended C1 'curated allowlist + opt-in customFields' still depends on which option HITL picks for decision-1.",
+      "affected_components": [
+        "gateway/jira_client.py — new `create_issue`, `edit_issue` methods (body-shape translation)",
+        "gateway/gateway.py — `POST /api/v1/jira/ticket/create`, `POST /api/v1/jira/ticket/edit` route handlers",
+        "config/context-filters.yaml — potential `jira.custom_fields` allowlist (depends on decision-1)",
+        "gateway/tests/test_jira_routes.py — adversarial body grid"
+      ],
+      "impact": "high",
+      "likelihood": "medium",
+      "severity": "high",
+      "mitigations": [
+        "Block until decision-1 resolves. Implementation cannot proceed safely without the operator picking the customField policy.",
+        "If decision-1 = opt-3 (no customFields map): hard-reject any body key not in {summary, description, labels, parent, epicLink} for create; not in {summary, description, labels, addLabels, removeLabels, parent, epicLink, notifyUsers} for edit. This is the safest default.",
+        "If decision-1 = opt-2 (operator-configured allowlist): load `jira.custom_fields: [...]` from config/context-filters.yaml with the same fail-closed mtime-cached pattern as `jira.policy.allowed_projects`. Reject any customfield_NNNN not in the allowlist with a structured 403 (`jira_custom_field_denied`, `field=customfield_NNNN`).",
+        "If decision-1 = opt-1 (generic map): EXPLICITLY denylist {Security, Security Level, securityLevel, components, sprint, customfield_10020 (Sprint), watcher/watches, fixVersions, assignee, reporter, priority, labels-via-customfield} regardless of map content. Document this denylist in code with an Atlassian docs link per field.",
+        "Regardless of decision-1: the adversarial test grid MUST include attempts to set securityLevel, sprint, watchers, assignee, fixVersions through every entry-point (top-level field, customFields map, parent, update block) and assert all are rejected.",
+        "Audit on rejection: emit `jira_<verb>_field_rejected` with `field=<name>` so operator dashboards surface attempted privilege escalation.",
+        "Reviewer MUST trace each accepted field through to the upstream Atlassian docs and confirm it does NOT change visibility, security, or assignment semantics before ACK."
+      ],
+      "rollback": "Reduce `jira.custom_fields` allowlist to empty in config; POST /api/v1/config/reload propagates without restart. Existing tickets are unaffected; new create/edit calls fall back to the curated-only set.",
+      "requires_human_review": true,
+      "human_review_reason": "Custom-field exposure is HITL decision-1; the security implications differ qualitatively across the three options (`opt-1 generic map`, `opt-2 operator allowlist`, `opt-3 closed`). A security reviewer must confirm the chosen option's denylist coverage matches the deployment's Jira project schemas. This cannot be punted to the gateway test grid alone."
+    },
+    {
+      "id": "R2",
+      "title": "Method-allowlist drift — editJiraIssue is upstream PUT, conflicts with permanent denylist",
+      "category": "security",
+      "description": "v1's `JIRA_WRITE_VERBS_DENIED = {transitions, worklog, attachments, watchers, DELETE, PUT, PATCH}` (gateway/jira_client.py line 95–108) lumps the segment denylist with the HTTP-method denylist. `editJiraIssue` is upstream `PUT /rest/api/3/issue/{key}` — the gateway must issue PUT for it to land. The architect's recommendation (option B1, separate /execute path-validator from write-client methods) is correct, but a careless implementation could (a) widen `validate_jira_api_path.ALLOWED_METHODS` to include PUT, which would silently expose any allowlisted GET path family to PUT through `/api/v1/jira/execute`, OR (b) remove PUT from `JIRA_WRITE_VERBS_DENIED` entirely, which would let `transitions`, `worklog`, `attachments`, `watchers` be bypassed via PUT in the future. Either mistake reopens the read-only fence.",
+      "affected_components": [
+        "gateway/jira_client.py — `validate_jira_api_path`, `JIRA_WRITE_VERBS_DENIED`, `_request`",
+        "gateway/jira_client.py — new write methods (`create_issue`, `edit_issue`, `add_comment`, `create_issue_link`)",
+        "gateway/tests/test_jira_client.py — path-validator regression suite",
+        "gateway/tests/test_jira_routes.py — `/execute` anti-bypass test"
+      ],
+      "impact": "high",
+      "likelihood": "low",
+      "severity": "medium",
+      "mitigations": [
+        "Adopt architect option B1: `validate_jira_api_path.ALLOWED_METHODS` STAYS `frozenset({'GET'})` forever. The /execute route NEVER accepts POST, PUT, DELETE, or PATCH.",
+        "New write methods (`create_issue`, `edit_issue`, ...) hard-code their upstream paths and methods in code. They DO NOT call `validate_jira_api_path` — the path is not user-controlled.",
+        "Keep the path-segment denylist (`transitions`, `worklog`, `attachments`, `watchers`) on `validate_jira_api_path`. The write client methods must hardcode paths that don't include those segments, verified by static-string assertion in unit tests.",
+        "Remove PUT/DELETE/PATCH from `JIRA_WRITE_VERBS_DENIED` would be a code-change blocker — keep the constant intact for `/execute`'s benefit. If editJiraIssue's PUT clashes with the constant's name, RENAME the constant to `JIRA_EXECUTE_DENIED_VERBS` to make the scope explicit (preferred), or split into two constants (`JIRA_EXECUTE_DENIED_PATH_SEGMENTS` and `JIRA_EXECUTE_DENIED_METHODS`).",
+        "Add an anti-bypass test: enumerate all `/api/v1/jira/*` routes via app.url_map; assert `/execute` rejects POST and PUT for ALL of them, including the new write paths (create, edit, comment-add, link-create). Use both bare-method and lowercase-method variants.",
+        "Audit on /execute rejection records the rejected method explicitly: `jira_execute_method_denied`, `method=<...>`.",
+        "Reviewer MUST grep the diff for `ALLOWED_METHODS` and confirm only GET appears in the /execute scope."
+      ],
+      "rollback": "If the /execute method allowlist drifts, revert that single hunk; the dedicated write routes continue to serve traffic. If a write method's hardcoded path turns out to include a denylisted segment, hot-patch the path string in jira_client.py and roll the gateway pod.",
+      "requires_human_review": false
+    },
+    {
+      "id": "R3",
+      "title": "Non-idempotent writes — retry after transient failure creates duplicate tickets, comments, or links",
+      "category": "data-integrity",
+      "description": "Atlassian's Jira Cloud REST API does not natively support idempotency keys for any v3 write endpoint. The community thread on idempotent issue creation explicitly confirms there is no native idempotency-key header. POST /rest/api/3/issue, POST /rest/api/3/issue/{key}/comment, and POST /rest/api/3/issueLink all create a NEW resource on every successful call — Atlassian does not deduplicate on (project, summary), (issue, body), or (inward, outward, type) triples. Refine open question Q28 (decision-19) explicitly surfaced that POST /issueLink does not dedupe (inward, outward, type) — a retry after a transient 5xx creates a duplicate link. A network blip, gateway restart, or 5xx-without-Retry-After could cause the orchestrator to re-issue and produce duplicate work-management artifacts that humans must clean up by hand. The architect's option D1 (caller-supplied idempotency_key + 5-minute in-process cache) mitigates retries within the cache window but NOT cross-process or cross-window duplication.",
+      "affected_components": [
+        "gateway/jira_client.py — `create_issue`, `add_comment`, `create_issue_link`",
+        "gateway/idempotency.py (new) — process-local cache, 5-minute TTL, threading lock",
+        "gateway/gateway.py — write route handlers must extract `idempotency_key` from body, key on `(verb, project, idempotency_key)`",
+        "config — possible env-var to expand cache TTL"
+      ],
+      "impact": "medium",
+      "likelihood": "high",
+      "severity": "medium",
+      "mitigations": [
+        "Block until decision-3 (idempotency_key requirement) resolves. The safest default is `opt-1 Required (gateway 400 if missing)` — turns 'orchestrator forgot to pass a key' into a fast-fail rather than a silent duplicate.",
+        "Keep cache scope per-process per architect D1 + decision-14 (opt-1: in-memory, 5-min TTL). Document the trade-off explicitly: gateway restart drops the cache, so an orchestrator retry that crosses a restart can still duplicate. Mitigate via runbook entry.",
+        "For createIssueLink specifically (decision-19): adopt opt-1 — extend the idempotency cache to `create_issue_link` symmetrically with createJiraIssue. Atlassian's 0% native dedup makes this the only safe default.",
+        "Idempotency cache key MUST include the project (or both projects for issueLink) so the same key in different projects doesn't collide. Recommended shape: `(verb, project_key_or_keys, idempotency_key)` → `(timestamp, response_body, status_code)`.",
+        "Cache eviction is lazy on insert (sweep entries older than TTL). Bounded by `MAX_IDEMPOTENCY_ENTRIES` (e.g., 10_000) — drop the oldest if exceeded, with a `jira_idempotency_cache_evicted` audit line.",
+        "On cache HIT, return the SAME response (status code + body) the first call produced, with an `Idempotency-Replayed: true` response header so callers can distinguish 'created now' from 'created earlier'.",
+        "Document explicitly in docs/reference/jira-wrapper.md the orchestrator's responsibility: derive idempotency_key from `(pipeline_id, plan_node_id)` for create; from `(pipeline_id, ticket_key, comment_purpose)` for comments; from `(pipeline_id, inward, outward, type)` for links. STABLE across retries.",
+        "Test coverage: cache HIT, cache MISS, TTL expiry, distinct keys → distinct calls, same key in different verb → distinct calls, same key in different project → distinct calls, oldest-eviction under cap, threading-safe under contention.",
+        "Operator runbook: 'If the gateway restarts mid-plan-apply, the orchestrator MUST treat the in-flight request as ambiguous — query Jira for a ticket matching the idempotency key (stored in a labeled custom field, if one is configured) before re-issuing.'",
+        "Out of scope, document explicitly: existence-probe before create (Open Q18 / feedback-1.Q3) is NOT implemented in v1 — idempotency key is the only safety net."
+      ],
+      "rollback": "Disable the new write routes via gateway-side kill switch (return 503 on `/api/v1/jira/ticket/create`, `/edit`, `/comment/add`, `/issue-link/create`) until idempotency cache bug is patched. Read endpoints unaffected.",
+      "requires_human_review": true,
+      "human_review_reason": "Idempotency policy (decision-3) and createIssueLink dedup (decision-19) are HITL-blocking. The 'opt-2 optional with documented warning' option for decision-3 leaves duplicates as a normal-operation outcome, not an exceptional one. A security/SRE reviewer should confirm the chosen option matches the operator's tolerance for manual Jira cleanup."
+    },
+    {
+      "id": "R4",
+      "title": "Atlassian 2026 points-based rate limits + per-issue write throttling — runaway plan-apply could quota-starve the bot account",
+      "category": "performance",
+      "description": "Per Atlassian's March 2026 rate-limit rollout, Jira Cloud now enforces three concurrent rate-limit systems (cost-based, quota-based, burst-based) plus a NEW `jira-per-issue-on-write` throttle that targets repeated writes to the SAME issue. Per-issue throttling is exactly the pattern #1557's plan-apply will hit — multiple sequential editJiraIssue calls on the parent epic, multiple addCommentToJiraIssue calls during consolidation. API-token traffic (which is what the gateway uses) is NOT exempt from the burst limit. A 100-task plan-apply could exhaust per-issue write quota for the parent epic and stall the entire pipeline. v1's `_request` retry policy is GET-only, so writes never auto-retry — the 429 surfaces immediately to the orchestrator with no auto-backoff.",
+      "affected_components": [
+        "gateway/jira_client.py — `_request` (writes never auto-retry; documented invariant)",
+        "gateway/gateway.py — `_jira_error_from_upstream` for 429 envelope",
+        "Orchestrator plan-apply loop (out of scope but documentation entry needed)"
+      ],
+      "impact": "medium",
+      "likelihood": "medium",
+      "severity": "medium",
+      "mitigations": [
+        "Resolve feedback-1.Q1 (Open Q12): confirm 'no auto-retry on 429 for writes' is correct. The recommended answer is YES — writes never auto-retry. The orchestrator's plan-apply already has its own resume-on-error semantics.",
+        "Surface the `RateLimit-Reason` header (`jira-cost-based`, `jira-quota-based`, `jira-burst-based`, `jira-per-issue-on-write`) in the upstream-error envelope so the orchestrator can branch on the kind of limit hit. `_jira_error_from_upstream` should propagate it as `details.upstream_rate_limit_reason`.",
+        "Surface `Retry-After` on 429 in the error envelope so the orchestrator can sleep before re-issuing.",
+        "Audit on every 429 (write or read) — `jira_upstream_rate_limited` — with `path`, `method`, `rate_limit_reason`, `retry_after`, and the existing session context. Operator dashboards can alarm on per-issue throttles to detect runaway plan-apply.",
+        "Document in docs/reference/jira-wrapper.md the orchestrator's responsibility: implement exponential-backoff-with-jitter on 429, NOT a tight retry loop. Cite Atlassian's official guidance.",
+        "Recommend a per-pipeline write budget (out-of-scope soft-limit at orchestrator layer, NOT in gateway): e.g., abort plan-apply if more than 50 writes hit the same epic in 60 seconds. Implementation deferred to a follow-up issue; document the gap.",
+        "Test: mock a 429 response with each of the four `RateLimit-Reason` values and assert the gateway envelope preserves each.",
+        "Implement-phase reviewer MUST verify writes do NOT call the GET-only retry path inside `_request`."
+      ],
+      "rollback": "Disable write routes (kill switch) so plan-apply falls back to manual Jira UI updates. Read traffic unaffected.",
+      "requires_human_review": false
+    },
+    {
+      "id": "R5",
+      "title": "ADF body-format ambiguity / passthrough lets agents inject unwanted ADF nodes (mention, action, media, embed)",
+      "category": "security",
+      "description": "ADF supports many node types beyond plain text: `mention` (notifies a specific accountId), `media` (embeds files via mediaSingle/mediaInline by mediaId), `inlineCard` / `embedCard` / `blockCard` (URL embeds — could leak referrer to attacker-controlled domains), `action` (interactive button — supported in some surfaces), `taskList` / `decisionList` (state-tracking), `extension` / `bodiedExtension` (third-party macros). If decision-7 picks opt-2 (pre-built ADF passthrough only) or opt-3 (both plain-text and ADF), an agent that controls description/comment text could craft a body that pings users via `mention`, embeds an attacker-controlled URL via `inlineCard`, or invokes a third-party extension. Atlassian's renderer enforces output sanitization for direct XSS, but mention-spam, URL-leak, and extension-trigger are within ADF's documented spec. The recent stored-XSS-in-Jira-Work-Management finding (Snapsec, 2025) shows that fields outside ADF schema (Icon URL) lacked sanitization — implies ADF schema enforcement does NOT extend to all surfaces, but for description/comment bodies the renderer DOES sanitize HTML/JS.",
+      "affected_components": [
+        "gateway/jira_client.py — ADF wrapper (plain-text → minimal ADF doc)",
+        "gateway/gateway.py — body validation in create/edit/comment routes",
+        "config — potential ADF-node allowlist"
+      ],
+      "impact": "medium",
+      "likelihood": "medium",
+      "severity": "medium",
+      "mitigations": [
+        "Block until decision-7 (body input format) resolves. Recommended option is opt-1 (plain text only — gateway wraps to ADF) for the v1 write surface. ADF passthrough is harder to validate.",
+        "If decision-7 = opt-1 (plain-text only): the gateway's ADF wrapper produces ONLY `{type:'doc',version:1,content:[{type:'paragraph',content:[{type:'text',text:S}]}]}` — no other node types. Reject any body that is a dict (not a string).",
+        "If decision-7 = opt-2 or opt-3 (ADF passthrough): walk the ADF tree and reject ADF nodes outside an allowlist: `{doc, paragraph, text, heading, bulletList, orderedList, listItem, codeBlock, blockquote, hardBreak, rule, emoji}`. Explicitly reject `mention`, `media`, `mediaSingle`, `mediaInline`, `inlineCard`, `embedCard`, `blockCard`, `action`, `extension`, `bodiedExtension`. Document the allowlist in code.",
+        "Regardless: cap the serialized ADF JSON at the body-size limit (depends on feedback-1.Q2 / Open Q15). 100 KB is a reasonable upper bound — Atlassian's own per-comment storage cap is roughly 32 KB but is not officially documented.",
+        "Audit log records `description_length`, `comment_length` in characters AND the count of ADF nodes by type — never the body content (per refine open Q20 / feedback-1.Q5). Mention nodes (if accepted) MUST log the targeted accountId so impersonation/spam attempts are visible.",
+        "Test grid: oversized body, nested-deeply ADF (recursive bombing), unknown node type, mention node (rejected or audited), inlineCard with attacker-controlled URL (rejected), extension node (rejected), broken UTF-8, surrogate pairs.",
+        "Reviewer MUST run the adversarial body suite and read the rejection reasons before ACK."
+      ],
+      "rollback": "Force plain-text-only mode via gateway env-var (`EGG_JIRA_ADF_PASSTHROUGH=false`) and reject ADF dicts at the route layer. Existing comments / descriptions unaffected.",
+      "requires_human_review": false
+    },
+    {
+      "id": "R6",
+      "title": "Epic Link mechanism per-instance variation — wrong field for the project type creates orphan tickets",
+      "category": "compatibility",
+      "description": "Atlassian's Jira has two project schemas: classic (team-managed) projects use `customfield_10014` for Epic Link; next-gen (company-managed) projects use the modern `parent.key` hierarchy. The two are not interchangeable — sending `parent.key` to a classic project that uses `customfield_10014` creates a ticket that is NOT linked to the epic, while still succeeding (Atlassian silently drops the unknown field on classic projects, depending on instance config). The orchestrator (#1557 consumer) needs the child ticket linked to the epic; an orphan child blocks the SDLC pipeline that follows. Refine open question Q2 (decision-2) is unresolved.",
+      "affected_components": [
+        "gateway/jira_client.py — `create_issue` body shape, `epicLink` shorthand translation",
+        "gateway/gateway.py — body validator for `epicLink` field",
+        "config/context-filters.yaml — potential per-project Epic Link mechanism config"
+      ],
+      "impact": "medium",
+      "likelihood": "medium",
+      "severity": "medium",
+      "mitigations": [
+        "Block until decision-2 (Epic Link mechanism) resolves. Recommended option is opt-3 (Auto-detect or accept either via `epicLink` shorthand) — turns the gateway into a single agent-facing field that abstracts the upstream split.",
+        "If decision-2 = opt-1 (parent.key only): document that classic-project epics WILL silently fail; operator must migrate to next-gen or use a different gateway. Test: simulating a classic-project create with `parent.key` set asserts a structured warning in the audit log, even if Atlassian succeeds.",
+        "If decision-2 = opt-3 (auto-detect via shorthand): the gateway probes the parent ticket's project type via `GET /rest/api/3/project/{key}` (cached) on first use, then chooses `parent.key` or `customfield_10014`. Cache the projectType per-project per-process to avoid an extra call per create.",
+        "If decision-2 = opt-2 (customfield_10014 only): document that next-gen project epics MUST be created via parent.key elsewhere; this gateway path doesn't support them.",
+        "Body validator MUST reject simultaneous `parent` + `epicLink` (ambiguous intent). Reject either field referencing a ticket key whose project is not in the allowlist.",
+        "Address decision-15 (cross-project parent on createJiraIssue): recommended opt-1 (reject if parent.key project differs from new ticket project). Cross-project parents are a niche feature that mostly creates confusion in pipeline use cases.",
+        "Test: mock GET /project/{key} returning each project type and assert the right field is populated; assert structured rejection on cross-project parent.",
+        "Document in docs/reference/jira-wrapper.md (or the new jira-writes.md, depending on decision-18) the per-instance variation and the chosen mechanism."
+      ],
+      "rollback": "If auto-detect picks the wrong field, operator can override via per-project config in context-filters.yaml (`jira.projects[<KEY>].epic_link_mechanism: parent | customfield_10014`). Hot-reloadable.",
+      "requires_human_review": false
+    },
+    {
+      "id": "R7",
+      "title": "Project-allowlist semantics for createJiraIssue — different gate vector than v1 reads",
+      "category": "security",
+      "description": "v1 reads gate the project-allowlist on the ticket key extracted from the request body (`extract_project_key('FOO-123') = 'FOO'`). createJiraIssue has no ticket key yet — the project-allowlist gate must read `request.body.fields.project.key` (or wherever the validated body schema places it). A naive port of the v1 gate (extract_project_key on a non-ticket field) would return empty and silently allow the create. This is a different code path from every existing route. Refine analysis explicitly named this in Constraints (line 88), but the implementation is brittle.",
+      "affected_components": [
+        "gateway/gateway.py — `POST /api/v1/jira/ticket/create` route handler",
+        "gateway/jira_policy.py — `is_project_allowed` (reused; no change needed)",
+        "gateway/tests/test_jira_routes.py — adversarial create-body tests"
+      ],
+      "impact": "high",
+      "likelihood": "low",
+      "severity": "medium",
+      "mitigations": [
+        "Body validator MUST require a top-level `projectKey: '[A-Z][A-Z0-9_]*'` field on createJiraIssue (mirroring v1's _PROJECT_KEY_RE in jira_policy.py). Reject any create without it as 400 BEFORE running the allowlist gate.",
+        "Project-allowlist gate runs on `body.projectKey` (validated string). Audit on rejection: `jira_ticket_create_denied`, `project=<KEY>`, `reason='project not allowlisted'` — same envelope as v1 reads.",
+        "If decision-1 chooses to expose `customFields` map: the projectKey check still gates allowlist enforcement; customFields cannot smuggle a different project (the project is at top level, not inside customFields).",
+        "Validate the project key is consistent: reject if `body.fields.project.key` (the Atlassian wire shape) is also set AND mismatches the top-level `projectKey`. Prevents an agent from passing a different project to upstream while passing the allowlisted one to the gate.",
+        "Test grid: missing projectKey, projectKey with non-allowlisted value, projectKey-vs-fields.project.key mismatch, projectKey with leading/trailing whitespace, projectKey with unicode homoglyph (use the same homoglyph defense from v1).",
+        "Reviewer MUST trace `is_project_allowed` for createJiraIssue specifically and confirm it does NOT use `extract_project_key`."
+      ],
+      "rollback": "If a bypass is found, hot-patch the route to reject all create calls (return 503 `jira_ticket_create_disabled`) and roll the gateway pod. Read endpoints unaffected.",
+      "requires_human_review": false
+    },
+    {
+      "id": "R8",
+      "title": "createIssueLink project-allowlist semantics — strict-vs-loose decides whether agent can leak ticket existence across projects",
+      "category": "security",
+      "description": "`POST /rest/api/3/issueLink` takes `inwardIssue` and `outwardIssue` keys. If only ONE side needs to be allowlisted (decision-9 opt-2 'loose'), an agent can probe the existence of tickets in the OTHER project by calling createIssueLink and observing 200 (link succeeded → both tickets exist) vs 4xx (one missing). This is a confused-deputy / existence-leak attack: the gateway mediates writes but enables a side-channel read. Strict 'both allowlisted' (decision-9 opt-1) closes the channel; loose 'one allowlisted' (opt-2) opens it. Refine Open Q9 / decision-9 is unresolved.",
+      "affected_components": [
+        "gateway/jira_client.py — `create_issue_link`",
+        "gateway/gateway.py — `POST /api/v1/jira/issue-link/create` route handler",
+        "config/context-filters.yaml — potential `jira.linkable_only_projects: [...]` for opt-3"
+      ],
+      "impact": "medium",
+      "likelihood": "low",
+      "severity": "medium",
+      "mitigations": [
+        "Block until decision-9 (createIssueLink project allowlist semantics) resolves. Strongly recommend opt-1 (strict — both projects must be allowlisted). Closes existence-leak side-channel.",
+        "If decision-9 = opt-1 (strict): both `inwardIssue` and `outwardIssue` must extract to projects in `jira.projects`. Audit on rejection: `jira_issue_link_denied`, `inward_project=<KEY>`, `outward_project=<KEY>`, `reason='one or both projects not allowlisted'`.",
+        "If decision-9 = opt-3 (separate linkable-only list): require new `jira.linkable_only_projects: [...]` in config. The non-allowlisted side must be in the linkable-only list, the other side must be in `jira.projects`. Same fail-closed mtime-cached pattern.",
+        "Reject self-links (inward.key == outward.key) with 400 — Atlassian accepts these but they're meaningless.",
+        "Reject identity link (inward and outward both pointing at the same ticket via different keys, e.g., one resolved by ID and one by key) — rare but possible.",
+        "Test: link across two allowlisted projects, link from allowlisted to non-allowlisted (rejected under opt-1, accepted under opt-2 with audit), link from non-allowlisted to allowlisted (same), self-link (rejected), null inward / null outward (rejected).",
+        "Reviewer MUST run the existence-leak fuzz: attempt to enumerate tickets in a non-allowlisted project by varying inward.key — the gateway should return identical 403 responses regardless of whether the target ticket exists upstream."
+      ],
+      "rollback": "Tighten config (move all `linkable_only_projects` to allowlist or remove them); POST /api/v1/config/reload. Future link calls fail closed.",
+      "requires_human_review": false
+    },
+    {
+      "id": "R9",
+      "title": "Link-type passthrough — agent uses Atlassian-instance link types the operator did not vet",
+      "category": "security",
+      "description": "`POST /rest/api/3/issueLink` accepts `type.name` from the Atlassian instance's link-type table. Common types are `Blocks`, `Relates`, `Cloners`, `Duplicate`, but operators can configure custom link types (`Implements`, `Tests`, `Causes`, etc.) or third-party-app-installed link types with surprising semantics (e.g., a workflow-trigger link type that fires automation). Decision-4 (link-type allowlist source) is unresolved. Accepting any name (decision-4 opt-3) lets an agent invoke a link-type that triggers downstream automation (e.g., Jira Automation rules listening for `Causes` to auto-transition).",
+      "affected_components": [
+        "gateway/jira_client.py — `create_issue_link` body validator",
+        "config/context-filters.yaml — potential `jira.link_types: [...]`"
+      ],
+      "impact": "medium",
+      "likelihood": "low",
+      "severity": "medium",
+      "mitigations": [
+        "Block until decision-4 (link-type allowlist source) resolves. Recommended option is opt-2 (operator-configurable `jira.link_types: [...]` in context-filters.yaml, default `[Blocks, Relates]`).",
+        "If decision-4 = opt-1 (hardcoded): the allowlist is `frozenset({'Blocks', 'Relates'})` in code; widen via PR only.",
+        "If decision-4 = opt-2 (config-allowed): `jira.link_types` defaults to `[Blocks, Relates]` if absent; rejects empty list with audit log line; mtime-cached and reload-able like `jira.projects`.",
+        "If decision-4 = opt-3 (any name): explicitly denylist link types known to trigger Jira Automation rules in common deployments — `Causes`, `Discovers`, plus operator-extensible denylist via config. Document the residual risk.",
+        "Body validator: `type.name` must match `^[A-Za-z][A-Za-z _-]{0,32}$` (Atlassian's name shape). Reject empty / whitespace-only.",
+        "Audit on rejection: `jira_issue_link_type_denied`, `type=<name>`. On acceptance, audit records `type=<name>` so operators can spot unusual link-type usage.",
+        "Test: every option's allowlist boundary; case-sensitivity (Atlassian link-type names are case-sensitive); whitespace; unicode."
+      ],
+      "rollback": "Tighten `jira.link_types` to `[Blocks]` only and reload; new link calls with other types fail closed.",
+      "requires_human_review": false
+    },
+    {
+      "id": "R10",
+      "title": "Per-role and per-phase write gating — agent of a phase/role inappropriate for writes can mutate Jira",
+      "category": "security",
+      "description": "v1 reads have no per-role or per-phase gating beyond the project allowlist (any session calling /api/v1/jira/* with valid auth and an allowlisted project succeeds). Writes are higher-stakes — should a `tester` agent be able to call createJiraIssue? Should `editJiraIssue` only be callable in refine? Decisions 10 (per-role) and 11 (per-phase) are unresolved. Punting them ('opt-3 defer to follow-up') is the architect's likely pick (low-friction v1) but means any role / phase combination with a session token can write to allowlisted Jira projects until a follow-up issue lands.",
+      "affected_components": [
+        "gateway/gateway.py — write route handlers",
+        "gateway/phase_filter.py (potentially extended)",
+        "gateway/role_filter.py (potentially new)",
+        "shared/egg_restrictions/ — role/phase allowlist sources"
+      ],
+      "impact": "medium",
+      "likelihood": "medium",
+      "severity": "medium",
+      "mitigations": [
+        "Block until decision-10 (per-role gating) and decision-11 (per-phase gating) resolve. Recommend BOTH be set to opt-3 (defer to follow-up issue) for v1924, with a documented runbook note that v1 writes are open to any session-authenticated role in any phase, gated only by project allowlist.",
+        "If decisions 10/11 = opt-3 (defer): document the gap explicitly in docs/reference/jira-wrapper.md and link a tracking issue for the follow-up. Operator dashboards must surface caller role/phase per write to enable post-hoc detection of misuse.",
+        "If decision-10 = opt-2 (per-verb role allowlist): config shape `jira.role_allowlist: { ticket_create: [planner, refiner], ticket_edit: [refiner], comment_add: [refiner, planner], issue_link_create: [planner] }`. Default is empty (everything allowed) per opt-3 fallback.",
+        "If decision-11 = opt-2 (per-phase verb allowlist): mirror decision-10's shape but keyed on phase. Both can coexist via AND.",
+        "Audit on every write records `caller_role=<role>` and `caller_phase=<phase>` (already in `_session_jira_context`). Operator runbook: `jq '.events[] | select(.operation | startswith(\"jira_\")) | select(.success==true) | [.caller_role, .caller_phase, .operation] | @csv'` produces a per-write audit table for ad-hoc review.",
+        "Test: each role/phase combination calling each write verb; expected accept/reject matrix."
+      ],
+      "rollback": "If misuse is detected post-merge, hot-patch the role/phase allowlist (or default to refiner+planner only) via gateway env-var, ship, and roll. Existing in-flight writes complete.",
+      "requires_human_review": true,
+      "human_review_reason": "Decision-10 and decision-11 are HITL-blocking. Either choice has security trade-offs — opt-3 (defer) makes v1924 easier to ship but leaves write surface open across roles/phases until a follow-up. A security reviewer should confirm the deferral acceptable for the operator's deployment."
+    },
+    {
+      "id": "R11",
+      "title": "Body-size caps and audit-log explosion — large description / comment bodies blow up audit log and gateway memory",
+      "category": "performance",
+      "description": "Atlassian publishes `summary` cap of 255 chars, but no public cap for `description`, `comment.body`, or label count. A large ADF body (say, 5 MB of markdown serialized to ADF) would (a) be accepted upstream up to Atlassian's storage limit (Atlassian's per-comment internal cap is ~32 KB but undocumented), (b) blow up the gateway's audit log (length recorded but not body), (c) slow the gateway's HTTP serialization, (d) blow up the orchestrator's response-handling memory, and (e) stress Atlassian's per-issue write quota. Refine open question Q15 / feedback-1.Q2 is unresolved.",
+      "affected_components": [
+        "gateway/jira_client.py — body validator pre-flight size check",
+        "gateway/gateway.py — request body parsing (Flask `request.get_json` cap)",
+        "gateway/audit log emitter — confirms structural-only logging"
+      ],
+      "impact": "low",
+      "likelihood": "medium",
+      "severity": "medium",
+      "mitigations": [
+        "Block until feedback-1.Q2 resolves. Recommended caps: `summary` ≤ 255 (matches Atlassian), `description` ≤ 100_000 chars, `comment body` ≤ 32_000 chars (matches Atlassian's undocumented internal limit), `labels` ≤ 32 entries with each ≤ 100 chars (Atlassian's hard limit is 255, but agents shouldn't need that), `customFields` map ≤ 16 keys. All caps are operator-overridable via env-var (`EGG_JIRA_DESCRIPTION_MAX`, etc.) for one-off use cases.",
+        "Validate caps BEFORE making the upstream call. Audit on rejection: `jira_<verb>_body_size_rejected`, `field=<name>`, `length=<int>`, `cap=<int>`.",
+        "Flask `MAX_CONTENT_LENGTH` (request body size cap) set to ~256 KB for /api/v1/jira/* routes — defense-in-depth so a multi-megabyte body cannot reach the JSON parser.",
+        "Audit log body redaction: only `description_length`, `description_node_count`, `description_depth`, `comment_length`, `comment_node_count`, `labels_count`, `labels_total_length`. NEVER the body content (per refine Open Q20 / feedback-1.Q5).",
+        "Test: oversized body (just over cap) rejected with structured 400; deeply-nested ADF rejected on node-count or depth cap; label list at exactly 32 entries accepted, 33 rejected.",
+        "Test: confirm audit log entries do NOT include the body content for a successful write."
+      ],
+      "rollback": "Tighten caps via env-var; agents that hit them get 400 with a clear `cap=<int>` reason. Operators can re-issue via Jira UI."
+    },
+    {
+      "id": "R12",
+      "title": "Sandbox wrapper UX bugs — bash JSON construction with multi-line / shell-special bodies leaks args, drops bytes, or fails",
+      "category": "operational",
+      "description": "v1's sandbox/scripts/jira already uses Python heredocs to build JSON bodies. The write extension grows that wrapper by ~300 lines, including new flags `--description`, `--description-file`, `--description-stdin`, `--body`, `--body-file`, `--body-stdin`, `--labels`, `--add-labels`, `--remove-labels`, `--idempotency-key`, plus a four-way verb dispatch tree. Risks: multi-line bodies passed via `--description \"...\"` are mangled by bash's IFS / quoting; large bodies via stdin run into bash's argv length limits (rare but possible); file paths with spaces break unquoted variables; non-UTF-8 bytes corrupt the Python heredoc.",
+      "affected_components": [
+        "sandbox/scripts/jira",
+        "tests/sandbox/test_jira_wrapper.py"
+      ],
+      "impact": "low",
+      "likelihood": "medium",
+      "severity": "low",
+      "mitigations": [
+        "Resolve feedback-1.Q4 (Open Q19): confirm `--description` / `--description-file` / `--description-stdin` flag set. Recommended: support all three for create/edit; require the same triplet for `comment add` (`--body` / `--body-file` / `--body-stdin`); prefer `--description-file` and `--body-file` in agent prompts (most robust to multi-line content).",
+        "Pass body content through `python3 -c` heredoc with `sys.argv` (already the v1 pattern); never embed body in the bash JSON-build line.",
+        "For `--description-stdin` / `--body-stdin`: read from `sys.stdin.buffer` (binary), validate UTF-8, fail clearly on non-UTF-8.",
+        "All file paths quoted in bash; tests include paths with spaces, paths with newlines (rejected), paths with non-ASCII (accepted, validated UTF-8).",
+        "Test grid: empty body (rejected), multi-line body (preserved), unicode body (preserved), body with embedded JSON-escape sequences (preserved verbatim — agent text is not JSON), body with literal backslashes (preserved).",
+        "Document in sandbox/agent-config/rules/environment.md the recommended flag (`--description-file <path>`) for any body > 1 line."
+      ],
+      "rollback": "Wrapper bug → wrapper-only fix; gateway unchanged. Workaround: agent invokes the gateway via `curl` directly (already supported via `gateway/gateway.py` REST surface)."
+    },
+    {
+      "id": "R13",
+      "title": "PII / sensitive content in description bodies — appears in audit logs only as length, but reaches Atlassian",
+      "category": "data-privacy",
+      "description": "Agent-authored description / comment bodies could contain inadvertent PII (email addresses scraped from the codebase, sandbox tokens, API keys pasted from a debug session, personal names from commit history). Refine open question Q20 (feedback-1.Q5) confirmed audit logs record only structural metadata (length, node counts). But the bodies still reach Atlassian and live in Jira's audit / version history forever. The orchestrator's plan-apply pulls agent text from prompts; an off-prompt agent could write something the operator would not want in Jira.",
+      "affected_components": [
+        "gateway/jira_client.py — body acceptance",
+        "Agent prompts (out of scope for gateway; documentation only)"
+      ],
+      "impact": "medium",
+      "likelihood": "medium",
+      "severity": "medium",
+      "mitigations": [
+        "Confirm feedback-1.Q5 (Open Q20): audit logs record structural metadata only — confirmed.",
+        "Document in docs/reference/jira-wrapper.md and in agent prompts: 'Agent-authored Jira bodies are visible to all Jira users with project access. Do not paste credentials, API tokens, or PII.'",
+        "Consider a future-scope feature (out of v1924): a redaction pre-flight that scans description/comment bodies for known credential patterns (private keys, AWS keys, Anthropic keys, GitHub PATs). Document as a follow-up.",
+        "Audit log records `agent_role`, `pipeline_id`, `caller_phase` per write so post-hoc forensics can identify which agent wrote which body.",
+        "If a credential leak is detected, runbook: (1) revoke the credential; (2) operator manually edits the Jira ticket / deletes the comment; (3) Atlassian audit log retention applies."
+      ],
+      "rollback": "Manual Jira UI cleanup. Gateway cannot redact retroactively."
+    },
+    {
+      "id": "R14",
+      "title": "Issuetype identifier per-instance variation — `Task` name might not exist in operator's Jira",
+      "category": "compatibility",
+      "description": "Atlassian's default issuetypes are `Task`, `Story`, `Bug`, `Epic`, `Sub-task`, but operators can rename them, add new ones, or use numeric IDs. An agent that hardcodes `'issuetype': {'name': 'Task'}` will fail on instances with renamed or non-default issuetype configurations. Refine open question Q8 (decision-8) is unresolved. The architect's recommended C1 schema accepts `issuetype: <NAME from {Task, Story, Bug, Epic, Sub-task} or numeric ID>`, which papers over the variation but doesn't validate against the actual instance.",
+      "affected_components": [
+        "gateway/jira_client.py — `create_issue` body validator",
+        "config/context-filters.yaml — potential `jira.issuetypes: [...]`"
+      ],
+      "impact": "medium",
+      "likelihood": "medium",
+      "severity": "low",
+      "mitigations": [
+        "Block until decision-8 (issuetype identifier) resolves. Recommended option is opt-3 (both name and numeric ID) — most flexible.",
+        "If decision-8 = opt-3 (both): the body validator accepts `issuetype: {name: 'Task'}` OR `issuetype: {id: '10003'}`. Pass-through to upstream.",
+        "Atlassian rejects unknown issuetypes with a 400 + `errorMessages: ['issuetype is required']` — surface that error verbatim via R15's enriched envelope.",
+        "Future-scope (out of v1924): validate against `GET /rest/api/3/issuetype/project?projectId=N` per-project to fail-fast on unknown types. Document as follow-up.",
+        "Document in docs/reference/jira-wrapper.md the issuetype enumeration: 'Use Atlassian default names (Task, Story, Bug, Epic, Sub-task) where possible. For renamed issuetypes, use the numeric ID via `--type-id` instead of `--type`.'"
+      ],
+      "rollback": "Operator overrides issuetype mapping in agent prompts; gateway accepts whatever name/ID the agent passes."
+    },
+    {
+      "id": "R15",
+      "title": "Error-envelope drift — a write 4xx with field-level Atlassian errors gets swallowed by `_jira_error_from_upstream`",
+      "category": "operational",
+      "description": "v1's `_jira_error_from_upstream` (gateway.py line 4311) maps Atlassian 4xx → 4xx, 5xx → 502, with the upstream body in `details.upstream_body`. Atlassian write 4xx responses have a structured `errorMessages: [...]` and `errors: {<field>: <reason>}` shape (e.g., `{'errors': {'parent': 'Field parent cannot be set...'}}`). The current passthrough preserves the body verbatim, so an agent that knows to look at `details.upstream_body.errors` can debug. But a less-sophisticated caller sees a generic 'Jira upstream error 400' and has to dig. Refine feedback-1.Q9 (Open Q26) is unresolved.",
+      "affected_components": [
+        "gateway/gateway.py — `_jira_error_from_upstream`",
+        "docs/reference/jira-wrapper.md — error-envelope shape documentation"
+      ],
+      "impact": "low",
+      "likelihood": "high",
+      "severity": "low",
+      "mitigations": [
+        "Resolve feedback-1.Q9 (Open Q26). Recommended: enrich the envelope with a top-level `field_errors: {<field>: <reason>}` extracted from `errors` if present, plus `error_messages: [<str>]` extracted from `errorMessages`. Keeps the verbatim body in `details.upstream_body` for debug.",
+        "Document the shape in docs/reference/jira-wrapper.md so callers know to check `field_errors` first.",
+        "Test: each Atlassian write 4xx shape (createJiraIssue with missing project, editJiraIssue with invalid field, addCommentToJiraIssue with malformed ADF) preserved through the envelope.",
+        "Audit: each upstream 4xx logs `upstream_status`, `field_errors_keys` (just the field NAMES, not values — Atlassian sometimes includes user-input echoes in error reasons)."
+      ],
+      "rollback": "Revert envelope enrichment if it leaks unintended Atlassian data; fall back to v1's verbatim passthrough. Agents see slightly noisier errors."
+    },
+    {
+      "id": "R16",
+      "title": "private-mode-gate decorator drift — a new write route ships without `@require_private_mode`",
+      "category": "security",
+      "description": "Every `/api/v1/jira/*` route MUST carry `@require_session_auth` and `@require_private_mode`. The gate is one decorator line per route and easy to omit on a follow-up commit. v1's `test_jira_routes.test_all_jira_routes_require_private_mode` walks `app.url_map`, filters by `/api/v1/jira/`, and asserts every view's `__egg_requires_private_mode__` is True. The new write routes inherit this regression test, but only if the route registration matches the test's URL pattern.",
+      "affected_components": [
+        "gateway/gateway.py — write route handlers",
+        "gateway/tests/test_jira_routes.py — route-enumeration regression test"
+      ],
+      "impact": "high",
+      "likelihood": "low",
+      "severity": "medium",
+      "mitigations": [
+        "Confirm `test_all_jira_routes_require_private_mode` enumerates the new routes (`/ticket/create`, `/ticket/edit`, `/ticket/comment/add`, `/issue-link/create`). The pattern in the test must include them.",
+        "Add a CONTRIBUTING note (or extend gateway/README.md): 'New /api/v1/jira/* routes MUST stack @require_session_auth → @require_private_mode → handler.'",
+        "Reviewer MUST run `pytest gateway/tests/test_jira_routes.py -k private_mode` and confirm pass count includes 4 new routes (8 routes total: 4 read + 4 write).",
+        "Audit log records `session_mode` per write call so post-hoc detection catches any accidental public-mode access."
+      ],
+      "rollback": "If a route ships without the gate, hot-patch by adding the decorator and re-deploying the gateway pod. CI catches it pre-merge."
+    },
+    {
+      "id": "R17",
+      "title": "Squid allowlist accidentally widened to include `*.atlassian.net`",
+      "category": "security",
+      "description": "v1's allowed_domains.txt deliberately excludes `*.atlassian.net` — sandboxed agents cannot bypass the gateway and hit Atlassian directly. The write extension's larger surface area might tempt a future maintainer to 'just allow Atlassian' to debug, breaking the gateway-only invariant for both reads AND writes. Mirrors #1556's R5.",
+      "affected_components": [
+        "gateway/allowed_domains.txt",
+        "gateway/tests/test_allowed_domains.py"
+      ],
+      "impact": "high",
+      "likelihood": "low",
+      "severity": "medium",
+      "mitigations": [
+        "Verify `test_allowed_domains.py` asserts `*.atlassian.net` is NOT in allowlist (already covered by v1).",
+        "Comment in `gateway/allowed_domains.txt`: '# Atlassian (Jira AND Confluence) is intentionally NOT here — route through /api/v1/jira/* via the gateway.' (May already exist post-#1931.)",
+        "Implement-phase reviewer must spot-check the comment lands and the test still passes.",
+        "Audit log records destination host on egress denials so an accidental config drift surfaces immediately."
+      ],
+      "rollback": "One-line revert of allowed_domains.txt; CI catches it pre-merge."
+    },
+    {
+      "id": "R18",
+      "title": "Idempotency cache memory unbounded — pathological key generation could OOM the gateway",
+      "category": "performance",
+      "description": "Architect option D1 specifies a 5-minute TTL in-process dict. If an agent generates 10,000 unique idempotency_keys per minute (each cache entry ~1 KB), the cache grows ~50 MB before TTL eviction kicks in. The eviction path is lazy on insert — at high churn the dict could reach hundreds of MB before sweep. Decision-14 (cache scope) implies in-memory but doesn't put a hard cap on entry count.",
+      "affected_components": [
+        "gateway/jira_client.py or gateway/idempotency.py — cache module",
+        "tests for cache eviction under load"
+      ],
+      "impact": "low",
+      "likelihood": "low",
+      "severity": "low",
+      "mitigations": [
+        "Hard cap at `MAX_IDEMPOTENCY_ENTRIES = 10_000`. On insert, if cap reached, evict oldest entry (LRU) and emit `jira_idempotency_cache_evicted` audit line.",
+        "Eager sweep of expired entries every N inserts (where N = 100 or so) so memory stays bounded under high churn.",
+        "Cache value is structurally bounded (just status code + small response body summary, NOT the full Atlassian response if that response is huge — replay returns a synthetic envelope `{status: 'idempotency_replay', cached: true, original_status: <int>}` rather than the full upstream body). Trade-off: clients that need the full body re-issue with a fresh key.",
+        "Test: hammer cache with 10_001 unique keys, assert oldest is evicted, memory growth bounded.",
+        "Document in docs/reference/jira-wrapper.md the memory cap and eviction semantics."
+      ],
+      "rollback": "Tune cap via env-var; in catastrophic OOM, restart gateway pod (cache is per-process, restart drops it cleanly)."
+    },
+    {
+      "id": "R19",
+      "title": "Documentation home unresolved — decision-18 splits between extending jira-wrapper.md or creating jira-writes.md",
+      "category": "operational",
+      "description": "Decision-18 (Open Q27) is unresolved. Where the four new verbs are documented affects discoverability. Splitting docs (option opt-3 'both, high-level in jira-wrapper.md, deep dive in jira-writes.md') is the most reviewer-friendly but doubles the surface to maintain. Inlining (option opt-1) keeps a single page but bloats jira-wrapper.md to ~400 lines. New file (option opt-2) is cleanest but requires updating index links.",
+      "affected_components": [
+        "docs/reference/jira-wrapper.md",
+        "docs/reference/jira-writes.md (potentially new)",
+        "docs/index.md (link update)"
+      ],
+      "impact": "low",
+      "likelihood": "high",
+      "severity": "low",
+      "mitigations": [
+        "Defer to HITL decision-18 resolution. Recommended: opt-1 (extend existing jira-wrapper.md) for minimal documentation surface; the page is currently 174 lines and four new verbs adds ~120 lines, keeping it under 350 — manageable.",
+        "Whichever option HITL picks, doc-updater agent (or implement-phase doc step) ensures docs/index.md and CONTRIBUTING.md links are consistent.",
+        "Reviewer MUST verify the chosen doc layout describes: each new verb's request body, response shape, body-size caps (R11), idempotency requirement (R3), Epic Link mechanism (R6), link-type allowlist (R9), error envelope shape (R15)."
+      ],
+      "rollback": "Re-organize docs in a follow-up PR if the layout proves confusing."
+    }
+  ],
+  "global_rollback_plan": {
+    "level_1_config_only": [
+      "Set `jira.projects: []` in config/context-filters.yaml — fails every Jira call (read AND write) closed; agents see 403 with `jira_<verb>_denied`.",
+      "Set `jira.link_types: []` (if decision-4 = opt-2) — fails every createIssueLink closed.",
+      "POST /api/v1/config/reload — propagates without restart.",
+      "Confirm via grep of audit log: zero `success: true` Jira write events in the next minute."
+    ],
+    "level_2_route_disable": [
+      "Hot-patch gateway to return 503 on `/api/v1/jira/ticket/create`, `/ticket/edit`, `/ticket/comment/add`, `/issue-link/create` (single-file change in gateway.py); roll the gateway pod.",
+      "Read endpoints (`/ticket/get`, `/search`, `/ticket/comments`, `/execute`) continue to serve traffic.",
+      "Plan-apply consumers (#1557) fall back to manual Jira UI updates."
+    ],
+    "level_3_credential_revoke": [
+      "Revoke the Atlassian bot-account API token in Atlassian admin UI.",
+      "Gateway returns 503 on next call (credential loader fails); audit log records the failure mode.",
+      "Both Jira and Confluence go dark together (per #1931 decision-6 shared-creds coupling). Document this as the trade-off of consolidation. Pipeline phases that need either service block on `awaiting_human` until rotation."
+    ],
+    "level_4_full_revert": [
+      "git revert the merge commit; redeploy the gateway image.",
+      "config/context-filters.yaml retains the `jira:` section but no code reads write-specific config (`jira.custom_fields`, `jira.link_types`) — no-op until re-rolled.",
+      "Idempotency cache is per-process — restart drops it; no orphan state.",
+      "Future re-land via a new PR after the issue is identified and patched."
+    ]
+  },
+  "implement_phase_checklist": [
+    "[R1] Custom-field allowlist matches HITL decision-1; adversarial body grid asserts `securityLevel`, `sprint`, `watchers`, `assignee`, `fixVersions` rejected via every entry-point.",
+    "[R2] `validate_jira_api_path.ALLOWED_METHODS == frozenset({'GET'})` confirmed by unit test; new write methods bypass `validate_jira_api_path`; `/execute` anti-bypass test enumerates all write paths and confirms POST/PUT rejected.",
+    "[R3] Idempotency cache: per-(verb, project_key, idempotency_key) keying; 5-minute TTL; threading lock; max 10_000 entries with LRU eviction; replay returns `Idempotency-Replayed: true` header; cache scope matches HITL decision-3 / decision-14 / decision-19.",
+    "[R4] Writes never auto-retry on 429; `_jira_error_from_upstream` surfaces `RateLimit-Reason` and `Retry-After` in the envelope; audit emits `jira_upstream_rate_limited` for 429 on writes.",
+    "[R5] ADF body validation matches HITL decision-7; node-type allowlist enforced; serialized ADF size capped per R11 limits.",
+    "[R6] Epic Link mechanism matches HITL decision-2; cross-project parent rejected (HITL decision-15 = opt-1); body validator rejects simultaneous parent + epicLink.",
+    "[R7] createJiraIssue project-allowlist gate reads `body.projectKey` (not extract_project_key); test grid covers missing / non-allowlisted / mismatched projectKey-vs-fields.project.key.",
+    "[R8] createIssueLink project-allowlist matches HITL decision-9; existence-leak fuzz confirms identical 403 shape regardless of upstream ticket existence.",
+    "[R9] Link-type allowlist matches HITL decision-4; type.name regex bounds; case-sensitivity test passes.",
+    "[R10] Per-role / per-phase gating matches HITL decisions 10 and 11; if deferred, runbook entry documents the gap; audit captures `caller_role` and `caller_phase` per write.",
+    "[R11] Body-size caps match feedback-1.Q2 resolution; Flask `MAX_CONTENT_LENGTH` capped at 256 KB for `/api/v1/jira/*`; audit log records structural metadata only (per feedback-1.Q5).",
+    "[R12] Sandbox wrapper supports `--description` / `--description-file` / `--description-stdin` (and `--body` analogue); multi-line and unicode bodies preserved; tests cover paths-with-spaces.",
+    "[R13] Documentation explicitly warns: agent-authored Jira bodies are visible to all Jira users with project access; do not paste credentials.",
+    "[R14] Issuetype identifier matches HITL decision-8; documentation enumerates Atlassian defaults and recommends numeric ID for renamed issuetypes.",
+    "[R15] Error envelope enriched with `field_errors` and `error_messages` per feedback-1.Q9 resolution; verbatim `details.upstream_body` preserved.",
+    "[R16] `test_all_jira_routes_require_private_mode` covers 4 new write routes; `__egg_requires_private_mode__` confirmed True on each.",
+    "[R17] `gateway/allowed_domains.txt` comment confirms `*.atlassian.net` exclusion is intentional for both Jira AND Confluence.",
+    "[R18] Idempotency cache eviction test passes: 10_001 unique keys → oldest evicted, memory bounded, structured audit on eviction.",
+    "[R19] Documentation home matches HITL decision-18; docs/index.md updated."
+  ],
+  "external_research": {
+    "sources_consulted": [
+      "https://developer.atlassian.com/cloud/jira/platform/rate-limiting/",
+      "https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/",
+      "https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-bulk-operations/",
+      "https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-links/",
+      "https://developer.atlassian.com/cloud/jira/platform/issue-linking-model/",
+      "https://developer.atlassian.com/cloud/jira/platform/apis/document/structure/",
+      "https://developer.atlassian.com/cloud/jira/platform/change-notice-update-in-simultaneous-transitions-issue-api/",
+      "https://community.atlassian.com/forums/Jira-questions/Does-Jira-Rest-API-have-idempotent-create-Jira-ticket-API/qaq-p/2380895",
+      "https://community.atlassian.com/forums/Jira-questions/Clarification-on-Rate-Limiting-for-Jira-REST-API-s-Edit-Issue/qaq-p/2956205",
+      "https://www.atlassian.com/blog/platform/evolving-api-rate-limits",
+      "https://cyberpress.org/stored-xss-flaw-in-jira-work/",
+      "https://jira.atlassian.com/browse/JSDSERVER-6895",
+      "https://jira.atlassian.com/browse/JRACLOUD-77436"
+    ],
+    "key_findings": [
+      "Atlassian's March 2026 points-based rate-limit rollout introduces per-issue write throttling (`jira-per-issue-on-write`) — exactly the pattern #1557's plan-apply will hit with multiple sequential editJiraIssue calls on the parent epic. API-token traffic is NOT exempt from burst limits. Surfacing `RateLimit-Reason` and `Retry-After` in the gateway envelope is mandatory for the orchestrator to back off correctly.",
+      "Jira Cloud REST API v3 has NO native idempotency key for any write endpoint. Atlassian's own documentation explicitly states 'only retry if the API is idempotent' — Jira creates are NOT. POST /rest/api/3/issueLink does NOT dedupe (inward, outward, type) triples; refine open Q28 / decision-19 was correct to surface this. The only mitigation is a gateway-side idempotency cache (architect D1) plus stable orchestrator-derived keys.",
+      "ADF bodies passed through to Atlassian are sanitized on render but the Atlassian Document Format spec includes node types (`mention`, `media`, `inlineCard`, `extension`) that have non-trivial side-effects. Recent stored-XSS findings in Jira Work Management (Snapsec, 2025) prove that fields outside ADF schema can lack sanitization. The safe v1 default is plain-text-only with gateway-side ADF wrapping (architect E1, recommend decision-7 = opt-1).",
+      "Atlassian transition API is moving from 400 → 409 for race conditions. While transitions are explicitly out of scope for #1924, the same 409 pattern may eventually apply to other writes; the gateway should be ready to translate 409 → exposed-via-envelope for the orchestrator to retry-with-backoff."
+    ]
+  },
+  "tasks_satisfied": [],
+  "produced_at": "2026-04-27T19:30:00Z"
+}
