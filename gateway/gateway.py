@@ -5290,6 +5290,19 @@ def confluence_page_footer_comments() -> tuple[Response, int] | Response:
                     space_key=parent_space_key,
                     reason="space not allowlisted",
                 )
+        else:
+            # Fail-closed when the parent page's space cannot be resolved
+            # (parent fetch raised, or returned the not_found envelope while
+            # the comment fetch returned data — Atlassian's per-page
+            # restriction inheritance can produce exactly this shape).
+            # We MUST NOT ship the comment body to the sandbox without an
+            # allowlist verdict.
+            return _confluence_space_denied_response(
+                event="confluence_space_denied",
+                page_id=page_id,
+                space_key=None,
+                reason="parent page space could not be resolved",
+            )
 
     audit_log(
         "confluence_page_footer_comments",
@@ -5384,6 +5397,18 @@ def confluence_page_inline_comments() -> tuple[Response, int] | Response:
                     space_key=parent_space_key,
                     reason="space not allowlisted",
                 )
+        else:
+            # Fail-closed when the parent page's space cannot be resolved.
+            # See confluence_page_footer_comments — same risk applies here:
+            # the v1 fallback can return inline comments even when v2 page
+            # reads 403, so we MUST NOT ship the body without an allowlist
+            # verdict.
+            return _confluence_space_denied_response(
+                event="confluence_space_denied",
+                page_id=page_id,
+                space_key=None,
+                reason="parent page space could not be resolved",
+            )
 
     audit_log(
         "confluence_page_inline_comments",
