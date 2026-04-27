@@ -519,6 +519,40 @@ def run_once(
         consensus=consensus,
     )
 
+    # Issue #2118: when ``config_subset`` is empty the migrated detectors
+    # silently fall back to hardcoded thresholds, masking calibration
+    # regressions. ``pipeline_data`` itself can be empty because
+    # ``_orch_get`` swallows HTTPError/URLError/TimeoutError (including
+    # the 400 surfaced for ``InvalidPipelineIdError``); the ``config``
+    # block can also be missing on a 200 response if the orchestrator's
+    # status route hit its defensive ``except (AttributeError,
+    # TypeError)`` branch. Emit a high-priority tripwire so the overseer
+    # agent can see calibration is degraded, with the cause encoded so an
+    # operator can tell unreachable-orchestrator from schema-regression.
+    if not config_subset:
+        if not pipeline_data:
+            cause = "pipeline_unreachable"
+        elif "config" not in pipeline_data:
+            cause = "config_key_missing"
+        else:
+            cause = "config_block_empty"
+        detector_alerts.append(
+            {
+                "anomaly": "config-unavailable",
+                "priority": "high",
+                "role": "overseer",
+                "summary": (
+                    "overseer running with default thresholds; "
+                    f"pipeline status returned no usable config ({cause})"
+                ),
+                "detail": (
+                    "Calibration regressions are invisible until this clears. "
+                    f"cause={cause}; pipeline_id={pipeline_id}."
+                ),
+                "calibration_only": False,
+            }
+        )
+
     # Tier-1 intersection gate (decision-18). The advisor is invoked
     # only when Haiku flags an anomaly AND a Tier-1 health alert is
     # present. We surface the gate state in the cycle report so the

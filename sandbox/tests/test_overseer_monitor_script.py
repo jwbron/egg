@@ -345,6 +345,103 @@ class TestRunOnce:
         assert report["running_agents"] == []
 
 
+class TestRunOnceConfigTripwire:
+    """Issue #2118: emit a config-unavailable alert when the migrated
+    detectors would otherwise run silently against an empty config_subset.
+    The three causes (pipeline_unreachable / config_key_missing /
+    config_block_empty) must be distinguishable from the alert detail."""
+
+    @staticmethod
+    def _config_alerts(report: dict) -> list[dict]:
+        return [a for a in report["detector_alerts"] if a.get("anomaly") == "config-unavailable"]
+
+    @patch("overseer_monitor.send_heartbeat", return_value=True)
+    @patch("overseer_monitor.poll_messages", return_value=[])
+    @patch("overseer_monitor.query_progress", return_value=[])
+    @patch("overseer_monitor.query_health_alerts", return_value=[])
+    @patch("overseer_monitor.query_pipeline_status")
+    def test_pipeline_unreachable_triggers_tripwire(
+        self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, monkeypatch
+    ):
+        """Empty pipeline_data — _orch_get swallowed the upstream error."""
+        monkeypatch.setenv("EGG_OVERSEER_TEST_MODE", "1")
+        mock_status.return_value = {}
+
+        report = run_once(PIPELINE_ID, base_url=BASE_URL)
+
+        tripwires = self._config_alerts(report)
+        assert len(tripwires) == 1
+        assert tripwires[0]["priority"] == "high"
+        assert tripwires[0]["calibration_only"] is False
+        assert "pipeline_unreachable" in tripwires[0]["detail"]
+
+    @patch("overseer_monitor.send_heartbeat", return_value=True)
+    @patch("overseer_monitor.poll_messages", return_value=[])
+    @patch("overseer_monitor.query_progress", return_value=[])
+    @patch("overseer_monitor.query_health_alerts", return_value=[])
+    @patch("overseer_monitor.query_pipeline_status")
+    def test_config_key_missing_triggers_tripwire(
+        self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, monkeypatch
+    ):
+        """Server returned 200 but the status route omitted the config block."""
+        monkeypatch.setenv("EGG_OVERSEER_TEST_MODE", "1")
+        mock_status.return_value = {
+            "status": "running",
+            "phase": {"name": "implement"},
+            "concurrent": {"consensus": {}},
+        }
+
+        report = run_once(PIPELINE_ID, base_url=BASE_URL)
+
+        tripwires = self._config_alerts(report)
+        assert len(tripwires) == 1
+        assert "config_key_missing" in tripwires[0]["detail"]
+
+    @patch("overseer_monitor.send_heartbeat", return_value=True)
+    @patch("overseer_monitor.poll_messages", return_value=[])
+    @patch("overseer_monitor.query_progress", return_value=[])
+    @patch("overseer_monitor.query_health_alerts", return_value=[])
+    @patch("overseer_monitor.query_pipeline_status")
+    def test_config_block_empty_triggers_tripwire(
+        self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, monkeypatch
+    ):
+        """Server returned config={} — same calibration-blind state."""
+        monkeypatch.setenv("EGG_OVERSEER_TEST_MODE", "1")
+        mock_status.return_value = {
+            "status": "running",
+            "phase": {"name": "implement"},
+            "concurrent": {"consensus": {}},
+            "config": {},
+        }
+
+        report = run_once(PIPELINE_ID, base_url=BASE_URL)
+
+        tripwires = self._config_alerts(report)
+        assert len(tripwires) == 1
+        assert "config_block_empty" in tripwires[0]["detail"]
+
+    @patch("overseer_monitor.send_heartbeat", return_value=True)
+    @patch("overseer_monitor.poll_messages", return_value=[])
+    @patch("overseer_monitor.query_progress", return_value=[])
+    @patch("overseer_monitor.query_health_alerts", return_value=[])
+    @patch("overseer_monitor.query_pipeline_status")
+    def test_populated_config_does_not_trigger_tripwire(
+        self, mock_status, mock_alerts, mock_progress, mock_msgs, mock_hb, monkeypatch
+    ):
+        """Happy path: config block present and populated — no tripwire."""
+        monkeypatch.setenv("EGG_OVERSEER_TEST_MODE", "1")
+        mock_status.return_value = {
+            "status": "running",
+            "phase": {"name": "implement"},
+            "concurrent": {"consensus": {}},
+            "config": {"overseer_agent_stall_seconds": 240},
+        }
+
+        report = run_once(PIPELINE_ID, base_url=BASE_URL)
+
+        assert self._config_alerts(report) == []
+
+
 class TestMainExitCodes:
     """Test main() exit code mapping for --once mode."""
 
