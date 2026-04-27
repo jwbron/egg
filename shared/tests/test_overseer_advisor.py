@@ -9,15 +9,85 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 
 import pytest
 from egg_overseer.advisor import (
+    _DEFAULT_RECENT_LOG_BYTES_CAP,
     AdvisorParseError,
     AdvisorVerdict,
+    _truncate_log_lines_by_bytes,
     consult_advisor,
 )
 
 _GH_PAT = "ghp_" + "A" * 36
+
+
+# ---------------------------------------------------------------------------
+# _truncate_log_lines_by_bytes (issue #2120)
+# ---------------------------------------------------------------------------
+
+
+class TestTruncateLogLinesByBytes:
+    def test_under_cap_returns_input_unchanged(self) -> None:
+        lines = ["a", "b", "c"]
+        kept, dropped, dropped_bytes = _truncate_log_lines_by_bytes(lines, cap_bytes=1000)
+        assert kept == lines
+        assert dropped == 0
+        assert dropped_bytes == 0
+
+    def test_drops_oldest_first(self) -> None:
+        lines = ["aaaa", "bbbb", "cccc"]  # each line + newline = 5 bytes
+        # Cap of 11 bytes fits the last 2 (cccc + newline = 5, bbbb + newline = 5, total 10).
+        kept, dropped, dropped_bytes = _truncate_log_lines_by_bytes(lines, cap_bytes=11)
+        assert kept == ["bbbb", "cccc"]
+        assert dropped == 1
+        assert dropped_bytes == 5  # 4 bytes for "aaaa" + 1 for newline
+
+    def test_zero_cap_disables(self) -> None:
+        lines = ["a", "b"]
+        kept, dropped, dropped_bytes = _truncate_log_lines_by_bytes(lines, cap_bytes=0)
+        assert kept == lines
+        assert dropped == 0
+        assert dropped_bytes == 0
+
+    def test_negative_cap_disables(self) -> None:
+        lines = ["a", "b"]
+        kept, dropped, _ = _truncate_log_lines_by_bytes(lines, cap_bytes=-1)
+        assert kept == lines
+        assert dropped == 0
+
+    def test_empty_input_safe(self) -> None:
+        kept, dropped, dropped_bytes = _truncate_log_lines_by_bytes([], cap_bytes=10)
+        assert kept == []
+        assert dropped == 0
+        assert dropped_bytes == 0
+
+    def test_single_line_larger_than_cap_drops_all(self) -> None:
+        # A pathologically long single line (the headline failure mode
+        # in issue #2120) is dropped along with everything before it.
+        # The caller renders a marker so the advisor sees an explicit
+        # "(none)"-with-marker rather than tripping a context-window
+        # overflow downstream.
+        lines = ["short", "x" * 1000]
+        kept, dropped, _ = _truncate_log_lines_by_bytes(lines, cap_bytes=100)
+        assert kept == []
+        assert dropped == 2
+
+    def test_utf8_bytes_not_codepoints(self) -> None:
+        # Multi-byte UTF-8 characters must count as bytes, not codepoints.
+        # "🔥" is 4 UTF-8 bytes; cap of 8 should fit only one such line
+        # (4 bytes + 1 newline = 5, two such lines = 10 > 8).
+        lines = ["🔥", "🔥"]
+        kept, dropped, _ = _truncate_log_lines_by_bytes(lines, cap_bytes=8)
+        assert kept == ["🔥"]
+        assert dropped == 1
+
+    def test_default_cap_constant_is_sane(self) -> None:
+        # Sanity guard: opus context window (~200k tokens, ~600+ KB at
+        # 3 bytes/token avg). Default sits well below that with headroom.
+        assert _DEFAULT_RECENT_LOG_BYTES_CAP > 0
+        assert _DEFAULT_RECENT_LOG_BYTES_CAP <= 1_000_000
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +339,180 @@ class TestConsultAdvisor:
         assert "progress events" in prompt
         assert "container log lines" in prompt
         assert "AdvisorVerdict" in prompt
+
+    def test_recent_log_bytes_cap_arg_overrides_default(self) -> None:
+        # Smaller cap → truncation marker present in prompt.
+        captured: dict[str, str] = {}
+
+        async def runner(prompt: str, model: str) -> str:
+            captured["prompt"] = prompt
+            return json.dumps({"decision": "watch", "reasoning": "r"})
+
+        # Each line is ~20 bytes; cap of 50 bytes keeps ~2 most-recent lines.
+        lines = [f"line-{i:02d} payload" for i in range(20)]
+        asyncio.run(
+            consult_advisor(
+                classification={"type": "x"},
+                health_alerts=[],
+                progress_events=[],
+                recent_log_lines=lines,
+                recent_log_bytes_cap=50,
+                _agent_runner=runner,
+            )
+        )
+        prompt = captured["prompt"]
+        assert "earlier line(s) dropped" in prompt
+        # Last line must survive; oldest lines must be gone.
+        assert "line-19 payload" in prompt
+        assert "line-00 payload" not in prompt
+
+    def test_recent_log_bytes_cap_zero_disables(self) -> None:
+        captured: dict[str, str] = {}
+
+        async def runner(prompt: str, model: str) -> str:
+            captured["prompt"] = prompt
+            return json.dumps({"decision": "watch", "reasoning": "r"})
+
+        lines = [f"line-{i:02d}" for i in range(10)]
+        asyncio.run(
+            consult_advisor(
+                classification={"type": "x"},
+                health_alerts=[],
+                progress_events=[],
+                recent_log_lines=lines,
+                recent_log_bytes_cap=0,
+                _agent_runner=runner,
+            )
+        )
+        prompt = captured["prompt"]
+        assert "earlier line(s) dropped" not in prompt
+        assert "line-00" in prompt
+        assert "line-09" in prompt
+
+    def test_default_cap_does_not_fire_for_small_inputs(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # No truncation on a typical-size payload — default cap holds.
+        async def runner(prompt: str, model: str) -> str:
+            return json.dumps({"decision": "watch", "reasoning": "r"})
+
+        with caplog.at_level(logging.INFO, logger="egg_overseer.advisor"):
+            asyncio.run(
+                consult_advisor(
+                    classification={"type": "x"},
+                    health_alerts=[],
+                    progress_events=[],
+                    recent_log_lines=["short line"] * 50,
+                    _agent_runner=runner,
+                )
+            )
+        truncation_events = [
+            r for r in caplog.records if getattr(r, "event", None) == "advisor_log_truncated"
+        ]
+        assert truncation_events == []
+
+    def test_truncation_emits_metric_log_event(self, caplog: pytest.LogCaptureFixture) -> None:
+        async def runner(prompt: str, model: str) -> str:
+            return json.dumps({"decision": "watch", "reasoning": "r"})
+
+        lines = [f"line-{i:02d} payload" for i in range(20)]
+        with caplog.at_level(logging.INFO, logger="egg_overseer.advisor"):
+            asyncio.run(
+                consult_advisor(
+                    classification={"type": "x"},
+                    health_alerts=[],
+                    progress_events=[],
+                    recent_log_lines=lines,
+                    recent_log_bytes_cap=50,
+                    _agent_runner=runner,
+                )
+            )
+        truncation_events = [
+            r for r in caplog.records if getattr(r, "event", None) == "advisor_log_truncated"
+        ]
+        assert len(truncation_events) == 1
+        rec = truncation_events[0]
+        assert rec.dropped_lines > 0  # type: ignore[attr-defined]
+        assert rec.dropped_bytes > 0  # type: ignore[attr-defined]
+        assert rec.cap_bytes == 50  # type: ignore[attr-defined]
+        assert rec.input_line_count == 20  # type: ignore[attr-defined]
+
+    def test_pathological_single_line_drops_everything(self) -> None:
+        # A single most-recent line larger than the cap is dropped along
+        # with everything before it; the section falls through to "(none)"
+        # under a marker so the advisor sees the truncation explicitly
+        # instead of an SDK error from a context-window overflow.
+        captured: dict[str, str] = {}
+
+        async def runner(prompt: str, model: str) -> str:
+            captured["prompt"] = prompt
+            return json.dumps({"decision": "watch", "reasoning": "r"})
+
+        huge = "x" * 1000
+        asyncio.run(
+            consult_advisor(
+                classification={"type": "x"},
+                health_alerts=[],
+                progress_events=[],
+                recent_log_lines=["short", huge],
+                recent_log_bytes_cap=100,
+                _agent_runner=runner,
+            )
+        )
+        prompt = captured["prompt"]
+        assert "earlier line(s) dropped" in prompt
+        assert huge not in prompt
+
+    def test_config_field_used_when_arg_omitted(self) -> None:
+        captured: dict[str, str] = {}
+
+        async def runner(prompt: str, model: str) -> str:
+            captured["prompt"] = prompt
+            return json.dumps({"decision": "watch", "reasoning": "r"})
+
+        class _Conf:
+            overseer_advisor_model = "opus"
+            overseer_advisor_recent_log_bytes_cap = 50
+
+        lines = [f"line-{i:02d} payload" for i in range(20)]
+        asyncio.run(
+            consult_advisor(
+                classification={"type": "x"},
+                health_alerts=[],
+                progress_events=[],
+                recent_log_lines=lines,
+                config=_Conf(),  # type: ignore[arg-type]
+                _agent_runner=runner,
+            )
+        )
+        assert "earlier line(s) dropped" in captured["prompt"]
+
+    def test_explicit_arg_overrides_config_field(self) -> None:
+        captured: dict[str, str] = {}
+
+        async def runner(prompt: str, model: str) -> str:
+            captured["prompt"] = prompt
+            return json.dumps({"decision": "watch", "reasoning": "r"})
+
+        class _Conf:
+            overseer_advisor_model = "opus"
+            # Config says "tight cap" but explicit arg disables it.
+            overseer_advisor_recent_log_bytes_cap = 50
+
+        lines = [f"line-{i:02d}" for i in range(10)]
+        asyncio.run(
+            consult_advisor(
+                classification={"type": "x"},
+                health_alerts=[],
+                progress_events=[],
+                recent_log_lines=lines,
+                config=_Conf(),  # type: ignore[arg-type]
+                recent_log_bytes_cap=0,
+                _agent_runner=runner,
+            )
+        )
+        assert "earlier line(s) dropped" not in captured["prompt"]
+        assert "line-00" in captured["prompt"]
 
     def test_prompt_handles_empty_lists_explicitly(self) -> None:
         captured: dict[str, str] = {}
