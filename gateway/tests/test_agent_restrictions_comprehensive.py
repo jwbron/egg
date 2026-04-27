@@ -573,6 +573,7 @@ class TestThreeRoleBehavior1901:
             ".egg-state/agent-outputs/coder.json",  # carved-back exempt
             "skills/my-skill/SKILL.md",  # skills exempt
             "sandbox/agent-config/rules/foo.md",  # rules exempt
+            "sandbox/scripts/gh",  # credential shim — gateway is the chokepoint
         ],
     )
     def test_coder_allowed_blocklist_complement(self, path):
@@ -592,7 +593,6 @@ class TestThreeRoleBehavior1901:
             ".egg-state/secrets/key",  # future subdir
             ".github/workflows/ci.yml",  # branch-protection invariant
             ".github/CODEOWNERS",  # branch-protection invariant
-            "sandbox/scripts/gh",  # credential-routing invariant
         ],
     )
     def test_coder_blocked_blocklist_complement(self, path):

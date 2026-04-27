@@ -162,10 +162,12 @@ each surface so reviewers know to keep them in sync.
   (`**/*_test.py`, `**/test_*.py`, `**/*_test.go`, `**/test_*.go`,
   `**/*.test.{ts,tsx,js,jsx}`, `**/*.spec.{ts,tsx,js,jsx}`),
   `**/conftest.py` (tester's scope); `.egg-state/` (pipeline state);
-  plus defense-in-depth blocks on `.github/` (CI workflows and
-  CODEOWNERS — preserves the branch-protection invariant) and
-  `sandbox/scripts/` (gateway credential shims — preserves the
-  credential-routing invariant).
+  plus a defense-in-depth block on `.github/` (CI workflows and
+  CODEOWNERS — preserves the branch-protection invariant).
+  `sandbox/scripts/` is **writable** — the gateway is the sole egress
+  chokepoint, so credential-shim modifications are reviewed by
+  `reviewer_security` rather than blocked at the role-pattern layer.
+  See [security-review-criteria.md](../../shared/prompts/security-review-criteria.md).
 - Block exemptions (always writable, overriding the blocks above):
   `.egg-state/agent-outputs/` (coder's handoff output),
   `.egg-state/agent-anchors/` (per-agent anchor state, scoped by

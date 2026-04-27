@@ -215,11 +215,10 @@
         "**/*.spec.js",
         "**/*.spec.jsx",
         "**/conftest.py",
-        ".github/",
-        "sandbox/scripts/"
+        ".github/"
       ],
-      "blocked_reason": "Coder cannot modify tests, docs, pipeline-state, CI workflows, or credential shims; see #1901.",
-      "description": "TODO(#1903): keep in sync with CODER_PATTERNS / TESTER_PATTERNS / DOCUMENTER_PATTERNS in shared/egg_restrictions/patterns.py. Coder: everything except tester, documenter, .egg-state/, .github/, and sandbox/scripts/ scopes."
+      "blocked_reason": "Coder cannot modify tests, docs, pipeline-state, or CI workflows; see #1901. sandbox/scripts/ is writable — credential-shim modifications are reviewed by reviewer_security (see shared/prompts/security-review-criteria.md), not blocked at this layer.",
+      "description": "TODO(#1903): keep in sync with CODER_PATTERNS / TESTER_PATTERNS / DOCUMENTER_PATTERNS in shared/egg_restrictions/patterns.py. Coder: everything except tester, documenter, .egg-state/, and .github/ scopes."
     },
     {
       "role": "tester",
