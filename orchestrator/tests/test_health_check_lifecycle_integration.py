@@ -275,7 +275,12 @@ class TestBasicEndpoints:
     """Test /health, /ready, /live endpoints."""
 
     def test_health_returns_service_info(self, app, client):
-        resp = client.get("/api/v1/health")
+        # Mock the state-store probe (independently covered in
+        # test_state_store_wedge_propagation.py) so the test exercises
+        # the route response shape, not the live probe behavior — the
+        # probe would fail in test envs without /home/egg/.egg-state.
+        with patch("routes.health._probe_state_store", return_value=(True, "ok")):
+            resp = client.get("/api/v1/health")
         assert resp.status_code == 200
         data = json.loads(resp.data)
         assert data["status"] == "healthy"
@@ -293,8 +298,9 @@ class TestBasicEndpoints:
     def test_health_recent_transitions_accumulate(self, app, client):
         # Two successive hits should not double-record a transition —
         # the service has been healthy the whole time.
-        client.get("/api/v1/health")
-        resp = client.get("/api/v1/health")
+        with patch("routes.health._probe_state_store", return_value=(True, "ok")):
+            client.get("/api/v1/health")
+            resp = client.get("/api/v1/health")
         data = json.loads(resp.data)
         # Still exactly one transition (the initial healthy one).
         healthy_transitions = [t for t in data["recent_transitions"] if t["state"] == "healthy"]

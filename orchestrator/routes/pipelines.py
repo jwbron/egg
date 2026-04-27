@@ -945,6 +945,10 @@ def _resolve_pipeline(pipeline_id: str, base_path: Path) -> tuple[StateStore, Pi
     Raises:
         PipelineNotFoundError: if the pipeline cannot be found anywhere
         InvalidPipelineIdError: if the ID format is invalid
+        GitOperationError: if the state-store worktree cannot be loaded
+            (e.g. ``git worktree add`` contention).  Callers should
+            surface this as 500, not 404 — it is recoverable
+            infrastructure failure, not a missing pipeline.
     """
     from state_store import discover_repo_paths
 
@@ -953,8 +957,14 @@ def _resolve_pipeline(pipeline_id: str, base_path: Path) -> tuple[StateStore, Pi
             store = get_state_store(repo_path)
             pipeline = store.load_pipeline(pipeline_id)
             return store, pipeline
-        except (PipelineNotFoundError, StateStoreError):
+        except PipelineNotFoundError:
             continue
+        # NOTE: do NOT broaden this to ``StateStoreError``.  Swallowing
+        # ``GitOperationError`` here re-raised every state-store wedge
+        # as ``Pipeline not found`` and surfaced to operators as 404,
+        # masking a recoverable git contention as a missing pipeline
+        # (#2167).  Let infrastructure failures propagate so the route
+        # can return 500 with the actual error.
 
     raise PipelineNotFoundError(f"Pipeline {pipeline_id} not found") from None
 

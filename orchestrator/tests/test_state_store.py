@@ -1691,3 +1691,128 @@ class TestEnsureWorktreeIdempotency:
         # Forced: admin dir is removed.
         store._remove_stale_admin_dir(force=True)
         assert not admin_dir.exists()
+
+
+class TestBranchHeldByPrunableWorktree:
+    """Regression tests for #2167 — ``git worktree add`` must self-heal
+    when the state branch is pinned by an admin dir whose worktree
+    directory has vanished (``prunable``).  This bites when the
+    deployment-side worktree path changes (single-repo → multi-repo)
+    and the legacy admin dir survives, or when the state volume is
+    wiped while the admin dir under ``<repo>/.git/worktrees/`` does not.
+    Either way every state load 500'd until the admin dir was hand-pruned.
+    """
+
+    def _make_store(self, tmp_path):
+        from state_store import StateStore
+
+        repo_path = tmp_path / "repo"
+        repo_path.mkdir()
+        (repo_path / ".git").mkdir()
+        worktree_dir = tmp_path / "wt"
+        store = StateStore(repo_path, worktree_dir=worktree_dir)
+        return store, worktree_dir
+
+    def test_recovers_from_branch_held_by_prunable_path(self, tmp_path):
+        """Stale admin dir for a vanished path holds the branch — the
+        first ``worktree add`` fails, we drop the matching admin dir,
+        and the retry succeeds.  This is the exact wedge from #2167:
+        legacy ``pipeline-worktree`` admin dir survives, new
+        ``pipeline-worktree-egg`` add fails, every state load 500s."""
+        store, wt = self._make_store(tmp_path)
+
+        # A vanished prunable worktree path.  The directory does not
+        # exist; only the admin dir does.
+        stale_path = tmp_path / "old-pipeline-worktree"
+        admin_dir = store.repo_path / ".git" / "worktrees" / "old-pipeline-worktree"
+        admin_dir.mkdir(parents=True)
+        (admin_dir / "gitdir").write_text(f"{stale_path}/.git\n")
+
+        # Two-call mock: first `worktree add` fails with the contention
+        # error, second succeeds after the admin dir is cleared.
+        call_count = {"n": 0}
+
+        def fake_run(*args, check=True, cwd=None):
+            if args[:2] == ("worktree", "add"):
+                call_count["n"] += 1
+                if call_count["n"] == 1:
+                    raise GitOperationError(
+                        f"Git command failed: fatal: 'egg/pipeline-state' "
+                        f"is already used by worktree at '{stale_path}'\n"
+                    )
+                return MagicMock(stdout="", returncode=0)
+            if args[:2] == ("rev-parse", "--verify"):
+                return MagicMock(stdout="", returncode=0)
+            return MagicMock(stdout="", returncode=0)
+
+        with patch.object(StateStore, "_run_git", side_effect=fake_run):
+            result = store._ensure_worktree()
+
+        assert result == wt
+        assert call_count["n"] == 2, "expected exactly one retry after admin-dir cleanup"
+        assert not admin_dir.exists(), "stale admin dir should have been removed"
+
+    def test_does_not_prune_when_holding_path_still_exists(self, tmp_path):
+        """If the path mentioned in the error STILL exists on disk, a
+        live worktree genuinely holds the branch — refuse to touch it
+        and re-raise the original error.  Safety guard against pruning
+        a real worktree (e.g., a gateway-managed container worktree if
+        paths ever overlap)."""
+        store, wt = self._make_store(tmp_path)
+
+        live_path = tmp_path / "live-worktree"
+        live_path.mkdir()  # the holding worktree is real
+        admin_dir = store.repo_path / ".git" / "worktrees" / "live-worktree"
+        admin_dir.mkdir(parents=True)
+        (admin_dir / "gitdir").write_text(f"{live_path}/.git\n")
+
+        def fake_run(*args, check=True, cwd=None):
+            if args[:2] == ("worktree", "add"):
+                raise GitOperationError(
+                    f"Git command failed: fatal: 'egg/pipeline-state' "
+                    f"is already used by worktree at '{live_path}'\n"
+                )
+            if args[:2] == ("rev-parse", "--verify"):
+                return MagicMock(stdout="", returncode=0)
+            return MagicMock(stdout="", returncode=0)
+
+        with patch.object(StateStore, "_run_git", side_effect=fake_run):
+            with pytest.raises(GitOperationError, match="is already used by worktree"):
+                store._ensure_worktree()
+
+        # Admin dir for the live worktree must NOT have been removed.
+        assert admin_dir.exists()
+
+    def test_unrelated_git_failure_propagates(self, tmp_path):
+        """Failure messages that are NOT the branch-contention pattern
+        must propagate unmodified.  We only self-heal one specific
+        error — anything else surfaces to the route as 500."""
+        store, wt = self._make_store(tmp_path)
+
+        def fake_run(*args, check=True, cwd=None):
+            if args[:2] == ("worktree", "add"):
+                raise GitOperationError("Git command failed: fatal: out of disk space")
+            if args[:2] == ("rev-parse", "--verify"):
+                return MagicMock(stdout="", returncode=0)
+            return MagicMock(stdout="", returncode=0)
+
+        with patch.object(StateStore, "_run_git", side_effect=fake_run):
+            with pytest.raises(GitOperationError, match="out of disk space"):
+                store._ensure_worktree()
+
+    def test_remove_admin_dir_for_path_independent_of_self_worktree(self, tmp_path):
+        """``_remove_admin_dir_for_path`` must match by the supplied
+        path, not by ``self._worktree_dir`` — that's the whole point
+        for #2167, where the orphaned admin dir references the
+        legacy path that the new StateStore no longer uses."""
+        store, _wt = self._make_store(tmp_path)
+
+        unrelated_path = tmp_path / "different-worktree"
+        admin_dir = store.repo_path / ".git" / "worktrees" / "different-worktree"
+        admin_dir.mkdir(parents=True)
+        (admin_dir / "gitdir").write_text(f"{unrelated_path}/.git\n")
+
+        assert store._remove_admin_dir_for_path(unrelated_path) is True
+        assert not admin_dir.exists()
+        # Calling again — nothing left to remove.
+        assert store._remove_admin_dir_for_path(unrelated_path) is False

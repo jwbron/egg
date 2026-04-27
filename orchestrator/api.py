@@ -147,6 +147,26 @@ def handle_unhandled_exception(e: Exception) -> tuple[Response, int]:
     """Return JSON for all unhandled exceptions."""
     from werkzeug.exceptions import HTTPException
 
+    # Surface state-store infrastructure failures (e.g. ``git worktree``
+    # contention) with the actual error so operators can diagnose without
+    # grepping logs.  Routes used to swallow ``GitOperationError`` as
+    # ``PipelineNotFoundError`` and return 404, masking a recoverable
+    # wedge as "missing pipeline" (#2167).
+    try:
+        from state_store import StateStoreError
+
+        if isinstance(e, StateStoreError):
+            logger.error("State store error", error=str(e), exc_info=True)
+            return jsonify(
+                {
+                    "success": False,
+                    "message": f"State store unavailable: {e}",
+                    "error_type": type(e).__name__,
+                }
+            ), 500
+    except ImportError:  # pragma: no cover — defensive
+        pass
+
     if isinstance(e, HTTPException):
         return jsonify(
             {

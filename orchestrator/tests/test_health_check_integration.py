@@ -234,7 +234,13 @@ class TestPipelineHealthEndpoint:
 
 class TestBasicHealthEndpoints:
     def test_health(self, client):
-        resp = client.get("/api/v1/health")
+        # Mock the state-store probe so the test exercises the route shape,
+        # not the live probe behavior.  In test environments the probe
+        # would fail (no /home/egg/.egg-state) and report degraded;
+        # _probe_state_store is independently covered in
+        # test_state_store_wedge_propagation.py (#2167).
+        with patch("routes.health._probe_state_store", return_value=(True, "ok")):
+            resp = client.get("/api/v1/health")
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["status"] == "healthy"
