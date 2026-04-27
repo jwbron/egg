@@ -73,7 +73,7 @@ This eliminates circular ACK problems. A coder doesn't ACK a reviewer's review o
 
 The tester has a **dual role**: it is both a producer (proposes test artifacts) and a reviewer (evaluates coder's work by running tests and lint/type-checks against it).
 
-This gives 11 directed review edges (10 critical + 1 advisory to documenter) for the default implement phase instead of ~30 for full N=6 pairwise review. The edge count varies by phase configuration.
+This gives 11 directed review edges (10 critical + 1 advisory to documenter) for the default implement phase instead of ~56 for full N=8 pairwise review (3 producers + 6 reviewers, with tester counted once for its dual role). The edge count varies by phase configuration.
 
 #### BRC Phases
 

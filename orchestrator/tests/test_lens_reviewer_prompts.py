@@ -71,6 +71,10 @@ class TestSecurityCriteriaLoader:
         with patch("routes.pipelines._read_shared_criteria", return_value=None):
             content = _get_security_review_criteria()
         assert content.strip() != "", "Security inline fallback must be non-empty"
+        # Section-4 parity with on-disk file: the inline fallback also names
+        # the PR #1964 jira-wrapper Dockerfile/symlink-mismatch pattern, so a
+        # future edit cannot silently drop the lens from the fallback path.
+        assert "dockerfile-symlink" in content.lower()
 
 
 class TestConcurrencyCriteriaLoader:
