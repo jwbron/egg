@@ -16,8 +16,11 @@ The helpers are deliberately lightweight: no orchestrator dependency, no
 DB driver. The advisor-strategy pipeline runs fast enough that file I/O
 on bounded JSON is not a bottleneck. Concurrent writers (overseer
 respawns at phase boundaries) are protected by an ``fcntl.LOCK_EX``
-flock on a sentinel ``agent-timing.lock`` file per the risk_analyst's
-R-PERF-02 / R-SEC-04 mitigation.
+flock on a per-file ``<datafile>.lock`` sentinel created alongside each
+state file (so ``agent-timing.json.lock`` guards the timing file and
+``filed-issues.jsonl.lock`` guards the JSONL — the two files have no
+cross-dependency, so a shared lock would only add false contention)
+per the risk_analyst's R-PERF-02 / R-SEC-04 mitigation.
 """
 
 from __future__ import annotations
@@ -119,11 +122,13 @@ def append_filed_issue(path: str | os.PathLike[str], record: FiledIssueRecord) -
     ``record.model_dump_json()``. Calls ``fsync`` so the record is
     durable before the function returns.
 
-    Concurrency: acquires ``fcntl.LOCK_EX`` via the same
-    ``agent-timing.lock`` sentinel used by ``save_agent_timing``
+    Concurrency: acquires ``fcntl.LOCK_EX`` via a
+    ``filed-issues.jsonl.lock`` sentinel sitting alongside the JSONL
     so concurrent overseer respawns don't interleave records (POSIX
     only guarantees atomic writes ≤ ``PIPE_BUF`` bytes; record JSON
-    can exceed that).
+    can exceed that). This lock is independent of the
+    ``agent-timing.json.lock`` used by ``save_agent_timing`` —
+    the two files have no cross-dependency.
 
     Args:
         path: Filesystem path to ``filed-issues.jsonl``.
