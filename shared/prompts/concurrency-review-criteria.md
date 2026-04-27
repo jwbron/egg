@@ -12,9 +12,9 @@ set (`reviewer_code`, `reviewer_security`, `reviewer_concurrency`). Focus
 (other than security-relevant races), and general correctness to
 `reviewer_code` / `reviewer_security`.
 
-The concurrency lens is currently **ADVISORY** — your NACKs are recorded on
-the approval matrix but do not deadlock consensus. Promotion to a critical
-(deadlock-capable) reviewer is tracked under [#1997](https://github.com/jwbron/egg/issues/1997).
+The concurrency lens is **CRITICAL** — your NACK blocks consensus until the
+producer re-proposes ([#2139](https://github.com/jwbron/egg/issues/2139),
+closing [#1997](https://github.com/jwbron/egg/issues/1997)).
 
 ## What to Flag (in priority order)
 
@@ -51,10 +51,6 @@ Mutual or cyclic waits where every participant is blocked on another:
 - BRC: producer A waits for ACK from reviewer B; reviewer B's
   `wait_for_event` is blocked on a message A is itself blocked on
   producing — see "BRC-protocol invariants" below.
-- Reviewer fan-out (this PR's feature): a parent reviewer waits on a
-  subagent that itself awaits an MCP server reply. Subagent recursion
-  is **forbidden**; flag any change that softens that ban.
-
 ### 3. Shared-state mutation without synchronization
 
 Mutable global / module-level state read or written from multiple
@@ -104,11 +100,6 @@ Resources released in the wrong order, conditionally, or not at all:
   reference and uses it for the next request.
 - A `tempfile.TemporaryDirectory` cleaned up while a child still has
   its CWD inside it.
-- Subagent timeouts: a subagent exceeding the 5-minute / 300-second
-  wall-clock cap must be cancelled cleanly. Flag any cancellation
-  path that leaks a child process or holds a worktree lock past the
-  cap.
-
 ### 7. BRC-protocol invariants
 
 The BRC consensus protocol has temporal invariants that, when
@@ -126,11 +117,6 @@ that touches:
   declared dead even though the work is still progressing
   ([#2012](https://github.com/jwbron/egg/issues/2012)). Flag any new
   long-running operation inside a heartbeat-bearing path.
-- **Subagent fan-out heartbeat propagation.** When `reviewer_code`
-  fans out into `Task` subagents, the parent must continue emitting
-  heartbeats while subagents run. Flag any change that could let the
-  parent stop heartbeating (e.g. a synchronous subagent-await inside
-  the heartbeat coroutine).
 - **`stale_reviewers` invalidation on re-propose.** A re-propose must
   invalidate prior ACKs at the older version; any path that skips
   this is a critical bug regardless of test coverage.

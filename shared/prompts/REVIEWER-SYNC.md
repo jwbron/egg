@@ -71,42 +71,29 @@ review standards differ:
    the PR body, and the sequential reviewer's verdict file does not feed the
    PR. A conditional ACK is **not** a soft NACK: if the producer could
    address the obligation, NACK instead.
-8. **Subagent fan-out (`reviewer_code`, BRC only)**: The SDLC `reviewer_code`
-   self-gates on diff size (`git diff --numstat` against the resolved base
-   ref) and, when the diff exceeds ~10 changed files **or** ~500 lines of
-   change, fans out into Claude Agent SDK `Task` subagents partitioned
-   along the implement-phase task list pulled from `mcp__sdlc__show_contract`
-   (#1965). Each subagent reviews only its path-glob slice and is forbidden
-   from spawning subagents of its own; the parent reviewer then runs a
-   cross-partition consistency pass (handler ↔ allowlist, route ↔ schema,
-   fixture ↔ Dockerfile/symlink, import-graph cycles) before emitting its
-   verdict. Fan-out is capped at 6 subagents per review with a 5-minute /
-   300-second per-subagent wall-clock cap, and is configurable per pipeline
-   via `phase_configs.implement.reviewer_code.parallel` (default `true`).
-   Below the threshold or when the implement-phase task list is empty
-   (custom-phase invocation, contractless `babysit_pr`, or MCP unreachable
-   from the subagent), the reviewer falls back to today's single-pass
-   review with a STATUS heartbeat noting the gate decision. The PR reviewer
-   (GHA) does **not** fan out — its prompt is a single pass over the full
-   `gh pr diff`. This is an SDLC-only asymmetry and lives entirely in
-   `_build_review_prompt()`'s reviewer-code branch in `pipelines.py`. No
-   `action/` files are touched.
-9. **Lens reviewers (`reviewer_security`, `reviewer_concurrency`, BRC only)**:
-   The SDLC orchestrator runs two ADVISORY lens reviewers alongside
+8. **Lens reviewers (`reviewer_security`, `reviewer_concurrency`, BRC only)**:
+   The SDLC orchestrator runs two CRITICAL lens reviewers alongside
    `reviewer_code` on the implement phase: `reviewer_security` (criteria in
    `shared/prompts/security-review-criteria.md`) and `reviewer_concurrency`
    (criteria in `shared/prompts/concurrency-review-criteria.md`). Both
    inherit from `code-review-criteria.md` and add lens-specific patterns
    (cross-file allowlist mismatches, handler-vs-validator path mismatches,
    uncommitted-artifact / Dockerfile-symlink mismatches, retry storms,
-   BRC-protocol invariants, …). Day-1 ADVISORY criticality means their
-   NACKs are recorded but do not deadlock consensus; promotion to CRITICAL
-   waits for #1997's severity-tagged NACK signalling. The GHA `egg-reviewer`
-   has **no** lens reviewers — code review is a single pass at the
-   `code-review-criteria.md` lens. The asymmetry is intentional: the GHA
-   reviewer fires on a small, already-merged-style PR; the SDLC reviewer
-   fires on the full implement-phase change set during a still-mutating
-   pipeline.
+   BRC-protocol invariants, …). A NACK from either lens blocks consensus
+   until the producer re-proposes (#2139, closing #1997). The GHA
+   `egg-reviewer` has **no** lens reviewers — code review is a single pass
+   at the `code-review-criteria.md` lens. The asymmetry is intentional:
+   the GHA reviewer fires on a small, already-merged-style PR; the SDLC
+   reviewer fires on the full implement-phase change set during a
+   still-mutating pipeline.
+9. **Holistic reviewer (`reviewer_code_holistic`, BRC only)**: A second
+   CRITICAL code reviewer (#2126) runs alongside `reviewer_code` and
+   focuses on cross-module coherence — end-to-end use case, doc↔code
+   symmetry, synthetic-key/sentinel coordination, silent-fallback hunt.
+   It skims the full diff once rather than verifying every line. Its
+   verdict gates consensus independently of `reviewer_code`'s. Criteria
+   in `shared/prompts/code-review-holistic-criteria.md`. No `action/`
+   counterpart — GHA review is single-pass.
 
 ## What Must Stay Aligned
 
@@ -138,5 +125,4 @@ When changing review criteria or conventions:
 - [ ] If changing ACK/NACK format guidance: update the structured format in `_build_brc_preamble()`
 - [ ] If changing conditional-ACK (`--pre-merge-condition`) behavior: update the BRC preamble example in `_build_brc_preamble()`, the CLI help text in `sandbox/egg_lib/orch_cli.py`, the `_ACK_SCHEMA` description in `sandbox/egg_agent_tools/tools/brc.py`, the `ReviewPayload.pre_merge_condition` docstring in `orchestrator/attestation_schemas.py`, the PR-body renderer `_build_pre_merge_obligations_section()` in `orchestrator/routes/pipelines.py`, the live-status renderer in `cmd_consensus_status` (`sandbox/egg_lib/orch_cli.py`) and its backing field `pre_merge_conditions` in `PeerConsensusTracker.evaluate()`, the reference doc at `docs/reference/conditional-ack.md`, the "Conditional ACK vs NACK vs Plain ACK" subsection in `shared/prompts/code-review-criteria.md`, and the content validator call site for `pre_merge_condition` in `handle_consensus_ack_signal` (`orchestrator/routes/signals.py`)
 - [ ] If changing the re-review diff command: update the three PR-reviewer builders (`action/build-review-prompt.sh`, `action/build-agent-mode-design-review-prompt.sh`, `action/build-contract-verification-prompt.sh`), the SDLC reviewer's `_build_review_prompt()` `is_delta_review` branch plus its Delta Review directive, and the `BASE_REF` plumbing in `.github/workflows/reusable-review.yml`. The first-review three-dot `git diff origin/<base>...HEAD` is independent of the delta path.
-- [ ] If changing the SDLC `reviewer_code` subagent fan-out block (#1965): update the "Subagent Fan-Out Strategy" section in `_build_review_prompt()` (reviewer-code, implement-phase only), the threshold values (`files > 10` OR `loc > 500`), the 6-subagent cap, the 5-minute / 300-second per-subagent wall-clock cap, the parallel-vs-sequential clause that honours `reviewer_code_parallel`, the `mcp__sdlc__show_contract` self-fetch instruction with its empty-list and mcp-unavailable fallbacks, the no-recursion ban, the parent cross-partition consistency pass, and the fan-out STATUS-heartbeat instrumentation. Update the corresponding prompt-text asserts in `orchestrator/tests/test_reviewer_code_fan_out_prompt.py` (or its companion in `test_pipeline_prompts.py`) and the `integration_tests/sdlc/test_reviewer_1964_regression.py` prompt-assert mode. Do NOT touch any `action/` files — the GHA reviewer does not fan out (see asymmetry #8 above).
 - [ ] If adding or modifying a lens reviewer (`reviewer_security`, `reviewer_concurrency`, or a future lens): update the lens criteria file under `shared/prompts/`, the inline fallback in `orchestrator/routes/pipelines.py` (`_get_security_review_criteria()` / `_get_concurrency_review_criteria()` or equivalent), the dispatcher `_get_review_criteria_for_type()`, the per-lens scope preamble in `_get_reviewer_scope_preamble()`, the role registration in `shared/egg_contracts/agent_roles.py`, the review-graph edges in `orchestrator/review_graph.py` (`get_default_implement_graph()`), and the lens row in this file's "Reviewer types" cell and asymmetry list above. Verify the existing `replace("reviewer_", "").replace("_", "-")` mapping in `pipelines.py` still covers the new role name without a redundant dict (#1965 pitfall guard).
