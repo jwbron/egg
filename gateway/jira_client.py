@@ -616,8 +616,7 @@ class JiraClient:
         """
         if epic_link_field not in ("parent", "customfield_10014"):
             raise ValueError(
-                f"epic_link_field must be 'parent' or 'customfield_10014', "
-                f"got {epic_link_field!r}"
+                f"epic_link_field must be 'parent' or 'customfield_10014', got {epic_link_field!r}"
             )
 
         fields: dict[str, Any] = {
@@ -848,9 +847,7 @@ class JiraClient:
                 return response.status_code, {}
             return response.status_code, _safe_json(response, "issueLink")
 
-        cache_namespace = jira_idempotency.canonical_link_id(
-            inward_key, outward_key, link_type
-        )
+        cache_namespace = jira_idempotency.canonical_link_id(inward_key, outward_key, link_type)
         _, response_body = jira_idempotency.get_or_run(
             "link",
             cache_namespace,
@@ -880,9 +877,7 @@ def _coerce_adf(value: str | dict[str, Any]) -> dict[str, Any]:
         return jira_adf.wrap_text_as_adf(value)
     if jira_adf.is_adf_dict(value):
         return value
-    raise ValueError(
-        "rich-text body must be a string or a valid ADF document dict"
-    )
+    raise ValueError("rich-text body must be a string or a valid ADF document dict")
 
 
 def _build_issuetype_field(issuetype: str | int) -> dict[str, str]:

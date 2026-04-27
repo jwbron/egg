@@ -4849,9 +4849,7 @@ def _validate_jira_label_list(value: Any, *, name: str) -> list[str]:
     return cleaned
 
 
-def _validate_jira_richtext(
-    value: Any, *, name: str, max_chars: int
-) -> str | dict[str, Any]:
+def _validate_jira_richtext(value: Any, *, name: str, max_chars: int) -> str | dict[str, Any]:
     """Validate a description / comment field — text or ADF passthrough.
 
     Returns the original string (with length-checked, non-empty preserved)
@@ -4869,9 +4867,7 @@ def _validate_jira_richtext(
         if len(encoded) > max_chars:
             raise ValueError(f"{name} exceeds {max_chars} chars (ADF size)")
         return value
-    raise ValueError(
-        f"{name} must be a string or a valid ADF document dict"
-    )
+    raise ValueError(f"{name} must be a string or a valid ADF document dict")
 
 
 def _audit_jira_write(
@@ -4954,9 +4950,7 @@ def _reject_unknown_fields(
     """
     extras = sorted(set(body.keys()) - allowed)
     if extras:
-        return (
-            f"unknown field(s) for {operation}: {', '.join(repr(k) for k in extras)}"
-        )
+        return f"unknown field(s) for {operation}: {', '.join(repr(k) for k in extras)}"
     return None
 
 
@@ -5010,9 +5004,7 @@ def jira_ticket_create() -> tuple[Response, int] | Response:
         )
         return make_error("body must be an object", status_code=400)
 
-    extras = _reject_unknown_fields(
-        data, allowed=_JIRA_TICKET_CREATE_ALLOWED_FIELDS, operation=op
-    )
+    extras = _reject_unknown_fields(data, allowed=_JIRA_TICKET_CREATE_ALLOWED_FIELDS, operation=op)
     if extras is not None:
         _audit_jira_write(
             event_type=f"{op}_rejected",
@@ -5145,9 +5137,7 @@ def jira_ticket_create() -> tuple[Response, int] | Response:
                 success=False,
                 details={"reason": "parent must be a Jira ticket key"},
             )
-            return make_error(
-                "parent must be a Jira ticket key (e.g. 'FOO-1')", status_code=400
-            )
+            return make_error("parent must be a Jira ticket key (e.g. 'FOO-1')", status_code=400)
         parent_project = extract_project_key(parent)
         # Cross-project parent reject (decision-17): the new ticket is in
         # ``project_key`` and the parent is in ``parent_project`` — refuse
@@ -5177,9 +5167,7 @@ def jira_ticket_create() -> tuple[Response, int] | Response:
                 success=False,
                 details={"reason": "epicLink must be a Jira ticket key"},
             )
-            return make_error(
-                "epicLink must be a Jira ticket key (e.g. 'FOO-1')", status_code=400
-            )
+            return make_error("epicLink must be a Jira ticket key (e.g. 'FOO-1')", status_code=400)
         # Allowlist gate the epic key too — epics live in their own project,
         # which must also be allowlisted.
         epic_project = extract_project_key(epic_link)
@@ -5335,9 +5323,7 @@ def jira_ticket_edit() -> tuple[Response, int] | Response:
         )
         return make_error("body must be an object", status_code=400)
 
-    extras = _reject_unknown_fields(
-        data, allowed=_JIRA_TICKET_EDIT_ALLOWED_FIELDS, operation=op
-    )
+    extras = _reject_unknown_fields(data, allowed=_JIRA_TICKET_EDIT_ALLOWED_FIELDS, operation=op)
     if extras is not None:
         _audit_jira_write(
             event_type=f"{op}_rejected",
@@ -5409,9 +5395,7 @@ def jira_ticket_edit() -> tuple[Response, int] | Response:
                 success=False,
                 details={"reason": f"summary exceeds {JIRA_SUMMARY_MAX_CHARS} chars"},
             )
-            return make_error(
-                f"summary exceeds {JIRA_SUMMARY_MAX_CHARS} chars", status_code=400
-            )
+            return make_error(f"summary exceeds {JIRA_SUMMARY_MAX_CHARS} chars", status_code=400)
         cleaned_summary = summary
 
     cleaned_description: str | dict[str, Any] | None = None
@@ -5593,9 +5577,7 @@ def jira_ticket_comment_add() -> tuple[Response, int] | Response:
         )
         return make_error("body must be an object", status_code=400)
 
-    extras = _reject_unknown_fields(
-        data, allowed=_JIRA_COMMENT_ADD_ALLOWED_FIELDS, operation=op
-    )
+    extras = _reject_unknown_fields(data, allowed=_JIRA_COMMENT_ADD_ALLOWED_FIELDS, operation=op)
     if extras is not None:
         _audit_jira_write(
             event_type=f"{op}_rejected",
@@ -5616,9 +5598,7 @@ def jira_ticket_comment_add() -> tuple[Response, int] | Response:
             success=False,
             details={"reason": "invalid ticket shape", "ticket": ticket},
         )
-        return make_error(
-            "Invalid ticket key (expected e.g. 'FOO-123')", status_code=400
-        )
+        return make_error("Invalid ticket key (expected e.g. 'FOO-123')", status_code=400)
 
     project = extract_project_key(ticket)
     if not is_project_allowed(project):
@@ -5701,9 +5681,7 @@ def jira_ticket_comment_add() -> tuple[Response, int] | Response:
             "ticket": ticket,
             "project": project,
             "comment_length": body_length,
-            "comment_id": (
-                upstream.get("id") if isinstance(upstream, dict) else None
-            ),
+            "comment_id": (upstream.get("id") if isinstance(upstream, dict) else None),
             "idempotency_key_present": cleaned_idem_key is not None,
         },
     )
@@ -5739,9 +5717,7 @@ def jira_issue_link_create() -> tuple[Response, int] | Response:
         )
         return make_error("body must be an object", status_code=400)
 
-    extras = _reject_unknown_fields(
-        data, allowed=_JIRA_LINK_CREATE_ALLOWED_FIELDS, operation=op
-    )
+    extras = _reject_unknown_fields(data, allowed=_JIRA_LINK_CREATE_ALLOWED_FIELDS, operation=op)
     if extras is not None:
         _audit_jira_write(
             event_type=f"{op}_rejected",
@@ -5765,9 +5741,7 @@ def jira_issue_link_create() -> tuple[Response, int] | Response:
             success=False,
             details={"reason": "type must be a printable string ≤ 64 chars"},
         )
-        return make_error(
-            "type must be a printable Atlassian link-type name", status_code=400
-        )
+        return make_error("type must be a printable Atlassian link-type name", status_code=400)
     allowed_types = jira_allowed_link_types()
     if link_type not in allowed_types:
         _audit_jira_write(
@@ -5793,9 +5767,7 @@ def jira_issue_link_create() -> tuple[Response, int] | Response:
             success=False,
             details={"reason": "inwardIssue must be a Jira ticket key"},
         )
-        return make_error(
-            "inwardIssue must be a Jira ticket key", status_code=400
-        )
+        return make_error("inwardIssue must be a Jira ticket key", status_code=400)
     if not isinstance(outward, str) or not _JIRA_TICKET_KEY_RE.fullmatch(outward):
         _audit_jira_write(
             event_type=f"{op}_rejected",
@@ -5803,9 +5775,7 @@ def jira_issue_link_create() -> tuple[Response, int] | Response:
             success=False,
             details={"reason": "outwardIssue must be a Jira ticket key"},
         )
-        return make_error(
-            "outwardIssue must be a Jira ticket key", status_code=400
-        )
+        return make_error("outwardIssue must be a Jira ticket key", status_code=400)
 
     inward_project = extract_project_key(inward)
     outward_project = extract_project_key(outward)
