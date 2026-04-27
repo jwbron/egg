@@ -1356,6 +1356,182 @@ class TestGetStatusSyncHandler:
         assert parsed.tzinfo is not None  # timezone-aware
 
 
+class TestGetStatusWedgedNoSuccessor:
+    """Tests for the ``wedged_no_successor`` watchdog field (#2166).
+
+    The watchdog flags a pipeline that is nominally RUNNING but stalled
+    between phases — current phase reports COMPLETE, no HITL gate is
+    pending, yet no successor has been scheduled within 60s of completion.
+    """
+
+    def _wedged_pipeline_response(
+        self,
+        *,
+        pipeline_status: str = "running",
+        phase_status: str = "complete",
+        completed_at: str | None = None,
+        decisions: list | None = None,
+    ):
+        """Pipeline fixture for wedge scenarios.
+
+        Defaults produce a wedge candidate (running + complete phase + no
+        decisions). Pass overrides to construct negative cases.
+        """
+        from datetime import UTC, datetime, timedelta
+
+        if completed_at is None:
+            # Default: 90s ago — past the 60s threshold.
+            completed_at = (datetime.now(UTC) - timedelta(seconds=90)).isoformat()
+        return {
+            "data": {
+                "pipeline": {
+                    "id": "issue-42",
+                    "current_phase": "plan",
+                    "status": pipeline_status,
+                    "repo": "org/repo",
+                    "issue_number": 42,
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "phases": {
+                        "plan": {
+                            "status": phase_status,
+                            "completed_at": completed_at,
+                            "agents": [],
+                        }
+                    },
+                    "decisions": decisions if decisions is not None else [],
+                }
+            }
+        }
+
+    def _messages_response(self):
+        return {"data": {"messages": []}}
+
+    def test_wedge_surfaced_when_complete_and_stale(self, handler):
+        """Phase COMPLETE + RUNNING + no decisions + completed >60s ago → wedge surfaces."""
+        from datetime import UTC, datetime, timedelta
+
+        completed_at = (datetime.now(UTC) - timedelta(seconds=120)).isoformat()
+        resp = self._wedged_pipeline_response(completed_at=completed_at)
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[resp, self._messages_response()],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        assert "wedged_no_successor" in result
+        wedge = result["wedged_no_successor"]
+        assert wedge["phase"] == "plan"
+        assert isinstance(wedge["since_seconds"], int)
+        assert 115 <= wedge["since_seconds"] <= 130
+        # completed_at echoed back as ISO string
+        from datetime import datetime as _dt
+
+        parsed = _dt.fromisoformat(wedge["completed_at"])
+        assert parsed.tzinfo is not None
+
+    def test_no_wedge_when_phase_still_running(self, handler):
+        """Phase RUNNING (mid-execution) is not a wedge."""
+        resp = self._wedged_pipeline_response(phase_status="running", completed_at=None)
+        # Drop completed_at — a running phase wouldn't have one set yet.
+        resp["data"]["pipeline"]["phases"]["plan"]["completed_at"] = None
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[resp, self._messages_response()],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        assert "wedged_no_successor" not in result
+
+    def test_no_wedge_when_pending_decision_present(self, handler):
+        """Pending HITL gate is the expected pre-advance state, not a wedge."""
+        resp = self._wedged_pipeline_response(
+            pipeline_status="awaiting_human",
+            decisions=[{"id": "d1", "status": "pending", "type": "phase_gate"}],
+        )
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[resp, self._messages_response()],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        assert "wedged_no_successor" not in result
+
+    def test_no_wedge_when_within_threshold(self, handler):
+        """Phase completed <60s ago is normal mid-spawn window, not a wedge."""
+        from datetime import UTC, datetime, timedelta
+
+        completed_at = (datetime.now(UTC) - timedelta(seconds=15)).isoformat()
+        resp = self._wedged_pipeline_response(completed_at=completed_at)
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[resp, self._messages_response()],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        assert "wedged_no_successor" not in result
+
+    def test_no_wedge_for_terminal_pipeline(self, handler):
+        """Pipeline status COMPLETE (terminal) is not a wedge even if stale."""
+        from datetime import UTC, datetime, timedelta
+
+        completed_at = (datetime.now(UTC) - timedelta(seconds=600)).isoformat()
+        resp = self._wedged_pipeline_response(pipeline_status="complete", completed_at=completed_at)
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[resp, self._messages_response()],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        assert "wedged_no_successor" not in result
+
+    def test_no_wedge_when_completed_at_missing(self, handler):
+        """Missing completed_at cannot prove staleness — no warning."""
+        resp = self._wedged_pipeline_response()
+        resp["data"]["pipeline"]["phases"]["plan"]["completed_at"] = None
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[resp, self._messages_response()],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        assert "wedged_no_successor" not in result
+
+    def test_no_wedge_for_invalid_completed_at(self, handler):
+        """Garbage completed_at is silently skipped (parser fails closed)."""
+        resp = self._wedged_pipeline_response(completed_at="not-a-timestamp")
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[resp, self._messages_response()],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        assert "wedged_no_successor" not in result
+
+    def test_wedge_handles_naive_completed_at(self, handler):
+        """Naive completed_at (no tzinfo) is treated as UTC."""
+        from datetime import UTC, datetime, timedelta
+
+        # Naive ISO timestamp 100s in the past
+        completed_at = (datetime.now(UTC) - timedelta(seconds=100)).strftime("%Y-%m-%dT%H:%M:%S")
+        resp = self._wedged_pipeline_response(completed_at=completed_at)
+        with patch.object(
+            handler,
+            "_make_request",
+            side_effect=[resp, self._messages_response()],
+        ):
+            result = handler.handle_tool_call("get_status", {"task_id": "issue-42"})
+
+        assert "wedged_no_successor" in result
+        assert 95 <= result["wedged_no_successor"]["since_seconds"] <= 110
+
+
 class TestGetStatusWait:
     """Tests for the async ``wait`` handling in ``mcp_server``.
 
