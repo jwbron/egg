@@ -56,7 +56,7 @@ BRC is a structured consensus protocol inspired by Interactive Consistency, Ack-
 Not all agents review all other agents. The review graph is **asymmetric by role type**:
 
 - **Producers** (coder, tester, documenter, autofixer, conflict_resolver): Create artifacts and propose them for review. Includes execution-category and utility-category agents.
-- **Reviewers** (reviewer_code, reviewer_contract): Evaluate producers' proposals and issue ACK/NACK judgments. All review-category agents.
+- **Reviewers** (reviewer_code, reviewer_code_holistic, reviewer_contract, reviewer_security, reviewer_concurrency): Evaluate producers' proposals and issue ACK/NACK judgments. All review-category agents.
 
 This eliminates circular ACK problems. A coder doesn't ACK a reviewer's review of its own code — it *responds to NACKs* by revising and re-proposing.
 
@@ -65,12 +65,15 @@ This eliminates circular ACK problems. A coder doesn't ACK a reviewer's review o
 | Reviewer | Reviews proposals from |
 |----------|----------------------|
 | reviewer_code | coder, tester |
+| reviewer_code_holistic | coder, tester |
 | reviewer_contract | coder |
+| reviewer_security | coder, tester |
+| reviewer_concurrency | coder, tester |
 | tester | coder (implicitly — writes tests against the code, runs lint/type-checks, ACKs if tests and checks pass) |
 
 The tester has a **dual role**: it is both a producer (proposes test artifacts) and a reviewer (evaluates coder's work by running tests and lint/type-checks against it).
 
-This gives 5 directed review edges (4 critical + 1 advisory to documenter) for the default implement phase instead of ~20 for full N=5 pairwise review. The edge count varies by phase configuration.
+This gives 11 directed review edges (10 critical + 1 advisory to documenter) for the default implement phase instead of ~56 for full N=8 pairwise review (3 producers + 6 reviewers, with tester counted once for its dual role). The edge count varies by phase configuration.
 
 #### BRC Phases
 

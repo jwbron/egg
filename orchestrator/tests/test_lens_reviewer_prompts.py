@@ -56,18 +56,25 @@ class TestSecurityCriteriaLoader:
     def test_loads_from_shared_file(self) -> None:
         """Happy path: the loader returns the on-disk file's contents.
 
-        Asserts the regression-guard markers from TASK-2-1's required body:
-        ``cross-file allowlist mismatch`` and
-        ``handler-vs-validator path mismatch``.
+        Asserts the regression-guard markers from TASK-2-1's required body
+        (``cross-file allowlist mismatch`` and
+        ``handler-vs-validator path mismatch``) plus the section-4
+        ``Dockerfile-symlink`` slug from the PR #1964 jira-wrapper pattern,
+        so a future edit can't silently drop the lens.
         """
         content = _get_security_review_criteria()
         assert "cross-file allowlist mismatch" in content.lower()
         assert "handler-vs-validator path mismatch" in content.lower()
+        assert "dockerfile-symlink" in content.lower()
 
     def test_inline_fallback_when_shared_file_missing(self) -> None:
         with patch("routes.pipelines._read_shared_criteria", return_value=None):
             content = _get_security_review_criteria()
         assert content.strip() != "", "Security inline fallback must be non-empty"
+        # Section-4 parity with on-disk file: the inline fallback also names
+        # the PR #1964 jira-wrapper Dockerfile/symlink-mismatch pattern, so a
+        # future edit cannot silently drop the lens from the fallback path.
+        assert "dockerfile-symlink" in content.lower()
 
 
 class TestConcurrencyCriteriaLoader:
