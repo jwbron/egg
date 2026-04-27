@@ -352,7 +352,7 @@ class TestRunOnceConfigTripwire:
     config_block_empty) must be distinguishable from the alert detail."""
 
     @staticmethod
-    def _config_alerts(report: dict) -> list[dict]:
+    def _config_alerts(report: dict[str, object]) -> list[dict[str, object]]:
         return [a for a in report["detector_alerts"] if a.get("anomaly") == "config-unavailable"]
 
     @patch("overseer_monitor.send_heartbeat", return_value=True)
