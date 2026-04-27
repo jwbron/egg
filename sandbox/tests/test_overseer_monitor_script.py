@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
 import pytest
@@ -353,7 +354,7 @@ class TestRunOnceConfigTripwire:
 
     @staticmethod
     def _config_alerts(report: dict[str, object]) -> list[dict[str, object]]:
-        return [a for a in report["detector_alerts"] if a.get("anomaly") == "config-unavailable"]
+        return [a for a in cast(list[dict[str, object]], report["detector_alerts"]) if a.get("anomaly") == "config-unavailable"]
 
     @patch("overseer_monitor.send_heartbeat", return_value=True)
     @patch("overseer_monitor.poll_messages", return_value=[])
@@ -373,7 +374,7 @@ class TestRunOnceConfigTripwire:
         assert len(tripwires) == 1
         assert tripwires[0]["priority"] == "high"
         assert tripwires[0]["calibration_only"] is False
-        assert "pipeline_unreachable" in tripwires[0]["detail"]
+        assert "pipeline_unreachable" in cast(str, tripwires[0]["detail"])
 
     @patch("overseer_monitor.send_heartbeat", return_value=True)
     @patch("overseer_monitor.poll_messages", return_value=[])
@@ -395,7 +396,7 @@ class TestRunOnceConfigTripwire:
 
         tripwires = self._config_alerts(report)
         assert len(tripwires) == 1
-        assert "config_key_missing" in tripwires[0]["detail"]
+        assert "config_key_missing" in cast(str, tripwires[0]["detail"])
 
     @patch("overseer_monitor.send_heartbeat", return_value=True)
     @patch("overseer_monitor.poll_messages", return_value=[])
@@ -418,7 +419,7 @@ class TestRunOnceConfigTripwire:
 
         tripwires = self._config_alerts(report)
         assert len(tripwires) == 1
-        assert "config_block_empty" in tripwires[0]["detail"]
+        assert "config_block_empty" in cast(str, tripwires[0]["detail"])
 
     @patch("overseer_monitor.send_heartbeat", return_value=True)
     @patch("overseer_monitor.poll_messages", return_value=[])
