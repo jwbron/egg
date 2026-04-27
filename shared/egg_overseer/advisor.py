@@ -261,6 +261,11 @@ async def consult_advisor(
             # chain the most recent ``raw_decode`` failure for context.
             # Scrub before raising: ``raw`` is the unparsed model output
             # and ends up in stderr via ``cmd_overseer_consult_advisor``.
+            # NOTE: ``__cause__`` (last_exc) preserves the original
+            # ``JSONDecodeError`` whose ``str()`` can echo input values.
+            # Safe today because no caller renders the chained traceback
+            # — if you add ``traceback.format_exc()`` or
+            # ``logger.exception()`` upstream, scrub there too.
             raise AdvisorParseError(
                 scrub_secrets(f"consult_advisor: SDK response is not valid JSON: {raw!r}")
             ) from last_exc
@@ -270,6 +275,9 @@ async def consult_advisor(
     except Exception as exc:
         # Scrub: ``payload`` and the pydantic error both echo input
         # values that may include credentials the model parroted back.
+        # Same ``__cause__`` caveat as the JSON-decode path above:
+        # ``ValidationError`` carries unscrubbed input; safe only while
+        # callers don't render the chained traceback.
         raise AdvisorParseError(
             scrub_secrets(
                 f"consult_advisor: SDK response failed AdvisorVerdict "
