@@ -417,7 +417,7 @@ When a Tier 1 `infrastructure_error` alert reaches the overseer monitor, it is r
 
 ### Advisor Gate
 
-Issue [#1962](https://github.com/jwbron/egg/issues/1962) introduces the **advisor strategy** for the overseer's decision tier: Haiku continues to drive every cycle (`max_turns=1`), and an Opus 4.6 advisor is invoked **only when both** of these conditions hold simultaneously:
+Issue [#1962](https://github.com/jwbron/egg/issues/1962) introduces the **advisor strategy** for the overseer's decision tier: Haiku continues to drive every cycle (`max_turns=1`), and the configured advisor model (`PipelineConfig.overseer_advisor_model`, defaulting to the `opus` alias) is invoked **only when both** of these conditions hold simultaneously:
 
 1. **Haiku flags an anomaly** with classification confidence ≥ 0.8.
 2. **A Tier-1 orchestrator health alert is currently active** (the same intersection precedent shipped in [#2012](https://github.com/jwbron/egg/issues/2012)).
