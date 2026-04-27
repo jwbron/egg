@@ -68,11 +68,7 @@ _PATCHES = [
 
 
 def _respawn_calls(mock_thread_cls):
-    return [
-        c
-        for c in mock_thread_cls.call_args_list
-        if "respawn" in (c.kwargs.get("name") or "")
-    ]
+    return [c for c in mock_thread_cls.call_args_list if "respawn" in (c.kwargs.get("name") or "")]
 
 
 class TestSpuriousPNFERecovery:
@@ -291,7 +287,8 @@ class TestSpuriousPNFERecovery:
 
         # Pipeline was marked FAILED with a clear error.
         save_calls = [
-            c for c in mock_store.save_pipeline.call_args_list
+            c
+            for c in mock_store.save_pipeline.call_args_list
             if c.args and c.args[0].status == PipelineStatus.FAILED
         ]
         assert save_calls, "Expected pipeline to be saved with FAILED status"
@@ -340,9 +337,7 @@ class TestSpuriousPNFERecovery:
         # loops over per-agent containers as a safety-net, so we assert
         # the pipeline-level call specifically rather than call count.)
         delete_calls = mock_spawner.gateway.delete_worktrees.call_args_list
-        pipeline_level = [
-            c for c in delete_calls if c.kwargs.get("container_id") == "issue-2155"
-        ]
+        pipeline_level = [c for c in delete_calls if c.kwargs.get("container_id") == "issue-2155"]
         assert len(pipeline_level) == 1, (
             f"Expected one pipeline-level delete_worktrees call; got: "
             f"{[c.kwargs.get('container_id') for c in delete_calls]}"

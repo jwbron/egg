@@ -13329,8 +13329,7 @@ def _run_pipeline(
                             _verify_store.save_pipeline(_failed_pipeline)
                     except Exception as fail_err:
                         logger.warning(
-                            "Failed to mark pipeline FAILED after exhausting "
-                            "respawn budget",
+                            "Failed to mark pipeline FAILED after exhausting respawn budget",
                             pipeline_id=pipeline_id,
                             error=str(fail_err),
                         )
@@ -13375,9 +13374,7 @@ def _run_pipeline(
                     # tight cascade can't fire dozens of respawns per
                     # second.  attempt=0 → 1s, 1 → 2s, 2 → 4s, 3 → 8s,
                     # 4 → 16s, capped at _PNFE_RESPAWN_BACKOFF_CAP.
-                    _backoff = min(
-                        2**_respawn_attempt, _PNFE_RESPAWN_BACKOFF_CAP
-                    )
+                    _backoff = min(2**_respawn_attempt, _PNFE_RESPAWN_BACKOFF_CAP)
                     time.sleep(_backoff)
                     threading.Thread(
                         target=_run_pipeline,
