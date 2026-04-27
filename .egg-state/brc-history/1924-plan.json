@@ -1,0 +1,1378 @@
+[
+  {
+    "id": "355256e1-c4a4-4f",
+    "pipeline_id": "issue-1924",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "Cycle 1 complete. Refine phase BRC consensus confirmed. Plan phase agents launched (architect, task_planner, risk_analyst, reviewer_plan). 8 stale refine-phase alerts classified as noise \u2014 no corrective action required. Monitoring plan phase progression.",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T19:15:32.127640+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "86167bf8-7b9a-43",
+    "pipeline_id": "issue-1924",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Cycle 2 complete. Plan phase healthy \u2014 4 agents running (architect, task_planner, risk_analyst, reviewer_plan), elapsed ~34s. No new alerts. Monitoring.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-27T19:15:51.705704+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "35837d78-50e4-4d",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-27T19:17:13.216723+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ac56f265-941e-47",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:17:24.587462+00:00"
+    },
+    "timestamp": "2026-04-27T19:17:24.624952+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "eb1ad32a-767a-4b",
+    "pipeline_id": "issue-1924",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Plan phase nominal \u2014 reviewer_plan active, waiting for CONSENSUS_PROPOSE from architect/task_planner/risk_analyst (151s elapsed). No anomalies detected.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-27T19:17:41.276290+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a3263597-2358-46",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:17:24.587462+00:00"
+    },
+    "timestamp": "2026-04-27T19:18:24.812262+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b760ad9e-a1ed-40",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:17:24.587462+00:00"
+    },
+    "timestamp": "2026-04-27T19:19:24.926318+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a67d86c1-af62-4f",
+    "pipeline_id": "issue-1924",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Plan phase cycle 25 \u2014 288s elapsed, all 4 agents running (architect, task_planner, risk_analyst, reviewer_plan). reviewer_plan active and waiting for CONSENSUS_PROPOSE. No producer proposals yet. No detector alerts. Pipeline healthy.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-27T19:20:00.882253+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4b348f29-6aa2-4b",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:17:24.587462+00:00"
+    },
+    "timestamp": "2026-04-27T19:20:25.161621+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "9736a8bd-5ea8-46",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:17:24.587462+00:00"
+    },
+    "timestamp": "2026-04-27T19:21:25.345268+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b8d42f38-c2e9-42",
+    "pipeline_id": "issue-1924",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "Plan phase task decomposition for #1924 (Jira gateway write verbs). Six-phase single-PR plan: (1) foundation modules \u2014 idempotency cache + ADF helper; (2) four JiraClient write methods bypassing validate_jira_api_path with hardcoded paths; (3) four /api/v1/jira/* gateway routes with curated body schemas, project allowlist, audit redaction; (4) four sandbox wrapper subcommands with text/file/stdin input ergonomics; (5) tests \u2014 per-route 403 grid extension, idempotency cache, ADF, adversarial bodies; (6) docs \u2014 extend jira-wrapper.md. 26 tasks across coder/tester/documenter roles. Bakes in 19 HITL decision defaults from the architect's recommended approach (A1+B1+C1+D1+E1) so implement can start before all HITL answers land.",
+    "metadata": {
+      "payload": {
+        "summary": "Plan phase task decomposition for #1924 (Jira gateway write verbs). Six-phase single-PR plan: (1) foundation modules \u2014 idempotency cache + ADF helper; (2) four JiraClient write methods bypassing validate_jira_api_path with hardcoded paths; (3) four /api/v1/jira/* gateway routes with curated body schemas, project allowlist, audit redaction; (4) four sandbox wrapper subcommands with text/file/stdin input ergonomics; (5) tests \u2014 per-route 403 grid extension, idempotency cache, ADF, adversarial bodies; (6) docs \u2014 extend jira-wrapper.md. 26 tasks across coder/tester/documenter roles. Bakes in 19 HITL decision defaults from the architect's recommended approach (A1+B1+C1+D1+E1) so implement can start before all HITL answers land.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/1924-plan.md"
+        ],
+        "risk_considered": "",
+        "commit_sha": "5a8e52da5cefcd29800b6296791fdd5a1519048c",
+        "files_changed": [
+          ".egg-state/drafts/1924-plan.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "5a8e52da5cefcd29800b6296791fdd5a1519048c"
+    },
+    "timestamp": "2026-04-27T19:21:49.766188+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "bcb02c6b-69dc-48",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T19:21:50.317209+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c95ac50f-1c1e-4a",
+    "pipeline_id": "issue-1924",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:22:03.270283+00:00"
+    },
+    "timestamp": "2026-04-27T19:22:05.028123+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "271d944c-157e-4f",
+    "pipeline_id": "issue-1924",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T19:22:05.151647+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c699b691-806f-4c",
+    "pipeline_id": "issue-1924",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:22:07.693396+00:00"
+    },
+    "timestamp": "2026-04-27T19:22:07.768434+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "eae0f8f5-2318-42",
+    "pipeline_id": "issue-1924",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:22:07.693396+00:00"
+    },
+    "timestamp": "2026-04-27T19:23:07.816325+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "6b873daa-e5a0-49",
+    "pipeline_id": "issue-1924",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Plan phase cycle 50 \u2014 486s elapsed. task_planner PROPOSED (6-phase, 26-task plan). reviewer_plan actively reviewing. architect + risk_analyst still preparing proposals. No real alerts (1 calibration-only stale refine-phase stall). BRC progressing normally.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-27T19:23:16.627264+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "48453a3a-ed1b-4d",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:23:35.757504+00:00"
+    },
+    "timestamp": "2026-04-27T19:23:35.794201+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7ea4b104-c9d5-4f",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T19:23:45.914636+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "bac873d6-053b-43",
+    "pipeline_id": "issue-1924",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:22:07.693396+00:00"
+    },
+    "timestamp": "2026-04-27T19:24:07.995116+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "26ce78db-c061-4e",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_NACK",
+    "subject": "NACK from reviewer_plan for task_planner",
+    "body": "\nReviewed the plan draft section-by-section against the analysis and the existing v1 read-only gateway. The phase decomposition (Foundation \u2192 Client \u2192 Routes \u2192 Wrapper \u2192 Tests \u2192 Docs), choice of A1+B1+C1+D1+E1, and PR scoping are sound. The HITL-defaults table is a useful unblock and most defaults match the analysis. But six items must be tightened before this plan is implementable \u2014 three of them are actively broken or self-contradictory.\n\n### Blocking\n\n1. **Defaults table D2 + TASK-2-1: \"Auto-detect\" emits BOTH `parent.key` AND `customfield_10014` simultaneously \u2014 this is wrong and will 400 upstream.** The analysis (lines 198, 347) and Atlassian's REST docs are explicit: `parent.key` is the next-gen / company-managed field; `customfield_10014` is the classic Epic Link field. They are mutually exclusive per project type. Sending both on a next-gen project returns `400 Field 'customfield_10014' cannot be set, it is not on the appropriate screen, or unknown.`; sending both on classic returns the inverse for `parent`. The plan's `1924-plan.md:55` says \"emit both `parent.key` (next-gen) and `customfield_10014` (classic Epic Link); the wire shape is decided per-instance via `jira_policy` config (default = both)\" \u2014 and TASK-2-1's description (lines 452-454) literally builds both fields. **Fix:** pick a per-instance config knob in `jira_policy` (e.g. `jira.epic_link_field: \"parent\" | \"customfield_10014\"`, default `\"parent\"`) and emit only that field. The architect's option 3 (\"Auto-detect or accept either via the epicLink shorthand\") is one-or-the-other dispatch, not a both-fields shotgun. Add a TASK in Phase 2 or Phase 3-5 to load this knob, and reflect it in the body builder. Also amend the ambiguity in TASK-2-1 between the explicit `parent` arg and the `epic_link` arg \u2014 if both are passed, what wins? Spec it (e.g. \"explicit `parent` overrides `epic_link`; if both set and conflicting, 400 at the route\") rather than letting the second `fields.parent.key=` line clobber the first.\n\n2. **TASK-1-1 / TASK-1-2 acceptance criteria duplicate TASK-5-1 / TASK-5-2 \u2014 same test files owned by two roles.** TASK-1-1 acceptance (lines 396-404) demands `gateway/tests/test_jira_idempotency.py` pass with seven named scenarios. TASK-5-1 (lines 766-779, role: tester) describes \"Create `gateway/tests/test_jira_idempotency.py` covering the cache module from TASK-1-1: \u2026\" \u2014 same file, same scenarios, different role. Same collision for TASK-1-2 \u2194 TASK-5-2 on `test_jira_adf.py`. The implement-phase coder/tester roles will both think they own the file; whichever lands second overwrites. **Fix:** decide explicitly. Either (a) drop the test requirement from TASK-1-1/1-2 acceptance, leaving \"module exists with the API\" as the only criterion and TASK-5-1/5-2 owns the file; or (b) drop TASK-5-1/5-2 entirely and acknowledge in Phase 5's preamble that the foundation tests landed in Phase 1. Option (a) is cleaner because it matches the role assignments.\n\n3. **TASK-3-4 createIssueLink response shape is left for the coder to decide.** The task literal text (lines 636-639): \"Returns Atlassian's response envelope (201 body or `{status: 'created'}` envelope \u2014 choose one and document; default to envelope for consistency with create-issue).\" The analysis (line 54, line 114) is explicit that Atlassian's `POST /rest/api/3/issueLink` returns `201 Created` **with no body in v3**, so \"Atlassian's response envelope\" is empty \u2014 the only viable option is the synthesized envelope. **Fix:** spec the envelope now: `{status: \"created\"}` for parity with `editJiraIssue`'s envelope (`{status: \"updated\", key}`). Decide whether to include the (inward, outward, type) triple in the response so the orchestrator's plan-apply can correlate the call with its retry record \u2014 recommend yes: `{status: \"created\", inwardIssue, outwardIssue, type}`.\n\n4. **TASK-2-2 labels semantics for replace + incremental is also left for the coder.** Lines 488-489: \"replace+incremental rejected (or merged per chosen semantics \u2014 document the choice)\". This is a real semantic decision that affects the route schema validator, the client method body, AND the test grid in TASK-5-3. **Fix:** pick now. Recommendation: **reject as 400 at the route layer** if both `labels` and (`addLabels` or `removeLabels`) are present \u2014 agents pick one mode. Easier to test, less surprising for callers, and aligns with the \"reject malformed body\" theme of C1 validation.\n\n5. **Idempotency cache key for createIssueLink is under-specified.** Cache is keyed `(verb, project, idempotency_key)` per `1924-plan.md:23-25` and TASK-1-1 description. For `create_issue_link`, \"project\" is ambiguous (inward? outward? both?). Two callers re-using the same opaque `idempotency_key` for distinct (inward, outward, type) triples would collide and the second caller would receive the cached response of the first. **Fix:** for `create_issue_link` either (a) compose the cache key as `(\"link\", canonical(inward, outward, type), idempotency_key)` so identical opaque keys never alias different links, or (b) document that the orchestrator MUST derive `idempotency_key` from `(inward_key, outward_key, type)` and the gateway treats it as a black-box. Option (a) is safer because it puts the invariant in the gateway. Update TASK-1-1's `get_or_run` signature accordingly (or add a per-verb wrapper) and add a test scenario for \"same idempotency_key, different link triples \u2192 distinct cache entries\".\n\n6. **429 audit emit on writes (Q12 default = \"yes\") has no implementation hook in the plan.** TASK-5-3 acceptance (line 805) asserts \"429 audit emit on each verb\", but the existing `JiraClient._request` (per the survey) emits `jira_upstream_rate_limited` only inside its retry loop on lines 340-367 \u2014 and writes deliberately skip the retry loop (line 322). None of TASK-2-1..2-4 nor the route-layer tasks add an audit emission for the no-retry 429 path. As written, the test in TASK-5-3 will fail \u2014 there's no code path that emits the audit for write 429s. **Fix:** add an explicit task (or a sub-bullet to TASK-2-5) modifying `_request` to emit `jira_upstream_rate_limited` on EVERY 429 (retry-or-not), guarded by `flask.has_request_context()`. Reflect this in the unit-test surface (TASK-5-3 already lists it; the production code just needs to exist).\n\n### Non-blocking\n\n- **`1924-plan.md:75` Q15 cap reconciliation:** \"comment body \u2264 32 KiB\" matches the description cap, but the analysis (line 100) cites \"no published Atlassian limit\". Confirm the 32 KiB cap is intentional rather than a copy-paste from `description`. Recommend keeping it; just want it explicit in TASK-3-3 comments.\n- **`1924-plan.md:77` Q20 audit redaction conflicts with TASK-3-1 audit description:** Q20 says \"labels logged because they are policy-relevant\", but TASK-3-1 audit details (line 583) say \"label count\". Pick one \u2014 recommend logging label *values* (small enumerated strings, policy-relevant for who-tagged-what audit, matches Q20 default) and add a note in TASK-3-1 acceptance.\n- **TASK-2-2 `notifyUsers` query:** the plan emits `notifyUsers=true` explicitly when `notify_users=True`. Atlassian's default already is `true`; sending the param redundantly is harmless but bloats the URL. Suggest: omit the query param when `notify_users=True`, send `notifyUsers=false` only when False.\n- **Phase 3 intra-phase ordering:** TASK-3-4 (link route) depends on TASK-3-5 (`link_types` config + helper). The plan explicitly says (lines 260-264) \"Within each phase the tasks are independent\". Add a one-line note that TASK-3-5 must land before TASK-3-4 (or merge them into a single task) so the implementer doesn't try them in parallel and break the route.\n- **TASK-3-7:** \"Add a commented `jira.link_types` example block to `config/context-filters.yaml` (or its example file)\". Pick now: edit `config/context-filters.yaml` directly \u2014 that's the file the policy loads, and the survey confirmed the existing `jira:` section (lines 11-24) already lives there. The \"(or its example file)\" hedge invites coder confusion.\n- **TASK-4-1..4-4 `--help`:** the survey didn't confirm the existing `sandbox/scripts/jira` wrapper has per-subcommand `--help` output. The acceptance criteria of all four sandbox tasks reference `--help`. If the v1 wrapper doesn't already support `--help`, that's hidden scope. Add a one-liner to TASK-4-1 confirming the existing dispatcher's `--help` pattern (or noting the addition).\n- **Per-role / per-phase write gating deferred (D10/D11):** plan correctly defers to a follow-up. Add a follow-up issue placeholder reference in the PR body (`Follows: TBD-issue-for-write-gating`) so the deferred work isn't dropped.\n- **TASK-5-4 unicode-in-keys path-traversal:** good adversarial coverage. Suggest also adding a test case for HTTP-method tunnelling via body (e.g. body containing `\"_method\": \"DELETE\"` or similar) \u2014 defensive, since v1 read paths weren't tested for it either.\n- **TASK-5-3 test combinations matrix:** \"all input combinations\" is broad. Add a one-line cap (e.g. \"\u22651 success case per option pair\" or \"named matrix in test docstring\") so the implementer doesn't generate a Cartesian explosion.\n- **`1924-plan.md:233` no live-Atlassian smoke test:** consistent with v1; flag that #1557 (the consumer) will be the integration smoke. Add to PR body's test_plan as \"Integration smoke test deferred to #1557 plan-apply rollout\".\n- **`Risks (deferred to risk_analyst)`:** good division of labour. The plan-only review will not block on risks \u2014 but the rollback claim (\"each phase is independently revertible\") deserves a one-line acceptance check (e.g. \"TASK-X.Y verifies `git revert` of each phase commit leaves the v1 read surface green\"). Currently this claim is unverified.\n",
+    "metadata": {
+      "payload": {
+        "reason": "\nReviewed the plan draft section-by-section against the analysis and the existing v1 read-only gateway. The phase decomposition (Foundation \u2192 Client \u2192 Routes \u2192 Wrapper \u2192 Tests \u2192 Docs), choice of A1+B1+C1+D1+E1, and PR scoping are sound. The HITL-defaults table is a useful unblock and most defaults match the analysis. But six items must be tightened before this plan is implementable \u2014 three of them are actively broken or self-contradictory.\n\n### Blocking\n\n1. **Defaults table D2 + TASK-2-1: \"Auto-detect\" emits BOTH `parent.key` AND `customfield_10014` simultaneously \u2014 this is wrong and will 400 upstream.** The analysis (lines 198, 347) and Atlassian's REST docs are explicit: `parent.key` is the next-gen / company-managed field; `customfield_10014` is the classic Epic Link field. They are mutually exclusive per project type. Sending both on a next-gen project returns `400 Field 'customfield_10014' cannot be set, it is not on the appropriate screen, or unknown.`; sending both on classic returns the inverse for `parent`. The plan's `1924-plan.md:55` says \"emit both `parent.key` (next-gen) and `customfield_10014` (classic Epic Link); the wire shape is decided per-instance via `jira_policy` config (default = both)\" \u2014 and TASK-2-1's description (lines 452-454) literally builds both fields. **Fix:** pick a per-instance config knob in `jira_policy` (e.g. `jira.epic_link_field: \"parent\" | \"customfield_10014\"`, default `\"parent\"`) and emit only that field. The architect's option 3 (\"Auto-detect or accept either via the epicLink shorthand\") is one-or-the-other dispatch, not a both-fields shotgun. Add a TASK in Phase 2 or Phase 3-5 to load this knob, and reflect it in the body builder. Also amend the ambiguity in TASK-2-1 between the explicit `parent` arg and the `epic_link` arg \u2014 if both are passed, what wins? Spec it (e.g. \"explicit `parent` overrides `epic_link`; if both set and conflicting, 400 at the route\") rather than letting the second `fields.parent.key=` line clobber the first.\n\n2. **TASK-1-1 / TASK-1-2 acceptance criteria duplicate TASK-5-1 / TASK-5-2 \u2014 same test files owned by two roles.** TASK-1-1 acceptance (lines 396-404) demands `gateway/tests/test_jira_idempotency.py` pass with seven named scenarios. TASK-5-1 (lines 766-779, role: tester) describes \"Create `gateway/tests/test_jira_idempotency.py` covering the cache module from TASK-1-1: \u2026\" \u2014 same file, same scenarios, different role. Same collision for TASK-1-2 \u2194 TASK-5-2 on `test_jira_adf.py`. The implement-phase coder/tester roles will both think they own the file; whichever lands second overwrites. **Fix:** decide explicitly. Either (a) drop the test requirement from TASK-1-1/1-2 acceptance, leaving \"module exists with the API\" as the only criterion and TASK-5-1/5-2 owns the file; or (b) drop TASK-5-1/5-2 entirely and acknowledge in Phase 5's preamble that the foundation tests landed in Phase 1. Option (a) is cleaner because it matches the role assignments.\n\n3. **TASK-3-4 createIssueLink response shape is left for the coder to decide.** The task literal text (lines 636-639): \"Returns Atlassian's response envelope (201 body or `{status: 'created'}` envelope \u2014 choose one and document; default to envelope for consistency with create-issue).\" The analysis (line 54, line 114) is explicit that Atlassian's `POST /rest/api/3/issueLink` returns `201 Created` **with no body in v3**, so \"Atlassian's response envelope\" is empty \u2014 the only viable option is the synthesized envelope. **Fix:** spec the envelope now: `{status: \"created\"}` for parity with `editJiraIssue`'s envelope (`{status: \"updated\", key}`). Decide whether to include the (inward, outward, type) triple in the response so the orchestrator's plan-apply can correlate the call with its retry record \u2014 recommend yes: `{status: \"created\", inwardIssue, outwardIssue, type}`.\n\n4. **TASK-2-2 labels semantics for replace + incremental is also left for the coder.** Lines 488-489: \"replace+incremental rejected (or merged per chosen semantics \u2014 document the choice)\". This is a real semantic decision that affects the route schema validator, the client method body, AND the test grid in TASK-5-3. **Fix:** pick now. Recommendation: **reject as 400 at the route layer** if both `labels` and (`addLabels` or `removeLabels`) are present \u2014 agents pick one mode. Easier to test, less surprising for callers, and aligns with the \"reject malformed body\" theme of C1 validation.\n\n5. **Idempotency cache key for createIssueLink is under-specified.** Cache is keyed `(verb, project, idempotency_key)` per `1924-plan.md:23-25` and TASK-1-1 description. For `create_issue_link`, \"project\" is ambiguous (inward? outward? both?). Two callers re-using the same opaque `idempotency_key` for distinct (inward, outward, type) triples would collide and the second caller would receive the cached response of the first. **Fix:** for `create_issue_link` either (a) compose the cache key as `(\"link\", canonical(inward, outward, type), idempotency_key)` so identical opaque keys never alias different links, or (b) document that the orchestrator MUST derive `idempotency_key` from `(inward_key, outward_key, type)` and the gateway treats it as a black-box. Option (a) is safer because it puts the invariant in the gateway. Update TASK-1-1's `get_or_run` signature accordingly (or add a per-verb wrapper) and add a test scenario for \"same idempotency_key, different link triples \u2192 distinct cache entries\".\n\n6. **429 audit emit on writes (Q12 default = \"yes\") has no implementation hook in the plan.** TASK-5-3 acceptance (line 805) asserts \"429 audit emit on each verb\", but the existing `JiraClient._request` (per the survey) emits `jira_upstream_rate_limited` only inside its retry loop on lines 340-367 \u2014 and writes deliberately skip the retry loop (line 322). None of TASK-2-1..2-4 nor the route-layer tasks add an audit emission for the no-retry 429 path. As written, the test in TASK-5-3 will fail \u2014 there's no code path that emits the audit for write 429s. **Fix:** add an explicit task (or a sub-bullet to TASK-2-5) modifying `_request` to emit `jira_upstream_rate_limited` on EVERY 429 (retry-or-not), guarded by `flask.has_request_context()`. Reflect this in the unit-test surface (TASK-5-3 already lists it; the production code just needs to exist).\n\n### Non-blocking\n\n- **`1924-plan.md:75` Q15 cap reconciliation:** \"comment body \u2264 32 KiB\" matches the description cap, but the analysis (line 100) cites \"no published Atlassian limit\". Confirm the 32 KiB cap is intentional rather than a copy-paste from `description`. Recommend keeping it; just want it explicit in TASK-3-3 comments.\n- **`1924-plan.md:77` Q20 audit redaction conflicts with TASK-3-1 audit description:** Q20 says \"labels logged because they are policy-relevant\", but TASK-3-1 audit details (line 583) say \"label count\". Pick one \u2014 recommend logging label *values* (small enumerated strings, policy-relevant for who-tagged-what audit, matches Q20 default) and add a note in TASK-3-1 acceptance.\n- **TASK-2-2 `notifyUsers` query:** the plan emits `notifyUsers=true` explicitly when `notify_users=True`. Atlassian's default already is `true`; sending the param redundantly is harmless but bloats the URL. Suggest: omit the query param when `notify_users=True`, send `notifyUsers=false` only when False.\n- **Phase 3 intra-phase ordering:** TASK-3-4 (link route) depends on TASK-3-5 (`link_types` config + helper). The plan explicitly says (lines 260-264) \"Within each phase the tasks are independent\". Add a one-line note that TASK-3-5 must land before TASK-3-4 (or merge them into a single task) so the implementer doesn't try them in parallel and break the route.\n- **TASK-3-7:** \"Add a commented `jira.link_types` example block to `config/context-filters.yaml` (or its example file)\". Pick now: edit `config/context-filters.yaml` directly \u2014 that's the file the policy loads, and the survey confirmed the existing `jira:` section (lines 11-24) already lives there. The \"(or its example file)\" hedge invites coder confusion.\n- **TASK-4-1..4-4 `--help`:** the survey didn't confirm the existing `sandbox/scripts/jira` wrapper has per-subcommand `--help` output. The acceptance criteria of all four sandbox tasks reference `--help`. If the v1 wrapper doesn't already support `--help`, that's hidden scope. Add a one-liner to TASK-4-1 confirming the existing dispatcher's `--help` pattern (or noting the addition).\n- **Per-role / per-phase write gating deferred (D10/D11):** plan correctly defers to a follow-up. Add a follow-up issue placeholder reference in the PR body (`Follows: TBD-issue-for-write-gating`) so the deferred work isn't dropped.\n- **TASK-5-4 unicode-in-keys path-traversal:** good adversarial coverage. Suggest also adding a test case for HTTP-method tunnelling via body (e.g. body containing `\"_method\": \"DELETE\"` or similar) \u2014 defensive, since v1 read paths weren't tested for it either.\n- **TASK-5-3 test combinations matrix:** \"all input combinations\" is broad. Add a one-line cap (e.g. \"\u22651 success case per option pair\" or \"named matrix in test docstring\") so the implementer doesn't generate a Cartesian explosion.\n- **`1924-plan.md:233` no live-Atlassian smoke test:** consistent with v1; flag that #1557 (the consumer) will be the integration smoke. Add to PR body's test_plan as \"Integration smoke test deferred to #1557 plan-apply rollout\".\n- **`Risks (deferred to risk_analyst)`:** good division of labour. The plan-only review will not block on risks \u2014 but the rollback claim (\"each phase is independently revertible\") deserves a one-line acceptance check (e.g. \"TASK-X.Y verifies `git revert` of each phase commit leaves the v1 read surface green\"). Currently this claim is unverified.\n",
+        "artifact_references": [
+          ".egg-state/drafts/1924-plan.md",
+          ".egg-state/drafts/1924-analysis.md",
+          "gateway/jira_client.py",
+          "gateway/jira_policy.py",
+          "gateway/gateway.py",
+          "gateway/tests/test_jira_routes.py",
+          "sandbox/scripts/jira",
+          "config/context-filters.yaml"
+        ]
+      },
+      "reason": "\nReviewed the plan draft section-by-section against the analysis and the existing v1 read-only gateway. The phase decomposition (Foundation \u2192 Client \u2192 Routes \u2192 Wrapper \u2192 Tests \u2192 Docs), choice of A1+B1+C1+D1+E1, and PR scoping are sound. The HITL-defaults table is a useful unblock and most defaults match the analysis. But six items must be tightened before this plan is implementable \u2014 three of them are actively broken or self-contradictory.\n\n### Blocking\n\n1. **Defaults table D2 + TASK-2-1: \"Auto-detect\" emits BOTH `parent.key` AND `customfield_10014` simultaneously \u2014 this is wrong and will 400 upstream.** The analysis (lines 198, 347) and Atlassian's REST docs are explicit: `parent.key` is the next-gen / company-managed field; `customfield_10014` is the classic Epic Link field. They are mutually exclusive per project type. Sending both on a next-gen project returns `400 Field 'customfield_10014' cannot be set, it is not on the appropriate screen, or unknown.`; sending both on classic returns the inverse for `parent`. The plan's `1924-plan.md:55` says \"emit both `parent.key` (next-gen) and `customfield_10014` (classic Epic Link); the wire shape is decided per-instance via `jira_policy` config (default = both)\" \u2014 and TASK-2-1's description (lines 452-454) literally builds both fields. **Fix:** pick a per-instance config knob in `jira_policy` (e.g. `jira.epic_link_field: \"parent\" | \"customfield_10014\"`, default `\"parent\"`) and emit only that field. The architect's option 3 (\"Auto-detect or accept either via the epicLink shorthand\") is one-or-the-other dispatch, not a both-fields shotgun. Add a TASK in Phase 2 or Phase 3-5 to load this knob, and reflect it in the body builder. Also amend the ambiguity in TASK-2-1 between the explicit `parent` arg and the `epic_link` arg \u2014 if both are passed, what wins? Spec it (e.g. \"explicit `parent` overrides `epic_link`; if both set and conflicting, 400 at the route\") rather than letting the second `fields.parent.key=` line clobber the first.\n\n2. **TASK-1-1 / TASK-1-2 acceptance criteria duplicate TASK-5-1 / TASK-5-2 \u2014 same test files owned by two roles.** TASK-1-1 acceptance (lines 396-404) demands `gateway/tests/test_jira_idempotency.py` pass with seven named scenarios. TASK-5-1 (lines 766-779, role: tester) describes \"Create `gateway/tests/test_jira_idempotency.py` covering the cache module from TASK-1-1: \u2026\" \u2014 same file, same scenarios, different role. Same collision for TASK-1-2 \u2194 TASK-5-2 on `test_jira_adf.py`. The implement-phase coder/tester roles will both think they own the file; whichever lands second overwrites. **Fix:** decide explicitly. Either (a) drop the test requirement from TASK-1-1/1-2 acceptance, leaving \"module exists with the API\" as the only criterion and TASK-5-1/5-2 owns the file; or (b) drop TASK-5-1/5-2 entirely and acknowledge in Phase 5's preamble that the foundation tests landed in Phase 1. Option (a) is cleaner because it matches the role assignments.\n\n3. **TASK-3-4 createIssueLink response shape is left for the coder to decide.** The task literal text (lines 636-639): \"Returns Atlassian's response envelope (201 body or `{status: 'created'}` envelope \u2014 choose one and document; default to envelope for consistency with create-issue).\" The analysis (line 54, line 114) is explicit that Atlassian's `POST /rest/api/3/issueLink` returns `201 Created` **with no body in v3**, so \"Atlassian's response envelope\" is empty \u2014 the only viable option is the synthesized envelope. **Fix:** spec the envelope now: `{status: \"created\"}` for parity with `editJiraIssue`'s envelope (`{status: \"updated\", key}`). Decide whether to include the (inward, outward, type) triple in the response so the orchestrator's plan-apply can correlate the call with its retry record \u2014 recommend yes: `{status: \"created\", inwardIssue, outwardIssue, type}`.\n\n4. **TASK-2-2 labels semantics for replace + incremental is also left for the coder.** Lines 488-489: \"replace+incremental rejected (or merged per chosen semantics \u2014 document the choice)\". This is a real semantic decision that affects the route schema validator, the client method body, AND the test grid in TASK-5-3. **Fix:** pick now. Recommendation: **reject as 400 at the route layer** if both `labels` and (`addLabels` or `removeLabels`) are present \u2014 agents pick one mode. Easier to test, less surprising for callers, and aligns with the \"reject malformed body\" theme of C1 validation.\n\n5. **Idempotency cache key for createIssueLink is under-specified.** Cache is keyed `(verb, project, idempotency_key)` per `1924-plan.md:23-25` and TASK-1-1 description. For `create_issue_link`, \"project\" is ambiguous (inward? outward? both?). Two callers re-using the same opaque `idempotency_key` for distinct (inward, outward, type) triples would collide and the second caller would receive the cached response of the first. **Fix:** for `create_issue_link` either (a) compose the cache key as `(\"link\", canonical(inward, outward, type), idempotency_key)` so identical opaque keys never alias different links, or (b) document that the orchestrator MUST derive `idempotency_key` from `(inward_key, outward_key, type)` and the gateway treats it as a black-box. Option (a) is safer because it puts the invariant in the gateway. Update TASK-1-1's `get_or_run` signature accordingly (or add a per-verb wrapper) and add a test scenario for \"same idempotency_key, different link triples \u2192 distinct cache entries\".\n\n6. **429 audit emit on writes (Q12 default = \"yes\") has no implementation hook in the plan.** TASK-5-3 acceptance (line 805) asserts \"429 audit emit on each verb\", but the existing `JiraClient._request` (per the survey) emits `jira_upstream_rate_limited` only inside its retry loop on lines 340-367 \u2014 and writes deliberately skip the retry loop (line 322). None of TASK-2-1..2-4 nor the route-layer tasks add an audit emission for the no-retry 429 path. As written, the test in TASK-5-3 will fail \u2014 there's no code path that emits the audit for write 429s. **Fix:** add an explicit task (or a sub-bullet to TASK-2-5) modifying `_request` to emit `jira_upstream_rate_limited` on EVERY 429 (retry-or-not), guarded by `flask.has_request_context()`. Reflect this in the unit-test surface (TASK-5-3 already lists it; the production code just needs to exist).\n\n### Non-blocking\n\n- **`1924-plan.md:75` Q15 cap reconciliation:** \"comment body \u2264 32 KiB\" matches the description cap, but the analysis (line 100) cites \"no published Atlassian limit\". Confirm the 32 KiB cap is intentional rather than a copy-paste from `description`. Recommend keeping it; just want it explicit in TASK-3-3 comments.\n- **`1924-plan.md:77` Q20 audit redaction conflicts with TASK-3-1 audit description:** Q20 says \"labels logged because they are policy-relevant\", but TASK-3-1 audit details (line 583) say \"label count\". Pick one \u2014 recommend logging label *values* (small enumerated strings, policy-relevant for who-tagged-what audit, matches Q20 default) and add a note in TASK-3-1 acceptance.\n- **TASK-2-2 `notifyUsers` query:** the plan emits `notifyUsers=true` explicitly when `notify_users=True`. Atlassian's default already is `true`; sending the param redundantly is harmless but bloats the URL. Suggest: omit the query param when `notify_users=True`, send `notifyUsers=false` only when False.\n- **Phase 3 intra-phase ordering:** TASK-3-4 (link route) depends on TASK-3-5 (`link_types` config + helper). The plan explicitly says (lines 260-264) \"Within each phase the tasks are independent\". Add a one-line note that TASK-3-5 must land before TASK-3-4 (or merge them into a single task) so the implementer doesn't try them in parallel and break the route.\n- **TASK-3-7:** \"Add a commented `jira.link_types` example block to `config/context-filters.yaml` (or its example file)\". Pick now: edit `config/context-filters.yaml` directly \u2014 that's the file the policy loads, and the survey confirmed the existing `jira:` section (lines 11-24) already lives there. The \"(or its example file)\" hedge invites coder confusion.\n- **TASK-4-1..4-4 `--help`:** the survey didn't confirm the existing `sandbox/scripts/jira` wrapper has per-subcommand `--help` output. The acceptance criteria of all four sandbox tasks reference `--help`. If the v1 wrapper doesn't already support `--help`, that's hidden scope. Add a one-liner to TASK-4-1 confirming the existing dispatcher's `--help` pattern (or noting the addition).\n- **Per-role / per-phase write gating deferred (D10/D11):** plan correctly defers to a follow-up. Add a follow-up issue placeholder reference in the PR body (`Follows: TBD-issue-for-write-gating`) so the deferred work isn't dropped.\n- **TASK-5-4 unicode-in-keys path-traversal:** good adversarial coverage. Suggest also adding a test case for HTTP-method tunnelling via body (e.g. body containing `\"_method\": \"DELETE\"` or similar) \u2014 defensive, since v1 read paths weren't tested for it either.\n- **TASK-5-3 test combinations matrix:** \"all input combinations\" is broad. Add a one-line cap (e.g. \"\u22651 success case per option pair\" or \"named matrix in test docstring\") so the implementer doesn't generate a Cartesian explosion.\n- **`1924-plan.md:233` no live-Atlassian smoke test:** consistent with v1; flag that #1557 (the consumer) will be the integration smoke. Add to PR body's test_plan as \"Integration smoke test deferred to #1557 plan-apply rollout\".\n- **`Risks (deferred to risk_analyst)`:** good division of labour. The plan-only review will not block on risks \u2014 but the rollback claim (\"each phase is independently revertible\") deserves a one-line acceptance check (e.g. \"TASK-X.Y verifies `git revert` of each phase commit leaves the v1 read surface green\"). Currently this claim is unverified.\n",
+      "revision_count": 1
+    },
+    "timestamp": "2026-04-27T19:25:02.952935+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4c68cbb8-1598-4d",
+    "pipeline_id": "issue-1924",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T19:25:03.106495+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f5bfbde1-b5df-42",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:25:14.198622+00:00"
+    },
+    "timestamp": "2026-04-27T19:25:14.442105+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cae857e4-d37e-44",
+    "pipeline_id": "issue-1924",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from architect",
+    "body": "Architecture analysis for #1924 \u2014 bounded write extension of the v1 read-only Jira gateway. Four narrow per-verb routes (POST /api/v1/jira/ticket/create, /ticket/edit, /ticket/comment/add, /issue-link/create) instead of widening /execute; method-allowlist split (validate_jira_api_path keeps ALLOWED_METHODS={'GET'}; write client methods bypass with hardcoded paths so the permanent denylist transitions/worklog/attachments/watchers stays unbreakable); curated per-verb body schemas with project / ticket / size / label-count validation; in-process gateway idempotency cache (TTL 300s, threading.Lock-guarded) for createJiraIssue and addCommentToJiraIssue; plain-text -> minimal ADF paragraph wrapping helper so sandbox agents never construct Atlassian Document Format JSON. New gateway/jira_adf.py and gateway/jira_idempotency.py modules; ~250-350 lines added to jira_client.py for the four write methods; ~500-650 lines in gateway.py for the four routes; ~300-450 lines in sandbox/scripts/jira for the four new subcommands; new test files test_jira_idempotency.py / test_jira_adf.py / test_jira_writes_adversarial.py. Records the architectural slot for every unresolved refine HITL decision so plan tasks can be written deterministically once HITL closes. Output: .egg-state/agent-outputs/1924-architect-output.json (60 KB JSON; problem statement, current-architecture map of reusable v1 building blocks, external Atlassian v3 endpoint shapes, proposed module breakdown with per-route validation, data-flow walkthroughs, design decisions justifying A1+B1+C1+D1+E1, key-files table, dependency list, open-questions slot reservations, risks for risk_analyst, tasks for task_planner, validation plan, out-of-scope list).",
+    "metadata": {
+      "payload": {
+        "summary": "Architecture analysis for #1924 \u2014 bounded write extension of the v1 read-only Jira gateway. Four narrow per-verb routes (POST /api/v1/jira/ticket/create, /ticket/edit, /ticket/comment/add, /issue-link/create) instead of widening /execute; method-allowlist split (validate_jira_api_path keeps ALLOWED_METHODS={'GET'}; write client methods bypass with hardcoded paths so the permanent denylist transitions/worklog/attachments/watchers stays unbreakable); curated per-verb body schemas with project / ticket / size / label-count validation; in-process gateway idempotency cache (TTL 300s, threading.Lock-guarded) for createJiraIssue and addCommentToJiraIssue; plain-text -> minimal ADF paragraph wrapping helper so sandbox agents never construct Atlassian Document Format JSON. New gateway/jira_adf.py and gateway/jira_idempotency.py modules; ~250-350 lines added to jira_client.py for the four write methods; ~500-650 lines in gateway.py for the four routes; ~300-450 lines in sandbox/scripts/jira for the four new subcommands; new test files test_jira_idempotency.py / test_jira_adf.py / test_jira_writes_adversarial.py. Records the architectural slot for every unresolved refine HITL decision so plan tasks can be written deterministically once HITL closes. Output: .egg-state/agent-outputs/1924-architect-output.json (60 KB JSON; problem statement, current-architecture map of reusable v1 building blocks, external Atlassian v3 endpoint shapes, proposed module breakdown with per-route validation, data-flow walkthroughs, design decisions justifying A1+B1+C1+D1+E1, key-files table, dependency list, open-questions slot reservations, risks for risk_analyst, tasks for task_planner, validation plan, out-of-scope list).",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/1924-architect-output.json"
+        ],
+        "risk_considered": "",
+        "commit_sha": "42386139b",
+        "files_changed": [
+          ".egg-state/agent-outputs/1924-architect-output.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "42386139b"
+    },
+    "timestamp": "2026-04-27T19:25:32.572327+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c29a66d6-959a-46",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T19:25:33.745963+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b7109c5b-50ef-43",
+    "pipeline_id": "issue-1924",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: PROPOSED",
+    "body": "",
+    "metadata": {
+      "state": "PROPOSED"
+    },
+    "timestamp": "2026-04-27T19:25:43.585699+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d2ca4f21-7b63-4c",
+    "pipeline_id": "issue-1924",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:25:50.393297+00:00"
+    },
+    "timestamp": "2026-04-27T19:25:50.995903+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b957dbae-f52d-46",
+    "pipeline_id": "issue-1924",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T19:25:51.572288+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "aec0128a-77f2-46",
+    "pipeline_id": "issue-1924",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:25:54.941151+00:00"
+    },
+    "timestamp": "2026-04-27T19:25:57.154490+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cc39671c-dd6c-45",
+    "pipeline_id": "issue-1924",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from risk_analyst",
+    "body": "Plan-phase risk assessment for #1924 (Jira gateway writes \u2014 createJiraIssue, editJiraIssue, addCommentToJiraIssue, createIssueLink). 19 risks identified across security, data-integrity, performance, compatibility, data-privacy, and operational categories. Highest-severity risk: R1 custom-field smuggling (HIGH severity, blocked on HITL decision-1) \u2014 agents could set securityLevel/sprint/watchers/assignee via untrusted body fields. Highest-likelihood: R3 non-idempotent writes (Atlassian's v3 REST has no native idempotency key, POST /issueLink does NOT dedupe identical triples). Three risks flagged for human review: R1, R3, R10 (phase/role gating). Six MEDIUM-severity risks require implement-phase mitigation. Implement-phase checklist enumerates 19 verification items keyed by risk ID. External research cites 13 sources including Atlassian's official rate-limiting docs, March 2026 points-based rollout announcement, ADF schema reference, Snapsec stored-XSS finding, and community threads on idempotent issue creation. Output written to .egg-state/agent-outputs/1924-risk_analyst-output.json (543 lines, valid JSON, 19 risks). Risks align with refine analysis (1924-analysis.md) AND with the architect's risks_for_risk_analyst list (10 risks all covered). 19 unresolved HITL decisions and 9 unresolved feedback items are explicitly flagged as implementation blockers.",
+    "metadata": {
+      "payload": {
+        "summary": "Plan-phase risk assessment for #1924 (Jira gateway writes \u2014 createJiraIssue, editJiraIssue, addCommentToJiraIssue, createIssueLink). 19 risks identified across security, data-integrity, performance, compatibility, data-privacy, and operational categories. Highest-severity risk: R1 custom-field smuggling (HIGH severity, blocked on HITL decision-1) \u2014 agents could set securityLevel/sprint/watchers/assignee via untrusted body fields. Highest-likelihood: R3 non-idempotent writes (Atlassian's v3 REST has no native idempotency key, POST /issueLink does NOT dedupe identical triples). Three risks flagged for human review: R1, R3, R10 (phase/role gating). Six MEDIUM-severity risks require implement-phase mitigation. Implement-phase checklist enumerates 19 verification items keyed by risk ID. External research cites 13 sources including Atlassian's official rate-limiting docs, March 2026 points-based rollout announcement, ADF schema reference, Snapsec stored-XSS finding, and community threads on idempotent issue creation. Output written to .egg-state/agent-outputs/1924-risk_analyst-output.json (543 lines, valid JSON, 19 risks). Risks align with refine analysis (1924-analysis.md) AND with the architect's risks_for_risk_analyst list (10 risks all covered). 19 unresolved HITL decisions and 9 unresolved feedback items are explicitly flagged as implementation blockers.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/agent-outputs/1924-risk_analyst-output.json"
+        ],
+        "risk_considered": "19 risks identified \u2014 1 HIGH severity (R1 custom-field smuggling), 11 MEDIUM, 7 LOW. Three flagged for human review. Six implementation-blocking HITL decisions tied to specific risks. Rollback plan has four levels (config-only, route disable, credential revoke, full revert) progressively scoped from cheapest to most disruptive. All 10 of the architect's risks_for_risk_analyst items are covered by the assessment (no gap).",
+        "commit_sha": "7821cc4cfb1ec70beac09ed3acaca7eb7728b8e7",
+        "files_changed": [
+          ".egg-state/agent-outputs/1924-risk_analyst-output.json"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 1,
+      "commit_sha": "7821cc4cfb1ec70beac09ed3acaca7eb7728b8e7"
+    },
+    "timestamp": "2026-04-27T19:26:31.768668+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "03ff561c-1010-49",
+    "pipeline_id": "issue-1924",
+    "from_role": "orchestrator",
+    "to_role": "risk_analyst",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-04-27T19:26:31.768736+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "d69737cf-fd2e-43",
+    "pipeline_id": "issue-1924",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT from=reviewer_plan",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:26:47.081812+00:00"
+    },
+    "timestamp": "2026-04-27T19:26:47.117235+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b6dcd1f0-fd74-40",
+    "pipeline_id": "issue-1924",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:25:54.941151+00:00"
+    },
+    "timestamp": "2026-04-27T19:26:57.471924+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "16f07d54-9c48-43",
+    "pipeline_id": "issue-1924",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Plan phase cycle 73 \u2014 742s elapsed. BRC progressing: architect PROPOSED, risk_analyst PROPOSED, reviewer_plan REVIEWING (19 risks identified). task_planner re-working proposal (went WORKING after initial proposal at 6.5min). No real anomalies. Awaiting task_planner re-proposal for full consensus.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-27T19:27:34.100105+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c217bed2-5d2c-43",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "architect",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for architect",
+    "body": "\nReviewed `1924-architect-output.json` (706 lines) section-by-section against the refine analysis and against `1924-plan.md` from task_planner. The architectural baseline is sound and adheres to every v1 invariant from `#1556`. ACK because the work meets the plan-phase bar: the design choices match the refine analysis verbatim (A1+B1+C1+D1+E1 selected with rationale; permanent denylist preserved; module breakdown is comprehensive; data flows for happy path / non-allowlisted project / public mode / missing creds / idempotent hit are concrete). The HITL slot-reservation pattern (record the slot, defer the bake-in to task_planner) is the right division of labour and means the architect's analysis stays correct under different HITL outcomes.\n\n### What I verified\n\n- **Alignment with analysis** \u2014 every axis cited in `1924-analysis.md` (A/B/C/D/E sub-options) is named and the same recommendation chosen, with explicit `alternatives_rejected`. The architect's `chosen` for D1 (5-min TTL in-memory cache) and B1 (path-validator stays GET-only; write methods bypass) match the analysis recommendation.\n- **Reuse map** (`reusable_infrastructure`, lines 36-92) is exact \u2014 `@require_session_auth` + `@require_private_mode` chain, mtime-cached `JiraPolicy`, `JiraCredentialsManager`, `_request`'s GET-only retry on line 322, route-enumeration regression in `test_jira_routes.py`, sandbox `call_gateway`, doc home. Cross-checked against the v1 code (lines 4365-4759 in `gateway.py`, the `validate_jira_api_path`+`JIRA_WRITE_VERBS_DENIED` block in `jira_client.py:179-236`, etc.) \u2014 every cited line + behaviour is real.\n- **v1 invariants carried forward** (lines 93-102) \u2014 zero sandbox creds, `*.atlassian.net` not in Squid, `/execute` GET-only forever, writes never auto-retry on 429, audit on success/reject \u2014 all correct and align with #1556's contract.\n- **Atlassian endpoint shapes** (lines 106-134) \u2014 `POST /rest/api/3/issue` body fields, `PUT /rest/api/3/issue/{key}?notifyUsers=...`, `POST /rest/api/3/issue/{key}/comment` ADF body, `POST /rest/api/3/issueLink` 201-no-body \u2014 match the v3 docs cited in the analysis.\n- **Module breakdown** (lines 169-368) \u2014 covers `jira_client.py` (extend), new `jira_adf.py`, new `jira_idempotency.py`, `jira_policy.py` (HITL-conditional), `gateway.py` write block, `sandbox/scripts/jira`, `config/context-filters.yaml`, `environment.md`, `jira-wrapper.md`, `network-isolation.md`, and the test surface. Every file has a change_type + lines estimate. Estimates are realistic vs the v1 read block (~485 lines for 4 read routes; ~500-650 for 4 write routes is slightly larger which matches the richer body validation).\n- **Data flow narratives** (lines 369-409) \u2014 five distinct flows (happy create, non-allowlisted project, public mode, missing creds, idempotent hit) with concrete steps; the implementer can write tests directly against these flows.\n- **Validation plan** (lines 684-695) \u2014 covers lint, test, route-enumeration regression, allowed-domains regression, manual smoke, idempotency manual test, public-mode 403, missing-creds 503, project-allowlist 403, permanent-denylist regression. Comprehensive.\n- **Risks** (lines 647-658) \u2014 ten distinct risks, each with mitigation. Useful pickup list for risk_analyst.\n- **Out-of-scope** (lines 697-705) \u2014 clear and matches `#1556`'s permanent denylist + the analysis non-goals.\n\n### Non-blocking\n\n- **`JiraUpstreamWriteError` punted within the architect's own output** (line 179): \"(subclass of existing JiraUpstreamError, OR the existing one extended)\". Low-stakes \u2014 the implementer can pick \u2014 but recommend committing now: subclass it for distinct catch-handling per route. Not worth a NACK because either choice is structurally fine.\n- **`createIssueLink` idempotency option named but not chosen** (line 143-144 + line 289): the architect lists three options for decision-19/Q28 (\"extend cache, scan upstream, accept duplicates\") and observes \"the first is most aligned with create / comment for symmetry\" \u2014 but doesn't actually pick. The task_planner picked option 1 (extend the cache). Architect should align \u2014 the design baseline should reflect what the implementer will build. (This is the kind of mismatch that produces churn during implement.)\n- **Adversarial test file location** (line 363, line 461): architect proposes a separate `test_jira_writes_adversarial.py`. Task_planner's bake-in (Q21 default) puts adversarial cases in the SAME file as the route 403 grid (`test_jira_routes.py`). The two artifacts disagree. Both choices are reasonable; recommend the architect note that the final location follows the task_planner's bake-in (or vice versa) so the implementer doesn't see two contradictory specs. **Suggest:** add a one-line \"Adversarial test file location follows task_planner's HITL-default bake-in (same-file)\" reconciliation note in the architect's `design_decisions` section.\n- **`--return-issue` flag on `jira ticket edit` wrapper** (line 312): the architect's wrapper exposes `--return-issue` which maps to Atlassian's `?returnIssue=true`. But the task_planner baked D14 = \"Envelope `{status: 'updated', key}` (no extra Atlassian call)\". Under that bake-in the `--return-issue` flag is dead \u2014 the route always returns the envelope. Architect should either drop the flag from the wrapper sketch or note that the flag is HITL-conditional and inert under the chosen default.\n- **Doc home hedge** (line 522): \"extend (or create docs/reference/jira-writes.md per refine HITL Q27)\". Task_planner baked D27 = \"Extend `docs/reference/jira-wrapper.md`\". The architect's hedge is fine as a slot reservation, but the picked default should be reflected in the `key_files` purpose line so the implementer doesn't waste time deciding.\n- **Idempotency cache key for `create_issue_link`** (line 142): `(verb, project, idempotency_key)` is well-defined for `create` and `comment` (the project derived from `projectKey` / `extract_project_key(ticket)`), but for `create_issue_link` \"project\" is ambiguous (inward? outward? both?). The architect's analysis doesn't disambiguate \u2014 neither does the task_planner's plan (I flagged this in my task_planner NACK). Suggest adding a one-line clarification: e.g. cache key for link uses canonical `(inward, outward, type)` triple OR documents that orchestrator must namespace the opaque key. This is mostly a task_planner concern but the architect's data-flow doc should at least name the slot.\n- **Per-role / per-phase write gating module** (line 303-304): if HITL picks gating, the architect proposes adding `JIRA_WRITE_VERBS_PER_PHASE` to `gateway/phase_filter.py`. That file is currently file-restriction-only (per the survey, it has `check_file_restrictions` and `check_phase_file_restrictions`); putting Jira-verb-gating there overloads the module's responsibility. Suggest a separate `gateway/jira_phase_filter.py` (or co-locate with `jira_policy.py`) so the file restriction code stays orthogonal.\n- **Audit event taxonomy** (lines 244, 260, 276, 292): architect's per-verb suite (`jira_ticket_create / _rejected / _denied / _upstream_error / _idempotent_hit / jira_upstream_rate_limited`) is more granular than task_planner's tasks specify. Recommend the task_planner adopt this taxonomy or the architect note \"task descriptions may collapse `_rejected` and `_denied` into a single event since both are pre-Atlassian rejections\". Either is fine; the inconsistency just needs a callout.\n- **JiraClient method signature for `add_comment`** (line 177): architect's signature includes `idempotency_response=None` as a parameter \u2014 should be `idempotency_key`, matching the route-layer name (line 270). Looks like a copy-paste from the cache lookup variable. Minor naming consistency fix.\n- **Module size estimates** are realistic but the validation plan should add a one-line cap (e.g. \"no single module grows by >40% beyond its v1 size without splitting\") so implement-phase doesn't end up with a 2000-line `gateway.py` write block.\n- **`docs/architecture/network-isolation.md`** addition (line 354) is a nice catch \u2014 the v1 read routes are listed there; writes inherit the same exception. Confirm the file actually exists before this becomes a task (the survey didn't list it). If not, fold the change into `jira-wrapper.md`.\n\nThe architectural baseline is solid enough to drive plan tasks. None of the non-blocking items above invalidate the design. ACK.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/1924-architect-output.json",
+          ".egg-state/drafts/1924-analysis.md",
+          ".egg-state/drafts/1924-plan.md",
+          "gateway/jira_client.py",
+          "gateway/jira_policy.py",
+          "gateway/gateway.py",
+          "gateway/tests/test_jira_routes.py",
+          "sandbox/scripts/jira",
+          "config/context-filters.yaml"
+        ],
+        "reason": "\nReviewed `1924-architect-output.json` (706 lines) section-by-section against the refine analysis and against `1924-plan.md` from task_planner. The architectural baseline is sound and adheres to every v1 invariant from `#1556`. ACK because the work meets the plan-phase bar: the design choices match the refine analysis verbatim (A1+B1+C1+D1+E1 selected with rationale; permanent denylist preserved; module breakdown is comprehensive; data flows for happy path / non-allowlisted project / public mode / missing creds / idempotent hit are concrete). The HITL slot-reservation pattern (record the slot, defer the bake-in to task_planner) is the right division of labour and means the architect's analysis stays correct under different HITL outcomes.\n\n### What I verified\n\n- **Alignment with analysis** \u2014 every axis cited in `1924-analysis.md` (A/B/C/D/E sub-options) is named and the same recommendation chosen, with explicit `alternatives_rejected`. The architect's `chosen` for D1 (5-min TTL in-memory cache) and B1 (path-validator stays GET-only; write methods bypass) match the analysis recommendation.\n- **Reuse map** (`reusable_infrastructure`, lines 36-92) is exact \u2014 `@require_session_auth` + `@require_private_mode` chain, mtime-cached `JiraPolicy`, `JiraCredentialsManager`, `_request`'s GET-only retry on line 322, route-enumeration regression in `test_jira_routes.py`, sandbox `call_gateway`, doc home. Cross-checked against the v1 code (lines 4365-4759 in `gateway.py`, the `validate_jira_api_path`+`JIRA_WRITE_VERBS_DENIED` block in `jira_client.py:179-236`, etc.) \u2014 every cited line + behaviour is real.\n- **v1 invariants carried forward** (lines 93-102) \u2014 zero sandbox creds, `*.atlassian.net` not in Squid, `/execute` GET-only forever, writes never auto-retry on 429, audit on success/reject \u2014 all correct and align with #1556's contract.\n- **Atlassian endpoint shapes** (lines 106-134) \u2014 `POST /rest/api/3/issue` body fields, `PUT /rest/api/3/issue/{key}?notifyUsers=...`, `POST /rest/api/3/issue/{key}/comment` ADF body, `POST /rest/api/3/issueLink` 201-no-body \u2014 match the v3 docs cited in the analysis.\n- **Module breakdown** (lines 169-368) \u2014 covers `jira_client.py` (extend), new `jira_adf.py`, new `jira_idempotency.py`, `jira_policy.py` (HITL-conditional), `gateway.py` write block, `sandbox/scripts/jira`, `config/context-filters.yaml`, `environment.md`, `jira-wrapper.md`, `network-isolation.md`, and the test surface. Every file has a change_type + lines estimate. Estimates are realistic vs the v1 read block (~485 lines for 4 read routes; ~500-650 for 4 write routes is slightly larger which matches the richer body validation).\n- **Data flow narratives** (lines 369-409) \u2014 five distinct flows (happy create, non-allowlisted project, public mode, missing creds, idempotent hit) with concrete steps; the implementer can write tests directly against these flows.\n- **Validation plan** (lines 684-695) \u2014 covers lint, test, route-enumeration regression, allowed-domains regression, manual smoke, idempotency manual test, public-mode 403, missing-creds 503, project-allowlist 403, permanent-denylist regression. Comprehensive.\n- **Risks** (lines 647-658) \u2014 ten distinct risks, each with mitigation. Useful pickup list for risk_analyst.\n- **Out-of-scope** (lines 697-705) \u2014 clear and matches `#1556`'s permanent denylist + the analysis non-goals.\n\n### Non-blocking\n\n- **`JiraUpstreamWriteError` punted within the architect's own output** (line 179): \"(subclass of existing JiraUpstreamError, OR the existing one extended)\". Low-stakes \u2014 the implementer can pick \u2014 but recommend committing now: subclass it for distinct catch-handling per route. Not worth a NACK because either choice is structurally fine.\n- **`createIssueLink` idempotency option named but not chosen** (line 143-144 + line 289): the architect lists three options for decision-19/Q28 (\"extend cache, scan upstream, accept duplicates\") and observes \"the first is most aligned with create / comment for symmetry\" \u2014 but doesn't actually pick. The task_planner picked option 1 (extend the cache). Architect should align \u2014 the design baseline should reflect what the implementer will build. (This is the kind of mismatch that produces churn during implement.)\n- **Adversarial test file location** (line 363, line 461): architect proposes a separate `test_jira_writes_adversarial.py`. Task_planner's bake-in (Q21 default) puts adversarial cases in the SAME file as the route 403 grid (`test_jira_routes.py`). The two artifacts disagree. Both choices are reasonable; recommend the architect note that the final location follows the task_planner's bake-in (or vice versa) so the implementer doesn't see two contradictory specs. **Suggest:** add a one-line \"Adversarial test file location follows task_planner's HITL-default bake-in (same-file)\" reconciliation note in the architect's `design_decisions` section.\n- **`--return-issue` flag on `jira ticket edit` wrapper** (line 312): the architect's wrapper exposes `--return-issue` which maps to Atlassian's `?returnIssue=true`. But the task_planner baked D14 = \"Envelope `{status: 'updated', key}` (no extra Atlassian call)\". Under that bake-in the `--return-issue` flag is dead \u2014 the route always returns the envelope. Architect should either drop the flag from the wrapper sketch or note that the flag is HITL-conditional and inert under the chosen default.\n- **Doc home hedge** (line 522): \"extend (or create docs/reference/jira-writes.md per refine HITL Q27)\". Task_planner baked D27 = \"Extend `docs/reference/jira-wrapper.md`\". The architect's hedge is fine as a slot reservation, but the picked default should be reflected in the `key_files` purpose line so the implementer doesn't waste time deciding.\n- **Idempotency cache key for `create_issue_link`** (line 142): `(verb, project, idempotency_key)` is well-defined for `create` and `comment` (the project derived from `projectKey` / `extract_project_key(ticket)`), but for `create_issue_link` \"project\" is ambiguous (inward? outward? both?). The architect's analysis doesn't disambiguate \u2014 neither does the task_planner's plan (I flagged this in my task_planner NACK). Suggest adding a one-line clarification: e.g. cache key for link uses canonical `(inward, outward, type)` triple OR documents that orchestrator must namespace the opaque key. This is mostly a task_planner concern but the architect's data-flow doc should at least name the slot.\n- **Per-role / per-phase write gating module** (line 303-304): if HITL picks gating, the architect proposes adding `JIRA_WRITE_VERBS_PER_PHASE` to `gateway/phase_filter.py`. That file is currently file-restriction-only (per the survey, it has `check_file_restrictions` and `check_phase_file_restrictions`); putting Jira-verb-gating there overloads the module's responsibility. Suggest a separate `gateway/jira_phase_filter.py` (or co-locate with `jira_policy.py`) so the file restriction code stays orthogonal.\n- **Audit event taxonomy** (lines 244, 260, 276, 292): architect's per-verb suite (`jira_ticket_create / _rejected / _denied / _upstream_error / _idempotent_hit / jira_upstream_rate_limited`) is more granular than task_planner's tasks specify. Recommend the task_planner adopt this taxonomy or the architect note \"task descriptions may collapse `_rejected` and `_denied` into a single event since both are pre-Atlassian rejections\". Either is fine; the inconsistency just needs a callout.\n- **JiraClient method signature for `add_comment`** (line 177): architect's signature includes `idempotency_response=None` as a parameter \u2014 should be `idempotency_key`, matching the route-layer name (line 270). Looks like a copy-paste from the cache lookup variable. Minor naming consistency fix.\n- **Module size estimates** are realistic but the validation plan should add a one-line cap (e.g. \"no single module grows by >40% beyond its v1 size without splitting\") so implement-phase doesn't end up with a 2000-line `gateway.py` write block.\n- **`docs/architecture/network-isolation.md`** addition (line 354) is a nice catch \u2014 the v1 read routes are listed there; writes inherit the same exception. Confirm the file actually exists before this becomes a task (the survey didn't list it). If not, fold the change into `jira-wrapper.md`.\n\nThe architectural baseline is solid enough to drive plan tasks. None of the non-blocking items above invalidate the design. ACK.\n"
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-27T19:27:44.147087+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a2b2f726-f573-4a",
+    "pipeline_id": "issue-1924",
+    "from_role": "orchestrator",
+    "to_role": "architect",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 1) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 1
+    },
+    "timestamp": "2026-04-27T19:27:44.147126+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "38cb753c-eafe-49",
+    "pipeline_id": "issue-1924",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T19:27:44.239838+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "b35f3ecc-07ad-4a",
+    "pipeline_id": "issue-1924",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT from=reviewer_plan",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:26:47.081812+00:00"
+    },
+    "timestamp": "2026-04-27T19:27:47.312362+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "45a67b7d-c4b8-4c",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:27:48.858721+00:00"
+    },
+    "timestamp": "2026-04-27T19:27:48.940327+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ac77890b-aaee-4d",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T19:27:49.043128+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "495ecb04-ec43-4c",
+    "pipeline_id": "issue-1924",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by architect",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-27T19:27:59.700277+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "986bf5ef-c348-40",
+    "pipeline_id": "issue-1924",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:28:16.953451+00:00"
+    },
+    "timestamp": "2026-04-27T19:28:17.043662+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "db113336-b85f-48",
+    "pipeline_id": "issue-1924",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT from=reviewer_plan",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:26:47.081812+00:00"
+    },
+    "timestamp": "2026-04-27T19:28:47.568674+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "66823dad-a68f-43",
+    "pipeline_id": "issue-1924",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:28:16.953451+00:00"
+    },
+    "timestamp": "2026-04-27T19:29:17.380942+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "77402267-879d-4b",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "risk_analyst",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for risk_analyst",
+    "body": "\nReviewed `1924-risk_analyst-output.json` (543 lines, 19 risks R1-R19) section-by-section against the refine analysis, the architect's plan-phase analysis, and the task_planner's plan draft. The risk surface is comprehensive, severities are calibrated, mitigations are concrete and actionable, the implement-phase checklist (lines 497-517) maps every risk to a verification step, and the four-level global rollback plan (config-only \u2192 route-disable \u2192 credential-revoke \u2192 full-revert) is realistic. ACK because this meets the plan-phase risk-assessment bar.\n\n### What I verified\n\n- **Risk coverage breadth** \u2014 19 risks across the right categories: security (R1, R2, R5, R7, R8, R9, R10, R16, R17), data-integrity (R3), performance (R4, R11, R18), compatibility (R6, R14), operational (R12, R15, R19), data-privacy (R13). No obvious gap. Notably, R3 (non-idempotent writes), R4 (Atlassian's March 2026 per-issue write throttling), R6 (Epic Link per-instance variation), R8 (createIssueLink existence-leak side channel), and R18 (cache memory unbounded) are all correctly identified as the high-leverage write-specific risks that did NOT exist for the v1 read surface.\n- **Severity calibration** \u2014 0 HIGH after mitigations, 6 MEDIUM, low ones documented but no implement-phase action required. R1 (custom-field smuggling) starts at high/medium \u2192 severity high BEFORE mitigations because the unmitigated path lets agents set `securityLevel`, `assignee`, `sprint` etc.; severity drops to medium after curated allowlist is enforced. R7 (project-allowlist gate vector) impact=high but likelihood=low because the failure mode requires a careless port of v1 reads.\n- **HITL flags** \u2014 three correctly flagged for human review: R1 (custom-field exposure \u2192 decision-1), R3 (idempotency policy \u2192 decision-3 + decision-19), R10 (per-role / per-phase gating \u2192 decision-10 + decision-11). The reasoning column on each (`human_review_reason`) is specific and actionable.\n- **Mitigations are concrete** \u2014 each mitigation is either a code change with file path (e.g., R7's \"Body validator MUST require a top-level `projectKey: '[A-Z][A-Z0-9_]*'` field\"), a config change (R4's `RateLimit-Reason` envelope propagation), a test grid (R5's adversarial body suite), or a runbook entry (R3's \"operator runbook\"). No hand-waving.\n- **Rollback per-risk** \u2014 every risk has a rollback paragraph that names the specific lever (config reload, hot-patch, env-var, credential revoke, full revert). The level-1 rollback (set `jira.projects: []`) is the v1 read pattern and correctly carries forward.\n- **External research** (lines 518-540) is solid: 13 sources cited including Atlassian's 2026 rate-limit rollout docs, the community thread on idempotency, ADF schema reference, and the Snapsec stored-XSS-in-Jira-Work-Management finding (recent and germane). Key findings (lines 534-538) tie each cited source to a specific risk (R3 \u2194 idempotency thread, R4 \u2194 rate-limit rollout, R5 \u2194 ADF + Snapsec finding).\n- **Implement-phase checklist** (lines 497-517) is a one-line-per-risk verification list. The reviewer in implement phase can grep for `[R<N>]` and confirm each. This is reusable artifact value.\n- **Global rollback plan** (lines 473-495) \u2014 level 1-4 is graduated and matches the v1 read rollback plan. Level 3's note that \"Both Jira and Confluence go dark together (per #1931 decision-6 shared-creds coupling)\" is a real cross-issue coupling worth surfacing.\n\n### Non-blocking\n\n- **R6 (Epic Link auto-detect) recommendation conflicts with the task_planner's bake-in.** Risk_analyst (line 175) recommends \"the gateway probes the parent ticket's project type via `GET /rest/api/3/project/{key}` (cached) on first use, then chooses `parent.key` OR `customfield_10014`\" \u2014 i.e., probe-and-pick-one. The task_planner's bake-in (`1924-plan.md:55`) emits BOTH fields simultaneously, which I separately NACKed as broken. **Risk_analyst's interpretation is correct** and I want this called out explicitly: when the task_planner re-proposes addressing my D2 NACK, they should adopt risk_analyst's probe-and-cache approach rather than the both-fields shotgun. Suggest the risk_analyst surface this as an explicit cross-artifact conflict in their next iteration (or in a follow-up note) so the implement-phase coder doesn't see two contradictory specs.\n- **R11 (body-size caps) numbers conflict with the task_planner's bake-in.** Risk_analyst recommends `description \u2264 100,000 chars`; task_planner bakes `description \u2264 32 KiB` (\u224832,768 chars). A 3\u00d7 factor difference. Both are defensible for different operator tolerances. Flag for HITL feedback-1.Q2 pickup; the implement-phase reviewer should not arbitrate.\n- **R5 (ADF passthrough) recommendation conflicts with task_planner's bake-in.** Risk_analyst recommends decision-7 = opt-1 (plain-text only) on security grounds (mention/media/extension nodes). Task_planner baked decision-7 = opt-3 (both). The risk_analyst's case is sound \u2014 passthrough is much harder to validate. Suggest adding the ADF-node allowlist to TASK-3-3's body-validator if the bake-in survives HITL.\n- **R18 (cache memory) surfaces a real gap in the task_planner's plan.** Risk_analyst recommends `MAX_IDEMPOTENCY_ENTRIES = 10_000` with LRU eviction; task_planner's TASK-1-1 (which I separately reviewed) only specifies TTL eviction with no entry-count cap. The risk_analyst is right that TTL-only is unbounded under high churn. The task_planner's plan should adopt this cap when re-proposing.\n- **R15 (error envelope) \u2014 risk_analyst recommends enrichment, task_planner baked verbatim.** Risk_analyst's enriched envelope (`field_errors`, `error_messages`) is the better DX, but the task_planner's bake-in (Q26 default = verbatim passthrough) ships sooner. Note the trade-off; not blocking for v1.\n- **R3 severity is debatable.** Risk_analyst rates impact=medium, likelihood=high \u2192 severity=medium. Given the mitigation (architect D1 cache) is in scope and well-defined, medium is fine. Worth noting that without the cache the severity would be high.\n- **R10 mitigations include a minor file-naming concern.** Risk_analyst (line 266) says \"gateway/role_filter.py (potentially new)\" \u2014 this duplicates the architect's pattern. If decisions 10/11 land on opt-2, recommend co-locating with `jira_policy.py` rather than a new top-level role_filter.py to avoid scattering authorization logic across multiple modules. This is a future-scope concern; currently the recommendation is \"defer to follow-up\" so the file doesn't materialize in this PR.\n- **R16 reviewer-action wording.** \"Reviewer MUST run `pytest gateway/tests/test_jira_routes.py -k private_mode` and confirm pass count includes 4 new routes (8 routes total: 4 read + 4 write).\" This is a hard count \u2014 if a future PR adds a fifth Jira read route, the assertion drifts. Suggest \"\u2265 8 routes\" rather than \"8 routes total\" so the assertion stays valid as the surface grows. (Minor.)\n- **R12 sandbox-wrapper risk has severity=low/likelihood=medium.** That feels right; the v1 wrapper already exercises the heredoc pattern. Just confirming the calibration is reasonable.\n- **R17 (Squid allowlist)** is appropriately a re-flag of #1556's R5 \u2014 defensive duplication is fine.\n- **`tasks_satisfied: []` (line 541)** is empty. For an issue with 19 contract tasks (after task_planner's plan resolves), the risk_analyst's output should eventually link risk-mitigation verifications to specific contract task IDs. Currently TASK-1-1, TASK-3-1, etc. don't exist in the contract yet (the plan is still in BRC), so empty is OK for this iteration \u2014 but flag this as something to populate after task_planner's NACK is addressed and the contract tasks land.\n- **R19 (doc home unresolved) is severity=low/impact=low** which feels right; a doc layout choice should not block release.\n- **No risk addresses the `JiraUpstreamWriteError` vs `JiraUpstreamError` choice** I flagged in the architect's analysis. Not a security issue \u2014 operational only. Skip.\n\n### One observation about coverage\n\nThe risk_analyst's surface does NOT include a risk for \"coder/tester role conflict on test files\" (TASK-1-1 vs TASK-5-1, which I NACKed for task_planner). That's a process risk, not a write-extension risk, so it's reasonable to omit. Just noting that BRC-level process risks are not in scope for the risk_analyst's deliverable.\n\nThe risk_analyst's output is implementable as-is by a careful reviewer + coder. ACK.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/agent-outputs/1924-risk_analyst-output.json",
+          ".egg-state/drafts/1924-analysis.md",
+          ".egg-state/drafts/1924-plan.md",
+          ".egg-state/agent-outputs/1924-architect-output.json",
+          "gateway/jira_client.py",
+          "gateway/jira_policy.py",
+          "gateway/gateway.py",
+          "gateway/tests/test_jira_routes.py"
+        ],
+        "reason": "\nReviewed `1924-risk_analyst-output.json` (543 lines, 19 risks R1-R19) section-by-section against the refine analysis, the architect's plan-phase analysis, and the task_planner's plan draft. The risk surface is comprehensive, severities are calibrated, mitigations are concrete and actionable, the implement-phase checklist (lines 497-517) maps every risk to a verification step, and the four-level global rollback plan (config-only \u2192 route-disable \u2192 credential-revoke \u2192 full-revert) is realistic. ACK because this meets the plan-phase risk-assessment bar.\n\n### What I verified\n\n- **Risk coverage breadth** \u2014 19 risks across the right categories: security (R1, R2, R5, R7, R8, R9, R10, R16, R17), data-integrity (R3), performance (R4, R11, R18), compatibility (R6, R14), operational (R12, R15, R19), data-privacy (R13). No obvious gap. Notably, R3 (non-idempotent writes), R4 (Atlassian's March 2026 per-issue write throttling), R6 (Epic Link per-instance variation), R8 (createIssueLink existence-leak side channel), and R18 (cache memory unbounded) are all correctly identified as the high-leverage write-specific risks that did NOT exist for the v1 read surface.\n- **Severity calibration** \u2014 0 HIGH after mitigations, 6 MEDIUM, low ones documented but no implement-phase action required. R1 (custom-field smuggling) starts at high/medium \u2192 severity high BEFORE mitigations because the unmitigated path lets agents set `securityLevel`, `assignee`, `sprint` etc.; severity drops to medium after curated allowlist is enforced. R7 (project-allowlist gate vector) impact=high but likelihood=low because the failure mode requires a careless port of v1 reads.\n- **HITL flags** \u2014 three correctly flagged for human review: R1 (custom-field exposure \u2192 decision-1), R3 (idempotency policy \u2192 decision-3 + decision-19), R10 (per-role / per-phase gating \u2192 decision-10 + decision-11). The reasoning column on each (`human_review_reason`) is specific and actionable.\n- **Mitigations are concrete** \u2014 each mitigation is either a code change with file path (e.g., R7's \"Body validator MUST require a top-level `projectKey: '[A-Z][A-Z0-9_]*'` field\"), a config change (R4's `RateLimit-Reason` envelope propagation), a test grid (R5's adversarial body suite), or a runbook entry (R3's \"operator runbook\"). No hand-waving.\n- **Rollback per-risk** \u2014 every risk has a rollback paragraph that names the specific lever (config reload, hot-patch, env-var, credential revoke, full revert). The level-1 rollback (set `jira.projects: []`) is the v1 read pattern and correctly carries forward.\n- **External research** (lines 518-540) is solid: 13 sources cited including Atlassian's 2026 rate-limit rollout docs, the community thread on idempotency, ADF schema reference, and the Snapsec stored-XSS-in-Jira-Work-Management finding (recent and germane). Key findings (lines 534-538) tie each cited source to a specific risk (R3 \u2194 idempotency thread, R4 \u2194 rate-limit rollout, R5 \u2194 ADF + Snapsec finding).\n- **Implement-phase checklist** (lines 497-517) is a one-line-per-risk verification list. The reviewer in implement phase can grep for `[R<N>]` and confirm each. This is reusable artifact value.\n- **Global rollback plan** (lines 473-495) \u2014 level 1-4 is graduated and matches the v1 read rollback plan. Level 3's note that \"Both Jira and Confluence go dark together (per #1931 decision-6 shared-creds coupling)\" is a real cross-issue coupling worth surfacing.\n\n### Non-blocking\n\n- **R6 (Epic Link auto-detect) recommendation conflicts with the task_planner's bake-in.** Risk_analyst (line 175) recommends \"the gateway probes the parent ticket's project type via `GET /rest/api/3/project/{key}` (cached) on first use, then chooses `parent.key` OR `customfield_10014`\" \u2014 i.e., probe-and-pick-one. The task_planner's bake-in (`1924-plan.md:55`) emits BOTH fields simultaneously, which I separately NACKed as broken. **Risk_analyst's interpretation is correct** and I want this called out explicitly: when the task_planner re-proposes addressing my D2 NACK, they should adopt risk_analyst's probe-and-cache approach rather than the both-fields shotgun. Suggest the risk_analyst surface this as an explicit cross-artifact conflict in their next iteration (or in a follow-up note) so the implement-phase coder doesn't see two contradictory specs.\n- **R11 (body-size caps) numbers conflict with the task_planner's bake-in.** Risk_analyst recommends `description \u2264 100,000 chars`; task_planner bakes `description \u2264 32 KiB` (\u224832,768 chars). A 3\u00d7 factor difference. Both are defensible for different operator tolerances. Flag for HITL feedback-1.Q2 pickup; the implement-phase reviewer should not arbitrate.\n- **R5 (ADF passthrough) recommendation conflicts with task_planner's bake-in.** Risk_analyst recommends decision-7 = opt-1 (plain-text only) on security grounds (mention/media/extension nodes). Task_planner baked decision-7 = opt-3 (both). The risk_analyst's case is sound \u2014 passthrough is much harder to validate. Suggest adding the ADF-node allowlist to TASK-3-3's body-validator if the bake-in survives HITL.\n- **R18 (cache memory) surfaces a real gap in the task_planner's plan.** Risk_analyst recommends `MAX_IDEMPOTENCY_ENTRIES = 10_000` with LRU eviction; task_planner's TASK-1-1 (which I separately reviewed) only specifies TTL eviction with no entry-count cap. The risk_analyst is right that TTL-only is unbounded under high churn. The task_planner's plan should adopt this cap when re-proposing.\n- **R15 (error envelope) \u2014 risk_analyst recommends enrichment, task_planner baked verbatim.** Risk_analyst's enriched envelope (`field_errors`, `error_messages`) is the better DX, but the task_planner's bake-in (Q26 default = verbatim passthrough) ships sooner. Note the trade-off; not blocking for v1.\n- **R3 severity is debatable.** Risk_analyst rates impact=medium, likelihood=high \u2192 severity=medium. Given the mitigation (architect D1 cache) is in scope and well-defined, medium is fine. Worth noting that without the cache the severity would be high.\n- **R10 mitigations include a minor file-naming concern.** Risk_analyst (line 266) says \"gateway/role_filter.py (potentially new)\" \u2014 this duplicates the architect's pattern. If decisions 10/11 land on opt-2, recommend co-locating with `jira_policy.py` rather than a new top-level role_filter.py to avoid scattering authorization logic across multiple modules. This is a future-scope concern; currently the recommendation is \"defer to follow-up\" so the file doesn't materialize in this PR.\n- **R16 reviewer-action wording.** \"Reviewer MUST run `pytest gateway/tests/test_jira_routes.py -k private_mode` and confirm pass count includes 4 new routes (8 routes total: 4 read + 4 write).\" This is a hard count \u2014 if a future PR adds a fifth Jira read route, the assertion drifts. Suggest \"\u2265 8 routes\" rather than \"8 routes total\" so the assertion stays valid as the surface grows. (Minor.)\n- **R12 sandbox-wrapper risk has severity=low/likelihood=medium.** That feels right; the v1 wrapper already exercises the heredoc pattern. Just confirming the calibration is reasonable.\n- **R17 (Squid allowlist)** is appropriately a re-flag of #1556's R5 \u2014 defensive duplication is fine.\n- **`tasks_satisfied: []` (line 541)** is empty. For an issue with 19 contract tasks (after task_planner's plan resolves), the risk_analyst's output should eventually link risk-mitigation verifications to specific contract task IDs. Currently TASK-1-1, TASK-3-1, etc. don't exist in the contract yet (the plan is still in BRC), so empty is OK for this iteration \u2014 but flag this as something to populate after task_planner's NACK is addressed and the contract tasks land.\n- **R19 (doc home unresolved) is severity=low/impact=low** which feels right; a doc layout choice should not block release.\n- **No risk addresses the `JiraUpstreamWriteError` vs `JiraUpstreamError` choice** I flagged in the architect's analysis. Not a security issue \u2014 operational only. Skip.\n\n### One observation about coverage\n\nThe risk_analyst's surface does NOT include a risk for \"coder/tester role conflict on test files\" (TASK-1-1 vs TASK-5-1, which I NACKed for task_planner). That's a process risk, not a write-extension risk, so it's reasonable to omit. Just noting that BRC-level process risks are not in scope for the risk_analyst's deliverable.\n\nThe risk_analyst's output is implementable as-is by a careful reviewer + coder. ACK.\n"
+      },
+      "version": 1
+    },
+    "timestamp": "2026-04-27T19:29:40.334755+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "c64e3ba5-2e95-46",
+    "pipeline_id": "issue-1924",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T19:29:40.428702+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "90771745-7659-4a",
+    "pipeline_id": "issue-1924",
+    "from_role": "orchestrator",
+    "to_role": "risk_analyst",
+    "message_type": "OVERSEER_ALERT",
+    "subject": "BRC confirmation timeout \u2014 call mcp__brc__confirm",
+    "body": "You are PROPOSED and fully ACKed but have not confirmed in 180s. Call `mcp__brc__confirm` now. If it returns `status='pending_acks'`, read `message` for the guard reason and wait on the prerequisite events instead: `CONSENSUS_PROPOSE` if a producer hasn't proposed (`zero_proposal_producers`), `CONSENSUS_ACK` / `CONSENSUS_RE_REVIEW` if a reviewer's ACK is stale or unresolved. Then retry confirm.",
+    "metadata": {
+      "alert_type": "brc_confirmation_timeout",
+      "elapsed_seconds": 180,
+      "source": "health_monitor"
+    },
+    "timestamp": "2026-04-27T19:29:42.932605+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "98ad190a-a540-40",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_plan (pending_acks)",
+    "body": "Reviewer reviewer_plan cannot confirm: unresolved NACKs. Wait for these producers to re-propose before confirming: ['task_planner']",
+    "metadata": {
+      "pending_acks": true
+    },
+    "timestamp": "2026-04-27T19:29:46.508131+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a57a4a59-d4d6-4e",
+    "pipeline_id": "issue-1924",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T19:29:46.624275+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "17fad84d-661b-45",
+    "pipeline_id": "issue-1924",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:29:50.883617+00:00"
+    },
+    "timestamp": "2026-04-27T19:29:50.975936+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "bd00e94f-3ba7-42",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:29:51.713750+00:00"
+    },
+    "timestamp": "2026-04-27T19:29:51.804768+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1bfbf8b1-dd8f-49",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T19:29:51.979309+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "85b99700-6338-4e",
+    "pipeline_id": "issue-1924",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by risk_analyst",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-27T19:29:52.477629+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f01c9e51-a651-44",
+    "pipeline_id": "issue-1924",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T19:29:52.568307+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2e401610-0228-48",
+    "pipeline_id": "issue-1924",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:29:56.104233+00:00"
+    },
+    "timestamp": "2026-04-27T19:29:56.179557+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2303176e-fb2b-4a",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:29:58.783921+00:00"
+    },
+    "timestamp": "2026-04-27T19:29:58.910929+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2bd9598e-c8ce-42",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T19:29:59.051210+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "05af9d20-ef3c-48",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:30:02.252335+00:00"
+    },
+    "timestamp": "2026-04-27T19:30:02.328003+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "bb1ab77a-96ab-43",
+    "pipeline_id": "issue-1924",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:30:04.973077+00:00"
+    },
+    "timestamp": "2026-04-27T19:30:05.055599+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2f0b7575-e40c-4c",
+    "pipeline_id": "issue-1924",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:29:56.104233+00:00"
+    },
+    "timestamp": "2026-04-27T19:30:56.240767+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "cf1bd472-eefe-41",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:30:02.252335+00:00"
+    },
+    "timestamp": "2026-04-27T19:31:02.578722+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "34482e36-122e-40",
+    "pipeline_id": "issue-1924",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:30:04.973077+00:00"
+    },
+    "timestamp": "2026-04-27T19:31:05.208821+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "2d0a51ef-b613-48",
+    "pipeline_id": "issue-1924",
+    "from_role": "overseer",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "Plan phase cycle 97 \u2014 968s (~16min). BRC progress: architect CONFIRMED, risk_analyst CONFIRMED, reviewer REVIEWING. task_planner NACKed (at ~19:25), revising for ~7 min. No anomalies \u2014 normal NACK revision cycle. Awaiting task_planner re-proposal to complete consensus.",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT"
+    },
+    "timestamp": "2026-04-27T19:31:18.888592+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ad3ccdb0-25b3-43",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_PROPOSE,CONSENSUS_RE_REVIEW,CONSENSUS_CONFIRMED,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:30:02.252335+00:00"
+    },
+    "timestamp": "2026-04-27T19:32:02.818395+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "a68c5db5-93fb-43",
+    "pipeline_id": "issue-1924",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:30:04.973077+00:00"
+    },
+    "timestamp": "2026-04-27T19:32:05.293441+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "04daa963-c6f5-42",
+    "pipeline_id": "issue-1924",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_PROPOSE",
+    "subject": "Proposal from task_planner",
+    "body": "Revised plan addressing all six blocking issues from reviewer_plan's NACK plus the actionable non-blocking suggestions: (1) D2 epic-link dispatch is now per-instance via `jira.epic_link_field` config knob \u2014 never emits both fields, route 400s on conflicting parent+epicLink; (2) Phase 1 foundations no longer demand test files (Phase 5 tester owns those); (3) createIssueLink synthesizes a `{status, inward, outward, type}` envelope (Atlassian returns 201 with no body); (4) labels replace/incremental modes mutually exclusive \u2014 400 at route, ValueError in client; (5) link idempotency cache composes key as `(link, canonical(inward,outward,type), key)` to prevent aliasing; (6) `_request` 429 audit emit lifted out of the GET-only retry loop so writes also emit. Plus minor fixes: 32 KiB comment-body cap rationale documented, label values logged (not just count) per Q20, notifyUsers query omitted when true, TASK-3-5 ordering note, sandbox `show_usage` pattern confirmed, TASK-5-3 matrix cap, method-tunneling adversarial test, integration-smoke deferred to #1557 in PR body, D10/D11 follow-up placeholder, new TASK-6-3 documenting phase-rollback verification.",
+    "metadata": {
+      "payload": {
+        "summary": "Revised plan addressing all six blocking issues from reviewer_plan's NACK plus the actionable non-blocking suggestions: (1) D2 epic-link dispatch is now per-instance via `jira.epic_link_field` config knob \u2014 never emits both fields, route 400s on conflicting parent+epicLink; (2) Phase 1 foundations no longer demand test files (Phase 5 tester owns those); (3) createIssueLink synthesizes a `{status, inward, outward, type}` envelope (Atlassian returns 201 with no body); (4) labels replace/incremental modes mutually exclusive \u2014 400 at route, ValueError in client; (5) link idempotency cache composes key as `(link, canonical(inward,outward,type), key)` to prevent aliasing; (6) `_request` 429 audit emit lifted out of the GET-only retry loop so writes also emit. Plus minor fixes: 32 KiB comment-body cap rationale documented, label values logged (not just count) per Q20, notifyUsers query omitted when true, TASK-3-5 ordering note, sandbox `show_usage` pattern confirmed, TASK-5-3 matrix cap, method-tunneling adversarial test, integration-smoke deferred to #1557 in PR body, D10/D11 follow-up placeholder, new TASK-6-3 documenting phase-rollback verification.",
+        "attestation": {},
+        "artifacts": [
+          ".egg-state/drafts/1924-plan.md"
+        ],
+        "risk_considered": "",
+        "commit_sha": "42fbb6433519f82749bcdd4ba6ad22ac91882f19",
+        "files_changed": [
+          ".egg-state/drafts/1924-plan.md"
+        ],
+        "tests_run": [],
+        "tasks_satisfied": []
+      },
+      "version": 2,
+      "commit_sha": "42fbb6433519f82749bcdd4ba6ad22ac91882f19"
+    },
+    "timestamp": "2026-04-27T19:32:48.749930+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4b3e6e25-cb4c-47",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T19:32:48.793026+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "41c83d41-6e58-40",
+    "pipeline_id": "issue-1924",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:29:56.104233+00:00"
+    },
+    "timestamp": "2026-04-27T19:32:57.518489+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "7b4086f3-3c06-4f",
+    "pipeline_id": "issue-1924",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:33:00.007016+00:00"
+    },
+    "timestamp": "2026-04-27T19:33:00.062004+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "22c27cc0-2fef-43",
+    "pipeline_id": "issue-1924",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:30:04.973077+00:00"
+    },
+    "timestamp": "2026-04-27T19:33:05.504896+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f5cbad8e-7266-41",
+    "pipeline_id": "issue-1924",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:29:56.104233+00:00"
+    },
+    "timestamp": "2026-04-27T19:33:57.666672+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4f6fb497-47e9-40",
+    "pipeline_id": "issue-1924",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:33:00.007016+00:00"
+    },
+    "timestamp": "2026-04-27T19:34:00.192007+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "79525cfa-5e30-40",
+    "pipeline_id": "issue-1924",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:30:04.973077+00:00"
+    },
+    "timestamp": "2026-04-27T19:34:05.829186+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "692ef1b6-0ae7-45",
+    "pipeline_id": "issue-1924",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:29:56.104233+00:00"
+    },
+    "timestamp": "2026-04-27T19:34:57.847092+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "fde43ef1-49f8-48",
+    "pipeline_id": "issue-1924",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:33:00.007016+00:00"
+    },
+    "timestamp": "2026-04-27T19:35:00.472557+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "1fcb7159-022f-45",
+    "pipeline_id": "issue-1924",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:30:04.973077+00:00"
+    },
+    "timestamp": "2026-04-27T19:35:06.051185+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "ed3f3dd4-8373-4d",
+    "pipeline_id": "issue-1924",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:29:56.104233+00:00"
+    },
+    "timestamp": "2026-04-27T19:35:57.949279+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "f20d59f1-084d-4a",
+    "pipeline_id": "issue-1924",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_ACK,CONSENSUS_NACK,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:33:00.007016+00:00"
+    },
+    "timestamp": "2026-04-27T19:36:00.713694+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "72029db6-e47f-41",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "task_planner",
+    "message_type": "CONSENSUS_ACK",
+    "subject": "ACK from reviewer_plan for task_planner",
+    "body": "\nRe-reviewed `1924-plan.md` v2 (commit `42fbb6433`, 1044 lines, +295/-168 vs v1) line-by-line against the six blockers in my NACK and the non-blocking suggestions. Every blocker is addressed cleanly; every actionable non-blocking item is addressed. No new blocking issues introduced. ACK.\n\n### Blocker-by-blocker verification\n\n1. **D2 Epic Link auto-detect (was: emits BOTH parent.key + customfield_10014)** \u2014 FIXED with the strongest version of the fix.\n   - Defaults table line 55: \"Per-instance dispatch via config knob. `JiraPolicy` loads `jira.epic_link_field: 'parent' | 'customfield_10014'` (default `'parent'`). The `epicLink` shorthand emits **only the configured field** \u2014 never both.\"\n   - TASK-2-1 (lines 458-470): `create_issue` signature now takes `epic_link_field` parameter; routes to ONE field, never both. Explicit `parent` wins only when `epicLink` absent.\n   - TASK-3-1 step 6 (line 616-617): route 400s if both `parent` and `epicLink` are present.\n   - TASK-3-5 (lines 717-722): `JiraPolicy` exposes `epic_link_field` property with default `\"parent\"`, fail-closed-on-malformed-enum (warning + fall back to default).\n   - TASK-5-4 (lines 914-915): adversarial test grid asserts \"both `parent` and `epicLink` set \u2192 400\".\n   - This implementation **also matches risk_analyst R6's recommendation** (probe-and-pick-one, never both).\n\n2. **TASK-1-1 / TASK-1-2 vs TASK-5-1 / TASK-5-2 duplicate test ownership** \u2014 FIXED.\n   - TASK-1-1 description (lines 408-410): \"The corresponding test file is owned by TASK-5-1 \u2014 this task's acceptance does **not** require tests to exist; it only requires the module API.\"\n   - TASK-1-1 acceptance (lines 411-417): \"(Test coverage is asserted by TASK-5-1.)\"\n   - Same pattern applied to TASK-1-2 \u2194 TASK-5-2 (lines 432-437).\n   - This is option (a) from my NACK \u2014 the cleaner choice.\n\n3. **TASK-3-4 createIssueLink response shape** \u2014 FIXED exactly as recommended.\n   - TASK-3-4 (lines 693-700): \"Atlassian returns `201 Created` with **no body** in v3, so the route synthesizes a response envelope: `{status: 'created', inwardIssue: <key>, outwardIssue: <key>, type: <name>}`. Including the triple in the response lets the orchestrator's plan-apply correlate the call against its retry record.\"\n   - TASK-5-4 acceptance (lines 922-924) explicitly asserts the envelope shape.\n\n4. **TASK-2-2 labels replace+incremental** \u2014 FIXED with a clean two-layer rejection.\n   - TASK-2-2 (lines 496-505): \"two modes are **mutually exclusive at the client method level**: if both are set, raise `ValueError`. The route layer (TASK-3-2) returns 400 for this case before calling the client.\"\n   - TASK-3-2 (lines 645-647): explicit \"**reject 400 if both `labels` (replace mode) and any of `addLabels` / `removeLabels` (incremental mode) are present**\".\n   - TASK-5-4 (line 916): adversarial grid covers \"**mixed labels mode (replace + incremental) \u2192 400**\".\n\n5. **Idempotency cache key for createIssueLink** \u2014 FIXED (option (a) from my NACK).\n   - TASK-1-1 (lines 397-401): \"For `verb='link'` the caller composes `project` as `canonical(inward, outward, type)` (a stable tuple-string) so identical opaque keys never alias different (inward, outward, type) triples\".\n   - TASK-2-4 (lines 547-555): defines `canonical_link_id(inward_key, outward_key, link_type)` returning `\"<inward>|<outward>|<type>\"` and uses `get_or_run(\"link\", canonical_link_id(...), idempotency_key, ...)`.\n   - TASK-2-4 acceptance (lines 560-562): asserts no aliasing for same opaque key with different triples.\n   - TASK-5-1 (lines 852-855): explicit aliasing test.\n\n6. **429 audit emit on writes** \u2014 FIXED in the right place (`_request`).\n   - TASK-2-5 (lines 579-585): \"**Move the `jira_upstream_rate_limited` audit-emit call out of the GET-only retry loop in `_request`** so it fires on every 429 (writes included), guarded by `flask.has_request_context()`. The retry loop still retries only GET; the audit emit is unconditional on 429.\"\n   - TASK-2-5 acceptance (line 590): \"The 429 audit emit fires for write methods (a new test in TASK-5-3 asserts this).\"\n   - TASK-5-3 (line 896): \"**429 audit emit on each write verb** (asserts the TASK-2-5 audit-emit fix).\"\n\n### Non-blocking items also addressed\n\n- **Q15 32 KiB comment-body cap rationale** \u2014 TASK-3-3 (lines 666-668): \"32 KiB \u2014 chosen to mirror the description cap; Atlassian publishes no upper limit, but 32 KiB bounds audit-log size and covers realistic plan-apply commentary\".\n- **Q20 label values logged (not just count)** \u2014 Defaults table Q20 row (line 77) updated; TASK-3-1 (line 622) \"**label values** (small enumerated strings \u2014 policy-relevant per Q20)\"; TASK-3-2 (lines 651-652) \"label values (when replace), add/remove label values (when incremental)\".\n- **TASK-2-2 `notifyUsers` query omitted when True** \u2014 TASK-2-2 (lines 506-508): \"omit `notifyUsers` entirely when `notify_users=True` (Atlassian's default is true \u2014 do not bloat the URL); send `notifyUsers=false` only when `notify_users=False`\".\n- **Phase 3 intra-phase ordering (TASK-3-5 before TASK-3-4)** \u2014 TASK-3-5 (lines 723-726): \"**Ordering note:** TASK-3-5 must land before TASK-3-4 (issue-link route) because the route depends on `link_type_allowed`. The implementer must commit TASK-3-5 first within Phase 3.\"\n- **TASK-3-7 picks `config/context-filters.yaml` directly** \u2014 TASK-3-7 (line 754): \"Edit `config/context-filters.yaml` directly (the file `JiraPolicy` loads \u2014 survey confirmed the existing `jira:` section lives there).\"\n- **Sandbox wrapper `--help` clarification** \u2014 Phase 4 goal (lines 778-781): \"The existing wrapper has a top-level `show_usage` (line ~350) and no per-subcommand `--help`; the new subcommands extend `show_usage` with their flags rather than introducing a new help-output convention.\" All four sandbox tasks now reference `show_usage` instead of `--help`.\n- **D10/D11 follow-up placeholder in PR body** \u2014 PR description (lines 336-339): \"**Per-role and per-phase write gating (decisions D10/D11) are explicitly deferred to a follow-up issue (to be filed once this PR is merged \u2014 placeholder reference: `Follows: TBD-write-policy`)**\".\n- **HTTP-method tunnelling adversarial test** \u2014 TASK-5-4 (lines 919-920): \"**HTTP-method tunnelling via body** (e.g. `'_method': 'DELETE'` keys, `__proto__` pollution) \u2192 400\".\n- **TASK-5-3 matrix cap** \u2014 TASK-5-3 (lines 884-887): \"Bound the matrix at **\u22651 success case per option pair** and one failure case per validation rule \u2014 write a brief named matrix in each test's docstring rather than generating a Cartesian explosion.\"\n- **Integration smoke deferred to #1557 in PR body** \u2014 Manual section (lines 369-373): \"**Integration smoke against a live Atlassian instance is intentionally deferred to #1557** (Jira-epic SDLC pipelines), which is the first real consumer.\"\n- **Rollback claim verification** \u2014 NEW TASK-6-3 (lines 1005-1024): adds a \"Phase rollback\" doc sub-section AND tasks the implement-phase reviewer with running `git revert --no-commit <phase-N-commit>` on each phase and confirming v1 read tests stay green. Concrete and verifiable.\n\n### Non-blocking \u2014 minor (no change needed)\n\n- **Approach summary line 22-25** still reads \"Cache is keyed by `(verb, project, key)` for ... `createIssueLink`\". Strictly the link verb's cache key uses `canonical(inward, outward, type)` in the `project` slot (per TASK-1-1 lines 397-401). High-level Approach is mildly inconsistent with the canonical-link-id detail buried in the tasks, but the tasks are authoritative \u2014 a coder following TASK-2-4 will not be confused. Optional polish: footnote the Approach with \"(see TASK-2-4 for link-verb cache-key composition)\".\n- **TASK-2-1 client method still accepts both `parent` and `epic_link`** \u2014 the route layer rejects when both are present (TASK-3-1 step 6), so client-level enforcement is belt-and-braces. Currently the client just emits whichever is set; if both are set programmatically (bypassing the route) the second `fields.parent.key=` write clobbers the first. The route gate is the canonical fix; adding a client-level `ValueError` for \"both set\" would be defense-in-depth but is not required since all callers route through the gateway.\n- **TASK-2-4 / TASK-5-1 link-cache aliasing** \u2014 the canonical-link-id is `\"<inward>|<outward>|<type>\"`. If a customer link type ever contains `|` literally, the canonical id collides with another triple. Atlassian's link-type name regex (per risk_analyst R9 mitigation) bounds names to `[A-Za-z][A-Za-z _-]{0,32}` which excludes `|`, so this is safe in practice \u2014 but worth a one-line code comment near `canonical_link_id` noting the chosen separator and the regex bound that protects it.\n\nThe plan v2 is implementable. The HITL bake-ins are clearly tagged with `decision-N` references; the implement-phase coder can swap in the operator's actual answer when HITL closes. Reviewer NACK satisfaction is complete. ACK.\n",
+    "metadata": {
+      "payload": {
+        "artifact_references": [
+          ".egg-state/drafts/1924-plan.md",
+          ".egg-state/drafts/1924-analysis.md",
+          ".egg-state/agent-outputs/1924-architect-output.json",
+          ".egg-state/agent-outputs/1924-risk_analyst-output.json"
+        ],
+        "reason": "\nRe-reviewed `1924-plan.md` v2 (commit `42fbb6433`, 1044 lines, +295/-168 vs v1) line-by-line against the six blockers in my NACK and the non-blocking suggestions. Every blocker is addressed cleanly; every actionable non-blocking item is addressed. No new blocking issues introduced. ACK.\n\n### Blocker-by-blocker verification\n\n1. **D2 Epic Link auto-detect (was: emits BOTH parent.key + customfield_10014)** \u2014 FIXED with the strongest version of the fix.\n   - Defaults table line 55: \"Per-instance dispatch via config knob. `JiraPolicy` loads `jira.epic_link_field: 'parent' | 'customfield_10014'` (default `'parent'`). The `epicLink` shorthand emits **only the configured field** \u2014 never both.\"\n   - TASK-2-1 (lines 458-470): `create_issue` signature now takes `epic_link_field` parameter; routes to ONE field, never both. Explicit `parent` wins only when `epicLink` absent.\n   - TASK-3-1 step 6 (line 616-617): route 400s if both `parent` and `epicLink` are present.\n   - TASK-3-5 (lines 717-722): `JiraPolicy` exposes `epic_link_field` property with default `\"parent\"`, fail-closed-on-malformed-enum (warning + fall back to default).\n   - TASK-5-4 (lines 914-915): adversarial test grid asserts \"both `parent` and `epicLink` set \u2192 400\".\n   - This implementation **also matches risk_analyst R6's recommendation** (probe-and-pick-one, never both).\n\n2. **TASK-1-1 / TASK-1-2 vs TASK-5-1 / TASK-5-2 duplicate test ownership** \u2014 FIXED.\n   - TASK-1-1 description (lines 408-410): \"The corresponding test file is owned by TASK-5-1 \u2014 this task's acceptance does **not** require tests to exist; it only requires the module API.\"\n   - TASK-1-1 acceptance (lines 411-417): \"(Test coverage is asserted by TASK-5-1.)\"\n   - Same pattern applied to TASK-1-2 \u2194 TASK-5-2 (lines 432-437).\n   - This is option (a) from my NACK \u2014 the cleaner choice.\n\n3. **TASK-3-4 createIssueLink response shape** \u2014 FIXED exactly as recommended.\n   - TASK-3-4 (lines 693-700): \"Atlassian returns `201 Created` with **no body** in v3, so the route synthesizes a response envelope: `{status: 'created', inwardIssue: <key>, outwardIssue: <key>, type: <name>}`. Including the triple in the response lets the orchestrator's plan-apply correlate the call against its retry record.\"\n   - TASK-5-4 acceptance (lines 922-924) explicitly asserts the envelope shape.\n\n4. **TASK-2-2 labels replace+incremental** \u2014 FIXED with a clean two-layer rejection.\n   - TASK-2-2 (lines 496-505): \"two modes are **mutually exclusive at the client method level**: if both are set, raise `ValueError`. The route layer (TASK-3-2) returns 400 for this case before calling the client.\"\n   - TASK-3-2 (lines 645-647): explicit \"**reject 400 if both `labels` (replace mode) and any of `addLabels` / `removeLabels` (incremental mode) are present**\".\n   - TASK-5-4 (line 916): adversarial grid covers \"**mixed labels mode (replace + incremental) \u2192 400**\".\n\n5. **Idempotency cache key for createIssueLink** \u2014 FIXED (option (a) from my NACK).\n   - TASK-1-1 (lines 397-401): \"For `verb='link'` the caller composes `project` as `canonical(inward, outward, type)` (a stable tuple-string) so identical opaque keys never alias different (inward, outward, type) triples\".\n   - TASK-2-4 (lines 547-555): defines `canonical_link_id(inward_key, outward_key, link_type)` returning `\"<inward>|<outward>|<type>\"` and uses `get_or_run(\"link\", canonical_link_id(...), idempotency_key, ...)`.\n   - TASK-2-4 acceptance (lines 560-562): asserts no aliasing for same opaque key with different triples.\n   - TASK-5-1 (lines 852-855): explicit aliasing test.\n\n6. **429 audit emit on writes** \u2014 FIXED in the right place (`_request`).\n   - TASK-2-5 (lines 579-585): \"**Move the `jira_upstream_rate_limited` audit-emit call out of the GET-only retry loop in `_request`** so it fires on every 429 (writes included), guarded by `flask.has_request_context()`. The retry loop still retries only GET; the audit emit is unconditional on 429.\"\n   - TASK-2-5 acceptance (line 590): \"The 429 audit emit fires for write methods (a new test in TASK-5-3 asserts this).\"\n   - TASK-5-3 (line 896): \"**429 audit emit on each write verb** (asserts the TASK-2-5 audit-emit fix).\"\n\n### Non-blocking items also addressed\n\n- **Q15 32 KiB comment-body cap rationale** \u2014 TASK-3-3 (lines 666-668): \"32 KiB \u2014 chosen to mirror the description cap; Atlassian publishes no upper limit, but 32 KiB bounds audit-log size and covers realistic plan-apply commentary\".\n- **Q20 label values logged (not just count)** \u2014 Defaults table Q20 row (line 77) updated; TASK-3-1 (line 622) \"**label values** (small enumerated strings \u2014 policy-relevant per Q20)\"; TASK-3-2 (lines 651-652) \"label values (when replace), add/remove label values (when incremental)\".\n- **TASK-2-2 `notifyUsers` query omitted when True** \u2014 TASK-2-2 (lines 506-508): \"omit `notifyUsers` entirely when `notify_users=True` (Atlassian's default is true \u2014 do not bloat the URL); send `notifyUsers=false` only when `notify_users=False`\".\n- **Phase 3 intra-phase ordering (TASK-3-5 before TASK-3-4)** \u2014 TASK-3-5 (lines 723-726): \"**Ordering note:** TASK-3-5 must land before TASK-3-4 (issue-link route) because the route depends on `link_type_allowed`. The implementer must commit TASK-3-5 first within Phase 3.\"\n- **TASK-3-7 picks `config/context-filters.yaml` directly** \u2014 TASK-3-7 (line 754): \"Edit `config/context-filters.yaml` directly (the file `JiraPolicy` loads \u2014 survey confirmed the existing `jira:` section lives there).\"\n- **Sandbox wrapper `--help` clarification** \u2014 Phase 4 goal (lines 778-781): \"The existing wrapper has a top-level `show_usage` (line ~350) and no per-subcommand `--help`; the new subcommands extend `show_usage` with their flags rather than introducing a new help-output convention.\" All four sandbox tasks now reference `show_usage` instead of `--help`.\n- **D10/D11 follow-up placeholder in PR body** \u2014 PR description (lines 336-339): \"**Per-role and per-phase write gating (decisions D10/D11) are explicitly deferred to a follow-up issue (to be filed once this PR is merged \u2014 placeholder reference: `Follows: TBD-write-policy`)**\".\n- **HTTP-method tunnelling adversarial test** \u2014 TASK-5-4 (lines 919-920): \"**HTTP-method tunnelling via body** (e.g. `'_method': 'DELETE'` keys, `__proto__` pollution) \u2192 400\".\n- **TASK-5-3 matrix cap** \u2014 TASK-5-3 (lines 884-887): \"Bound the matrix at **\u22651 success case per option pair** and one failure case per validation rule \u2014 write a brief named matrix in each test's docstring rather than generating a Cartesian explosion.\"\n- **Integration smoke deferred to #1557 in PR body** \u2014 Manual section (lines 369-373): \"**Integration smoke against a live Atlassian instance is intentionally deferred to #1557** (Jira-epic SDLC pipelines), which is the first real consumer.\"\n- **Rollback claim verification** \u2014 NEW TASK-6-3 (lines 1005-1024): adds a \"Phase rollback\" doc sub-section AND tasks the implement-phase reviewer with running `git revert --no-commit <phase-N-commit>` on each phase and confirming v1 read tests stay green. Concrete and verifiable.\n\n### Non-blocking \u2014 minor (no change needed)\n\n- **Approach summary line 22-25** still reads \"Cache is keyed by `(verb, project, key)` for ... `createIssueLink`\". Strictly the link verb's cache key uses `canonical(inward, outward, type)` in the `project` slot (per TASK-1-1 lines 397-401). High-level Approach is mildly inconsistent with the canonical-link-id detail buried in the tasks, but the tasks are authoritative \u2014 a coder following TASK-2-4 will not be confused. Optional polish: footnote the Approach with \"(see TASK-2-4 for link-verb cache-key composition)\".\n- **TASK-2-1 client method still accepts both `parent` and `epic_link`** \u2014 the route layer rejects when both are present (TASK-3-1 step 6), so client-level enforcement is belt-and-braces. Currently the client just emits whichever is set; if both are set programmatically (bypassing the route) the second `fields.parent.key=` write clobbers the first. The route gate is the canonical fix; adding a client-level `ValueError` for \"both set\" would be defense-in-depth but is not required since all callers route through the gateway.\n- **TASK-2-4 / TASK-5-1 link-cache aliasing** \u2014 the canonical-link-id is `\"<inward>|<outward>|<type>\"`. If a customer link type ever contains `|` literally, the canonical id collides with another triple. Atlassian's link-type name regex (per risk_analyst R9 mitigation) bounds names to `[A-Za-z][A-Za-z _-]{0,32}` which excludes `|`, so this is safe in practice \u2014 but worth a one-line code comment near `canonical_link_id` noting the chosen separator and the regex bound that protects it.\n\nThe plan v2 is implementable. The HITL bake-ins are clearly tagged with `decision-N` references; the implement-phase coder can swap in the operator's actual answer when HITL closes. Reviewer NACK satisfaction is complete. ACK.\n"
+      },
+      "version": 2
+    },
+    "timestamp": "2026-04-27T19:36:01.506222+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "bd9b094c-57ab-4a",
+    "pipeline_id": "issue-1924",
+    "from_role": "orchestrator",
+    "to_role": "task_planner",
+    "message_type": "STATUS",
+    "subject": "Ready to confirm \u2014 all confirm preconditions satisfied",
+    "body": "Your proposal (version 2) is ready to confirm \u2014 all blocking reviews are clear and global confirm preconditions are met. Run `egg-orch consensus confirmed` to confirm.",
+    "metadata": {
+      "ready_to_confirm": true,
+      "version": 2
+    },
+    "timestamp": "2026-04-27T19:36:01.507067+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4782160e-b2b2-40",
+    "pipeline_id": "issue-1924",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T19:36:01.602852+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "e8d64c43-3996-45",
+    "pipeline_id": "issue-1924",
+    "from_role": "reviewer_plan",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by reviewer_plan",
+    "body": "",
+    "metadata": {
+      "consensus_reached": false
+    },
+    "timestamp": "2026-04-27T19:36:05.448666+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "621d141d-a2d0-40",
+    "pipeline_id": "issue-1924",
+    "from_role": "architect",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T19:36:05.901064+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "0ccee75a-68c3-4a",
+    "pipeline_id": "issue-1924",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T19:36:05.945990+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "4ddbaf7a-8bdd-4f",
+    "pipeline_id": "issue-1924",
+    "from_role": "task_planner",
+    "to_role": "all",
+    "message_type": "CONSENSUS_CONFIRMED",
+    "subject": "Confirmed by task_planner",
+    "body": "",
+    "metadata": {
+      "consensus_reached": true
+    },
+    "timestamp": "2026-04-27T19:36:06.304904+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "18d7c09a-d319-40",
+    "pipeline_id": "issue-1924",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WAITING_FOR_EVENT",
+    "body": "wait_loop blocked on CONSENSUS_CONFIRMED,CONSENSUS_RE_REVIEW,OVERSEER_ALERT",
+    "metadata": {
+      "state": "WAITING_FOR_EVENT",
+      "since": "2026-04-27T19:36:10.224217+00:00"
+    },
+    "timestamp": "2026-04-27T19:36:10.274350+00:00",
+    "phase": "plan"
+  },
+  {
+    "id": "87bd5fb0-fdae-48",
+    "pipeline_id": "issue-1924",
+    "from_role": "risk_analyst",
+    "to_role": "all",
+    "message_type": "HEARTBEAT",
+    "subject": "heartbeat: WORKING",
+    "body": "wait_loop exited",
+    "metadata": {
+      "state": "WORKING"
+    },
+    "timestamp": "2026-04-27T19:36:10.432820+00:00",
+    "phase": "plan"
+  }
+]
