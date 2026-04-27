@@ -3664,9 +3664,11 @@ def _get_reviewer_scope_preamble(reviewer_type: str, phase: str) -> str:
         )
     elif reviewer_type == "security":
         return (
-            "This is an ADVISORY **security-lens review** (issue #1965). "
-            "Focus ONLY on the security lens; defer code quality, performance, "
-            "and non-security findings to `reviewer_code`.\n\n"
+            "This is a CRITICAL **security-lens review** (issue #2139). "
+            "A NACK from this lens blocks consensus until the producer "
+            "re-proposes. Focus ONLY on the security lens; defer code "
+            "quality, performance, and non-security findings to "
+            "`reviewer_code`.\n\n"
             "**Lens scope:** cross-file allowlist mismatches, "
             "handler-vs-validator path mismatches, information-disclosure / "
             "authorization-bypass patterns at trust boundaries, "
@@ -3684,9 +3686,11 @@ def _get_reviewer_scope_preamble(reviewer_type: str, phase: str) -> str:
         )
     elif reviewer_type == "concurrency":
         return (
-            "This is an ADVISORY **concurrency-lens review** (issue #1965). "
-            "Focus ONLY on the concurrency lens; defer code quality, "
-            "performance, and non-concurrency findings to `reviewer_code`.\n\n"
+            "This is a CRITICAL **concurrency-lens review** (issue #2139). "
+            "A NACK from this lens blocks consensus until the producer "
+            "re-proposes. Focus ONLY on the concurrency lens; defer code "
+            "quality, performance, and non-concurrency findings to "
+            "`reviewer_code`.\n\n"
             "**Lens scope:** race conditions, deadlocks, shared-state "
             "mutation without synchronization, async-context leakage, "
             "retry-storm patterns, resource-cleanup ordering bugs, and "
@@ -4680,7 +4684,7 @@ def _build_review_prompt(
     # Add procedural steps for code reviewers (matching GHA reviewer thoroughness).
     # Both ``code`` and ``code-holistic`` get the same numbered procedural-step
     # scaffold, but steps 2 and 8 differ by lens: ``code`` reviews every file
-    # systematically and evaluates against the slice criteria, while
+    # systematically and evaluates against the code-review criteria, while
     # ``code-holistic`` skims the diff once and runs the four cross-module
     # passes from the holistic criteria file. See issue #2126 — the prior
     # unified wording told the holistic reviewer to "review every changed
@@ -8245,7 +8249,7 @@ def _build_reviewer_preparation(
                 "(1) **Skim the full diff once** at "
                 f"`git fetch origin && git diff {base_ref}...HEAD` to build "
                 "a mental map. Do not verify line-by-line — that is "
-                "`reviewer_code`'s slice work. "
+                "`reviewer_code`'s line-by-line work. "
                 "(a) Note the PR's stated intent (issue / description) — "
                 "this is the use case you will walk end-to-end. "
                 "(b) Identify the producer / consumer module pairs the diff "

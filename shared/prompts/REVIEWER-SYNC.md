@@ -12,7 +12,7 @@ by their different workflows.
 | **Trigger** | PR opened/updated via GitHub Actions | SDLC pipeline review phase |
 | **Output** | Posts `gh pr review` (approve / request-changes / comment) | **Sequential**: JSON verdict to `.egg-state/reviews/`. **Concurrent (BRC)**: ACK/NACK `--reason` is the review output (no verdict file). |
 | **Conventions** | External file: `action/review-conventions.md` | Inline in `_build_review_prompt()` |
-| **Reviewer types** | Code only | Code, contract, agent-design, refine, plan, **security** (ADVISORY), **concurrency** (ADVISORY) |
+| **Reviewer types** | Code only | Code, contract, agent-design, refine, plan, **security** (CRITICAL), **concurrency** (CRITICAL) |
 
 ## What's Shared (single source of truth)
 
@@ -23,8 +23,8 @@ additional reviewer types. All shared files live in `shared/prompts/`:
 - `code-review-criteria.md` — security, correctness, robustness, design, severity classification (both reviewers)
 - `contract-review-criteria.md` — task/contract verification (SDLC reviewer only)
 - `agent-design-criteria.md` — agent-mode anti-patterns (SDLC reviewer only)
-- `security-review-criteria.md` — security lens (SDLC reviewer only; **ADVISORY**, see asymmetries below)
-- `concurrency-review-criteria.md` — concurrency lens (SDLC reviewer only; **ADVISORY**, see asymmetries below)
+- `security-review-criteria.md` — security lens (SDLC reviewer only; **CRITICAL** per #2139, see asymmetries below)
+- `concurrency-review-criteria.md` — concurrency lens (SDLC reviewer only; **CRITICAL** per #2139, see asymmetries below)
 
 Each reviewer has an inline fallback for when the shared file can't be loaded.
 **Inline fallbacks must match the shared file content.** The two new lens

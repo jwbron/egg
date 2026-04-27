@@ -42,7 +42,7 @@ When concurrent execution starts, the `ConcurrentPhaseExecutor` (in `orchestrato
 |-------|--------------|
 | `refine` | `refiner`, `reviewer_refine`, `reviewer_agent_design` (egg repo only) |
 | `plan` | `architect`, `task_planner`, `risk_analyst`, `reviewer_plan` |
-| `implement` | `coder`, `tester`, `documenter`, `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_security` (ADVISORY), `reviewer_concurrency` (ADVISORY) |
+| `implement` | `coder`, `tester`, `documenter`, `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_security`, `reviewer_concurrency` |
 
 **Shared branch**: All agents operate on the pipeline's shared branch (e.g., `egg/issue-123`). Agents coordinate commits via the message bus to sequence their work and avoid conflicts.
 
