@@ -861,17 +861,16 @@ GIT_ALLOWED_COMMANDS = {
         ],
     },
     # update-ref is restricted to the safe two-arg form
-    # (`update-ref [--no-deref] <ref> <newvalue> [<oldvalue>]`). The gateway
-    # additionally scopes the target ref to ``refs/heads/<assigned_branch>``
-    # for pipeline sessions — see the update-ref guard in gateway.py.
+    # (`update-ref <ref> <newvalue> [<oldvalue>]`). The gateway additionally
+    # scopes the target ref to ``refs/heads/<assigned_branch>`` for pipeline
+    # sessions and force-prepends ``--no-deref`` server-side (defense in depth
+    # against symref-following) — see the update-ref guard in gateway.py.
     # ``--stdin``/``-d``/``-z``/``--create-reflog`` are intentionally absent
     # from the allowlist (and therefore rejected) to keep the surface area
     # tight: ref deletion and batch updates are not part of the supported
     # recovery flow. Issue #2162.
     "update-ref": {
-        "allowed_flags": [
-            "--no-deref",
-        ],
+        "allowed_flags": [],
     },
 }
 

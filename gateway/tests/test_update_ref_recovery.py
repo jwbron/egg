@@ -111,8 +111,8 @@ class TestUpdateRefScope:
             )
             assert response.status_code == 200
 
-    def test_update_ref_with_no_deref_flag_allowed(self, client, auth_with_branch):
-        """--no-deref is permitted; positional args still validated."""
+    def test_update_ref_no_deref_injected_server_side(self, client, auth_with_branch):
+        """The gateway force-prepends ``--no-deref`` so symref-following never applies."""
         headers, mock_result, mock_policy, current_sm = auth_with_branch
 
         with (
@@ -127,12 +127,43 @@ class TestUpdateRefScope:
             response = _execute(
                 client,
                 headers,
-                ["--no-deref", "refs/heads/egg/issue-42-coder/work", "deadbeef"],
+                ["refs/heads/egg/issue-42-coder/work", "deadbeef"],
             )
             assert response.status_code == 200
+            # Verify the actual subprocess call includes --no-deref before the
+            # positional args. ``git_cmd`` prepends additional ``-c`` config
+            # flags, so just assert presence + ordering relative to "update-ref".
+            assert mock_run.call_count == 1
+            called_cmd = list(mock_run.call_args[0][0])
+            update_ref_idx = called_cmd.index("update-ref")
+            assert "--no-deref" in called_cmd[update_ref_idx:]
+            no_deref_idx = called_cmd.index("--no-deref", update_ref_idx)
+            assert no_deref_idx == update_ref_idx + 1
+            # Positional args still come through after the injected flag.
+            assert called_cmd[no_deref_idx + 1] == "refs/heads/egg/issue-42-coder/work"
+            assert called_cmd[no_deref_idx + 2] == "deadbeef"
+
+    def test_update_ref_user_passed_no_deref_rejected(self, client, auth_with_branch):
+        """User-passed ``--no-deref`` is redundant (gateway injects it) and rejected."""
+        headers, mock_result, mock_policy, current_sm = auth_with_branch
+
+        with (
+            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy),
+            patch.object(gateway, "audit_log"),
+            patch.object(gateway, "validate_repo_path", return_value=(True, "")),
+        ):
+            response = _execute(
+                client,
+                headers,
+                ["--no-deref", "refs/heads/egg/issue-42-coder/work", "deadbeef"],
+            )
+            # 400 from arg validation: --no-deref is no longer in the allowlist
+            # because the gateway always injects it.
+            assert response.status_code == 400
 
     def test_update_ref_with_oldvalue_allowed(self, client, auth_with_branch):
-        """The optional <oldvalue> third positional is accepted."""
+        """The optional <oldvalue> third positional is accepted and reaches subprocess."""
         headers, mock_result, mock_policy, current_sm = auth_with_branch
 
         with (
@@ -150,6 +181,20 @@ class TestUpdateRefScope:
                 ["refs/heads/egg/issue-42-coder/work", "deadbeef", "cafef00d"],
             )
             assert response.status_code == 200
+            # All three positional args (ref, newvalue, oldvalue) must reach
+            # the subprocess unchanged — `update-ref` uses <oldvalue> as a
+            # CAS guard and silently dropping it would change semantics.
+            assert mock_run.call_count == 1
+            called_cmd = list(mock_run.call_args[0][0])
+            update_ref_idx = called_cmd.index("update-ref")
+            tail = called_cmd[update_ref_idx:]
+            assert "refs/heads/egg/issue-42-coder/work" in tail
+            assert "deadbeef" in tail
+            assert "cafef00d" in tail
+            # Order is preserved: ref, newvalue, oldvalue.
+            ref_idx = tail.index("refs/heads/egg/issue-42-coder/work")
+            assert tail[ref_idx + 1] == "deadbeef"
+            assert tail[ref_idx + 2] == "cafef00d"
 
     def test_update_ref_to_other_branch_blocked(self, client, auth_with_branch):
         """update-ref against any other ref is rejected with 403."""
@@ -258,8 +303,12 @@ class TestUpdateRefScope:
             patch.object(gateway, "validate_repo_path", return_value=(True, "")),
         ):
             response = _execute(client, headers, ["--stdin"])
-            # 400 from arg validation (flag not allowed)
+            # 400 from arg validation (flag not allowed).
             assert response.status_code == 400
+            # Error message must name the flag so the agent can self-correct
+            # without escalating.
+            data = json.loads(response.data)
+            assert "--stdin" in data.get("message", "")
 
     def test_update_ref_delete_flag_blocked_by_allowlist(self, client, auth_with_branch):
         """-d (delete ref) is not in allowed_flags and is rejected during arg validation."""
@@ -277,6 +326,8 @@ class TestUpdateRefScope:
                 ["-d", "refs/heads/egg/issue-42-coder/work"],
             )
             assert response.status_code == 400
+            data = json.loads(response.data)
+            assert "-d" in data.get("message", "")
 
 
 class TestDetachedHeadCommitHint:
@@ -379,3 +430,182 @@ class TestDetachedHeadCommitHint:
             data = json.loads(response.data)
             stderr = data.get("data", {}).get("stderr", "") or ""
             assert "HEAD is detached" not in stderr
+
+    def test_commit_on_detached_head_no_assigned_branch_no_hint(self, client):
+        """Sessions without assigned_branch never see the hint (non-pipeline)."""
+        # Use a session with assigned_branch=None to simulate non-pipeline mode.
+        headers, mock_result, mock_policy, current_sm = _setup_auth(_make_session(None))
+
+        with (
+            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy),
+            patch.object(gateway, "audit_log"),
+            patch.object(gateway, "validate_repo_path", return_value=(True, "")),
+            patch.object(gateway, "map_container_path_to_worktree", return_value="/worktree/path"),
+            patch.object(gateway, "_lookup_commit_observer_fn", return_value=None),
+            patch(
+                "gateway.subprocess.run",
+                side_effect=self._make_commit_subprocess_side_effect(head_detached=True),
+            ),
+        ):
+            response = client.post(
+                "/api/v1/git/execute",
+                json={
+                    "repo_path": "/home/egg/repos/myrepo",
+                    "operation": "commit",
+                    "args": ["-m", "wip"],
+                },
+                headers=headers,
+            )
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            stderr = data.get("data", {}).get("stderr", "") or ""
+            # Without an assigned_branch the gateway has no recovery target to
+            # name, so the hint must not fire — even though HEAD is detached.
+            assert "HEAD is detached" not in stderr
+            assert "update-ref" not in stderr
+
+    def test_commit_on_detached_head_subprocess_error_no_hint(self, client, auth_pipeline):
+        """If symbolic-ref times out or raises OSError, no hint is surfaced."""
+        headers, mock_result, mock_policy, current_sm = auth_pipeline
+
+        def side_effect(*args, **kwargs):
+            cmd = args[0] if args else kwargs.get("args", [])
+            cmd_str = " ".join(str(c) for c in cmd)
+            if "symbolic-ref" in cmd_str:
+                # Simulate the kernel killing the subprocess with EAGAIN, etc.
+                raise OSError("simulated symbolic-ref failure")
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = "ok" if "diff" not in cmd_str else ""
+            result.stderr = ""
+            return result
+
+        with (
+            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy),
+            patch.object(gateway, "audit_log"),
+            patch.object(gateway, "validate_repo_path", return_value=(True, "")),
+            patch.object(gateway, "map_container_path_to_worktree", return_value="/worktree/path"),
+            patch.object(gateway, "_lookup_commit_observer_fn", return_value=None),
+            patch("gateway.subprocess.run", side_effect=side_effect),
+        ):
+            response = client.post(
+                "/api/v1/git/execute",
+                json={
+                    "repo_path": "/home/egg/repos/myrepo",
+                    "operation": "commit",
+                    "args": ["-m", "wip"],
+                },
+                headers=headers,
+            )
+            # The commit itself succeeded; only the post-hoc check failed.
+            # The hint helper swallows the error and returns no hint.
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            stderr = data.get("data", {}).get("stderr", "") or ""
+            assert "HEAD is detached" not in stderr
+
+    def test_commit_on_corrupt_repo_no_hint(self, client, auth_pipeline):
+        """A corrupt repo (returncode 128, fatal stderr) must not get a misleading hint."""
+        headers, mock_result, mock_policy, current_sm = auth_pipeline
+
+        def side_effect(*args, **kwargs):
+            cmd = args[0] if args else kwargs.get("args", [])
+            cmd_str = " ".join(str(c) for c in cmd)
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = ""
+            result.stderr = ""
+            if "diff" in cmd_str and "--cached" in cmd_str:
+                result.stdout = ""
+            elif "symbolic-ref" in cmd_str:
+                # `git symbolic-ref --quiet HEAD` against a corrupt or missing
+                # .git directory exits 128 with a fatal: line on stderr.  This
+                # is *not* detached HEAD; the hint must stay silent.
+                result.returncode = 128
+                result.stdout = ""
+                result.stderr = (
+                    "fatal: not a git repository (or any of the parent directories): .git\n"
+                )
+            else:
+                result.stdout = "ok"
+            return result
+
+        with (
+            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy),
+            patch.object(gateway, "audit_log"),
+            patch.object(gateway, "validate_repo_path", return_value=(True, "")),
+            patch.object(gateway, "map_container_path_to_worktree", return_value="/worktree/path"),
+            patch.object(gateway, "_lookup_commit_observer_fn", return_value=None),
+            patch("gateway.subprocess.run", side_effect=side_effect),
+        ):
+            response = client.post(
+                "/api/v1/git/execute",
+                json={
+                    "repo_path": "/home/egg/repos/myrepo",
+                    "operation": "commit",
+                    "args": ["-m", "wip"],
+                },
+                headers=headers,
+            )
+            assert response.status_code == 200
+            data = json.loads(response.data)
+            stderr = data.get("data", {}).get("stderr", "") or ""
+            assert "HEAD is detached" not in stderr
+            assert "update-ref" not in stderr
+
+    def test_commit_failure_on_detached_head_includes_hint(self, client, auth_pipeline):
+        """Hint is surfaced even when the commit *fails* (e.g. mid-rebase conflict)."""
+        headers, mock_result, mock_policy, current_sm = auth_pipeline
+
+        def side_effect(*args, **kwargs):
+            cmd = args[0] if args else kwargs.get("args", [])
+            cmd_str = " ".join(str(c) for c in cmd)
+            result = MagicMock()
+            result.stdout = ""
+            result.stderr = ""
+            if "diff" in cmd_str and "--cached" in cmd_str:
+                result.returncode = 0
+                result.stdout = ""
+            elif "symbolic-ref" in cmd_str:
+                # Detached HEAD: rc=1, no stdout, no stderr.
+                result.returncode = 1
+                result.stdout = ""
+                result.stderr = ""
+            elif "commit" in cmd_str:
+                # The actual `git commit` call fails (e.g. nothing to commit
+                # because conflict markers remain unresolved).
+                result.returncode = 1
+                result.stderr = "nothing to commit, working tree clean\n"
+            else:
+                result.returncode = 0
+                result.stdout = "ok"
+            return result
+
+        with (
+            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy),
+            patch.object(gateway, "audit_log"),
+            patch.object(gateway, "validate_repo_path", return_value=(True, "")),
+            patch.object(gateway, "map_container_path_to_worktree", return_value="/worktree/path"),
+            patch.object(gateway, "_lookup_commit_observer_fn", return_value=None),
+            patch("gateway.subprocess.run", side_effect=side_effect),
+        ):
+            response = client.post(
+                "/api/v1/git/execute",
+                json={
+                    "repo_path": "/home/egg/repos/myrepo",
+                    "operation": "commit",
+                    "args": ["-m", "wip"],
+                },
+                headers=headers,
+            )
+            # The commit failed, but the hint must still appear so the agent
+            # doesn't burn turns guessing why their commit didn't land.
+            assert response.status_code == 500
+            data = json.loads(response.data)
+            stderr = data.get("data", {}).get("stderr", "") or ""
+            assert "HEAD is detached" in stderr
+            assert "git update-ref refs/heads/egg/issue-42-coder/work HEAD" in stderr
