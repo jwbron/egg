@@ -941,22 +941,13 @@ Contracts can override phase defaults via the `phase_configs` field:
         }
       ],
       "max_review_cycles": 5,
-      "human_review_mechanism": "PR_REVIEW",
-      "reviewer_code": {
-        "parallel": true
-      }
+      "human_review_mechanism": "PR_REVIEW"
     }
   }
 }
 ```
 
 When `phase_configs.{phase}.checks` is specified, it completely replaces the default checks for that phase.
-
-The `reviewer_code` object exposes a single knob:
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `parallel` | bool | `true` | Fan out `reviewer_code` subagents in parallel. Set `false` to force sequential review for cost or quota reasons. |
 
 ### Writing Custom Checks
 

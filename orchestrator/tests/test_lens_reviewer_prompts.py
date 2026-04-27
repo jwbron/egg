@@ -206,6 +206,42 @@ class TestLensScopePreambles:
             "concurrency."
         )
 
+    def test_security_preamble_is_critical_not_advisory(self) -> None:
+        """Regression for PR #2152: the security lens is CRITICAL per #2139.
+
+        The preamble must NOT call the review ADVISORY (the prior wording
+        before lens promotion) and must announce CRITICAL gating with a
+        #2139 reference so prompt drift can't quietly revert it.
+        """
+        preamble = _get_reviewer_scope_preamble("security", "implement")
+        assert "ADVISORY" not in preamble, (
+            "Security preamble must not label the review ADVISORY — the "
+            "lens was promoted to CRITICAL in #2139."
+        )
+        assert "CRITICAL" in preamble, (
+            "Security preamble must announce CRITICAL gating to match the "
+            "review-graph edge (orchestrator/review_graph.py)."
+        )
+        assert "#2139" in preamble, (
+            "Security preamble must reference #2139 (the lens-promotion "
+            "issue) so the gating rationale is traceable."
+        )
+
+    def test_concurrency_preamble_is_critical_not_advisory(self) -> None:
+        preamble = _get_reviewer_scope_preamble("concurrency", "implement")
+        assert "ADVISORY" not in preamble, (
+            "Concurrency preamble must not label the review ADVISORY — the "
+            "lens was promoted to CRITICAL in #2139."
+        )
+        assert "CRITICAL" in preamble, (
+            "Concurrency preamble must announce CRITICAL gating to match "
+            "the review-graph edge (orchestrator/review_graph.py)."
+        )
+        assert "#2139" in preamble, (
+            "Concurrency preamble must reference #2139 (the lens-promotion "
+            "issue) so the gating rationale is traceable."
+        )
+
     def test_security_preamble_warns_about_brc_minimum_content_length(self) -> None:
         """The security preamble warns the agent about the BRC content-length floor.
 

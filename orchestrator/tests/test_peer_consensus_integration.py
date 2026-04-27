@@ -776,7 +776,7 @@ class TestScaledReEvaluation:
             "reviewer_code_holistic", "tester", {"artifact_references": ["tests/test_main.py"]}
         )
 
-        # Lens reviewers (advisory) ACK coder and tester
+        # Lens reviewers (critical) ACK coder and tester
         t.handle_ack(
             "reviewer_security", "coder", {"artifact_references": ["src/main.py", "src/utils.py"]}
         )

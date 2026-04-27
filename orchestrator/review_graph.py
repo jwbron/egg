@@ -219,21 +219,20 @@ def get_default_implement_graph() -> ReviewGraph:
     - reviewer_code reviews coder and tester (critical)
     - reviewer_code_holistic reviews coder and tester (critical) — issue
       #2126: distinct CRITICAL role so a holistic NACK on architectural
-      coherence is not averaged with the fan-out reviewer's slice ACKs.
+      coherence stands on its own.
     - reviewer_contract reviews coder (critical)
     - tester reviews coder (critical, implicitly via tests and lint/type-checks)
-    - reviewer_security reviews coder and tester (advisory) — lens reviewer
-    - reviewer_concurrency reviews coder and tester (advisory) — lens reviewer
+    - reviewer_security reviews coder and tester (critical) — lens reviewer
+    - reviewer_concurrency reviews coder and tester (critical) — lens reviewer
 
-    The two ADVISORY lens reviewers (``reviewer_security`` and
-    ``reviewer_concurrency``) ship advisory-only on day 1 so they cannot
-    deadlock consensus while severity-tagged NACK signalling lands in
-    issue #1997. Promotion to CRITICAL is intentionally deferred.
+    Issue #2139 promoted ``reviewer_security`` and
+    ``reviewer_concurrency`` from ADVISORY to CRITICAL: a NACK from
+    either lens now blocks consensus until the producer re-proposes,
+    closing #1997.
 
     Producers: coder, tester, documenter
     Reviewers: reviewer_code, reviewer_code_holistic, reviewer_contract,
-    tester (dual-role), reviewer_security (advisory),
-    reviewer_concurrency (advisory)
+    tester (dual-role), reviewer_security, reviewer_concurrency
     """
     return ReviewGraph(
         [
@@ -251,14 +250,14 @@ def get_default_implement_graph() -> ReviewGraph:
             ReviewEdge("tester", "coder", ReviewCriticality.CRITICAL),
             # reviewer_code reviews documenter (advisory)
             ReviewEdge("reviewer_code", "documenter", ReviewCriticality.ADVISORY),
-            # reviewer_security reviews coder (advisory — security lens)
-            ReviewEdge("reviewer_security", "coder", ReviewCriticality.ADVISORY),
-            # reviewer_security reviews tester (advisory — security lens)
-            ReviewEdge("reviewer_security", "tester", ReviewCriticality.ADVISORY),
-            # reviewer_concurrency reviews coder (advisory — concurrency lens)
-            ReviewEdge("reviewer_concurrency", "coder", ReviewCriticality.ADVISORY),
-            # reviewer_concurrency reviews tester (advisory — concurrency lens)
-            ReviewEdge("reviewer_concurrency", "tester", ReviewCriticality.ADVISORY),
+            # reviewer_security reviews coder (critical — security lens, #2139)
+            ReviewEdge("reviewer_security", "coder", ReviewCriticality.CRITICAL),
+            # reviewer_security reviews tester (critical — security lens, #2139)
+            ReviewEdge("reviewer_security", "tester", ReviewCriticality.CRITICAL),
+            # reviewer_concurrency reviews coder (critical — concurrency lens, #2139)
+            ReviewEdge("reviewer_concurrency", "coder", ReviewCriticality.CRITICAL),
+            # reviewer_concurrency reviews tester (critical — concurrency lens, #2139)
+            ReviewEdge("reviewer_concurrency", "tester", ReviewCriticality.CRITICAL),
         ]
     )
 

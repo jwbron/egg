@@ -11,16 +11,15 @@ The security reviewer is one of three lenses on the implement-phase change set
 the security lens** and defer code quality, performance, and non-security
 findings to `reviewer_code`.
 
-The security lens is currently **ADVISORY** — your NACKs are recorded on the
-approval matrix but do not deadlock consensus. Promotion to a critical
-(deadlock-capable) reviewer is tracked under [#1997](https://github.com/jwbron/egg/issues/1997).
+The security lens is **CRITICAL** — your NACK blocks consensus until the
+producer re-proposes ([#2139](https://github.com/jwbron/egg/issues/2139),
+closing [#1997](https://github.com/jwbron/egg/issues/1997)).
 
 ## What to Flag (in priority order)
 
 The lens-specific rules below are **additive** to the base file. They name the
 patterns that are most likely to slip past a single-pass code review on a
-large diff, especially when the bug is a **cross-file mismatch** that no
-single partition can see in isolation.
+large diff, especially when the bug is a **cross-file mismatch**.
 
 ### 1. Cross-file allowlist mismatch
 
@@ -41,9 +40,9 @@ Verification recipe:
    handler reaches. Pay special attention to anchored regexes
    (`^foo$` vs `^foo/.*$`) and to allowlists that are extended by a
    sibling file imported elsewhere.
-3. If the handler and the check live in different partitions of a fan-out
-   review, this lens **must** flag any mismatch — the parent reviewer's
-   cross-partition consistency pass relies on it as defence in depth.
+3. This lens **must** flag any handler↔check mismatch — cross-file
+   security invariants are exactly what the security lens exists to
+   catch on top of `reviewer_code`'s line-by-line pass.
 
 ### 2. Handler-vs-validator path mismatch
 
@@ -137,11 +136,8 @@ Verification recipe:
 
 Any deviation from the documented wrapper shape is a **mandatory NACK**
 — do not silently approve a credential-shim diff that fails the recipe
-above. Note that the security lens is advisory today (see *Scope* at the
-top of this file), so the NACK is recorded as a finding on the approval
-matrix rather than deadlocking consensus; promotion to a critical
-(deadlock-capable) reviewer for `sandbox/scripts/*` diffs is tracked in
-[#1997](https://github.com/jwbron/egg/issues/1997).
+above. The security lens is CRITICAL ([#2139](https://github.com/jwbron/egg/issues/2139)),
+so a NACK here blocks consensus until the producer re-proposes.
 
 ### 6. Secret leakage
 
@@ -174,13 +170,13 @@ changed files**. Common shapes:
 - Unsafe deserialization where the trusted-type list lives in a
   different module from the deserializer.
 
-A single-partition reviewer cannot catch these in isolation. The
-security lens runs on the full changeset and is the natural seam to
-flag them.
+A line-by-line code reviewer often misses these because the file
+under inspection looks self-consistent. The security lens runs on the
+full changeset and is the natural seam to flag them.
 
 ## How to Review
 
-1. Read the full diff once at the security lens — do not split by partition.
+1. Read the full diff once at the security lens.
 2. For every cross-file invariant above, build the concrete reach: file A
    line N references X defined in file B line M. If you cannot articulate
    the reach, you have not found the bug.
