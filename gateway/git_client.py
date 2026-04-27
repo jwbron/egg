@@ -274,7 +274,7 @@ ALLOWED_FLAG_VALUES: dict[str, set[str]] = {
 
 # Per-operation allowlist of flags that are permitted
 # This is more secure than a blocklist - unknown flags are rejected by default
-GIT_ALLOWED_COMMANDS = {
+GIT_ALLOWED_COMMANDS: dict[str, dict[str, list[str]]] = {
     # === Network operations (require authentication) ===
     "fetch": {
         "allowed_flags": [
