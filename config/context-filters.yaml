@@ -9,10 +9,10 @@
 # missing entirely) blocks every call until an operator adds entries.
 
 jira:
-  # Atlassian Jira project keys agents are allowed to read through the
-  # /api/v1/jira/* endpoints.  Project keys must match the Atlassian shape:
-  # uppercase letter followed by letters / digits / underscore (e.g. ENG,
-  # DEVOPS, MOBILE_V2).  Case-sensitive.
+  # Atlassian Jira project keys agents are allowed to read AND write
+  # through the /api/v1/jira/* endpoints.  Project keys must match the
+  # Atlassian shape: uppercase letter followed by letters / digits /
+  # underscore (e.g. ENG, DEVOPS, MOBILE_V2).  Case-sensitive.
   #
   # Example:
   #   projects: ["ENG", "DEVOPS"]
@@ -20,8 +20,28 @@ jira:
   # Any ticket whose project is not on this list returns HTTP 403 with
   # `jira_*_denied` in the gateway audit log.  JQL searches must be
   # statically provable as scoped to the listed projects — see
-  # gateway/jira_search.py for the exact acceptance rules.
+  # gateway/jira_search.py for the exact acceptance rules.  The same
+  # allowlist gates writes (#1924): create / edit / comment / link.
   projects: []
+
+  # Atlassian link-type names allowed by /api/v1/jira/issue-link/create
+  # (issue #1924).  Optional.  Defaults to ["Blocks", "Relates"] when
+  # omitted.  Atlassian link-type names are case-sensitive — `blocks`
+  # is rejected.  An empty list disables the verb entirely (fail-closed).
+  #
+  # Example:
+  #   link_types: ["Blocks", "Relates", "is duplicated by"]
+  # link_types: ["Blocks", "Relates"]
+
+  # Epic-link placement (issue #1924, decision-2).  Atlassian has two
+  # mechanisms for placing a ticket under an epic depending on the
+  # project type:
+  #   - "parent"               — next-gen / company-managed (default)
+  #   - "customfield_10014"    — classic / team-managed
+  # When `epicLink` is supplied to /api/v1/jira/ticket/create, the
+  # gateway emits ONLY the configured field — never both.  Leave unset
+  # to keep the default ("parent").
+  # epic_link_field: "parent"
 
 confluence:
   # Atlassian Confluence space keys agents are allowed to read through the
