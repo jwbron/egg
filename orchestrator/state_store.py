@@ -280,7 +280,7 @@ class StateStore:
             self._restore_from_remote()
 
         if self._state_branch_exists():
-            self._run_git("worktree", "add", str(wt), STATE_BRANCH)
+            self._add_worktree_with_branch_recovery(wt)
         else:
             # First run: create orphan branch
             # Wrap in try/except to clean up on partial failure
@@ -345,6 +345,85 @@ class StateStore:
                     return
             except OSError:
                 continue
+
+    # Matches git's "already used by worktree at '<path>'" failure message.
+    # Used to parse the prunable worktree path from `git worktree add` stderr
+    # so we can drop a single targeted admin dir without scanning all of them.
+    _BRANCH_IN_USE_PATTERN = re.compile(r"is already (?:used by worktree|checked out) at '([^']+)'")
+
+    def _add_worktree_with_branch_recovery(self, wt: Path) -> None:
+        """Run ``git worktree add <wt> <STATE_BRANCH>`` with self-heal.
+
+        The state branch can become pinned by an admin dir under
+        ``{repo}/.git/worktrees/`` whose worktree directory is gone
+        (``prunable``) — for example, after a state-volume reset that
+        wiped ``pipeline-worktree`` while the admin dir survived, or
+        after :func:`get_state_store` switched the worktree path
+        (single-repo → multi-repo deployment) and orphaned the legacy
+        admin dir.  Either way, the next ``worktree add`` fails with
+        ``'<branch>' is already used by worktree at '<path>'`` and the
+        orchestrator wedges every state load (#2167).
+
+        On that specific failure we parse the path from stderr, confirm
+        it is gone from disk (never touch a live worktree), remove the
+        single admin dir whose ``gitdir`` matches that path, and retry
+        the add once.  ``git worktree prune`` is intentionally avoided
+        because the orchestrator pod cannot see the gateway's worktree
+        paths (different bind mounts) and prune would incorrectly
+        remove their admin dirs (see ``_remove_stale_admin_dir``).
+        """
+        try:
+            self._run_git("worktree", "add", str(wt), STATE_BRANCH)
+            return
+        except GitOperationError as exc:
+            match = self._BRANCH_IN_USE_PATTERN.search(str(exc))
+            if not match:
+                raise
+            stale_path = Path(match.group(1))
+            if stale_path.exists():
+                # A live worktree genuinely holds the branch.  Refuse to
+                # touch it; surface the original error.
+                raise
+            removed = self._remove_admin_dir_for_path(stale_path)
+            if not removed:
+                logger.warning(
+                    "Branch %s held by prunable worktree at %s but no admin dir matched",
+                    STATE_BRANCH,
+                    stale_path,
+                )
+                raise
+            logger.info(
+                "Cleared stale admin dir for prunable worktree; retrying add: path=%s",
+                stale_path,
+            )
+            self._run_git("worktree", "add", str(wt), STATE_BRANCH)
+
+    def _remove_admin_dir_for_path(self, target_wt_path: Path) -> bool:
+        """Remove the admin dir whose ``gitdir`` references ``target_wt_path``.
+
+        Returns True if an admin dir was removed.  Used by
+        :meth:`_add_worktree_with_branch_recovery` to clear a single
+        stale entry by path — independent of ``self._worktree_dir``,
+        which may have changed since the admin dir was written.
+        """
+        worktrees_dir = self.repo_path / ".git" / "worktrees"
+        if not worktrees_dir.exists():
+            return False
+
+        expected_gitdir = str(target_wt_path / ".git").rstrip("/")
+        for entry in worktrees_dir.iterdir():
+            if not entry.is_dir():
+                continue
+            gitdir_file = entry / "gitdir"
+            if not gitdir_file.exists():
+                continue
+            try:
+                if gitdir_file.read_text().strip().rstrip("/") == expected_gitdir:
+                    shutil.rmtree(entry, ignore_errors=True)
+                    return True
+            except OSError:
+                continue
+        return False
 
     def _state_branch_exists(self) -> bool:
         """Check if the state branch exists locally."""
