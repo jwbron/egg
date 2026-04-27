@@ -2,24 +2,32 @@
 Jira project-allowlist loader.
 
 Reads the ``jira:`` section of ``config/context-filters.yaml`` (or whatever
-``EGG_CONTEXT_FILTERS_PATH`` points at) and exposes three helpers the Jira
-routes compose:
+``EGG_CONTEXT_FILTERS_PATH`` points at) and exposes helpers the Jira routes
+compose:
 
 - ``allowed_projects()`` — current ``frozenset[str]`` of allowlisted keys.
 - ``is_project_allowed(key)`` — simple membership test.
 - ``extract_project_key(ticket_key)`` — ``"FOO-123" -> "FOO"``.
+- ``allowed_link_types()`` — current ``tuple[str, ...]`` of link-type names
+  (issue [#1924](https://github.com/jwbron/egg/issues/1924), decision-4).
+- ``epic_link_field()`` — ``"parent"`` (default) or ``"customfield_10014"``,
+  driving epic-link dispatch in ``createJiraIssue`` (decision-2).
 
 Expected YAML shape:
 
     jira:
       projects: ["ENG", "DEVOPS"]
+      link_types: ["Blocks", "Relates"]    # optional; defaults to ["Blocks", "Relates"]
+      epic_link_field: "parent"            # optional; "parent" or "customfield_10014"
 
 Fail-closed semantics:
 
-- Missing file → empty set (no project allowed).
-- Missing ``jira:`` section → empty set.
-- Malformed YAML → empty set, and the parse error is logged once per load
-  cycle (not re-raised — a bad config file must not crash the gateway).
+- Missing file → empty project set + default link types + ``parent``.
+- Missing ``jira:`` section → empty project set + default link types +
+  ``parent``.
+- Malformed YAML → fail closed (empty set), and the parse error is logged
+  once per load cycle (not re-raised — a bad config file must not crash the
+  gateway).
 
 Cache invalidation mirrors ``anthropic_credentials.py``: an ``st_mtime``
 check fires on every access, and ``reload_jira_policy()`` forces a clear so
@@ -62,6 +70,25 @@ _DEFAULT_CONFIG_PATH = Path(
 _PROJECT_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 _TICKET_KEY_RE = re.compile(r"^([A-Z][A-Z0-9_]*)-(\d+)$")
 
+# Default link types when the operator does not configure ``jira.link_types``.
+# Matches the v1.1 default in ``gateway/jira_client.DEFAULT_JIRA_LINK_TYPES``;
+# duplicated here so importers do not have to round-trip through jira_client.
+_DEFAULT_LINK_TYPES: tuple[str, ...] = ("Blocks", "Relates")
+
+# Allowed values for ``jira.epic_link_field`` — the two real Atlassian
+# placement modes for the new-issue epic-link shorthand.  See
+# ``gateway/jira_client.JiraClient.create_issue`` for how the dispatch
+# resolves ``epic_link`` to either ``fields.parent.key`` or
+# ``fields.customfield_10014`` (never both).
+_EPIC_LINK_FIELDS: frozenset[str] = frozenset({"parent", "customfield_10014"})
+_DEFAULT_EPIC_LINK_FIELD: str = "parent"
+
+# Link-type names that Atlassian rejects for being unhealthy: empty,
+# whitespace-only, or excessively long.  We mirror the project-key
+# validation philosophy — fail closed at load time so a typo in
+# ``context-filters.yaml`` never silently widens the policy.
+_LINK_TYPE_MAX_CHARS: int = 64
+
 
 class JiraPolicy:
     """Thread-safe, mtime-caching loader for the Jira project allowlist."""
@@ -69,12 +96,18 @@ class JiraPolicy:
     def __init__(self, config_path: Path | None = None):
         self._config_path = config_path or _DEFAULT_CONFIG_PATH
         self._projects: frozenset[str] = frozenset()
+        self._link_types: tuple[str, ...] = _DEFAULT_LINK_TYPES
+        self._epic_link_field: str = _DEFAULT_EPIC_LINK_FIELD
         self._cached_mtime: float = 0
         self._lock = threading.Lock()
         self._loaded: bool = False
 
-    def allowed_projects(self) -> frozenset[str]:
-        """Return the current allowlist, reloading if the file changed."""
+    def _ensure_loaded(self) -> None:
+        """Refresh from disk if the file changed; called under no lock.
+
+        Returns silently — the call sites pull whichever attribute they
+        need after this primes the cache.
+        """
         try:
             current_mtime = self._config_path.stat().st_mtime
         except OSError:
@@ -86,16 +119,22 @@ class JiraPolicy:
                         path=str(self._config_path),
                     )
                 self._projects = frozenset()
+                self._link_types = _DEFAULT_LINK_TYPES
+                self._epic_link_field = _DEFAULT_EPIC_LINK_FIELD
                 self._cached_mtime = 0
                 self._loaded = True
-            return self._projects
+            return
 
         with self._lock:
             if (not self._loaded) or current_mtime != self._cached_mtime:
                 self._load()
                 self._cached_mtime = current_mtime
                 self._loaded = True
-            return self._projects
+
+    def allowed_projects(self) -> frozenset[str]:
+        """Return the current allowlist, reloading if the file changed."""
+        self._ensure_loaded()
+        return self._projects
 
     def is_project_allowed(self, project_key: str) -> bool:
         """Return True iff ``project_key`` is in the allowlist."""
@@ -103,12 +142,24 @@ class JiraPolicy:
             return False
         return project_key in self.allowed_projects()
 
+    def allowed_link_types(self) -> tuple[str, ...]:
+        """Return the operator-configured link-type allowlist (decision-4)."""
+        self._ensure_loaded()
+        return self._link_types
+
+    def epic_link_field(self) -> str:
+        """Return ``"parent"`` (default) or ``"customfield_10014"`` (decision-2)."""
+        self._ensure_loaded()
+        return self._epic_link_field
+
     def reload(self) -> None:
         """Force the next ``allowed_projects()`` to re-read from disk."""
         with self._lock:
             self._cached_mtime = 0
             self._loaded = False
             self._projects = frozenset()
+            self._link_types = _DEFAULT_LINK_TYPES
+            self._epic_link_field = _DEFAULT_EPIC_LINK_FIELD
 
     def _load(self) -> None:
         """Load the allowlist from YAML (called under the lock)."""
@@ -146,43 +197,101 @@ class JiraPolicy:
         jira_section = parsed.get("jira")
         if not isinstance(jira_section, dict):
             self._projects = frozenset()
+            self._link_types = _DEFAULT_LINK_TYPES
+            self._epic_link_field = _DEFAULT_EPIC_LINK_FIELD
             return
 
         projects_raw = jira_section.get("projects")
         if projects_raw is None:
             self._projects = frozenset()
-            return
-        if not isinstance(projects_raw, list):
+        elif not isinstance(projects_raw, list):
             logger.error(
                 "jira.projects must be a list — failing closed",
                 path=str(self._config_path),
                 type=type(projects_raw).__name__,
             )
             self._projects = frozenset()
-            return
+        else:
+            cleaned: set[str] = set()
+            for entry in projects_raw:
+                if not isinstance(entry, str):
+                    logger.warning(
+                        "Ignoring non-string entry in jira.projects",
+                        entry=repr(entry),
+                    )
+                    continue
+                key = entry.strip()
+                if not _PROJECT_KEY_RE.fullmatch(key):
+                    logger.warning(
+                        "Ignoring invalid Jira project key in jira.projects",
+                        entry=repr(entry),
+                    )
+                    continue
+                cleaned.add(key)
+            self._projects = frozenset(cleaned)
 
-        cleaned: set[str] = set()
-        for entry in projects_raw:
-            if not isinstance(entry, str):
-                logger.warning(
-                    "Ignoring non-string entry in jira.projects",
-                    entry=repr(entry),
-                )
-                continue
-            key = entry.strip()
-            if not _PROJECT_KEY_RE.fullmatch(key):
-                logger.warning(
-                    "Ignoring invalid Jira project key in jira.projects",
-                    entry=repr(entry),
-                )
-                continue
-            cleaned.add(key)
+        # Link-type allowlist (decision-4).  Optional — default to the
+        # built-in pair when absent or malformed.
+        link_types_raw = jira_section.get("link_types")
+        if link_types_raw is None:
+            self._link_types = _DEFAULT_LINK_TYPES
+        elif not isinstance(link_types_raw, list):
+            logger.error(
+                "jira.link_types must be a list — falling back to default",
+                path=str(self._config_path),
+                type=type(link_types_raw).__name__,
+            )
+            self._link_types = _DEFAULT_LINK_TYPES
+        else:
+            cleaned_links: list[str] = []
+            for entry in link_types_raw:
+                if not isinstance(entry, str):
+                    logger.warning(
+                        "Ignoring non-string entry in jira.link_types",
+                        entry=repr(entry),
+                    )
+                    continue
+                name = entry.strip()
+                if not name or len(name) > _LINK_TYPE_MAX_CHARS:
+                    logger.warning(
+                        "Ignoring out-of-bounds entry in jira.link_types",
+                        entry=repr(entry),
+                    )
+                    continue
+                # Atlassian link-type names are arbitrary unicode but we
+                # restrict to printable characters so audit logs remain
+                # clean.
+                if not all(ch.isprintable() for ch in name):
+                    logger.warning(
+                        "Ignoring non-printable entry in jira.link_types",
+                        entry=repr(entry),
+                    )
+                    continue
+                cleaned_links.append(name)
+            # Preserve operator order so audit logs read predictably; an
+            # empty list means "no link types allowed" (fail-closed).
+            self._link_types = tuple(cleaned_links)
 
-        self._projects = frozenset(cleaned)
+        # Epic-link field (decision-2).
+        epic_field_raw = jira_section.get("epic_link_field")
+        if epic_field_raw is None:
+            self._epic_link_field = _DEFAULT_EPIC_LINK_FIELD
+        elif not isinstance(epic_field_raw, str) or epic_field_raw not in _EPIC_LINK_FIELDS:
+            logger.error(
+                "jira.epic_link_field must be 'parent' or 'customfield_10014' — falling back to default",
+                path=str(self._config_path),
+                value=repr(epic_field_raw),
+            )
+            self._epic_link_field = _DEFAULT_EPIC_LINK_FIELD
+        else:
+            self._epic_link_field = epic_field_raw
+
         logger.info(
             "Jira project allowlist loaded",
             path=str(self._config_path),
             count=len(self._projects),
+            link_types=list(self._link_types),
+            epic_link_field=self._epic_link_field,
         )
 
 
@@ -226,6 +335,23 @@ def is_project_allowed(project_key: str) -> bool:
     return get_jira_policy().is_project_allowed(project_key)
 
 
+def allowed_link_types() -> tuple[str, ...]:
+    """Convenience accessor — ``JiraPolicy.allowed_link_types()`` via singleton."""
+    return get_jira_policy().allowed_link_types()
+
+
+def is_link_type_allowed(link_type: str) -> bool:
+    """Return True iff ``link_type`` is in the configured allowlist."""
+    if not isinstance(link_type, str) or not link_type:
+        return False
+    return link_type in allowed_link_types()
+
+
+def epic_link_field() -> str:
+    """Convenience accessor — ``JiraPolicy.epic_link_field()`` via singleton."""
+    return get_jira_policy().epic_link_field()
+
+
 def reload_jira_policy() -> None:
     """Force the next allowlist access to re-read from disk.
 
@@ -244,9 +370,12 @@ def reset_jira_policy() -> None:
 
 __all__ = [
     "JiraPolicy",
+    "allowed_link_types",
     "allowed_projects",
+    "epic_link_field",
     "extract_project_key",
     "get_jira_policy",
+    "is_link_type_allowed",
     "is_project_allowed",
     "reload_jira_policy",
     "reset_jira_policy",

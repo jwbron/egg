@@ -1,12 +1,14 @@
 """
 Jira REST API client for the gateway sidecar.
 
-Provides a thin, read-only wrapper around the Atlassian Cloud REST API v3.
-All traffic originates from the gateway (never from the sandbox) and is
+Provides a thin, policy-enforced wrapper around the Atlassian Cloud REST API
+v3.  All traffic originates from the gateway (never from the sandbox) and is
 authenticated with Basic auth using credentials loaded from
 ``gateway/jira_credentials.py``.
 
 Public surface (used by ``/api/v1/jira/*`` routes in ``gateway.py``):
+
+Read verbs (issue [#1556](https://github.com/jwbron/egg/issues/1556) — v1):
 
 - ``JiraClient.get_ticket(key, fields=None)`` — ``GET /rest/api/3/issue/{key}``
   with ``expand=renderedBody,renderedFields`` by default so agents receive the
@@ -17,20 +19,36 @@ Public surface (used by ``/api/v1/jira/*`` routes in ``gateway.py``):
 - ``JiraClient.execute_raw(method, path, query=None, body=None)`` — passthrough
   used by ``/api/v1/jira/execute`` for read-only API endpoints.
 
+Write verbs (issue [#1924](https://github.com/jwbron/egg/issues/1924) — v1.1):
+
+- ``JiraClient.create_issue(...)`` — ``POST /rest/api/3/issue``.
+- ``JiraClient.edit_issue(...)`` — ``PUT /rest/api/3/issue/{key}``.
+- ``JiraClient.add_comment(...)`` — ``POST /rest/api/3/issue/{key}/comment``.
+- ``JiraClient.create_issue_link(...)`` — ``POST /rest/api/3/issueLink``.
+
 Path safety:
 
 - ``validate_jira_api_path(path, method)`` enforces a regex allowlist of the
-  read-only REST paths permitted by v1.  Write verbs (``DELETE``/``PUT``/
-  ``PATCH``) and path fragments in ``JIRA_WRITE_VERBS_DENIED``
-  (``transitions``, ``worklog``, ``attachments``, ``watchers``) are rejected
-  unconditionally.  See refine-phase constraints.
+  read-only REST paths permitted by ``/api/v1/jira/execute``.  Its
+  ``ALLOWED_METHODS={"GET"}`` constraint applies **only** to that
+  passthrough — it is not consulted by the write methods listed above,
+  whose paths are hardcoded inside the methods (so the path-segment
+  denylist cannot be reached by construction).  Write verbs
+  (``DELETE``/``PUT``/``PATCH``) on ``/execute`` and path fragments in
+  ``JIRA_WRITE_VERBS_DENIED`` (``transitions``, ``worklog``,
+  ``attachments``, ``watchers``) are rejected unconditionally — see refine
+  / architect cycle.
 
-429 handling (refine Q5, architect D7):
+429 handling:
 
 - GET requests retry at most once on HTTP 429, honoring ``Retry-After`` up to
-  30s.  Write verbs never retry (future-safety).
+  30s.  Write verbs never retry (future-safety: a retried POST can create
+  duplicate Jira issues).
+- ``jira_upstream_rate_limited`` is emitted on every 429 — including writes
+  — so the audit trail covers operator-visible rate-limit incidents.  The
+  retry loop only retries GETs; the audit emit is unconditional.
 
-404 envelope (refine Q8, architect D8):
+404 envelope:
 
 - ``get_ticket`` and ``get_comments`` translate upstream 404 into a structured
   ``{"status": "not_found", "key": key, "upstream_status": 404}`` dict so the
@@ -42,6 +60,13 @@ Field validation:
 - ``validate_fields`` caps the list at 32 entries and requires each to match
   ``^[a-zA-Z_][a-zA-Z0-9_.-]*$`` — applied at the route layer before calling
   the client.
+
+Idempotency (write verbs):
+
+- ``create_issue``, ``add_comment``, and ``create_issue_link`` consult the
+  in-process cache in ``gateway/jira_idempotency.py`` when the caller passes
+  ``idempotency_key``.  ``edit_issue`` is naturally idempotent and bypasses
+  the cache.
 """
 
 from __future__ import annotations
@@ -76,6 +101,15 @@ except ImportError:
         get_jira_credentials,
     )
 
+# Idempotency cache + ADF wrapper helpers — added in #1924.  The conftest in
+# ``gateway/tests`` loads modules with absolute imports, so we mirror the
+# ``jira_credentials`` two-step import dance here.
+try:
+    from . import jira_adf, jira_idempotency
+except ImportError:
+    import jira_adf  # type: ignore[no-redef, import-untyped]
+    import jira_idempotency  # type: ignore[no-redef, import-untyped]
+
 logger = get_logger("gateway.jira-client")
 
 
@@ -83,9 +117,17 @@ logger = get_logger("gateway.jira-client")
 # Constants & validation helpers
 # -----------------------------------------------------------------------------
 
-# Allowed HTTP methods for Jira REST calls in v1.  Kept tight on purpose:
-# the gateway is a read-only fence today, and new verbs should be added
-# deliberately (and reviewed against the write-verb denylist below).
+# Allowed HTTP methods for the ``/api/v1/jira/execute`` passthrough.  Stays
+# GET-only forever — the write verbs added in
+# [#1924](https://github.com/jwbron/egg/issues/1924) live on dedicated routes
+# (``/api/v1/jira/ticket/create``, ``ticket/edit``, ``ticket/comment/add``,
+# ``issue-link/create``) whose paths are hardcoded inside their corresponding
+# ``JiraClient`` write methods.  Those methods bypass
+# ``validate_jira_api_path`` because their paths are construction-time
+# constants — there is no caller-supplied path that could smuggle in a
+# denied verb segment (``transitions``, ``worklog``, ``attachments``,
+# ``watchers``).  Adding new write verbs in the future means adding a new
+# narrow route + ``JiraClient`` method — *not* widening this set.
 ALLOWED_METHODS: frozenset[str] = frozenset({"GET"})
 
 # Paths / HTTP verbs that are permanently out of scope for the wrapper.
@@ -162,6 +204,37 @@ _DEFAULT_RETRY_AFTER_SECONDS: int = 1
 
 # Single-request timeout for upstream Jira calls.
 _DEFAULT_TIMEOUT_SECONDS: float = 30.0
+
+# -----------------------------------------------------------------------------
+# Write-verb body caps (issue #1924, Q15 default)
+# -----------------------------------------------------------------------------
+#
+# These bounds keep audit-log entries small and protect against memory
+# exhaustion if a misbehaving caller sends a 100 MiB description.  They are
+# enforced at the route layer (``gateway/gateway.py``) so the rejection
+# happens before we touch the client; the constants are exported here so
+# tests and callers can refer to them by name.
+
+# Atlassian summary field hard limit.
+JIRA_SUMMARY_MAX_CHARS: int = 255
+
+# Description / comment body — generous enough for plan-apply commentary,
+# small enough to bound audit-log size.  Atlassian publishes no comment-body
+# limit in the v3 docs but mirrors the description constraint server-side
+# under Cloud's modern editor.
+JIRA_DESCRIPTION_MAX_CHARS: int = 32 * 1024
+JIRA_COMMENT_MAX_CHARS: int = 32 * 1024
+
+# Labels — Atlassian rejects labels above 255 chars; 30 distinct labels per
+# write covers the realistic "list every component this ticket touches"
+# case without giving a misbehaving caller free rein.
+JIRA_LABEL_MAX_COUNT: int = 30
+JIRA_LABEL_MAX_CHARS: int = 255
+
+# Default link-type allowlist (decision-4).  Operators may extend this list
+# via ``config/context-filters.yaml jira.link_types: [...]``; the default
+# covers the most common SDLC use cases (blocks / relates).
+DEFAULT_JIRA_LINK_TYPES: tuple[str, ...] = ("Blocks", "Relates")
 
 
 class JiraUpstreamError(RuntimeError):
@@ -472,6 +545,320 @@ class JiraClient:
         _raise_for_status(response, path)
         return _safe_json(response, path)
 
+    # -- Write verbs (issue #1924) ------------------------------------------
+    #
+    # These methods bypass ``validate_jira_api_path`` — their REST paths are
+    # construction-time constants (``"issue"``, ``"issue/<key>"``,
+    # ``"issue/<key>/comment"``, ``"issueLink"``) so the path-segment
+    # denylist (``transitions``, ``worklog``, ``attachments``, ``watchers``)
+    # cannot be reached by construction.  They build the Atlassian-shaped
+    # body dict, ADF-wrap rich-text fields, and consult
+    # ``jira_idempotency.get_or_run`` when the caller passes
+    # ``idempotency_key``.
+
+    def create_issue(
+        self,
+        *,
+        project_key: str,
+        issuetype: str | int,
+        summary: str,
+        description: str | dict[str, Any] | None = None,
+        labels: list[str] | None = None,
+        parent: str | None = None,
+        epic_link: str | None = None,
+        epic_link_field: str = "parent",
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a new Jira issue.
+
+        Builds the Atlassian REST body — ``fields.project.key=project_key``,
+        ``fields.issuetype.{name|id}``, ``fields.summary``,
+        ``fields.description=ADF`` (text wrapped, dict passed through),
+        ``fields.labels``, and either ``fields.parent.key`` or
+        ``fields.customfield_10014`` for epic-link dispatch (decision-2
+        default).
+
+        Args:
+            project_key: Atlassian project key (e.g. ``"ENG"``) the new
+                ticket belongs to.
+            issuetype: Either a name (``"Task"``) or numeric ID
+                (``10001``).  Strings that parse as ints are treated as
+                IDs, matching Atlassian's wire shape (``{"id": "10001"}``).
+            summary: Required, ≤ ``JIRA_SUMMARY_MAX_CHARS`` chars (route
+                layer enforces; method does not re-check).
+            description: Optional rich-text body.  Plain strings are wrapped
+                via ``jira_adf.wrap_text_as_adf``; dicts that pass
+                ``jira_adf.is_adf_dict`` go through unchanged.  ``None``
+                omits the field entirely.
+            labels: Optional list of label strings.  ``None`` omits.
+            parent: Optional parent ticket key.  When set, emits
+                ``fields.parent={"key": parent}``.
+            epic_link: Optional epic ticket key.  When set, routed via
+                ``epic_link_field`` (decision-2): ``"parent"`` →
+                ``fields.parent.key``; ``"customfield_10014"`` →
+                ``fields.customfield_10014``.  Never both.
+            epic_link_field: ``"parent"`` (next-gen / company-managed
+                projects, default) or ``"customfield_10014"`` (classic /
+                team-managed).  Loaded from ``JiraPolicy.epic_link_field``
+                at the route layer.
+            idempotency_key: Optional caller-supplied dedup token.  When
+                present, the cache in ``jira_idempotency`` is consulted
+                before issuing the upstream call.
+
+        Returns:
+            Atlassian's parsed response dict (typically
+            ``{"id", "key", "self"}`` — the route layer wraps it in the
+            ``{key, id, browse_url, status: "created"}`` envelope).
+
+        Raises:
+            JiraUpstreamError: On any non-2xx upstream status.
+            ValueError: If ``epic_link_field`` is unknown.
+        """
+        if epic_link_field not in ("parent", "customfield_10014"):
+            raise ValueError(
+                f"epic_link_field must be 'parent' or 'customfield_10014', "
+                f"got {epic_link_field!r}"
+            )
+
+        fields: dict[str, Any] = {
+            "project": {"key": project_key},
+            "issuetype": _build_issuetype_field(issuetype),
+            "summary": summary,
+        }
+        if description is not None:
+            fields["description"] = _coerce_adf(description)
+        if labels:
+            fields["labels"] = list(labels)
+
+        # Epic-link dispatch.  ``parent`` provided explicitly always wins
+        # for ``fields.parent`` — the route layer rejects calls that pass
+        # both ``parent`` AND ``epic_link`` so we never end up emitting two
+        # conflicting fields here.
+        if parent is not None:
+            fields["parent"] = {"key": parent}
+        if epic_link is not None:
+            if epic_link_field == "parent":
+                fields["parent"] = {"key": epic_link}
+            else:  # customfield_10014
+                fields["customfield_10014"] = epic_link
+
+        request_body: dict[str, Any] = {"fields": fields}
+
+        def _do_call() -> tuple[int, dict[str, Any]]:
+            response = self._request("POST", "issue", body=request_body)
+            _raise_for_status(response, "issue")
+            return response.status_code, _safe_json(response, "issue")
+
+        _, body = jira_idempotency.get_or_run(
+            "create",
+            project_key,
+            idempotency_key,
+            _do_call,
+        )
+        return body
+
+    def edit_issue(
+        self,
+        *,
+        key: str,
+        summary: str | None = None,
+        description: str | dict[str, Any] | None = None,
+        labels: list[str] | None = None,
+        add_labels: list[str] | None = None,
+        remove_labels: list[str] | None = None,
+        notify_users: bool = False,
+    ) -> None:
+        """Edit an existing Jira issue (``PUT /rest/api/3/issue/{key}``).
+
+        Two label modes — mutually exclusive at the method level:
+
+        - **Replace mode**: pass ``labels=[...]`` to overwrite the entire
+          list.  Emits ``{"fields": {"labels": [...]}}``.
+        - **Incremental mode**: pass ``add_labels=[...]`` and / or
+          ``remove_labels=[...]`` to mutate the existing list.  Emits
+          ``{"update": {"labels": [{"add": "x"}, ..., {"remove": "y"},
+          ...]}}``.
+
+        Combining ``labels`` with either ``add_labels`` / ``remove_labels``
+        raises ``ValueError`` — the route layer (Phase 3) returns 400 for
+        the same case before calling this method.
+
+        Atlassian defaults ``notifyUsers`` to ``true``; we omit the query
+        parameter entirely in that case to keep the URL clean.  When
+        ``notify_users=False`` we explicitly send ``notifyUsers=false`` —
+        decision-5 default for SDLC writes.
+
+        Args:
+            key: Ticket key to edit.
+            summary: New summary, or ``None`` to leave unchanged.
+            description: New description (text or ADF dict), or ``None`` to
+                leave unchanged.
+            labels: Replace-mode label list.
+            add_labels: Incremental add list.
+            remove_labels: Incremental remove list.
+            notify_users: Whether Atlassian should email watchers
+                (default: ``False`` per decision-5).
+
+        Returns:
+            ``None`` — Atlassian responds with HTTP 204 No Content on
+            success.
+
+        Raises:
+            ValueError: If both replace-mode and incremental-mode label
+                arguments are supplied.
+            JiraUpstreamError: On any non-2xx upstream status.
+        """
+        replace_mode = labels is not None
+        incremental_mode = (add_labels is not None) or (remove_labels is not None)
+        if replace_mode and incremental_mode:
+            raise ValueError(
+                "edit_issue: pass either 'labels' (replace mode) OR "
+                "'add_labels' / 'remove_labels' (incremental mode), not both"
+            )
+
+        body: dict[str, Any] = {}
+        fields_block: dict[str, Any] = {}
+        if summary is not None:
+            fields_block["summary"] = summary
+        if description is not None:
+            fields_block["description"] = _coerce_adf(description)
+        if replace_mode:
+            fields_block["labels"] = list(labels) if labels else []
+        if fields_block:
+            body["fields"] = fields_block
+
+        if incremental_mode:
+            label_ops: list[dict[str, str]] = []
+            for label in add_labels or []:
+                label_ops.append({"add": label})
+            for label in remove_labels or []:
+                label_ops.append({"remove": label})
+            body["update"] = {"labels": label_ops}
+
+        # Empty body — caller asked for a no-op edit.  We could short-circuit
+        # but Atlassian itself rejects empty edits with 400, so let the
+        # upstream surface the error rather than silently succeeding.
+
+        query: dict[str, Any] | None = None
+        if not notify_users:
+            query = {"notifyUsers": "false"}
+
+        response = self._request("PUT", f"issue/{key}", query=query, body=body)
+        _raise_for_status(response, f"issue/{key}")
+        # 204 No Content on success — no body to parse.
+
+    def add_comment(
+        self,
+        *,
+        key: str,
+        body: str | dict[str, Any],
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Add a comment to an existing Jira issue.
+
+        ``body`` can be plain text (auto-wrapped to ADF) or a pre-built ADF
+        dict (passed through).  Visibility (``visibility.type``,
+        ``visibility.value``) is intentionally not exposed — decision-6
+        default for v1.
+
+        Args:
+            key: Ticket key the comment lands on.
+            body: Comment body — plain string or ADF dict.
+            idempotency_key: Optional dedup token; cached in
+                ``jira_idempotency`` under
+                ``("comment", key, idempotency_key)``.
+
+        Returns:
+            Atlassian's parsed response dict for the new comment (id,
+            author, created, body, etc.).
+
+        Raises:
+            JiraUpstreamError: On any non-2xx upstream status.
+        """
+        request_body = {"body": _coerce_adf(body)}
+
+        def _do_call() -> tuple[int, dict[str, Any]]:
+            response = self._request("POST", f"issue/{key}/comment", body=request_body)
+            _raise_for_status(response, f"issue/{key}/comment")
+            return response.status_code, _safe_json(response, f"issue/{key}/comment")
+
+        # Cache key namespace = ticket key.  Two callers re-using the same
+        # opaque idempotency key against different tickets do not collide.
+        _, response_body = jira_idempotency.get_or_run(
+            "comment",
+            key,
+            idempotency_key,
+            _do_call,
+        )
+        return response_body
+
+    def create_issue_link(
+        self,
+        *,
+        link_type: str,
+        inward_key: str,
+        outward_key: str,
+        comment: str | dict[str, Any] | None = None,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        """Create a Jira issue link between two tickets.
+
+        Atlassian does NOT dedupe identical ``(inward, outward, type)``
+        triples — the same call repeated five times creates five identical
+        links.  Decision-28 mandates we extend the idempotency cache to
+        this verb so the gateway-side cache is the dedup boundary.
+
+        Args:
+            link_type: Atlassian link-type name (``"Blocks"``, ``"Relates"``,
+                etc.).  The route-layer schema validates this against the
+                operator-configurable allowlist (decision-4).
+            inward_key: Ticket key on the inward side of the link.
+            outward_key: Ticket key on the outward side of the link.
+            comment: Optional comment to attach to the link, surfaced via
+                Atlassian's ``comment`` field on ``issueLink`` (decision-23
+                — single round-trip with idempotency).
+            idempotency_key: Optional dedup token; cached under
+                ``("link", canonical_link_id(inward, outward, type),
+                idempotency_key)`` so two callers re-using the same opaque
+                key against different triples never alias.
+
+        Returns:
+            Atlassian's parsed response dict.  In practice
+            ``POST /rest/api/3/issueLink`` returns 201 with an empty body;
+            ``_safe_json`` wraps that as ``{}`` so the route layer can
+            still build a structured envelope.
+
+        Raises:
+            JiraUpstreamError: On any non-2xx upstream status.
+        """
+        body: dict[str, Any] = {
+            "type": {"name": link_type},
+            "inwardIssue": {"key": inward_key},
+            "outwardIssue": {"key": outward_key},
+        }
+        if comment is not None:
+            body["comment"] = {"body": _coerce_adf(comment)}
+
+        def _do_call() -> tuple[int, dict[str, Any]]:
+            response = self._request("POST", "issueLink", body=body)
+            _raise_for_status(response, "issueLink")
+            # ``POST /rest/api/3/issueLink`` returns 201 with an empty body;
+            # ``_safe_json`` raises on empty responses, so handle that here.
+            if not response.content:
+                return response.status_code, {}
+            return response.status_code, _safe_json(response, "issueLink")
+
+        cache_namespace = jira_idempotency.canonical_link_id(
+            inward_key, outward_key, link_type
+        )
+        _, response_body = jira_idempotency.get_or_run(
+            "link",
+            cache_namespace,
+            idempotency_key,
+            _do_call,
+        )
+        return response_body
+
 
 # -----------------------------------------------------------------------------
 # Helpers & module-level singleton
@@ -481,6 +868,46 @@ class JiraClient:
 def _not_found_envelope(key: str) -> dict[str, Any]:
     """Canonical ``not_found`` envelope used by ticket-read endpoints."""
     return {"status": "not_found", "key": key, "upstream_status": 404}
+
+
+def _coerce_adf(value: str | dict[str, Any]) -> dict[str, Any]:
+    """Return ADF — wrap a plain string, pass through a valid ADF dict.
+
+    Anything else raises ``ValueError``; the route layer body-validates
+    these inputs first, so this is a defence-in-depth check.
+    """
+    if isinstance(value, str):
+        return jira_adf.wrap_text_as_adf(value)
+    if jira_adf.is_adf_dict(value):
+        return value
+    raise ValueError(
+        "rich-text body must be a string or a valid ADF document dict"
+    )
+
+
+def _build_issuetype_field(issuetype: str | int) -> dict[str, str]:
+    """Translate an issuetype into the Atlassian wire shape.
+
+    - Integer (or all-digit string) → ``{"id": "<n>"}``.
+    - Non-numeric string → ``{"name": <s>}``.
+
+    Raises ``ValueError`` for empty / wrong-typed inputs so the route
+    layer sees a clean 400 instead of a 500 from Atlassian.
+    """
+    if isinstance(issuetype, bool):
+        # ``bool`` is a subclass of ``int`` — explicitly reject before the
+        # numeric branch below claims it.
+        raise ValueError("issuetype must be a string name or numeric id")
+    if isinstance(issuetype, int):
+        return {"id": str(issuetype)}
+    if isinstance(issuetype, str):
+        cleaned = issuetype.strip()
+        if not cleaned:
+            raise ValueError("issuetype must not be empty")
+        if cleaned.isdigit():
+            return {"id": cleaned}
+        return {"name": cleaned}
+    raise ValueError("issuetype must be a string name or numeric id")
 
 
 def _raise_for_status(response: httpx.Response, path: str) -> None:
@@ -551,9 +978,15 @@ def reset_jira_client() -> None:
 __all__ = [
     "ALLOWED_METHODS",
     "DEFAULT_EXPAND",
+    "DEFAULT_JIRA_LINK_TYPES",
     "DEFAULT_MAX_RESULTS",
     "HARD_MAX_RESULTS",
     "JIRA_API_ALLOWED_PATHS",
+    "JIRA_COMMENT_MAX_CHARS",
+    "JIRA_DESCRIPTION_MAX_CHARS",
+    "JIRA_LABEL_MAX_CHARS",
+    "JIRA_LABEL_MAX_COUNT",
+    "JIRA_SUMMARY_MAX_CHARS",
     "JIRA_WRITE_VERBS_DENIED",
     "JiraClient",
     "JiraCredentials",
