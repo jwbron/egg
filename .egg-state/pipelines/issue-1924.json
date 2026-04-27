@@ -318,10 +318,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-27T19:13:58.008744Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-27T19:19:04.378915Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Operator-configured customField allowlist (config/context-filters.yaml: jira.custom_fields: [...])\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -721,7 +721,7 @@
     }
   ],
   "created_at": "2026-04-27T18:38:49.382721Z",
-  "updated_at": "2026-04-27T19:15:01.131903Z",
+  "updated_at": "2026-04-27T19:19:04.404437Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -735,6 +735,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 37,
+  "version": 38,
   "jira_ticket": null
 }
