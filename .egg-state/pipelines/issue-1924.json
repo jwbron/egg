@@ -449,10 +449,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-27T19:13:58.511976Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-27T19:19:18.159111Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Both\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -721,7 +721,7 @@
     }
   ],
   "created_at": "2026-04-27T18:38:49.382721Z",
-  "updated_at": "2026-04-27T19:19:16.461927Z",
+  "updated_at": "2026-04-27T19:19:18.190739Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -735,6 +735,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 44,
+  "version": 45,
   "jira_ticket": null
 }
