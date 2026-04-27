@@ -81,6 +81,8 @@ egg-orch overseer consult-advisor \
   --output-file /tmp/advisor-verdict.json
 ```
 
+The verb auto-resolves `pipeline_id` from `EGG_PIPELINE_ID` (always set in the overseer context) and reads `PipelineConfig.overseer_advisor_model` from the orchestrator status endpoint to pass the configured alias to the advisor; if both the env var and the optional positional `pipeline_id` are absent — or the orchestrator is unreachable — the verb falls back to the `opus` default.
+
 The verdict is the JSON-serialized `AdvisorVerdict` with the same fields documented below (decision / priority / alert_summary / alert_detail / issue_title / issue_body / reasoning).
 
 **Trigger gate (the load-bearing constraint).** Invoke the advisor only when **both** conditions hold simultaneously:
@@ -219,6 +221,7 @@ The following four detectors run inside `sandbox/overseer_monitor.py::run_migrat
 - **agent-silent**: running agent with zero messages and `first_seen_at` older than `overseer_silent_agent_threshold_seconds` (default **600s**, 10 min). Anomaly type: `agent-silent`, priority: `p2`.
 - **agent-nack-unresolved**: NACK outstanding without producer progress for `overseer_nack_unresolved_seconds` (default **180s**). Anomaly type: `agent-nack-unresolved`, priority: `p1`.
 - **phase-long-running**: implement phase WORKING for longer than `overseer_long_running_phase_seconds` (default **3600s**, 60 min). Anomaly type: `phase-long-running`, priority: `p2`.
+- **config-unavailable** (issue #2118): the `--once` cycle could not produce a populated `config_subset`. Emitted when the pipeline-status query returned no payload (`pipeline_unreachable` — `_orch_get` swallowed an HTTP/network error), the response omitted the `config` key (`config_key_missing` — server-side route hit its defensive `try/except (AttributeError, TypeError)` branch), or the `config` block was present but empty (`config_block_empty`). Anomaly type: `config-unavailable`, priority: `high`, `calibration_only=False` regardless of `overseer_owns_host_detection` because the tripwire signals that calibration itself is degraded. The cause is encoded in both `summary` and `detail`. Suppression uses a synthetic `_config_unavailable` role with a 600s threshold (≈20-minute re-alert cadence under `2× threshold`). When you see this in the cycle JSON, broadcast an `OVERSEER_ALERT` and start by checking orchestrator reachability and `EGG_PIPELINE_ID`; the four migrated detectors above are running against hardcoded thresholds while it persists.
 
 Per-anomaly suppression uses `egg_overseer.state.AgentTimingEntry.alerted_anomalies` so each `(role, anomaly)` pair fires at most once per `2× threshold` window per phase.
 

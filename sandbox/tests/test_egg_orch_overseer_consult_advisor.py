@@ -128,14 +128,23 @@ def _make_args(
     inputs_file: str | Path,
     output_file: str | Path | None = None,
     json_flag: bool = True,
+    pipeline_id: str | None = None,
     recent_log_bytes_cap: int | None = None,
 ) -> argparse.Namespace:
     return argparse.Namespace(
         inputs_file=str(inputs_file),
         output_file=str(output_file) if output_file else None,
         json=json_flag,
+        pipeline_id=pipeline_id,
         recent_log_bytes_cap=recent_log_bytes_cap,
     )
+
+
+@pytest.fixture(autouse=True)
+def _clear_egg_pipeline_id_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stop ambient EGG_PIPELINE_ID from triggering the orch_client lookup
+    in tests that do not exercise the pipeline-id branch (issue #2113)."""
+    monkeypatch.delenv("EGG_PIPELINE_ID", raising=False)
 
 
 def _write_inputs(path: Path, *, data: object | None = None) -> None:
@@ -369,6 +378,198 @@ class TestOverseerConsultAdvisorCommand:
             rc = cmd_overseer_consult_advisor(_make_args(inputs_file=inputs, output_file=out_path))
         assert rc == 2
         assert "cannot write --output-file" in capsys.readouterr().err
+
+    def test_pipeline_id_resolves_advisor_model_from_config(self, tmp_path: Path) -> None:
+        """Regression for issue #2113.
+
+        When a pipeline-id is provided (positional arg or EGG_PIPELINE_ID),
+        the verb must read PipelineConfig.overseer_advisor_model from the
+        orchestrator status endpoint and pass it through to consult_advisor
+        — previously config=None was hardcoded so the knob silently
+        defaulted to 'opus'.
+        """
+        inputs = tmp_path / "inputs.json"
+        _write_inputs(inputs)
+
+        captured: dict[str, object] = {}
+
+        async def _fake_consult_advisor(**kwargs: object) -> AdvisorVerdict:
+            captured.update(kwargs)
+            return AdvisorVerdict(decision="watch", reasoning="ok")
+
+        class _StubClient:
+            def get_pipeline_status(self, pid: str) -> dict[str, object]:
+                assert pid == "pipe-abc"
+                return {"config": {"overseer_advisor_model": "claude-opus-4-7"}}
+
+        with (
+            patch("egg_overseer.advisor.consult_advisor", side_effect=_fake_consult_advisor),
+            patch("egg_lib.orch_client.OrchClient", lambda: _StubClient()),
+        ):
+            rc = cmd_overseer_consult_advisor(
+                _make_args(inputs_file=inputs, pipeline_id="pipe-abc")
+            )
+
+        assert rc == 0
+        cfg = captured["config"]
+        assert cfg is not None
+        assert getattr(cfg, "overseer_advisor_model", None) == "claude-opus-4-7"
+
+    def test_pipeline_id_from_env_resolves_advisor_model(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """EGG_PIPELINE_ID populates pipeline_id when the positional arg
+        is absent — same plumbing as every other overseer verb."""
+        inputs = tmp_path / "inputs.json"
+        _write_inputs(inputs)
+        monkeypatch.setenv("EGG_PIPELINE_ID", "pipe-env")
+
+        captured: dict[str, object] = {}
+
+        async def _fake(**kwargs: object) -> AdvisorVerdict:
+            captured.update(kwargs)
+            return AdvisorVerdict(decision="watch", reasoning="ok")
+
+        class _StubClient:
+            def get_pipeline_status(self, pid: str) -> dict[str, object]:
+                assert pid == "pipe-env"
+                return {"config": {"overseer_advisor_model": "sonnet"}}
+
+        with (
+            patch("egg_overseer.advisor.consult_advisor", side_effect=_fake),
+            patch("egg_lib.orch_client.OrchClient", lambda: _StubClient()),
+        ):
+            rc = cmd_overseer_consult_advisor(_make_args(inputs_file=inputs))
+
+        assert rc == 0
+        cfg = captured["config"]
+        assert cfg is not None
+        assert getattr(cfg, "overseer_advisor_model", None) == "sonnet"
+
+    def test_pipeline_id_status_failure_falls_back_to_default(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Orchestrator unreachable / 404 / etc. must not crash the verb;
+        the advisor still runs with config=None (default 'opus')."""
+        from egg_lib.orch_client import OrchestratorError
+
+        inputs = tmp_path / "inputs.json"
+        _write_inputs(inputs)
+
+        captured: dict[str, object] = {}
+
+        async def _fake(**kwargs: object) -> AdvisorVerdict:
+            captured.update(kwargs)
+            return AdvisorVerdict(decision="watch", reasoning="ok")
+
+        class _BoomClient:
+            def get_pipeline_status(self, pid: str) -> dict[str, object]:
+                raise OrchestratorError("503 service unavailable")
+
+        with (
+            patch("egg_overseer.advisor.consult_advisor", side_effect=_fake),
+            patch("egg_lib.orch_client.OrchClient", lambda: _BoomClient()),
+        ):
+            rc = cmd_overseer_consult_advisor(
+                _make_args(inputs_file=inputs, pipeline_id="pipe-fail")
+            )
+
+        assert rc == 0
+        assert captured["config"] is None
+        assert "falling back to default advisor model" in capsys.readouterr().err
+
+    def test_malformed_pipeline_id_falls_back_without_crashing(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A pipeline_id that fails the safe-ID regex (e.g. corrupted
+        EGG_PIPELINE_ID containing a stray space or slash) must skip the
+        lookup and fall back to config=None — *not* crash via
+        validate_id's sys.exit(1), which would collide with
+        AdvisorParseError's exit-code semantics. Review feedback on PR
+        #2158.
+        """
+        inputs = tmp_path / "inputs.json"
+        _write_inputs(inputs)
+
+        captured: dict[str, object] = {}
+
+        async def _fake(**kwargs: object) -> AdvisorVerdict:
+            captured.update(kwargs)
+            return AdvisorVerdict(decision="watch", reasoning="ok")
+
+        # OrchClient must NOT be invoked on a malformed id — patch it to
+        # blow up if the verb tries to reach the orchestrator anyway.
+        def _explode() -> object:
+            raise AssertionError("OrchClient must not be called for malformed pipeline_id")
+
+        with (
+            patch("egg_overseer.advisor.consult_advisor", side_effect=_fake),
+            patch("egg_lib.orch_client.OrchClient", _explode),
+        ):
+            rc = cmd_overseer_consult_advisor(
+                _make_args(inputs_file=inputs, pipeline_id="bad id/with/slash"),
+            )
+
+        assert rc == 0
+        assert captured["config"] is None
+        assert "is not a safe ID" in capsys.readouterr().err
+
+    def test_orch_client_import_failure_falls_back_without_crashing(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """If ``egg_lib.orch_client`` cannot be imported (e.g. the module
+        is unavailable in a stripped runtime), the verb must warn and
+        fall back to ``config=None`` rather than crashing with NameError
+        from a combined ``except (OrchestratorError, ImportError)`` that
+        cannot resolve ``OrchestratorError``. Review feedback on PR
+        #2158.
+        """
+        import builtins
+
+        inputs = tmp_path / "inputs.json"
+        _write_inputs(inputs)
+
+        captured: dict[str, object] = {}
+
+        async def _fake(**kwargs: object) -> AdvisorVerdict:
+            captured.update(kwargs)
+            return AdvisorVerdict(decision="watch", reasoning="ok")
+
+        real_import = builtins.__import__
+
+        def _import(name: str, *args: object, **kwargs: object) -> object:
+            if name == "egg_lib.orch_client":
+                raise ImportError("simulated missing orch_client")
+            return real_import(name, *args, **kwargs)  # type: ignore[arg-type]
+
+        with (
+            patch("egg_overseer.advisor.consult_advisor", side_effect=_fake),
+            patch.object(builtins, "__import__", side_effect=_import),
+        ):
+            rc = cmd_overseer_consult_advisor(
+                _make_args(inputs_file=inputs, pipeline_id="pipe-noimport")
+            )
+
+        assert rc == 0
+        assert captured["config"] is None
+        err = capsys.readouterr().err
+        assert "cannot import egg_lib.orch_client" in err
+        assert "falling back to default advisor model" in err
+
+    def test_parser_accepts_positional_pipeline_id(self) -> None:
+        """The new positional arg must coexist with the existing flags."""
+        parser = create_parser()
+        ns = parser.parse_args(
+            [
+                "overseer",
+                "consult-advisor",
+                "pipe-xyz",
+                "--inputs-file",
+                "/tmp/inputs.json",
+            ]
+        )
+        assert ns.pipeline_id == "pipe-xyz"
+        assert ns.inputs_file == "/tmp/inputs.json"
 
     def test_recent_log_bytes_cap_flag_forwarded(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]

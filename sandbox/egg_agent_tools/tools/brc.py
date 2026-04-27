@@ -75,6 +75,17 @@ _ACK_SCHEMA: dict[str, Any] = {
     "properties": {
         "producer_role": {"type": "string", "description": "Producer being ACKed"},
         "reason": {"type": "string", "description": "Reason / review summary"},
+        "ack_version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": (
+                "Producer's proposal version you reviewed (#2142). The "
+                "orchestrator rejects the ACK with status 'stale_version' if "
+                "the producer has since re-proposed; read the version from "
+                "the CONSENSUS_PROPOSE message you waited on. Must be >= 1: "
+                "v0 means no proposal exists yet."
+            ),
+        },
         "files_reviewed": {
             "type": "array",
             "items": {"type": "string"},
@@ -93,7 +104,7 @@ _ACK_SCHEMA: dict[str, Any] = {
         "pipeline_id": {"type": "string"},
         "role": {"type": "string"},
     },
-    "required": ["producer_role", "reason"],
+    "required": ["producer_role", "reason", "ack_version"],
 }
 
 _NACK_SCHEMA: dict[str, Any] = {
@@ -104,6 +115,17 @@ _NACK_SCHEMA: dict[str, Any] = {
             "type": "string",
             "description": "Specific blocking reason; producer must address",
         },
+        "nack_version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": (
+                "Producer's proposal version you reviewed (#2142). The "
+                "orchestrator rejects the NACK with status 'stale_version' "
+                "if the producer has since re-proposed; read the version "
+                "from the CONSENSUS_PROPOSE message you waited on. Must be "
+                ">= 1: v0 means no proposal exists yet."
+            ),
+        },
         "files_reviewed": {
             "type": "array",
             "items": {"type": "string"},
@@ -111,7 +133,7 @@ _NACK_SCHEMA: dict[str, Any] = {
         "pipeline_id": {"type": "string"},
         "role": {"type": "string"},
     },
-    "required": ["producer_role", "reason"],
+    "required": ["producer_role", "reason", "nack_version"],
 }
 
 _CONFIRM_SCHEMA: dict[str, Any] = {

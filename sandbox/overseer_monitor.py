@@ -191,13 +191,23 @@ def run_migrated_detectors(
     config_subset: dict[str, Any],
     progress_events: list[dict[str, Any]],
     consensus: dict[str, Any],
+    config_unavailable_cause: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Run the four migrated detectors for the current cycle.
+    """Run the migrated detectors plus the config-unavailable tripwire.
 
-    Detectors honour the ``overseer_owns_host_detection`` flag — when
-    False (calibration-window default), they short-circuit so /sdlc's
-    host detectors stay the active source. When True, the overseer is
-    the sole source of these alerts.
+    Four migrated detectors (``agent-stall``, ``agent-silent``,
+    ``agent-nack-unresolved``, ``phase-long-running``) honour the
+    ``overseer_owns_host_detection`` flag — when False (calibration-
+    window default), they emit alerts marked ``calibration_only=True``
+    so /sdlc's host detectors stay the authoritative source. When
+    True, the overseer is the sole source of these alerts.
+
+    The fifth path is the issue #2118 ``config-unavailable`` tripwire,
+    which fires when ``config_unavailable_cause`` is not None. It
+    deliberately ignores the calibration flag (``calibration_only=False``
+    unconditionally) because it is meta-detection: it signals that
+    the calibration data itself is degraded and the four detectors
+    above are running on hardcoded fallback thresholds.
 
     Args:
         base_url: Orchestrator base URL.
@@ -208,6 +218,9 @@ def run_migrated_detectors(
         progress_events: Recent progress events (used to update
             ``has_any_messages`` / ``last_seen``).
         consensus: Current consensus dict.
+        config_unavailable_cause: When non-None, append the issue
+            #2118 ``config-unavailable`` tripwire with this cause
+            string encoded in the alert. Pass None on the happy path.
 
     Returns:
         List of alert dicts the agent should consider emitting via
@@ -248,7 +261,9 @@ def run_migrated_detectors(
         # would mask the problem (zero overseer alerts forever, no
         # operator-visible signal); fail loud instead.
         # Only swallow when EGG_OVERSEER_TEST_MODE=1 (lightweight
-        # unit tests that mock the cycle).
+        # unit tests that mock the cycle). Note: this also masks the
+        # config-unavailable tripwire below, since the tripwire lives
+        # after this import-bail block.
         if os.environ.get("EGG_OVERSEER_TEST_MODE") == "1":
             return []
         # Emit a structured stderr line operators can grep for, then
@@ -450,6 +465,46 @@ def run_migrated_detectors(
                     )
                     synth.alerted_anomalies["phase-long-running"] = now
 
+    # Issue #2118: when the caller could not produce a populated
+    # config_subset, emit a high-priority tripwire so downstream
+    # consumers see calibration is degraded. Use the synthetic-role
+    # suppression pattern (matches _phase_long_running above) so a
+    # sustained outage at --once polling cadence does not flood the
+    # cycle's detector_alerts every tick. The 600s hardcoded floor —
+    # config_subset is empty when this fires, so we cannot derive the
+    # window from it — yields a ~20-minute re-alert cadence under
+    # _SUPPRESSION_FACTOR=2, in line with the silent-agent default.
+    if config_unavailable_cause is not None:
+        config_unavail_threshold = 600
+        synth = state.entries.setdefault(
+            "_config_unavailable",
+            AgentTimingEntry(
+                role="_config_unavailable",
+                phase=phase_name,
+                phase_entered_at=now,
+                first_seen_at=now,
+            ),
+        )
+        if not _suppress(synth, "config-unavailable", config_unavail_threshold, now):
+            alerts.append(
+                {
+                    "anomaly": "config-unavailable",
+                    "priority": "high",
+                    "role": "overseer",
+                    "summary": (
+                        "overseer running with default thresholds; "
+                        f"pipeline status returned no usable config "
+                        f"({config_unavailable_cause})"
+                    ),
+                    "detail": (
+                        "Calibration regressions are invisible until this clears. "
+                        f"cause={config_unavailable_cause}; pipeline_id={pipeline_id}."
+                    ),
+                    "calibration_only": False,
+                }
+            )
+            synth.alerted_anomalies["config-unavailable"] = now
+
     # Persist updated alert bookkeeping. Best-effort — a write failure
     # logs but does not abort the cycle.
     try:
@@ -510,6 +565,26 @@ def run_once(
     # detectors during the first release; the cleanup-PR follow-up flips
     # the default and deletes the dormant /sdlc code blocks).
     config_subset = pipeline_data.get("config", {}) or {}
+
+    # Issue #2118: when ``config_subset`` is empty the migrated detectors
+    # silently fall back to hardcoded thresholds, masking calibration
+    # regressions. ``pipeline_data`` itself can be empty because
+    # ``_orch_get`` swallows HTTPError/URLError/TimeoutError (including
+    # the 400 surfaced for ``InvalidPipelineIdError``); the ``config``
+    # block can also be missing on a 200 response if the orchestrator's
+    # status route hit its defensive ``except (AttributeError,
+    # TypeError)`` branch. Pass the cause to ``run_migrated_detectors``
+    # so it can emit a high-priority tripwire (with state-based
+    # suppression) alongside the other migrated alerts.
+    config_unavailable_cause: str | None = None
+    if not config_subset:
+        if not pipeline_data:
+            config_unavailable_cause = "pipeline_unreachable"
+        elif "config" not in pipeline_data:
+            config_unavailable_cause = "config_key_missing"
+        else:
+            config_unavailable_cause = "config_block_empty"
+
     detector_alerts = run_migrated_detectors(
         base_url=base_url,
         pipeline_id=pipeline_id,
@@ -517,6 +592,7 @@ def run_once(
         config_subset=config_subset,
         progress_events=progress,
         consensus=consensus,
+        config_unavailable_cause=config_unavailable_cause,
     )
 
     # Tier-1 intersection gate (decision-18). The advisor is invoked

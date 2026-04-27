@@ -84,6 +84,60 @@ the wrapper back off (≤ 2 s in test mode, exponential in production) and
 retry. A permanent error (exit 3 — 4xx, bad pipeline id, argparse misuse)
 makes the wrapper exit 1 so the agent fails fast.
 
+### Multi-reviewer NACK aggregation barrier (#2142)
+
+When two or more reviewers have NACKed the producer's current version,
+the orchestrator rejects the producer's first re-propose with HTTP 409
+and a structured envelope. This forces aggregation — without the
+barrier, a producer that fixes only the first NACK from wait-loop and
+re-proposes would silently supersede in-flight NACKs from other
+reviewers, who would then re-NACK the new version verbatim.
+
+```bash
+# Re-propose attempt — orchestrator rejects with the inline NACK list
+egg-orch consensus propose --changed-artifacts "src/auth.py" \
+    --summary "Fixed reviewer_security finding..." \
+    --commit-sha $(git rev-parse HEAD)
+# Exit 2:
+# Re-propose blocked: 3 unresolved NACK(s) on v1
+#   [reviewer_security] (v1) SQL injection at auth.py:42 ...
+#   [reviewer_code]     (v1) Missing input validation at auth.py:89 ...
+#   [reviewer_contract] (v1) API surface diverged from contract task-3-2 ...
+# Address every finding above and re-propose. The retry will succeed
+# once you've been notified of the full set.
+```
+
+The agent then aggregates every blocking finding into one re-propose;
+the retry advances the version. Single-reviewer NACK cases bypass the
+barrier — no extra round-trip when there's nothing to aggregate. The
+MCP-counterpart (`mcp__brc__propose`) returns
+`{"ok": false, "status": "open_nacks_blocked", "rejection": {...}}`
+with the NACK array under `rejection.nacks` so the agent can introspect
+without parsing stderr.
+
+### Stale-version verdict rejection (#2142)
+
+A reviewer whose ACK or NACK lands after the producer has re-proposed
+is rejected with HTTP 409 and the producer's current proposal snapshot
+inlined.
+
+```bash
+egg-orch consensus ack coder --files-reviewed src/auth.py --reason "..."
+# Exit 2:
+# ACK rejected: producer coder is at v2 (you reviewed an older version).
+#   Current commit: 7f3a1c8...
+#   Current artifacts: src/auth.py, src/session.py
+# Re-fetch the branch, re-review against the current version, and re-submit.
+```
+
+Re-fetch (`git fetch && git merge`), re-review the diff against the
+current commit (typically a small diff against what you just read), and
+re-submit your verdict. Don't retry blindly with the same payload —
+the orchestrator will reject again until you review the current
+version. The MCP-counterpart returns
+`{"ok": false, "status": "stale_version", "rejection": {...}}` with
+the snapshot under `rejection.current_proposal`.
+
 ## 2. The Four Anti-Patterns (from #1897)
 
 Each of these was observed in production pipelines before #1897 and

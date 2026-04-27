@@ -130,12 +130,53 @@ class PeerConsensusTracker:
         # still-ready producer on the next ACK/PROPOSE, which is harmless
         # because handle_confirmed is idempotent under check_confirm_guard.
         self._nudged_versions: dict[str, int] = {}
+        # Open-NACK barrier (#2142): the latest NACK timestamp that the
+        # producer has been informed of via a re_propose rejection.  Reset on
+        # successful re_propose (version advances; prior NACKs are historical).
+        # Forces aggregation in multi-reviewer concurrent BRC: a producer
+        # cannot advance the proposal version while NACKs against the current
+        # version remain undelivered.
+        self._open_nack_notified_at: dict[str, datetime] = {}
 
     @property
     def confirmed_roles(self) -> frozenset[str]:
         """Read-only view of roles that have completed the full confirmation flow."""
         with self._lock:
             return frozenset(self._confirmed)
+
+    def get_current_proposal_snapshot(self, producer: str) -> dict[str, Any]:
+        """Return a structured snapshot of a producer's current proposal.
+
+        Used by signal handlers to inline the current proposal artifacts in
+        stale-version rejection envelopes (#2142) so a reviewer whose
+        verdict targeted a superseded version can immediately re-review the
+        latest one without a separate fetch.
+        """
+        with self._lock:
+            return {
+                "producer": producer,
+                "version": self.matrix.get_proposal_version(producer),
+                "artifacts": list(self._proposal_artifacts.get(producer, [])),
+                "commit_sha": self._proposal_commit_shas.get(producer, ""),
+            }
+
+    def _current_proposal_snapshots(self, producers: list[str]) -> dict[str, dict[str, Any]]:
+        """Return current proposal snapshots keyed by producer role.
+
+        Caller MUST hold ``self._lock``.  De-duplicates and skips falsy
+        entries; missing producers map to an empty snapshot.
+        """
+        out: dict[str, dict[str, Any]] = {}
+        for producer in producers:
+            if not producer or producer in out:
+                continue
+            out[producer] = {
+                "producer": producer,
+                "version": self.matrix.get_proposal_version(producer),
+                "artifacts": list(self._proposal_artifacts.get(producer, [])),
+                "commit_sha": self._proposal_commit_shas.get(producer, ""),
+            }
+        return out
 
     def register_agent(self, role: str) -> None:
         """Register an agent for consensus tracking."""
@@ -243,13 +284,25 @@ class PeerConsensusTracker:
 
         Validates attestation, transitions agent to PROPOSED, records
         in approval matrix.
+
+        **Open-NACK barrier (#2142):** when the producer is past v0 (i.e.
+        the call is effectively a re-propose without ``--changed-artifacts``)
+        the barrier check fires here too — otherwise a producer could bypass
+        ``handle_re_propose``'s aggregation enforcement by omitting the
+        ``changed_artifacts`` field.  The barrier self-skips when there are
+        fewer than 2 distinct NACKing reviewers.
         """
         with self._lock:
+            barrier = self._open_nacks_barrier_response(agent_role)
+            if barrier is not None:
+                return barrier
             result = self._handle_propose_inner(agent_role, payload)
             # Record explicit proposal timestamp (not updated by auto-repropose)
             # so check_auto_repropose can suppress redundant re-reviews when a
             # push arrives shortly after an explicit proposal.
             self._last_explicit_propose_timestamp[agent_role] = datetime.now(UTC)
+            # Version advanced — prior-version NACKs are historical now (#2142).
+            self._open_nack_notified_at.pop(agent_role, None)
             return result
 
     def _handle_propose_inner(
@@ -335,21 +388,32 @@ class PeerConsensusTracker:
     ) -> dict[str, Any]:
         """Handle a CONSENSUS_ACK from a reviewer."""
         with self._lock:
-            # Use the version from the reviewer's payload so the guard can
-            # detect stale ACKs (reviewer reviewed v1 but producer is now v2).
-            # Falls back to the current version for backward compatibility.
-            ack_version = payload.get(
-                "ack_version", self.matrix.get_proposal_version(producer_role)
-            )
+            # Take the reviewer's version claim straight from the payload
+            # — no fallback to the current version, otherwise the guard
+            # silently passes whenever the caller doesn't set the field
+            # (#2142).  When ``ack_version`` is ``None`` (in-process tests
+            # that pre-date version plumbing) the guard skips its
+            # version-match check; the production CLI / MCP path always
+            # populates it so the strict check fires there.
+            ack_version_claim = payload.get("ack_version")
             guard = check_ack_guard(
                 reviewer_role,
                 producer_role,
                 self.graph,
                 matrix=self.matrix,
-                ack_version=ack_version,
+                ack_version=ack_version_claim,
             )
             if not guard.allowed:
                 raise ValueError(guard.reason)
+            # The recorded ACK is always tied to the proposal version it
+            # acknowledged — the guard above guaranteed the claim matches
+            # current, or there was no claim (test path) and we record at
+            # the current version.
+            ack_version = (
+                ack_version_claim
+                if ack_version_claim is not None
+                else self.matrix.get_proposal_version(producer_role)
+            )
 
             # Validate review payload
             review = ReviewPayload(verdict="ACK", **payload)
@@ -420,11 +484,20 @@ class PeerConsensusTracker:
     ) -> dict[str, Any]:
         """Handle a CONSENSUS_NACK from a reviewer."""
         with self._lock:
+            # Take the reviewer's version claim straight from the payload
+            # — no fallback to the current version, otherwise the guard
+            # silently passes whenever the caller doesn't set the field
+            # (#2142).  When ``nack_version`` is ``None`` (in-process
+            # tests that pre-date version plumbing) the guard skips its
+            # version-match check; the production CLI / MCP path always
+            # populates it so the strict check fires there.
+            nack_version = payload.get("nack_version")
             guard = check_nack_guard(
                 reviewer_role,
                 producer_role,
                 self.graph,
                 matrix=self.matrix,
+                nack_version=nack_version,
             )
             if not guard.allowed:
                 raise ValueError(guard.reason)
@@ -630,10 +703,18 @@ class PeerConsensusTracker:
                         role=agent_role,
                         stale_acks=guard.details.get("stale_acks"),
                     )
+                    stale_acks = guard.details.get("stale_acks") or []
                     return {
                         "status": "pending_acks",
                         "message": guard.reason,
-                        "stale_acks": guard.details.get("stale_acks"),
+                        "stale_acks": stale_acks,
+                        # Inline the current proposal of each producer the
+                        # reviewer must re-ACK so the reviewer can re-review
+                        # without a separate fetch (#2142, symmetry with the
+                        # ack/nack stale_version envelope).
+                        "current_proposals": self._current_proposal_snapshots(
+                            [s.get("producer", "") for s in stale_acks]
+                        ),
                     }
 
                 if guard_type == "unresolved_nacks":
@@ -643,10 +724,14 @@ class PeerConsensusTracker:
                         role=agent_role,
                         unresolved_nacks=guard.details.get("unresolved_nacks"),
                     )
+                    unresolved_nacks = guard.details.get("unresolved_nacks") or []
                     return {
                         "status": "pending_acks",
                         "message": guard.reason,
-                        "unresolved_nacks": guard.details.get("unresolved_nacks"),
+                        "unresolved_nacks": unresolved_nacks,
+                        "current_proposals": self._current_proposal_snapshots(
+                            [n.get("producer", "") for n in unresolved_nacks]
+                        ),
                     }
 
                 if guard_type == "stale_nacks":
@@ -656,10 +741,14 @@ class PeerConsensusTracker:
                         role=agent_role,
                         stale_nacks=guard.details.get("stale_nacks"),
                     )
+                    stale_nacks = guard.details.get("stale_nacks") or []
                     return {
                         "status": "pending_acks",
                         "message": guard.reason,
-                        "stale_nacks": guard.details.get("stale_nacks"),
+                        "stale_nacks": stale_nacks,
+                        "current_proposals": self._current_proposal_snapshots(
+                            [s.get("producer", "") for s in stale_nacks]
+                        ),
                     }
 
                 # Fallback for any unhandled guard type
@@ -723,8 +812,22 @@ class PeerConsensusTracker:
 
         Holds the lock for the entire operation (invalidation + re-proposal)
         to prevent race conditions between releasing and re-acquiring.
+
+        **Open-NACK barrier (#2142):** if NACKs landed against the current
+        proposal version that the producer has not yet been notified of
+        (i.e. landed since the last re_propose attempt), the orchestrator
+        rejects with status ``open_nacks_blocked`` and surfaces every
+        current-version NACK inline. This forces multi-reviewer aggregation:
+        producers must address all known NACKs, not just the first one they
+        saw via wait-loop. After one rejection the producer has been
+        informed; a retry with the same NACK set is allowed (the producer's
+        re_propose is the act of addressing them).
         """
         with self._lock:
+            barrier = self._open_nacks_barrier_response(agent_role)
+            if barrier is not None:
+                return barrier
+
             # First, do scoped re-evaluation
             if changed_artifacts:
                 invalidated = self.matrix.invalidate_overlapping_acks(agent_role, changed_artifacts)
@@ -743,9 +846,89 @@ class PeerConsensusTracker:
             result = self._handle_propose_inner(agent_role, payload, _skip_ack_guard=True)
             result["invalidated_reviewers"] = invalidated
 
+            # Version advanced — prior-version NACKs are historical now.
+            self._open_nack_notified_at.pop(agent_role, None)
+
             self._run_invariant_checks("re_propose")
 
             return result
+
+    def _open_nacks_barrier_response(self, producer: str) -> dict[str, Any] | None:
+        """Return a structured rejection if the producer has unnotified NACKs.
+
+        Caller MUST hold ``self._lock``.
+
+        The barrier rejects re_propose calls when NACKs against the current
+        proposal version exist that the producer has not yet been informed of
+        via a prior rejection.  After one rejection the ``notified_at``
+        watermark advances; a retry with no new NACKs proceeds normally.
+        Returns ``None`` if there is no active barrier.
+
+        **Scoping**: the barrier only fires when **two or more distinct
+        reviewers** have NACKed the current version.  Single-reviewer NACKs
+        cannot race the multi-reviewer aggregation hazard the barrier exists
+        to prevent — the producer received that one NACK via wait-loop and
+        is acting on it.  Forcing an extra round-trip there would add cost
+        with no protection benefit (#2142).
+        """
+        current_version = self.matrix.get_proposal_version(producer)
+        if current_version == 0:
+            return None
+
+        relevant: list[tuple[str, Any]] = []
+        for reviewer, entry in self.matrix.get_nack_entries_for(producer):
+            if entry.version == current_version and entry.timestamp is not None:
+                relevant.append((reviewer, entry))
+        # Only the multi-reviewer aggregation race is in scope (#2142).
+        # ``get_nack_entries_for`` returns one entry per reviewer, so
+        # ``len(relevant)`` == number of distinct NACKing reviewers.
+        if len(relevant) < 2:
+            return None
+
+        max_ts = max(entry.timestamp for _, entry in relevant)
+        last_notified = self._open_nack_notified_at.get(producer)
+        if last_notified is not None and max_ts <= last_notified:
+            # Producer has already seen this NACK set — let re_propose proceed.
+            return None
+
+        self._open_nack_notified_at[producer] = max_ts
+
+        nacks_payload = [
+            {
+                "reviewer": reviewer,
+                "version": entry.version,
+                "reason": entry.reason,
+                "artifact_refs": list(entry.nack_artifact_refs),
+                "timestamp": entry.timestamp.isoformat() if entry.timestamp else None,
+            }
+            for reviewer, entry in relevant
+        ]
+        nacking_reviewers = [reviewer for reviewer, _ in relevant]
+
+        emit_event(
+            EventType.CONSENSUS_NACK_RECEIVED,
+            self.pipeline_id,
+            data={
+                "barrier": "open_nacks_blocked",
+                "producer": producer,
+                "version": current_version,
+                "nacking_reviewers": nacking_reviewers,
+            },
+        )
+
+        return {
+            "status": "open_nacks_blocked",
+            "producer": producer,
+            "current_version": current_version,
+            "nacking_reviewers": nacking_reviewers,
+            "nacks": nacks_payload,
+            "message": (
+                f"Re-propose blocked: {len(nacks_payload)} unresolved "
+                f"NACK(s) on v{current_version} from {nacking_reviewers}. "
+                f"The full NACK content is included inline; address every "
+                f"finding from every NACKing reviewer in your next re-propose."
+            ),
+        }
 
     def check_auto_repropose(
         self,
@@ -921,6 +1104,13 @@ class PeerConsensusTracker:
             result["invalidated_reviewers"] = invalidated
             result["auto_re_propose"] = True
             result["auto_trigger"] = "auto_push"
+
+            # Version advanced — prior-version NACKs are historical now (#2142).
+            # The barrier doesn't fire on auto-push (system-triggered, not an
+            # explicit producer action), but the watermark must still pop so a
+            # subsequent explicit propose isn't rejected against a stale entry
+            # that no longer applies to the current version.
+            self._open_nack_notified_at.pop(agent_role, None)
 
             # Update auto re-propose tracking state
             self._last_auto_repropose_timestamp[agent_role] = datetime.now(UTC)

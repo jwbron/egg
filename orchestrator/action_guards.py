@@ -232,6 +232,7 @@ def check_nack_guard(
     producer_role: str,
     graph: ReviewGraph,
     matrix: ApprovalMatrix | None = None,
+    nack_version: int | None = None,
 ) -> GuardResult:
     """Check whether a reviewer is allowed to NACK a producer.
 
@@ -240,6 +241,9 @@ def check_nack_guard(
     - A review edge must exist from reviewer to producer.
     - Producer must have proposed at least once (version > 0) — NACKing
       a producer that hasn't proposed is meaningless.
+    - If ``nack_version`` is provided, it must match the producer's current
+      proposal version.  Surfaces stale-version NACKs the same way ACKs do
+      so the reviewer is forced to re-review the latest proposal (#2142).
     """
     if not graph.is_reviewer(reviewer_role):
         return GuardResult(
@@ -269,6 +273,24 @@ def check_nack_guard(
                 details={
                     "guard": "zero_version_nack",
                     "producer": producer_role,
+                },
+            )
+
+        # Version-match guard: NACK version must match the producer's
+        # current proposal version (#2142).  Forces reviewers whose verdict
+        # was racing a producer's re-propose to re-review the new version.
+        if nack_version is not None and nack_version != current_version:
+            return GuardResult(
+                allowed=False,
+                reason=(
+                    f"NACK version mismatch: reviewer {reviewer_role} is NACKing "
+                    f"v{nack_version} but producer {producer_role} is at "
+                    f"v{current_version}. Re-review the latest proposal."
+                ),
+                details={
+                    "guard": "version_mismatch",
+                    "nack_version": nack_version,
+                    "current_version": current_version,
                 },
             )
 
