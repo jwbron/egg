@@ -50,6 +50,11 @@ def _require_version_int(req: dict[str, Any], key: str) -> int:
     so the orchestrator's version-match guard can detect stale verdicts and
     reject with a structured 409 (#2142).  Without this, the guard's fallback
     silently passes whenever the caller omits the field.
+
+    Enforces ``version >= 1`` because v0 is meaningless: there is no proposal
+    to ACK / NACK before the producer's first ``CONSENSUS_PROPOSE``.  Catching
+    this at the handler boundary surfaces a callers-confused-the-units bug
+    before the request hits the wire.
     """
     raw = req.get(key)
     if raw is None:
@@ -61,8 +66,8 @@ def _require_version_int(req: dict[str, Any], key: str) -> int:
         version = int(raw)
     except (TypeError, ValueError) as exc:
         raise HandlerError(f"'{key}' must be an integer; got {raw!r}") from exc
-    if version < 0:
-        raise HandlerError(f"'{key}' must be non-negative; got {version}")
+    if version < 1:
+        raise HandlerError(f"'{key}' must be >= 1; got {version} (v0 means no proposal exists yet)")
     return version
 
 

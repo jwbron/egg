@@ -77,12 +77,13 @@ _ACK_SCHEMA: dict[str, Any] = {
         "reason": {"type": "string", "description": "Reason / review summary"},
         "ack_version": {
             "type": "integer",
-            "minimum": 0,
+            "minimum": 1,
             "description": (
                 "Producer's proposal version you reviewed (#2142). The "
                 "orchestrator rejects the ACK with status 'stale_version' if "
                 "the producer has since re-proposed; read the version from "
-                "the CONSENSUS_PROPOSE message you waited on."
+                "the CONSENSUS_PROPOSE message you waited on. Must be >= 1: "
+                "v0 means no proposal exists yet."
             ),
         },
         "files_reviewed": {
@@ -116,12 +117,13 @@ _NACK_SCHEMA: dict[str, Any] = {
         },
         "nack_version": {
             "type": "integer",
-            "minimum": 0,
+            "minimum": 1,
             "description": (
                 "Producer's proposal version you reviewed (#2142). The "
                 "orchestrator rejects the NACK with status 'stale_version' "
                 "if the producer has since re-proposed; read the version "
-                "from the CONSENSUS_PROPOSE message you waited on."
+                "from the CONSENSUS_PROPOSE message you waited on. Must be "
+                ">= 1: v0 means no proposal exists yet."
             ),
         },
         "files_reviewed": {

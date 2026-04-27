@@ -14,6 +14,7 @@ Verifies:
 import argparse
 import sys
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -729,6 +730,94 @@ class TestNackHandlerThreadsNackVersion:
                         "files_reviewed": ["src/auth.py"],
                     }
                 )
+
+
+class TestRenderStaleVersionRejection:
+    """``_render_stale_version_rejection`` labels the producer correctly (#2142).
+
+    Regression for the bug where the rendered message read
+    ``producer <reviewer> is at v...`` because the formatter pulled from
+    ``rejection.reviewer`` instead of the snapshot's ``producer`` field.
+    The fix reads ``current_proposal.producer`` (with the response's
+    ``producer_role`` as fallback) so operators see the correct actor.
+    """
+
+    @staticmethod
+    def _stale_response(
+        producer: str = "coder", reviewer: str = "reviewer_security"
+    ) -> dict[str, Any]:
+        return {
+            "status": "stale_version",
+            "producer_role": producer,
+            "rejection": {
+                "reviewer": reviewer,
+                "current_proposal": {
+                    "producer": producer,
+                    "version": 7,
+                    "commit_sha": "deadbeef",
+                    "artifacts": ["src/a.py", "src/b.py"],
+                },
+            },
+        }
+
+    def test_stderr_labels_producer_not_reviewer(self, capsys):
+        """The rendered line names the producer, not the reviewer."""
+        from egg_lib.orch_cli import _render_stale_version_rejection
+
+        args = argparse.Namespace(json=False)
+        rc = _render_stale_version_rejection(args, self._stale_response(), "ACK")
+        assert rc == 2
+        err = capsys.readouterr().err
+        assert "producer coder is at v7" in err
+        assert "reviewer_security" not in err
+
+    def test_json_output_emits_rejection_envelope(self, capsys):
+        """--json prints the rejection envelope verbatim (no producer label issue)."""
+        from egg_lib.orch_cli import _render_stale_version_rejection
+
+        args = argparse.Namespace(json=True)
+        resp = self._stale_response()
+        rc = _render_stale_version_rejection(args, resp, "NACK")
+        assert rc == 2
+        import json as _json
+
+        out = capsys.readouterr().out
+        parsed = _json.loads(out)
+        assert parsed == resp["rejection"]
+
+    def test_falls_back_to_response_producer_role(self, capsys):
+        """If snapshot omits ``producer``, fall back to ``producer_role``."""
+        from egg_lib.orch_cli import _render_stale_version_rejection
+
+        resp = self._stale_response()
+        # Drop the snapshot's ``producer`` field — fallback must engage.
+        del resp["rejection"]["current_proposal"]["producer"]
+        args = argparse.Namespace(json=False)
+        _render_stale_version_rejection(args, resp, "ACK")
+        err = capsys.readouterr().err
+        assert "producer coder is at v7" in err
+
+    def test_cmd_consensus_ack_renders_stale_version(self, capsys):
+        """End-to-end: cmd_consensus_ack routes a stale_version response to the renderer."""
+        from egg_lib import orch_cli
+
+        args = argparse.Namespace(
+            pipeline_id="issue-42",
+            role="reviewer_security",
+            producer_role="coder",
+            reason="Reviewed src/a.py over fifty chars to satisfy the validator",
+            files_reviewed=["src/a.py"],
+            pre_merge_condition="",
+            ack_version=3,
+            json=False,
+        )
+        resp = self._stale_response()
+        with patch("egg_agent_tools.handlers.brc.brc_ack", return_value=resp):
+            rc = orch_cli.cmd_consensus_ack(args)
+        assert rc == 2
+        err = capsys.readouterr().err
+        assert "ACK rejected: producer coder is at v7" in err
+        assert "reviewer_security" not in err
 
 
 class TestMessagePollEmptyBody:
