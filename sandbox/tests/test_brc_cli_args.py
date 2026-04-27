@@ -838,6 +838,18 @@ class TestProposalVersionArgparseType:
             parser.parse_args(self._ack_argv("abc"))
         assert exc_info.value.code != 0
 
+    def test_nack_version_negative_rejected_at_parse_time(self):
+        parser = create_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(self._nack_argv("-1"))
+        assert exc_info.value.code != 0
+
+    def test_nack_version_non_integer_rejected_at_parse_time(self):
+        parser = create_parser()
+        with pytest.raises(SystemExit) as exc_info:
+            parser.parse_args(self._nack_argv("abc"))
+        assert exc_info.value.code != 0
+
 
 class TestRenderStaleVersionRejection:
     """``_render_stale_version_rejection`` labels the producer correctly (#2142).
