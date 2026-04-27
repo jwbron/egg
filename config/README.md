@@ -275,3 +275,22 @@ jira:
 - **Keys must match Atlassian format**: uppercase letter followed by uppercase letters, digits, or underscores (`[A-Z][A-Z0-9_]*`). Invalid entries are logged and ignored.
 - **Empty list** (`projects: []`): No Jira projects accessible — all ticket/search/execute requests return 403.
 - **Hot-reloadable**: Changes are picked up via `POST /api/v1/config/reload` or SIGHUP without restarting the gateway.
+
+### `confluence.spaces` — Confluence Space Allowlist
+
+The `confluence` section controls which Confluence spaces are accessible through the gateway's
+`/api/v1/confluence/*` routes. Agents can only read pages, descendants, comments, and search results
+from allowlisted spaces. Fail-closed: missing file, missing section, or malformed YAML results in
+an empty allowlist (no space accessible).
+
+```yaml
+confluence:
+  spaces:
+    - ENG      # Engineering space
+    - DOCS     # Documentation space
+```
+
+- **Keys must match Atlassian space key format**: leading letter followed by letters, digits, or underscores (`[A-Z][A-Z0-9_]*`). Case-sensitive.
+- **Empty list** (`spaces: []`): No Confluence spaces accessible — all page/search/execute requests return 403.
+- **Hot-reloadable**: Changes are picked up via `POST /api/v1/config/reload` or SIGHUP without restarting the gateway.
+- **CQL scope enforcement**: `confluence search` CQL queries must statically reference only allowlisted spaces — see [Confluence Wrapper Reference](../docs/reference/confluence-wrapper.md) for the extractor rules.
