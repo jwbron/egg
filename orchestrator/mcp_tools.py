@@ -1629,7 +1629,9 @@ class PipelineToolHandler:
             ``status``, ``running_agents``, ``completed_agents``,
             ``phase_started_at`` / ``phase_elapsed_seconds``,
             ``pending_decisions`` (with draft content enrichment),
-            ``recent_messages``.
+            ``recent_messages``. When the pipeline is wedged between
+            phases (#2166), also includes ``wedged_no_successor`` with
+            ``phase`` / ``completed_at`` / ``since_seconds``.
         """
         task_id = quote(raw_task_id, safe="")
 
@@ -1705,6 +1707,41 @@ class PipelineToolHandler:
         # Extract decisions
         decisions = pipeline_data.get("decisions", [])
         status["pending_decisions"] = [d for d in decisions if d.get("status") == "pending"]
+
+        # Watchdog: flag a pipeline that is nominally RUNNING but stalled
+        # between phases — the current phase reports COMPLETE, no HITL gate
+        # is pending, yet no successor has been scheduled within the
+        # threshold (#2166). Lets operators fail loudly within a minute
+        # instead of polling for 10+ min hoping to spot the absence of
+        # progress.
+        #
+        # NB: this snapshot's pipeline read is not synchronized with the
+        # ``/status/wait`` route's read in ``_handle_wait_for_status_change``.
+        # If a successor phase is scheduled between the two reads, the
+        # merged response there can carry the route's newer ``current_phase``
+        # AND this block's older ``wedged_no_successor`` — a transient
+        # false positive that resolves on the next poll.
+        if (
+            pipeline_data.get("status") == "running"
+            and not status["pending_decisions"]
+            and current_phase_key
+            and phase_data.get("status") == "complete"
+        ):
+            phase_completed_at = phase_data.get("completed_at")
+            if phase_completed_at:
+                try:
+                    completed_dt = datetime.fromisoformat(phase_completed_at)
+                    if completed_dt.tzinfo is None:
+                        completed_dt = completed_dt.replace(tzinfo=UTC)
+                    since_seconds = int((now - completed_dt).total_seconds())
+                    if since_seconds > 60:
+                        status["wedged_no_successor"] = {
+                            "phase": current_phase_key,
+                            "completed_at": completed_dt.isoformat(),
+                            "since_seconds": since_seconds,
+                        }
+                except (ValueError, TypeError):
+                    pass
 
         # Enrichment: recent messages (optional)
         try:
