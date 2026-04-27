@@ -7,14 +7,24 @@ pointed to by ``EGG_SECRETS_PATH``), mirroring the pattern used by
 ``anthropic_credentials.py`` — mtime-based cache refresh, thread-safe access,
 never exported to the sandbox.
 
-Required keys in ``secrets.env``:
+Credential precedence (decision F1, issue #1931):
 
-- ``JIRA_BASE_URL`` — e.g. ``https://yourcompany.atlassian.net`` (no trailing slash)
-- ``JIRA_USERNAME`` — Atlassian account email
-- ``JIRA_API_TOKEN`` — Atlassian Cloud API token
+For each of base URL, username, and API token, the loader checks
+``ATLASSIAN_*`` first and falls back to ``JIRA_*`` per-key.  This lets
+operators run a single shared Atlassian principal that covers both Jira and
+Confluence reads while preserving back-compatibility with deployments that
+still set the legacy per-service triple.  Per-key precedence — i.e.
+``ATLASSIAN_USERNAME`` + ``JIRA_BASE_URL`` + ``JIRA_API_TOKEN`` is a valid
+combination — because Atlassian accounts are tenant-wide and operators may
+stage the migration in steps.
 
-When any of the three are missing, ``get_jira_credentials()`` raises
-``JiraCredentialsUnavailable``; the route layer translates that to HTTP 503.
+Note: unlike Confluence, Jira lives at the bare Atlassian origin (no ``/wiki``
+suffix), so ``ATLASSIAN_BASE_URL`` is used verbatim when ``JIRA_BASE_URL``
+is unset.
+
+When any of the three resolved values is missing, ``get_jira_credentials()``
+raises ``JiraCredentialsUnavailable``; the route layer translates that to
+HTTP 503.
 """
 
 from __future__ import annotations
@@ -119,30 +129,60 @@ class JiraCredentialsManager:
 
         if creds is None:
             raise JiraCredentialsUnavailable(
-                "Jira credentials missing — set JIRA_BASE_URL, JIRA_USERNAME, "
-                f"JIRA_API_TOKEN in {self._secrets_path}"
+                "Jira credentials missing — set ATLASSIAN_BASE_URL (or "
+                "JIRA_BASE_URL), ATLASSIAN_USERNAME (or JIRA_USERNAME), "
+                "ATLASSIAN_API_TOKEN (or JIRA_API_TOKEN) in "
+                f"{self._secrets_path}"
             )
         return creds
 
     def _load_credentials(self) -> None:
-        """Load credentials from secrets.env file (called under lock)."""
+        """Load credentials from secrets.env file (called under lock).
+
+        Per-key precedence: ``ATLASSIAN_*`` is preferred for each of the three
+        keys; ``JIRA_*`` is used as a fallback per-key (decision F1).  Mixed
+        combinations are valid (e.g. ``ATLASSIAN_USERNAME`` +
+        ``JIRA_API_TOKEN``) because Atlassian accounts are tenant-wide.
+        """
         if not self._secrets_path.exists():
             logger.warning("Secrets file not found", path=str(self._secrets_path))
             self._credentials = None
             return
 
         secrets = parse_env_file(self._secrets_path)
-        base_url = (secrets.get("JIRA_BASE_URL") or "").strip().rstrip("/")
-        username = (secrets.get("JIRA_USERNAME") or "").strip()
-        api_token = (secrets.get("JIRA_API_TOKEN") or "").strip()
+
+        atlassian_base = (secrets.get("ATLASSIAN_BASE_URL") or "").strip().rstrip("/")
+        jira_base = (secrets.get("JIRA_BASE_URL") or "").strip().rstrip("/")
+        # Jira lives at the bare Atlassian origin — no /wiki suffix needed.
+        if atlassian_base:
+            base_url = atlassian_base
+            base_source = "ATLASSIAN_BASE_URL"
+        elif jira_base:
+            base_url = jira_base
+            base_source = "JIRA_BASE_URL"
+        else:
+            base_url = ""
+            base_source = ""
+
+        username = (secrets.get("ATLASSIAN_USERNAME") or "").strip()
+        username_source = "ATLASSIAN_USERNAME" if username else ""
+        if not username:
+            username = (secrets.get("JIRA_USERNAME") or "").strip()
+            username_source = "JIRA_USERNAME" if username else ""
+
+        api_token = (secrets.get("ATLASSIAN_API_TOKEN") or "").strip()
+        token_source = "ATLASSIAN_API_TOKEN" if api_token else ""
+        if not api_token:
+            api_token = (secrets.get("JIRA_API_TOKEN") or "").strip()
+            token_source = "JIRA_API_TOKEN" if api_token else ""
 
         if not (base_url and username and api_token):
             missing = [
                 name
                 for name, value in (
-                    ("JIRA_BASE_URL", base_url),
-                    ("JIRA_USERNAME", username),
-                    ("JIRA_API_TOKEN", api_token),
+                    ("BASE_URL (ATLASSIAN_BASE_URL or JIRA_BASE_URL)", base_url),
+                    ("USERNAME (ATLASSIAN_USERNAME or JIRA_USERNAME)", username),
+                    ("API_TOKEN (ATLASSIAN_API_TOKEN or JIRA_API_TOKEN)", api_token),
                 )
                 if not value
             ]
@@ -162,6 +202,9 @@ class JiraCredentialsManager:
         logger.info(
             "Jira credentials loaded",
             base_url=base_url,
+            base_source=base_source,
+            username_source=username_source,
+            token_source=token_source,
             username=username,
             token_prefix=api_token[:4] + "...",
         )

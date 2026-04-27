@@ -1,0 +1,1172 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1931,
+    "title": "Issue #1931",
+    "url": "https://github.com/jwbron/egg/issues/1931"
+  },
+  "pipeline_id": "issue-1931",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Endpoint surface \u2014 what URL shape should the gateway use for Confluence routes?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Jira-style verb-noun paths (/api/v1/confluence/page/get, /api/v1/confluence/search, ...); MCP-aligned names live in the sandbox wrapper subcommand layer (Recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Literal MCP-name URL paths (/api/v1/confluence/getConfluencePage, /api/v1/confluence/searchConfluenceUsingCql, ...)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Single endpoint with verb payload field (POST /api/v1/confluence with {verb: ...})",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Jira-style verb-noun paths (/api/v1/confluence/page/get, /api/v1/confluence/search, ...); MCP-aligned names live in the sandbox wrapper subcommand layer (Recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-26T23:31:07.604178Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Atlassian API version strategy for v1 of the wrapper?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "v2-first hybrid: v2 for reads + v1 for CQL search + v1 fallback for known v2 comment bugs (Recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "v1-only across the board (simpler shape, locks into legacy)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "v2-only across the board (CQL search would not be possible without shipping our own search index)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"v2-first hybrid: v2 for reads + v1 for CQL search + v1 fallback for known v2 comment bugs (Recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-26T23:35:05.413727Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "CQL scope extraction \u2014 how should we constrain the CQL query surface that the /search endpoint accepts?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Conservative static space = / space IN (...) extractor; deny-on-ambiguity (mirrors Jira's JQL extractor) (Recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Permissive CQL with post-hoc result filter (rejected for Jira; same risks here)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Conservative static space = / space IN (...) extractor; deny-on-ambiguity (mirrors Jira's JQL extractor) (Recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-26T23:35:05.457130Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Comment-quirk handling \u2014 how should the wrapper deal with v2 missing nested replies / inline 404s?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "v2-first with transparent v1 fallback for nested replies and inline-404 bugs (Recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "v2-only; document the gaps and let agents retry",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "v1-only for comments; lock in legacy behaviour until Atlassian fixes v2",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"v2-first with transparent v1 fallback for nested replies and inline-404 bugs (Recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-26T23:35:05.489382Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "Default body format for getConfluencePage and related reads?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Both storage and atlas_doc_format (Recommended \u2014 agent gets HTML-ish + ADF in one call)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "storage only (smallest payload)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "atlas_doc_format only (most structured)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "view (rendered HTML) only (lossy on macros / layout)",
+          "description": null
+        },
+        {
+          "id": "opt-5",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Default body-format=storage; support atlas_doc_format and view via caller override. Single body shape on the wire by default to keep payloads small; planners that need ADF tree traversal pass the override per-call.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-26T23:39:03.293140Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "Credential sharing between Jira and Confluence?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Shared ATLASSIAN_BASE_URL / _USERNAME / _API_TOKEN triple, with backward-compat fall-back to JIRA_* and CONFLUENCE_* placeholders (Recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Independent JIRA_* and CONFLUENCE_* triples (status quo of secrets.template.env)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Shared ATLASSIAN_BASE_URL / _USERNAME / _API_TOKEN triple, with backward-compat fall-back to JIRA_* and CONFLUENCE_* placeholders (Recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-26T23:39:08.343287Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-7",
+      "question": "Network-mode gating shape for /api/v1/confluence/* routes?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "@require_private_mode per route + route-enumeration regression test (Recommended \u2014 mirrors Jira)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Move to a Flask blueprint with before_request rejection (would also require migrating Jira; out of scope here)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"@require_private_mode per route + route-enumeration regression test (Recommended \u2014 mirrors Jira)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-26T23:39:08.376643Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-8",
+      "question": "Where should the Confluence space allowlist live?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "New confluence.spaces: section in config/context-filters.yaml (Recommended \u2014 mirrors Jira's jira.projects)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Dedicated new config/confluence.yaml",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "CONFLUENCE_SPACE_KEYS env var in secrets.env (placeholder already exists)",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"New confluence.spaces: section in config/context-filters.yaml (Recommended \u2014 mirrors Jira's jira.projects)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-26T23:39:13.434398Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-9",
+      "question": "Bot identity for Confluence access?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Same dedicated Atlassian bot account used for Jira (single principal owns both Jira and Confluence read scopes) (Recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Separate bot accounts per service",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Reuse the operator's personal Atlassian account",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Same dedicated Atlassian bot account used for Jira (single principal owns both Jira and Confluence read scopes) (Recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-26T23:39:18.518731Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-10",
+      "question": "Sandbox-visible response redaction stance?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Strip accountId, emailAddress, and _links.webui user-profile URLs from responses before they reach the sandbox (parallels Jira) (Recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Pass responses through verbatim",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Strip accountId, emailAddress, and _links.webui user-profile URLs from responses before they reach the sandbox (parallels Jira) (Recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-26T23:39:23.645447Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-11",
+      "question": "getConfluenceSpaces response \u2014 should we filter to allowlisted spaces?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Filter response so only allowlisted spaces are returned (agents cannot enumerate the full tenant space set) (Recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Pass through Atlassian's full space list and rely on per-page allowlist to deny later access",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Filter response so only allowlisted spaces are returned (agents cannot enumerate the full tenant space set) (Recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-26T23:40:04.193744Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-12",
+      "question": "Attachments endpoints \u2014 what is the v1 stance?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Permanent denylist for v1 and future writes (attachments are arbitrary-file uploads / downloads with unbounded payload surface; if needed later, scope as a separate ticket) (Recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Defer the decision to the future-writes phase",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Allow read-only attachment metadata (no body) in v1",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Permanent denylist for v1 and future writes (attachments are arbitrary-file uploads / downloads with unbounded payload surface; if needed later, scope as a separate ticket) (Recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-26T23:40:09.238382Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-13",
+      "question": "EGG_CONFLUENCE_* environment variables in the sandbox?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "None in v1 (matches issue text \u2014 Confluence is reference material, not a unit of work). Audit recovers pageId / spaceKey from each request body (Recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Ship EGG_CONFLUENCE_PAGE / EGG_CONFLUENCE_SPACE as observational env vars (parallel to EGG_JIRA_TICKET)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"None in v1 (matches issue text \u2014 Confluence is reference material, not a unit of work). Audit recovers pageId / spaceKey from each request body (Recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-26T23:40:09.263247Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-14",
+      "question": "/execute passthrough endpoint?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Include it (GET-only, regex-allowlisted), parallel to Jira's escape hatch for read verbs not yet promoted to narrow routes (Recommended)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Skip /execute entirely; add narrow routes only",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Include it (GET-only, regex-allowlisted), parallel to Jira's escape hatch for read verbs not yet promoted to narrow routes (Recommended)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-26T23:40:09.289899Z",
+      "debounce_until": null
+    },
+    {
+      "id": "decision-15",
+      "question": "Open feedback request feedback-1",
+      "type": "hitl",
+      "phase": null,
+      "options": [],
+      "resolved": true,
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Defer to operator at deploy time. Ship with confluence.spaces: [] (empty allowlist, fail-closed) in config/context-filters.yaml; operators populate before enabling Confluence routes. Do not hard-code spaces.\", \"Q2\": \"Reuse Jira's rate-limit defaults (single retry on 429 with min(Retry-After, 30); audit confluence_upstream_rate_limited on both attempts). No Confluence-specific tuning in v1; revisit if 429s observed in production.\", \"Q3\": \"None known; defaults only. Ship with accountId / emailAddress / _links.webui redaction. Add a follow-up ticket if a sensitive macro or page property is identified post-rollout.\", \"Q4\": \"Defer to the future-writes phase; do not pre-design idempotency in v1. Atlassian's create-comment endpoint is not naturally idempotent. Design the idempotency stance at the write-phase ticket alongside Jira's equivalent so the design-once choice stays consistent.\", \"Q5\": \"Do not add a page/resolve-by-url verb in v1. Agents that have a Confluence URL parse the pageId themselves and call /api/v1/confluence/page/get. Add resolve-by-url only if URL-parsing in the agent becomes a recurring pain point; not in v1 scope.\", \"Q6\": \"Pass Atlassian's depth parameter through verbatim with no gateway-imposed cap in v1. Add a depth ceiling if a runaway response is observed; not pre-emptively. Document the parameter in the wrapper reference.\", \"Q7\": \"Yes, separate confluence_upstream_403 audit category from generic upstream errors. Parallels the not_found vs error split. Helps operators distinguish space-allowlist denials, page-permission denials, and generic upstream errors at audit time.\", \"Q8\": \"Default to current-version only in v1. Do not expose a ?version= query parameter until a use case appears. Document the default in the wrapper reference so future expansion is unsurprising.\", \"Q9\": \"Operator concern; ship a diagnostic command in a follow-up rather than v1. v1 documents the bot-vs-human access caveat in the wrapper reference. Operators can manually verify the bot's space access at deploy time using the host-side mcp__confluence__* MCP under the bot's token.\", \"Q10\": \"Jira-style subcommands only (e.g., confluence page get, confluence search-cql). Mirrors the existing jira wrapper shape. Do not ship MCP-style aliases in v1; add only if a real porting pain point appears post-rollout.\"}}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-26T23:42:43.026940Z",
+      "debounce_until": null
+    }
+  ],
+  "workflow_owner": null,
+  "audit_log": [
+    {
+      "timestamp": "2026-04-26T23:16:04.440580Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-1",
+        "question": "Endpoint surface \u2014 what URL shape should the gateway use for Confluence routes?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Jira-style verb-noun paths (/api/v1/confluence/page/get, /api/v1/confluence/search, ...); MCP-aligned names live in the sandbox wrapper subcommand layer (Recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Literal MCP-name URL paths (/api/v1/confluence/getConfluencePage, /api/v1/confluence/searchConfluenceUsingCql, ...)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Single endpoint with verb payload field (POST /api/v1/confluence with {verb: ...})",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Endpoint surface \u2014 what URL shape should the gatew...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-26T23:16:04.465649Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-2",
+        "question": "Atlassian API version strategy for v1 of the wrapper?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "v2-first hybrid: v2 for reads + v1 for CQL search + v1 fallback for known v2 comment bugs (Recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "v1-only across the board (simpler shape, locks into legacy)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "v2-only across the board (CQL search would not be possible without shipping our own search index)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Atlassian API version strategy for v1 of the wrapp...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-26T23:16:04.490392Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-3",
+        "question": "CQL scope extraction \u2014 how should we constrain the CQL query surface that the /search endpoint accepts?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Conservative static space = / space IN (...) extractor; deny-on-ambiguity (mirrors Jira's JQL extractor) (Recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Permissive CQL with post-hoc result filter (rejected for Jira; same risks here)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: CQL scope extraction \u2014 how should we constrain the...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-26T23:16:04.516001Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-4",
+        "question": "Comment-quirk handling \u2014 how should the wrapper deal with v2 missing nested replies / inline 404s?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "v2-first with transparent v1 fallback for nested replies and inline-404 bugs (Recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "v2-only; document the gaps and let agents retry",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "v1-only for comments; lock in legacy behaviour until Atlassian fixes v2",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Comment-quirk handling \u2014 how should the wrapper de...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-26T23:16:04.538367Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-5",
+        "question": "Default body format for getConfluencePage and related reads?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Both storage and atlas_doc_format (Recommended \u2014 agent gets HTML-ish + ADF in one call)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "storage only (smallest payload)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "atlas_doc_format only (most structured)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "view (rendered HTML) only (lossy on macros / layout)",
+            "description": null
+          },
+          {
+            "id": "opt-5",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Default body format for getConfluencePage and rela...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-26T23:16:18.616076Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-6",
+        "question": "Credential sharing between Jira and Confluence?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Shared ATLASSIAN_BASE_URL / _USERNAME / _API_TOKEN triple, with backward-compat fall-back to JIRA_* and CONFLUENCE_* placeholders (Recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Independent JIRA_* and CONFLUENCE_* triples (status quo of secrets.template.env)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Credential sharing between Jira and Confluence?",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-26T23:16:18.654712Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-7",
+        "question": "Network-mode gating shape for /api/v1/confluence/* routes?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "@require_private_mode per route + route-enumeration regression test (Recommended \u2014 mirrors Jira)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Move to a Flask blueprint with before_request rejection (would also require migrating Jira; out of scope here)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Network-mode gating shape for /api/v1/confluence/*...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-26T23:16:18.683707Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.7",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-8",
+        "question": "Where should the Confluence space allowlist live?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "New confluence.spaces: section in config/context-filters.yaml (Recommended \u2014 mirrors Jira's jira.projects)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Dedicated new config/confluence.yaml",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "CONFLUENCE_SPACE_KEYS env var in secrets.env (placeholder already exists)",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Where should the Confluence space allowlist live?",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-26T23:16:18.697016Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.8",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-9",
+        "question": "Bot identity for Confluence access?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Same dedicated Atlassian bot account used for Jira (single principal owns both Jira and Confluence read scopes) (Recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Separate bot accounts per service",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Reuse the operator's personal Atlassian account",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Bot identity for Confluence access?",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-26T23:16:18.720504Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.9",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-10",
+        "question": "Sandbox-visible response redaction stance?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Strip accountId, emailAddress, and _links.webui user-profile URLs from responses before they reach the sandbox (parallels Jira) (Recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Pass responses through verbatim",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Sandbox-visible response redaction stance?",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-26T23:16:48.002914Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.10",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-11",
+        "question": "getConfluenceSpaces response \u2014 should we filter to allowlisted spaces?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Filter response so only allowlisted spaces are returned (agents cannot enumerate the full tenant space set) (Recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Pass through Atlassian's full space list and rely on per-page allowlist to deny later access",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: getConfluenceSpaces response \u2014 should we filter to...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-26T23:16:48.038851Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.11",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-12",
+        "question": "Attachments endpoints \u2014 what is the v1 stance?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Permanent denylist for v1 and future writes (attachments are arbitrary-file uploads / downloads with unbounded payload surface; if needed later, scope as a separate ticket) (Recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Defer the decision to the future-writes phase",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Allow read-only attachment metadata (no body) in v1",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Attachments endpoints \u2014 what is the v1 stance?",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-26T23:16:48.077355Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.12",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-13",
+        "question": "EGG_CONFLUENCE_* environment variables in the sandbox?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "None in v1 (matches issue text \u2014 Confluence is reference material, not a unit of work). Audit recovers pageId / spaceKey from each request body (Recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Ship EGG_CONFLUENCE_PAGE / EGG_CONFLUENCE_SPACE as observational env vars (parallel to EGG_JIRA_TICKET)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: EGG_CONFLUENCE_* environment variables in the sand...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-26T23:16:48.108937Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.13",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-14",
+        "question": "/execute passthrough endpoint?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Include it (GET-only, regex-allowlisted), parallel to Jira's escape hatch for read verbs not yet promoted to narrow routes (Recommended)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Skip /execute entirely; add narrow routes only",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: /execute passthrough endpoint?",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-26T23:16:48.215885Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Which Atlassian Confluence spaces should be on the v1 allowlist (space keys, comma-separated)?",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "What is the expected request volume per pipeline (peak CQL searches/min, page reads/min, comment reads/min)? This informs rate-limit defaults and 429 retry behaviour.",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "Are there custom Confluence fields, macros, or page properties known to hold PII or secrets that should be redacted before sandbox-visible responses (in addition to the accountId / emailAddress defaults)?",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "For the future write phase (out of scope here), should the gateway enforce idempotency on comment/create (refuse duplicate within N seconds) or leave that to Atlassian's own semantics? Surfacing now so the design-once decision is consistent with Jira.",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "What pageId / page-link patterns should the orchestrator extract from Jira tickets to feed Confluence reads? (E.g., should it scan ticket descriptions for https://<tenant>.atlassian.net/wiki/spaces/<KEY>/pages/<ID>/... and pre-resolve, or leave URL parsing to the agent?) This informs whether v1 needs a page/resolve-by-url verb.",
+            "answer": null
+          },
+          {
+            "id": "Q6",
+            "question": "Should getConfluencePageDescendants enforce a maximum depth (e.g., 3) to prevent runaway responses on deeply nested page trees, or pass Atlassian's depth parameter through verbatim?",
+            "answer": null
+          },
+          {
+            "id": "Q7",
+            "question": "Should the audit log treat reads of pages whose space is technically in the allowlist but whose page hierarchy is restricted at the Atlassian permission layer as a special audit category (e.g., confluence_upstream_403 separate from confluence_upstream_error)?",
+            "answer": null
+          },
+          {
+            "id": "Q8",
+            "question": "For long-lived pages with extensive version history: is there a use case for exposing a version query parameter on getConfluencePage in v1, or should we default to current-version-only?",
+            "answer": null
+          },
+          {
+            "id": "Q9",
+            "question": "The host-side mcp__confluence__* MCP authenticates as the consenting human user; the gateway will authenticate as a bot. Are there documents in operator workspaces that the human reads but the bot would not be able to (or vice versa)? If so, do we need a diagnostic command that surfaces the bot's effective access per space?",
+            "answer": null
+          },
+          {
+            "id": "Q10",
+            "question": "Should the sandbox confluence wrapper expose MCP-style alias names (confluence get-page, confluence search-cql) in addition to Jira-style subcommands (confluence page get, confluence search), or pick one shape only?",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 10 question(s)",
+      "checkpoint_id": null
+    }
+  ],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Which Atlassian Confluence spaces should be on the v1 allowlist (space keys, comma-separated)?",
+        "answer": "Defer to operator at deploy time. Ship with confluence.spaces: [] (empty allowlist, fail-closed) in config/context-filters.yaml; operators populate before enabling Confluence routes. Do not hard-code spaces."
+      },
+      {
+        "id": "Q2",
+        "question": "What is the expected request volume per pipeline (peak CQL searches/min, page reads/min, comment reads/min)? This informs rate-limit defaults and 429 retry behaviour.",
+        "answer": "Reuse Jira's rate-limit defaults (single retry on 429 with min(Retry-After, 30); audit confluence_upstream_rate_limited on both attempts). No Confluence-specific tuning in v1; revisit if 429s observed in production."
+      },
+      {
+        "id": "Q3",
+        "question": "Are there custom Confluence fields, macros, or page properties known to hold PII or secrets that should be redacted before sandbox-visible responses (in addition to the accountId / emailAddress defaults)?",
+        "answer": "None known; defaults only. Ship with accountId / emailAddress / _links.webui redaction. Add a follow-up ticket if a sensitive macro or page property is identified post-rollout."
+      },
+      {
+        "id": "Q4",
+        "question": "For the future write phase (out of scope here), should the gateway enforce idempotency on comment/create (refuse duplicate within N seconds) or leave that to Atlassian's own semantics? Surfacing now so the design-once decision is consistent with Jira.",
+        "answer": "Defer to the future-writes phase; do not pre-design idempotency in v1. Atlassian's create-comment endpoint is not naturally idempotent. Design the idempotency stance at the write-phase ticket alongside Jira's equivalent so the design-once choice stays consistent."
+      },
+      {
+        "id": "Q5",
+        "question": "What pageId / page-link patterns should the orchestrator extract from Jira tickets to feed Confluence reads? (E.g., should it scan ticket descriptions for https://<tenant>.atlassian.net/wiki/spaces/<KEY>/pages/<ID>/... and pre-resolve, or leave URL parsing to the agent?) This informs whether v1 needs a page/resolve-by-url verb.",
+        "answer": "Do not add a page/resolve-by-url verb in v1. Agents that have a Confluence URL parse the pageId themselves and call /api/v1/confluence/page/get. Add resolve-by-url only if URL-parsing in the agent becomes a recurring pain point; not in v1 scope."
+      },
+      {
+        "id": "Q6",
+        "question": "Should getConfluencePageDescendants enforce a maximum depth (e.g., 3) to prevent runaway responses on deeply nested page trees, or pass Atlassian's depth parameter through verbatim?",
+        "answer": "Pass Atlassian's depth parameter through verbatim with no gateway-imposed cap in v1. Add a depth ceiling if a runaway response is observed; not pre-emptively. Document the parameter in the wrapper reference."
+      },
+      {
+        "id": "Q7",
+        "question": "Should the audit log treat reads of pages whose space is technically in the allowlist but whose page hierarchy is restricted at the Atlassian permission layer as a special audit category (e.g., confluence_upstream_403 separate from confluence_upstream_error)?",
+        "answer": "Yes, separate confluence_upstream_403 audit category from generic upstream errors. Parallels the not_found vs error split. Helps operators distinguish space-allowlist denials, page-permission denials, and generic upstream errors at audit time."
+      },
+      {
+        "id": "Q8",
+        "question": "For long-lived pages with extensive version history: is there a use case for exposing a version query parameter on getConfluencePage in v1, or should we default to current-version-only?",
+        "answer": "Default to current-version only in v1. Do not expose a ?version= query parameter until a use case appears. Document the default in the wrapper reference so future expansion is unsurprising."
+      },
+      {
+        "id": "Q9",
+        "question": "The host-side mcp__confluence__* MCP authenticates as the consenting human user; the gateway will authenticate as a bot. Are there documents in operator workspaces that the human reads but the bot would not be able to (or vice versa)? If so, do we need a diagnostic command that surfaces the bot's effective access per space?",
+        "answer": "Operator concern; ship a diagnostic command in a follow-up rather than v1. v1 documents the bot-vs-human access caveat in the wrapper reference. Operators can manually verify the bot's space access at deploy time using the host-side mcp__confluence__* MCP under the bot's token."
+      },
+      {
+        "id": "Q10",
+        "question": "Should the sandbox confluence wrapper expose MCP-style alias names (confluence get-page, confluence search-cql) in addition to Jira-style subcommands (confluence page get, confluence search), or pick one shape only?",
+        "answer": "Jira-style subcommands only (e.g., confluence page get, confluence search-cql). Mirrors the existing jira wrapper shape. Do not ship MCP-style aliases in v1; add only if a real porting pain point appears post-rollout."
+      }
+    ],
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-04-26T23:42:46.709275Z",
+    "comment_id": null,
+    "debounce_until": null
+  },
+  "phase_configs": null,
+  "agent_executions": []
+}

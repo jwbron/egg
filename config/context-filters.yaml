@@ -22,3 +22,21 @@ jira:
   # statically provable as scoped to the listed projects — see
   # gateway/jira_search.py for the exact acceptance rules.
   projects: []
+
+confluence:
+  # Atlassian Confluence space keys agents are allowed to read through the
+  # /api/v1/confluence/* endpoints.  Space keys typically match the shape:
+  # leading letter followed by letters / digits / underscore (e.g. ENG,
+  # DOCS, ONBOARDING).  Case-sensitive.
+  #
+  # Example:
+  #   spaces: ["ENG", "DOCS"]
+  #
+  # Any page whose space is not on this list returns HTTP 403 with
+  # `confluence_*_denied` in the gateway audit log.  CQL searches must be
+  # statically provable as scoped to the listed spaces — see
+  # gateway/confluence_search.py for the exact acceptance rules.
+  #
+  # Leaving this list empty blocks every Confluence call until an operator
+  # populates it (fail-closed).
+  spaces: []

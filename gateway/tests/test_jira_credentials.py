@@ -252,3 +252,120 @@ def _write_secrets_inplace_preserving_mtime(path: Path, token: str) -> None:
     os.utime(path, (original_mtime, original_mtime))
     # Guard against flaky filesystems that bump the mtime anyway.
     time.sleep(0.001)
+
+
+# -----------------------------------------------------------------------------
+# Risk R11 / Task 4-1b — shared ATLASSIAN_* credential precedence (#1931)
+# -----------------------------------------------------------------------------
+
+
+def _write_kv(path: Path, **kv: str | None) -> None:
+    """Write key=value pairs to ``path``, omitting None values."""
+    lines = [f"{k}={v}" for k, v in kv.items() if v is not None]
+    path.write_text("\n".join(lines) + "\n")
+
+
+class TestAtlassianPrecedence:
+    """Per-key fallback: ATLASSIAN_* wins; JIRA_* is the back-compat path.
+
+    The Confluence wrapper (#1931) reuses the same secrets.env, so the Jira
+    loader must honour ``ATLASSIAN_*`` first or operators who switch to the
+    shared triple silently break Jira.  These tests pin the per-key fallback
+    matrix called for in plan-task 4-1b / risk R11.
+    """
+
+    def test_atlassian_only_resolves(self, tmp_secrets: Path):
+        _write_kv(
+            tmp_secrets,
+            ATLASSIAN_BASE_URL="https://example.atlassian.net",
+            ATLASSIAN_USERNAME="alice@example.com",
+            ATLASSIAN_API_TOKEN="atk-shared",
+        )
+        mgr = JiraCredentialsManager(tmp_secrets)
+        creds = mgr.get_credentials()
+        # Jira sits at the bare origin (no ``/wiki`` suffix).
+        assert creds.base_url == "https://example.atlassian.net"
+        assert creds.username == "alice@example.com"
+        assert creds.api_token == "atk-shared"
+
+    def test_jira_only_still_works(self, tmp_secrets: Path):
+        """Existing deployments setting only ``JIRA_*`` keys must keep working
+        without changes."""
+        _write_kv(
+            tmp_secrets,
+            JIRA_BASE_URL="https://example.atlassian.net",
+            JIRA_USERNAME="alice@example.com",
+            JIRA_API_TOKEN="atk-jira",
+        )
+        mgr = JiraCredentialsManager(tmp_secrets)
+        creds = mgr.get_credentials()
+        assert creds.base_url == "https://example.atlassian.net"
+        assert creds.username == "alice@example.com"
+        assert creds.api_token == "atk-jira"
+
+    def test_atlassian_wins_over_jira_per_key(self, tmp_secrets: Path):
+        """When both prefixes are set, ATLASSIAN_* wins for each key."""
+        _write_kv(
+            tmp_secrets,
+            ATLASSIAN_BASE_URL="https://atlassian.atlassian.net",
+            ATLASSIAN_USERNAME="atlassian@example.com",
+            ATLASSIAN_API_TOKEN="atk-atlassian",
+            JIRA_BASE_URL="https://jira.atlassian.net",
+            JIRA_USERNAME="jira@example.com",
+            JIRA_API_TOKEN="atk-jira",
+        )
+        mgr = JiraCredentialsManager(tmp_secrets)
+        creds = mgr.get_credentials()
+        assert creds.base_url == "https://atlassian.atlassian.net"
+        assert creds.username == "atlassian@example.com"
+        assert creds.api_token == "atk-atlassian"
+
+    def test_per_key_mixed_fallback(self, tmp_secrets: Path):
+        """ATLASSIAN_USERNAME + JIRA_BASE_URL + JIRA_API_TOKEN → all resolve."""
+        _write_kv(
+            tmp_secrets,
+            ATLASSIAN_USERNAME="alice@example.com",
+            JIRA_BASE_URL="https://example.atlassian.net",
+            JIRA_API_TOKEN="atk-mixed",
+        )
+        mgr = JiraCredentialsManager(tmp_secrets)
+        creds = mgr.get_credentials()
+        assert creds.base_url == "https://example.atlassian.net"
+        assert creds.username == "alice@example.com"
+        assert creds.api_token == "atk-mixed"
+
+    def test_blank_atlassian_keys_fall_through_to_jira(self, tmp_secrets: Path):
+        _write_kv(
+            tmp_secrets,
+            ATLASSIAN_BASE_URL="",
+            ATLASSIAN_USERNAME="",
+            ATLASSIAN_API_TOKEN="",
+            JIRA_BASE_URL="https://example.atlassian.net",
+            JIRA_USERNAME="alice@example.com",
+            JIRA_API_TOKEN="atk-jira",
+        )
+        mgr = JiraCredentialsManager(tmp_secrets)
+        creds = mgr.get_credentials()
+        assert creds.base_url == "https://example.atlassian.net"
+        assert creds.username == "alice@example.com"
+        assert creds.api_token == "atk-jira"
+
+    def test_all_six_missing_raises(self, tmp_secrets: Path):
+        _write_kv(tmp_secrets, OTHER_KEY="value")
+        mgr = JiraCredentialsManager(tmp_secrets)
+        with pytest.raises(JiraCredentialsUnavailable):
+            mgr.get_credentials()
+
+    def test_atlassian_base_url_no_wiki_suffix(self, tmp_secrets: Path):
+        """Jira lives at the bare Atlassian origin — no /wiki appended.
+        (Confluence is the one that needs /wiki.)"""
+        _write_kv(
+            tmp_secrets,
+            ATLASSIAN_BASE_URL="https://example.atlassian.net",
+            ATLASSIAN_USERNAME="alice@example.com",
+            ATLASSIAN_API_TOKEN="atk",
+        )
+        mgr = JiraCredentialsManager(tmp_secrets)
+        creds = mgr.get_credentials()
+        assert creds.base_url == "https://example.atlassian.net"
+        assert "/wiki" not in creds.base_url

@@ -71,6 +71,49 @@ jira search 'project = ENG OR project = SEC'
 
 **Hard limits (always denied):** `transitions`, `worklog`, `attachments`, `watchers`, HTTP `DELETE` / `PUT` / `PATCH`, path traversal (`..`), duplicate slashes, non-ASCII keys. Non-GET `execute` calls return 403 regardless of the path. See [Jira Wrapper Reference](../../../docs/reference/jira-wrapper.md) for the full endpoint surface, JQL scope extractor rules, and the `not_found` response envelope.
 
+### Confluence Wrapper (`confluence`)
+
+The `sandbox/scripts/confluence` wrapper is the only way for the sandbox to reach Confluence — it POSTs to the gateway's `/api/v1/confluence/*` routes with `Authorization: Bearer $EGG_SESSION_TOKEN` and Atlassian credentials never enter the sandbox. **Private network mode only**: in public mode every Confluence call returns 403 `private_mode_required` before any upstream request.
+
+| Verb | Gateway route |
+|------|---------------|
+| `confluence page get <PAGE_ID> [--body-format storage,atlas_doc_format] [--expand ...]` | `POST /api/v1/confluence/page/get` |
+| `confluence page descendants <PAGE_ID> [--depth N] [--limit N] [--cursor TOK]` | `POST /api/v1/confluence/page/descendants` |
+| `confluence page footer-comments <PAGE_ID> [--include-replies] [--body-format ...] [--limit N] [--cursor TOK]` | `POST /api/v1/confluence/page/footer-comments` |
+| `confluence page inline-comments <PAGE_ID> [--body-format ...] [--limit N] [--cursor TOK]` | `POST /api/v1/confluence/page/inline-comments` |
+| `confluence space pages <SPACE_KEY> [--body-format ...] [--limit N] [--cursor TOK]` | `POST /api/v1/confluence/space/pages` |
+| `confluence space list [--limit N] [--cursor TOK]` | `POST /api/v1/confluence/space/list` |
+| `confluence search '<CQL>' [--limit N] [--cursor TOK]` | `POST /api/v1/confluence/search` |
+| `confluence execute <METHOD> <PATH> [--query k=v,...] [--body-file path]` | `POST /api/v1/confluence/execute` (GET-only) |
+
+**No per-pipeline env var.** Unlike Jira (`EGG_JIRA_TICKET`), Confluence has **no orchestrator-exported env var** — agents pass `pageId` / `spaceKey` directly in each call. Confluence is reference material, not a primary unit of work; the gateway recovers `pageId` / `spaceKey` from each request body or response for audit purposes.
+
+**Default body format.** Reads default to `body-format=storage` (smallest payload, Confluence's internal XHTML-like format). Pass `--body-format atlas_doc_format` for the ADF JSON tree, or `--body-format view` for rendered HTML.
+
+**Example:**
+```bash
+# Read a referenced page from a Jira ticket — pass the numeric pageId
+confluence page get 12345
+
+# Search within an allowlisted space (CQL must statically scope to allowlisted spaces)
+confluence search 'space = ENG AND text ~ "RFC"'
+
+# List spaces visible to the agent (response is filtered to the allowlist)
+confluence space list
+
+# Read inline comments — wrapper transparently retries against v1 if v2 returns 404
+confluence page inline-comments 12345
+
+# This WILL be rejected with 403 confluence_search_rejected — the CQL scope extractor
+# denies on ambiguity, so any `OR` clause containing `space` is refused even when
+# every candidate is allowlisted.
+confluence search 'space = ENG OR space = SEC'
+```
+
+**Hard limits (always denied):** `restrictions`, `permissions`, `space.admin`, `users`, `attachments`, HTTP `DELETE` / `PUT` / `PATCH`, path traversal (`..`), duplicate slashes, non-ASCII keys, URL-encoded smuggling of denied terms (e.g., `%61ttachments`), and the four flat-v2 paths refused by the anti-bypass invariant — `rest/api/search`, `api/v2/spaces`, `api/v2/footer-comments`, `api/v2/inline-comments`. CQL search must flow through `confluence search ...`; space enumeration must flow through `confluence space list`; comment reads must flow through `confluence page footer-comments` / `confluence page inline-comments` (those page-scoped routes apply the post-fetch allowlist check). Non-GET `execute` calls return 403 regardless of the path. See [Confluence Wrapper Reference](../../../docs/reference/confluence-wrapper.md) for the full endpoint surface, CQL scope extractor rules, the `not_found` response envelope, response redaction (`accountId` / `emailAddress` / user-profile `_links.webui` / user-profile `_links.self`), and the `used_fallback` flag emitted when the v1 inline-comment fallback fires.
+
+> **Note on `~/context-sync/confluence/`.** The sandbox may also have a read-only `~/context-sync/confluence/` cache mounted (legacy syncer). That cache is independent of the new gateway wrapper — `confluence ...` calls always go through the gateway and never touch the syncer cache.
+
 ## File System
 
 | Path | Purpose |

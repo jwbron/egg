@@ -104,6 +104,19 @@ The gateway exposes a controlled API for git/gh operations:
 
 All four routes compose `@require_session_auth` → `@require_private_mode` → project-allowlist check → fields/JQL validation → `JiraClient` call → structured audit log. In **public mode**, `@require_private_mode` short-circuits every call with a 403 and a `private_mode_required` audit entry **before** any upstream request is issued — no Atlassian traffic ever leaves the gateway in public mode. See [Jira wrapper reference](../reference/jira-wrapper.md).
 
+**Confluence read endpoints (`/api/v1/confluence/*`) — private-mode only, fail closed in public mode:**
+
+- `POST /api/v1/confluence/page/get` — read a single page; default `body-format=storage`
+- `POST /api/v1/confluence/page/descendants` — list pages under a page (depth-bounded by default)
+- `POST /api/v1/confluence/page/footer-comments` — read footer comments; optional v1 nested-reply merge
+- `POST /api/v1/confluence/page/inline-comments` — read inline comments with transparent v1 fallback on the known v2 404 bug
+- `POST /api/v1/confluence/space/pages` — list pages in a space
+- `POST /api/v1/confluence/space/list` — list spaces, response filtered to allowlisted spaces (agents cannot enumerate the full tenant set)
+- `POST /api/v1/confluence/search` — CQL search via Atlassian's v1-only `/wiki/rest/api/search` with a conservative static space-scope extractor (deny-on-ambiguity)
+- `POST /api/v1/confluence/execute` — GET-only passthrough, regex-allowlisted paths; permanently denied verbs are `restrictions`, `permissions`, `space.admin`, `users`, `attachments`, plus HTTP `DELETE` / `PUT` / `PATCH`
+
+All eight routes compose `@require_session_auth` → `@require_private_mode` → space-allowlist check → fields/CQL validation → `ConfluenceClient` call → response redaction → structured audit log. A route-enumeration regression test asserts every `/api/v1/confluence/*` view function carries `__egg_requires_private_mode__ = True` so newly-added routes cannot accidentally drop the gate. In **public mode**, `@require_private_mode` short-circuits every call with a 403 and a `private_mode_required` audit entry **before** any upstream request is issued — no Atlassian traffic ever leaves the gateway in public mode. See [Confluence wrapper reference](../reference/confluence-wrapper.md).
+
 ### CLI Wrappers
 
 The egg container uses `git` and `gh` CLI wrappers that:
@@ -321,7 +334,7 @@ The gateway maintains a strict allowlist of permitted domains:
 
 **Explicitly excluded:** `*.actions.githubusercontent.com`, `ghcr.io`, `*.github.io`, `copilot-*.githubusercontent.com`, **`*.atlassian.net` / `*.atlassian.com` / `api.atlassian.com` / `jira.atlassian.com`**
 
-**Why Atlassian domains are excluded from the Squid allowlist:** all Jira traffic **must** flow through the gateway REST endpoints (`/api/v1/jira/*`). Adding `*.atlassian.net` to Squid would let a compromised sandbox reach Jira directly through the proxy, bypassing the private-mode gate, the project allowlist, the verb allowlist, and the audit log. A dedicated regression test (`gateway/tests/test_allowed_domains.py`) asserts that none of `atlassian.net`, `atlassian.com`, `api.atlassian.com`, or `jira.atlassian.com` appear in `gateway/allowed_domains.txt`.
+**Why Atlassian domains are excluded from the Squid allowlist:** all Jira and Confluence traffic **must** flow through the gateway REST endpoints (`/api/v1/jira/*` and `/api/v1/confluence/*`). Adding `*.atlassian.net` to Squid would let a compromised sandbox reach Jira or Confluence directly through the proxy, bypassing the private-mode gate, the project / space allowlist, the verb allowlist, and the audit log. A dedicated regression test (`gateway/tests/test_allowed_domains.py`) asserts that none of the substrings `atlassian.net`, `atlassian.com`, `api.atlassian.com`, or `jira.atlassian.com` appear on any non-comment line of `gateway/allowed_domains.txt`. Because the assertion is a substring match, Confluence-shaped hostnames such as `wiki.atlassian.net` and `confluence.atlassian.com` are caught automatically by the broader `atlassian.net` / `atlassian.com` parametrize entries — no separate Confluence-specific row is needed.
 
 ### What Gets Blocked
 

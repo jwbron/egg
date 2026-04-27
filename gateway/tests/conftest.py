@@ -204,6 +204,36 @@ jira_search = _load_module_with_replaced_imports(
     GATEWAY_DIR / "jira_search.py",
 )
 
+# confluence_credentials imports parse_env_file from anthropic_credentials
+confluence_credentials = _load_module_with_replaced_imports(
+    "confluence_credentials",
+    GATEWAY_DIR / "confluence_credentials.py",
+    import_replacements={
+        "from .anthropic_credentials import": "from anthropic_credentials import",
+    },
+)
+
+# confluence_client imports from confluence_credentials (plus lazy ref to gateway.audit_log)
+confluence_client = _load_module_with_replaced_imports(
+    "confluence_client",
+    GATEWAY_DIR / "confluence_client.py",
+    import_replacements={
+        "from .confluence_credentials import": "from confluence_credentials import",
+    },
+)
+
+# confluence_policy has no relative imports to other gateway modules
+confluence_policy = _load_module_with_replaced_imports(
+    "confluence_policy",
+    GATEWAY_DIR / "confluence_policy.py",
+)
+
+# confluence_search has no relative imports to other gateway modules
+confluence_search = _load_module_with_replaced_imports(
+    "confluence_search",
+    GATEWAY_DIR / "confluence_search.py",
+)
+
 # mode_gate has a lazy gateway import for audit_log — no eager relative import
 mode_gate = _load_module_with_replaced_imports(
     "mode_gate",
@@ -335,6 +365,10 @@ gateway = _load_module_with_replaced_imports(
         "from .jira_credentials import": "from jira_credentials import",
         "from .jira_policy import": "from jira_policy import",
         "from .jira_search import": "from jira_search import",
+        "from .confluence_client import": "from confluence_client import",
+        "from .confluence_credentials import": "from confluence_credentials import",
+        "from .confluence_policy import": "from confluence_policy import",
+        "from .confluence_search import": "from confluence_search import",
         "from .mode_gate import": "from mode_gate import",
     },
 )

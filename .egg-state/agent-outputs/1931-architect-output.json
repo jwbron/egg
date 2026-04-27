@@ -1,0 +1,713 @@
+{
+  "issue": 1931,
+  "phase": "plan",
+  "agent": "architect",
+  "title": "Add Confluence gateway support (read-only v1)",
+
+  "summary": "Architecture analysis for the Confluence v1 gateway wrapper. The work is a structural copy of the #1556 Jira wrapper: same gateway sidecar, same @require_session_auth + @require_private_mode chain, same context-filters.yaml-driven allowlist, same audit shape, same test harness. The Confluence-specific complexity sits in three places: (a) a per-verb v2-first / v1-fallback hybrid driven by the Atlassian API split (CQL search is v1-only, comment endpoints have known v2 bugs); (b) a CQL static-scope extractor that mirrors gateway/jira_search.py at the semantic level but parses CQL grammar instead of JQL; and (c) a shared Atlassian credential triple (ATLASSIAN_BASE_URL / _USERNAME / _API_TOKEN) with backward-compat fallback to JIRA_* and CONFLUENCE_* placeholders. All HITL design decisions were resolved in refine; this analysis records the architectural consequences.",
+
+  "problem_statement": {
+    "description": "Sandboxed egg agents cannot read Confluence today. The host-side mcp__confluence__* MCP runs in the human's Claude Code process, holds the human's full Atlassian read+write+admin scope, and is unreachable from sandbox containers. #1556 solved the analogous problem for Jira. #1931 asks for the matching Confluence v1 wrapper so #1557 (Jira-epic SDLC pipelines) and the /impact-analysis skill can read Confluence pages linked from Jira tickets without putting Atlassian credentials in the sandbox.",
+    "goals": [
+      "Sandboxed agents reach Confluence only through the gateway sidecar; no Confluence credentials in the sandbox.",
+      "Read-only v1: page get, list pages in space, page descendants, footer/inline comments, list spaces, CQL search.",
+      "Private-mode-only: every /api/v1/confluence/* route fails closed in public network mode (matches Jira).",
+      "Space allowlist is the policy boundary; CQL searches must statically prove their space scope.",
+      "Future write verbs (page create, page update, comment create) plug in as drop-in narrow routes under the same plumbing — no re-architecting; deletions / restrictions / permissions / space admin / attachments stay permanently denied at the path validator.",
+      "No EGG_CONFLUENCE_* env vars — Confluence is reference material, not a unit of work."
+    ],
+    "non_goals": [
+      "Write verbs (page create/update, comment create) — scoped to a follow-up ticket.",
+      "Deletions, restrictions, permissions, space-admin, attachments — permanent denylist.",
+      "Multi-tenant Atlassian — single-tenant in v1; design must not architect multi-tenant out.",
+      "v2 search index — the gateway uses Atlassian's v1 CQL endpoint, not a self-hosted index."
+    ],
+    "consumers_unblocked": [
+      "#1557 — Jira-epic SDLC pipelines (refine phase pulls linked Confluence pages).",
+      "/impact-analysis skill — when run inside a sandboxed agent it can use the gateway instead of mcp__confluence__*."
+    ]
+  },
+
+  "current_architecture": {
+    "description": "Gateway sidecar is the existing choke point between sandbox and external services. #1556 generalised the Jira plumbing — credentials, mode-gate, context-filters, audit log, route-enumeration regression test — so adding Confluence is a structural copy, not a new infrastructure layer.",
+    "reusable_infrastructure": [
+      {
+        "component": "@require_session_auth → @require_private_mode decorator chain",
+        "location": "gateway/auth.py + gateway/mode_gate.py",
+        "reuse": "Apply unchanged. mode_gate.py stamps __egg_requires_private_mode__ = True so a route-enumeration regression test can prove every /api/v1/confluence/* route carries the gate."
+      },
+      {
+        "component": "Squid network-allowlist with *.atlassian.net excluded",
+        "location": "gateway/allowed_domains.txt (lines 31-36)",
+        "reuse": "No change. Confluence cannot bypass the gateway via direct egress for the same reason Jira cannot. The existing gateway/tests/test_allowed_domains.py regression covers Confluence by extension."
+      },
+      {
+        "component": "Mtime-cached, thread-safe credential loader pattern",
+        "location": "gateway/anthropic_credentials.py (parse_env_file) + gateway/jira_credentials.py (manager class)",
+        "reuse": "New gateway/confluence_credentials.py imports parse_env_file from anthropic_credentials and copies the JiraCredentialsManager pattern. Differs only in env-var precedence (ATLASSIAN_* preferred, CONFLUENCE_* fallback)."
+      },
+      {
+        "component": "Mtime-cached YAML allowlist loader pattern",
+        "location": "gateway/jira_policy.py",
+        "reuse": "New gateway/confluence_policy.py copies the loader, points at the new confluence.spaces section, exposes allowed_spaces() / is_space_allowed() helpers."
+      },
+      {
+        "component": "Conservative static-scope extractor pattern",
+        "location": "gateway/jira_search.py (extract_search_projects)",
+        "reuse": "New gateway/confluence_search.py implements extract_search_spaces(cql, allowed) with the same parse-then-validate stance: strip comments and string literals, tokenise, accept exactly two shapes (`space = KEY` and `space IN (K1, K2, …)`), deny on ambiguity. The CQL grammar differs from JQL but the semantic model is identical."
+      },
+      {
+        "component": "Audit-log helper",
+        "location": "gateway/gateway.py (audit_log())",
+        "reuse": "Unchanged. New event names follow the jira_* convention: confluence_page_get, confluence_search, confluence_search_rejected, confluence_*_denied, confluence_*_upstream_error, confluence_upstream_rate_limited, confluence_upstream_403."
+      },
+      {
+        "component": "Route-enumeration regression test pattern",
+        "location": "gateway/tests/test_jira_routes.py",
+        "reuse": "Copy structure into gateway/tests/test_confluence_routes.py. Walks app.url_map for /api/v1/confluence/* and asserts every view function has __egg_requires_private_mode__ = True."
+      },
+      {
+        "component": "POST /api/v1/config/reload hook",
+        "location": "gateway/gateway.py reload_jira_credentials() / reload_jira_policy() invocations (around lines 880-910)",
+        "reuse": "Extend the same handler to call reload_confluence_credentials() and reload_confluence_policy() — one-line additions per."
+      },
+      {
+        "component": "Sandbox bash wrapper pattern",
+        "location": "sandbox/scripts/jira",
+        "reuse": "New sandbox/scripts/confluence copies the call_gateway() shape, EGG_SESSION_TOKEN Bearer auth, and gateway-availability probe."
+      },
+      {
+        "component": "Wrapper reference doc pattern",
+        "location": "docs/reference/jira-wrapper.md",
+        "reuse": "New docs/reference/confluence-wrapper.md copies the structure: endpoint table, validation rules, not_found envelope, audit events, configuration."
+      }
+    ],
+    "existing_confluence_footprint": [
+      {
+        "file": "config/secrets.template.env",
+        "lines": "92-99",
+        "current_state": "Defines CONFLUENCE_BASE_URL / CONFLUENCE_USERNAME / CONFLUENCE_API_TOKEN / CONFLUENCE_SPACE_KEYS placeholders. Nothing reads them today.",
+        "v1_change": "Header retitled 'Atlassian Integration (shared by Jira + Confluence)'. New ATLASSIAN_BASE_URL / ATLASSIAN_USERNAME / ATLASSIAN_API_TOKEN keys. The CONFLUENCE_* triple stays for back-compat fallback. CONFLUENCE_SPACE_KEYS is removed (allowlist moves to context-filters.yaml per refine decision-8)."
+      },
+      {
+        "file": "sandbox/agent-config/rules/environment.md",
+        "lines": "80",
+        "current_state": "Mentions ~/context-sync/confluence/ as an optional read-only cache.",
+        "v1_change": "Add a Confluence wrapper subsection alongside the Jira wrapper subsection (lines 50-65). No EGG_CONFLUENCE_* env var documented (refine decision-13)."
+      },
+      {
+        "file": "config/context-filters.yaml",
+        "lines": "11-24 (jira section)",
+        "current_state": "Has only the jira: section with projects: [].",
+        "v1_change": "Add a confluence: section with spaces: [] (default empty, fail-closed)."
+      }
+    ]
+  },
+
+  "external_constraints": {
+    "atlassian_v1_v2_split": {
+      "v2_endpoints_used": [
+        "GET /wiki/api/v2/pages/{id}",
+        "GET /wiki/api/v2/spaces/{space-id}/pages",
+        "GET /wiki/api/v2/pages/{id}/descendants",
+        "GET /wiki/api/v2/pages/{id}/footer-comments",
+        "GET /wiki/api/v2/pages/{id}/inline-comments",
+        "GET /wiki/api/v2/spaces"
+      ],
+      "v1_endpoints_used": [
+        "GET /wiki/rest/api/search (CQL — no v2 equivalent)",
+        "GET /wiki/rest/api/content/{id}/child/comment?location=footer (fallback for missing-nested-replies bug)",
+        "GET /wiki/rest/api/content/{id}/child/comment?location=inline (fallback for v2 inline-comments 404 bug)"
+      ],
+      "consequence": "ConfluenceClient pins each verb to a specific Atlassian endpoint. Wrapper methods normalise both response shapes to a single envelope so /api/v1/confluence/* responses are version-agnostic for the agent. v1 search and v1 comment fallbacks are explicit, not implicit retries — they fire only on the documented failure modes."
+    },
+    "rate_limiting": {
+      "policy": "Reuse Jira's 'retry once on 429 with min(Retry-After, 30s)' approach. Emit confluence_upstream_rate_limited audit on both attempts.",
+      "configurable": false,
+      "rationale": "Per refine feedback Q2, no Confluence-specific tuning in v1; revisit only if production 429s are observed."
+    },
+    "body_format_default": {
+      "default": "body-format=storage (Confluence XHTML-like markup) — single body shape on the wire.",
+      "override": "Caller may pass body-format=atlas_doc_format or body-format=view per call.",
+      "rationale": "Per HITL resolution on decision-5: default storage to keep payloads small; planners that need ADF tree traversal pass the override per-call. (Note: this differs from the analysis draft's E1 recommendation; the resolution narrowed it to storage-default with override.)"
+    },
+    "cql_quirks": {
+      "hard_result_limit": "200 per query; pagination required beyond that.",
+      "scope_extraction": "Conservative static `space =` / `space IN (...)` extractor; deny on ambiguity (refine decision-3).",
+      "passthrough_grammar": "AND-combined additional clauses are allowed at top level; OR / unparented `space` / quoted keys / CQL functions / mixed-script keys are rejected."
+    },
+    "redaction": {
+      "stripped_fields": ["accountId", "emailAddress", "_links.webui (when it points at user-profile URLs)"],
+      "applied": "Before responses leave the gateway (refine decision-10).",
+      "rationale": "Parallels Jira's redaction stance; PII / user-tracking surface."
+    },
+    "space_list_filtering": {
+      "behavior": "GET /wiki/api/v2/spaces response is filtered by the gateway so only allowlisted spaces are returned (refine decision-11). Agents cannot enumerate the full tenant space set."
+    }
+  },
+
+  "proposed_architecture": {
+    "module_breakdown": [
+      {
+        "module": "gateway/confluence_client.py",
+        "purpose": "Thin httpx-based REST wrapper around Atlassian Cloud Confluence. Mirrors gateway/jira_client.py.",
+        "key_classes_or_functions": [
+          "ConfluenceClient (dataclass, configurable creds_provider + http_client)",
+          "ConfluenceUpstreamError (RuntimeError carrying status_code, body, path)",
+          "validate_confluence_api_path(path, method) — regex allowlist for /execute passthrough; mirrors validate_jira_api_path",
+          "validate_body_format(body_format) — caller override of body-format=storage default",
+          "ALLOWED_METHODS = frozenset({'GET'})",
+          "CONFLUENCE_WRITE_VERBS_DENIED = frozenset({'restrictions', 'permissions', 'space.admin', 'users', 'attachments', 'DELETE', 'PUT', 'PATCH'}) — permanent denylist, includes 'attachments' per refine decision-12",
+          "ConfluenceClient.get_page(page_id, body_format=None) → v2",
+          "ConfluenceClient.list_pages_in_space(space_id, ...) → v2",
+          "ConfluenceClient.get_page_descendants(page_id, depth=None, ...) → v2 (depth passes through verbatim per refine feedback Q6)",
+          "ConfluenceClient.get_footer_comments(page_id, include_replies=False) → v2; v1 fallback when include_replies=True or v2 returns no nested replies",
+          "ConfluenceClient.get_inline_comments(page_id) → v2; v1 fallback on 404 (known bug)",
+          "ConfluenceClient.list_spaces(...) → v2 (response filtered to allowlist by route layer)",
+          "ConfluenceClient.search_cql(cql, limit, cursor) → v1 (the only working CQL surface)",
+          "ConfluenceClient.execute_raw(method, path, query, body) → GET-only passthrough"
+        ],
+        "404_envelope": "get_page / list_pages_in_space / get_page_descendants / get_footer_comments / get_inline_comments translate upstream 404 into {'status': 'not_found', 'id': '...', 'upstream_status': 404}. CQL search and execute_raw surface upstream 404 as real ConfluenceUpstreamError.",
+        "redaction": "Response post-processing strips accountId / emailAddress / _links.webui user-profile URLs before returning to the route layer (per refine decision-10). Implemented as a private _redact() helper applied on every method's return path.",
+        "v1_fallback_logic": {
+          "footer_comments_nested_replies": "If caller asks for include_replies=true, gateway issues a second v2 call to /wiki/api/v2/footer-comments?page-id={id} (the workaround Atlassian documents) and merges the tree. If that still misses replies, falls back to v1 /wiki/rest/api/content/{id}/child/comment?location=footer.",
+          "inline_comments_404": "If v2 returns 404 (the documented bug), the client transparently retries against v1 /wiki/rest/api/content/{id}/child/comment?location=inline and returns the v1 response under a normalised envelope (same field names as v2). The fallback is logged as an audit event confluence_v1_fallback so operators can see how often the bug fires."
+        },
+        "atlas_403_audit": "When upstream returns 403, the client raises ConfluenceUpstreamError(status_code=403, ...) and the route layer emits a distinct confluence_upstream_403 audit event (per refine feedback Q7) so operators can distinguish space-allowlist denials, page-permission denials, and generic upstream errors at audit time.",
+        "approximate_size": "550-650 lines (a touch larger than jira_client.py because of the v1-fallback paths and per-verb response normalisation)."
+      },
+      {
+        "module": "gateway/confluence_credentials.py",
+        "purpose": "Mtime-cached, thread-safe loader for Atlassian credentials. Mirrors gateway/jira_credentials.py.",
+        "key_classes_or_functions": [
+          "ConfluenceCredentials (dataclass: base_url, username, api_token, basic_auth_header())",
+          "ConfluenceCredentialsUnavailable (RuntimeError; route translates to HTTP 503)",
+          "ConfluenceCredentialsManager (mtime-cached + threading.Lock)",
+          "get_confluence_credentials() (module-level helper)",
+          "reload_confluence_credentials() (force cache clear; called by /api/v1/config/reload)"
+        ],
+        "credential_precedence": [
+          "1. ATLASSIAN_BASE_URL / ATLASSIAN_USERNAME / ATLASSIAN_API_TOKEN (preferred — refine decision-6).",
+          "2. CONFLUENCE_BASE_URL / CONFLUENCE_USERNAME / CONFLUENCE_API_TOKEN (back-compat for installs that already populated the placeholders).",
+          "3. Derive Confluence base URL from ATLASSIAN_BASE_URL by appending /wiki when only ATLASSIAN_* is set and the base URL doesn't already end in /wiki."
+        ],
+        "shared_credential_invariant": "Both confluence_credentials.py and jira_credentials.py read the same secrets.env file. When ATLASSIAN_* is set, both use it (Jira gets the bare base, Confluence appends /wiki). When only the legacy *_* triples are set, each loader uses its own. Operators are not required to migrate.",
+        "rationale": "Per refine decision-6 + decision-9: one Atlassian bot account, one API token, one principal owns Jira read + Confluence read scopes. Reduces token-rotation toil.",
+        "approximate_size": "230-260 lines."
+      },
+      {
+        "module": "gateway/confluence_policy.py",
+        "purpose": "Mtime-cached, fail-closed loader for the Confluence space allowlist. Mirrors gateway/jira_policy.py.",
+        "key_classes_or_functions": [
+          "allowed_spaces() → frozenset[str]",
+          "is_space_allowed(space_key) → bool",
+          "extract_space_from_page_response(page_json) → str | None  (parses spaceId / space.key from a v2 page response so route layer can verify the page's space is allowlisted before returning)",
+          "reload_confluence_policy() — force cache clear"
+        ],
+        "yaml_shape": "config/context-filters.yaml gains a new top-level confluence: section with a single key spaces: [...] (refine decision-8). Default is [] (fail-closed: every Confluence call rejected until populated).",
+        "fail_closed_semantics": "Missing file → empty set. Missing confluence: section → empty set. Malformed YAML → empty set, parse error logged once per load cycle (not re-raised — bad config must not crash the gateway).",
+        "approximate_size": "240-270 lines."
+      },
+      {
+        "module": "gateway/confluence_search.py",
+        "purpose": "Conservative static CQL space-scope extractor. Mirrors gateway/jira_search.py at the semantic level; CQL grammar differs from JQL.",
+        "key_classes_or_functions": [
+          "extract_search_spaces(cql, allowed) → ScopeResult(spaces, reason)",
+          "_normalise_strings(cql) — strip / sanitise quoted literals before tokenisation",
+          "Internal: _SPACE_KEY_RE (Atlassian space-key shape: ^[A-Z][A-Z0-9_]*$ — same as Jira project keys)"
+        ],
+        "accepted_cql_shapes": [
+          "`space = KEY` (bare uppercase key, KEY in allowed)",
+          "`space IN (K1, K2, ...)` (every Ki in allowed)",
+          "Either form AND-combined with arbitrary additional clauses at top level"
+        ],
+        "rejected_cql_shapes": [
+          "No `space` clause anywhere.",
+          "`space` under a top-level OR.",
+          "Quoted space keys whose value is not allowlisted.",
+          "CQL functions (currentUser(), recentlyViewedContent(), favouriteSpaces(), etc.).",
+          "`id =` clauses without a `space =` clause.",
+          "Unicode / mixed-script keys (homoglyph defence).",
+          "Comment markers (/* */ // --) and forbidden chars (;).",
+          "OR at any level inside a top-level conjunct that contains `space`."
+        ],
+        "rationale": "Per refine decision-3. Permissive CQL with post-hoc result filter was rejected for the same reason JQL was: result counts and pagination metadata leak from non-allowlisted spaces.",
+        "approximate_size": "260-290 lines."
+      },
+      {
+        "module": "gateway/gateway.py — Confluence route block",
+        "purpose": "Add a Confluence Routes section mirroring the Jira Routes section (currently lines 4180-4671).",
+        "new_routes": [
+          {
+            "route": "POST /api/v1/confluence/page/get",
+            "decorators": ["@require_session_auth", "@require_private_mode"],
+            "request_body": "{\"page_id\": \"<numeric-id>\", \"body_format\": \"storage|atlas_doc_format|view\" (optional)}",
+            "validation": [
+              "page_id must be a non-empty digit string.",
+              "Resolve page → upstream — if response carries spaceId/spaceKey, verify against allowed_spaces; reject with confluence_page_get_denied if not allowlisted.",
+              "body_format if present must be one of {storage, atlas_doc_format, view}; default storage."
+            ],
+            "upstream": "GET /wiki/api/v2/pages/{id}?body-format=...",
+            "audit_event": "confluence_page_get / confluence_page_get_rejected / confluence_page_get_denied / confluence_page_get_upstream_error / confluence_upstream_403",
+            "404_envelope": true
+          },
+          {
+            "route": "POST /api/v1/confluence/page/descendants",
+            "request_body": "{\"page_id\": \"...\", \"depth\": <int> (optional)}",
+            "validation": "depth passes through verbatim (refine feedback Q6); other params validated as ints.",
+            "upstream": "GET /wiki/api/v2/pages/{id}/descendants?depth=...",
+            "audit_event": "confluence_page_descendants / *_denied / *_upstream_error",
+            "404_envelope": true
+          },
+          {
+            "route": "POST /api/v1/confluence/page/footer-comments",
+            "request_body": "{\"page_id\": \"...\", \"include_replies\": false (optional)}",
+            "validation": "Verify the parent page's space is allowlisted (single upstream resolve before fetching comments).",
+            "upstream": "GET /wiki/api/v2/pages/{id}/footer-comments (with v1 fallback when include_replies=true and v2 misses replies)",
+            "audit_event": "confluence_footer_comments / *_denied / confluence_v1_fallback (when fallback fires) / *_upstream_error",
+            "404_envelope": true
+          },
+          {
+            "route": "POST /api/v1/confluence/page/inline-comments",
+            "request_body": "{\"page_id\": \"...\"}",
+            "validation": "Verify the parent page's space is allowlisted.",
+            "upstream": "GET /wiki/api/v2/pages/{id}/inline-comments (with transparent v1 fallback on 404)",
+            "audit_event": "confluence_inline_comments / *_denied / confluence_v1_fallback / *_upstream_error",
+            "404_envelope": true
+          },
+          {
+            "route": "POST /api/v1/confluence/space/pages",
+            "request_body": "{\"space_id\": \"<numeric-id>\", \"limit\": <int> (optional), \"cursor\": \"...\" (optional)}",
+            "validation": "Resolve space_id → space key (one upstream call or in-process map) and verify the key is in allowed_spaces.",
+            "upstream": "GET /wiki/api/v2/spaces/{space-id}/pages?limit=...&cursor=...",
+            "audit_event": "confluence_space_pages / *_denied / *_upstream_error"
+          },
+          {
+            "route": "POST /api/v1/confluence/space/list",
+            "request_body": "{\"limit\": <int> (optional), \"cursor\": \"...\" (optional)}",
+            "validation": "None (purely informational).",
+            "upstream": "GET /wiki/api/v2/spaces?limit=...&cursor=...",
+            "post_processing": "Filter response so only spaces whose key is in allowed_spaces appear (refine decision-11). Pagination links are recomputed on the filtered set.",
+            "audit_event": "confluence_space_list / *_upstream_error"
+          },
+          {
+            "route": "POST /api/v1/confluence/search",
+            "request_body": "{\"cql\": \"space = ENG AND text ~ 'login'\", \"limit\": <int>, \"cursor\": \"...\"}",
+            "validation": "extract_search_spaces(cql, allowed_spaces()) must return a non-None ScopeResult; otherwise 403 confluence_search_rejected. limit clamped to 100; default 50.",
+            "upstream": "GET /wiki/rest/api/search?cql=...&limit=...&cursor=...",
+            "audit_event": "confluence_search / confluence_search_rejected / confluence_search_upstream_error",
+            "spaces_extracted": "Logged in audit details on accept."
+          },
+          {
+            "route": "POST /api/v1/confluence/execute",
+            "request_body": "{\"method\": \"GET\", \"path\": \"...\", \"query\": {...}, \"body\": null}",
+            "validation": [
+              "Method must be GET.",
+              "path must match validate_confluence_api_path regex allowlist.",
+              "If path carries a space key, it must be in allowed_spaces.",
+              "Permanent denylist segments (restrictions, permissions, space.admin, users, attachments) reject with confluence_execute_denied."
+            ],
+            "upstream": "GET against the validated path",
+            "rationale": "Escape hatch for read verbs not yet promoted to narrow routes (refine decision-14)."
+          }
+        ],
+        "shared_helpers_to_add": [
+          "_session_confluence_context() — session_mode, pipeline_id, agent_role (no jira_ticket equivalent; refine decision-13 said no EGG_CONFLUENCE_*).",
+          "_confluence_error_from_upstream(exc) — translate ConfluenceUpstreamError to HTTP response; 4xx pass-through, 5xx → 502 with details.",
+          "_confluence_not_configured_error(exc) — translate ConfluenceCredentialsUnavailable to HTTP 503.",
+          "_space_not_allowlisted_response(...) — emit structured audit, return canonical 403 with reason."
+        ],
+        "config_reload_hook": "reload_confluence_credentials() and reload_confluence_policy() are added to the existing reload handler in gateway.py around lines 880-910 alongside the Jira reloads.",
+        "approximate_added_lines": "~700-900 in gateway.py (matching the Jira block size; Jira routes are ~485 lines, Confluence has 8 routes vs 4 so larger)."
+      },
+      {
+        "module": "sandbox/scripts/confluence",
+        "purpose": "Sandbox bash wrapper. Mirrors sandbox/scripts/jira.",
+        "subcommands": [
+          "confluence page get <PAGE_ID> [--body-format storage|atlas_doc_format|view]",
+          "confluence page descendants <PAGE_ID> [--depth N]",
+          "confluence page footer-comments <PAGE_ID> [--include-replies]",
+          "confluence page inline-comments <PAGE_ID>",
+          "confluence space pages <SPACE_ID> [--limit N] [--cursor TOK]",
+          "confluence space list [--limit N] [--cursor TOK]",
+          "confluence search <CQL> [--limit N] [--cursor TOK]",
+          "confluence execute <METHOD> <PATH> [--query key=val,...]",
+          "confluence help"
+        ],
+        "naming_decision": "Jira-style subcommands only (refine feedback Q10). MCP-style aliases (confluence get-page, confluence search-cql) are NOT shipped in v1; can be added later if porting friction emerges.",
+        "shared_environment": "Same EGG_SESSION_TOKEN + GATEWAY_URL contract as the jira wrapper. Same gateway-availability probe, same fail-closed messaging.",
+        "approximate_size": "350-450 lines (matches sandbox/scripts/jira)."
+      },
+      {
+        "module": "config/context-filters.yaml",
+        "addition": "New top-level `confluence:` section with a single `spaces: [...]` key, default empty. Comment block mirrors the existing `jira:` comment block.",
+        "fail_closed": "Empty list (or missing section) blocks every Confluence call until an operator populates."
+      },
+      {
+        "module": "config/secrets.template.env",
+        "rewrite": "Promote the Atlassian section to a single shared block at the top of an Atlassian section. Layout: ATLASSIAN_BASE_URL / _USERNAME / _API_TOKEN as the canonical triple, with a comment that JIRA_* and CONFLUENCE_* placeholders are kept for back-compat. Remove CONFLUENCE_SPACE_KEYS (replaced by config/context-filters.yaml — refine decision-8)."
+      },
+      {
+        "module": "sandbox/agent-config/rules/environment.md",
+        "addition": "New Confluence wrapper subsection alongside the existing Jira wrapper subsection (current lines 47-66). Documents the confluence subcommands, notes that no EGG_CONFLUENCE_* env var exists (refine decision-13), references docs/reference/confluence-wrapper.md."
+      },
+      {
+        "module": "docs/reference/confluence-wrapper.md",
+        "purpose": "User-facing reference for the new gateway endpoints. Mirrors docs/reference/jira-wrapper.md.",
+        "sections": [
+          "Endpoint surface (table of /api/v1/confluence/* routes + upstream Atlassian endpoints).",
+          "Per-route request body schema, validation rules, response shape, audit events.",
+          "CQL acceptance rules (the static-scope extractor's accepted shapes).",
+          "404 not_found envelope.",
+          "v1 fallback behaviour for footer / inline comments (operator-visible — confluence_v1_fallback events).",
+          "Configuration: secrets.env (ATLASSIAN_* vs CONFLUENCE_* fallback), context-filters.yaml (confluence.spaces).",
+          "Bot-vs-human access caveat (refine feedback Q9).",
+          "Default body format (storage; override per call)."
+        ]
+      },
+      {
+        "module": "docs/architecture/network-isolation.md",
+        "addition": "Add /api/v1/confluence/* routes to the private-mode endpoint table. Note the exception is identical to /api/v1/jira/*."
+      },
+      {
+        "module": "docs/architecture/credential-injection.md",
+        "addition": "Extend the Atlassian section to cover Confluence. Document the ATLASSIAN_* / CONFLUENCE_* / JIRA_* precedence and the implicit /wiki suffix derivation."
+      },
+      {
+        "module": "gateway/tests/test_confluence_*.py",
+        "files_to_create": [
+          "test_confluence_client.py — unit tests for ConfluenceClient (httpx mock, 429 retry, 404 envelope, v1 fallback paths, redaction).",
+          "test_confluence_credentials.py — manager loader (mtime cache, ATLASSIAN_* vs CONFLUENCE_* precedence, /wiki suffix derivation, missing-creds 503).",
+          "test_confluence_policy.py — context-filters.yaml loader (fail-closed, malformed YAML, empty section, mtime reload).",
+          "test_confluence_search.py — adversarial CQL suite (every accepted shape + every rejection reason).",
+          "test_confluence_routes.py — per-route 200 / 400 / 403 / 503 grid; route-enumeration regression that walks app.url_map and asserts every /api/v1/confluence/* view function has __egg_requires_private_mode__ = True; private-mode 403 for every route in public mode; space-allowlist 403 grid; CQL static-scope extractor integration; v1-fallback integration; redaction; space-list filtering."
+        ]
+      }
+    ],
+    "data_flow": {
+      "happy_path": [
+        "1. Sandbox agent runs `confluence page get 1234567`.",
+        "2. sandbox/scripts/confluence POSTs JSON to GATEWAY_URL/api/v1/confluence/page/get with EGG_SESSION_TOKEN Bearer.",
+        "3. @require_session_auth populates g.session_mode and g.session.",
+        "4. @require_private_mode rejects unless g.session_mode == 'private' (with confluence_private_mode_required audit).",
+        "5. Route validates page_id shape and body_format (if provided).",
+        "6. Route calls ConfluenceClient.get_page(page_id, body_format).",
+        "7. Client loads creds via get_confluence_credentials() (ATLASSIAN_* preferred, CONFLUENCE_* fallback).",
+        "8. Client issues GET /wiki/api/v2/pages/{id}?body-format=... with Basic auth.",
+        "9. On 429, client retries once with min(Retry-After, 30s); on 404, returns not_found envelope; on 403, raises ConfluenceUpstreamError(403) → route emits confluence_upstream_403 audit.",
+        "10. Client redacts response (accountId / emailAddress / _links.webui).",
+        "11. Route extracts the page's spaceId/spaceKey from the response and verifies against allowed_spaces. (Per-page allowlist check happens AFTER fetching because v2 pages don't have a stable URL-level space key. Reject with confluence_page_get_denied + 403 if not allowlisted.)",
+        "12. Route emits confluence_page_get audit and returns make_success(...)."
+      ],
+      "search_path": [
+        "1. Sandbox agent runs `confluence search 'space = ENG AND text ~ \"login\"'`.",
+        "2. POST → /api/v1/confluence/search.",
+        "3. extract_search_spaces(cql, allowed_spaces()) returns ScopeResult({'ENG'}, '') because the static `space = ENG` is allowlisted.",
+        "4. Client issues GET /wiki/rest/api/search?cql=... (v1).",
+        "5. Response redacted, audit emitted with spaces_extracted=['ENG']."
+      ],
+      "rejection_path_examples": [
+        "Public-mode session: 403 private_mode_required, no upstream call, no creds load.",
+        "Sandbox sends `space = SECRET` and 'SECRET' is not in confluence.spaces: 403 confluence_search_rejected, reason 'space not allowlisted'.",
+        "Sandbox sends bare `text ~ 'foo'` (no space clause): 403 confluence_search_rejected, reason 'no space clause'.",
+        "Sandbox sends `space = ENG OR space = WIDE_OPEN`: 403, reason 'space under OR'.",
+        "Sandbox calls GET /api/v1/confluence/execute with path=`spaces/{id}/restrictions`: 403 confluence_execute_denied, reason 'denied write verb segment'."
+      ]
+    }
+  },
+
+  "key_technical_decisions": [
+    {
+      "id": "TD1",
+      "decision": "Two-name shape: gateway URL paths use the Jira verb-noun convention (`/api/v1/confluence/page/get`); the sandbox wrapper uses Jira-style subcommands (`confluence page get <ID>`). MCP-aligned names do NOT bleed into URL design.",
+      "decided_by": "refine decision-1",
+      "rationale": "Mirrors /api/v1/jira/* exactly. Reviewers, tests, audit-log fields, and operators see the same nouns across both services. Path-validator regex aligns with validate_jira_api_path. Future write verbs (page/create, page/update, comment/create) drop in symmetrically. The MCP-style subcommand aliases (confluence get-page, confluence search-cql) were considered (feedback Q10) and rejected for v1 — adds a parallel naming surface with no proven porting need."
+    },
+    {
+      "id": "TD2",
+      "decision": "Per-verb v2-first / v1-fallback hybrid. Each ConfluenceClient method pins its upstream Atlassian endpoint; clients never declare a single Atlassian API version.",
+      "decided_by": "refine decision-2 (v2-first hybrid) + decision-4 (v2-first with transparent v1 fallback for nested replies + inline-404 bug)",
+      "rationale": "v2 has cleaner cursor pagination and is Atlassian's strategic surface, but CQL search is v1-only (no v2 equivalent and no plans to add). Footer-comments v2 misses nested replies; inline-comments v2 has a 404 bug. Per-verb pinning lets us flip a single line per endpoint when Atlassian closes a v2 gap. The fallback for comments fires only on the documented failure modes (not on every 404), and emits a confluence_v1_fallback audit event so operators can monitor frequency."
+    },
+    {
+      "id": "TD3",
+      "decision": "CQL static-scope extractor is a structural copy of gateway/jira_search.py; accepts only `space = KEY` and `space IN (K1, ...)` AND-combined with arbitrary clauses; deny on ambiguity.",
+      "decided_by": "refine decision-3",
+      "rationale": "Permissive CQL with post-hoc result filtering was rejected: result counts and pagination metadata still leak from non-allowlisted spaces. The static extractor is the only deny-path that holds against adversarial CQL. Some legitimate multi-space patterns (e.g., `(space = ENG OR space = DOCS)`) are rejected — the workaround is two single-space searches merged client-side. Documented in docs/reference/confluence-wrapper.md."
+    },
+    {
+      "id": "TD4",
+      "decision": "Body-format=storage by default with caller override (atlas_doc_format / view). Single body shape on the wire by default.",
+      "decided_by": "HITL resolution on decision-5 (narrowed from the recommended 'both storage and ADF' to 'storage default with override')",
+      "rationale": "Smaller default payload. Most agent reads only need one body shape — XHTML-like storage format is human-readable in transcripts and parseable for simple traversal. Planners that need ADF tree access pass body_format=atlas_doc_format per-call. View (rendered HTML) stays available as a third override. The architect-recommended dual-format default was overruled to keep wire payloads small; this is recorded so reviewers understand the resolution differs from the analysis draft."
+    },
+    {
+      "id": "TD5",
+      "decision": "Shared Atlassian credential triple ATLASSIAN_BASE_URL / _USERNAME / _API_TOKEN with backward-compat fallback to JIRA_* and CONFLUENCE_*. Single Atlassian bot account owns Jira + Confluence read scopes.",
+      "decided_by": "refine decision-6 + decision-9",
+      "rationale": "Reflects reality (single Atlassian Cloud tenant, single API token surface). Operators provision one bot, rotate one token, set one set of secrets. The CONFLUENCE_* placeholders already exist in secrets.template.env; we keep them as fallback so installs that already populated them on a forward-looking basis don't break. Confluence base URL is derived from ATLASSIAN_BASE_URL by appending /wiki when only the shared key is set. Migration is opt-in."
+    },
+    {
+      "id": "TD6",
+      "decision": "@require_private_mode applied per-route (not via Flask blueprint). Route-enumeration regression test walks app.url_map for /api/v1/confluence/* and asserts every view function has __egg_requires_private_mode__ = True.",
+      "decided_by": "refine decision-7",
+      "rationale": "Identical to Jira. The decorator is already generic (no Confluence-specific change). Blueprint-level before_request was rejected in #1556 and the same reasoning applies — gateway.py doesn't use blueprints, and migrating Jira to a blueprint to keep parity is out of scope here."
+    },
+    {
+      "id": "TD7",
+      "decision": "Space allowlist lives in config/context-filters.yaml under a new `confluence.spaces:` section. Default empty (fail-closed). Mtime-reloaded; hooked into POST /api/v1/config/reload.",
+      "decided_by": "refine decision-8 + feedback Q1 (operators set spaces at deploy time; do not hard-code)",
+      "rationale": "Mirrors the Jira `jira.projects` shape. Operators already edit context-filters.yaml for Jira and GitHub filtering; one allowlist surface. CONFLUENCE_SPACE_KEYS env var was rejected because it mixes secrets and policy. A standalone config/confluence.yaml was rejected to avoid file proliferation."
+    },
+    {
+      "id": "TD8",
+      "decision": "Strip accountId, emailAddress, and _links.webui user-profile URLs from every Confluence response before it reaches the sandbox.",
+      "decided_by": "refine decision-10",
+      "rationale": "Parallels Jira's redaction stance. accountId is a stable Atlassian principal identifier; emailAddress is PII; _links.webui can deep-link to user profiles. Implemented in ConfluenceClient as a private _redact() helper applied on every method's return path so it cannot be forgotten at the route layer."
+    },
+    {
+      "id": "TD9",
+      "decision": "GET /wiki/api/v2/spaces (the space-list endpoint) response is filtered by the gateway so only allowlisted spaces are returned; the agent cannot enumerate the full tenant space set.",
+      "decided_by": "refine decision-11",
+      "rationale": "Pass-through-with-per-page-deny was rejected — it leaks the existence of spaces an agent has no business knowing. Filtering at the gateway re-computes pagination metadata on the filtered set so cursor-based iteration also stays scoped."
+    },
+    {
+      "id": "TD10",
+      "decision": "Attachments endpoints are on the permanent denylist for v1 and future writes. Implemented as a path-segment denylist in CONFLUENCE_WRITE_VERBS_DENIED in gateway/confluence_client.py.",
+      "decided_by": "refine decision-12",
+      "rationale": "Confluence attachments are arbitrary-file uploads / downloads with unbounded payload surface. If an attachment-read use case appears, it is scoped as a separate ticket with its own size limits and content-type allowlist — not a quiet expansion of the existing wrapper."
+    },
+    {
+      "id": "TD11",
+      "decision": "No EGG_CONFLUENCE_* env vars in v1 sandbox. Audit recovers pageId / spaceKey from each request body.",
+      "decided_by": "refine decision-13",
+      "rationale": "Confluence is reference material (consulted from links inside Jira tickets), not a primary unit of work. There is no analogue to EGG_JIRA_TICKET that the orchestrator would set per-pipeline. Audit observability is preserved by extracting pageId / spaceKey from the request body or response payload."
+    },
+    {
+      "id": "TD12",
+      "decision": "Include POST /api/v1/confluence/execute as a GET-only regex-allowlisted passthrough.",
+      "decided_by": "refine decision-14",
+      "rationale": "Same escape hatch as Jira's /api/v1/jira/execute: lets agents reach read endpoints not yet promoted to narrow routes without re-spinning a gateway release. Path-validator regex restricts the surface; permanent denylist (DELETE/PUT/PATCH, attachments, restrictions, permissions, space.admin, users) is enforced in validate_confluence_api_path."
+    },
+    {
+      "id": "TD13",
+      "decision": "Distinct audit category confluence_upstream_403 separate from confluence_*_upstream_error.",
+      "decided_by": "refine feedback Q7",
+      "rationale": "Helps operators distinguish space-allowlist denials (gateway-side 403), page-permission denials (Atlassian-side 403 because the bot lacks scope), and generic upstream errors at audit time. Implementation: route layer inspects ConfluenceUpstreamError.status_code and emits the specific event."
+    },
+    {
+      "id": "TD14",
+      "decision": "Pass Atlassian's depth parameter through verbatim on getConfluencePageDescendants; no gateway-imposed cap in v1.",
+      "decided_by": "refine feedback Q6",
+      "rationale": "Pre-emptive depth caps risk breaking legitimate deep-tree reads. Add a ceiling reactively if a runaway response is observed in production. Documented in the wrapper reference."
+    },
+    {
+      "id": "TD15",
+      "decision": "Default to current-version only on getConfluencePage; no `version` query parameter exposed in v1.",
+      "decided_by": "refine feedback Q8",
+      "rationale": "Page-version history is not a v1 use case. Adds latency / response complexity for nothing. If a use case appears, it is a follow-up ticket with its own auth / audit considerations."
+    },
+    {
+      "id": "TD16",
+      "decision": "No page/resolve-by-url verb in v1. Agents that have a Confluence URL parse the pageId themselves and call /api/v1/confluence/page/get.",
+      "decided_by": "refine feedback Q5",
+      "rationale": "URL parsing is trivial in the agent layer. Adding a server-side resolver introduces a one-way mapping (URL → pageId) that the gateway has to maintain and that the bot account has to be able to reach. If URL parsing in the agent becomes a recurring pain point, scoped as a follow-up."
+    }
+  ],
+
+  "alternatives_considered_at_architecture_level": [
+    {
+      "name": "Embed mcp__confluence__* in the sandbox container",
+      "rejected_because": "Violates the zero-credential invariant. The MCP runs as the human user with full read+write+admin scope; the sandbox cannot be granted that. Same reasoning as #1556's rejection of the in-sandbox Atlassian MCP for Jira."
+    },
+    {
+      "name": "Use Atlassian OAuth 2.0 with per-pipeline tokens instead of Basic auth + bot account",
+      "rejected_because": "OAuth introduces refresh-token storage and rotation in the gateway, plus per-user consent flows that don't apply to a headless bot. #1556 chose Basic auth + dedicated bot for the same reason. v1.1 multi-tenant (currently out of scope) would revisit this."
+    },
+    {
+      "name": "Keep JIRA_* and CONFLUENCE_* credentials fully independent (status quo of secrets template)",
+      "rejected_because": "Forces operators to maintain duplicated secrets for the same Atlassian tenant. Token rotation has to happen twice. Refine decision-6 chose the shared ATLASSIAN_* triple with back-compat fallback."
+    },
+    {
+      "name": "Single endpoint POST /api/v1/confluence with verb payload field",
+      "rejected_because": "Loses route-level audit / mode-gate granularity. Harder to reason about per-verb tests. Diverges from /api/v1/jira/* shape. (refine decision-1 option 3)"
+    },
+    {
+      "name": "v1-only across the board",
+      "rejected_because": "v1 read endpoints are slated for eventual deprecation (≥6 months notice but on the roadmap). Locks the wrapper into legacy. (refine decision-2 option 2)"
+    },
+    {
+      "name": "v2-only across the board",
+      "rejected_because": "Breaks searchConfluenceUsingCql — there is no v2 search and no plans to add one. Would force shipping our own search index. (refine decision-2 option 3)"
+    },
+    {
+      "name": "Permissive CQL with post-hoc result filter",
+      "rejected_because": "Result counts and pagination metadata still leak from non-allowlisted spaces. The JQL analogue was rejected in #1556 for the same reason. (refine decision-3 option 2)"
+    },
+    {
+      "name": "Both `storage` and `atlas_doc_format` as default body format",
+      "rejected_because": "HITL resolution narrowed decision-5 to `storage` default with caller override. Smaller default payload was the deciding factor."
+    },
+    {
+      "name": "Flask blueprint with before_request rejection",
+      "rejected_because": "Gateway doesn't use blueprints today; would require migrating Jira to a blueprint to keep the architecture uniform. Out of scope. (refine decision-7 option 2)"
+    },
+    {
+      "name": "Standalone config/confluence.yaml for the space allowlist",
+      "rejected_because": "Yet another config file. Operators already edit context-filters.yaml for Jira + GitHub filtering. (refine decision-8 option 2)"
+    },
+    {
+      "name": "CONFLUENCE_SPACE_KEYS env var as the allowlist source",
+      "rejected_because": "Mixes secrets and policy. Jira chose YAML for a reason; Confluence follows. (refine decision-8 option 3)"
+    },
+    {
+      "name": "Allow read-only attachment metadata (no body) in v1",
+      "rejected_because": "Even metadata enables the agent to enumerate the file surface of pages it can already read. Adds a pagination + filter surface. (refine decision-12 option 3)"
+    },
+    {
+      "name": "Ship EGG_CONFLUENCE_PAGE / EGG_CONFLUENCE_SPACE as observational env vars",
+      "rejected_because": "No primary unit-of-work model for Confluence; the env vars would be empty most of the time. Audit can recover the same fields from the request body. (refine decision-13 option 2)"
+    },
+    {
+      "name": "Add page/resolve-by-url verb in v1",
+      "rejected_because": "URL parsing is trivial agent-side; server-side resolver adds permission complexity for marginal benefit. (refine feedback Q5)"
+    }
+  ],
+
+  "implementation_workstream_overview": {
+    "note": "Detailed task breakdown belongs to the task_planner agent; this section gives the architect's view of the dependency graph so the task_planner can sequence correctly.",
+    "workstreams": [
+      {
+        "id": "WS1",
+        "name": "Credentials + policy infrastructure",
+        "files": [
+          "gateway/confluence_credentials.py (NEW)",
+          "gateway/confluence_policy.py (NEW)",
+          "config/secrets.template.env (MODIFY — add ATLASSIAN_* triple, retitle Atlassian section, remove CONFLUENCE_SPACE_KEYS)",
+          "config/context-filters.yaml (MODIFY — add confluence: section)",
+          "gateway/tests/test_confluence_credentials.py (NEW)",
+          "gateway/tests/test_confluence_policy.py (NEW)"
+        ],
+        "depends_on": []
+      },
+      {
+        "id": "WS2",
+        "name": "Confluence REST client + path validator",
+        "files": [
+          "gateway/confluence_client.py (NEW)",
+          "gateway/tests/test_confluence_client.py (NEW)"
+        ],
+        "depends_on": ["WS1 (credentials)"]
+      },
+      {
+        "id": "WS3",
+        "name": "CQL static-scope extractor",
+        "files": [
+          "gateway/confluence_search.py (NEW)",
+          "gateway/tests/test_confluence_search.py (NEW)"
+        ],
+        "depends_on": []
+      },
+      {
+        "id": "WS4",
+        "name": "Gateway routes + reload hook + route-enumeration regression",
+        "files": [
+          "gateway/gateway.py (MODIFY — add Confluence routes block, extend reload handler)",
+          "gateway/tests/test_confluence_routes.py (NEW)"
+        ],
+        "depends_on": ["WS1", "WS2", "WS3"]
+      },
+      {
+        "id": "WS5",
+        "name": "Sandbox wrapper",
+        "files": [
+          "sandbox/scripts/confluence (NEW, executable)",
+          "sandbox/tests/test_confluence_wrapper.py (NEW or extend an existing wrapper test file — task_planner decides)"
+        ],
+        "depends_on": ["WS4 (routes must exist for wrapper smoke tests)"]
+      },
+      {
+        "id": "WS6",
+        "name": "Documentation",
+        "files": [
+          "docs/reference/confluence-wrapper.md (NEW)",
+          "docs/architecture/network-isolation.md (MODIFY)",
+          "docs/architecture/credential-injection.md (MODIFY)",
+          "sandbox/agent-config/rules/environment.md (MODIFY)",
+          "docs/index.md (MODIFY — add confluence-wrapper link if the index has a 'gateway wrappers' section)"
+        ],
+        "depends_on": ["WS4"],
+        "note": "Doc updates can be authored in parallel with WS4 / WS5 from the architect's analysis but should be reviewed last so any route or wrapper changes during implementation are reflected."
+      }
+    ],
+    "implementation_order": [
+      "WS1 (creds + policy + config) and WS3 (CQL extractor) — independent, can run in parallel.",
+      "WS2 (client) — after WS1.",
+      "WS4 (routes + tests) — after WS1, WS2, WS3.",
+      "WS5 (sandbox wrapper) — after WS4.",
+      "WS6 (docs) — after WS4 in lockstep."
+    ]
+  },
+
+  "key_files_touched_summary": {
+    "new_files": [
+      "gateway/confluence_client.py",
+      "gateway/confluence_credentials.py",
+      "gateway/confluence_policy.py",
+      "gateway/confluence_search.py",
+      "gateway/tests/test_confluence_client.py",
+      "gateway/tests/test_confluence_credentials.py",
+      "gateway/tests/test_confluence_policy.py",
+      "gateway/tests/test_confluence_routes.py",
+      "gateway/tests/test_confluence_search.py",
+      "sandbox/scripts/confluence",
+      "docs/reference/confluence-wrapper.md"
+    ],
+    "modified_files": [
+      "gateway/gateway.py (Confluence route block + reload-hook extension)",
+      "config/context-filters.yaml (new confluence: section)",
+      "config/secrets.template.env (Atlassian section retitle + ATLASSIAN_* triple + remove CONFLUENCE_SPACE_KEYS)",
+      "sandbox/agent-config/rules/environment.md (Confluence wrapper subsection)",
+      "docs/architecture/network-isolation.md (private-mode endpoint table)",
+      "docs/architecture/credential-injection.md (Atlassian section extension)",
+      "docs/index.md (link to confluence-wrapper.md, if applicable)"
+    ],
+    "files_intentionally_unchanged": [
+      "gateway/allowed_domains.txt — *.atlassian.net is already excluded; the existing Squid regression test (gateway/tests/test_allowed_domains.py) covers Confluence by extension.",
+      "gateway/mode_gate.py — generic decorator already applied per-route.",
+      "gateway/auth.py — session auth unchanged.",
+      "gateway/jira_client.py / jira_credentials.py / jira_policy.py / jira_search.py — pure copies, not refactors. (A future follow-up MAY share parse_env_file-style helpers between jira_credentials and confluence_credentials, but v1 keeps each module self-contained for review clarity.)"
+    ]
+  },
+
+  "complexity_assessment": "MEDIUM — multi-file change across gateway/, sandbox/scripts/, config/, and docs/, with a clean analogue (/api/v1/jira/*) to follow line-by-line. Slightly more nuance than the Jira wrapper because of the v1/v2 hybrid (per-verb pinning) and the comment-fallback logic, but no architectural departure — all reused infrastructure was generalised by #1556.",
+
+  "open_questions_for_plan_phase": [
+    {
+      "id": "Q1",
+      "question": "Should the operator-deploy diagnostic command for bot-vs-human access (refine feedback Q9 deferred to follow-up) be referenced in docs/reference/confluence-wrapper.md as a known limitation, or is it expected to live entirely in a separate ticket?",
+      "context": "Refine feedback Q9 said v1 documents the bot-vs-human caveat in the wrapper reference; operators verify manually. The architect recommends including a Caveats section in the wrapper reference that names this explicitly so operators don't have to discover it.",
+      "recommendation": "Yes — include a 'Bot vs human access' subsection in docs/reference/confluence-wrapper.md (one paragraph)."
+    },
+    {
+      "id": "Q2",
+      "question": "Does the route layer fetch the page body twice when the agent asks for footer / inline comments (once to verify space, once to fetch comments)?",
+      "context": "Per-page allowlist verification on /page/footer-comments and /page/inline-comments needs the page's space key. Two options: (a) a single upstream resolve call before the comments fetch, or (b) a small in-process pageId → spaceKey LRU cache populated by prior page reads.",
+      "recommendation": "Start with (a) for v1 — simpler, deterministic, no cache invalidation surface. Add (b) only if production traces show the double-fetch is a measurable cost."
+    },
+    {
+      "id": "Q3",
+      "question": "Should the v1 confluence_v1_fallback audit event include the v2 status code that triggered the fallback?",
+      "context": "Lets operators monitor whether Atlassian has fixed the v2 inline-404 bug.",
+      "recommendation": "Yes — record fields {endpoint: 'inline_comments'|'footer_comments_nested', v2_status: 404|null, v1_status: 200}."
+    },
+    {
+      "id": "Q4",
+      "question": "Should the architecture pre-design a shared Atlassian credential module that both confluence_credentials.py and jira_credentials.py reuse, or keep them as parallel single-file modules in v1?",
+      "context": "ATLASSIAN_* loading logic is duplicated across the two loaders. Extracting a shared shared/atlassian_credentials.py is cleaner long-term but adds a refactor surface to the Jira module.",
+      "recommendation": "Defer shared extraction to a follow-up (note in v1.5 / v2 backlog). Keep the two loaders parallel for v1 — minimises the diff that reviewers have to validate against #1556's existing Jira plumbing."
+    }
+  ],
+
+  "summary_recommendation": "Implement the Confluence wrapper as a structural copy of the Jira wrapper across four new gateway modules (client, credentials, policy, search), one route block, one sandbox bash wrapper, two config additions, and four doc additions. All HITL design decisions resolved in refine. The architectural risk surface is bounded by following the Jira pattern line-for-line; the Confluence-specific risk is the v2-first / v1-fallback comment paths and the CQL-vs-JQL grammar difference. The risk_analyst and task_planner agents have everything they need to enumerate detailed risks and tasks from this analysis."
+}
