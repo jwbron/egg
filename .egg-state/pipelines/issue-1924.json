@@ -176,10 +176,29 @@
       "resolution": "{\"action\": \"approve\"}",
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Custom field exposure scope (Open Q1) — Beyond summary/description/labels/parent/epicLink, do we expose a generic customFields map in the create/edit body, and under what allowlist?",
+      "context": "Open contract question decision-1, registered by an agent during the refine phase.",
+      "options": [
+        "Generic customFields map (any customfield_NNNN, only structural validation)",
+        "Operator-configured customField allowlist (config/context-filters.yaml: jira.custom_fields: [...])",
+        "No customFields map; only summary/description/labels/parent/epicLink shorthand exposed in v1",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-27T19:13:58.008744Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-27T18:38:49.382721Z",
-  "updated_at": "2026-04-27T19:13:54.844727Z",
+  "updated_at": "2026-04-27T19:13:58.030026Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -193,6 +212,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 12,
+  "version": 13,
   "jira_ticket": null
 }
