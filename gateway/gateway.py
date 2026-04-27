@@ -2009,6 +2009,47 @@ def git_execute() -> tuple[Response, int] | Response:
         )
         return make_error(args_error, status_code=400)
 
+    # SECURITY: Scope `git update-ref` to the agent's own assigned branch.
+    # update-ref is the supported recovery primitive when an agent ends up on
+    # detached HEAD with a useful commit (see issue #2162). To keep the blast
+    # radius tight, the gateway rejects any update-ref that is not of the form
+    # `update-ref [--no-deref] refs/heads/<assigned_branch> <newvalue> [<oldvalue>]`.
+    if operation == "update-ref":
+        session = getattr(g, "session", None)
+        assigned = getattr(session, "assigned_branch", None) if session else None
+        positional = [a for a in validated_args if not a.startswith("-")]
+        denial_reason: str | None = None
+        if not isinstance(assigned, str) or not assigned:
+            denial_reason = (
+                "git update-ref is only allowed in pipeline sessions with an assigned branch."
+            )
+        elif len(positional) < 2 or len(positional) > 3:
+            denial_reason = (
+                "git update-ref must be of the form "
+                "`git update-ref [--no-deref] <ref> <newvalue> [<oldvalue>]`."
+            )
+        else:
+            expected_ref = f"refs/heads/{assigned}"
+            if positional[0] != expected_ref:
+                denial_reason = (
+                    f"git update-ref target '{positional[0]}' is not allowed. "
+                    f"Only '{expected_ref}' (your assigned branch) may be updated."
+                )
+        if denial_reason is not None:
+            audit_log(
+                "git_execute_blocked",
+                operation,
+                success=False,
+                details={
+                    "repo_path": repo_path,
+                    "git_args": validated_args,
+                    "container_id": container_id,
+                    "assigned_branch": assigned,
+                    "reason": denial_reason,
+                },
+            )
+            return make_error(denial_reason, status_code=403)
+
     # SECURITY: Block branch-switching for pipeline sessions.
     # Pipeline containers are locked to their worktree branch to prevent
     # cross-contamination between pipeline tasks.
@@ -2294,11 +2335,48 @@ def git_execute() -> tuple[Response, int] | Response:
                     "container_id": container_id,
                 },
             )
+
+            # Detached-HEAD recovery hint (#2162). After a successful commit
+            # in a pipeline session, surface a clear hint if HEAD is detached
+            # so the agent doesn't spend minutes guessing at policy bypasses
+            # to fast-forward its work branch.
+            stderr_out = result.stderr
+            _hint_session = getattr(g, "session", None)
+            _hint_assigned = (
+                getattr(_hint_session, "assigned_branch", None) if _hint_session else None
+            )
+            if operation == "commit" and isinstance(_hint_assigned, str) and _hint_assigned:
+                try:
+                    head_check = subprocess.run(
+                        git_cmd("symbolic-ref", "--quiet", "HEAD"),
+                        cwd=exec_path,
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                        check=False,
+                    )
+                except (OSError, subprocess.TimeoutExpired):
+                    head_check = None
+                if head_check is not None and head_check.returncode != 0:
+                    hint = (
+                        f"\n[gateway] HEAD is detached. Your commit is not on "
+                        f"branch '{_hint_assigned}'. To advance the branch to "
+                        f"this commit, run:\n"
+                        f"  git update-ref refs/heads/{_hint_assigned} HEAD\n"
+                    )
+                    stderr_out = (stderr_out or "") + hint
+                    logger.info(
+                        "detached_head_commit_hint",
+                        repo_path=repo_path,
+                        container_id=container_id,
+                        assigned_branch=_hint_assigned,
+                    )
+
             return make_success(
                 f"git {operation} successful",
                 {
                     "stdout": result.stdout,
-                    "stderr": result.stderr,
+                    "stderr": stderr_out,
                     "returncode": result.returncode,
                 },
             )
