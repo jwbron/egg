@@ -428,6 +428,21 @@ class PipelineConfig(BaseModel):
             "until the follow-up advisor-budget issue lands."
         ),
     )
+    overseer_advisor_recent_log_bytes_cap: int = Field(
+        default=256_000,
+        ge=0,
+        description=(
+            "Byte cap for the ``recent_log_lines`` block in the advisor "
+            "prompt (issue #2120). When the joined block exceeds the "
+            "cap, the prompt-builder drops oldest lines first so the "
+            "most-recent lines (highest signal) survive, and prepends a "
+            "marker so the advisor knows truncation happened. 256 KiB "
+            "default sits well under the opus context window with "
+            "headroom for the rest of the prompt; bump for log-heavy "
+            "anomalies, set to 0 to disable (not recommended — leaves "
+            "the prompt-builder open to pathological log payloads)."
+        ),
+    )
     overseer_auto_file_issues_mode: Literal["shadow", "live"] = Field(
         default="shadow",
         description=(

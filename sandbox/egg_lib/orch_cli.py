@@ -1809,6 +1809,7 @@ def cmd_overseer_consult_advisor(args: argparse.Namespace) -> int:
         print("Error: inputs.recent_log_lines must be an array", file=sys.stderr)
         return 2
 
+    recent_log_bytes_cap = getattr(args, "recent_log_bytes_cap", None)
     try:
         verdict = asyncio.run(
             consult_advisor(
@@ -1817,6 +1818,7 @@ def cmd_overseer_consult_advisor(args: argparse.Namespace) -> int:
                 progress_events=progress_events,
                 recent_log_lines=recent_log_lines,
                 config=None,
+                recent_log_bytes_cap=recent_log_bytes_cap,
             )
         )
     except AdvisorParseError as exc:
@@ -2355,6 +2357,17 @@ def cmd_health_resolve(args: argparse.Namespace) -> int:
 def _add_json_flag(parser: argparse.ArgumentParser) -> None:
     """Add --json flag to a subparser."""
     parser.add_argument("--json", action="store_true", help="Output raw JSON")
+
+
+def _non_negative_int(value: str) -> int:
+    """argparse type validator: reject negative ints, mirror PipelineConfig ge=0."""
+    try:
+        ivalue = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"{value!r} is not a valid integer") from exc
+    if ivalue < 0:
+        raise argparse.ArgumentTypeError(f"{ivalue} must be >= 0 (use 0 to disable)")
+    return ivalue
 
 
 def create_parser() -> argparse.ArgumentParser:
@@ -3107,6 +3120,18 @@ def create_parser() -> argparse.ArgumentParser:
             "--output-file, --json additionally tees the verdict JSON "
             "to stdout; without --output-file, --json is a no-op "
             "since stdout is already JSON."
+        ),
+    )
+    ov_advisor.add_argument(
+        "--recent-log-bytes-cap",
+        type=_non_negative_int,
+        default=None,
+        help=(
+            "Byte cap for the recent_log_lines block in the advisor "
+            "prompt (issue #2120). When omitted, consult_advisor uses "
+            "the PipelineConfig value or its 256 KiB default. 0 "
+            "disables the cap (not recommended). Negative values are "
+            "rejected (matches PipelineConfig ge=0)."
         ),
     )
     _add_json_flag(ov_advisor)

@@ -56,6 +56,67 @@ class TestOverseerConsultAdvisorParser:
         with pytest.raises(SystemExit):
             parser.parse_args(["overseer", "consult-advisor"])
 
+    def test_parser_accepts_recent_log_bytes_cap(self) -> None:
+        # Issue #2120: --recent-log-bytes-cap forwards an integer cap to
+        # consult_advisor. Default is None (defer to PipelineConfig /
+        # advisor module default).
+        parser = create_parser()
+        ns = parser.parse_args(
+            [
+                "overseer",
+                "consult-advisor",
+                "--inputs-file",
+                "/tmp/inputs.json",
+                "--recent-log-bytes-cap",
+                "65536",
+            ]
+        )
+        assert ns.recent_log_bytes_cap == 65536
+
+    def test_parser_recent_log_bytes_cap_defaults_to_none(self) -> None:
+        parser = create_parser()
+        ns = parser.parse_args(
+            [
+                "overseer",
+                "consult-advisor",
+                "--inputs-file",
+                "/tmp/inputs.json",
+            ]
+        )
+        assert ns.recent_log_bytes_cap is None
+
+    def test_parser_recent_log_bytes_cap_rejects_negative(self) -> None:
+        # Issue #2120 review: PipelineConfig has ``ge=0`` on the matching
+        # field, so the CLI mirrors that — negatives raise rather than
+        # silently being treated as "disabled" by the truncation helper.
+        parser = create_parser()
+        with pytest.raises(SystemExit):
+            parser.parse_args(
+                [
+                    "overseer",
+                    "consult-advisor",
+                    "--inputs-file",
+                    "/tmp/inputs.json",
+                    "--recent-log-bytes-cap",
+                    "-1",
+                ]
+            )
+
+    def test_parser_recent_log_bytes_cap_accepts_zero(self) -> None:
+        # 0 is the documented "disable" sentinel and must remain accepted.
+        parser = create_parser()
+        ns = parser.parse_args(
+            [
+                "overseer",
+                "consult-advisor",
+                "--inputs-file",
+                "/tmp/inputs.json",
+                "--recent-log-bytes-cap",
+                "0",
+            ]
+        )
+        assert ns.recent_log_bytes_cap == 0
+
 
 # ---------------------------------------------------------------------------
 # cmd_overseer_consult_advisor behaviour
@@ -67,11 +128,13 @@ def _make_args(
     inputs_file: str | Path,
     output_file: str | Path | None = None,
     json_flag: bool = True,
+    recent_log_bytes_cap: int | None = None,
 ) -> argparse.Namespace:
     return argparse.Namespace(
         inputs_file=str(inputs_file),
         output_file=str(output_file) if output_file else None,
         json=json_flag,
+        recent_log_bytes_cap=recent_log_bytes_cap,
     )
 
 
@@ -186,6 +249,10 @@ class TestOverseerConsultAdvisorCommand:
         assert captured["progress_events"] == [{"step": "edit", "state": "working"}]
         assert captured["recent_log_lines"] == ["line 1", "line 2"]
         assert captured["config"] is None
+        # Issue #2120: cap defaults to None when the flag isn't passed,
+        # leaving consult_advisor to use the PipelineConfig value or
+        # advisor module default.
+        assert captured["recent_log_bytes_cap"] is None
 
     def test_output_file_receives_verdict(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -302,6 +369,27 @@ class TestOverseerConsultAdvisorCommand:
             rc = cmd_overseer_consult_advisor(_make_args(inputs_file=inputs, output_file=out_path))
         assert rc == 2
         assert "cannot write --output-file" in capsys.readouterr().err
+
+    def test_recent_log_bytes_cap_flag_forwarded(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        inputs = tmp_path / "inputs.json"
+        _write_inputs(inputs)
+        captured: dict[str, object] = {}
+
+        async def _fake(**kwargs: object) -> AdvisorVerdict:
+            captured.update(kwargs)
+            return AdvisorVerdict(decision="watch", reasoning="ok")
+
+        with patch(
+            "egg_overseer.advisor.consult_advisor",
+            side_effect=_fake,
+        ):
+            rc = cmd_overseer_consult_advisor(
+                _make_args(inputs_file=inputs, recent_log_bytes_cap=8192)
+            )
+        assert rc == 0
+        assert captured["recent_log_bytes_cap"] == 8192
 
     def test_missing_optional_keys_default_to_empty(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
