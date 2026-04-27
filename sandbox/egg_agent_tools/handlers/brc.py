@@ -43,6 +43,29 @@ def _require_role(req: dict[str, Any]) -> str:
     return role
 
 
+def _require_version_int(req: dict[str, Any], key: str) -> int:
+    """Require an integer version field on the request.
+
+    The producer's current proposal version must be plumbed through ACK / NACK
+    so the orchestrator's version-match guard can detect stale verdicts and
+    reject with a structured 409 (#2142).  Without this, the guard's fallback
+    silently passes whenever the caller omits the field.
+    """
+    raw = req.get(key)
+    if raw is None:
+        raise HandlerError(
+            f"'{key}' is required (the producer's current proposal version "
+            "you reviewed; read it from the CONSENSUS_PROPOSE message)"
+        )
+    try:
+        version = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise HandlerError(f"'{key}' must be an integer; got {raw!r}") from exc
+    if version < 0:
+        raise HandlerError(f"'{key}' must be non-negative; got {version}")
+    return version
+
+
 def _resolve_head_sha() -> str:
     cwd = os.environ.get("EGG_REPO_PATH") or None
     try:
@@ -187,10 +210,12 @@ def brc_ack(req: dict[str, Any]) -> dict[str, Any]:
     reason = req.get("reason")
     if not reason:
         raise HandlerError("'reason' is required")
+    ack_version = _require_version_int(req, "ack_version")
 
     payload: dict[str, Any] = {
         "artifact_references": list(req.get("files_reviewed") or []),
         "reason": reason,
+        "ack_version": ack_version,
     }
     pre_merge_condition = req.get("pre_merge_condition") or ""
     if pre_merge_condition:
@@ -246,6 +271,7 @@ def brc_nack(req: dict[str, Any]) -> dict[str, Any]:
     reason = req.get("reason")
     if not reason:
         raise HandlerError("'reason' is required")
+    nack_version = _require_version_int(req, "nack_version")
 
     data = {
         "signal_type": "consensus_nack",
@@ -254,6 +280,7 @@ def brc_nack(req: dict[str, Any]) -> dict[str, Any]:
         "payload": {
             "reason": reason,
             "artifact_references": list(req.get("files_reviewed") or []),
+            "nack_version": nack_version,
         },
     }
     try:

@@ -284,13 +284,25 @@ class PeerConsensusTracker:
 
         Validates attestation, transitions agent to PROPOSED, records
         in approval matrix.
+
+        **Open-NACK barrier (#2142):** when the producer is past v0 (i.e.
+        the call is effectively a re-propose without ``--changed-artifacts``)
+        the barrier check fires here too — otherwise a producer could bypass
+        ``handle_re_propose``'s aggregation enforcement by omitting the
+        ``changed_artifacts`` field.  The barrier self-skips when there are
+        fewer than 2 distinct NACKing reviewers.
         """
         with self._lock:
+            barrier = self._open_nacks_barrier_response(agent_role)
+            if barrier is not None:
+                return barrier
             result = self._handle_propose_inner(agent_role, payload)
             # Record explicit proposal timestamp (not updated by auto-repropose)
             # so check_auto_repropose can suppress redundant re-reviews when a
             # push arrives shortly after an explicit proposal.
             self._last_explicit_propose_timestamp[agent_role] = datetime.now(UTC)
+            # Version advanced — prior-version NACKs are historical now (#2142).
+            self._open_nack_notified_at.pop(agent_role, None)
             return result
 
     def _handle_propose_inner(
@@ -376,21 +388,32 @@ class PeerConsensusTracker:
     ) -> dict[str, Any]:
         """Handle a CONSENSUS_ACK from a reviewer."""
         with self._lock:
-            # Use the version from the reviewer's payload so the guard can
-            # detect stale ACKs (reviewer reviewed v1 but producer is now v2).
-            # Falls back to the current version for backward compatibility.
-            ack_version = payload.get(
-                "ack_version", self.matrix.get_proposal_version(producer_role)
-            )
+            # Take the reviewer's version claim straight from the payload
+            # — no fallback to the current version, otherwise the guard
+            # silently passes whenever the caller doesn't set the field
+            # (#2142).  When ``ack_version`` is ``None`` (in-process tests
+            # that pre-date version plumbing) the guard skips its
+            # version-match check; the production CLI / MCP path always
+            # populates it so the strict check fires there.
+            ack_version_claim = payload.get("ack_version")
             guard = check_ack_guard(
                 reviewer_role,
                 producer_role,
                 self.graph,
                 matrix=self.matrix,
-                ack_version=ack_version,
+                ack_version=ack_version_claim,
             )
             if not guard.allowed:
                 raise ValueError(guard.reason)
+            # The recorded ACK is always tied to the proposal version it
+            # acknowledged — the guard above guaranteed the claim matches
+            # current, or there was no claim (test path) and we record at
+            # the current version.
+            ack_version = (
+                ack_version_claim
+                if ack_version_claim is not None
+                else self.matrix.get_proposal_version(producer_role)
+            )
 
             # Validate review payload
             review = ReviewPayload(verdict="ACK", **payload)
@@ -461,13 +484,14 @@ class PeerConsensusTracker:
     ) -> dict[str, Any]:
         """Handle a CONSENSUS_NACK from a reviewer."""
         with self._lock:
-            # Use the version from the reviewer's payload so the guard can
-            # detect stale NACKs (reviewer reviewed v1 but producer is now
-            # v2 — #2142).  Falls back to the current version for backward
-            # compatibility with callers that don't supply nack_version.
-            nack_version = payload.get(
-                "nack_version", self.matrix.get_proposal_version(producer_role)
-            )
+            # Take the reviewer's version claim straight from the payload
+            # — no fallback to the current version, otherwise the guard
+            # silently passes whenever the caller doesn't set the field
+            # (#2142).  When ``nack_version`` is ``None`` (in-process
+            # tests that pre-date version plumbing) the guard skips its
+            # version-match check; the production CLI / MCP path always
+            # populates it so the strict check fires there.
+            nack_version = payload.get("nack_version")
             guard = check_nack_guard(
                 reviewer_role,
                 producer_role,
@@ -856,7 +880,9 @@ class PeerConsensusTracker:
             if entry.version == current_version and entry.timestamp is not None:
                 relevant.append((reviewer, entry))
         # Only the multi-reviewer aggregation race is in scope (#2142).
-        if len({reviewer for reviewer, _ in relevant}) < 2:
+        # ``get_nack_entries_for`` returns one entry per reviewer, so
+        # ``len(relevant)`` == number of distinct NACKing reviewers.
+        if len(relevant) < 2:
             return None
 
         max_ts = max(entry.timestamp for _, entry in relevant)
@@ -1078,6 +1104,13 @@ class PeerConsensusTracker:
             result["invalidated_reviewers"] = invalidated
             result["auto_re_propose"] = True
             result["auto_trigger"] = "auto_push"
+
+            # Version advanced — prior-version NACKs are historical now (#2142).
+            # The barrier doesn't fire on auto-push (system-triggered, not an
+            # explicit producer action), but the watermark must still pop so a
+            # subsequent explicit propose isn't rejected against a stale entry
+            # that no longer applies to the current version.
+            self._open_nack_notified_at.pop(agent_role, None)
 
             # Update auto re-propose tracking state
             self._last_auto_repropose_timestamp[agent_role] = datetime.now(UTC)

@@ -231,3 +231,89 @@ class TestStaleVersionGuard:
         assert snap["version"] == 1
         assert snap["artifacts"] == ["a.py"]
         assert snap["commit_sha"] == "abc1234"
+
+
+class TestProposeBarrierBypass:
+    """Regression: barrier must fire from handle_propose too, not just handle_re_propose.
+
+    The signal-handler path (``handle_consensus_propose_signal``) routes through
+    ``handle_propose`` whenever the payload omits ``changed_artifacts``.  Before
+    #2142 second pass, the barrier was wired only into ``handle_re_propose``,
+    so producers could bypass the multi-NACK barrier by sending a CONSENSUS_PROPOSE
+    without a delta.  These tests pin the barrier into ``handle_propose`` directly.
+    """
+
+    def test_propose_barrier_fires_with_multi_nack(self, tracker):
+        """handle_propose returns open_nacks_blocked when ≥2 reviewers have NACKed."""
+        _propose(tracker, "v1")
+        _nack(tracker, "reviewer_code", "issue at a.py:42")
+        _nack(tracker, "reviewer_security", "issue at a.py:60")
+
+        # Re-propose via handle_propose (no changed_artifacts) — must still block.
+        result = tracker.handle_propose(
+            "coder",
+            {
+                "summary": (
+                    "Re-propose without delta: addressed all reviewer findings "
+                    "and re-ran the full test suite."
+                ),
+                "artifacts": ["a.py"],
+                "commit_sha": "deadbee",
+            },
+        )
+
+        assert result["status"] == "open_nacks_blocked"
+        assert result["current_version"] == 1
+        assert set(result["nacking_reviewers"]) == {"reviewer_code", "reviewer_security"}
+        # NACK reasons inlined verbatim — producer can address all in one go.
+        assert len(result["nacks"]) == 2
+
+    def test_propose_advances_after_barrier_toll(self, tracker):
+        """After the barrier informs the producer once, the next handle_propose advances."""
+        _propose(tracker, "v1")
+        _nack(tracker, "reviewer_code", "first finding")
+        _nack(tracker, "reviewer_security", "second finding")
+
+        first = tracker.handle_propose(
+            "coder",
+            {
+                "summary": (
+                    "First retry after multi-NACK — barrier expected to block "
+                    "this initial attempt and inline the open NACKs."
+                ),
+                "artifacts": ["a.py"],
+                "commit_sha": "deadbee",
+            },
+        )
+        assert first["status"] == "open_nacks_blocked"
+
+        second = tracker.handle_propose(
+            "coder",
+            {
+                "summary": (
+                    "Second retry once the producer has been informed — barrier "
+                    "should not fire and the version should advance to 2."
+                ),
+                "artifacts": ["a.py"],
+                "commit_sha": "cafef00",
+            },
+        )
+        assert second.get("status") != "open_nacks_blocked"
+        assert second.get("version") == 2
+
+    def test_propose_barrier_skips_at_v0(self, tracker):
+        """First-ever proposal at v0 must never hit the barrier (no NACKs possible)."""
+        # No prior _propose call — tracker is at v0 for coder.
+        result = tracker.handle_propose(
+            "coder",
+            {
+                "summary": (
+                    "Initial proposal — substantive content describing the "
+                    "first-pass implementation work and the tests run."
+                ),
+                "artifacts": ["a.py"],
+                "commit_sha": "abc1234",
+            },
+        )
+        assert result.get("status") != "open_nacks_blocked"
+        assert result.get("version") == 1

@@ -1924,9 +1924,9 @@ def _render_stale_version_rejection(
         print_json(rejection)
         return 2
     snap = rejection.get("current_proposal", {}) or {}
+    producer = snap.get("producer") or resp.get("producer_role")
     print(
-        f"{verdict} rejected: producer "
-        f"{rejection.get('reviewer') or resp.get('producer_role')} "
+        f"{verdict} rejected: producer {producer} "
         f"is at v{snap.get('version')} (you reviewed an older version).",
         file=sys.stderr,
     )
@@ -2063,6 +2063,7 @@ def cmd_consensus_ack(args: argparse.Namespace) -> int:
         "reason": args.reason,
         "files_reviewed": list(args.files_reviewed or []),
         "pre_merge_condition": getattr(args, "pre_merge_condition", "") or "",
+        "ack_version": args.ack_version,
     }
     try:
         resp = _handlers.brc_ack(req)
@@ -2102,6 +2103,7 @@ def cmd_consensus_nack(args: argparse.Namespace) -> int:
         "producer_role": args.producer_role,
         "reason": args.reason,
         "files_reviewed": list(args.files_reviewed or []),
+        "nack_version": args.nack_version,
     }
     try:
         resp = _handlers.brc_nack(req)
@@ -2784,6 +2786,18 @@ def create_parser() -> argparse.ArgumentParser:
         help="Substantive rationale: what was read, what was checked, why the verdict follows",
     )
     cons_ack.add_argument(
+        "--ack-version",
+        dest="ack_version",
+        type=int,
+        required=True,
+        help=(
+            "The producer's proposal version you reviewed. The orchestrator "
+            "rejects the ACK with HTTP 409 (stale_version) if the producer has "
+            "since re-proposed (#2142). Read it from the CONSENSUS_PROPOSE "
+            "message you waited on, or from `egg-orch consensus status --json`."
+        ),
+    )
+    cons_ack.add_argument(
         "--pre-merge-condition",
         dest="pre_merge_condition",
         default="",
@@ -2808,6 +2822,18 @@ def create_parser() -> argparse.ArgumentParser:
         nargs="+",
         required=True,
         help="Artifact references (files, commits) reviewed",
+    )
+    cons_nack.add_argument(
+        "--nack-version",
+        dest="nack_version",
+        type=int,
+        required=True,
+        help=(
+            "The producer's proposal version you reviewed. The orchestrator "
+            "rejects the NACK with HTTP 409 (stale_version) if the producer has "
+            "since re-proposed (#2142). Read it from the CONSENSUS_PROPOSE "
+            "message you waited on, or from `egg-orch consensus status --json`."
+        ),
     )
     _add_json_flag(cons_nack)
     cons_nack.set_defaults(func=cmd_consensus_nack)
