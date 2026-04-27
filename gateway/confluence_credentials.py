@@ -154,14 +154,12 @@ class ConfluenceCredentialsManager:
         # Per-key ATLASSIAN_* → CONFLUENCE_* fallback (decision F1).
         atlassian_base = (secrets.get("ATLASSIAN_BASE_URL") or "").strip().rstrip("/")
         confluence_base = (secrets.get("CONFLUENCE_BASE_URL") or "").strip().rstrip("/")
-        username = (
-            (secrets.get("ATLASSIAN_USERNAME") or "").strip()
-            or (secrets.get("CONFLUENCE_USERNAME") or "").strip()
-        )
-        api_token = (
-            (secrets.get("ATLASSIAN_API_TOKEN") or "").strip()
-            or (secrets.get("CONFLUENCE_API_TOKEN") or "").strip()
-        )
+        username = (secrets.get("ATLASSIAN_USERNAME") or "").strip() or (
+            secrets.get("CONFLUENCE_USERNAME") or ""
+        ).strip()
+        api_token = (secrets.get("ATLASSIAN_API_TOKEN") or "").strip() or (
+            secrets.get("CONFLUENCE_API_TOKEN") or ""
+        ).strip()
 
         # Base URL derivation (decision F1, per-key precedence): ATLASSIAN
         # wins when set; CONFLUENCE_BASE_URL is the back-compat fallback used

@@ -251,13 +251,13 @@ except ImportError:
     _egg_gateway_dir = str(Path(__file__).parent)
     if _egg_gateway_dir not in sys.path:
         sys.path.insert(0, _egg_gateway_dir)
-    from confluence_client import (  # type: ignore[no-redef]
+    from confluence_client import (  # type: ignore[no-redef, import-untyped]
         DEFAULT_LIMIT as CONFLUENCE_DEFAULT_LIMIT,
     )
     from confluence_client import (  # type: ignore[no-redef]
         HARD_MAX_LIMIT as CONFLUENCE_HARD_MAX_LIMIT,
     )
-    from confluence_client import (  # type: ignore[no-redef, import-untyped]
+    from confluence_client import (  # type: ignore[no-redef]
         ConfluenceCredentialsUnavailable,
         ConfluenceResponseTooLarge,
         ConfluenceUpstreamError,
@@ -5043,6 +5043,7 @@ def confluence_page_get() -> tuple[Response, int] | Response:
             status_code=400,
             details={"pageId": page_id},
         )
+    assert isinstance(page_id, str)  # narrowed by _validate_confluence_page_id
 
     allowed = confluence_allowed_spaces()
     try:
@@ -5058,15 +5059,17 @@ def confluence_page_get() -> tuple[Response, int] | Response:
     except ConfluenceCredentialsUnavailable as exc:
         return _confluence_not_configured_error(exc)
     except ConfluenceUpstreamForbidden as exc:
-        return _confluence_forbidden_response(
-            exc, event="confluence_upstream_403", page_id=page_id
-        )
+        return _confluence_forbidden_response(exc, event="confluence_upstream_403", page_id=page_id)
     except ConfluenceResponseTooLarge as exc:
         audit_log(
             "confluence_response_too_large",
             "confluence_page_get",
             success=False,
-            details={"pageId": page_id, "size_bytes": exc.size_bytes, **_session_confluence_context()},
+            details={
+                "pageId": page_id,
+                "size_bytes": exc.size_bytes,
+                **_session_confluence_context(),
+            },
         )
         return _confluence_response_too_large(exc, page_id=page_id)
     except ConfluenceUpstreamError as exc:
@@ -5129,6 +5132,7 @@ def confluence_page_descendants() -> tuple[Response, int] | Response:
             status_code=400,
             details={"pageId": page_id},
         )
+    assert isinstance(page_id, str)  # narrowed by _validate_confluence_page_id
 
     # Apply sensible defaults for runaway-tree protection (risk R8).
     if depth is None:
@@ -5157,9 +5161,7 @@ def confluence_page_descendants() -> tuple[Response, int] | Response:
     except ConfluenceCredentialsUnavailable as exc:
         return _confluence_not_configured_error(exc)
     except ConfluenceUpstreamForbidden as exc:
-        return _confluence_forbidden_response(
-            exc, event="confluence_upstream_403", page_id=page_id
-        )
+        return _confluence_forbidden_response(exc, event="confluence_upstream_403", page_id=page_id)
     except ConfluenceResponseTooLarge as exc:
         return _confluence_response_too_large(exc, page_id=page_id)
     except ConfluenceUpstreamError as exc:
@@ -5182,7 +5184,11 @@ def confluence_page_descendants() -> tuple[Response, int] | Response:
     if body.get("status") != "not_found":
         try:
             parent = get_confluence_client().get_page(page_id, body_format=("storage",))
-        except (ConfluenceCredentialsUnavailable, ConfluenceUpstreamError, ConfluenceUpstreamForbidden):
+        except (
+            ConfluenceCredentialsUnavailable,
+            ConfluenceUpstreamError,
+            ConfluenceUpstreamForbidden,
+        ):
             parent = None
         if parent is not None and parent.get("status") != "not_found":
             ok_space, parent_space_key = _check_post_fetch_space_allowlist(
@@ -5243,6 +5249,7 @@ def confluence_page_footer_comments() -> tuple[Response, int] | Response:
             status_code=400,
             details={"pageId": page_id},
         )
+    assert isinstance(page_id, str)  # narrowed by _validate_confluence_page_id
 
     try:
         limit = _confluence_clamp_limit(limit_raw)
@@ -5263,9 +5270,7 @@ def confluence_page_footer_comments() -> tuple[Response, int] | Response:
     except ConfluenceCredentialsUnavailable as exc:
         return _confluence_not_configured_error(exc)
     except ConfluenceUpstreamForbidden as exc:
-        return _confluence_forbidden_response(
-            exc, event="confluence_upstream_403", page_id=page_id
-        )
+        return _confluence_forbidden_response(exc, event="confluence_upstream_403", page_id=page_id)
     except ConfluenceResponseTooLarge as exc:
         return _confluence_response_too_large(exc, page_id=page_id)
     except ConfluenceUpstreamError as exc:
@@ -5285,7 +5290,11 @@ def confluence_page_footer_comments() -> tuple[Response, int] | Response:
     if body.get("status") != "not_found":
         try:
             parent = get_confluence_client().get_page(page_id, body_format=("storage",))
-        except (ConfluenceCredentialsUnavailable, ConfluenceUpstreamError, ConfluenceUpstreamForbidden):
+        except (
+            ConfluenceCredentialsUnavailable,
+            ConfluenceUpstreamError,
+            ConfluenceUpstreamForbidden,
+        ):
             parent = None
         if parent is not None and parent.get("status") != "not_found":
             ok_space, parent_space_key = _check_post_fetch_space_allowlist(
@@ -5350,6 +5359,7 @@ def confluence_page_inline_comments() -> tuple[Response, int] | Response:
             status_code=400,
             details={"pageId": page_id},
         )
+    assert isinstance(page_id, str)  # narrowed by _validate_confluence_page_id
 
     try:
         limit = _confluence_clamp_limit(limit_raw)
@@ -5369,9 +5379,7 @@ def confluence_page_inline_comments() -> tuple[Response, int] | Response:
     except ConfluenceCredentialsUnavailable as exc:
         return _confluence_not_configured_error(exc)
     except ConfluenceUpstreamForbidden as exc:
-        return _confluence_forbidden_response(
-            exc, event="confluence_upstream_403", page_id=page_id
-        )
+        return _confluence_forbidden_response(exc, event="confluence_upstream_403", page_id=page_id)
     except ConfluenceResponseTooLarge as exc:
         return _confluence_response_too_large(exc, page_id=page_id)
     except ConfluenceUpstreamError as exc:
@@ -5392,7 +5400,11 @@ def confluence_page_inline_comments() -> tuple[Response, int] | Response:
     if body.get("status") != "not_found":
         try:
             parent = get_confluence_client().get_page(page_id, body_format=("storage",))
-        except (ConfluenceCredentialsUnavailable, ConfluenceUpstreamError, ConfluenceUpstreamForbidden):
+        except (
+            ConfluenceCredentialsUnavailable,
+            ConfluenceUpstreamError,
+            ConfluenceUpstreamForbidden,
+        ):
             parent = None
         if parent is not None and parent.get("status") != "not_found":
             ok_space, parent_space_key = _check_post_fetch_space_allowlist(
@@ -5456,6 +5468,7 @@ def confluence_space_pages() -> tuple[Response, int] | Response:
             status_code=400,
             details={"spaceKey": space_key},
         )
+    assert isinstance(space_key, str)  # narrowed by _validate_confluence_space_key
 
     if not is_confluence_space_allowed(space_key):
         return _confluence_space_denied_response(
@@ -5818,9 +5831,7 @@ def confluence_execute() -> tuple[Response, int] | Response:
     except ConfluenceCredentialsUnavailable as exc:
         return _confluence_not_configured_error(exc)
     except ConfluenceUpstreamForbidden as exc:
-        return _confluence_forbidden_response(
-            exc, event="confluence_upstream_403", page_id=page_id
-        )
+        return _confluence_forbidden_response(exc, event="confluence_upstream_403", page_id=page_id)
     except ConfluenceResponseTooLarge as exc:
         return _confluence_response_too_large(exc, page_id=page_id)
     except ConfluenceUpstreamError as exc:

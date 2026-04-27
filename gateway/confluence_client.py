@@ -310,8 +310,7 @@ def _validate_body_format(body_format: Any) -> list[str]:
             raise ValueError("body_format entries must be strings")
         if entry not in ALLOWED_BODY_FORMATS:
             raise ValueError(
-                f"invalid body_format: {entry!r} (allowed: "
-                f"{sorted(ALLOWED_BODY_FORMATS)})"
+                f"invalid body_format: {entry!r} (allowed: {sorted(ALLOWED_BODY_FORMATS)})"
             )
         cleaned.append(entry)
     return cleaned
@@ -606,9 +605,7 @@ class ConfluenceClient:
         if response.status_code == 404:
             return _not_found_envelope(page_id)
         if response.status_code == 403:
-            raise ConfluenceUpstreamForbidden(
-                403, _safe_response_body(response), path
-            )
+            raise ConfluenceUpstreamForbidden(403, _safe_response_body(response), path)
         _raise_for_status(response, path)
         body_json = _safe_json(response, path)
 
@@ -645,9 +642,7 @@ class ConfluenceClient:
         if response.status_code == 404:
             return _not_found_envelope(page_id)
         if response.status_code == 403:
-            raise ConfluenceUpstreamForbidden(
-                403, _safe_response_body(response), path
-            )
+            raise ConfluenceUpstreamForbidden(403, _safe_response_body(response), path)
         _raise_for_status(response, path)
         return _finalize_response(_safe_json(response, path), path)
 
@@ -680,9 +675,7 @@ class ConfluenceClient:
         if response.status_code == 404:
             return _not_found_envelope(page_id)
         if response.status_code == 403:
-            raise ConfluenceUpstreamForbidden(
-                403, _safe_response_body(response), path
-            )
+            raise ConfluenceUpstreamForbidden(403, _safe_response_body(response), path)
         _raise_for_status(response, path)
         primary = _safe_json(response, path)
 
@@ -740,9 +733,7 @@ class ConfluenceClient:
         path = f"api/v2/pages/{page_id}/inline-comments"
         response = self._request("GET", path, query=query)
         if response.status_code == 403:
-            raise ConfluenceUpstreamForbidden(
-                403, _safe_response_body(response), path
-            )
+            raise ConfluenceUpstreamForbidden(403, _safe_response_body(response), path)
         if response.status_code == 404:
             # v1 fallback (decision D1).
             v1_path = f"rest/api/content/{page_id}/child/comment"
@@ -758,9 +749,7 @@ class ConfluenceClient:
                 envelope["used_fallback"] = True
                 return envelope
             if v1_response.status_code == 403:
-                raise ConfluenceUpstreamForbidden(
-                    403, _safe_response_body(v1_response), v1_path
-                )
+                raise ConfluenceUpstreamForbidden(403, _safe_response_body(v1_response), v1_path)
             _raise_for_status(v1_response, v1_path)
             v1_body = _safe_json(v1_response, v1_path)
             v1_body["used_fallback"] = True
@@ -791,9 +780,7 @@ class ConfluenceClient:
         path = "api/v2/spaces"
         response = self._request("GET", path, query=query or None)
         if response.status_code == 403:
-            raise ConfluenceUpstreamForbidden(
-                403, _safe_response_body(response), path
-            )
+            raise ConfluenceUpstreamForbidden(403, _safe_response_body(response), path)
         _raise_for_status(response, path)
         body_json = _safe_json(response, path)
 
@@ -835,9 +822,7 @@ class ConfluenceClient:
         if response.status_code == 404:
             return _not_found_envelope(space_id)
         if response.status_code == 403:
-            raise ConfluenceUpstreamForbidden(
-                403, _safe_response_body(response), path
-            )
+            raise ConfluenceUpstreamForbidden(403, _safe_response_body(response), path)
         _raise_for_status(response, path)
         return _finalize_response(_safe_json(response, path), path)
 
@@ -859,9 +844,7 @@ class ConfluenceClient:
         path = "rest/api/search"
         response = self._request("GET", path, query=query)
         if response.status_code == 403:
-            raise ConfluenceUpstreamForbidden(
-                403, _safe_response_body(response), path
-            )
+            raise ConfluenceUpstreamForbidden(403, _safe_response_body(response), path)
         _raise_for_status(response, path)
         return _finalize_response(_safe_json(response, path), path)
 
@@ -880,9 +863,7 @@ class ConfluenceClient:
         """
         response = self._request(method, path, query=query, body=body)
         if response.status_code == 403:
-            raise ConfluenceUpstreamForbidden(
-                403, _safe_response_body(response), path
-            )
+            raise ConfluenceUpstreamForbidden(403, _safe_response_body(response), path)
         _raise_for_status(response, path)
         return _finalize_response(_safe_json(response, path), path)
 
