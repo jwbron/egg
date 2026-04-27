@@ -411,6 +411,42 @@ class TestOverseerConsultAdvisorCommand:
         assert captured["config"] is None
         assert "falling back to default advisor model" in capsys.readouterr().err
 
+    def test_malformed_pipeline_id_falls_back_without_crashing(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A pipeline_id that fails the safe-ID regex (e.g. corrupted
+        EGG_PIPELINE_ID containing a stray space or slash) must skip the
+        lookup and fall back to config=None — *not* crash via
+        validate_id's sys.exit(1), which would collide with
+        AdvisorParseError's exit-code semantics. Review feedback on PR
+        #2158.
+        """
+        inputs = tmp_path / "inputs.json"
+        _write_inputs(inputs)
+
+        captured: dict[str, object] = {}
+
+        async def _fake(**kwargs: object) -> AdvisorVerdict:
+            captured.update(kwargs)
+            return AdvisorVerdict(decision="watch", reasoning="ok")
+
+        # OrchClient must NOT be invoked on a malformed id — patch it to
+        # blow up if the verb tries to reach the orchestrator anyway.
+        def _explode() -> object:
+            raise AssertionError("OrchClient must not be called for malformed pipeline_id")
+
+        with (
+            patch("egg_overseer.advisor.consult_advisor", side_effect=_fake),
+            patch("egg_lib.orch_client.OrchClient", _explode),
+        ):
+            rc = cmd_overseer_consult_advisor(
+                _make_args(inputs_file=inputs, pipeline_id="bad id/with/slash"),
+            )
+
+        assert rc == 0
+        assert captured["config"] is None
+        assert "is not a safe ID" in capsys.readouterr().err
+
     def test_parser_accepts_positional_pipeline_id(self) -> None:
         """The new positional arg must coexist with the existing flags."""
         parser = create_parser()

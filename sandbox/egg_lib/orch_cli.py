@@ -1816,24 +1816,37 @@ def cmd_overseer_consult_advisor(args: argparse.Namespace) -> int:
     # (orchestrator/routes/pipelines.py); we read overseer_advisor_model
     # and pass a duck-typed config to consult_advisor. Falling back to
     # config=None keeps the historic "opus" default for callers that
-    # do not provide a pipeline-id.
+    # do not provide a pipeline-id, and for any failure (orchestrator
+    # unreachable, malformed env, missing client module) — never crash
+    # the verb on the lookup path. NOTE: extend SimpleNamespace below
+    # if consult_advisor ever reads more `config.*` attributes; the
+    # duck-typed surface silently falls back to AttributeError today.
     advisor_config: Any = None
     pid = getattr(args, "pipeline_id", None) or get_pipeline_id_from_env()
-    if pid:
+    if pid and _SAFE_ID_PATTERN.match(pid):
         try:
             from egg_lib.orch_client import OrchClient, OrchestratorError
 
-            status = OrchClient().get_pipeline_status(validate_id(pid, "pipeline_id"))
+            status = OrchClient().get_pipeline_status(quote(pid, safe=""))
             cfg_dict = status.get("config") if isinstance(status, dict) else None
             model = cfg_dict.get("overseer_advisor_model") if isinstance(cfg_dict, dict) else None
             if model:
                 advisor_config = SimpleNamespace(overseer_advisor_model=model)
-        except OrchestratorError as exc:
+        except (OrchestratorError, ImportError) as exc:
             print(
                 f"Warning: cannot read PipelineConfig for {pid} "
                 f"({exc}); falling back to default advisor model",
                 file=sys.stderr,
             )
+    elif pid:
+        # Malformed pipeline-id (e.g. corrupted EGG_PIPELINE_ID): skip
+        # the lookup silently rather than crashing via validate_id's
+        # sys.exit(1), which would collide with AdvisorParseError's
+        # exit-code semantics. See review feedback on PR #2158.
+        print(
+            f"Warning: pipeline_id {pid!r} is not a safe ID; falling back to default advisor model",
+            file=sys.stderr,
+        )
 
     try:
         verdict = asyncio.run(
