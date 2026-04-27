@@ -9,15 +9,1502 @@
   "current_phase": "refine",
   "acceptance_criteria": [],
   "phases": [],
-  "decisions": [],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Custom field exposure scope (Open Q1) \u2014 Beyond summary/description/labels/parent/epicLink, do we expose a generic customFields map in the create/edit body, and under what allowlist?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Generic customFields map (any customfield_NNNN, only structural validation)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Operator-configured customField allowlist (config/context-filters.yaml: jira.custom_fields: [...])",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "No customFields map; only summary/description/labels/parent/epicLink shorthand exposed in v1",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Epic Link mechanism (Open Q2) \u2014 How should the gateway place new tickets under an epic?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "parent.key only (next-gen / company-managed)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "customfield_10014 only (classic / team-managed)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Auto-detect or accept either via the epicLink shorthand",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "idempotency_key requirement for createJiraIssue / addCommentToJiraIssue (Open Q3)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Required (gateway 400 if missing)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Optional with documented warning",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Not implemented \u2014 caller responsibility",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Link type allowlist source for createIssueLink (Open Q4)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Hardcoded {Blocks, Relates}",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "config/context-filters.yaml jira.link_types: [...] (operator-configurable)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Accept any name upstream Jira recognizes",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "notifyUsers default for editJiraIssue (Open Q5) \u2014 when caller doesn't specify, what should the gateway send to Atlassian?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "true (Atlassian default \u2014 sends email)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "false (quiet update; opt-in to notify)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "addCommentToJiraIssue visibility field (Open Q6) \u2014 should v1 expose role/group visibility restrictions on comments?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Hide entirely in v1",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Expose role/group restrictions",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-7",
+      "question": "Body input format for description / comment (Open Q7) \u2014 what shape do agents send?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Plain text only (gateway wraps to ADF)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Pre-built ADF dict only (passthrough)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Both \u2014 accept whichever the caller passes",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-8",
+      "question": "Issuetype identifier accepted by createJiraIssue (Open Q8)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Name only (Task / Story / Bug / Epic / Sub-task)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Numeric ID only",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Both",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-9",
+      "question": "createIssueLink project allowlist semantics (Open Q9)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Both inwardIssue and outwardIssue projects must be allowlisted (strict)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Only one needs to be allowlisted (loose)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "One in main allowlist, the other in a separate 'linkable-only' config list",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-10",
+      "question": "Per-role write gating (Open Q10) \u2014 should specific agent roles be the only ones allowed to call write verbs?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Unrestricted within allowlisted projects",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Per-verb role allowlist (e.g., refiner=editJiraIssue, planner=createJiraIssue/createIssueLink)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Defer to a follow-up issue",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-11",
+      "question": "Phase gating for writes (Open Q11) \u2014 restrict per SDLC phase?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Unrestricted across phases",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Per-phase verb allowlist via gateway/phase_filter.py",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Defer to a follow-up issue",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-12",
+      "question": "createJiraIssue response shape (Open Q13)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Atlassian raw {id, key, self}",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Normalized envelope {key, id, browse_url, status: 'created'}",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-13",
+      "question": "editJiraIssue response shape (Open Q14)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Envelope {status: 'updated', key} (no extra Atlassian call)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Echo post-edit ticket via Atlassian ?returnIssue=true (extra read latency)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-14",
+      "question": "Idempotency cache scope (Open Q16)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "In-memory per-gateway-process, 5-minute TTL",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Persisted (disk or Redis) for multi-replica deployments",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-15",
+      "question": "Cross-project parent on createJiraIssue (Open Q17)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Reject if parent.key project differs from new ticket project",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Accept; let Atlassian decide",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-16",
+      "question": "createIssueLink optional comment payload (Open Q23)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Surface via 'comment' field in body",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Require a separate addCommentToJiraIssue call",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-17",
+      "question": "Dry-run / validation mode (Open Q24) \u2014 expose ?dry_run=true on each write route?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Expose ?dry_run=true on each write route",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Live calls only; orchestrator handles preview",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-18",
+      "question": "Documentation home for new write verbs (Open Q27)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Extend existing docs/reference/jira-wrapper.md",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "New docs/reference/jira-writes.md plus link from jira-wrapper.md",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Both \u2014 high-level in jira-wrapper.md, deep dive in jira-writes.md",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-19",
+      "question": "createIssueLink idempotency (Open Q28, surfaced by reviewer_refine) \u2014 Atlassian's POST /rest/api/3/issueLink does not dedupe identical (inward, outward, type) triples; a retry after a transient 5xx creates a duplicate link. How should the gateway / orchestrator handle this?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Extend the idempotency-key + cache (D1) to createIssueLink for symmetry with createJiraIssue / addCommentToJiraIssue",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Document that orchestrator's plan-apply must scan existing inwardIssue links before retrying createIssueLink",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Accept duplicates; orchestrator de-dups separately as a follow-up",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    }
+  ],
   "workflow_owner": null,
-  "audit_log": [],
+  "audit_log": [
+    {
+      "timestamp": "2026-04-27T18:47:08.876582Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-1",
+        "question": "Custom field exposure scope (Open Q1) \u2014 Beyond summary/description/labels/parent/epicLink, do we expose a generic customFields map in the create/edit body, and under what allowlist?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Generic customFields map (any customfield_NNNN, only structural validation)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Operator-configured customField allowlist (config/context-filters.yaml: jira.custom_fields: [...])",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "No customFields map; only summary/description/labels/parent/epicLink shorthand exposed in v1",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Custom field exposure scope (Open Q1) \u2014 Beyond sum...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:08.919462Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-2",
+        "question": "Epic Link mechanism (Open Q2) \u2014 How should the gateway place new tickets under an epic?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "parent.key only (next-gen / company-managed)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "customfield_10014 only (classic / team-managed)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Auto-detect or accept either via the epicLink shorthand",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Epic Link mechanism (Open Q2) \u2014 How should the gat...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:08.949490Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-3",
+        "question": "idempotency_key requirement for createJiraIssue / addCommentToJiraIssue (Open Q3)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Required (gateway 400 if missing)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Optional with documented warning",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Not implemented \u2014 caller responsibility",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: idempotency_key requirement for createJiraIssue / ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:08.977044Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-4",
+        "question": "Link type allowlist source for createIssueLink (Open Q4)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Hardcoded {Blocks, Relates}",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "config/context-filters.yaml jira.link_types: [...] (operator-configurable)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Accept any name upstream Jira recognizes",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Link type allowlist source for createIssueLink (Op...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:23.735954Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-5",
+        "question": "notifyUsers default for editJiraIssue (Open Q5) \u2014 when caller doesn't specify, what should the gateway send to Atlassian?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "true (Atlassian default \u2014 sends email)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "false (quiet update; opt-in to notify)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: notifyUsers default for editJiraIssue (Open Q5) \u2014 ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:23.800084Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-6",
+        "question": "addCommentToJiraIssue visibility field (Open Q6) \u2014 should v1 expose role/group visibility restrictions on comments?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Hide entirely in v1",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Expose role/group restrictions",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: addCommentToJiraIssue visibility field (Open Q6) \u2014...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:23.878921Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-7",
+        "question": "Body input format for description / comment (Open Q7) \u2014 what shape do agents send?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Plain text only (gateway wraps to ADF)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Pre-built ADF dict only (passthrough)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Both \u2014 accept whichever the caller passes",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Body input format for description / comment (Open ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:23.927158Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.7",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-8",
+        "question": "Issuetype identifier accepted by createJiraIssue (Open Q8)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Name only (Task / Story / Bug / Epic / Sub-task)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Numeric ID only",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Both",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Issuetype identifier accepted by createJiraIssue (...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:35.262347Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.8",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-9",
+        "question": "createIssueLink project allowlist semantics (Open Q9)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Both inwardIssue and outwardIssue projects must be allowlisted (strict)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Only one needs to be allowlisted (loose)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "One in main allowlist, the other in a separate 'linkable-only' config list",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: createIssueLink project allowlist semantics (Open ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:35.297315Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.9",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-10",
+        "question": "Per-role write gating (Open Q10) \u2014 should specific agent roles be the only ones allowed to call write verbs?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Unrestricted within allowlisted projects",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Per-verb role allowlist (e.g., refiner=editJiraIssue, planner=createJiraIssue/createIssueLink)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Defer to a follow-up issue",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Per-role write gating (Open Q10) \u2014 should specific...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:35.333351Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.10",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-11",
+        "question": "Phase gating for writes (Open Q11) \u2014 restrict per SDLC phase?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Unrestricted across phases",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Per-phase verb allowlist via gateway/phase_filter.py",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Defer to a follow-up issue",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Phase gating for writes (Open Q11) \u2014 restrict per ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:35.368078Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.11",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-12",
+        "question": "createJiraIssue response shape (Open Q13)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Atlassian raw {id, key, self}",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Normalized envelope {key, id, browse_url, status: 'created'}",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: createJiraIssue response shape (Open Q13)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:44.604321Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.12",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-13",
+        "question": "editJiraIssue response shape (Open Q14)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Envelope {status: 'updated', key} (no extra Atlassian call)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Echo post-edit ticket via Atlassian ?returnIssue=true (extra read latency)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: editJiraIssue response shape (Open Q14)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:44.637675Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.13",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-14",
+        "question": "Idempotency cache scope (Open Q16)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "In-memory per-gateway-process, 5-minute TTL",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Persisted (disk or Redis) for multi-replica deployments",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Idempotency cache scope (Open Q16)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:44.669371Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.14",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-15",
+        "question": "Cross-project parent on createJiraIssue (Open Q17)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Reject if parent.key project differs from new ticket project",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Accept; let Atlassian decide",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Cross-project parent on createJiraIssue (Open Q17)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:44.706894Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.15",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-16",
+        "question": "createIssueLink optional comment payload (Open Q23)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Surface via 'comment' field in body",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Require a separate addCommentToJiraIssue call",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: createIssueLink optional comment payload (Open Q23...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:48:03.382780Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.16",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-17",
+        "question": "Dry-run / validation mode (Open Q24) \u2014 expose ?dry_run=true on each write route?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Expose ?dry_run=true on each write route",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Live calls only; orchestrator handles preview",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Dry-run / validation mode (Open Q24) \u2014 expose ?dry...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:48:03.425931Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.17",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-18",
+        "question": "Documentation home for new write verbs (Open Q27)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Extend existing docs/reference/jira-wrapper.md",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "New docs/reference/jira-writes.md plus link from jira-wrapper.md",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Both \u2014 high-level in jira-wrapper.md, deep dive in jira-writes.md",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Documentation home for new write verbs (Open Q27)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:48:03.564386Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Open Q12 \u2014 write rate-limit policy: confirm 'no auto-retry on 429 for writes' is correct (matches v1 _request); should writes still emit jira_upstream_rate_limited audit on 429?",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Open Q15 \u2014 body size caps: pick numeric limits for summary (default 255 from Atlassian), description, labels (count + per-label length), comment body, customFields map size.",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "Open Q18 \u2014 existing-issue probe before create / edit: is the idempotency key sufficient, or do we add a 'is there already a ticket matching this' safety check?",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "Open Q19 \u2014 sandbox wrapper input flags: confirm --description / --description-file / --description-stdin (and the analogous comment body flags) match expected agent ergonomics.",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "Open Q20 \u2014 audit body redaction: confirm we log only structural metadata (field names, content lengths, label counts) and never body content; any exceptions (labels, link type names)?",
+            "answer": null
+          },
+          {
+            "id": "Q6",
+            "question": "Open Q21 \u2014 adversarial body tests location: same file as the route 403 grid, or a separate test_jira_writes_adversarial.py?",
+            "answer": null
+          },
+          {
+            "id": "Q7",
+            "question": "Open Q22 \u2014 multi-tenant hooks: confirm v1 stays single-tenant exactly as #1556 left it, with no further work in #1924?",
+            "answer": null
+          },
+          {
+            "id": "Q8",
+            "question": "Open Q25 \u2014 failure recovery for batched plan apply: confirm rollback is the orchestrator's responsibility (gateway implements no transactions or compensating actions).",
+            "answer": null
+          },
+          {
+            "id": "Q9",
+            "question": "Open Q26 \u2014 error envelope for write upstream errors: reuse _jira_error_from_upstream verbatim, or surface field-level Atlassian error messages (e.g., 'Field parent cannot be set...') in a richer shape?",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 9 question(s)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:52:27.964849Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.18",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-19",
+        "question": "createIssueLink idempotency (Open Q28, surfaced by reviewer_refine) \u2014 Atlassian's POST /rest/api/3/issueLink does not dedupe identical (inward, outward, type) triples; a retry after a transient 5xx creates a duplicate link. How should the gateway / orchestrator handle this?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Extend the idempotency-key + cache (D1) to createIssueLink for symmetry with createJiraIssue / addCommentToJiraIssue",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Document that orchestrator's plan-apply must scan existing inwardIssue links before retrying createIssueLink",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Accept duplicates; orchestrator de-dups separately as a follow-up",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: createIssueLink idempotency (Open Q28, surfaced by...",
+      "checkpoint_id": null
+    }
+  ],
   "refine_review_cycles": 0,
   "refine_review_feedback": "",
   "plan_review_cycles": 0,
   "plan_review_feedback": "",
   "pr": null,
-  "feedback": null,
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Open Q12 \u2014 write rate-limit policy: confirm 'no auto-retry on 429 for writes' is correct (matches v1 _request); should writes still emit jira_upstream_rate_limited audit on 429?",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "Open Q15 \u2014 body size caps: pick numeric limits for summary (default 255 from Atlassian), description, labels (count + per-label length), comment body, customFields map size.",
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "question": "Open Q18 \u2014 existing-issue probe before create / edit: is the idempotency key sufficient, or do we add a 'is there already a ticket matching this' safety check?",
+        "answer": null
+      },
+      {
+        "id": "Q4",
+        "question": "Open Q19 \u2014 sandbox wrapper input flags: confirm --description / --description-file / --description-stdin (and the analogous comment body flags) match expected agent ergonomics.",
+        "answer": null
+      },
+      {
+        "id": "Q5",
+        "question": "Open Q20 \u2014 audit body redaction: confirm we log only structural metadata (field names, content lengths, label counts) and never body content; any exceptions (labels, link type names)?",
+        "answer": null
+      },
+      {
+        "id": "Q6",
+        "question": "Open Q21 \u2014 adversarial body tests location: same file as the route 403 grid, or a separate test_jira_writes_adversarial.py?",
+        "answer": null
+      },
+      {
+        "id": "Q7",
+        "question": "Open Q22 \u2014 multi-tenant hooks: confirm v1 stays single-tenant exactly as #1556 left it, with no further work in #1924?",
+        "answer": null
+      },
+      {
+        "id": "Q8",
+        "question": "Open Q25 \u2014 failure recovery for batched plan apply: confirm rollback is the orchestrator's responsibility (gateway implements no transactions or compensating actions).",
+        "answer": null
+      },
+      {
+        "id": "Q9",
+        "question": "Open Q26 \u2014 error envelope for write upstream errors: reuse _jira_error_from_upstream verbatim, or surface field-level Atlassian error messages (e.g., 'Field parent cannot be set...') in a richer shape?",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
   "phase_configs": null,
   "agent_executions": []
 }
