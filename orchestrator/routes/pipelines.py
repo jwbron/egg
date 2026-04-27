@@ -2508,7 +2508,8 @@ def restart_phase(pipeline_id: str, phase: str) -> tuple[Response, int]:
         pipeline.status = PipelineStatus.RUNNING
         pipeline.error = None
         pipeline.run_epoch = datetime.now(UTC)
-        pipeline.updated_at = datetime.now(UTC)
+        # ``updated_at`` is unconditionally set by ``StateStore.save_pipeline``
+        # (which ``update_pipeline`` routes through).
         store.update_pipeline(pipeline_id, pipeline.model_dump(mode="json"))
 
     # --- Outside the lock: slow, idempotent, best-effort operations ---
