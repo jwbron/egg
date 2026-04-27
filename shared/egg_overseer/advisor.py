@@ -234,10 +234,23 @@ async def consult_advisor(
 
     try:
         payload = json.loads(cleaned)
-    except json.JSONDecodeError as exc:
-        raise AdvisorParseError(
-            f"consult_advisor: SDK response is not valid JSON: {raw!r}"
-        ) from exc
+    except json.JSONDecodeError:
+        # Fall-back: pull the first balanced JSON object out of prose.
+        # Under ``max_turns=1`` Claude often emits ``Here's the
+        # verdict:\n{...}`` instead of pure JSON; ``raw_decode`` is
+        # string-aware so braces inside JSON string values don't fool
+        # the scan.
+        start = cleaned.find("{")
+        if start == -1:
+            raise AdvisorParseError(
+                f"consult_advisor: SDK response is not valid JSON: {raw!r}"
+            ) from None
+        try:
+            payload, _ = json.JSONDecoder().raw_decode(cleaned[start:])
+        except json.JSONDecodeError as exc:
+            raise AdvisorParseError(
+                f"consult_advisor: SDK response is not valid JSON: {raw!r}"
+            ) from exc
 
     try:
         verdict = AdvisorVerdict.model_validate(payload)

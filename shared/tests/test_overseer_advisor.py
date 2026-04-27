@@ -193,6 +193,84 @@ class TestConsultAdvisor:
                 )
             )
 
+    def test_bare_object_only_payload(self) -> None:
+        # A pure bare JSON object — the most common well-behaved shape.
+        runner = self._runner_returning('{"decision": "watch", "reasoning": "r"}')
+        verdict = asyncio.run(
+            consult_advisor(
+                classification={},
+                health_alerts=[],
+                progress_events=[],
+                recent_log_lines=[],
+                _agent_runner=runner,
+            )
+        )
+        assert verdict.decision == "watch"
+
+    def test_fenced_block_payload(self) -> None:
+        # ```json … ``` wrapper — defensive fence-strip path.
+        runner = self._runner_returning('```json\n{"decision": "watch", "reasoning": "r"}\n```')
+        verdict = asyncio.run(
+            consult_advisor(
+                classification={},
+                health_alerts=[],
+                progress_events=[],
+                recent_log_lines=[],
+                _agent_runner=runner,
+            )
+        )
+        assert verdict.decision == "watch"
+
+    def test_prose_with_bare_object_payload(self) -> None:
+        # Prose-then-bare-JSON: the carry-forward case from #2096 review.
+        runner = self._runner_returning(
+            'Here is my verdict:\n{"decision": "watch", "reasoning": "r"}\n'
+        )
+        verdict = asyncio.run(
+            consult_advisor(
+                classification={},
+                health_alerts=[],
+                progress_events=[],
+                recent_log_lines=[],
+                _agent_runner=runner,
+            )
+        )
+        assert verdict.decision == "watch"
+
+    def test_prose_around_fenced_payload(self) -> None:
+        # Fence in the middle of prose (startswith check misses it,
+        # raw_decode fall-back catches it).
+        runner = self._runner_returning(
+            "Looking at the signals:\n"
+            '```json\n{"decision": "watch", "reasoning": "r"}\n```\n'
+            "That is my call."
+        )
+        verdict = asyncio.run(
+            consult_advisor(
+                classification={},
+                health_alerts=[],
+                progress_events=[],
+                recent_log_lines=[],
+                _agent_runner=runner,
+            )
+        )
+        assert verdict.decision == "watch"
+
+    def test_no_brace_raises_parse_error(self) -> None:
+        # Confirms the fall-back doesn't paper over genuinely empty
+        # responses — error semantics for unparseable text stay intact.
+        runner = self._runner_returning("absolutely no json here")
+        with pytest.raises(AdvisorParseError, match="not valid JSON"):
+            asyncio.run(
+                consult_advisor(
+                    classification={},
+                    health_alerts=[],
+                    progress_events=[],
+                    recent_log_lines=[],
+                    _agent_runner=runner,
+                )
+            )
+
     def test_schema_failure_raises_parse_error(self) -> None:
         runner = self._runner_returning({"decision": "alert"})  # missing reasoning
         with pytest.raises(AdvisorParseError, match="validation"):
