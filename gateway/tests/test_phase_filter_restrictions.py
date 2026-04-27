@@ -593,8 +593,13 @@ class TestThreeRoleFileRestrictions:
         are reviewed by reviewer_security rather than blocked at the
         role-pattern layer; this test locks the synchronization between
         .egg/phase-permissions.json and shared/egg_restrictions/patterns.py
-        so the two layers do not drift apart."""
+        so the two layers do not drift apart. Mirrors the patterns.py
+        layer coverage of both `gh` and `git-credential-github-token`."""
         result = check_file_restrictions("coder", ["sandbox/scripts/gh"])
+        assert result.allowed is True
+        result = check_file_restrictions(
+            "coder", ["sandbox/scripts/git-credential-github-token"]
+        )
         assert result.allowed is True
 
     # --- tester role ---
