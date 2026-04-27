@@ -132,7 +132,8 @@ Within each phase, specialized agents run concurrently via BRC (enabled by defau
 │   complete                                    │
 │   ✓ coder                                     │
 │   ✓ tester  ✓ documenter                      │
-│   ✓ reviewer_code  ✓ reviewer_contract        │
+│   ✓ reviewer_code  ✓ reviewer_code_holistic   │
+│   ✓ reviewer_contract                         │
 │   ✓ reviewer_security  ✓ reviewer_concurrency │
 │   [1h11m]                                     │
 ╚═══════════════════════════════════════════════╝

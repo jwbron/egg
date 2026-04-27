@@ -10,7 +10,7 @@ Every agent role belongs to one of five categories. Categories enable dynamic te
 |----------|---------|-------|
 | **EXECUTION** | Produce artifacts (code, tests, docs) | `coder`, `tester`, `documenter` |
 | **ANALYSIS** | Analyze tasks and plan work | `refiner`, `architect`, `task_planner`, `risk_analyst` |
-| **REVIEW** | Validate quality and correctness | `reviewer_code`, `reviewer_contract`, `reviewer_refine`, `reviewer_plan`, `reviewer_agent_design`, `reviewer_security`, `reviewer_concurrency` |
+| **REVIEW** | Validate quality and correctness | `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_refine`, `reviewer_plan`, `reviewer_agent_design`, `reviewer_security`, `reviewer_concurrency` |
 | **UTILITY** | Cross-cutting support tasks | `autofixer`, `conflict_resolver` |
 | **INTERFACE** | Pipeline health and monitoring | `inspector`, `overseer` |
 
@@ -30,10 +30,11 @@ Use `get_roles_by_category(AgentCategory.REVIEW)` to dynamically query roles by 
 | `coder` | Execution | Implement | No | — |
 | `tester` | Execution | Implement | Yes (with `documenter`) | coder |
 | `documenter` | Execution | Implement | Yes (with `tester`) | coder |
-| `reviewer_code` | Review | Implement | Yes (with `reviewer_contract`, `reviewer_security`, `reviewer_concurrency`) | coder, tester |
-| `reviewer_contract` | Review | Implement | Yes (with `reviewer_code`, `reviewer_security`, `reviewer_concurrency`) | coder, tester |
-| `reviewer_security` | Review | Implement | Yes (with `reviewer_code`, `reviewer_contract`, `reviewer_concurrency`) | coder, tester |
-| `reviewer_concurrency` | Review | Implement | Yes (with `reviewer_code`, `reviewer_contract`, `reviewer_security`) | coder, tester |
+| `reviewer_code` | Review | Implement | Yes (with `reviewer_code_holistic`, `reviewer_contract`, `reviewer_security`, `reviewer_concurrency`) | coder, tester |
+| `reviewer_code_holistic` | Review | Implement | Yes (with `reviewer_code`, `reviewer_contract`, `reviewer_security`, `reviewer_concurrency`) | coder, tester |
+| `reviewer_contract` | Review | Implement | Yes (with `reviewer_code`, `reviewer_code_holistic`, `reviewer_security`, `reviewer_concurrency`) | coder, tester |
+| `reviewer_security` | Review | Implement | Yes (with `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_concurrency`) | coder, tester |
+| `reviewer_concurrency` | Review | Implement | Yes (with `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_security`) | coder, tester |
 | `autofixer` | Utility | Any | Yes | — |
 | `conflict_resolver` | Utility | Any | Yes | — |
 | `inspector` | Interface | Any | — | — (health checks) |
@@ -66,7 +67,7 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 - Blocked: All source code, contracts, drafts
 
 **Outputs**:
-- `.egg-state/reviews/{identifier}-refine-reviewer_refine-review.json` — Verdict file
+- `.egg-state/reviews/{identifier}-refine-refine-review.json` — Verdict file
 
 ### `reviewer_agent_design`
 
@@ -77,7 +78,7 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 **File access**: Same as `reviewer_refine`.
 
 **Outputs**:
-- `.egg-state/reviews/{identifier}-refine-reviewer_agent_design-review.json` — Verdict file
+- `.egg-state/reviews/{identifier}-refine-agent-design-review.json` — Verdict file
 
 ## Plan Phase
 
@@ -124,7 +125,7 @@ All agents within a phase run concurrently via BRC consensus. Concurrency is ena
 **File access**: Same as `reviewer_refine`.
 
 **Outputs**:
-- `.egg-state/reviews/{identifier}-plan-reviewer_plan-review.json` — Verdict file
+- `.egg-state/reviews/{identifier}-plan-plan-review.json` — Verdict file
 
 ## Implement Phase
 
@@ -161,10 +162,12 @@ each surface so reviewers know to keep them in sync.
   (`**/*_test.py`, `**/test_*.py`, `**/*_test.go`, `**/test_*.go`,
   `**/*.test.{ts,tsx,js,jsx}`, `**/*.spec.{ts,tsx,js,jsx}`),
   `**/conftest.py` (tester's scope); `.egg-state/` (pipeline state);
-  plus defense-in-depth blocks on `.github/` (CI workflows and
-  CODEOWNERS — preserves the branch-protection invariant) and
-  `sandbox/scripts/` (gateway credential shims — preserves the
-  credential-routing invariant).
+  plus a defense-in-depth block on `.github/` (CI workflows and
+  CODEOWNERS — preserves the branch-protection invariant).
+  `sandbox/scripts/` is **writable** — the gateway is the sole egress
+  chokepoint, so credential-shim modifications are reviewed by
+  `reviewer_security` rather than blocked at the role-pattern layer.
+  See [security-review-criteria.md](../../shared/prompts/security-review-criteria.md).
 - Block exemptions (always writable, overriding the blocks above):
   `.egg-state/agent-outputs/` (coder's handoff output),
   `.egg-state/agent-anchors/` (per-agent anchor state, scoped by
@@ -243,7 +246,26 @@ each surface so reviewers know to keep them in sync.
 **Subagent fan-out**: On large diffs (`files_changed > 10` OR `loc_added + loc_removed > 500`), `reviewer_code` fans out into Claude Agent SDK subagents — one per implement-phase task partition (capped at 6, with a 5-minute / 300-second per-subagent wall-clock timeout that NACKs the partition on overrun). Each subagent reviews its slice; the parent aggregates findings and emits the single ACK/NACK. A mandatory cross-partition consistency pass runs regardless of whether fan-out fires. Fan-out can be forced sequential via `phase_configs.implement.reviewer_code.parallel = false` (default: `true`).
 
 **Outputs**:
-- `.egg-state/reviews/{identifier}-implement-reviewer_code-review.json` — Verdict file
+- `.egg-state/reviews/{identifier}-implement-code-review.json` — Verdict file
+
+### `reviewer_code_holistic`
+
+**Purpose**: Single-pass holistic code review focused on cross-module coherence. Runs alongside `reviewer_code`'s slice-by-slice fan-out — its job is the architectural-coherence question no fan-out slice owns.
+
+**Criticality**: CRITICAL — NACKs block consensus on their own and are not averaged against `reviewer_code`'s fan-out ACKs.
+
+**Focus areas** (four mandatory passes):
+1. Walk the primary advertised use case end-to-end across the full diff.
+2. Cross-check doc-claimed behaviour against what the code actually does.
+3. Audit synthetic keys, sentinels, and magic values for cross-module agreement.
+4. Hunt silent fallbacks that swallow operator-visible misconfiguration.
+
+**File access**:
+- Allowed writes: `.egg-state/reviews/`, `.egg-state/agent-outputs/`
+- Blocked: All source, docs, tests, contracts, drafts
+
+**Outputs**:
+- `.egg-state/reviews/{identifier}-implement-code-holistic-review.json` — Verdict file
 
 ### `reviewer_contract`
 
@@ -254,7 +276,7 @@ each surface so reviewers know to keep them in sync.
 - Blocked: All source, docs, tests, drafts
 
 **Outputs**:
-- `.egg-state/reviews/{identifier}-implement-reviewer_contract-review.json` — Verdict file
+- `.egg-state/reviews/{identifier}-implement-contract-review.json` — Verdict file
 
 ### `reviewer_security`
 
@@ -267,7 +289,7 @@ each surface so reviewers know to keep them in sync.
 - Blocked: All source, docs, tests, contracts, drafts
 
 **Outputs**:
-- `.egg-state/reviews/{identifier}-implement-reviewer_security-review.json` — Verdict file
+- `.egg-state/reviews/{identifier}-implement-security-review.json` — Verdict file
 
 ### `reviewer_concurrency`
 
@@ -280,7 +302,7 @@ each surface so reviewers know to keep them in sync.
 - Blocked: All source, docs, tests, contracts, drafts
 
 **Outputs**:
-- `.egg-state/reviews/{identifier}-implement-reviewer_concurrency-review.json` — Verdict file
+- `.egg-state/reviews/{identifier}-implement-concurrency-review.json` — Verdict file
 
 ## Utility Roles
 

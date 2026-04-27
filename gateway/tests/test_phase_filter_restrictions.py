@@ -587,6 +587,19 @@ class TestThreeRoleFileRestrictions:
         result = check_file_restrictions("coder", ["bin/egg"])
         assert result.allowed is True
 
+    def test_coder_allowed_for_sandbox_scripts(self):
+        """sandbox/scripts/ is writable by the coder at the gateway
+        file_restrictions layer (#2133). Credential-shim modifications
+        are reviewed by reviewer_security rather than blocked at the
+        role-pattern layer; this test locks the synchronization between
+        .egg/phase-permissions.json and shared/egg_restrictions/patterns.py
+        so the two layers do not drift apart. Mirrors the patterns.py
+        layer coverage of both `gh` and `git-credential-github-token`."""
+        result = check_file_restrictions("coder", ["sandbox/scripts/gh"])
+        assert result.allowed is True
+        result = check_file_restrictions("coder", ["sandbox/scripts/git-credential-github-token"])
+        assert result.allowed is True
+
     # --- tester role ---
 
     def test_tester_blocked_from_contracts(self):
