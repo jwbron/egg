@@ -679,3 +679,63 @@ class TestDetachedHeadCommitHint:
             assert "detached_head_hint_suppressed_stderr" in debug_events, (
                 f"Expected detached_head_hint_suppressed_stderr debug log, got: {debug_events}"
             )
+
+    def test_commit_symbolic_ref_stderr_truncated_to_200_chars(self, client, auth_pipeline):
+        """Suppression-log ``stderr`` payload is truncated to 200 chars.
+
+        Locks in the bound on the debug-log payload size. Without truncation, a
+        misbehaving git that dumps a multi-line warning could bloat logs on
+        every commit.
+        """
+        headers, mock_result, mock_policy, current_sm = auth_pipeline
+        long_stderr = "x" * 5000
+
+        def side_effect(*args, **kwargs):
+            cmd = args[0] if args else kwargs.get("args", [])
+            cmd_str = " ".join(str(c) for c in cmd)
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = ""
+            result.stderr = ""
+            if "diff" in cmd_str and "--cached" in cmd_str:
+                result.stdout = ""
+            elif "symbolic-ref" in cmd_str:
+                result.returncode = 1
+                result.stdout = ""
+                result.stderr = long_stderr
+            else:
+                result.stdout = "ok"
+            return result
+
+        with (
+            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy),
+            patch.object(gateway, "audit_log"),
+            patch.object(gateway, "validate_repo_path", return_value=(True, "")),
+            patch.object(gateway, "map_container_path_to_worktree", return_value="/worktree/path"),
+            patch.object(gateway, "_lookup_commit_observer_fn", return_value=None),
+            patch("gateway.subprocess.run", side_effect=side_effect),
+            patch.object(gateway, "logger") as mock_logger,
+        ):
+            response = client.post(
+                "/api/v1/git/execute",
+                json={
+                    "repo_path": "/home/egg/repos/myrepo",
+                    "operation": "commit",
+                    "args": ["-m", "wip"],
+                },
+                headers=headers,
+            )
+            assert response.status_code == 200
+            suppression_calls = [
+                call
+                for call in mock_logger.debug.call_args_list
+                if call.args and call.args[0] == "detached_head_hint_suppressed_stderr"
+            ]
+            assert len(suppression_calls) == 1, (
+                f"Expected exactly one suppression debug call, got: {suppression_calls}"
+            )
+            logged_stderr = suppression_calls[0].kwargs.get("stderr", "")
+            assert len(logged_stderr) == 200, (
+                f"Expected stderr truncated to 200 chars, got len={len(logged_stderr)}"
+            )
