@@ -140,7 +140,7 @@ required is tracked as a separate follow-up after iter-2 burn-in
 | `mcp__progress__signal_error` | Signal an error to the orchestrator (`--error <msg>` payload + recoverable flag). | `handlers.progress.progress_signal_error` | `egg-orch signal error` |
 | `mcp__progress__heartbeat` | Send a heartbeat so the orchestrator knows the agent is alive (coarse-grained; for fine-grained BRC heartbeats use `mcp__brc__send_heartbeat`). | `handlers.progress.progress_heartbeat` | `egg-orch signal heartbeat` |
 | `mcp__progress__overseer_alert` | Broadcast an `OVERSEER_ALERT` to all agents in the pipeline (`to_role="all"` hard-coded). | `handlers.progress.overseer_alert` | `egg-orch overseer alert` |
-| `mcp__progress__query_status` | `GET /api/v1/pipelines/<pipeline_id>/status` — read the structured pipeline status (agent matrix, BRC phase, blocked roles). `pipeline_id` is resolved server-side from `EGG_PIPELINE_ID` / `EGG_ISSUE_NUMBER`; agents cannot query arbitrary pipelines (path-traversal / cross-pipeline-read hardening). | `handlers.progress.query_status` | `egg-orch pipeline status` |
+| `mcp__progress__query_status` | `GET /api/v1/pipelines/<pipeline_id>/status` — read the structured pipeline status (agent matrix, BRC phase, blocked roles). `pipeline_id` is resolved server-side from `EGG_PIPELINE_ID` / `EGG_ISSUE_NUMBER`; agents cannot query arbitrary pipelines (path-traversal / cross-pipeline-read hardening). When the pipeline is wedged between phases (current phase is `complete`, no pending decisions, no successor scheduled for >60 s), the response includes `wedged_no_successor: {phase, completed_at, since_seconds}`. | `handlers.progress.query_status` | `egg-orch pipeline status` |
 
 ### `mcp__task__*` — Task-level mutations
 
