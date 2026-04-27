@@ -11,12 +11,6 @@ and asserts:
 - Missing ``EGG_SESSION_TOKEN`` fails closed.
 - Missing gateway fails closed with the standard error banner.
 
-The wrapper lives at ``sandbox/scripts/jira`` (canonical) or the artifact
-location ``.egg-state/agent-outputs/1556-sandbox-scripts-jira`` (until a
-role with push rights for ``sandbox/scripts/`` lands it at the canonical
-path).  Either is acceptable for verification; the test prefers the
-canonical location when present.
-
 Note: this file exercises the wrapper directly; the actual route
 enforcement (private-mode gate, project allowlist, etc.) is covered in
 ``gateway/tests/test_jira_routes.py``.  The wrapper's only job is to
@@ -43,18 +37,14 @@ import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _CANONICAL = _REPO_ROOT / "sandbox" / "scripts" / "jira"
-_ARTIFACT = _REPO_ROOT / ".egg-state" / "agent-outputs" / "1556-sandbox-scripts-jira"
 
 
 def _locate_wrapper() -> Path:
-    """Return the wrapper path; skip the test if neither is present."""
+    """Return the wrapper path; skip the test if it is not present."""
     if _CANONICAL.exists():
         return _CANONICAL
-    if _ARTIFACT.exists():
-        return _ARTIFACT
     pytest.skip(
-        "sandbox jira wrapper not found at "
-        f"{_CANONICAL} or {_ARTIFACT} — coder proposal #1556 may be incomplete.",
+        f"sandbox jira wrapper not found at {_CANONICAL}.",
         allow_module_level=True,
     )
 
