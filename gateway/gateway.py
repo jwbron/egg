@@ -197,6 +197,7 @@ try:
         WorktreeManager,
         get_active_docker_containers,
         startup_cleanup,
+        validate_identifier,
     )
 except ImportError:
     from agent_restrictions import (  # type: ignore[no-redef, import-untyped]
@@ -338,6 +339,7 @@ except ImportError:
         WorktreeManager,
         get_active_docker_containers,
         startup_cleanup,
+        validate_identifier,
     )
 
 # Import repo_config for user mode support
@@ -6178,6 +6180,70 @@ def _cleanup_stale_pack_files(exec_path: str) -> None:
         )
 
 
+def _cleanup_empty_container_dir(container_id: str) -> None:
+    """Best-effort removal of an orphan container worktree directory.
+
+    Called from the total-failure branch of worktree_create.  Only acts
+    when the directory is actually empty — if any per-repo subdir is
+    present (partial failure with leftover state), we leave it for an
+    operator-driven prune so we don't accidentally drop in-progress
+    work.  See #2186.
+
+    Defense-in-depth: validate `container_id` and verify the resolved
+    path stays under `WORKTREE_BASE_DIR` before any filesystem mutation.
+    `worktree_create` already validates at the route boundary, but a
+    raw `..`-bearing identifier reaching `Path / container_id` would
+    otherwise let `rmdir(2)` follow the literal path and unlink an
+    empty directory adjacent to the base dir.
+    """
+    try:
+        validate_identifier(container_id, "container_id")
+    except ValueError as e:
+        logger.warning(
+            "Skipping orphan container dir cleanup: invalid container_id",
+            container_id=container_id,
+            error=str(e),
+        )
+        return
+
+    target = WORKTREE_BASE_DIR / container_id
+    try:
+        # Resolve and verify containment as a second line of defense
+        # against any future caller that bypasses validate_identifier.
+        base_resolved = WORKTREE_BASE_DIR.resolve()
+        target_resolved = target.resolve(strict=False)
+        if target_resolved != base_resolved and base_resolved not in target_resolved.parents:
+            logger.warning(
+                "Skipping orphan container dir cleanup: outside base dir",
+                container_id=container_id,
+                resolved=str(target_resolved),
+                base=str(base_resolved),
+            )
+            return
+        if not target.exists():
+            return
+        if any(target.iterdir()):
+            logger.warning(
+                "Skipping orphan container dir cleanup: not empty",
+                container_id=container_id,
+                path=str(target),
+            )
+            return
+        target.rmdir()
+        logger.info(
+            "Removed empty orphan container worktree dir",
+            container_id=container_id,
+            path=str(target),
+        )
+    except OSError as e:
+        logger.warning(
+            "Failed to clean orphan container dir",
+            container_id=container_id,
+            path=str(target),
+            error=str(e),
+        )
+
+
 @app.route("/api/v1/worktree/create", methods=["POST"])
 @require_launcher_auth
 def worktree_create() -> tuple[Response, int] | Response:
@@ -6224,6 +6290,18 @@ def worktree_create() -> tuple[Response, int] | Response:
     if not repos:
         return make_error("Missing repos list")
 
+    # Validate container_id at the route boundary so every downstream
+    # filesystem touch (including the post-failure cleanup helper) is
+    # safe.  Without this, a `..`-bearing container_id would reach
+    # `_cleanup_empty_container_dir` after `manager.create_worktree`
+    # raised ValueError into the per-repo `errors[]` list, letting
+    # `rmdir(2)` follow the literal path out of WORKTREE_BASE_DIR.
+    # See #2186 review feedback.
+    try:
+        validate_identifier(container_id, "container_id")
+    except ValueError as e:
+        return make_error(str(e))
+
     # Validate uid/gid if provided
     if uid is not None and (not isinstance(uid, int) or uid < 0):
         return make_error("Invalid uid: must be a non-negative integer")
@@ -6241,6 +6319,13 @@ def worktree_create() -> tuple[Response, int] | Response:
         else:
             repo_name = repo
 
+        # Pre-bind so the except clauses below can reference
+        # effective_branch even if resolve_default_branch raises (e.g.,
+        # OSError if the git binary is missing).  See #2186 review
+        # feedback — previously hoisted out of the try, which let
+        # resolve_default_branch failures bypass the per-repo errors[]
+        # safety net entirely.
+        effective_branch = base_branch
         try:
             # Resolve the default branch per-repo when no explicit base is given.
             # This ensures repos with non-standard default branches (e.g., master)
@@ -6256,14 +6341,48 @@ def worktree_create() -> tuple[Response, int] | Response:
             )
             # Translate container path to host path for egg launcher mount sources
             worktrees[repo_name] = translate_to_host_path(str(info.worktree_path))
-        except ValueError as e:
-            errors.append(f"{repo_name}: {e}")
-        except RuntimeError as e:
+        except (ValueError, RuntimeError) as e:
+            # Capture full traceback so operators can diagnose without
+            # re-instrumenting the gateway.  See #2186.
+            logger.exception(
+                "worktree_create per-repo failure",
+                repo_name=repo_name,
+                container_id=container_id,
+                base_branch=effective_branch,
+                assigned_branch=assigned_branch,
+                error_type=type(e).__name__,
+            )
             errors.append(f"{repo_name}: {e}")
         except Exception as e:
+            logger.exception(
+                "worktree_create unexpected per-repo failure",
+                repo_name=repo_name,
+                container_id=container_id,
+                base_branch=effective_branch,
+                assigned_branch=assigned_branch,
+                error_type=type(e).__name__,
+            )
             errors.append(f"{repo_name}: unexpected error - {e}")
 
     if errors and not worktrees:
+        # Total failure: surface aggregate errors in logs + audit, then
+        # best-effort clean up the empty container directory so retries
+        # aren't blocked by stale state.  See #2186.
+        logger.error(
+            "worktree_create failed for all repos",
+            container_id=container_id,
+            errors=errors,
+        )
+        audit_log(
+            "worktrees_create_failed",
+            "worktree_create",
+            success=False,
+            details={
+                "container_id": container_id,
+                "errors": errors,
+            },
+        )
+        _cleanup_empty_container_dir(container_id)
         return make_error(
             "Failed to create any worktrees",
             status_code=500,

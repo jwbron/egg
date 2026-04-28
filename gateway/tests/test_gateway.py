@@ -4960,6 +4960,261 @@ class TestWorktreeCreateEndpointResolution:
             assert base == "origin/develop"
 
 
+class TestWorktreeCreateFailureLogging:
+    """Tests for worktree_create's failure-path observability and cleanup.
+
+    See #2186 — prior to this fix the 500 branch returned the per-repo
+    error list only in the HTTP response body, with no logger.error or
+    audit_log entry, so operators reading only logs were blind to the
+    actual cause.
+    """
+
+    def test_per_repo_failure_logs_with_traceback(self, client, launcher_auth_headers):
+        """Each per-repo exception is captured via logger.exception so the
+        traceback survives.  The response still returns the per-repo
+        message in errors[]."""
+        with (
+            patch.object(gateway, "get_worktree_manager") as mock_worktree,
+            patch.object(gateway, "logger") as mock_logger,
+            patch.object(gateway, "audit_log"),
+            patch.object(gateway, "_cleanup_empty_container_dir"),
+        ):
+            mock_wt_manager = mock_worktree.return_value
+            mock_wt_manager.resolve_default_branch.return_value = "origin/main"
+            mock_wt_manager.create_worktree.side_effect = ValueError("branch already exists")
+
+            response = client.post(
+                "/api/v1/worktree/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "test-container",
+                        "repos": ["owner/repo"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 500
+            body = json.loads(response.data)
+            assert body["data"]["errors"] == ["repo: branch already exists"]
+
+            # Per-repo logger.exception call carries structured fields
+            mock_logger.exception.assert_called_once()
+            exc_kwargs = mock_logger.exception.call_args.kwargs
+            assert exc_kwargs["repo_name"] == "repo"
+            assert exc_kwargs["container_id"] == "test-container"
+            assert exc_kwargs["error_type"] == "ValueError"
+
+    def test_unexpected_exception_logs_with_traceback(self, client, launcher_auth_headers):
+        """The broad `except Exception` path also routes through
+        logger.exception so unexpected failures aren't silently
+        string-coerced."""
+        with (
+            patch.object(gateway, "get_worktree_manager") as mock_worktree,
+            patch.object(gateway, "logger") as mock_logger,
+            patch.object(gateway, "audit_log"),
+            patch.object(gateway, "_cleanup_empty_container_dir"),
+        ):
+            mock_wt_manager = mock_worktree.return_value
+            mock_wt_manager.resolve_default_branch.return_value = "origin/main"
+            mock_wt_manager.create_worktree.side_effect = OSError("disk full")
+
+            response = client.post(
+                "/api/v1/worktree/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "test-container",
+                        "repos": ["owner/repo"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 500
+            mock_logger.exception.assert_called_once()
+            exc_kwargs = mock_logger.exception.call_args.kwargs
+            assert exc_kwargs["error_type"] == "OSError"
+
+    def test_500_branch_emits_audit_log_failure(self, client, launcher_auth_headers):
+        """Total failure must call audit_log with success=False so the
+        operator's audit stream records the event symmetric to the
+        success branch."""
+        mock_audit = MagicMock()
+        with (
+            patch.object(gateway, "get_worktree_manager") as mock_worktree,
+            patch.object(gateway, "audit_log", mock_audit),
+            patch.object(gateway, "_cleanup_empty_container_dir"),
+        ):
+            mock_wt_manager = mock_worktree.return_value
+            mock_wt_manager.resolve_default_branch.return_value = "origin/main"
+            mock_wt_manager.create_worktree.side_effect = RuntimeError("boom")
+
+            response = client.post(
+                "/api/v1/worktree/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "test-container",
+                        "repos": ["owner/repo-a", "owner/repo-b"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 500
+            mock_audit.assert_called_once()
+            args, kwargs = mock_audit.call_args
+            # Positional: (event_type, operation, ...) plus success kwarg
+            assert args[0] == "worktrees_create_failed"
+            assert args[1] == "worktree_create"
+            assert kwargs["success"] is False
+            details = kwargs["details"]
+            assert details["container_id"] == "test-container"
+            assert "repo-a: boom" in details["errors"]
+            assert "repo-b: boom" in details["errors"]
+
+    def test_500_branch_logs_error_with_aggregated_errors(self, client, launcher_auth_headers):
+        """Total failure emits a logger.error with the aggregate errors
+        list so non-audit log readers also see the cause."""
+        with (
+            patch.object(gateway, "get_worktree_manager") as mock_worktree,
+            patch.object(gateway, "logger") as mock_logger,
+            patch.object(gateway, "audit_log"),
+            patch.object(gateway, "_cleanup_empty_container_dir"),
+        ):
+            mock_wt_manager = mock_worktree.return_value
+            mock_wt_manager.resolve_default_branch.return_value = "origin/main"
+            mock_wt_manager.create_worktree.side_effect = ValueError("nope")
+
+            response = client.post(
+                "/api/v1/worktree/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "test-container",
+                        "repos": ["owner/repo"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 500
+            mock_logger.error.assert_called_once()
+            err_kwargs = mock_logger.error.call_args.kwargs
+            assert err_kwargs["container_id"] == "test-container"
+            assert err_kwargs["errors"] == ["repo: nope"]
+
+    def test_cleanup_removes_empty_container_dir(self, tmp_path):
+        """_cleanup_empty_container_dir rmdir's an empty container
+        directory so retries aren't blocked by stale state."""
+        target = tmp_path / "container-xyz"
+        target.mkdir()
+
+        with patch.object(gateway, "WORKTREE_BASE_DIR", tmp_path):
+            gateway._cleanup_empty_container_dir("container-xyz")
+
+        assert not target.exists()
+
+    def test_cleanup_skips_non_empty_container_dir(self, tmp_path):
+        """_cleanup_empty_container_dir leaves a non-empty container
+        directory alone — partial state from per-repo failures might
+        contain in-progress work the operator wants to triage."""
+        target = tmp_path / "container-xyz"
+        target.mkdir()
+        (target / "leftover-repo").mkdir()
+
+        with patch.object(gateway, "WORKTREE_BASE_DIR", tmp_path):
+            gateway._cleanup_empty_container_dir("container-xyz")
+
+        assert target.exists()
+        assert (target / "leftover-repo").exists()
+
+    def test_cleanup_no_op_when_dir_absent(self, tmp_path):
+        """_cleanup_empty_container_dir is a safe no-op when the
+        directory doesn't exist (e.g., manager.create_worktree failed
+        before it was even created)."""
+        with patch.object(gateway, "WORKTREE_BASE_DIR", tmp_path):
+            # Should not raise.
+            gateway._cleanup_empty_container_dir("never-existed")
+
+    def test_cleanup_invoked_on_total_failure(self, client, launcher_auth_headers):
+        """The 500 branch wires through to _cleanup_empty_container_dir
+        with the request's container_id."""
+        mock_cleanup = MagicMock()
+        with (
+            patch.object(gateway, "get_worktree_manager") as mock_worktree,
+            patch.object(gateway, "audit_log"),
+            patch.object(gateway, "_cleanup_empty_container_dir", mock_cleanup),
+        ):
+            mock_wt_manager = mock_worktree.return_value
+            mock_wt_manager.resolve_default_branch.return_value = "origin/main"
+            mock_wt_manager.create_worktree.side_effect = RuntimeError("boom")
+
+            response = client.post(
+                "/api/v1/worktree/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "test-container",
+                        "repos": ["owner/repo"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 500
+            mock_cleanup.assert_called_once_with("test-container")
+
+    def test_cleanup_rejects_path_traversal(self, tmp_path):
+        """_cleanup_empty_container_dir refuses container_ids containing
+        path-traversal (`..`) so a bypass of the route-level validation
+        cannot rmdir directories outside WORKTREE_BASE_DIR.
+
+        Without this guard, `Path(base) / "../sibling"` would let
+        `rmdir(2)` follow the literal path and unlink an empty directory
+        adjacent to the base dir.  See #2186 review feedback.
+        """
+        base = tmp_path / "base"
+        base.mkdir()
+        sibling = tmp_path / "sibling"
+        sibling.mkdir()  # empty — would otherwise be rmdir-able
+
+        with patch.object(gateway, "WORKTREE_BASE_DIR", base):
+            gateway._cleanup_empty_container_dir("../sibling")
+
+        # The sibling directory must still exist — the helper must
+        # refuse the traversed identifier before any filesystem mutation.
+        assert sibling.exists(), (
+            "Path-traversal container_id reached rmdir; cleanup must "
+            "reject `..`-bearing identifiers before touching the filesystem."
+        )
+
+    def test_route_rejects_path_traversal_container_id(self, client, launcher_auth_headers):
+        """worktree_create validates container_id at the route boundary
+        and returns a 400 for `..`-bearing identifiers, before any
+        per-repo work runs.  See #2186 review feedback."""
+        with patch.object(gateway, "get_worktree_manager") as mock_worktree:
+            response = client.post(
+                "/api/v1/worktree/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "../escape",
+                        "repos": ["owner/repo"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 400
+            body = json.loads(response.data)
+            assert "path traversal" in body["message"].lower()
+            # No per-repo work should have started.
+            mock_worktree.return_value.create_worktree.assert_not_called()
+
+
 class TestSessionDeleteByContainerWorktreeCleanup:
     """Tests for DELETE /api/v1/sessions/by-container/<container_id> worktree cleanup."""
 
