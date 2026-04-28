@@ -70,6 +70,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "documenter"
     },
+    "db1801f8a2fb9dca3d8de18bd19be359f65b4a3e": {
+      "branch": "egg/issue-1924-new-worktree",
+      "pipeline_id": "issue-1924-new-worktree",
+      "registered_at": "2026-04-28T05:27:43.635291+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "coder"
+    },
     "e0eba05a022e0d776fef72e2cdbb02dedc7854cd": {
       "branch": "egg/issue-1924-new-worktree",
       "pipeline_id": "issue-1924-new-worktree",
