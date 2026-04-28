@@ -367,10 +367,15 @@ class TestPostBrcBandSwallowsErrors:
         # the broader handler.  Find every call to the helper and assert
         # the immediately-following ``except`` clause is ``Exception``.
         call_sites = list(re.finditer(r"_commit_statefiles_to_worktree\(", source))
-        # Two known call sites: post-phase commit, post-HITL-resolution
-        # commit. If a third is added, this count must be revisited.
-        assert len(call_sites) >= 2, (
-            f"Expected ≥2 _commit_statefiles_to_worktree call sites, found {len(call_sites)}"
+        # Four known call sites in ``_run_pipeline``: initial statefile
+        # commit, pre-PR commit, post-phase commit, post-HITL-resolution
+        # commit.  Pin the count so a future move/delete is caught
+        # rather than silently degrading coverage.
+        assert len(call_sites) == 4, (
+            f"Expected 4 _commit_statefiles_to_worktree call sites in "
+            f"_run_pipeline, found {len(call_sites)}.  If a call was "
+            f"intentionally added/removed, update this count and the "
+            f"comment above."
         )
         for match in call_sites:
             # Look at the next ~500 chars for the matching except clause.
@@ -398,9 +403,17 @@ class TestPostBrcBandSwallowsErrors:
         source = self._run_pipeline_source()
         # The outer Exception handler's inner try/except must NOT end in
         # a bare ``pass`` — it must log so future occurrences are visible.
-        # Match the structural shape near "Failed to mark pipeline FAILED"
-        # which is the new log line, OR a continued absence of bare-pass.
-        assert "Failed to mark pipeline FAILED after exception" in source, (
-            "Outer Exception handler must log when FAILED-marking itself "
-            "fails so silent wedges (#2219) become visible in the log."
+        # Match the structural shape: ``except Exception as fail_err:``
+        # immediately followed (within ~500 chars, indentation-tolerant)
+        # by the new log line.  This pins the assertion to the invariant
+        # rather than just any occurrence of the string.
+        assert re.search(
+            r"except\s+Exception\s+as\s+fail_err:[\s\S]{0,500}?"
+            r"Failed to mark pipeline FAILED after exception",
+            source,
+        ), (
+            "Outer Exception handler must log inside an "
+            "``except Exception as fail_err:`` block when FAILED-marking "
+            "itself fails so silent wedges (#2219) become visible in the "
+            "log."
         )
