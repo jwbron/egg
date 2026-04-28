@@ -125,6 +125,7 @@ orchestrator/
 ├── startup_reconciliation.py # Startup reconciliation for orphaned containers
 ├── commit_authorship_store.py # Durable {sha → role} registry sharded by pipeline on the pipeline-state branch; backing store for the commit-authorship registry
 ├── state_store.py          # Git-backed pipeline state
+├── state_store_probe.py    # Background state-store self-heal probe; decouples curative git ops from kubelet probe traffic (#2191)
 ├── status_reporter.py      # Real-time status reporter for collaborators
 ├── unified_sse.py          # Unified SSE stream for all pipelines
 ├── webhooks.py             # GitHub webhook handlers
