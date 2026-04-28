@@ -9788,7 +9788,10 @@ def _run_concurrent_phase(
                 pass
 
         with _logs_lock:
-            if final_info.exit_code != 0:
+            # 143 (SIGTERM) is orchestrator-initiated teardown, not a
+            # failure — match the K8s monitor's classifier (#2210) so
+            # the two layers don't disagree about what 143 means.
+            if final_info.exit_code not in (0, 143):
                 has_failures[0] = True
             all_logs.append(
                 f"--- {exec_info.role.value} (exit={final_info.exit_code}) ---\n{container_logs}"
@@ -9810,7 +9813,7 @@ def _run_concurrent_phase(
                     for agent in pe.agents:
                         if agent.container_id == exec_info.container_id:
                             agent.completed_at = datetime.now(UTC)
-                            if final_info.exit_code == 0:
+                            if final_info.exit_code in (0, 143):
                                 agent.status = StateAgentStatus.COMPLETE
                             else:
                                 agent.status = StateAgentStatus.FAILED
@@ -10120,8 +10123,12 @@ def _run_concurrent_phase(
                 exited_containers[exec_info.container_id] = info
                 _record_container_exit(exec_info, info)
 
-                # Handle non-zero exit as agent failure
-                if info.exit_code != 0:
+                # Handle non-clean exit as agent failure.  0 = normal,
+                # 143 = orchestrator-initiated SIGTERM (#2210) — both
+                # are classified as clean here to match the K8s monitor's
+                # _classify_exit, so the two layers can't race to write
+                # contradictory agent.status values.
+                if info.exit_code not in (0, 143):
                     try:
                         executor.handle_agent_failure(
                             role=exec_info.role.value,
@@ -10134,14 +10141,15 @@ def _run_concurrent_phase(
                             error=str(e),
                         )
                 else:
-                    # Clean exit (code 0): the consensus wrapper inside the
-                    # container handles restarts if the agent didn't signal
-                    # READY. We do NOT auto-register READY here — agents
-                    # must explicitly participate in consensus.
+                    # Clean exit (0 or 143): the consensus wrapper inside
+                    # the container handles restarts if the agent didn't
+                    # signal READY. We do NOT auto-register READY here —
+                    # agents must explicitly participate in consensus.
                     logger.info(
                         "Container exited cleanly, wrapper handles consensus",
                         pipeline_id=pipeline_id,
                         role=exec_info.role.value,
+                        exit_code=info.exit_code,
                     )
 
         # 5. All containers exited — fall back to exit-code-based result

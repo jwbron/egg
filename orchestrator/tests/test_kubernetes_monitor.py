@@ -520,8 +520,13 @@ class TestReconcilePodState:
         store.load_pipeline.return_value = pipeline
         return store
 
-    def test_reconcile_marks_pipeline_failed(self):
-        """_reconcile_pod_state marks the pipeline as FAILED."""
+    def test_reconcile_crash_exit_marks_agent_failed_preserves_pipeline_running(self):
+        """Non-zero exit reconciles agent + container records but never touches pipeline.status.
+
+        #2210: pipeline-level FAILED decisions belong to the BRC poll loop,
+        which has consensus context.  The K8s monitor only reconciles
+        sub-records; it must not escalate the pipeline itself.
+        """
         from kubernetes_monitor import _reconcile_pod_state
         from models import (
             AgentExecution,
@@ -536,7 +541,7 @@ class TestReconcilePodState:
             container_id="uid-1",
             container_name="job-1",
             status=ContainerStatus.FAILED,
-            exit_code=1,
+            exit_code=137,
             exited_at=datetime(2024, 1, 15, 13, 0, 0, tzinfo=UTC),
         )
 
@@ -576,7 +581,149 @@ class TestReconcilePodState:
         assert result is True
         store.save_pipeline.assert_called_once()
         saved_pipeline = store.save_pipeline.call_args[0][0]
-        assert saved_pipeline.status == PipelineStatus.FAILED
+        # Sub-records reconciled.
+        assert saved_pipeline.phases["implement"].agents[0].status == AgentExecutionStatus.FAILED
+        assert saved_pipeline.phases["implement"].containers[0].status == ContainerStatus.FAILED
+        # Pipeline.status untouched — RUNNING preserved.
+        assert saved_pipeline.status == PipelineStatus.RUNNING
+        assert saved_pipeline.error is None
+        # Error message includes the actual exit code so observers can tell
+        # OOM / crash apart from clean exits.
+        assert "137" in saved_pipeline.phases["implement"].agents[0].error
+
+    def test_reconcile_clean_exit_marks_agent_complete_preserves_pipeline_running(self):
+        """exit_code 0 → agent COMPLETE, container EXITED, pipeline RUNNING preserved.
+
+        #2210: this is the BRC-clean-exit case.  Reviewers / producers
+        legitimately exit 0 after sending CONSENSUS_ACK / PROPOSE; before
+        the BRC poll loop reconciles them, the K8s monitor used to mis-
+        classify the clean exit as a failure and escalate the pipeline.
+        """
+        from kubernetes_monitor import _reconcile_pod_state
+        from models import (
+            AgentExecution,
+            AgentExecutionStatus,
+            PhaseExecution,
+            Pipeline,
+            PipelinePhase,
+            PipelineStatus,
+        )
+
+        container_info = ContainerInfo(
+            container_id="uid-1",
+            container_name="job-1",
+            status=ContainerStatus.EXITED,
+            exit_code=0,
+            exited_at=datetime(2024, 1, 15, 13, 0, 0, tzinfo=UTC),
+        )
+
+        agent = AgentExecution(
+            role="reviewer_code",
+            status=AgentExecutionStatus.RUNNING,
+            container_id="uid-1",
+        )
+        ci = ContainerInfo(
+            container_id="uid-1",
+            container_name="job-1",
+            status=ContainerStatus.RUNNING,
+        )
+        phase_exec = PhaseExecution(
+            phase=PipelinePhase.IMPLEMENT,
+            status=PipelineStatus.RUNNING,
+            agents=[agent],
+            containers=[ci],
+        )
+        pipeline = Pipeline(
+            id="pipe-1",
+            issue_number=1,
+            repo="owner/repo",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+            phases={"implement": phase_exec},
+        )
+
+        store = self._make_mock_store(pipeline)
+
+        with patch("state_store.get_pipeline_state_lock") as mock_lock:
+            mock_lock.return_value.__enter__ = MagicMock()
+            mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+            result = _reconcile_pod_state(store, container_info)
+
+        assert result is True
+        saved_pipeline = store.save_pipeline.call_args[0][0]
+        assert saved_pipeline.phases["implement"].agents[0].status == AgentExecutionStatus.COMPLETE
+        assert saved_pipeline.phases["implement"].agents[0].error is None
+        assert saved_pipeline.phases["implement"].containers[0].status == ContainerStatus.EXITED
+        assert saved_pipeline.phases["implement"].containers[0].exit_code == 0
+        # Pipeline.status untouched.
+        assert saved_pipeline.status == PipelineStatus.RUNNING
+        assert saved_pipeline.error is None
+
+    def test_reconcile_sigterm_exit_marks_agent_complete(self):
+        """exit_code 143 (SIGTERM) is treated as clean — orchestrator-initiated stop.
+
+        #2210: SIGTERM during phase teardown is expected, not a failure.
+        The previous carve-out only applied when the phase had already
+        transitioned out of RUNNING; with the new classifier, 143 is
+        clean regardless of phase status.
+        """
+        from kubernetes_monitor import _reconcile_pod_state
+        from models import (
+            AgentExecution,
+            AgentExecutionStatus,
+            PhaseExecution,
+            Pipeline,
+            PipelinePhase,
+            PipelineStatus,
+        )
+
+        container_info = ContainerInfo(
+            container_id="uid-1",
+            container_name="job-1",
+            status=ContainerStatus.EXITED,
+            exit_code=143,
+            exited_at=datetime(2024, 1, 15, 13, 0, 0, tzinfo=UTC),
+        )
+
+        agent = AgentExecution(
+            role="documenter",
+            status=AgentExecutionStatus.RUNNING,
+            container_id="uid-1",
+        )
+        ci = ContainerInfo(
+            container_id="uid-1",
+            container_name="job-1",
+            status=ContainerStatus.RUNNING,
+        )
+        phase_exec = PhaseExecution(
+            phase=PipelinePhase.IMPLEMENT,
+            status=PipelineStatus.RUNNING,
+            agents=[agent],
+            containers=[ci],
+        )
+        pipeline = Pipeline(
+            id="pipe-1",
+            issue_number=1,
+            repo="owner/repo",
+            status=PipelineStatus.RUNNING,
+            current_phase=PipelinePhase.IMPLEMENT,
+            phases={"implement": phase_exec},
+        )
+
+        store = self._make_mock_store(pipeline)
+
+        with patch("state_store.get_pipeline_state_lock") as mock_lock:
+            mock_lock.return_value.__enter__ = MagicMock()
+            mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+            result = _reconcile_pod_state(store, container_info)
+
+        assert result is True
+        saved_pipeline = store.save_pipeline.call_args[0][0]
+        assert saved_pipeline.phases["implement"].agents[0].status == AgentExecutionStatus.COMPLETE
+        assert saved_pipeline.phases["implement"].containers[0].status == ContainerStatus.EXITED
+        assert saved_pipeline.status == PipelineStatus.RUNNING
 
     def test_reconcile_skips_completed_agents(self):
         """_reconcile_pod_state skips pods whose agent is COMPLETE."""
@@ -1102,9 +1249,18 @@ class TestReconciliationSweep:
         call_kwargs = mock_k8s_client.list_jobs.call_args
         assert call_kwargs.kwargs["label_selector"] == f"{LABEL_ORCHESTRATOR}=true"
 
-    def test_terminated_pod_marks_failed(self, monitor, mock_k8s_client):
-        """A pod with exited_at set and non-zero exit is reconciled."""
-        from models import PipelineStatus
+    def test_terminated_pod_reconciles_records_without_escalating_pipeline(
+        self, monitor, mock_k8s_client
+    ):
+        """A non-zero pod exit reconciles agent + container records but never escalates pipeline.
+
+        #2210: the periodic sweep delegates to _reconcile_pod_state for
+        non-clean exits.  The agent record flips to FAILED and the
+        container record flips to FAILED, but the pipeline's own
+        status stays RUNNING — that decision belongs to the BRC poll
+        loop with consensus context.
+        """
+        from models import AgentExecutionStatus, PipelineStatus
 
         mock_k8s_client.list_containers.return_value = []
         mock_k8s_client.list_jobs.return_value = []
@@ -1129,11 +1285,22 @@ class TestReconciliationSweep:
 
         store.save_pipeline.assert_called_once()
         saved = store.save_pipeline.call_args[0][0]
-        assert saved.status == PipelineStatus.FAILED
+        assert saved.phases["implement"].agents[0].status == AgentExecutionStatus.FAILED
+        assert saved.phases["implement"].containers[0].status == ContainerStatus.FAILED
+        # Pipeline.status untouched — RUNNING preserved.
+        assert saved.status == PipelineStatus.RUNNING
+        assert saved.error is None
 
-    def test_missing_pod_marks_failed(self, monitor, mock_k8s_client):
-        """A pod that has been deleted (PodNotFoundError) is reconciled."""
-        from models import PipelineStatus
+    def test_missing_pod_reconciles_records_without_escalating_pipeline(
+        self, monitor, mock_k8s_client
+    ):
+        """A deleted pod (PodNotFoundError) reconciles records, leaves pipeline RUNNING.
+
+        #2210: same contract as the terminated-pod path — the K8s monitor
+        cannot tell whether a missing pod represents a crash or a clean
+        BRC exit, so it must not be the one to fail the pipeline.
+        """
+        from models import AgentExecutionStatus, PipelineStatus
 
         mock_k8s_client.list_containers.return_value = []
         mock_k8s_client.list_jobs.return_value = []
@@ -1152,7 +1319,10 @@ class TestReconciliationSweep:
 
         store.save_pipeline.assert_called_once()
         saved = store.save_pipeline.call_args[0][0]
-        assert saved.status == PipelineStatus.FAILED
+        assert saved.phases["implement"].agents[0].status == AgentExecutionStatus.FAILED
+        # Pipeline.status untouched.
+        assert saved.status == PipelineStatus.RUNNING
+        assert saved.error is None
 
     def test_sweep_reconciles_stale_records_on_failed_pipeline(self, monitor, mock_k8s_client):
         """Periodic sweep cleans up stale RUNNING records on FAILED pipelines.
