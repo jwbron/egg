@@ -469,10 +469,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-28T16:55:14.483663Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-28T17:05:40.735042Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Hybrid: keep `pipeline_id` for cross-slice messages (HEARTBEAT, OVERSEER_ALERT) but use nested IDs for BRC consensus (CONSENSUS_*) so per-slice consensus state is naturally isolated.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -603,7 +603,7 @@
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T17:05:39.227634Z",
+  "updated_at": "2026-04-28T17:05:40.766236Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -617,6 +617,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 53,
+  "version": 54,
   "jira_ticket": null
 }
