@@ -52,6 +52,25 @@ if TYPE_CHECKING:
     pass
 
 
+def _resolve_default(name: str, fallback: int | float) -> int | float:
+    """Resolve a config default by importing the env-var helper lazily.
+
+    The slice scheduler is unit-tested without the full orchestrator
+    import surface, so we import ``orchestrator.env_config`` lazily
+    and fall back to the literal default if the import fails (e.g.
+    in test fixtures that don't pull the orchestrator package).
+    """
+    try:
+        from orchestrator import env_config
+
+        helper = getattr(env_config, name, None)
+        if callable(helper):
+            return helper()
+    except Exception:  # noqa: BLE001
+        pass
+    return fallback
+
+
 class SchedulerSliceState(StrEnum):
     """Slice lifecycle states tracked by the scheduler.
 
@@ -126,13 +145,30 @@ class SliceScheduler:
         self,
         contract: Contract,
         *,
-        max_parallel_slices: int = 5,
-        local_max_cycles: int = 3,
-        global_max_cycles: int = 10,
-        failure_grace_seconds: float = 60.0,
+        max_parallel_slices: int | None = None,
+        local_max_cycles: int | None = None,
+        global_max_cycles: int | None = None,
+        failure_grace_seconds: float | None = None,
         time_fn: Callable[[], float] = time.monotonic,
         hitl_escalator: Callable[[str, str], None] | None = None,
     ) -> None:
+        # Resolve env-var defaults lazily so callers that pass
+        # explicit values keep their behaviour unchanged, but a bare
+        # ``SliceScheduler(contract)`` picks up the operator's
+        # ``EGG_ORCH_*`` overrides from ``orchestrator/env_config.py``.
+        if max_parallel_slices is None:
+            max_parallel_slices = int(_resolve_default("get_max_parallel_slices", 5))
+        if local_max_cycles is None:
+            local_max_cycles = int(_resolve_default("get_slice_local_max_cycles", 3))
+        if global_max_cycles is None:
+            global_max_cycles = int(
+                _resolve_default("get_slice_global_max_cycles", 10)
+            )
+        if failure_grace_seconds is None:
+            failure_grace_seconds = float(
+                _resolve_default("get_slice_failure_grace_seconds", 60.0)
+            )
+
         self._contract = contract
         self._max_parallel_slices = max(1, int(max_parallel_slices))
         self._local_max_cycles = max(1, int(local_max_cycles))

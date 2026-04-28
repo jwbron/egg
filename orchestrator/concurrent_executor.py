@@ -259,6 +259,22 @@ class ConcurrentPhaseExecutor:
                 if slice_id.startswith("slice-")
                 else f"slice-{slice_id}"
             )
+            # Defense-in-depth: re-validate the normalised slice id
+            # shape before embedding it in a git ref. The contract-
+            # layer pydantic regex already enforces this on the
+            # source, but the helper is part of the gateway-facing
+            # surface — a future caller that forgets upstream
+            # validation must not be able to smuggle path separators
+            # or shell metacharacters in via this seam (per the
+            # security reviewer's defense-in-depth suggestion on the
+            # v1 BRC review).
+            import re
+
+            if not re.fullmatch(r"slice-[0-9]+", normalised_slice):
+                raise ValueError(
+                    f"slice_id={slice_id!r} does not match the canonical "
+                    "shape ``slice-<N>``"
+                )
             return f"{issue_branch}/{normalised_slice}/{role.value}/work"
 
         if self.pipeline.branch:
@@ -274,12 +290,22 @@ class ConcurrentPhaseExecutor:
         branches rebase onto. Roots base off the pipeline branch
         directly; child slices base off their parent slice's
         integration branch.
+
+        The slice id is regex-validated for defense-in-depth (see
+        ``get_worktree_branch``).
         """
         issue = self.pipeline.issue_number or self.pipeline.id
         issue_branch = self.pipeline.branch or f"egg/issue-{issue}"
         normalised_slice = (
             slice_id if slice_id.startswith("slice-") else f"slice-{slice_id}"
         )
+        import re
+
+        if not re.fullmatch(r"slice-[0-9]+", normalised_slice):
+            raise ValueError(
+                f"slice_id={slice_id!r} does not match the canonical "
+                "shape ``slice-<N>``"
+            )
         return f"{issue_branch}/{normalised_slice}"
 
     def get_agent_env(self, role: AgentRole) -> dict[str, str]:

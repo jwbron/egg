@@ -1924,3 +1924,67 @@ def get_token_for_repo(repo: str) -> tuple[str | None, str, str]:
         token_str = token.token
 
     return token_str, auth_mode, ""
+
+
+# ---------------------------------------------------------------------------
+# #2137 — narrow ``rebase --onto`` helper for the stacked-PR reconciler.
+#
+# The ``rebase --onto`` invocation is already on the per-agent allowlist
+# (``ALLOWED_GIT_OPERATIONS["rebase"]["allowed_flags"]`` includes
+# ``--onto``), so authorised agents can already drive the operation
+# through the existing ``/git`` endpoint. This helper is a thin
+# typed-wrapper that constructs the canonical argument shape
+#
+#     git rebase --onto <new_base> <old_base> <branch>
+#
+# and validates it against the same allowlist plumbing — explicitly
+# rejecting any extra flags (e.g. ``--strategy-option=ours``) that an
+# attacker-controlled caller might try to slip in. It does NOT add a
+# new privileged orchestrator-role endpoint (per refine-phase
+# decision-15) — the reconciler caller authenticates as the existing
+# low-privilege agent identity that already has rebase capability.
+#
+# Returns ``(args, ok, error)`` so the orchestrator can submit ``args``
+# through the standard ``/git`` validate-and-execute path; the test
+# suite asserts the shape and that any extra flag is rejected.
+# ---------------------------------------------------------------------------
+
+
+def build_rebase_onto_args(
+    branch: str, new_base: str, old_base: str
+) -> tuple[list[str], bool, str]:
+    """Construct the canonical ``rebase --onto`` argv for the reconciler.
+
+    Args:
+        branch: The child branch to rebase.
+        new_base: The new base to land the branch on top of.
+        old_base: The old base whose history should be excluded from
+            the rebase (the part of ``branch`` between ``old_base`` and
+            its tip is what gets replayed onto ``new_base``).
+
+    Returns:
+        ``(args, ok, error)``. When ``ok`` is True, ``args`` is the
+        argument list to pass to the gateway's ``/git`` endpoint.
+        When ``ok`` is False, ``error`` describes why (input was
+        rejected by the allowlist validator).
+
+    Each input is wrapped through :func:`validate_git_args` to ensure
+    the shape is identical to what an agent-driven invocation would
+    produce — no new code path is introduced. This keeps the audit
+    surface unchanged.
+    """
+    if not isinstance(branch, str) or not branch.strip():
+        return [], False, "branch must be a non-empty string"
+    if not isinstance(new_base, str) or not new_base.strip():
+        return [], False, "new_base must be a non-empty string"
+    if not isinstance(old_base, str) or not old_base.strip():
+        return [], False, "old_base must be a non-empty string"
+
+    # Construct the canonical shape. We do NOT accept any extra flags
+    # — callers that need ``--abort`` / ``--continue`` go through the
+    # regular agent-driven path.
+    args = ["--onto", new_base, old_base, branch]
+    ok, err, _ = validate_git_args("rebase", args)
+    if not ok:
+        return [], False, err
+    return args, True, ""

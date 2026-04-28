@@ -1014,11 +1014,11 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
             from egg_contracts.loader import load_contract
 
             contract = load_contract(pipeline_id, worktree_path)
-            task_count = sum(len(p.tasks) for p in contract.phases)
+            task_count = sum(len(s.tasks) for s in contract.slices)
             return make_success_response(
                 "Contract populated from plan",
                 data={
-                    "phase_count": len(contract.phases),
+                    "phase_count": len(contract.slices),
                     "task_count": task_count,
                 },
             )

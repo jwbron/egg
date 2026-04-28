@@ -64,7 +64,7 @@ from typing import Any
 import yaml
 
 from .agent_roles import EXECUTION_ROLE_VALUES
-from .models import Phase, PhaseStatus, Slice, Task, TaskStatus
+from .models import Phase, Slice, SliceStatus, Task, TaskStatus
 
 # Placeholder acceptance criteria for tasks that couldn't be parsed.
 # Used as a sentinel value to filter out non-real criteria during aggregation.
@@ -113,11 +113,11 @@ class ParsedPhase:
     exit_criteria: str = ""
     serialized_chain_order: list[str] = field(default_factory=list)
 
-    def to_contract_phase(self) -> Phase:
+    def to_contract_phase(self) -> Slice:
         """Convert to a contract Slice model (legacy alias name)."""
         return self.to_contract_slice()
 
-    def to_contract_slice(self) -> Phase:
+    def to_contract_slice(self) -> Slice:
         """Convert to a contract Slice model.
 
         Renamed from ``to_contract_phase`` in #2137. The output uses
@@ -175,10 +175,10 @@ class ParsedPhase:
                 if m:
                     normalised_chain.append(f"slice-{m.group(1)}")
 
-        return Phase(
+        return Slice(
             id=f"slice-{self.number}",
             name=self.name,
-            status=PhaseStatus.PENDING,
+            status=SliceStatus.PENDING,
             tasks=[task.to_contract_task() for task in self.tasks],
             dependencies=normalized_deps,
             serialized_chain_order=normalised_chain,
@@ -208,7 +208,7 @@ class ParseResult:
     pr_test_plan: str | None = None
     pr_manual_steps: str | None = None
 
-    def to_contract_phases(self) -> list[Phase]:
+    def to_contract_phases(self) -> list[Slice]:
         """Backward-compat alias for ``to_contract_slices`` (#2137).
 
         The canonical name is now ``to_contract_slices`` since the
@@ -217,7 +217,7 @@ class ParseResult:
         """
         return self.to_contract_slices()
 
-    def to_contract_slices(self) -> list[Phase]:
+    def to_contract_slices(self) -> list[Slice]:
         """Convert all parsed slices to contract Slice models."""
         return [phase.to_contract_slice() for phase in self.phases]
 

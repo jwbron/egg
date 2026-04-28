@@ -28,6 +28,29 @@ except ImportError:
 
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 
+
+class ForestValidationError(Exception):
+    """Raised by ``_populate_contract_from_plan`` when slice DAG is non-forest.
+
+    Added in #2137 (TASK-2-2). Any future Flask route that ingests a
+    plan in-band can catch this and ``return jsonify({"errors":
+    err.errors}), 422`` to surface the structured rejection per the
+    plan's acceptance criteria. Internal callers (``_populate_contract
+    _from_plan_safe`` and the pipeline run-loop helpers) catch this
+    exception and log a warning — the ``plan_review_feedback`` stash
+    placed on the contract by the populator is the durable signal
+    the plan reviewer prompt reads from to NACK the planner.
+    """
+
+    def __init__(self, message: str, *, errors: list[str]) -> None:
+        super().__init__(message)
+        self.errors: list[str] = list(errors)
+        self.status_code: int = 422
+
+    def to_response(self) -> tuple[dict[str, object], int]:
+        """Serialise into a Flask-compatible (body, status) tuple."""
+        return ({"error": "forest_violation", "errors": self.errors}, 422)
+
 # Add shared directory to path for egg_logging
 _shared_path = Path(__file__).parent.parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
@@ -4254,7 +4277,7 @@ def _pull_contract_from_source_branch(
         pipeline_id=pipeline_id,
         source_branch=source_branch,
         decision_count=len(contract.decisions),
-        phase_count=len(contract.phases),
+        phase_count=len(contract.slices),
     )
     return True
 
@@ -4596,15 +4619,15 @@ def _render_contract_tasks(
     except Exception:
         return None
 
-    if not contract.phases:
+    if not contract.slices:
         return None
 
     lines = ["## Contract Tasks\n"]
-    for phase in contract.phases:
-        if not phase.tasks:
+    for slice_ in contract.slices:
+        if not slice_.tasks:
             continue
-        lines.append(f"### {phase.name}\n")
-        for task in phase.tasks:
+        lines.append(f"### {slice_.name}\n")
+        for task in slice_.tasks:
             check = "x" if task.status == TaskStatus.COMPLETE else " "
             lines.append(f"- [{check}] **{task.id}**: {task.description}")
             if task.acceptance_criteria:
@@ -8390,7 +8413,27 @@ def _build_reviewer_preparation(
                 "(c) identifying potential risks or constraints the planners "
                 "should address. "
                 "Form your own mental model of how you would approach this — "
-                "then compare against the proposals when they arrive."
+                "then compare against the proposals when they arrive. "
+                "\n\n"
+                "**#2137 slice-DAG checks (mandatory):** "
+                "(1) **Forest-violation NACK** — if the contract was "
+                "rejected at plan ingestion with a "
+                "``forest_violation`` log discriminator (or the contract's "
+                "``plan_review_feedback`` carries a 'Plan ingestion REJECTED' "
+                "block), NACK the planner and cite the structured errors "
+                "verbatim. Instruct the planner to re-emit the plan with "
+                "``serialized_chain_order`` populated on the downstream "
+                "slice. "
+                "(2) **Slice-sizing advisory (advisory only — never "
+                "NACK)**: for each slice whose estimated LOC "
+                "(count of ``files_affected`` × heuristic weight) is "
+                ">1,000, surface a non-blocking advisory line in your ACK "
+                "body. Tone scales with magnitude: 1,000–2,000 LOC: "
+                "'consider splitting'; >2,000 LOC: 'this slice is well "
+                "above the soft target — strongly consider splitting'. "
+                "Per HITL decision-6 opt-2 the plan reviewer NEVER NACKs "
+                "on size — the refiner/operator retains override "
+                "authority."
             )
     elif phase == "refine":
         if role_value in ("reviewer_refine", "reviewer_agent_design"):
@@ -9088,6 +9131,70 @@ def _build_agent_prompt(
                 "coverage and any manual verification steps. The `manual_steps` field "
                 "should list any pre-merge or post-merge actions required by the reviewer "
                 "or deployer; use an empty string if none.",
+                "",
+                # ----------------------------------------------------
+                # #2137 — slice-DAG planner guidance
+                # ----------------------------------------------------
+                "## Slice-DAG guidance (#2137)",
+                "",
+                "The implement-phase pipeline now ships each plan **slice** "
+                "(formerly **phase**) as its own stacked PR. The plan you "
+                "emit drives that DAG; the planner rules below are mandatory.",
+                "",
+                "**Yaml key swap**: prefer the canonical ``slices:`` key in "
+                "your ``# yaml-tasks`` block (the parser also accepts "
+                "``phases:`` for backward compatibility with already-shipped "
+                "planner prompts). New plans should use ``slices:``.",
+                "",
+                "**Slice-sizing guidance (soft, advisory only)**: target "
+                "≤1,000 LOC per slice where possible. Slices estimated above "
+                "1,000 LOC will be flagged as advisory by the plan reviewer "
+                "but are NOT rejected. There is no hard size ceiling — the "
+                "refiner/operator can override sizing concerns at any point. "
+                "The plan reviewer never NACKs on size.",
+                "",
+                "**Forest constraint (HARD)**: every slice must have at most "
+                "ONE DAG parent — the implement-phase pipeline ships every "
+                "slice as a stacked PR with exactly one base branch. "
+                "Multi-parent slices break the stacking invariant and are "
+                "rejected at plan ingestion.",
+                "",
+                "**Auto-serialization rule for would-be multi-parent slices**: "
+                "when you identify a slice that would naturally have >1 "
+                "parents, you MUST serialise the upstream slices into a "
+                "linear chain and record your chosen ordering on the "
+                "downstream slice's ``serialized_chain_order`` field. The "
+                "list names the upstream slice IDs in their chosen "
+                "serialization order.",
+                "",
+                "Worked example: if ``slice-3`` would naturally have "
+                "parents ``[slice-1, slice-2]``, instead emit:",
+                "",
+                "```yaml",
+                "  - id: 1",
+                "    name: |-",
+                "      Foundations",
+                "    # ... (root)",
+                "  - id: 2",
+                "    name: |-",
+                "      Middle",
+                "    dependencies:",
+                "      - slice-1",
+                "  - id: 3",
+                "    name: |-",
+                "      Downstream",
+                "    dependencies:",
+                "      - slice-2  # serialised — slice-2 is the only DAG parent",
+                "    serialized_chain_order:",
+                "      - slice-1",
+                "      - slice-2  # records that you deliberately picked",
+                "                 # slice-1 → slice-2 → slice-3",
+                "```",
+                "",
+                "Your judgement is the source of truth. The fallback "
+                "heuristic when you have no preference is: cluster "
+                "would-be parents by ``files_affected`` Jaccard overlap "
+                "(>0.3), then order by descending downstream fan-out.",
                 "",
                 f"Write your plan to `{draft_path}`.",
                 "",
@@ -10846,6 +10953,20 @@ def _populate_contract_from_plan_safe(
     """
     try:
         _populate_contract_from_plan(repo_path, pipeline_id, pipeline_mode, issue_number)
+    except ForestValidationError as forest_err:
+        # Forest-validation rejection is the expected #2137 NACK
+        # path — log structurally so the discriminator shows up in
+        # operator audit, but don't propagate to the wrapper's
+        # caller (the populator already stashed the structured
+        # errors on contract.plan_review_feedback so the plan
+        # reviewer prompt can NACK the planner).
+        logger.warning(
+            "contract_phases_ingest_failed",
+            pipeline_id=pipeline_id,
+            reason="forest_violation",
+            source="safe_wrapper",
+            errors=forest_err.errors,
+        )
     except Exception as pop_err:
         logger.warning(
             "contract_phases_ingest_failed",
@@ -10932,10 +11053,10 @@ def _populate_contract_from_plan(
                 warning_context=warning.context,
             )
 
-        contract_phases = result.to_contract_phases()
+        contract_slices = result.to_contract_slices()
         changed = False
 
-        if contract_phases:
+        if contract_slices:
             # Forest validation (#2137 TASK-2-2): the slice DAG must be
             # a forest (every slice has ≤1 DAG parent). Multi-parent
             # slices break the stacked-PR invariant and are rejected
@@ -10945,14 +11066,14 @@ def _populate_contract_from_plan(
             except ImportError:
                 forest_errors: list[str] = []
             else:
-                forest_errors = validate_forest(contract_phases)
+                forest_errors = validate_forest(contract_slices)
 
             if forest_errors:
                 # Stash the structured errors onto the contract's
                 # ``plan_review_feedback`` so the plan reviewer's
                 # prompt picks them up and NACKs the planner with the
                 # error verbatim. The slices are NOT written to the
-                # contract — leaving ``contract.phases`` empty makes
+                # contract — leaving ``contract.slices`` empty makes
                 # downstream phases visibly broken so the violation
                 # cannot silently leak through.
                 logger.warning(
@@ -10975,10 +11096,20 @@ def _populate_contract_from_plan(
                 ]
                 feedback_lines.extend(f"- {e}" for e in forest_errors)
                 contract.plan_review_feedback = "\n".join(feedback_lines)
-                changed = True
-            else:
-                contract.phases = contract_phases
-                changed = True
+                save_contract(contract, repo_path)
+                # Raise a structured ForestValidationError so any
+                # caller running this in an HTTP context (e.g. a
+                # plan-ingestion API endpoint) can surface a 422 with
+                # the inlined errors. Internal callers
+                # (``_populate_contract_from_plan_safe`` and the
+                # pipeline run-loop) catch and log instead — the
+                # ``plan_review_feedback`` stash above is the durable
+                # signal the reviewer prompt picks up either way.
+                raise ForestValidationError(
+                    "slice DAG is not a forest", errors=forest_errors
+                )
+            contract.slices = contract_slices
+            changed = True
 
         # Populate PR metadata from plan if available
         if result.pr_title:
@@ -10994,11 +11125,11 @@ def _populate_contract_from_plan(
 
         if changed:
             save_contract(contract, repo_path)
-            task_count = sum(len(p.tasks) for p in contract.phases)
+            task_count = sum(len(s.tasks) for s in contract.slices)
             logger.info(
                 "contract_phases_populated",
                 pipeline_id=pipeline_id,
-                phase_count=len(contract.phases),
+                phase_count=len(contract.slices),
                 task_count=task_count,
                 has_pr_metadata=contract.pr is not None,
             )
@@ -11013,6 +11144,12 @@ def _populate_contract_from_plan(
                 warning_count=len(result.warnings),
             )
 
+    except ForestValidationError:
+        # Re-raise so callers with HTTP context (or the safe wrapper)
+        # can surface the structured errors. The populator already
+        # stashed feedback on contract.plan_review_feedback before
+        # raising.
+        raise
     except Exception as e:
         logger.warning(
             "contract_phases_ingest_failed",
