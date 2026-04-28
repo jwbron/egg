@@ -398,10 +398,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-13",
+      "question": "**Contract task → slice mapping** — Plan today emits `Phase` with `tasks[]` and `dependencies[]`. The proposal renames `Phase` → `Slice`. Should slices keep the same `tasks[]` granularity or introduce different granularity?",
+      "context": "Open contract question decision-11, registered by an agent during the refine phase.",
+      "options": [
+        "1:1 with today's `Phase` — slice is just a renamed phase with the same `tasks[]` and `dependencies[]` fields; coder still iterates tasks within a slice.",
+        "Slice owns a single contract task — maximum parallelism, but tasks are too small (often <100 LOC); too many BRC rounds.",
+        "Slice = group of contract tasks defined by file_affected overlap — planner clusters tasks that touch the same files together so slices are merge-conflict-free without dependencies.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-28T16:55:14.152082Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T16:55:14.115920Z",
+  "updated_at": "2026-04-28T16:55:14.172136Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -415,6 +434,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 31,
+  "version": 32,
   "jira_ticket": null
 }
