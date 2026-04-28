@@ -1,12 +1,13 @@
 """
 Jira REST API client for the gateway sidecar.
 
-Provides a thin, read-only wrapper around the Atlassian Cloud REST API v3.
-All traffic originates from the gateway (never from the sandbox) and is
-authenticated with Basic auth using credentials loaded from
-``gateway/jira_credentials.py``.
+Provides a thin wrapper around the Atlassian Cloud REST API v3.  All traffic
+originates from the gateway (never from the sandbox) and is authenticated
+with Basic auth using credentials loaded from ``gateway/jira_credentials.py``.
 
 Public surface (used by ``/api/v1/jira/*`` routes in ``gateway.py``):
+
+Read verbs (v1 — issue #1556):
 
 - ``JiraClient.get_ticket(key, fields=None)`` — ``GET /rest/api/3/issue/{key}``
   with ``expand=renderedBody,renderedFields`` by default so agents receive the
@@ -17,18 +18,35 @@ Public surface (used by ``/api/v1/jira/*`` routes in ``gateway.py``):
 - ``JiraClient.execute_raw(method, path, query=None, body=None)`` — passthrough
   used by ``/api/v1/jira/execute`` for read-only API endpoints.
 
+Write verbs (v1.1 — issue #1924):
+
+- ``JiraClient.create_issue(...)`` — ``POST /rest/api/3/issue``.
+- ``JiraClient.edit_issue(...)`` — ``PUT /rest/api/3/issue/{key}``.
+- ``JiraClient.add_comment(...)`` — ``POST /rest/api/3/issue/{key}/comment``.
+- ``JiraClient.create_issue_link(...)`` — ``POST /rest/api/3/issueLink``.
+
 Path safety:
 
 - ``validate_jira_api_path(path, method)`` enforces a regex allowlist of the
-  read-only REST paths permitted by v1.  Write verbs (``DELETE``/``PUT``/
-  ``PATCH``) and path fragments in ``JIRA_WRITE_VERBS_DENIED``
-  (``transitions``, ``worklog``, ``attachments``, ``watchers``) are rejected
-  unconditionally.  See refine-phase constraints.
+  read-only REST paths permitted via the ``/api/v1/jira/execute`` passthrough
+  route — and **only** that route.  ``ALLOWED_METHODS`` stays
+  ``frozenset({"GET"})`` so the passthrough remains read-only forever.  The
+  write verbs (``create_issue`` / ``edit_issue`` / ``add_comment`` /
+  ``create_issue_link``) call ``_request`` directly with hardcoded paths and
+  do **not** consult ``validate_jira_api_path`` — they have their own narrow
+  body schemas + project allowlist enforced at the route layer in
+  ``gateway.py``.  Write verbs are still subject to the path-segment
+  denylist below: even an admin who relaxes ``ALLOWED_METHODS`` can't reach
+  ``transitions`` / ``worklog`` / ``attachments`` / ``watchers`` via
+  ``/execute``.
 
 429 handling (refine Q5, architect D7):
 
 - GET requests retry at most once on HTTP 429, honoring ``Retry-After`` up to
-  30s.  Write verbs never retry (future-safety).
+  30s.  Write verbs never retry (future-safety + at-most-once semantics for
+  upstream Atlassian).  Both paths emit the ``jira_upstream_rate_limited``
+  audit event so operators see 429s on writes too (feedback Q1, decision-16
+  symmetry).
 
 404 envelope (refine Q8, architect D8):
 
@@ -64,16 +82,33 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
 from egg_logging import get_logger
 
 try:
+    from .jira_adf import is_adf_dict, wrap_text_as_adf
     from .jira_credentials import (
         JiraCredentials,
         JiraCredentialsUnavailable,
         get_jira_credentials,
     )
+    from .jira_idempotency import get_or_run as _idempotency_get_or_run
 except ImportError:
+    # Flat-module test loading: ``gateway/tests/conftest.py`` strips
+    # ``__package__`` so relative imports fail.  Make sure the gateway
+    # directory is on ``sys.path`` so the absolute fallbacks below resolve
+    # ``jira_adf.py`` / ``jira_idempotency.py`` even when conftest doesn't
+    # preload them (the new modules in #1924 are NOT pre-registered there).
+    _gateway_dir = str(Path(__file__).parent)
+    if _gateway_dir not in sys.path:
+        sys.path.insert(0, _gateway_dir)
+    from jira_adf import (  # type: ignore[no-redef, import-untyped]
+        is_adf_dict,
+        wrap_text_as_adf,
+    )
     from jira_credentials import (  # type: ignore[no-redef, import-untyped]
         JiraCredentials,
         JiraCredentialsUnavailable,
         get_jira_credentials,
+    )
+    from jira_idempotency import (  # type: ignore[no-redef, import-untyped]
+        get_or_run as _idempotency_get_or_run,
     )
 
 logger = get_logger("gateway.jira-client")
@@ -83,9 +118,12 @@ logger = get_logger("gateway.jira-client")
 # Constants & validation helpers
 # -----------------------------------------------------------------------------
 
-# Allowed HTTP methods for Jira REST calls in v1.  Kept tight on purpose:
-# the gateway is a read-only fence today, and new verbs should be added
-# deliberately (and reviewed against the write-verb denylist below).
+# Allowed HTTP methods for the ``/api/v1/jira/execute`` passthrough route.
+# Stays read-only **forever** — the dedicated write verbs (``create_issue``,
+# ``edit_issue``, ``add_comment``, ``create_issue_link``) bypass
+# ``validate_jira_api_path`` entirely and call ``_request`` directly with
+# hardcoded paths.  Operators who want writes go through those routes;
+# nothing should route POST/PUT/PATCH/DELETE through ``/execute``.
 ALLOWED_METHODS: frozenset[str] = frozenset({"GET"})
 
 # Paths / HTTP verbs that are permanently out of scope for the wrapper.
@@ -179,13 +217,22 @@ class JiraUpstreamError(RuntimeError):
 def validate_jira_api_path(path: str, method: str) -> tuple[bool, str]:
     """Validate a Jira REST API path + method against the allowlist.
 
+    Used **only** by the ``/api/v1/jira/execute`` passthrough route — the
+    dedicated write verbs (``create_issue`` / ``edit_issue`` / ``add_comment``
+    / ``create_issue_link``) call ``JiraClient._request`` directly with
+    hardcoded paths and do not consult this validator.  The denylist still
+    applies: even those write methods cannot reach a denied path segment
+    (``transitions``, ``worklog``, ``attachments``, ``watchers``) because
+    the gateway never composes such a path; and ``/execute`` will reject
+    any request whose path or method touches the denylist.
+
     Normalizes the path (strips leading/trailing slashes, drops query string,
     rejects ``..`` segments, rejects duplicate slashes, rejects non-ASCII
     characters) before checking the regex allowlist.
 
     Args:
         path: REST path relative to ``/rest/api/3/`` (e.g. ``issue/FOO-1``).
-        method: HTTP method (``GET`` is the only one allowed in v1).
+        method: HTTP method (``GET`` is the only one allowed via execute).
 
     Returns:
         ``(True, "")`` if the request is allowed; ``(False, reason)`` otherwise.
@@ -306,8 +353,11 @@ class JiraClient:
         """Issue a single REST call with Basic auth + one 429-retry.
 
         Retry is GET-only.  For any non-GET method the caller gets whatever
-        Atlassian returned on the first try — preserving future-safety if
-        someone widens ``ALLOWED_METHODS``.
+        Atlassian returned on the first try — at-most-once semantics for
+        write verbs.  All 429 responses (read **and** write) emit the
+        ``jira_upstream_rate_limited`` audit event so operators see write
+        rate-limit events even though writes don't auto-retry (refine
+        feedback Q1).
         """
         creds = self.creds_provider()
         headers = {
@@ -333,45 +383,9 @@ class JiraClient:
                 return response
 
             retry_after = _parse_retry_after(response.headers.get("Retry-After"))
-            # Import lazily — audit_log lives in gateway.py which imports us.
-            # ``audit_log`` dereferences ``flask.request``, so we can only call
-            # it inside a request context; a future batch/worker use of this
-            # client (outside Flask) must not crash here.
-            try:
-                from flask import has_request_context
-            except ImportError:  # pragma: no cover — flask is a hard dep
-
-                def has_request_context() -> bool:
-                    return False
-
-            try:
-                from .gateway import audit_log
-            except ImportError:
-                try:
-                    from gateway import audit_log  # type: ignore[no-redef, attr-defined]
-                except ImportError:
-                    audit_log = None  # type: ignore[assignment]
-            if audit_log is not None and has_request_context():
-                try:
-                    audit_log(
-                        "jira_upstream_rate_limited",
-                        "jira_request",
-                        success=False,
-                        details={
-                            "path": path,
-                            "attempt": attempt,
-                            "retry_after": retry_after,
-                        },
-                    )
-                except Exception:  # pragma: no cover – defensive
-                    logger.exception("audit_log failed in jira _request")
-            else:
-                logger.warning(
-                    "Jira upstream 429",
-                    path=path,
-                    attempt=attempt,
-                    retry_after=retry_after,
-                )
+            _emit_rate_limited_audit(
+                path=path, method=method, attempt=attempt, retry_after=retry_after
+            )
 
             if attempt == 1 or not retryable:
                 return response
@@ -472,6 +486,261 @@ class JiraClient:
         _raise_for_status(response, path)
         return _safe_json(response, path)
 
+    # -- Write verbs (issue #1924) -------------------------------------------
+    #
+    # The four methods below bypass ``validate_jira_api_path`` entirely;
+    # their target paths are hardcoded so an attacker can't smuggle a
+    # different verb through them.  Body schemas are validated upstream by
+    # the route handlers in ``gateway.py``; this layer is structural only.
+
+    def create_issue(
+        self,
+        *,
+        project_key: str,
+        issuetype: dict[str, Any] | str,
+        summary: str,
+        description: str | dict[str, Any] | None = None,
+        labels: list[str] | None = None,
+        parent: str | None = None,
+        epic_link: str | None = None,
+        epic_link_field: str = "parent",
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        """``POST /rest/api/3/issue`` — create a new ticket.
+
+        Args:
+            project_key: Atlassian project key (``"ENG"``).  Caller must have
+                already verified this against the project allowlist.
+            issuetype: Either a string (treated as ``{"name": value}``) or a
+                pre-shaped dict (``{"id": "10001"}`` / ``{"name": "Task"}``).
+            summary: Plain-text summary (≤ 255 chars — caller enforces).
+            description: ``None``, plain text, or a pre-built ADF dict.
+                Plain strings get wrapped via ``wrap_text_as_adf``.
+            labels: Optional flat list of label strings.
+            parent: Optional parent ticket key (e.g. for sub-tasks).  Mutually
+                exclusive with ``epic_link`` at the route layer.
+            epic_link: Optional epic ticket key.  Routed via
+                ``epic_link_field`` (``"parent"`` for next-gen / company-
+                managed projects, ``"customfield_10014"`` for classic /
+                team-managed).
+            epic_link_field: Which Atlassian field carries the epic link
+                for this site — comes from ``JiraPolicy.epic_link_field``.
+            idempotency_key: Optional opaque dedup key.  When set, the
+                response is replayed for repeat calls within
+                ``IDEMPOTENCY_TTL_SECONDS``.
+
+        Returns:
+            ``(status_code, response_json)`` — the route layer normalises
+            this into the public envelope.
+        """
+        if isinstance(issuetype, str):
+            issuetype_block = {"name": issuetype}
+        elif isinstance(issuetype, dict):
+            issuetype_block = dict(issuetype)
+        else:
+            raise ValueError("issuetype must be a string or dict")
+
+        fields: dict[str, Any] = {
+            "project": {"key": project_key},
+            "summary": summary,
+            "issuetype": issuetype_block,
+        }
+
+        if description is not None:
+            fields["description"] = (
+                description if is_adf_dict(description) else wrap_text_as_adf(str(description))
+            )
+
+        if labels:
+            fields["labels"] = list(labels)
+
+        if parent and epic_link:
+            # Defence in depth — the route layer rejects this, but if
+            # something slips through we refuse rather than send Atlassian
+            # an ambiguous body.
+            raise ValueError("parent and epic_link are mutually exclusive")
+
+        if parent:
+            fields["parent"] = {"key": parent}
+        elif epic_link:
+            if epic_link_field == "parent":
+                fields["parent"] = {"key": epic_link}
+            else:
+                fields[epic_link_field] = epic_link
+
+        request_body: dict[str, Any] = {"fields": fields}
+
+        def _do_request() -> tuple[int, dict[str, Any]]:
+            response = self._request("POST", "issue", body=request_body)
+            _raise_for_status(response, "issue")
+            return response.status_code, _safe_json(response, "issue")
+
+        return _idempotency_get_or_run(
+            "jira_ticket_create",
+            project_key,
+            idempotency_key,
+            _do_request,
+        )
+
+    def edit_issue(
+        self,
+        *,
+        key: str,
+        summary: str | None = None,
+        description: str | dict[str, Any] | None = None,
+        labels: list[str] | None = None,
+        add_labels: list[str] | None = None,
+        remove_labels: list[str] | None = None,
+        notify_users: bool = False,
+    ) -> dict[str, Any]:
+        """``PUT /rest/api/3/issue/{key}`` — partial update.
+
+        Atlassian supports two label-modification modes which **cannot**
+        coexist on a single request: a full ``fields.labels`` replace, or
+        an incremental ``update.labels`` op-list of ``add``/``remove``.
+        Callers that mix replace + incremental get a ``ValueError`` here
+        (the route layer rejects with 400 first).
+
+        ``notify_users=False`` (refine decision-5 default) sends
+        ``?notifyUsers=false`` so an edit doesn't blast every watcher's
+        inbox; pass ``True`` explicitly to opt in.
+
+        Returns the upstream ``(status_code, response_json)`` tuple — the
+        route layer normalises into the ``{status: "updated", key}``
+        envelope.
+        """
+        replace_labels = labels is not None
+        incremental_labels = bool(add_labels) or bool(remove_labels)
+        if replace_labels and incremental_labels:
+            raise ValueError(
+                "labels (replace) and add_labels/remove_labels (incremental) are mutually exclusive"
+            )
+
+        fields: dict[str, Any] = {}
+        if summary is not None:
+            fields["summary"] = summary
+        if description is not None:
+            fields["description"] = (
+                description if is_adf_dict(description) else wrap_text_as_adf(str(description))
+            )
+        if replace_labels:
+            fields["labels"] = list(labels or [])
+
+        update: dict[str, list[dict[str, str]]] = {}
+        if incremental_labels:
+            ops: list[dict[str, str]] = []
+            for value in add_labels or []:
+                ops.append({"add": value})
+            for value in remove_labels or []:
+                ops.append({"remove": value})
+            update["labels"] = ops
+
+        body: dict[str, Any] = {}
+        if fields:
+            body["fields"] = fields
+        if update:
+            body["update"] = update
+        if not body:
+            raise ValueError("edit_issue requires at least one field to change")
+
+        query: dict[str, Any] | None = None
+        if not notify_users:
+            query = {"notifyUsers": "false"}
+
+        response = self._request("PUT", f"issue/{key}", query=query, body=body)
+        _raise_for_status(response, f"issue/{key}")
+        # Atlassian returns 204 No Content on a successful edit; surface
+        # an empty dict so route handlers always see a structured value.
+        if response.status_code == 204 or not response.content:
+            return {}
+        return _safe_json(response, f"issue/{key}")
+
+    def add_comment(
+        self,
+        *,
+        key: str,
+        body: str | dict[str, Any],
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        """``POST /rest/api/3/issue/{key}/comment`` — append a comment.
+
+        ``body`` accepts either a plain string (wrapped via ``wrap_text_as_adf``)
+        or a pre-built ADF dict (passed through verbatim).
+
+        ``idempotency_key`` keys the in-memory cache by
+        ``(jira_comment_add, project, key)`` where ``project`` is extracted
+        from the ticket key.
+        """
+        adf_body = body if is_adf_dict(body) else wrap_text_as_adf(str(body))
+        request_body = {"body": adf_body}
+        # Project derivation is intentionally local — keeps the cache
+        # namespaced per project so two tickets in different projects can
+        # use the same opaque key without colliding.
+        project = key.split("-", 1)[0] if "-" in key else key
+
+        def _do_request() -> tuple[int, dict[str, Any]]:
+            response = self._request("POST", f"issue/{key}/comment", body=request_body)
+            _raise_for_status(response, f"issue/{key}/comment")
+            return response.status_code, _safe_json(response, f"issue/{key}/comment")
+
+        return _idempotency_get_or_run(
+            "jira_comment_add",
+            project,
+            idempotency_key,
+            _do_request,
+        )
+
+    def create_issue_link(
+        self,
+        *,
+        link_type: str,
+        inward_key: str,
+        outward_key: str,
+        comment: str | dict[str, Any] | None = None,
+        idempotency_key: str | None = None,
+    ) -> dict[str, Any]:
+        """``POST /rest/api/3/issueLink`` — link two tickets.
+
+        Atlassian does **not** dedupe identical ``(inward, outward, type)``
+        triples — a transient-error retry would create a duplicate link
+        (refine Open Q28).  The idempotency cache (decision-28) sidesteps
+        this for caller-driven retries.
+
+        The cache key namespaces the opaque ``idempotency_key`` by
+        ``(jira_issue_link_create, "<inward>__<outward>__<type>", key)`` so
+        the same opaque key against different triples produces distinct
+        entries (test ``link_cache_aliasing``).
+        """
+        request_body: dict[str, Any] = {
+            "type": {"name": link_type},
+            "inwardIssue": {"key": inward_key},
+            "outwardIssue": {"key": outward_key},
+        }
+        if comment is not None:
+            adf = comment if is_adf_dict(comment) else wrap_text_as_adf(str(comment))
+            request_body["comment"] = {"body": adf}
+
+        # Synthetic project tag — the triple is the policy boundary, not a
+        # single project.  Sorting the inward/outward keys alphabetically
+        # would dedupe genuine A->B vs B->A triples (different links!) so
+        # we keep them in caller order.
+        synthetic_project = f"{inward_key}__{outward_key}__{link_type}"
+
+        def _do_request() -> tuple[int, dict[str, Any]]:
+            response = self._request("POST", "issueLink", body=request_body)
+            _raise_for_status(response, "issueLink")
+            # Atlassian returns 201 Created with empty body for issueLink.
+            if response.status_code == 201 and not response.content:
+                return response.status_code, {}
+            return response.status_code, _safe_json(response, "issueLink")
+
+        return _idempotency_get_or_run(
+            "jira_issue_link_create",
+            synthetic_project,
+            idempotency_key,
+            _do_request,
+        )
+
 
 # -----------------------------------------------------------------------------
 # Helpers & module-level singleton
@@ -506,6 +775,61 @@ def _safe_json(response: httpx.Response, path: str) -> dict[str, Any]:
         # callers can rely on a dict.
         return {"data": data}
     return data
+
+
+def _emit_rate_limited_audit(
+    *,
+    path: str,
+    method: str,
+    attempt: int,
+    retry_after: int,
+) -> None:
+    """Emit the ``jira_upstream_rate_limited`` audit event.
+
+    Lifted out of ``_request`` so it fires for **every** 429 the gateway
+    sees — including write verbs that bypass the GET-only retry loop.
+    Falls back to a structured log line when called outside a Flask
+    request context (e.g. a future batch worker that reuses ``JiraClient``).
+    """
+    try:
+        from flask import has_request_context
+    except ImportError:  # pragma: no cover — flask is a hard dep
+
+        def has_request_context() -> bool:
+            return False
+
+    try:
+        from .gateway import audit_log
+    except ImportError:
+        try:
+            from gateway import audit_log  # type: ignore[no-redef, attr-defined]
+        except ImportError:
+            audit_log = None  # type: ignore[assignment]
+
+    if audit_log is not None and has_request_context():
+        try:
+            audit_log(
+                "jira_upstream_rate_limited",
+                "jira_request",
+                success=False,
+                details={
+                    "path": path,
+                    "method": method.upper(),
+                    "attempt": attempt,
+                    "retry_after": retry_after,
+                },
+            )
+            return
+        except Exception:  # pragma: no cover – defensive
+            logger.exception("audit_log failed in jira _request")
+
+    logger.warning(
+        "Jira upstream 429",
+        path=path,
+        method=method.upper(),
+        attempt=attempt,
+        retry_after=retry_after,
+    )
 
 
 def _parse_retry_after(value: str | None) -> int:
@@ -561,7 +885,9 @@ __all__ = [
     "JiraUpstreamError",
     "MAX_FIELDS",
     "get_jira_client",
+    "is_adf_dict",
     "reset_jira_client",
     "validate_fields",
     "validate_jira_api_path",
+    "wrap_text_as_adf",
 ]

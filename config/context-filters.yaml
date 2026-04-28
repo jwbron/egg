@@ -23,6 +23,32 @@ jira:
   # gateway/jira_search.py for the exact acceptance rules.
   projects: []
 
+  # ---------------------------------------------------------------------
+  # Write-verb knobs (issue #1924).  These only affect the new
+  # POST /api/v1/jira/ticket/create | ticket/edit | ticket/comment/add |
+  # issue-link/create routes — read verbs ignore them.
+
+  # Allowed link-type names for `POST /api/v1/jira/issue-link/create`.
+  # Atlassian recognises many other names ("Cloners", "Duplicate",
+  # "Tests", ...), but the v1 default keeps the operator surface tight.
+  # Case-sensitive.
+  #
+  # Example:
+  #   link_types: ["Blocks", "Relates"]
+  #
+  # If unset / malformed, defaults to ["Blocks", "Relates"].
+  # link_types: ["Blocks", "Relates"]
+
+  # Atlassian field used by the `epicLink` shorthand on
+  # POST /api/v1/jira/ticket/create.  Two valid values:
+  #   - "parent"             — next-gen / company-managed projects (default).
+  #   - "customfield_10014"  — classic / team-managed projects (legacy
+  #                            "Epic Link" custom field).
+  #
+  # If unset / malformed, defaults to "parent".  Anything else falls
+  # back to the default and emits a warning in the gateway log.
+  # epic_link_field: parent
+
 confluence:
   # Atlassian Confluence space keys agents are allowed to read through the
   # /api/v1/confluence/* endpoints.  Space keys typically match the shape:
