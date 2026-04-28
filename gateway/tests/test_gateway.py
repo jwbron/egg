@@ -5167,6 +5167,53 @@ class TestWorktreeCreateFailureLogging:
             assert response.status_code == 500
             mock_cleanup.assert_called_once_with("test-container")
 
+    def test_cleanup_rejects_path_traversal(self, tmp_path):
+        """_cleanup_empty_container_dir refuses container_ids containing
+        path-traversal (`..`) so a bypass of the route-level validation
+        cannot rmdir directories outside WORKTREE_BASE_DIR.
+
+        Without this guard, `Path(base) / "../sibling"` would let
+        `rmdir(2)` follow the literal path and unlink an empty directory
+        adjacent to the base dir.  See #2186 review feedback.
+        """
+        base = tmp_path / "base"
+        base.mkdir()
+        sibling = tmp_path / "sibling"
+        sibling.mkdir()  # empty — would otherwise be rmdir-able
+
+        with patch.object(gateway, "WORKTREE_BASE_DIR", base):
+            gateway._cleanup_empty_container_dir("../sibling")
+
+        # The sibling directory must still exist — the helper must
+        # refuse the traversed identifier before any filesystem mutation.
+        assert sibling.exists(), (
+            "Path-traversal container_id reached rmdir; cleanup must "
+            "reject `..`-bearing identifiers before touching the filesystem."
+        )
+
+    def test_route_rejects_path_traversal_container_id(self, client, launcher_auth_headers):
+        """worktree_create validates container_id at the route boundary
+        and returns a 400 for `..`-bearing identifiers, before any
+        per-repo work runs.  See #2186 review feedback."""
+        with patch.object(gateway, "get_worktree_manager") as mock_worktree:
+            response = client.post(
+                "/api/v1/worktree/create",
+                headers=launcher_auth_headers,
+                data=json.dumps(
+                    {
+                        "container_id": "../escape",
+                        "repos": ["owner/repo"],
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 400
+            body = json.loads(response.data)
+            assert "path traversal" in body["message"].lower()
+            # No per-repo work should have started.
+            mock_worktree.return_value.create_worktree.assert_not_called()
+
 
 class TestSessionDeleteByContainerWorktreeCleanup:
     """Tests for DELETE /api/v1/sessions/by-container/<container_id> worktree cleanup."""

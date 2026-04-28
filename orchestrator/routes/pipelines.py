@@ -11575,10 +11575,13 @@ def _run_pipeline(
                                 error_message=gw_err.message,
                                 details=gw_err.details,
                             )
+                            detail_suffix = (
+                                f" (details: {gw_err.details})" if gw_err.details else ""
+                            )
                             raise RuntimeError(
                                 f"Failed to create worktrees for pipeline {pipeline_id} "
                                 f"after {wt_max_attempts} attempts: "
-                                f"{gw_err.message} (details: {gw_err.details})"
+                                f"{gw_err.message}{detail_suffix}"
                             ) from gw_err
                         logger.warning(
                             "Worktree creation failed, retrying",
