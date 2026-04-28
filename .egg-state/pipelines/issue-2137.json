@@ -359,10 +359,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-11",
+      "question": "**Slice-level retry / max_cycles** — Today's implement phase has a `max_cycles` cap on BRC re-proposal cycles before HITL escalation. How should this apply to slices?",
+      "context": "Open contract question decision-9, registered by an agent during the refine phase.",
+      "options": [
+        "Each slice gets its own `max_cycles` independent of others — a noisy slice doesn't burn the global budget; if it caps, only that slice escalates HITL; siblings continue.",
+        "Global pipeline-wide `max_cycles` budget shared across slices — prevents runaway token spend across many slices.",
+        "Two-tier: each slice has a local cap (default 3); pipeline has a global cap on total cycles (default 10). Either trip escalates HITL.",
+        "Reuse today's per-phase `max_cycles` value — but applied per slice; default tuning may need to drop since slices are smaller (current default 5 → 3?).",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-28T16:55:14.035851Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T16:55:13.995310Z",
+  "updated_at": "2026-04-28T16:55:14.055649Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -376,6 +396,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 29,
+  "version": 30,
   "jira_ticket": null
 }
