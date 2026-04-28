@@ -495,10 +495,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-18",
+      "question": "**Stacked-PR rebase mechanics** — When a parent slice's PR merges, child slice PRs were based on the parent branch. How should the child PRs' base be updated?",
+      "context": "Open contract question decision-16, registered by an agent during the refine phase.",
+      "options": [
+        "Rely entirely on GitHub's auto-retarget — when the parent PR merges, GitHub automatically updates child PRs to target the parent's former base. Simplest; matches Graphite-style stacked-PR norms. Risk: GitHub's auto-retarget only fires reliably when the parent is merged via the GitHub UI or `gh pr merge`; force-push or out-of-band branch deletion can break the chain.",
+        "Orchestrator explicitly rebases children onto the parent's new base after detecting a parent-merge event (via webhook or polling). More work but deterministic; the orchestrator can also force-push the rebased child branch through the gateway. Cost: a new gateway 'rebase-onto' endpoint plus webhook listener.",
+        "Hybrid: rely on GitHub auto-retarget as the primary path; orchestrator runs a periodic reconciler (every N seconds) that checks for child PRs whose base no longer exists and rebases them via the gateway. Catches edge cases without adding webhook infrastructure.",
+        "Defer entirely to humans — the orchestrator does nothing; if a child PR's base disappears, the human reviewer rebases manually. Minimum viable; rejects the 'set-and-forget' goal of the issue.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-28T16:55:14.809863Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T16:55:14.767087Z",
+  "updated_at": "2026-04-28T16:55:14.830207Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -512,6 +532,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 36,
+  "version": 37,
   "jira_ticket": null
 }
