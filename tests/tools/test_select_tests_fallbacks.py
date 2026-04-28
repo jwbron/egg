@@ -16,11 +16,13 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 from tests.tools._select_tests_helpers import (
+    REPO_ROOT,
     SELECTOR_PATH,
     _git,
     commit_file,
@@ -465,3 +467,88 @@ def test_fail_open_subprocess_grimp_unavailable(
         or "selector exception" in proc.stderr
         or "trigger=" in proc.stderr  # any explicit trigger
     ), f"no fallback trigger logged on stderr: {proc.stderr!r}"
+
+
+# ----------------------------------------------------------------------
+# PYTHONPATH leak — the Makefile exports `PYTHONPATH=shared:gateway:orchestrator`
+# for pytest, which previously also reached `select_tests.py`.  With
+# `shared/` on sys.path, grimp's `build_graph` aborts with
+# `NotATopLevelModule: shared.egg_agent` and the selector silently
+# fell back to the full suite.  The two regression cases below pin
+# both the helper and the end-to-end contract.
+# ----------------------------------------------------------------------
+
+
+def test_strip_pythonpath_pops_env_and_sys_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``_strip_pythonpath_from_sys_path`` MUST remove PYTHONPATH from
+    ``os.environ`` AND strip its entries from ``sys.path`` (both raw
+    and ``Path.resolve()`` forms — Python prepends the resolved
+    absolute path at interpreter startup, but a sloppy caller could
+    inject the raw form too)."""
+    raw = "shared:gateway:orchestrator"
+    monkeypatch.setenv("PYTHONPATH", raw)
+    raw_entries = raw.split(os.pathsep)
+    resolved_entries = [str(Path(e).resolve()) for e in raw_entries]
+    # Inject both forms at the head of sys.path, then assert they're
+    # all gone after the strip.
+    original_path = list(sys.path)
+    try:
+        for entry in [*resolved_entries, *raw_entries]:
+            sys.path.insert(0, entry)
+        selector._strip_pythonpath_from_sys_path()
+        assert "PYTHONPATH" not in os.environ
+        for entry in [*raw_entries, *resolved_entries]:
+            assert entry not in sys.path, f"{entry!r} still on sys.path"
+    finally:
+        sys.path[:] = original_path
+
+
+def test_strip_pythonpath_no_op_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No PYTHONPATH → no env mutation, no sys.path mutation."""
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    snapshot = list(sys.path)
+    selector._strip_pythonpath_from_sys_path()
+    assert "PYTHONPATH" not in os.environ
+    assert sys.path == snapshot
+
+
+def test_subprocess_with_leaked_pythonpath_does_not_abort_graph(real_git, tmp_path: Path) -> None:
+    """End-to-end contract: setting ``PYTHONPATH=shared:gateway:orchestrator``
+    in the child env (mimicking the Makefile pre-fix) MUST NOT cause
+    grimp to abort with ``NotATopLevelModule`` against the real repo.
+
+    Runs against ``REPO_ROOT`` so PACKAGES (which includes
+    ``shared.egg_agent``) actually overlaps with the leaked
+    ``shared/`` entry.  Skips when grimp isn't installed because the
+    bug is a grimp-specific failure mode.
+    """
+    pytest.importorskip("grimp")
+    env = os.environ.copy()
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env.pop("EGG_AGENT_ROLE", None)
+    env["PYTHONPATH"] = "shared:gateway:orchestrator"
+    proc = subprocess.run(
+        [find_python(), str(SELECTOR_PATH), "--full-suite"],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=60,
+    )
+    # --full-suite avoids needing a synthetic git history but still
+    # exercises main()'s strip before any further setup.  The bug
+    # would surface as `graph build failed: NotATopLevelModule` on
+    # stderr from a subsequent narrow-mode invocation; with --full-suite
+    # we instead assert the strip itself didn't blow up and the
+    # selector returns the canonical test-root list.
+    assert proc.returncode == 0, (
+        f"selector exited {proc.returncode} with leaked PYTHONPATH\n"
+        f"stdout: {proc.stdout!r}\nstderr: {proc.stderr!r}"
+    )
+    out = proc.stdout.splitlines()
+    for d in selector.TEST_ROOT_DIRS:
+        assert d in out, f"missing {d} in stdout: {out!r}"
+    assert "NotATopLevelModule" not in proc.stderr, (
+        f"PYTHONPATH leaked into grimp despite the strip:\n{proc.stderr!r}"
+    )

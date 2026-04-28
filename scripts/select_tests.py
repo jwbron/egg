@@ -726,17 +726,20 @@ def build_graph(repo_root: Path | None = None, packages: tuple[str, ...] = PACKA
         #
         # Asymmetry note: an externally-set ``PYTHONPATH=shared:...``
         # makes grimp abort with ``NotATopLevelModule: shared.egg_agent``
-        # because ``shared/`` lands at sys.path[0] (egg_agent then
-        # resolves as a bare top-level package, conflicting with
-        # ``shared.egg_agent`` registered in PACKAGES).  These internal
-        # ``sys.path.insert(0, ...)`` calls do NOT trip the same bug
-        # because each insert at 0 reverses the iteration order, so
-        # ``root`` ends up at sys.path[0] and ``root/shared`` further
-        # back — Python finds ``shared.egg_agent`` via the regular
-        # namespace package mechanism before it would find a bare
-        # ``egg_agent``.  ``main()`` also pops ``PYTHONPATH`` from the
-        # environment as defense-in-depth in case a future grimp
-        # release becomes more sensitive to either path's presence.
+        # because ``egg_agent`` becomes reachable as both
+        # ``shared.egg_agent`` (registered in PACKAGES) and a bare
+        # top-level ``egg_agent`` via ``shared/``.  The defense-in-depth
+        # scrub at the top of ``main()`` (``_strip_pythonpath_from_sys_path``)
+        # removes any PYTHONPATH-derived entries from sys.path before
+        # grimp is imported, so the internal ``sys.path.insert(0, ...)``
+        # calls below cannot collide with one Python added at startup.
+        # Empirically the internal injection of ``root/shared`` does
+        # not trigger the same ``NotATopLevelModule`` failure, but the
+        # mechanism for that asymmetry is not fully understood — a
+        # future grimp release could become more sensitive.  If that
+        # ever happens, the right move is to stop injecting the
+        # subpackage source roots here and instead rely on the same
+        # ``PACKAGES`` registration grimp already uses.
         added_paths: list[str] = []
         for entry in (
             str(root),

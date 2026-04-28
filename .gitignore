@@ -80,6 +80,7 @@ Thumbs.db
 .egg-state/oversight/filed-issues.jsonl.lock
 # `save_agent_timing` writes via `tempfile.NamedTemporaryFile(prefix=".<name>.", suffix=".tmp")`
 # and only `os.replace`s on the happy path; a SIGKILL mid-write leaves
-# a leftover tmp file alongside the target.
+# a leftover tmp file alongside the target.  `append_filed_issue` uses
+# plain `open(p, "a")` + `fsync` (no rename pattern), so there's no
+# matching tmp leftover to ignore for that file.
 .egg-state/oversight/.agent-timing.json.*.tmp
-.egg-state/oversight/.filed-issues.jsonl.*.tmp
