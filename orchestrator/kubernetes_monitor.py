@@ -546,6 +546,30 @@ class KubernetesMonitor:
                             break
 
                     if matching_ci is not None:
+                        # Build the ContainerInfo we hand to
+                        # ``_reconcile_pod_state`` from the *live* pod
+                        # observation, not from the stored record.  The
+                        # stored ``matching_ci`` still has
+                        # ``exit_code=None`` for an agent that was
+                        # RUNNING up to this sweep, so the reconciler's
+                        # ``_classify_exit`` would only see "code
+                        # unknown" and never reach its clean-exit branch
+                        # — losing the actual exit code in the saved
+                        # error string and miscategorising
+                        # sweep-detected clean exits.  When the pod is
+                        # gone (PodNotFoundError) we fall back to a
+                        # synthesised record; the exit code is
+                        # genuinely unknown in that case.  See #2210.
+                        if info is not None:
+                            observed_info = info
+                        else:
+                            observed_info = ContainerInfo(
+                                container_id=agent.container_id,
+                                container_name=matching_ci.container_name,
+                                status=ContainerStatus.REMOVED,
+                                exit_code=None,
+                                exited_at=now,
+                            )
                         logger.warning(
                             "Reconciliation: pod terminated, marking agent FAILED",
                             pipeline_id=pipeline_id,
@@ -554,7 +578,7 @@ class KubernetesMonitor:
                             exit_code=actual_exit_code,
                             pod_gone=pod_gone,
                         )
-                        _reconcile_pod_state(store, matching_ci)
+                        _reconcile_pod_state(store, observed_info)
                     else:
                         logger.debug(
                             "Stale agent has no matching ContainerInfo",
@@ -728,14 +752,16 @@ class KubernetesMonitor:
                         if agent.container_id:
                             completed_container_ids.add(agent.container_id)
 
-                # Synthetically mark containers EXITED (exit_code=0) so
-                # the periodic reconciler treats them as clean exits when
-                # the pods are deleted below.  Mirrors the normal
-                # _update_agents_complete path in routes/pipelines.py
-                # (see #1294).  As of #2210 the reconciler no longer
-                # escalates pipeline.status itself, but matching the
-                # clean-exit shape here still keeps the agent/container
-                # records consistent with the recovery decision.
+                # Synthetically mark containers EXITED (exit_code=0) for
+                # state-shape consistency: the stored record matches
+                # what a normal clean exit would have written, mirroring
+                # the _update_agents_complete path in
+                # routes/pipelines.py (see #1294).  This is purely
+                # cosmetic / observability — the periodic reconciler
+                # already skips these agents because they are now
+                # COMPLETE (the sweep at line 451-454 only reconciles
+                # ``agent.status == RUNNING``), and as of #2210 the
+                # reconciler does not mutate pipeline.status anyway.
                 pods_to_stop: list[str] = []
                 for ci in phase_exec.containers:
                     if (
@@ -1090,7 +1116,11 @@ def create_pipeline_reconciliation_handler(repo_path: str) -> EventHandler:
     """Create handler that updates pipeline state when pods exit.
 
     Only FAILED events trigger reconciliation — STOPPED (exit code 0)
-    represents a graceful exit and should not mark pipelines as failed.
+    is a graceful exit that needs no sub-record correction.  Since
+    #2210 this handler never mutates ``pipeline.status``; it only
+    reconciles agent + container records via ``_reconcile_pod_state``.
+    Pipeline-level FAILED decisions belong to the BRC poll loop, which
+    has consensus context.
 
     Args:
         repo_path: Path to the repository (for StateStore access)

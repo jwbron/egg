@@ -605,7 +605,14 @@ class TestPeriodicReconciliation:
     """Tests for the _reconciliation_loop background thread."""
 
     def test_detects_stale_container_in_current_phase(self):
-        """Loop detects a stale container in the current phase and reconciles it."""
+        """Loop detects a stale container in the current phase and reconciles it.
+
+        #2210: the sweep now hands ``_reconcile_pod_state`` the live
+        observation of the pod (with the actual exit code), not the
+        stored ``ContainerInfo`` whose ``exit_code`` is ``None`` while
+        the agent is RUNNING.  This test asserts both the container_id
+        plumbing and that a real exit_code reaches the reconciler.
+        """
         container_id = "stale_abc"
         pipeline = _make_pipeline_with_running_agent(container_id)
         store = _make_store(pipeline)
@@ -614,6 +621,13 @@ class TestPeriodicReconciliation:
         # No live containers — the agent's container is missing
         mock_docker.list_containers.return_value = []
         mock_docker.list_jobs.return_value = []
+        mock_docker.get_container_info.return_value = ContainerInfo(
+            container_id=container_id,
+            container_name="job-stale",
+            status=ContainerStatus.FAILED,
+            exit_code=137,
+            exited_at=datetime.now(UTC),
+        )
 
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
 
@@ -624,11 +638,13 @@ class TestPeriodicReconciliation:
 
             _run_one_reconciliation_sweep(monitor)
 
-            # Should have called _reconcile with the matching ContainerInfo
+            # Should have called _reconcile with the live observed
+            # ContainerInfo, not the stored record.
             mock_reconcile.assert_called()
             call_args = mock_reconcile.call_args
             assert call_args[0][0] is store
             assert call_args[0][1].container_id == container_id
+            assert call_args[0][1].exit_code == 137
 
     def test_reconciles_stale_records_on_complete_pipeline(self):
         """Loop reconciles COMPLETE pipelines that have stale RUNNING records (#1840)."""
