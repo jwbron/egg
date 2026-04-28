@@ -181,6 +181,13 @@
       "registered_at": "2026-04-28T16:25:59.486185+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "refiner"
+    },
+    "f9e31f5ddf82a3419055624c49caa30bf9914ea6": {
+      "branch": "egg/issue-2137",
+      "pipeline_id": "issue-2137",
+      "registered_at": "2026-04-28T16:25:59.801605+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "refiner"
     }
   },
   "version": 1
