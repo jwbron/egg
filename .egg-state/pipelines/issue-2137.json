@@ -200,10 +200,30 @@
       "resolution": "{\"action\": \"approve\"}",
       "phase": "refine",
       "content_changed": true
+    },
+    {
+      "id": "decision-3",
+      "question": "**Slice merge strategy** — How should slice branches be reintegrated into the pipeline branch after each slice's BRC consensus completes?",
+      "context": "Open contract question decision-1, registered by an agent during the refine phase.",
+      "options": [
+        "Merge commit per slice in topological order (`git merge --no-ff slice-N`) — preserves slice boundaries in history; conflicts surface to HITL.",
+        "Rebase-and-fast-forward (`git rebase pipeline-branch && git push pipeline-branch`) — flat history; later slices auto-rebase onto earlier slice commits; conflicts handled by the slice's coder before BRC re-consensus.",
+        "Squash-merge each slice (`git merge --squash`) — one commit per slice; clean history but loses per-task commit granularity inside the slice.",
+        "Defer integration to a final integrator role (per #732 Tier 3 design) — independent slices push to `egg/issue-N/slice-M`, an integrator role runs after all slices ACK and produces the merged pipeline branch.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-28T16:55:13.537103Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T16:55:08.963648Z",
+  "updated_at": "2026-04-28T16:55:13.561712Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -217,6 +237,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 21,
+  "version": 22,
   "jira_ticket": null
 }
