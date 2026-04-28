@@ -391,6 +391,19 @@
           "pod_name": null,
           "namespace": "egg-agents",
           "job_name": "egg-sandbox-egg-agent-issue-2137-reviewer-code-holistic"
+        },
+        {
+          "container_id": "e9122bd2-2d18-48d1-ae69-ad219b5de006",
+          "container_name": "egg-sandbox-egg-agent-issue-2137-tester",
+          "status": "pending",
+          "started_at": null,
+          "exited_at": null,
+          "exit_code": null,
+          "agent_role": null,
+          "session_token": null,
+          "pod_name": null,
+          "namespace": "egg-agents",
+          "job_name": "egg-sandbox-egg-agent-issue-2137-tester"
         }
       ],
       "agents": [
@@ -456,6 +469,19 @@
           "commit": null,
           "outputs": {},
           "error": "Pod exited unexpectedly during execution — detected by Kubernetes runtime monitor",
+          "retry_count": 0,
+          "conflicts": []
+        },
+        {
+          "role": "tester",
+          "status": "running",
+          "container_id": "e9122bd2-2d18-48d1-ae69-ad219b5de006",
+          "container_info": null,
+          "started_at": "2026-04-28T20:23:40.937482Z",
+          "completed_at": null,
+          "commit": null,
+          "outputs": {},
+          "error": null,
           "retry_count": 0,
           "conflicts": []
         }
@@ -930,7 +956,7 @@
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T20:21:50.716873Z",
+  "updated_at": "2026-04-28T20:23:40.939304Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -944,6 +970,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-28T17:41:46.586368Z",
-  "version": 96,
+  "version": 97,
   "jira_ticket": null
 }
