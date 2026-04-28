@@ -69,6 +69,7 @@ try:
     from ..kubernetes_spawner import KubernetesSpawnError, get_kubernetes_spawner
     from ..models import (
         AgentExecutionStatus,
+        AgentExitInfo,
         AgentRole,
         AggregatedReviewResult,
         ContainerStatus,
@@ -114,6 +115,7 @@ except ImportError:
     )
     from models import (  # type: ignore
         AgentExecutionStatus,
+        AgentExitInfo,
         AgentRole,
         AggregatedReviewResult,
         ContainerStatus,
@@ -9734,6 +9736,24 @@ def _run_concurrent_phase(
                                 agent.status = StateAgentStatus.FAILED
                                 agent.error = f"Container exited with code {final_info.exit_code}"
                             break
+
+                    # Cap each tail line at 4096 chars: containers that print
+                    # large JSON blobs on one line could otherwise persist
+                    # multi-MB lines into pipeline state on every chatty exit.
+                    last_lines = (
+                        [ln[:4096] for ln in container_logs.splitlines()[-200:]]
+                        if container_logs
+                        else []
+                    )
+                    pe.agent_exits.append(
+                        AgentExitInfo(
+                            role=exec_info.role,
+                            exit_code=final_info.exit_code,
+                            last_lines=last_lines,
+                            terminated_at=datetime.now(UTC),
+                            container_id=exec_info.container_id,
+                        )
+                    )
 
                     store.save_pipeline(pip)
             except Exception as track_err:
