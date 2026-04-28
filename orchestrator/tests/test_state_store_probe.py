@@ -257,3 +257,162 @@ class TestSingleton:
         reset_state_store_probe_for_test()
         b = get_state_store_probe()
         assert a is not b
+
+    def test_singleton_reads_interval_env_var(self, monkeypatch):
+        """``EGG_ORCH_STATE_STORE_PROBE_INTERVAL`` overrides the default
+        cadence. Operators can tune cadence without a code change
+        (#2191 review item 6)."""
+        from state_store_probe import (
+            get_state_store_probe,
+            reset_state_store_probe_for_test,
+        )
+
+        monkeypatch.setenv("EGG_ORCH_STATE_STORE_PROBE_INTERVAL", "3.5")
+        reset_state_store_probe_for_test()
+        probe = get_state_store_probe()
+        assert probe.interval == 3.5
+
+    def test_singleton_falls_back_on_invalid_interval(self, monkeypatch):
+        """Malformed/non-positive ``EGG_ORCH_STATE_STORE_PROBE_INTERVAL``
+        falls back to the default rather than crashing the singleton."""
+        from state_store_probe import (
+            DEFAULT_PROBE_INTERVAL_SECONDS,
+            get_state_store_probe,
+            reset_state_store_probe_for_test,
+        )
+
+        monkeypatch.setenv("EGG_ORCH_STATE_STORE_PROBE_INTERVAL", "not-a-number")
+        reset_state_store_probe_for_test()
+        probe = get_state_store_probe()
+        assert probe.interval == DEFAULT_PROBE_INTERVAL_SECONDS
+
+        monkeypatch.setenv("EGG_ORCH_STATE_STORE_PROBE_INTERVAL", "-5")
+        reset_state_store_probe_for_test()
+        probe = get_state_store_probe()
+        assert probe.interval == DEFAULT_PROBE_INTERVAL_SECONDS
+
+
+class TestOnObservationCallback:
+    """The on_observation callback fires after every cache update so
+    consumers (notably ``routes.health._health_tracker``) see every
+    wedge cycle observed by the BG thread, not just events between
+    sporadic ``/api/v1/health`` hits (#2191 review item 1)."""
+
+    def test_callback_fires_on_each_probe(self, with_repo_path):
+        from state_store_probe import StateStoreProbe
+
+        observations: list[bool] = []
+        probe = StateStoreProbe(on_observation=observations.append)
+
+        with patch(
+            "state_store_probe.probe_state_store_at",
+            return_value=(True, "ok"),
+        ):
+            probe.probe_now()
+
+        with patch(
+            "state_store_probe.probe_state_store_at",
+            return_value=(False, "GitOperationError: wedged"),
+        ):
+            probe.probe_now()
+
+        with patch(
+            "state_store_probe.probe_state_store_at",
+            return_value=(True, "ok"),
+        ):
+            probe.probe_now()
+
+        assert observations == [True, False, True], (
+            "Callback must observe every transition, including the "
+            "wedge cycle between healthy → unhealthy → healthy."
+        )
+
+    def test_callback_can_be_replaced_via_setter(self, with_repo_path):
+        from state_store_probe import StateStoreProbe
+
+        observations_a: list[bool] = []
+        observations_b: list[bool] = []
+        probe = StateStoreProbe(on_observation=observations_a.append)
+
+        with patch(
+            "state_store_probe.probe_state_store_at",
+            return_value=(True, "ok"),
+        ):
+            probe.probe_now()
+
+        probe.set_on_observation(observations_b.append)
+
+        with patch(
+            "state_store_probe.probe_state_store_at",
+            return_value=(False, "wedged"),
+        ):
+            probe.probe_now()
+
+        assert observations_a == [True]
+        assert observations_b == [False]
+
+    def test_callback_exception_does_not_break_probe(self, with_repo_path):
+        """A misbehaving callback must not propagate — otherwise a bug
+        in the health tracker would silently disable the BG probe."""
+        from state_store_probe import StateStoreProbe
+
+        def boom(_healthy: bool) -> None:
+            raise RuntimeError("callback exploded")
+
+        probe = StateStoreProbe(on_observation=boom)
+        with patch(
+            "state_store_probe.probe_state_store_at",
+            return_value=(True, "ok"),
+        ):
+            healthy, message = probe.probe_now()
+
+        assert healthy is True
+        assert message == "ok"
+        # Cache populated despite callback exception:
+        snap = probe.snapshot()
+        assert snap["healthy"] is True
+        assert snap["fresh"] is True
+
+
+class TestProbeNowConcurrency:
+    """``probe_now()`` is invoked from both ``cmd_serve`` and ``_loop``;
+    the BG thread can fire while a manual call is in flight. The
+    in-flight sentinel guarantees the second caller short-circuits
+    rather than racing on the cache write (#2191 review item 4)."""
+
+    def test_concurrent_probe_now_short_circuits_second_caller(self, with_repo_path):
+        from state_store_probe import StateStoreProbe
+
+        probe = StateStoreProbe()
+        first_started = threading.Event()
+        release_first = threading.Event()
+        call_count = {"n": 0}
+
+        def slow_probe(_path: Path) -> tuple[bool, str]:
+            call_count["n"] += 1
+            first_started.set()
+            release_first.wait(timeout=2.0)
+            return True, "ok-slow"
+
+        with patch("state_store_probe.probe_state_store_at", side_effect=slow_probe):
+            t1 = threading.Thread(target=probe.probe_now)
+            t1.start()
+            assert first_started.wait(timeout=1.0), "first probe never started"
+
+            # While the first is in flight, second call should
+            # short-circuit and NOT increment call_count.
+            healthy, message = probe.probe_now()
+            assert call_count["n"] == 1, (
+                "Concurrent probe_now() must not launch a second probe while one is in flight."
+            )
+            # Cache hasn't been populated yet (first probe still in flight),
+            # so the short-circuit returns the starting state.
+            assert healthy is False
+            assert "starting" in message
+
+            release_first.set()
+            t1.join(timeout=2.0)
+
+        # First probe completed normally.
+        assert call_count["n"] == 1
+        assert probe.snapshot()["message"] == "ok-slow"

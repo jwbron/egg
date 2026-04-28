@@ -277,22 +277,30 @@ def cmd_serve(args: argparse.Namespace) -> int:
                 error=str(hc_init_err),
             )
 
-        # Start the background state-store probe. Decouples curative
-        # self-heal from kubelet probe traffic — see #2191 and
-        # state_store_probe.py for the rationale. Prime the cache with a
-        # synchronous probe so the first /api/v1/ready hit after boot
-        # has a real result rather than the "starting" placeholder.
-        try:
-            from state_store_probe import get_state_store_probe
+    # Start the background state-store probe regardless of EGG_REPO_PATH —
+    # when unset, the probe records ``healthy=True, "probe-skipped"``
+    # each tick so /api/v1/ready returns 200 instead of staying stuck at
+    # 503. Decouples curative self-heal from kubelet probe traffic
+    # (#2191). Drives ``routes.health._health_tracker`` via callback so
+    # ``healthy_since`` / ``recent_transitions`` reflect every wedge
+    # cycle observed by the BG thread, not just events that happen
+    # between sporadic /api/v1/health hits. No synchronous priming —
+    # ``probe_state_store_at`` calls ``git`` without a per-call timeout,
+    # so a wedged repo at boot would block ``serve()`` from listening
+    # and CrashLoopBackOff the pod. The startupProbe is wired to /live,
+    # which doesn't read the cache, so the un-primed window is harmless.
+    try:
+        from routes.health import _health_tracker
+        from state_store_probe import get_state_store_probe
 
-            probe = get_state_store_probe()
-            probe.probe_now()
-            probe.start()
-        except Exception as probe_err:
-            logger.warning(
-                "State-store probe startup failed",
-                error=str(probe_err),
-            )
+        probe = get_state_store_probe()
+        probe.set_on_observation(_health_tracker.record)
+        probe.start()
+    except Exception as probe_err:
+        logger.warning(
+            "State-store probe startup failed",
+            error=str(probe_err),
+        )
 
     if debug:
         # Use Flask's built-in server for development

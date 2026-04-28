@@ -244,6 +244,22 @@ class TestBasicHealthEndpoints:
         finally:
             reset_state_store_probe_for_test()
 
+    @pytest.fixture(autouse=True)
+    def _reset_health_tracker(self):
+        """``routes.health._health_tracker`` is a module-level singleton.
+        Reset between tests so transition counts are deterministic
+        regardless of execution order (mirrors the equivalent fixture
+        in ``test_health_check_lifecycle_integration.py``)."""
+        import routes.health as health_module
+        from egg_health import HealthTracker
+
+        original = health_module._health_tracker
+        health_module._health_tracker = HealthTracker()
+        try:
+            yield
+        finally:
+            health_module._health_tracker = original
+
     def test_health(self, client, monkeypatch):
         """Prime the cached state-store probe so the test exercises the
         route shape, not the live probe behavior. In test environments

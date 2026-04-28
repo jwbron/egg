@@ -20,6 +20,7 @@ import os
 import sys
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -106,6 +107,7 @@ class StateStoreProbe:
         *,
         interval: float = DEFAULT_PROBE_INTERVAL_SECONDS,
         stale_multiplier: float = DEFAULT_STALE_MULTIPLIER,
+        on_observation: Callable[[bool], None] | None = None,
     ) -> None:
         self._interval = interval
         self._stale_multiplier = stale_multiplier
@@ -115,10 +117,25 @@ class StateStoreProbe:
         self._last_check_monotonic: float | None = None
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+        self._probe_in_flight = False
+        self._on_observation = on_observation
 
     @property
     def interval(self) -> float:
         return self._interval
+
+    def set_on_observation(self, callback: Callable[[bool], None] | None) -> None:
+        """Install/replace the per-observation callback.
+
+        The callback runs after every cache update with the latest
+        ``healthy`` bool. Used by the orchestrator to drive
+        ``routes.health._health_tracker`` at BG-thread cadence so
+        ``healthy_since`` / ``recent_transitions`` reflect every wedge
+        cycle, not just events between sporadic ``/api/v1/health``
+        hits (#2191 review). Setter avoids a route → probe import cycle.
+        """
+        with self._lock:
+            self._on_observation = callback
 
     def probe_now(self) -> tuple[bool, str]:
         """Run a single probe synchronously and update the cache.
@@ -127,22 +144,47 @@ class StateStoreProbe:
         ``/api/v1/ready`` after boot doesn't return 503) and for tests.
         Exceptions in the underlying probe are caught and surface as a
         cached unhealthy result rather than propagating.
-        """
-        base_path = _resolve_base_path()
-        if base_path is None:
-            healthy, message = True, "probe-skipped: EGG_REPO_PATH not set"
-        else:
-            try:
-                healthy, message = probe_state_store_at(base_path)
-            except Exception as exc:  # pragma: no cover — defensive
-                healthy = False
-                message = f"probe-error: {type(exc).__name__}: {exc}"
-                logger.warning("State-store probe raised", error=str(exc), exc_info=True)
 
+        Concurrent callers short-circuit: the second caller sees the
+        in-flight flag and returns the existing cache without launching
+        a duplicate probe (avoids the lock-order race called out in
+        the #2191 review).
+        """
         with self._lock:
-            self._healthy = healthy
-            self._message = message
-            self._last_check_monotonic = time.monotonic()
+            if self._probe_in_flight:
+                # Short-circuit: another caller is already probing.
+                # Return the most recent cached result rather than
+                # racing on the cache write.
+                healthy = bool(self._healthy) if self._healthy is not None else False
+                return healthy, self._message
+            self._probe_in_flight = True
+
+        try:
+            base_path = _resolve_base_path()
+            if base_path is None:
+                healthy, message = True, "probe-skipped: EGG_REPO_PATH not set"
+            else:
+                try:
+                    healthy, message = probe_state_store_at(base_path)
+                except Exception as exc:  # pragma: no cover — defensive
+                    healthy = False
+                    message = f"probe-error: {type(exc).__name__}: {exc}"
+                    logger.warning("State-store probe raised", error=str(exc), exc_info=True)
+
+            with self._lock:
+                self._healthy = healthy
+                self._message = message
+                self._last_check_monotonic = time.monotonic()
+                callback = self._on_observation
+        finally:
+            with self._lock:
+                self._probe_in_flight = False
+
+        if callback is not None:
+            try:
+                callback(healthy)
+            except Exception:
+                logger.exception("State-store probe on_observation callback failed")
         return healthy, message
 
     def snapshot(self) -> dict[str, Any]:
@@ -181,12 +223,15 @@ class StateStoreProbe:
         }
 
     def start(self) -> None:
-        """Start the BG thread. Idempotent."""
-        if self._thread is not None and self._thread.is_alive():
-            return
-        self._stop_event.clear()
-        self._thread = threading.Thread(target=self._loop, daemon=True, name="state-store-probe")
-        self._thread.start()
+        """Start the BG thread. Idempotent and atomic."""
+        with self._lock:
+            if self._thread is not None and self._thread.is_alive():
+                return
+            self._stop_event.clear()
+            self._thread = threading.Thread(
+                target=self._loop, daemon=True, name="state-store-probe"
+            )
+            self._thread.start()
         logger.info(
             "State-store probe started",
             interval_seconds=self._interval,
@@ -220,11 +265,22 @@ _PROBE_LOCK = threading.Lock()
 
 
 def get_state_store_probe() -> StateStoreProbe:
-    """Return the process-wide :class:`StateStoreProbe` singleton."""
+    """Return the process-wide :class:`StateStoreProbe` singleton.
+
+    The interval is read from ``EGG_ORCH_STATE_STORE_PROBE_INTERVAL``
+    on first construction (via :mod:`env_config`); subsequent calls
+    return the same instance regardless of env-var changes.
+    """
     global _PROBE
     with _PROBE_LOCK:
         if _PROBE is None:
-            _PROBE = StateStoreProbe()
+            try:
+                from env_config import get_state_store_probe_interval
+
+                interval = get_state_store_probe_interval()
+            except ImportError:  # pragma: no cover — defensive
+                interval = DEFAULT_PROBE_INTERVAL_SECONDS
+            _PROBE = StateStoreProbe(interval=interval)
         return _PROBE
 
 
