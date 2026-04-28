@@ -353,11 +353,11 @@ in the window — that arrived after the anchor.
 
 ### Cursor threading across waits (issue #1995)
 
-Every `egg-orch message wait` / `wait-loop` response carries a `cursor`
-field that callers should thread into the `since` parameter of the next
-call. Without threading, events that arrive between a returning wait and
-the subsequent wait call are missed — the same wait→wait race window §7
-closes on the host side.
+Every `egg-orch message wait --json` response carries a `cursor` field
+(under `.data.cursor`) that callers should thread into the `--since`
+argument of the next call. Without threading, events that arrive between
+a returning wait and the subsequent wait call are missed — the same
+wait→wait race window §7 closes on the host side.
 
 The `cursor` is opaque from the caller's perspective:
 
@@ -367,26 +367,31 @@ The `cursor` is opaque from the caller's perspective:
 | Timeout (no messages) | Current stream tip at server response time |
 | Stream empty on timeout | `null` / unset — caller may keep its prior cursor or omit `since` |
 
-`wait-loop` already threads the cursor internally between its own
+`wait-loop` threads the cursor internally between its own inner
 iterations, so a cursor-less call that rides through several timeouts
-before matching does not reopen the race. The surfaced cursor on the
-outer return closes the same race across successive `wait-loop`
-invocations by the agent.
+before matching does not reopen the race. However, `wait-loop` does
+**not** expose `--json` (its human-readable stdout has no cursor field),
+so an outer shell loop that wants strict cursor threading across
+successive invocations should use `wait --json` instead — the outer
+`while` loop covers the same multi-ACK consumption shape that
+`wait-loop` plays in the single-call case.
 
 **Recommended pattern (BRC producer loop):**
 
 ```bash
-# egg-orch message wait-loop threads the cursor internally between
-# iterations; pass --since <cursor> across successive wait-loop calls
-# to close the wait→wait race for multi-ACK producer loops.
+# egg-orch message wait --json surfaces .data.cursor on every response;
+# thread it into --since to close the wait→wait race across successive
+# waits in a multi-ACK producer loop. wait-loop is not used here because
+# its CLI surface does not expose the cursor to bash callers.
 cursor=""
 while true; do
-    out=$(egg-orch message wait-loop \
+    out=$(egg-orch message wait --json \
         --for CONSENSUS_ACK --for CONSENSUS_NACK \
         --for CONSENSUS_RE_REVIEW --for OVERSEER_ALERT \
+        --timeout 60 \
         ${cursor:+--since "$cursor"})
-    cursor=$(echo "$out" | jq -r '.cursor // empty' 2>/dev/null || echo "$cursor")
-    # process $out …
+    cursor=$(echo "$out" | jq -r '.data.cursor // empty')
+    # process matched messages from $out (.data.messages) …
 done
 ```
 

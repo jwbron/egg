@@ -167,7 +167,7 @@ Returns total message count and a breakdown by message type.
 | `PROGRESS` | Agent progress updates for other agents |
 | `STATUS` | General status announcements |
 | `HANDOFF` | Agent signaling completion of a handoff artifact |
-| `HEARTBEAT` | Agent state transition (`WORKING`, `WAITING_ON_ROLE`, `WAITING_FOR_EVENT`, `PROPOSED`, `IDLE`) — resets the orchestrator's `last_heartbeat` without emitting a free-form `PROGRESS` entry. `WAITING_FOR_EVENT` is a liveness keep-alive emitted automatically by `mcp__brc__wait_loop` while blocked — agents don't need to emit it manually. See [Agent Wait Patterns — HEARTBEAT](../reference/agent-wait-patterns.md#4-heartbeat-message-type) for the metadata schema. |
+| `HEARTBEAT` | Agent state transition (`WORKING`, `WAITING_ON_ROLE`, `WAITING_FOR_EVENT`, `PROPOSED`, `IDLE`) — resets the orchestrator's `last_heartbeat` without emitting a free-form `PROGRESS` entry. `WAITING_FOR_EVENT` is a liveness keep-alive emitted automatically by `egg-orch message wait-loop` while blocked — agents don't need to emit it manually. See [Agent Wait Patterns — HEARTBEAT](../reference/agent-wait-patterns.md#4-heartbeat-message-type) for the metadata schema. |
 | `AGENT_FAILED` | Orchestrator notifying agents of a peer failure |
 | `CONSENSUS_PROPOSE` | Producer broadcasting its proposal for review |
 | `CONSENSUS_ACK` | Reviewer approving a producer's proposal |
@@ -229,7 +229,7 @@ The pipeline ID is auto-resolved from `EGG_PIPELINE_ID` if set; otherwise pass i
 | `HANDOFF` | You've produced an artifact that another agent needs to act on, especially when role boundaries prevent you from completing the work yourself | Coder can't push test files → HANDOFF to tester with file paths |
 | `STATUS` | Your current state affects a peer's decisions or timing | Documenter tells reviewer: "Docs not ready yet, reviewing coder output first" |
 | `PROGRESS` | You've completed a milestone that peers may be waiting on | Coder tells tester: "API endpoints committed and pushed" |
-| `HEARTBEAT` | You have a machine-actionable state transition to advertise (`WORKING`, `WAITING_ON_ROLE`, `PROPOSED`, `IDLE`) — use `egg-orch message heartbeat --state ...` rather than `message send --type HEARTBEAT` so the dedicated endpoint's schema validation, dedup, and rate limiting apply. (`WAITING_FOR_EVENT` is auto-emitted by `mcp__brc__wait_loop` — don't emit it manually.) | Tester enters `WAITING_ON_ROLE` → `egg-orch message heartbeat --state WAITING_ON_ROLE --waiting-on coder`. See [Agent Wait Patterns — HEARTBEAT](../reference/agent-wait-patterns.md#4-heartbeat-message-type). |
+| `HEARTBEAT` | You have a machine-actionable state transition to advertise (`WORKING`, `WAITING_ON_ROLE`, `PROPOSED`, `IDLE`) — use `egg-orch message heartbeat --state ...` rather than `message send --type HEARTBEAT` so the dedicated endpoint's schema validation, dedup, and rate limiting apply. (`WAITING_FOR_EVENT` is auto-emitted by `egg-orch message wait-loop` — don't emit it manually.) | Tester enters `WAITING_ON_ROLE` → `egg-orch message heartbeat --state WAITING_ON_ROLE --waiting-on coder`. See [Agent Wait Patterns — HEARTBEAT](../reference/agent-wait-patterns.md#4-heartbeat-message-type). |
 
 > **On `QUESTION` (removed in [#1897](https://github.com/jwbron/egg/issues/1897))**: the old `QUESTION` type had no guaranteed respondent and became a free-form chatter channel. For the typical "I'm blocked until you answer" case:
 >
