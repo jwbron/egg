@@ -280,10 +280,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-7",
+      "question": "**Slice scheduling concurrency cap** — How many independent slices should be allowed to run in parallel within a single wave?",
+      "context": "Open contract question decision-5, registered by an agent during the refine phase.",
+      "options": [
+        "Unbounded — spawn every wave-N slice simultaneously; trust container limits and gateway throttling.",
+        "Cap matches today's `max_concurrent` for implement phase (whatever `ConcurrentPhaseExecutor.max_concurrent` resolves to today, typically all roles in parallel).",
+        "New explicit `max_parallel_slices` setting (default 3) — prevents context/cost blow-up on plans with 10+ independent slices; spillover slices wait for an open slot.",
+        "Decide based on token budget — the orchestrator estimates token cost per slice (LOC * roster size) and caps wave concurrency to fit under a `max_parallel_token_spend` ceiling.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-28T16:55:13.792723Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T16:55:13.749798Z",
+  "updated_at": "2026-04-28T16:55:13.815552Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -297,6 +317,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 25,
+  "version": 26,
   "jira_ticket": null
 }
