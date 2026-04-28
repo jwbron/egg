@@ -240,10 +240,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-5",
+      "question": "**Lens reviewer scope** — `reviewer_security` and `reviewer_concurrency` are CRITICAL lenses today. With slice-scoped reviews, where should they run?",
+      "context": "Open contract question decision-3, registered by an agent during the refine phase.",
+      "options": [
+        "Per-slice only — lenses review each slice's diff in that slice's BRC; cheaper but loses cross-slice coherence (a security regression spanning two slices may be missed).",
+        "Per-slice + final cross-slice pass — lenses review each slice locally AND run once more on the merged pipeline branch before PR phase; more thorough but doubles the lens cost.",
+        "Pipeline-branch only — lenses skip individual slice BRC entirely and run once on the merged result before PR phase; matches today's single-pass behavior; loses per-slice early-abort benefit.",
+        "Per-slice only, but `reviewer_code_holistic` runs once on the merged pipeline branch (since it specifically catches cross-slice architectural issues per #2126).",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-28T16:55:13.665507Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T16:55:13.629662Z",
+  "updated_at": "2026-04-28T16:55:13.687807Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -257,6 +277,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 23,
+  "version": 24,
   "jira_ticket": null
 }
