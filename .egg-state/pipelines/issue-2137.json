@@ -515,10 +515,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-19",
+      "question": "**Auto-serialization heuristic for would-be multi-parent slices** — When the planner detects that converting a slice DAG into a forest requires serializing two or more parents into a chain, what ordering rule should it apply? The issue suggests \"cluster by `files_affected` overlap to minimize merge friction, then order by descending downstream fan-out\" as a starting point — please pin down the rule precisely (or override).",
+      "context": "Open contract question decision-17, registered by an agent during the refine phase.",
+      "options": [
+        "Cluster by `files_affected` Jaccard overlap (merge clusters whose overlap exceeds a threshold, default 0.3); within a cluster, order by descending downstream fan-out (most-depended-on slice first). Issue's literal suggestion.",
+        "Order by descending estimated LOC — bigger slices first so smaller adjustments stack on top of them, minimizing the total rebase surface in later slices.",
+        "Order by ascending alphabetic slice ID after `files_affected` clustering — deterministic and human-predictable; ignores fan-out and size signals.",
+        "Let the planner emit an explicit `serialized_chain_order` field per cluster — the planner's own judgement is the source of truth; the heuristic is just a fallback when the planner doesn't supply ordering. Refiner can spot-check the plan during plan review.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-28T16:55:14.881390Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T16:55:14.830207Z",
+  "updated_at": "2026-04-28T16:55:14.901385Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -532,6 +552,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 37,
+  "version": 38,
   "jira_ticket": null
 }
