@@ -11564,9 +11564,21 @@ def _run_pipeline(
                     except GatewayError as gw_err:
                         is_transient = gw_err.status_code is None or gw_err.status_code >= 500
                         if not is_transient or wt_attempt == wt_max_attempts:
+                            # Surface gw_err.details so per-repo failures
+                            # captured by the gateway aren't dropped.  See
+                            # #2186.
+                            logger.error(
+                                "Worktree creation failed permanently",
+                                pipeline_id=pipeline_id,
+                                attempts=wt_attempt,
+                                status_code=gw_err.status_code,
+                                error_message=gw_err.message,
+                                details=gw_err.details,
+                            )
                             raise RuntimeError(
                                 f"Failed to create worktrees for pipeline {pipeline_id} "
-                                f"after {wt_max_attempts} attempts: {gw_err}"
+                                f"after {wt_max_attempts} attempts: "
+                                f"{gw_err.message} (details: {gw_err.details})"
                             ) from gw_err
                         logger.warning(
                             "Worktree creation failed, retrying",
@@ -11574,6 +11586,7 @@ def _run_pipeline(
                             attempt=wt_attempt,
                             max_attempts=wt_max_attempts,
                             error=str(gw_err),
+                            details=gw_err.details,
                         )
                         time.sleep(wt_backoff)
                         wt_backoff *= 2

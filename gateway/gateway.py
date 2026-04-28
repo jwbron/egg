@@ -6178,6 +6178,41 @@ def _cleanup_stale_pack_files(exec_path: str) -> None:
         )
 
 
+def _cleanup_empty_container_dir(container_id: str) -> None:
+    """Best-effort removal of an orphan container worktree directory.
+
+    Called from the total-failure branch of worktree_create.  Only acts
+    when the directory is actually empty — if any per-repo subdir is
+    present (partial failure with leftover state), we leave it for an
+    operator-driven prune so we don't accidentally drop in-progress
+    work.  See #2186.
+    """
+    target = WORKTREE_BASE_DIR / container_id
+    try:
+        if not target.exists():
+            return
+        if any(target.iterdir()):
+            logger.warning(
+                "Skipping orphan container dir cleanup: not empty",
+                container_id=container_id,
+                path=str(target),
+            )
+            return
+        target.rmdir()
+        logger.info(
+            "Removed empty orphan container worktree dir",
+            container_id=container_id,
+            path=str(target),
+        )
+    except OSError as e:
+        logger.warning(
+            "Failed to clean orphan container dir",
+            container_id=container_id,
+            path=str(target),
+            error=str(e),
+        )
+
+
 @app.route("/api/v1/worktree/create", methods=["POST"])
 @require_launcher_auth
 def worktree_create() -> tuple[Response, int] | Response:
@@ -6241,11 +6276,11 @@ def worktree_create() -> tuple[Response, int] | Response:
         else:
             repo_name = repo
 
+        effective_branch = base_branch or manager.resolve_default_branch(repo_name)
         try:
             # Resolve the default branch per-repo when no explicit base is given.
             # This ensures repos with non-standard default branches (e.g., master)
             # are handled correctly.  See #860.
-            effective_branch = base_branch or manager.resolve_default_branch(repo_name)
             info = manager.create_worktree(
                 repo_name=repo_name,
                 container_id=container_id,
@@ -6256,14 +6291,48 @@ def worktree_create() -> tuple[Response, int] | Response:
             )
             # Translate container path to host path for egg launcher mount sources
             worktrees[repo_name] = translate_to_host_path(str(info.worktree_path))
-        except ValueError as e:
-            errors.append(f"{repo_name}: {e}")
-        except RuntimeError as e:
+        except (ValueError, RuntimeError) as e:
+            # Capture full traceback so operators can diagnose without
+            # re-instrumenting the gateway.  See #2186.
+            logger.exception(
+                "worktree_create per-repo failure",
+                repo_name=repo_name,
+                container_id=container_id,
+                base_branch=effective_branch,
+                assigned_branch=assigned_branch,
+                error_type=type(e).__name__,
+            )
             errors.append(f"{repo_name}: {e}")
         except Exception as e:
+            logger.exception(
+                "worktree_create unexpected per-repo failure",
+                repo_name=repo_name,
+                container_id=container_id,
+                base_branch=effective_branch,
+                assigned_branch=assigned_branch,
+                error_type=type(e).__name__,
+            )
             errors.append(f"{repo_name}: unexpected error - {e}")
 
     if errors and not worktrees:
+        # Total failure: surface aggregate errors in logs + audit, then
+        # best-effort clean up the empty container directory so retries
+        # aren't blocked by stale state.  See #2186.
+        logger.error(
+            "worktree_create failed for all repos",
+            container_id=container_id,
+            errors=errors,
+        )
+        audit_log(
+            "worktrees_create_failed",
+            "worktree_create",
+            success=False,
+            details={
+                "container_id": container_id,
+                "errors": errors,
+            },
+        )
+        _cleanup_empty_container_dir(container_id)
         return make_error(
             "Failed to create any worktrees",
             status_code=500,
