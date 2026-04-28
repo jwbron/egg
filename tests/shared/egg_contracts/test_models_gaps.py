@@ -153,12 +153,12 @@ class TestTaskGapsRoundTrip:
         assert reloaded.gaps[1].resolved is True
 
     def test_contract_with_gaps_serialises_under_tasks(self):
-        """JSON shape should expose gaps under ``phases[*].tasks[*].gaps``."""
+        """JSON shape should expose gaps under ``slices[*].tasks[*].gaps``."""
         contract = Contract(
             pipeline_id="issue-1917",
-            phases=[
+            slices=[
                 {
-                    "id": "phase-1",
+                    "id": "slice-1",
                     "name": "n",
                     "tasks": [
                         {
@@ -178,7 +178,7 @@ class TestTaskGapsRoundTrip:
             ],
         )
         dumped = contract.model_dump(mode="json")
-        assert dumped["phases"][0]["tasks"][0]["gaps"][0]["id"] == "gap-9"
+        assert dumped["slices"][0]["tasks"][0]["gaps"][0]["id"] == "gap-9"
 
 
 # --------------------------------------------------------------------

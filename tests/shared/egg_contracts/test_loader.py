@@ -429,6 +429,6 @@ class TestExportContract:
         assert "schemaVersion" in data
         assert "issue" in data
         assert "current_phase" in data
-        assert "phases" in data
+        assert "slices" in data
         assert "decisions" in data
         assert "acceptance_criteria" in data

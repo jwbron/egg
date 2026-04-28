@@ -94,7 +94,7 @@ class TestParsedPhase:
             ],
         )
         phase = parsed.to_contract_phase()
-        assert phase.id == "phase-1"
+        assert phase.id == "slice-1"
         assert phase.name == "Setup"
         assert len(phase.tasks) == 1
 
@@ -386,7 +386,7 @@ class TestParseResult:
         )
         contract_phases = result.to_contract_phases()
         assert len(contract_phases) == 1
-        assert contract_phases[0].id == "phase-1"
+        assert contract_phases[0].id == "slice-1"
 
 
 class TestFormatWarnings:
@@ -1044,7 +1044,7 @@ class TestParsePhasesFromYaml:
         assert len(phases) == 0
         # Warning should indicate the error
         assert any("pr_plan" in w.message for w in warnings)
-        assert any("without 'phases'" in w.message for w in warnings)
+        assert any("without 'slices' or 'phases'" in w.message for w in warnings)
 
     def test_pr_plan_key_without_phases_full_parse_fails(self):
         """Test that pr_plan without phases causes parse_plan to fail."""
