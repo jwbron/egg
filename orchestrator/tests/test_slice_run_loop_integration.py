@@ -34,8 +34,6 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 _orchestrator_path = Path(__file__).parent.parent
 if str(_orchestrator_path) not in sys.path:
     sys.path.insert(0, str(_orchestrator_path))
@@ -300,6 +298,7 @@ class TestStartStackedPrReconciler:
                 gateway,
                 pipeline,
                 interval_seconds=0.02,
+                worktree_repo_path=Path("/tmp/test-worktree"),
             )
             try:
                 deadline = time.monotonic() + 1.0
@@ -318,18 +317,15 @@ class TestStartStackedPrReconciler:
         call_args = gateway.rebase_onto.call_args
         # First positional arg is pipeline_id; remaining kwargs.
         assert call_args.args[0] == pipeline.id
-        # Second positional is repo_path. Per reviewer_code's non-blocking
-        # observation, the production wiring passes ``str(getattr(pipeline,
-        # "branch", "") or "")`` — i.e. the branch name, not a filesystem
-        # path. The gateway's /api/v1/git endpoint expects a real repo
-        # path, so this is a coder-side gap. We assert the value
-        # *currently* passed so any future change to that semantics
-        # (e.g. switching to an actual repo path) trips the test as a
-        # signal to update the expectation alongside the fix.
-        assert call_args.args[1] == str(pipeline.branch or ""), (
-            "Today the production code passes pipeline.branch as repo_path. "
-            "Once the coder switches to a real repo path (per reviewer_code "
-            "non-blocking #4), update this assertion to the new shape."
+        # Second positional is repo_path. Coder v5 fix (commit 7f4203469)
+        # threads ``worktree_repo_path`` through to ``rebase_onto`` —
+        # previously it was ``pipeline.branch`` which would 4xx the
+        # gateway. We supply ``Path("/tmp/test-worktree")`` via the new
+        # ``worktree_repo_path`` keyword on ``_start_stacked_pr_reconciler``
+        # for this test (added below) and assert it flows through.
+        assert call_args.args[1] == "/tmp/test-worktree", (
+            "Coder v5 fix: rebase_onto must receive a real filesystem path "
+            "as repo_path, not the branch string"
         )
         assert call_args.kwargs["branch"] == "egg/issue-9999/slice-2"
         assert call_args.kwargs["new_base"] == "egg/issue-9999"
@@ -689,38 +685,45 @@ class TestRunImplementPhaseSlices:
 
 
 # ---------------------------------------------------------------------------
-# Coder-side gaps surfaced by reviewer_code_holistic NACK on tester v1
+# Coder fixes for reviewer_code_holistic v1 NACK (now regression guards)
 # ---------------------------------------------------------------------------
 #
-# The tests below assert post-fix invariants for blocking findings the
-# holistic reviewer flagged on the coder's commit 36d34da9. They are
-# marked ``xfail(strict=True)`` so they (a) fail today (the bug is
-# present), (b) are not counted against the test suite as red, and
-# (c) become regression guards once the coder lands the fix — at
-# which point they pass and ``strict=True`` flags the XPASS as a
-# signal to drop the xfail marker. See `gaps_found` in the v2
-# proposal summary for the full reviewer_code_holistic citation.
+# The tests below started life as ``pytest.mark.xfail(strict=True)``
+# markers pinning post-fix invariants for the three blocking findings
+# the holistic reviewer flagged on coder commit 36d34da9 (tester v1 NACK).
+# Coder v5 (commit 7f4203469) landed the fixes, so the markers have
+# been removed and the assertions promoted to regular regression
+# guards. The seam names follow the actual coder fix:
+#
+#   * Holistic NACK #1 → ``GatewayClient.create_slice_integration_branch``
+#     (the coder's fix; my v1 xfail named the missing seam
+#     ``push_worktree_branch`` which was the closest existing primitive
+#     at the time).
+#   * Holistic NACK #2 → ``GatewayClient.list_open_prs`` /
+#     ``list_remote_branches`` are now implemented and threaded into
+#     the reconciler.
 
 
-class TestCoderGapsSurfacedByHolisticReview:
-    """xfail tests pinning the coder-side fix surface flagged by holistic."""
+class TestCoderFixesForHolisticReview:
+    """Regression guards locking in the coder v5 fixes for holistic v1 NACK."""
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Coder gap (holistic NACK #1): _run_implement_phase_slices opens "
-            "the slice PR with head=egg/issue-N/slice-M (the integration "
-            "branch) but never merges/pushes the per-role agent branches into "
-            "that integration branch. The named head therefore contains zero "
-            "commits and gh pr create fails. Fix lands on the coder side — "
-            "this test passes once the loop pushes the integration branch "
-            "before invoking gateway.create_slice_pr."
-        ),
-    )
-    def test_integration_branch_pushed_before_create_slice_pr(self) -> None:
+    def test_integration_branch_created_before_create_slice_pr(self) -> None:
+        """Holistic NACK #1 fix: ``create_slice_integration_branch`` must
+        push the per-slice ref before the per-slice PR is opened so the
+        head contains commits when gh pr create runs."""
         pipeline = _make_pipeline()
         slice_obj = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
         contract = _make_contract(slices=[slice_obj])
+
+        call_order: list[str] = []
+
+        def _track_create_branch(*args: Any, **kwargs: Any) -> bool:
+            call_order.append("create_slice_integration_branch")
+            return True
+
+        def _track_create_pr(*args: Any, **kwargs: Any) -> str:
+            call_order.append("create_slice_pr")
+            return "https://example/pr/1"
 
         with (
             patch("egg_contracts.loader.load_contract", return_value=contract),
@@ -732,8 +735,10 @@ class TestCoderGapsSurfacedByHolisticReview:
             mock_start_recon.return_value = (MagicMock(), threading.Event())
             spawner = MagicMock()
             spawner.gateway = MagicMock()
-            spawner.gateway.create_slice_pr.return_value = "https://example/pr/1"
-            spawner.gateway.push_worktree_branch = MagicMock()  # the missing seam
+            spawner.gateway.create_slice_integration_branch = MagicMock(
+                side_effect=_track_create_branch
+            )
+            spawner.gateway.create_slice_pr = MagicMock(side_effect=_track_create_pr)
 
             _run_implement_phase_slices(
                 pipeline_id=pipeline.id,
@@ -747,27 +752,22 @@ class TestCoderGapsSurfacedByHolisticReview:
                 certs_volume=None,
                 worktree_repo_path=Path("/tmp/x"),
             )
-        # The slice's integration branch must be populated BEFORE the PR
-        # is opened — otherwise gh pr create fails with "head not found".
-        assert spawner.gateway.push_worktree_branch.called, (
-            "Coder must push commits to the slice integration branch "
-            "(egg/issue-N/slice-1) before calling create_slice_pr"
+        # Coder v5 fix: integration branch is created BEFORE the PR is
+        # opened, so gh pr create finds a populated head ref.
+        assert spawner.gateway.create_slice_integration_branch.called, (
+            "Coder must push the slice integration branch (egg/issue-N/slice-1) "
+            "before calling create_slice_pr"
+        )
+        assert (
+            "create_slice_integration_branch" in call_order and "create_slice_pr" in call_order
+        ), "both seams must be exercised"
+        assert call_order.index("create_slice_integration_branch") < call_order.index(
+            "create_slice_pr"
+        ), (
+            "create_slice_integration_branch must run BEFORE create_slice_pr — "
+            "otherwise gh pr create fails on an empty head"
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Coder gap (holistic NACK #2): _start_stacked_pr_reconciler "
-            "ships with _list_open_prs / _list_extant_branches stubbed to "
-            "empty collections, so the reconciler is permanently a no-op. "
-            "Fix is either (a) implement GatewayClient.list_open_prs / "
-            "list_remote_branches, or (b) don't start the daemon thread "
-            "at all. Until either lands, the safety-net behaviour the "
-            "operator believes is running is wired but disconnected. "
-            "This test passes once the reconciler can detect at least one "
-            "real orphan (non-empty list_open_prs)."
-        ),
-    )
     def test_reconciler_detects_real_orphans_not_no_op(self) -> None:
         pipeline = _make_pipeline()
         gateway = MagicMock()
