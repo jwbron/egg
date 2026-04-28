@@ -300,10 +300,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-8",
+      "question": "**Plan-phase slice sizing guidance** — Issue says ~1,000 LOC is \"guidance to the plan phase, not enforced.\" What should the plan agent actually be told?",
+      "context": "Open contract question decision-6, registered by an agent during the refine phase.",
+      "options": [
+        "Soft prompt guidance only — add a paragraph to the planner system prompt (\"slices should be ≤1,000 LOC where possible\"); no validation, no warning.",
+        "Soft guidance + post-plan advisory warning — plan reviewer flags slices estimated >1,000 LOC but does not NACK; refiner/operator can override.",
+        "Soft guidance + NACK threshold — plan reviewer NACKs if any slice is estimated >2,000 LOC (hard ceiling); 1,000–2,000 advisory.",
+        "No size guidance at all — the planner already groups tasks; trust its judgment; slice independence is the only criterion.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-28T16:55:13.861238Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T16:55:13.815552Z",
+  "updated_at": "2026-04-28T16:55:13.881343Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -317,6 +337,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 26,
+  "version": 27,
   "jira_ticket": null
 }
