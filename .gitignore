@@ -66,3 +66,9 @@ Thumbs.db
 .egg-state/last-known-good/
 .egg-state/selection/
 .egg-state/grimp-cache/
+
+# Per-machine runtime telemetry written by the overseer; otherwise
+# leaves `git status` dirty after every local pipeline run and trips
+# the selector's "non-.py change" fallback into running the full suite.
+.egg-state/oversight/agent-timing.json
+.egg-state/oversight/agent-timing.json.lock

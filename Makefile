@@ -295,7 +295,7 @@ test: sync-venv-if-uv
 	@echo "==> Running narrowed unit tests (changeset-aware; see docs/guides/testing.md)..."
 	@selected_file=$$(mktemp); \
 	PYTEST_ARGS_RAW="$(PYTEST_ARGS)" \
-		$(PYTHON) scripts/select_tests.py >"$$selected_file"; \
+		env -u PYTHONPATH $(PYTHON) scripts/select_tests.py >"$$selected_file"; \
 	selector_rc=$$?; \
 	if [ "$$selector_rc" -ne 0 ]; then \
 		echo "select-tests: selector exited $$selector_rc; running full suite as fallback"; \
@@ -325,7 +325,7 @@ test: sync-venv-if-uv
 	t1=$$(date +%s%N); \
 	rm -f "$$selected_file"; \
 	pytest_ms=$$(( (t1 - t0) / 1000000 )); \
-	$(PYTHON) scripts/select_tests.py --patch-selection-json --head "$$head_sha" --pytest-ms "$$pytest_ms" || true; \
+	env -u PYTHONPATH $(PYTHON) scripts/select_tests.py --patch-selection-json --head "$$head_sha" --pytest-ms "$$pytest_ms" || true; \
 	exit $$pytest_rc
 
 ## Full-suite escape hatch (issue #1973).  Runs the historical
@@ -346,7 +346,7 @@ test-all: sync-venv-if-uv  ## Run the full unit-test suite + record LKG on green
 	@$(PYTEST) tests/ gateway/tests/ orchestrator/tests/ shared/tests/ -v -m "not functional" $(PYTEST_ARGS); \
 	pytest_rc=$$?; \
 	if [ "$$pytest_rc" -eq 0 ]; then \
-		$(PYTHON) scripts/select_tests.py --record-good \
+		env -u PYTHONPATH $(PYTHON) scripts/select_tests.py --record-good \
 			|| echo "select-tests: --record-good failed; LKG not updated"; \
 	else \
 		echo "select-tests: pytest failed; LKG not updated"; \
@@ -361,7 +361,7 @@ test-all: sync-venv-if-uv  ## Run the full unit-test suite + record LKG on green
 ## input.
 test-record-good:
 	@echo "==> Recording HEAD as Last-Known-Good baseline (issue #1973)..."
-	@$(PYTHON) scripts/select_tests.py --record-good
+	@env -u PYTHONPATH $(PYTHON) scripts/select_tests.py --record-good
 
 smoketest-long-poll: export PYTHONPATH := shared:gateway:orchestrator
 smoketest-long-poll: venv  ## Smoke-test the long-poll / event-driven wait infrastructure
