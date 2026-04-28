@@ -34,6 +34,8 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 _orchestrator_path = Path(__file__).parent.parent
 if str(_orchestrator_path) not in sys.path:
     sys.path.insert(0, str(_orchestrator_path))
@@ -316,6 +318,19 @@ class TestStartStackedPrReconciler:
         call_args = gateway.rebase_onto.call_args
         # First positional arg is pipeline_id; remaining kwargs.
         assert call_args.args[0] == pipeline.id
+        # Second positional is repo_path. Per reviewer_code's non-blocking
+        # observation, the production wiring passes ``str(getattr(pipeline,
+        # "branch", "") or "")`` — i.e. the branch name, not a filesystem
+        # path. The gateway's /api/v1/git endpoint expects a real repo
+        # path, so this is a coder-side gap. We assert the value
+        # *currently* passed so any future change to that semantics
+        # (e.g. switching to an actual repo path) trips the test as a
+        # signal to update the expectation alongside the fix.
+        assert call_args.args[1] == str(pipeline.branch or ""), (
+            "Today the production code passes pipeline.branch as repo_path. "
+            "Once the coder switches to a real repo path (per reviewer_code "
+            "non-blocking #4), update this assertion to the new shape."
+        )
         assert call_args.kwargs["branch"] == "egg/issue-9999/slice-2"
         assert call_args.kwargs["new_base"] == "egg/issue-9999"
         assert call_args.kwargs["old_base"] == "egg/issue-9999/slice-1"
@@ -671,6 +686,147 @@ class TestRunImplementPhaseSlices:
             )
         assert exit_code == 0
         spawner.gateway.create_slice_pr.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Coder-side gaps surfaced by reviewer_code_holistic NACK on tester v1
+# ---------------------------------------------------------------------------
+#
+# The tests below assert post-fix invariants for blocking findings the
+# holistic reviewer flagged on the coder's commit 36d34da9. They are
+# marked ``xfail(strict=True)`` so they (a) fail today (the bug is
+# present), (b) are not counted against the test suite as red, and
+# (c) become regression guards once the coder lands the fix — at
+# which point they pass and ``strict=True`` flags the XPASS as a
+# signal to drop the xfail marker. See `gaps_found` in the v2
+# proposal summary for the full reviewer_code_holistic citation.
+
+
+class TestCoderGapsSurfacedByHolisticReview:
+    """xfail tests pinning the coder-side fix surface flagged by holistic."""
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "Coder gap (holistic NACK #1): _run_implement_phase_slices opens "
+            "the slice PR with head=egg/issue-N/slice-M (the integration "
+            "branch) but never merges/pushes the per-role agent branches into "
+            "that integration branch. The named head therefore contains zero "
+            "commits and gh pr create fails. Fix lands on the coder side — "
+            "this test passes once the loop pushes the integration branch "
+            "before invoking gateway.create_slice_pr."
+        ),
+    )
+    def test_integration_branch_pushed_before_create_slice_pr(self) -> None:
+        pipeline = _make_pipeline()
+        slice_obj = _make_slice("slice-1", tasks=[_make_task("task-1-1")])
+        contract = _make_contract(slices=[slice_obj])
+
+        with (
+            patch("egg_contracts.loader.load_contract", return_value=contract),
+            patch("egg_contracts.loader.save_contract"),
+            patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
+            patch("routes.pipelines._run_concurrent_phase", return_value=(0, "ok")),
+            patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
+        ):
+            mock_start_recon.return_value = (MagicMock(), threading.Event())
+            spawner = MagicMock()
+            spawner.gateway = MagicMock()
+            spawner.gateway.create_slice_pr.return_value = "https://example/pr/1"
+            spawner.gateway.push_worktree_branch = MagicMock()  # the missing seam
+
+            _run_implement_phase_slices(
+                pipeline_id=pipeline.id,
+                pipeline=pipeline,
+                spawner=spawner,
+                repo_volumes={},
+                gateway_mode="public",
+                repos=["owner/repo"],
+                sandbox_env={},
+                store=MagicMock(),
+                certs_volume=None,
+                worktree_repo_path=Path("/tmp/x"),
+            )
+        # The slice's integration branch must be populated BEFORE the PR
+        # is opened — otherwise gh pr create fails with "head not found".
+        assert spawner.gateway.push_worktree_branch.called, (
+            "Coder must push commits to the slice integration branch "
+            "(egg/issue-N/slice-1) before calling create_slice_pr"
+        )
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "Coder gap (holistic NACK #2): _start_stacked_pr_reconciler "
+            "ships with _list_open_prs / _list_extant_branches stubbed to "
+            "empty collections, so the reconciler is permanently a no-op. "
+            "Fix is either (a) implement GatewayClient.list_open_prs / "
+            "list_remote_branches, or (b) don't start the daemon thread "
+            "at all. Until either lands, the safety-net behaviour the "
+            "operator believes is running is wired but disconnected. "
+            "This test passes once the reconciler can detect at least one "
+            "real orphan (non-empty list_open_prs)."
+        ),
+    )
+    def test_reconciler_detects_real_orphans_not_no_op(self) -> None:
+        pipeline = _make_pipeline()
+        gateway = MagicMock()
+        gateway.list_open_prs = MagicMock(
+            return_value=[
+                {
+                    "number": 1,
+                    "head": "egg/issue-9999/slice-2",
+                    "base": "egg/issue-9999/slice-1",
+                }
+            ]
+        )
+        gateway.list_remote_branches = MagicMock(return_value={"egg/issue-9999"})
+        gateway.rebase_onto.return_value = True
+
+        captured: dict[str, Any] = {}
+
+        def _capture_callables(contract: Any, **kwargs: Any) -> Any:
+            captured.update(kwargs)
+            return MagicMock(orphans_detected=0)
+
+        contract = _make_contract(
+            slices=[
+                _make_slice("slice-1"),
+                _make_slice(
+                    "slice-2", deps=["slice-1"]
+                ),  # parent-branch-at-creation persisted by the loop
+            ]
+        )
+        with patch(
+            "orchestrator.stacked_pr_reconciler.reconcile_once",
+            side_effect=_capture_callables,
+        ):
+            thread, stop_event = _start_stacked_pr_reconciler(
+                pipeline.id,
+                lambda: contract,
+                gateway,
+                pipeline,
+                interval_seconds=0.02,
+            )
+            try:
+                deadline = time.monotonic() + 1.0
+                while time.monotonic() < deadline and "list_open_prs" not in captured:
+                    time.sleep(0.02)
+            finally:
+                stop_event.set()
+                thread.join(timeout=2.0)
+        # The list-callable threaded into reconcile_once must call the
+        # gateway's list helper — not return an empty list directly.
+        list_open_prs_callable = captured["list_open_prs"]
+        result = list_open_prs_callable()
+        assert gateway.list_open_prs.called, (
+            "Reconciler's list_open_prs callable must call "
+            "GatewayClient.list_open_prs(repo); the current stub returns []"
+        )
+        assert len(result) > 0, (
+            "Reconciler must surface at least one PR for orphan detection; "
+            "today the stub returns an empty list"
+        )
 
 
 # ---------------------------------------------------------------------------

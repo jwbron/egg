@@ -22,6 +22,8 @@ These tests cover:
 
 from __future__ import annotations
 
+import pytest
+
 from egg_contracts.models import Slice
 from egg_contracts.plan_parser import validate_forest
 
@@ -137,6 +139,53 @@ class TestDuplicateIds:
         errors = validate_forest(slices)
         # At least one error mentions the duplicate id.
         assert any("slice-1" in e and "duplicate" in e.lower() for e in errors)
+
+
+class TestCycleDetection:
+    """Cyclic slice DAGs are rejected.
+
+    Per reviewer_code's non-blocking observation on the tester v1 ACK
+    (and the corresponding coder NACK), a cyclic plan would otherwise
+    deadlock the orchestrator silently. The xfail markers below pin
+    the post-fix invariants — they fail today (validate_forest does not
+    yet call has_cycle) and turn into regression guards once the coder
+    lands the fix. ``strict=True`` flags the XPASS as a signal to drop
+    the marker.
+    """
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "Coder gap (reviewer_code non-blocking + coder NACK #6): "
+            "validate_forest does not yet call has_cycle. A 2-cycle "
+            "(slice-1 -> slice-2 -> slice-1) must be rejected at plan "
+            "ingestion to prevent silent orchestrator deadlock. Test "
+            "passes once the coder wires has_cycle() into validate_forest."
+        ),
+    )
+    def test_two_cycle_rejected(self) -> None:
+        slices = [
+            _slice("slice-1", ["slice-2"]),
+            _slice("slice-2", ["slice-1"]),
+        ]
+        errors = validate_forest(slices)
+        assert errors, "Cyclic plan must produce at least one error"
+        assert any("cycle" in e.lower() or "cyclic" in e.lower() for e in errors)
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "Coder gap (reviewer_code non-blocking + coder NACK #6): "
+            "validate_forest does not yet detect self-loops "
+            "(slice-1 depending on itself). Test passes once the coder "
+            "wires has_cycle() into validate_forest."
+        ),
+    )
+    def test_self_loop_rejected(self) -> None:
+        slices = [_slice("slice-1", ["slice-1"])]
+        errors = validate_forest(slices)
+        assert errors, "Self-loop must produce at least one error"
+        assert any("cycle" in e.lower() or "self" in e.lower() for e in errors)
 
 
 class TestRealisticPlan:
