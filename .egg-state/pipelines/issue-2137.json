@@ -456,10 +456,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-16",
+      "question": "**BRC tracker namespacing for slices** — Multiple slice BRCs run concurrently within one pipeline. The existing tracker keys all messages on `pipeline_id`. Slicing requires either nested IDs or a new field. Which approach?",
+      "context": "Open contract question decision-14, registered by an agent during the refine phase.",
+      "options": [
+        "Nested pipeline IDs (`issue-2137/slice-1`, `issue-2137/slice-2`) — each slice gets its own tracker; existing audit/heartbeat/overseer code requires minimal changes since it already keys on `pipeline_id`; downside: tracker count scales with slice count.",
+        "Add `slice_id` field on every BRC message — single tracker per pipeline; all messages flow through one bus; downside: every existing consumer (audit, heartbeat, overseer, MCP tools) must be taught to filter on `slice_id`.",
+        "Hybrid: keep `pipeline_id` for cross-slice messages (HEARTBEAT, OVERSEER_ALERT) but use nested IDs for BRC consensus (CONSENSUS_*) so per-slice consensus state is naturally isolated.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-28T16:55:14.483663Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T16:55:14.288114Z",
+  "updated_at": "2026-04-28T16:55:14.565263Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -473,6 +492,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 34,
+  "version": 35,
   "jira_ticket": null
 }
