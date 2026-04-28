@@ -185,19 +185,38 @@ mode, the orchestrator now captures a frozen exit snapshot
 (`AgentExitInfo`) for each container as it exits and appends it to
 `PhaseExecution.agent_exits`. This snapshot includes the last 200 lines
 of container stdout/stderr (each capped at 4 096 chars), the exit code,
-the role, and the container ID at time of exit — and it persists in
-pipeline state even after the Pod is gone. Retrieve it via:
+the role, the container ID at time of exit, and `terminated_at` (the
+time the orchestrator *observed* the exit, not the container's own
+termination time) — and it persists in pipeline state even after the
+Pod is gone. The default `egg-orch phase get` text output only prints
+the phase name, status, and start time; the `agent_exits` array lives
+inside the JSON payload, so retrieve it with `--json`:
 
 ```bash
-egg-orch phase get <pipeline-id>
-# look for the "agent_exits" array in the phase_execution block
+egg-orch phase get <pipeline-id> --json | jq '.data.phase_execution.agent_exits'
 ```
 
 The `container_id` in each entry can also be fed directly to
 `/agent-diagnose` while the Pod still exists; `last_lines` gives you the
 log tail after it doesn't. This means the `short-lived pod, log
-unavailable` failure class is mitigated for concurrent phases even without
-a persistent log aggregator.
+unavailable` failure class is mitigated for concurrent phases — provided
+the orchestrator's exit-poll observed the exit before the Pod was
+GC'd. If the poll lost the race with k8s GC, the log fetch fails
+silently and `last_lines` is `[]`; you still have the role, exit code,
+and `terminated_at`, but you'll need to fall back to the Job spec and
+Events for the log content itself.
+
+Two other caveats worth knowing during triage:
+
+- `last_lines` is only populated for **non-zero** exits. Roles that
+  exited cleanly (exit code 0) have `last_lines: []` by design — if a
+  phase fails for non-container reasons (consensus stall, timeout)
+  while every role exited 0, the snapshot will tell you who ran but
+  not what they said.
+- An empty `last_lines` on a non-zero exit is ambiguous between
+  "container produced no output" and "log fetch raced with Pod GC"
+  (see above). Cross-check `container_id` against cluster Events if
+  the distinction matters.
 
 The broader [#1805](https://github.com/jwbron/egg/issues/1805) follow-up
 (persistent log aggregation for all agent types) remains open; the
