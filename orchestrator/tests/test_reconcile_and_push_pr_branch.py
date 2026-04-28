@@ -604,13 +604,23 @@ class TestPushWorktreeBranchReconcile:
         )
 
         # No upstream-main commit ended up duplicated into the worktree's
-        # local history (the contamination shape from #2222).
+        # local history (the contamination shape from #2222).  The worktree
+        # was cut from ``origin/main`` and so already contains the original
+        # upstream commit objects at their original SHAs — those are not
+        # contamination.  Contamination is a *new* commit with a different
+        # SHA that carries the same patch-id (rebase-replay artefact).
         upstream_patch_ids = {_patch_id_of(seed, sha) for sha in upstream_shas}
+        upstream_sha_set = set(upstream_shas)
         log = _git(work, "log", "--format=%H", "HEAD").stdout.strip()
-        local_patch_ids = {_patch_id_of(work, sha) for sha in log.splitlines() if sha.strip()}
-        duplicates = local_patch_ids & upstream_patch_ids
-        assert not duplicates, (
-            f"worktree contains duplicate-by-content commits of upstream main: {duplicates}"
+        contaminating = [
+            sha
+            for sha in log.splitlines()
+            if sha.strip()
+            and sha not in upstream_sha_set
+            and _patch_id_of(work, sha) in upstream_patch_ids
+        ]
+        assert not contaminating, (
+            f"worktree contains duplicate-by-content commits of upstream main: {contaminating}"
         )
 
     def test_rebase_fails_closed_when_base_unverifiable(self, tmp_path):
