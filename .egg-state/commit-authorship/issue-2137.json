@@ -1308,6 +1308,13 @@
       "registered_at": "2026-04-28T21:27:25.108990+00:00",
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_code"
+    },
+    "ff6c209dcb2169918b96f24e80359abb951e96b9": {
+      "branch": "egg/issue-2137",
+      "pipeline_id": "issue-2137",
+      "registered_at": "2026-04-28T21:36:02.623249+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "documenter"
     }
   },
   "version": 1
