@@ -206,6 +206,9 @@ def get_current_phase(pipeline_id: str) -> tuple[Response, int]:
                         }
                         for ct in phase_execution.cycle_timings
                     ],
+                    "agent_exits": [
+                        ae.model_dump(mode="json") for ae in phase_execution.agent_exits
+                    ],
                 },
             },
         )

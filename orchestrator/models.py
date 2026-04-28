@@ -264,6 +264,27 @@ class CycleTiming(BaseModel):
     )
 
 
+class AgentExitInfo(BaseModel):
+    """Per-role exit record preserved across phase failure cleanup.
+
+    Captured when a container exits during concurrent BRC execution, so
+    operators can triage which role failed and what it said last even after
+    container cleanup. See issue #2205.
+    """
+
+    role: AgentRole = Field(..., description="Agent role that exited")
+    exit_code: int = Field(..., description="Container exit code")
+    last_lines: list[str] = Field(
+        default_factory=list,
+        description="Tail of container stdout/stderr (up to 200 lines)",
+    )
+    terminated_at: datetime = Field(..., description="When the container exit was observed")
+    container_id: str | None = Field(
+        default=None,
+        description="Container ID at time of exit (may be unresolvable post-cleanup)",
+    )
+
+
 class PhaseExecution(BaseModel):
     """State of a single phase execution."""
 
@@ -294,6 +315,14 @@ class PhaseExecution(BaseModel):
     phase_start_sha: str | None = Field(
         default=None,
         description="Branch tip SHA at phase start, for completion signal verification",
+    )
+    agent_exits: list[AgentExitInfo] = Field(
+        default_factory=list,
+        description=(
+            "Per-role exit records from concurrent BRC execution. Populated by "
+            "_record_container_exit. Survives container cleanup so failure triage "
+            "remains possible. See issue #2205."
+        ),
     )
 
 
