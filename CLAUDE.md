@@ -9,10 +9,13 @@ make help          # List all targets
 make deps          # Install all dependencies (installs uv + venv)
 make setup         # Install dependencies + pre-commit hooks
 make lint          # Run all linters (Python, Shell, YAML, Dockerfile)
-make test          # Run full test suite
+make test          # Changeset-aware: tests reachable from the diff (inner-loop default)
+make test-all      # Full suite — CI ground truth; updates LKG baseline on green
 make lint-fix      # Auto-fix lint issues
 make security      # Run security scans (bandit, safety, trivy)
 ```
+
+**Use `make test`, not raw `pytest`/`.venv/bin/pytest`.** It narrows to the tests your diff actually touches (transitively, via static imports), so you don't have to guess which suites to run. Reach for direct `pytest` only when you need a flag the wrapper doesn't expose. See [docs/guides/testing.md](docs/guides/testing.md) for the narrowing model and `make test-all` escape hatch.
 
 ## Python Environment
 

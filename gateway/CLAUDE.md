@@ -7,7 +7,4 @@ Policy-enforcement sidecar that sits between agents and GitHub. Validates git/gh
 
 ## Testing
 
-```bash
-make test                     # Full suite from repo root
-pytest gateway/tests/         # Gateway tests only
-```
+Run `make test` from the repo root — it's changeset-aware and selects only the tests reachable from your diff. `make test-all` runs the full suite. See [docs/guides/testing.md](../docs/guides/testing.md) and the root [CLAUDE.md](../CLAUDE.md#quick-reference). Avoid invoking `pytest` directly: you'll skip the narrowing and may hit venv-PATH issues.
