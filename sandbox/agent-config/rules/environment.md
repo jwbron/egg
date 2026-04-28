@@ -73,7 +73,7 @@ jira ticket comments "$EGG_JIRA_TICKET"
 jira search 'project = ENG OR project = SEC'
 ```
 
-**Hard limits (always denied):** `transitions`, `worklog`, `attachments`, `watchers`, path traversal (`..`), duplicate slashes, non-ASCII keys. The `/execute` passthrough is GET-only (`DELETE` / `PUT` / `PATCH` return 403 there); the four write routes (`ticket/create`, `ticket/edit`, `ticket/comment/add`, `link create`) use their own dedicated paths and are the only write surface. See [Jira Wrapper Reference](../../../docs/reference/jira-wrapper.md) for the full endpoint surface, write verb body schemas, idempotency keys, and the `not_found` envelope.
+**Hard limits (always denied):** `transitions`, `worklog`, `attachments`, `watchers`, HTTP `DELETE` (no exposed surface), path traversal (`..`), duplicate slashes, non-ASCII keys. The `/execute` passthrough is GET-only (`PUT` / `PATCH` return 403 there); the four write routes (`ticket/create`, `ticket/edit`, `ticket/comment/add`, `issue-link/create`) use their own dedicated paths and are the only write surface. See [Jira Wrapper Reference](../../../docs/reference/jira-wrapper.md) for the full endpoint surface, write verb body schemas, idempotency keys, and the `not_found` envelope.
 
 ### Confluence Wrapper (`confluence`)
 
