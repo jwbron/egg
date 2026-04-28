@@ -207,6 +207,25 @@ class StateStore:
 
     def _ensure_worktree(self) -> Path:
         """Create or validate the persistent state worktree."""
+        # Fail-fast guard: every code path below runs `git` from
+        # ``self.repo_path``. If that path is not itself a git repository
+        # (e.g., a deployment sets ``EGG_REPO_PATH=/home/egg/repos`` — a
+        # parent dir containing several repos — and a caller constructs
+        # ``StateStore`` directly without going through
+        # :func:`get_state_store`'s multi-repo discovery), git walks up
+        # to the mount point and produces an opaque "not a git repository"
+        # error from inside `git worktree add`. Catch that case here and
+        # raise an actionable error naming the offending env var.
+        if not (self.repo_path / ".git").exists():
+            raise StateStoreError(
+                f"StateStore.repo_path is not a git repository: {self.repo_path}. "
+                f"This usually means EGG_REPO_PATH points at a parent directory "
+                f"containing multiple repos rather than a single repo. Use "
+                f"`get_state_store(repo_path)` (which calls `discover_repo_paths`) "
+                f"to resolve the parent to a specific repo before constructing "
+                f"the state store."
+            )
+
         # Clean up stale admin dir for THIS worktree only (e.g., from crashes).
         # IMPORTANT: Do NOT use `git worktree prune` — the orchestrator cannot
         # see the gateway's worktree paths (different bind mounts), so prune

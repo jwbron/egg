@@ -554,3 +554,194 @@ class TestFactory:
         store = CommitAuthorshipStore(worktree_dir=worktree)
         store.register(_VALID_SHA, "coder", "issue-1882")
         assert worktree.exists()
+
+
+class TestResolveAuthorshipRepoPath:
+    """``_resolve_authorship_repo_path`` must handle the three shapes
+    ``EGG_REPO_PATH`` takes in the wild: single repo, parent dir with
+    multiple child repos, and missing/non-existent path."""
+
+    def test_single_git_repo(self, tmp_path: Path, monkeypatch):
+        """``EGG_REPO_PATH`` pointing at a single repo returns that repo."""
+        from commit_authorship_store import _resolve_authorship_repo_path
+
+        repo = tmp_path / "single"
+        repo.mkdir()
+        (repo / ".git").mkdir()
+        monkeypatch.setenv("EGG_REPO_PATH", str(repo))
+
+        assert _resolve_authorship_repo_path() == repo
+
+    def test_parent_dir_prefers_egg_repo(self, tmp_path: Path, monkeypatch):
+        """Parent dir with multiple repos picks ``egg`` by name when present."""
+        from commit_authorship_store import _resolve_authorship_repo_path
+
+        parent = tmp_path / "repos"
+        parent.mkdir()
+        for name in ("actions", "egg", "zzz"):
+            child = parent / name
+            child.mkdir()
+            (child / ".git").mkdir()
+        monkeypatch.setenv("EGG_REPO_PATH", str(parent))
+
+        assert _resolve_authorship_repo_path() == parent / "egg"
+
+    def test_parent_dir_falls_back_to_first_alpha(self, tmp_path: Path, monkeypatch):
+        """When ``egg`` is absent, fall back to the first repo alphabetically
+        so deployments without an ``egg`` repo get a deterministic choice."""
+        from commit_authorship_store import _resolve_authorship_repo_path
+
+        parent = tmp_path / "repos"
+        parent.mkdir()
+        for name in ("alpha", "beta"):
+            child = parent / name
+            child.mkdir()
+            (child / ".git").mkdir()
+        monkeypatch.setenv("EGG_REPO_PATH", str(parent))
+
+        assert _resolve_authorship_repo_path() == parent / "alpha"
+
+    def test_non_existent_path_returns_env_value(self, tmp_path: Path, monkeypatch):
+        """Non-existent path is returned verbatim — ``StateStore`` will
+        raise the actionable error when ``_ensure_worktree`` runs."""
+        from commit_authorship_store import _resolve_authorship_repo_path
+
+        missing = tmp_path / "nope"
+        monkeypatch.setenv("EGG_REPO_PATH", str(missing))
+
+        assert _resolve_authorship_repo_path() == missing
+
+    def test_parent_dir_with_no_repos_returns_env_value(self, tmp_path: Path, monkeypatch):
+        """Parent dir whose children are not git repos is returned
+        verbatim — ``StateStore`` will raise on access."""
+        from commit_authorship_store import _resolve_authorship_repo_path
+
+        parent = tmp_path / "non-repos"
+        parent.mkdir()
+        (parent / "not-a-repo").mkdir()  # No .git inside.
+        monkeypatch.setenv("EGG_REPO_PATH", str(parent))
+
+        assert _resolve_authorship_repo_path() == parent
+
+    def test_unset_env_uses_historical_default(self, monkeypatch):
+        """Unset ``EGG_REPO_PATH`` falls back to ``/home/egg/repos/egg``
+        for back-compat with single-repo deployments that never set it."""
+        from commit_authorship_store import _resolve_authorship_repo_path
+
+        monkeypatch.delenv("EGG_REPO_PATH", raising=False)
+        monkeypatch.delenv("EGG_AUTHORSHIP_REPO", raising=False)
+
+        # The default path almost certainly does not exist on the test
+        # host, so the resolver returns it verbatim per the documented
+        # non-existent-path branch.  The assertion locks in the default.
+        assert _resolve_authorship_repo_path() == Path("/home/egg/repos/egg")
+
+    def test_authorship_repo_override_absolute_path(self, tmp_path: Path, monkeypatch):
+        """``EGG_AUTHORSHIP_REPO`` as absolute path bypasses
+        ``EGG_REPO_PATH`` discovery entirely — useful for forked /
+        renamed deployments where the alphabetical fallback would pick
+        the wrong repo."""
+        from commit_authorship_store import _resolve_authorship_repo_path
+
+        parent = tmp_path / "repos"
+        parent.mkdir()
+        for name in ("alpha", "egg", "zzz"):
+            child = parent / name
+            child.mkdir()
+            (child / ".git").mkdir()
+        monkeypatch.setenv("EGG_REPO_PATH", str(parent))
+        # Override picks `zzz` even though `egg` would normally win.
+        monkeypatch.setenv("EGG_AUTHORSHIP_REPO", str(parent / "zzz"))
+
+        assert _resolve_authorship_repo_path() == parent / "zzz"
+
+    def test_authorship_repo_override_relative_name(self, tmp_path: Path, monkeypatch):
+        """``EGG_AUTHORSHIP_REPO`` as a relative name resolves under
+        ``EGG_REPO_PATH`` so operators can write ``EGG_AUTHORSHIP_REPO=myfork``
+        without repeating the parent path."""
+        from commit_authorship_store import _resolve_authorship_repo_path
+
+        parent = tmp_path / "repos"
+        parent.mkdir()
+        for name in ("alpha", "egg", "myfork"):
+            child = parent / name
+            child.mkdir()
+            (child / ".git").mkdir()
+        monkeypatch.setenv("EGG_REPO_PATH", str(parent))
+        monkeypatch.setenv("EGG_AUTHORSHIP_REPO", "myfork")
+
+        assert _resolve_authorship_repo_path() == parent / "myfork"
+
+
+class TestGetStoreUsesGetStateStore:
+    """Regression for #2184: ``get_store()`` must route through
+    ``state_store.get_state_store`` so the worktree path matches what
+    ``unified_sse``/``routes/health``/``routes/signals`` use.
+
+    Constructing ``StateStore`` directly fell back to the default
+    ``pipeline-worktree`` path while the rest of the orchestrator picked
+    ``pipeline-worktree-egg`` in multi-repo mode — both then raced to
+    ``git worktree add`` the same ``egg/pipeline-state`` branch and one
+    side wedged with ``branch already in use``.
+    """
+
+    def test_multi_repo_converges_on_per_repo_worktree(self, tmp_path: Path, monkeypatch):
+        """In multi-repo mode, ``get_store()`` and ``get_state_store(egg)``
+        agree on ``pipeline-worktree-<repo_name>`` so they share — not
+        clash — over the state branch.
+        """
+        # Stub out StateStore — we don't want real git to run.  We only
+        # need to observe the ``worktree_dir`` argument the factory
+        # passes in.
+        import state_store as ss_mod  # type: ignore[import-not-found]
+
+        captured: dict[str, Path | None] = {}
+
+        class _StubStateStore:
+            def __init__(self, repo_path, worktree_dir=None):
+                self.repo_path = repo_path
+                self._worktree_dir = worktree_dir
+                captured["repo_path"] = repo_path
+                captured["worktree_dir"] = worktree_dir
+
+            def commit_state_to_branch(self, *args, **kwargs):
+                return None
+
+        monkeypatch.setattr(ss_mod, "StateStore", _StubStateStore)
+
+        # Build a parent dir with two sibling repos so multi-repo mode
+        # kicks in (a single child repo intentionally falls back to the
+        # default path — see ``state_store.get_state_store``).
+        parent = tmp_path / "repos"
+        parent.mkdir()
+        for name in ("actions", "egg"):
+            child = parent / name
+            child.mkdir()
+            (child / ".git").mkdir()
+
+        state_dir = tmp_path / "egg-state"
+        monkeypatch.setenv("EGG_REPO_PATH", str(parent))
+        monkeypatch.setenv("EGG_STATE_DIR", str(state_dir))
+        monkeypatch.delenv("EGG_AUTHORSHIP_REPO", raising=False)
+
+        # First, observe what ``get_state_store`` picks for the egg repo
+        # — this is what ``unified_sse`` / health probes use.
+        ss_mod.get_state_store(parent / "egg")
+        expected_worktree = state_dir / "pipeline-worktree-egg"
+        assert captured["repo_path"] == parent / "egg"
+        assert captured["worktree_dir"] == expected_worktree
+
+        # Now drive the authorship-store factory and confirm it picks
+        # the *same* worktree path — i.e., it routes through
+        # ``get_state_store`` rather than constructing ``StateStore``
+        # directly with the default ``pipeline-worktree``.
+        captured.clear()
+        from commit_authorship_store import get_store
+
+        get_store()
+        assert captured["repo_path"] == parent / "egg"
+        assert captured["worktree_dir"] == expected_worktree, (
+            "commit-authorship store must converge on the per-repo worktree "
+            "path that the rest of the orchestrator uses; otherwise both "
+            "sides race over the egg/pipeline-state branch."
+        )
