@@ -11061,12 +11061,16 @@ def _populate_contract_from_plan(
             # a forest (every slice has ≤1 DAG parent). Multi-parent
             # slices break the stacked-PR invariant and are rejected
             # at ingestion so the plan reviewer NACKs the planner.
-            try:
-                from egg_contracts.plan_parser import validate_forest
-            except ImportError:
-                forest_errors: list[str] = []
-            else:
-                forest_errors = validate_forest(contract_slices)
+            #
+            # ``parse_plan`` was already imported unconditionally above,
+            # so we don't guard ``validate_forest`` import — if the
+            # parser module is unavailable the populator has already
+            # failed; silently defaulting ``forest_errors = []`` would
+            # let a broken-import multi-parent contract slip past the
+            # gate (reviewer_code_holistic v2 finding #5).
+            from egg_contracts.plan_parser import validate_forest
+
+            forest_errors = validate_forest(contract_slices)
 
             if forest_errors:
                 # Stash the structured errors onto the contract's

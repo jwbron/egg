@@ -1296,6 +1296,92 @@ class GatewayClient:
             draft=draft,
         )
 
+    def rebase_onto(
+        self,
+        pipeline_id: str,
+        repo_path: str,
+        *,
+        branch: str,
+        new_base: str,
+        old_base: str,
+        agent_role: str = "coder",
+        mode: Literal["public", "private"] = "public",
+    ) -> bool:
+        """Submit a ``git rebase --onto <new_base> <old_base> <branch>``.
+
+        Bridges the stacked-PR reconciler's ``rebase_onto`` callable
+        (signature ``Callable[[str, str, str], bool]``, see
+        ``stacked_pr_reconciler.reconcile_once``) to the gateway-side
+        ``build_rebase_onto_args`` helper that constructs and
+        validates the canonical argv shape. The actual rebase
+        command runs through the existing per-agent ``/git`` endpoint
+        on the gateway — no new privileged orchestrator-role
+        endpoint is introduced (refine-phase decision-15).
+
+        Returns ``True`` on success, ``False`` on argument validation
+        failure or HTTP error. The reconciler's
+        ``ReconciliationResult`` counts both shapes as ``rebases_failed``.
+        """
+        try:
+            from gateway.git_client import build_rebase_onto_args
+        except ImportError:
+            logger.error(
+                "rebase_onto: gateway/git_client module unavailable",
+                pipeline_id=pipeline_id,
+            )
+            return False
+
+        args, ok, err = build_rebase_onto_args(branch, new_base, old_base)
+        if not ok:
+            logger.warning(
+                "rebase_onto: argv rejected by allowlist validator",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                new_base=new_base,
+                old_base=old_base,
+                error=err,
+            )
+            return False
+
+        temp_container_id = f"{pipeline_id}-stacked-pr-rebase"
+        session_token: str | None = None
+        try:
+            session = self.register_session(
+                container_id=temp_container_id,
+                container_ip=self.self_ip,
+                mode=mode,
+                pipeline_id=pipeline_id,
+                agent_role=agent_role,
+            )
+            session_token = session.session_token
+
+            payload: dict[str, Any] = {
+                "operation": "rebase",
+                "args": args,
+                "repo_path": repo_path,
+            }
+            self._make_request(
+                "/api/v1/git",
+                method="POST",
+                data=payload,
+                bearer_token=session_token,
+            )
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "rebase_onto: gateway request failed",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                error=str(exc),
+            )
+            return False
+        finally:
+            if session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception:
+                    pass
+
     def fetch_worktree_branch(
         self,
         pipeline_id: str,

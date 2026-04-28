@@ -15,8 +15,14 @@ The reconciler runs on a fixed cadence (default 30 s, env var
 2. Computes the intended new base from
    ``Slice.parent_branch_at_creation`` (recorded by TASK-4-2 when
    the integration branch was provisioned).
-3. Calls ``gateway/git_client.rebase_onto`` with the
-   slice's branch, the new base, and the old (deleted) base.
+3. Calls ``GatewayClient.rebase_onto`` (orchestrator-side bridge
+   in :mod:`orchestrator.gateway_client`) which forwards the
+   request through the gateway's existing per-agent allowlist
+   plumbing — internally constructed via
+   :func:`gateway.git_client.build_rebase_onto_args` and submitted
+   through the same ``/api/v1/git`` endpoint that authorised
+   agents use today. No new privileged orchestrator-role
+   endpoint is introduced (refine-phase decision-15).
 
 This module is pure-Python and side-effect-free at import time —
 the orchestrator's pipeline run loop wires up an async timer that
