@@ -570,14 +570,32 @@ class KubernetesMonitor:
                                 exit_code=None,
                                 exited_at=now,
                             )
-                        logger.warning(
-                            "Reconciliation: pod terminated, marking agent FAILED",
-                            pipeline_id=pipeline_id,
-                            container_id=agent.container_id,
-                            agent_role=str(agent.role),
-                            exit_code=actual_exit_code,
-                            pod_gone=pod_gone,
-                        )
+                        # 143 in a RUNNING phase reaches this branch
+                        # (the non-RUNNING-phase carve-out at L527 only
+                        # skips when the phase has already moved past
+                        # RUNNING).  ``_reconcile_pod_state`` →
+                        # ``_classify_exit`` will mark such an agent
+                        # COMPLETE, not FAILED, so log accordingly
+                        # rather than asserting "marking agent FAILED".
+                        is_clean = actual_exit_code in (0, 143)
+                        if is_clean:
+                            logger.info(
+                                "Reconciliation: pod terminated cleanly, marking agent COMPLETE",
+                                pipeline_id=pipeline_id,
+                                container_id=agent.container_id,
+                                agent_role=str(agent.role),
+                                exit_code=actual_exit_code,
+                                pod_gone=pod_gone,
+                            )
+                        else:
+                            logger.warning(
+                                "Reconciliation: pod terminated, marking agent FAILED",
+                                pipeline_id=pipeline_id,
+                                container_id=agent.container_id,
+                                agent_role=str(agent.role),
+                                exit_code=actual_exit_code,
+                                pod_gone=pod_gone,
+                            )
                         _reconcile_pod_state(store, observed_info)
                     else:
                         logger.debug(
