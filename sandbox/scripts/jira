@@ -12,6 +12,10 @@
 # Verbs:
 #   jira ticket get <KEY> [--fields f1,f2]
 #   jira ticket comments <KEY>
+#   jira ticket create --project KEY --type Task --summary "..." [opts]
+#   jira ticket edit <KEY> [opts]
+#   jira ticket comment add <KEY> [--body ... | --body-file F | --body-stdin] [--idempotency-key K]
+#   jira link create --type Blocks --inward FOO-1 --outward FOO-2 [opts]
 #   jira search <JQL> [--max-results N] [--fields f1,f2] [--next-page-token TOK]
 #   jira execute <METHOD> <PATH> [--query key=val,key2=val2]
 #   jira help
@@ -76,7 +80,7 @@ show_usage() {
     cat << 'EOF'
 Usage: jira <command> [options]
 
-Commands:
+Read commands:
   jira ticket get <KEY> [--fields f1,f2]
       Fetch a Jira ticket by key (e.g. ENG-123).
 
@@ -88,6 +92,26 @@ Commands:
 
   jira execute <METHOD> <PATH> [--query key=val,key2=val2]
       Execute a raw read-only Jira REST API call through the gateway.
+
+Write commands (issue #1924):
+  jira ticket create --project KEY --type Task --summary "..." \
+      [--description ... | --description-file F | --description-stdin] \
+      [--labels a,b] [--parent FOO-1] [--epic-link FOO-2] [--idempotency-key K]
+      Create a new Jira ticket.
+
+  jira ticket edit <KEY> [--summary "..."] \
+      [--description ... | --description-file F | --description-stdin] \
+      [--labels a,b] [--add-labels x,y] [--remove-labels z] [--no-notify]
+      Edit an existing Jira ticket. --labels (replace) is mutually
+      exclusive with --add-labels/--remove-labels (incremental).
+
+  jira ticket comment add <KEY> \
+      [--body ... | --body-file F | --body-stdin] [--idempotency-key K]
+      Add a comment to a Jira ticket.
+
+  jira link create --type Blocks --inward FOO-1 --outward FOO-2 \
+      [--comment ... | --comment-file F | --comment-stdin] [--idempotency-key K]
+      Link two Jira tickets.
 
   jira help
       Show this usage information.
@@ -271,6 +295,449 @@ print(json.dumps(body))
     call_gateway "/api/v1/jira/search" "$payload"
 }
 
+# Resolve a body text from either a literal value, a file, or stdin.
+# Mirrors the "--description / --description-file / --description-stdin"
+# pattern used by the gh wrapper. Echoes the resolved text on stdout (may
+# be empty when no flag was supplied). Exits non-zero on inconsistent
+# combinations or read errors.
+resolve_text_input() {
+    local label="$1"
+    local literal="$2"
+    local file_path="$3"
+    local from_stdin="$4"
+
+    local count=0
+    if [ -n "$literal" ]; then count=$((count + 1)); fi
+    if [ -n "$file_path" ]; then count=$((count + 1)); fi
+    if [ "$from_stdin" = "1" ]; then count=$((count + 1)); fi
+
+    if [ "$count" -gt 1 ]; then
+        echo "ERROR: --${label}, --${label}-file, --${label}-stdin are mutually exclusive" >&2
+        return 1
+    fi
+
+    if [ -n "$literal" ]; then
+        printf '%s' "$literal"
+    elif [ -n "$file_path" ]; then
+        if [ ! -r "$file_path" ]; then
+            echo "ERROR: cannot read --${label}-file: $file_path" >&2
+            return 1
+        fi
+        cat "$file_path"
+    elif [ "$from_stdin" = "1" ]; then
+        cat
+    fi
+
+    return 0
+}
+
+handle_ticket_create() {
+    shift  # consume "create"
+    local project="" issuetype="" summary=""
+    local description="" description_file="" description_stdin=0
+    local labels="" parent="" epic_link="" idempotency_key=""
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --project)
+                shift
+                project="${1:-}"
+                shift || true
+                ;;
+            --type|--issuetype)
+                shift
+                issuetype="${1:-}"
+                shift || true
+                ;;
+            --summary)
+                shift
+                summary="${1:-}"
+                shift || true
+                ;;
+            --description)
+                shift
+                description="${1:-}"
+                shift || true
+                ;;
+            --description-file)
+                shift
+                description_file="${1:-}"
+                shift || true
+                ;;
+            --description-stdin)
+                description_stdin=1
+                shift
+                ;;
+            --labels)
+                shift
+                labels="${1:-}"
+                shift || true
+                ;;
+            --parent)
+                shift
+                parent="${1:-}"
+                shift || true
+                ;;
+            --epic-link)
+                shift
+                epic_link="${1:-}"
+                shift || true
+                ;;
+            --idempotency-key)
+                shift
+                idempotency_key="${1:-}"
+                shift || true
+                ;;
+            *)
+                echo "ERROR: unknown flag for 'jira ticket create': $1" >&2
+                exit 1
+                ;;
+        esac
+    done
+
+    if [ -z "$project" ] || [ -z "$issuetype" ] || [ -z "$summary" ]; then
+        echo "ERROR: --project, --type, and --summary are required" >&2
+        exit 1
+    fi
+
+    local resolved_description
+    if ! resolved_description=$(resolve_text_input description \
+        "$description" "$description_file" "$description_stdin"); then
+        exit 1
+    fi
+    local has_description=0
+    if [ -n "$description" ] || [ -n "$description_file" ] || [ "$description_stdin" = "1" ]; then
+        has_description=1
+    fi
+
+    local payload
+    payload=$(python3 -c '
+import json, sys
+body = {
+    "project": sys.argv[1],
+    "issuetype": sys.argv[2],
+    "summary": sys.argv[3],
+}
+if sys.argv[4] == "1":
+    body["description"] = sys.argv[5]
+labels_csv = sys.argv[6]
+if labels_csv:
+    body["labels"] = [v.strip() for v in labels_csv.split(",") if v.strip()]
+parent = sys.argv[7]
+if parent:
+    body["parent"] = parent
+epic_link = sys.argv[8]
+if epic_link:
+    body["epicLink"] = epic_link
+idempotency_key = sys.argv[9]
+if idempotency_key:
+    body["idempotencyKey"] = idempotency_key
+print(json.dumps(body))
+' "$project" "$issuetype" "$summary" \
+       "$has_description" "$resolved_description" \
+       "$labels" "$parent" "$epic_link" "$idempotency_key")
+
+    call_gateway "/api/v1/jira/ticket/create" "$payload"
+}
+
+handle_ticket_edit() {
+    shift  # consume "edit"
+    if [ $# -lt 1 ]; then
+        echo "ERROR: ticket key required. Usage: jira ticket edit <KEY> [opts]" >&2
+        exit 1
+    fi
+    local ticket="$1"
+    shift
+
+    local summary="" labels="" add_labels="" remove_labels=""
+    local description="" description_file="" description_stdin=0
+    local notify="1"   # 1 = notify (gateway default false; we send true unless --no-notify)
+    local has_summary=0
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --summary)
+                shift
+                summary="${1:-}"
+                has_summary=1
+                shift || true
+                ;;
+            --description)
+                shift
+                description="${1:-}"
+                shift || true
+                ;;
+            --description-file)
+                shift
+                description_file="${1:-}"
+                shift || true
+                ;;
+            --description-stdin)
+                description_stdin=1
+                shift
+                ;;
+            --labels)
+                shift
+                labels="${1:-}"
+                shift || true
+                ;;
+            --add-labels)
+                shift
+                add_labels="${1:-}"
+                shift || true
+                ;;
+            --remove-labels)
+                shift
+                remove_labels="${1:-}"
+                shift || true
+                ;;
+            --no-notify)
+                notify="0"
+                shift
+                ;;
+            --notify)
+                notify="1"
+                shift
+                ;;
+            *)
+                echo "ERROR: unknown flag for 'jira ticket edit': $1" >&2
+                exit 1
+                ;;
+        esac
+    done
+
+    local resolved_description
+    if ! resolved_description=$(resolve_text_input description \
+        "$description" "$description_file" "$description_stdin"); then
+        exit 1
+    fi
+    local has_description=0
+    if [ -n "$description" ] || [ -n "$description_file" ] || [ "$description_stdin" = "1" ]; then
+        has_description=1
+    fi
+
+    if [ -n "$labels" ] && { [ -n "$add_labels" ] || [ -n "$remove_labels" ]; }; then
+        echo "ERROR: --labels (replace) is mutually exclusive with --add-labels/--remove-labels" >&2
+        exit 1
+    fi
+
+    # The gateway default is notifyUsers=false; we pass an explicit
+    # boolean so the wrapper's behaviour is predictable regardless of
+    # gateway-side defaults.
+    local notify_bool="false"
+    if [ "$notify" = "1" ]; then
+        notify_bool="true"
+    fi
+
+    local payload
+    payload=$(python3 -c '
+import json, sys
+body = {"ticket": sys.argv[1]}
+if sys.argv[2] == "1":
+    body["summary"] = sys.argv[3]
+if sys.argv[4] == "1":
+    body["description"] = sys.argv[5]
+labels_csv = sys.argv[6]
+add_csv = sys.argv[7]
+remove_csv = sys.argv[8]
+if labels_csv:
+    body["labels"] = [v.strip() for v in labels_csv.split(",") if v.strip()]
+if add_csv:
+    body["addLabels"] = [v.strip() for v in add_csv.split(",") if v.strip()]
+if remove_csv:
+    body["removeLabels"] = [v.strip() for v in remove_csv.split(",") if v.strip()]
+body["notifyUsers"] = (sys.argv[9] == "true")
+print(json.dumps(body))
+' "$ticket" "$has_summary" "$summary" \
+       "$has_description" "$resolved_description" \
+       "$labels" "$add_labels" "$remove_labels" "$notify_bool")
+
+    call_gateway "/api/v1/jira/ticket/edit" "$payload"
+}
+
+handle_ticket_comment() {
+    # NOTE: the outer dispatch in the main case-statement already shifted
+    # past "comment" before calling us, so the leading argv here is the
+    # subcommand (e.g. "add") followed by the ticket key.  Don't shift
+    # again — that would consume "add" and route the ticket key through
+    # the unknown-subcommand arm (regression caught by reviewer_code_holistic
+    # cycle 1, #1924).
+    if [ $# -lt 1 ]; then
+        echo "ERROR: missing comment subcommand. Usage: jira ticket comment add <KEY>" >&2
+        exit 1
+    fi
+    case "$1" in
+        add)
+            handle_ticket_comment_add "$@"
+            ;;
+        *)
+            echo "ERROR: unknown comment subcommand '$1'. Use: add" >&2
+            exit 1
+            ;;
+    esac
+}
+
+handle_ticket_comment_add() {
+    shift  # consume "add"
+    if [ $# -lt 1 ]; then
+        echo "ERROR: ticket key required. Usage: jira ticket comment add <KEY> --body ..." >&2
+        exit 1
+    fi
+    local ticket="$1"
+    shift
+
+    local body="" body_file="" body_stdin=0 idempotency_key=""
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --body)
+                shift
+                body="${1:-}"
+                shift || true
+                ;;
+            --body-file)
+                shift
+                body_file="${1:-}"
+                shift || true
+                ;;
+            --body-stdin)
+                body_stdin=1
+                shift
+                ;;
+            --idempotency-key)
+                shift
+                idempotency_key="${1:-}"
+                shift || true
+                ;;
+            *)
+                echo "ERROR: unknown flag for 'jira ticket comment add': $1" >&2
+                exit 1
+                ;;
+        esac
+    done
+
+    if [ -z "$body" ] && [ -z "$body_file" ] && [ "$body_stdin" = "0" ]; then
+        echo "ERROR: one of --body / --body-file / --body-stdin is required" >&2
+        exit 1
+    fi
+
+    local resolved_body
+    if ! resolved_body=$(resolve_text_input body "$body" "$body_file" "$body_stdin"); then
+        exit 1
+    fi
+
+    local payload
+    payload=$(python3 -c '
+import json, sys
+body = {"ticket": sys.argv[1], "body": sys.argv[2]}
+idempotency_key = sys.argv[3]
+if idempotency_key:
+    body["idempotencyKey"] = idempotency_key
+print(json.dumps(body))
+' "$ticket" "$resolved_body" "$idempotency_key")
+
+    call_gateway "/api/v1/jira/ticket/comment/add" "$payload"
+}
+
+handle_link_create() {
+    shift  # consume "create"
+    local link_type="" inward="" outward=""
+    local comment="" comment_file="" comment_stdin=0 idempotency_key=""
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --type)
+                shift
+                link_type="${1:-}"
+                shift || true
+                ;;
+            --inward|--inward-issue)
+                shift
+                inward="${1:-}"
+                shift || true
+                ;;
+            --outward|--outward-issue)
+                shift
+                outward="${1:-}"
+                shift || true
+                ;;
+            --comment)
+                shift
+                comment="${1:-}"
+                shift || true
+                ;;
+            --comment-file)
+                shift
+                comment_file="${1:-}"
+                shift || true
+                ;;
+            --comment-stdin)
+                comment_stdin=1
+                shift
+                ;;
+            --idempotency-key)
+                shift
+                idempotency_key="${1:-}"
+                shift || true
+                ;;
+            *)
+                echo "ERROR: unknown flag for 'jira link create': $1" >&2
+                exit 1
+                ;;
+        esac
+    done
+
+    if [ -z "$link_type" ] || [ -z "$inward" ] || [ -z "$outward" ]; then
+        echo "ERROR: --type, --inward, and --outward are required" >&2
+        exit 1
+    fi
+
+    local resolved_comment
+    if ! resolved_comment=$(resolve_text_input comment \
+        "$comment" "$comment_file" "$comment_stdin"); then
+        exit 1
+    fi
+    local has_comment=0
+    if [ -n "$comment" ] || [ -n "$comment_file" ] || [ "$comment_stdin" = "1" ]; then
+        has_comment=1
+    fi
+
+    local payload
+    payload=$(python3 -c '
+import json, sys
+body = {
+    "type": sys.argv[1],
+    "inwardIssue": sys.argv[2],
+    "outwardIssue": sys.argv[3],
+}
+if sys.argv[4] == "1":
+    body["comment"] = sys.argv[5]
+idempotency_key = sys.argv[6]
+if idempotency_key:
+    body["idempotencyKey"] = idempotency_key
+print(json.dumps(body))
+' "$link_type" "$inward" "$outward" \
+       "$has_comment" "$resolved_comment" "$idempotency_key")
+
+    call_gateway "/api/v1/jira/issue-link/create" "$payload"
+}
+
+handle_link() {
+    if [ $# -lt 1 ]; then
+        echo "ERROR: missing link subcommand. Usage: jira link create [opts]" >&2
+        exit 1
+    fi
+    case "$1" in
+        create)
+            handle_link_create "$@"
+            ;;
+        *)
+            echo "ERROR: unknown link subcommand '$1'. Use: create" >&2
+            exit 1
+            ;;
+    esac
+}
+
 handle_execute() {
     if [ $# -lt 2 ]; then
         echo "ERROR: Method and path required. Usage: jira execute <METHOD> <PATH> [--query k=v,k2=v2]" >&2
@@ -323,7 +790,7 @@ case "$1" in
     ticket)
         shift
         if [ $# -lt 1 ]; then
-            echo "ERROR: Missing ticket subcommand. Usage: jira ticket get|comments <KEY>" >&2
+            echo "ERROR: Missing ticket subcommand. Usage: jira ticket get|comments|create|edit|comment <KEY>" >&2
             exit 1
         fi
         case "$1" in
@@ -333,11 +800,25 @@ case "$1" in
             comments)
                 handle_ticket_comments "$@"
                 ;;
+            create)
+                handle_ticket_create "$@"
+                ;;
+            edit)
+                handle_ticket_edit "$@"
+                ;;
+            comment)
+                shift
+                handle_ticket_comment "$@"
+                ;;
             *)
-                echo "ERROR: Unknown ticket subcommand '$1'. Use: get, comments" >&2
+                echo "ERROR: Unknown ticket subcommand '$1'. Use: get, comments, create, edit, comment" >&2
                 exit 1
                 ;;
         esac
+        ;;
+    link)
+        shift
+        handle_link "$@"
         ;;
     search)
         shift
@@ -352,7 +833,7 @@ case "$1" in
         exit 0
         ;;
     *)
-        echo "ERROR: Unknown command '$1'. Use: ticket, search, execute, help" >&2
+        echo "ERROR: Unknown command '$1'. Use: ticket, link, search, execute, help" >&2
         exit 1
         ;;
 esac
