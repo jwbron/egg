@@ -975,6 +975,7 @@ class TestHandleBrcConsensusTimeoutSliceId:
                 pipeline_id=pipeline.id,
                 consensus_timeout=1800.0,
                 blocking_agents=["coder"],
+                store=MagicMock(),
                 slice_id="slice-7",
             )
             # The lookup must include the slice scope.
@@ -996,6 +997,7 @@ class TestHandleBrcConsensusTimeoutSliceId:
                 pipeline_id=pipeline.id,
                 consensus_timeout=1800.0,
                 blocking_agents=["coder"],
+                store=MagicMock(),
             )
             assert mock_get.called
             args, kwargs = mock_get.call_args
@@ -1027,6 +1029,7 @@ class TestHandleBrcConsensusTimeoutSliceId:
                 pipeline_id=pipeline.id,
                 consensus_timeout=1800.0,
                 blocking_agents=["coder"],
+                store=MagicMock(),
                 slice_id="slice-7",
             )
         # Two calls: first with slice_id (raises TypeError), second
