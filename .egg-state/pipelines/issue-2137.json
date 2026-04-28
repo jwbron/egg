@@ -320,10 +320,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-9",
+      "question": "**Renames vs. additive schema** — Issue proposes renaming `contract.phases[]` → `contract.slices[]` and `to_contract_phases()` → `to_contract_slices()` because phases is \"currently written but never read.\" Is that the right call?",
+      "context": "Open contract question decision-7, registered by an agent during the refine phase.",
+      "options": [
+        "Rename now — clean break; phases is unused at runtime per #2134, no backward-compat burden. Update plan_parser, plan templates, schema docs, all consumers.",
+        "Add `slices[]` alongside `phases[]`; phases stays as a legacy alias — safer for any in-flight pipelines or external consumers reading the contract JSON.",
+        "Keep `phases[]`, just teach the orchestrator to read it for slice scheduling — no rename, no schema churn; 'slice' is just terminology used in code/docs.",
+        "Rename, but ship a one-version migration that auto-translates `phases[]` → `slices[]` on contract load.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-28T16:55:13.917917Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T16:55:13.881343Z",
+  "updated_at": "2026-04-28T16:55:13.937554Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -337,6 +357,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 27,
+  "version": 28,
   "jira_ticket": null
 }
