@@ -1114,7 +1114,8 @@ def git_push() -> tuple[Response, int] | Response:
             "repo_path": "/path/to/repo",
             "remote": "origin",
             "refspec": "branch-name",
-            "force": false
+            "force": false,
+            "commit_sha": "<40-hex>",   # alternative to refspec; consensus pushes only
         }
 
     Policy: branch_ownership
@@ -1128,9 +1129,85 @@ def git_push() -> tuple[Response, int] | Response:
     refspec = data.get("refspec", "")
     force = data.get("force", False)
     container_id = data.get("container_id")
+    commit_sha = data.get("commit_sha", "")
 
     if not repo_path:
         return make_error("Missing repo_path")
+
+    # Detached-HEAD-tolerant consensus push (#2200): when the agent's HEAD
+    # is detached (post-rebase or otherwise), the helper cannot read
+    # ``git branch --show-current`` and instead supplies ``commit_sha``.
+    # The gateway derives the refspec server-side from the session's
+    # assigned branch.  This is strictly tighter than an agent-supplied
+    # refspec because the existing ``push_target_enforcement`` block
+    # below already requires ``branch == session.assigned_branch``.
+    if commit_sha and not refspec:
+        if not data.get("consensus_push"):
+            audit_log(
+                "push_blocked",
+                "git_push",
+                success=False,
+                details={
+                    "repo_path": repo_path,
+                    "reason": "commit_sha push requires consensus_push=true",
+                },
+            )
+            return make_error(
+                "commit_sha push requires consensus_push=true",
+                status_code=400,
+            )
+        # Require a full SHA (40 = SHA-1, 64 = SHA-256). Abbreviated SHAs
+        # (7-39 chars) can resolve ambiguously on the gateway side; the
+        # helper always emits the full output of ``git rev-parse HEAD`` so
+        # there is no legitimate caller of the shorter range. The explicit
+        # ``isinstance`` guard turns a non-string payload into a clean 400
+        # rather than a 500 from ``re.fullmatch``.
+        if not isinstance(commit_sha, str) or not re.fullmatch(r"[0-9a-f]{40,64}", commit_sha):
+            audit_log(
+                "push_blocked",
+                "git_push",
+                success=False,
+                details={
+                    "repo_path": repo_path,
+                    "reason": f"Invalid commit_sha {commit_sha!r}",
+                },
+            )
+            return make_error(
+                f"Invalid commit_sha {commit_sha!r}: must be 40-64 hex chars",
+                status_code=400,
+            )
+        session = getattr(g, "session", None)
+        assigned = getattr(session, "assigned_branch", None) if session else None
+        if not isinstance(assigned, str) or not assigned:
+            audit_log(
+                "push_blocked",
+                "git_push",
+                success=False,
+                details={
+                    "repo_path": repo_path,
+                    "reason": "commit_sha push requires a pipeline session with assigned_branch",
+                },
+            )
+            return make_error(
+                "commit_sha push requires a pipeline session with an assigned branch",
+                status_code=400,
+            )
+        refspec = f"{commit_sha}:refs/heads/{assigned}"
+        # Distinct audit event so post-incident review can distinguish a
+        # gateway-constructed refspec (commit_sha path) from an
+        # agent-supplied refspec; both flow through the same downstream
+        # ``push_*`` audit events and would otherwise be indistinguishable.
+        audit_log(
+            "push_via_commit_sha",
+            "git_push",
+            success=True,
+            details={
+                "repo_path": repo_path,
+                "commit_sha": commit_sha,
+                "assigned_branch": assigned,
+                "constructed_refspec": refspec,
+            },
+        )
 
     # Validate repo_path to prevent path traversal attacks
     path_valid, path_error = validate_repo_path(repo_path)
@@ -2125,6 +2202,61 @@ def git_execute() -> tuple[Response, int] | Response:
                 denial_reason = (
                     f"git update-ref target '{positional[0]}' is not allowed. "
                     f"Only '{expected_ref}' (your assigned branch) may be updated."
+                )
+        if denial_reason is not None:
+            audit_log(
+                "git_execute_blocked",
+                operation,
+                success=False,
+                details={
+                    "repo_path": repo_path,
+                    "git_args": validated_args,
+                    "container_id": container_id,
+                    "assigned_branch": assigned,
+                    "reason": denial_reason,
+                },
+            )
+            return make_error(denial_reason, status_code=403)
+
+    # SECURITY: Scope `git symbolic-ref HEAD <ref>` to the agent's own
+    # assigned or local per-role branch.  symbolic-ref is the canonical
+    # reattach primitive when a worktree ends up on detached HEAD (e.g.
+    # post-rebase, see issue #2200).  Restricted to the two-positional
+    # form `symbolic-ref HEAD <ref>` — read forms (one-arg) and the
+    # delete form (`-d`) are rejected because they do not participate
+    # in the recovery flow.
+    if operation == "symbolic-ref":
+        session = getattr(g, "session", None)
+        assigned = getattr(session, "assigned_branch", None) if session else None
+        positional = [a for a in validated_args if not a.startswith("-")]
+        denial_reason = None
+        if not isinstance(assigned, str) or not assigned:
+            denial_reason = (
+                "git symbolic-ref is only allowed in pipeline sessions with an assigned branch."
+            )
+        elif len(positional) != 2:
+            denial_reason = "git symbolic-ref must be of the form `git symbolic-ref HEAD <ref>`."
+        elif positional[0] != "HEAD":
+            denial_reason = (
+                f"git symbolic-ref source '{positional[0]}' is not allowed. "
+                f"Only HEAD may be retargeted."
+            )
+        else:
+            allowed_refs = {f"refs/heads/{assigned}"}
+            # Defense in depth: scope the per-role local work branch from
+            # ``session.container_id`` (canonical, set by the orchestrator at
+            # session registration), not ``data.get("container_id")`` which
+            # is agent-supplied.  Mirrors the ``update-ref`` guard above which
+            # also ignores the request-body container_id.
+            session_container_id = getattr(session, "container_id", None)
+            if isinstance(session_container_id, str) and session_container_id:
+                # Per-role local work branch (`egg/{container_id}/work`)
+                # — see worktree_manager._create_or_reuse_worktree.
+                allowed_refs.add(f"refs/heads/egg/{session_container_id}/work")
+            if positional[1] not in allowed_refs:
+                denial_reason = (
+                    f"git symbolic-ref target '{positional[1]}' is not allowed. "
+                    f"Allowed targets: {sorted(allowed_refs)}."
                 )
         if denial_reason is not None:
             audit_log(
