@@ -450,10 +450,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-28T16:55:14.267332Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-28T17:05:39.204805Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Per-slice only — lenses (still ADVISORY) review each slice's diff in that slice's BRC; cheaper but loses cross-slice coherence; even after CRITICAL promotion (#1997), per-slice would mean lens NACKs only block the slice they fired in.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -603,7 +603,7 @@
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T17:05:38.106319Z",
+  "updated_at": "2026-04-28T17:05:39.227634Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -617,6 +617,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 52,
+  "version": 53,
   "jira_ticket": null
 }
