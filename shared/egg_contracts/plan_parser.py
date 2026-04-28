@@ -1212,7 +1212,64 @@ def validate_forest(slices: list[Slice]) -> list[str]:
                 "issue #2137 plan TASK-2-3 for the auto-serialization rule."
             )
 
+    # Cycle detection — a forest is by definition acyclic. A cyclic
+    # ``slice-1 → slice-2 → slice-1`` chain has every slice with
+    # exactly one parent, so the parent-count check above lets it
+    # through; without this DFS the run loop's
+    # ``while not scheduler.all_done():`` would spin forever.
+    cycle_offenders = _detect_cycles(slices, seen_ids)
+    for cycle in cycle_offenders:
+        errors.append(
+            f"Slice DAG contains a cycle: {' → '.join(cycle + [cycle[0]])}. "
+            "Slices form an acyclic forest — break the cycle by removing "
+            "or re-pointing one of the offending dependencies."
+        )
+
     return errors
+
+
+def _detect_cycles(slices: list[Slice], known_ids: set[str]) -> list[list[str]]:
+    """Return a list of one slice-id chain per cycle in the slice DAG.
+
+    DFS-based cycle detection. Returns one representative chain per
+    cycle (so a 3-node cycle reports once, not three times). Unknown
+    ids in ``dependencies`` are silently skipped here — they're
+    reported by other validators.
+    """
+    adj: dict[str, list[str]] = {}
+    for slice_ in slices:
+        deps = [d for d in (slice_.dependencies or []) if d in known_ids]
+        adj[slice_.id] = deps
+
+    visited: set[str] = set()
+    on_stack: set[str] = set()
+    cycles: list[list[str]] = []
+    seen_cycles: set[frozenset[str]] = set()
+
+    def dfs(node: str, path: list[str]) -> None:
+        visited.add(node)
+        on_stack.add(node)
+        path.append(node)
+        for nxt in adj.get(node, []):
+            if nxt in on_stack:
+                # Found a cycle — slice the path from where ``nxt``
+                # was first seen to ``node`` inclusive.
+                if nxt in path:
+                    cycle = path[path.index(nxt) :]
+                    key = frozenset(cycle)
+                    if key not in seen_cycles:
+                        seen_cycles.add(key)
+                        cycles.append(list(cycle))
+            elif nxt not in visited:
+                dfs(nxt, path)
+        on_stack.discard(node)
+        path.pop()
+
+    for node in adj:
+        if node not in visited:
+            dfs(node, [])
+
+    return cycles
 
 
 __all__ = (

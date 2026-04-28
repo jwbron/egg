@@ -184,6 +184,27 @@ class SliceScheduler:
         self._pending_cascades: dict[str, float] = {}
         self._fired_cascades: set[str] = set()
 
+        # Defense-in-depth: revalidate the forest constraint at
+        # scheduler-construction time so contracts that bypassed
+        # ``_populate_contract_from_plan`` (legacy state-branch
+        # restores, manual ``egg-contract`` edits) still surface a
+        # clear error before the run loop spins on a multi-parent or
+        # cyclic DAG. ``validate_forest`` returns structured strings;
+        # we raise ``ValueError`` so the run loop's caller sees the
+        # message and can route it to HITL / OVERSEER_ALERT.
+        try:
+            from egg_contracts.plan_parser import validate_forest as _validate_forest
+        except ImportError:  # pragma: no cover — module-import shim
+            _validate_forest = None  # type: ignore[assignment]
+
+        if _validate_forest is not None:
+            forest_errors = _validate_forest(list(self._contract.slices))
+            if forest_errors:
+                raise ValueError(
+                    "SliceScheduler refused to start: contract slice DAG is not a forest "
+                    "(see plan_parser.validate_forest). Errors: " + "; ".join(forest_errors)
+                )
+
         self._build_graph()
         self._compute_initial_states()
 

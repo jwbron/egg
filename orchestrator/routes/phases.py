@@ -1039,6 +1039,23 @@ def populate_contract(pipeline_id: str) -> tuple[Response, int]:
             reason="pipeline_not_found",
         )
     except Exception as e:
+        # #2137 TASK-2-2: forest-violation errors are routed as 422 with
+        # the inlined structured-error body so the plan reviewer can
+        # cite them verbatim. We branch on the class name to avoid an
+        # import cycle (routes/pipelines.py imports from routes/phases.py).
+        if e.__class__.__name__ == "ForestValidationError":
+            try:
+                body, status = e.to_response()  # type: ignore[attr-defined]
+                logger.warning(
+                    "contract_populate_forest_violation",
+                    pipeline_id=pipeline_id,
+                    errors=getattr(e, "errors", None),
+                )
+                return jsonify(body), status
+            except Exception:  # noqa: BLE001
+                # Fall through to the generic 500 path if to_response
+                # is missing or shaped unexpectedly.
+                pass
         logger.error(
             "contract_populate_endpoint_failed",
             pipeline_id=pipeline_id,

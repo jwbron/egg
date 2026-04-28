@@ -1980,6 +1980,33 @@ def build_rebase_onto_args(
     if not isinstance(old_base, str) or not old_base.strip():
         return [], False, "old_base must be a non-empty string"
 
+    # Defense-in-depth shape check — refs must look like git refs, not
+    # like rebase flags. ``validate_git_args`` accepts any token in
+    # ``rebase``'s allowlist (``--abort`` / ``--continue`` / ``-i``
+    # etc.) regardless of position, so a caller-supplied
+    # ``branch="--abort"`` would otherwise produce
+    # ``git rebase --onto X Y --abort`` which behaves wildly
+    # differently from the intended canonical shape. This guard
+    # rejects any input starting with ``-`` or containing
+    # whitespace / NUL.
+    _REF_RE = re.compile(r"^[A-Za-z0-9._/+-][A-Za-z0-9._/+-]*$")
+    for label, value in (("branch", branch), ("new_base", new_base), ("old_base", old_base)):
+        v = value.strip()
+        if v.startswith("-"):
+            return [], False, f"{label} must not start with '-' (rejected flag-shaped ref: {v!r})"
+        if any(ch.isspace() or ch == "\x00" for ch in v):
+            return (
+                [],
+                False,
+                f"{label} must not contain whitespace or NUL (rejected: {v!r})",
+            )
+        if not _REF_RE.fullmatch(v):
+            return (
+                [],
+                False,
+                f"{label} must look like a git ref (alnum + . _ / + -); got {v!r}",
+            )
+
     # Construct the canonical shape. We do NOT accept any extra flags
     # — callers that need ``--abort`` / ``--continue`` go through the
     # regular agent-driven path.
