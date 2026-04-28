@@ -272,8 +272,7 @@ class SliceScheduler:
         # callers that ``mark_spawned`` mid-iteration won't see their
         # state change reflected in this generator, which is the
         # desired semantic (one full sweep per tick).
-        for slice_id, parent in ready_snapshot[:available]:
-            yield slice_id, parent
+        yield from ready_snapshot[:available]
 
     def mark_spawned(self, slice_id: str) -> None:
         """Record that the slice's agent team has been spawned."""
@@ -290,7 +289,17 @@ class SliceScheduler:
         Returns ``True`` when EITHER the local-per-slice cap or the
         global pipeline cap has been tripped. Caller is expected to
         treat that as a HITL escalation trigger.
+
+        The HITL escalator (when configured) is invoked AFTER the
+        scheduler lock is released — the escalator may issue HTTP /
+        contract-write I/O whose latency would otherwise serialise
+        every other scheduler operation, and a >180 s round-trip
+        would even trip the orchestrator's stuck-phase-transition
+        timeout. (Concurrency reviewer's blocker #1 on v1; #2012
+        precedent.)
         """
+        escalation_args: tuple[str, str] | None = None
+        tripped = False
         with self._lock:
             runtime = self._runtimes.get(slice_id)
             if runtime is None:
@@ -301,7 +310,7 @@ class SliceScheduler:
                 runtime.local_cycles >= self._local_max_cycles
                 or self._global_cycles >= self._global_max_cycles
             )
-            if tripped and self._hitl_escalator is not None:
+            if tripped:
                 reason = (
                     f"slice {slice_id} hit local cap "
                     f"({runtime.local_cycles}/{self._local_max_cycles})"
@@ -311,13 +320,16 @@ class SliceScheduler:
                         f"({self._global_cycles}/{self._global_max_cycles})"
                     )
                 )
-                try:
-                    self._hitl_escalator(slice_id, reason)
-                except Exception:  # noqa: BLE001
-                    # Escalation failures are non-fatal — better to
-                    # surface them as an alert than crash the loop.
-                    pass
-            return tripped
+                escalation_args = (slice_id, reason)
+
+        if escalation_args is not None and self._hitl_escalator is not None:
+            try:
+                self._hitl_escalator(*escalation_args)
+            except Exception:  # noqa: BLE001
+                # Escalation failures are non-fatal — better to
+                # surface them as an alert than crash the loop.
+                pass
+        return tripped
 
     def record_complete(self, slice_id: str) -> None:
         """Record that the slice has reached CONSENSUS_CONFIRMED."""
@@ -509,12 +521,25 @@ class SliceScheduler:
     # ---------- Internal helpers ----------
 
     def _unblock_children(self, parent_slice_id: str) -> None:
-        """Promote PENDING children of a completed slice to READY.
+        """Promote PENDING / BLOCKED children of a completed slice to READY.
 
         Caller must hold ``self._lock``.
+
+        Includes ``BLOCKED_ON_FAILED_DEPENDENCY`` children so the
+        cascade-then-respawn-then-complete recovery path lights up:
+        once a previously-failed parent is respawned and ultimately
+        completes, its descendants (which the prior cascade marked
+        BLOCKED) are promoted back to READY. Without this branch the
+        downstream subtree stays permanently blocked even though its
+        parent has finished — see concurrency reviewer's blocker #2
+        on v1.
         """
+        unblockable_states = {
+            SchedulerSliceState.PENDING,
+            SchedulerSliceState.BLOCKED_ON_FAILED_DEPENDENCY,
+        }
         for runtime in self._runtimes.values():
-            if runtime.state != SchedulerSliceState.PENDING:
+            if runtime.state not in unblockable_states:
                 continue
             if runtime.parent_slice_id != parent_slice_id:
                 continue

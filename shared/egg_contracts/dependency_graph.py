@@ -17,7 +17,7 @@ from __future__ import annotations
 from collections import defaultdict, deque
 from collections.abc import Hashable, Iterator
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Generic, TypeVar
+from typing import TYPE_CHECKING
 
 from .agent_roles import AgentRole, get_role_definition
 
@@ -27,16 +27,15 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # #2137 — generification: the dependency-graph machinery is reused for both
 # the agent-role DAG (the original use case, AgentRole-keyed) and the slice
-# DAG used by the new SliceScheduler (str-keyed slice IDs). ``NodeT`` lets
-# both keying strategies share a single implementation. Concrete callers
-# parameterise the type via ``DependencyGraph[AgentRole]`` /
-# ``DependencyGraph[str]``.
+# DAG used by the new SliceScheduler (str-keyed slice IDs). PEP-695 generic
+# class syntax (Python 3.13 target) lets both keying strategies share a
+# single implementation. Concrete callers parameterise the type via
+# ``DependencyGraph[AgentRole]`` / ``DependencyGraph[str]``.
 # ---------------------------------------------------------------------------
-NodeT = TypeVar("NodeT", bound=Hashable)
 
 
 @dataclass
-class DependencyNode(Generic[NodeT]):
+class DependencyNode[NodeT: Hashable]:
     """A node in a generic dependency graph.
 
     Generified in #2137 (TASK-3-1) — was ``AgentRole``-keyed only. The
@@ -66,7 +65,7 @@ class DependencyNode(Generic[NodeT]):
 
 
 @dataclass
-class ExecutionWave(Generic[NodeT]):
+class ExecutionWave[NodeT: Hashable]:
     """A wave of nodes that can execute in parallel.
 
     All nodes in a wave have their dependencies satisfied when the
@@ -90,7 +89,7 @@ class ExecutionWave(Generic[NodeT]):
 
 
 @dataclass
-class ExecutionPlan(Generic[NodeT]):
+class ExecutionPlan[NodeT: Hashable]:
     """Complete execution plan with ordered waves.
 
     The plan specifies the order in which nodes should execute,
@@ -131,7 +130,7 @@ class ExecutionPlan(Generic[NodeT]):
         return iter(self.waves)
 
 
-class DependencyGraph(Generic[NodeT]):
+class DependencyGraph[NodeT: Hashable]:
     """Graph representation of node dependencies.
 
     Provides methods for analyzing dependencies and computing
@@ -161,6 +160,11 @@ class DependencyGraph(Generic[NodeT]):
     def build_from_roles(self, roles: list[AgentRole] | None = None) -> None:
         """Build the graph from agent role definitions.
 
+        Only meaningful when the graph is keyed on ``AgentRole``
+        (i.e. ``DependencyGraph[AgentRole]``); the slice-DAG flavour
+        ``DependencyGraph[str]`` populates itself directly via
+        ``add_node`` / ``add_edge`` from ``Contract.slices``.
+
         Args:
             roles: Specific roles to include (None = all roles)
         """
@@ -169,16 +173,25 @@ class DependencyGraph(Generic[NodeT]):
 
             roles = [r for r in AgentRole if r in AGENT_ROLES]
 
+        # AgentRole leaks into this method body even on
+        # DependencyGraph[NodeT] for arbitrary NodeT — that's
+        # intentional: ``build_from_roles`` is the
+        # AgentRole-specific helper. The casts below tell mypy that
+        # AgentRole IS the NodeT bound for any caller that would
+        # actually invoke this method (other callers go through
+        # add_node/add_edge directly).
+        from typing import cast as _cast
+
         # Add all nodes first
         for role in roles:
-            self.add_node(role)
+            self.add_node(_cast(NodeT, role))
 
         # Add edges based on role definitions
         for role in roles:
             role_def = get_role_definition(role)
             for dep in role_def.dependencies:
                 if dep in roles:
-                    self.add_edge(role, dep)
+                    self.add_edge(_cast(NodeT, role), _cast(NodeT, dep))
 
         self._built = True
 
@@ -301,28 +314,32 @@ class DependencyGraph(Generic[NodeT]):
         return plan
 
 
-def build_dependency_graph(roles: list[AgentRole] | None = None) -> DependencyGraph:
-    """Build a dependency graph for the given roles.
+def build_dependency_graph(
+    roles: list[AgentRole] | None = None,
+) -> DependencyGraph[AgentRole]:
+    """Build an AgentRole-keyed dependency graph for the given roles.
 
     Args:
         roles: Specific roles to include (None = all roles)
 
     Returns:
-        Configured DependencyGraph
+        Configured ``DependencyGraph[AgentRole]``
     """
-    graph = DependencyGraph()
+    graph: DependencyGraph[AgentRole] = DependencyGraph()
     graph.build_from_roles(roles)
     return graph
 
 
-def compute_execution_plan(roles: list[AgentRole] | None = None) -> ExecutionPlan:
+def compute_execution_plan(
+    roles: list[AgentRole] | None = None,
+) -> ExecutionPlan[AgentRole]:
     """Compute the execution plan for the given roles.
 
     Args:
         roles: Specific roles to include (None = all roles)
 
     Returns:
-        ExecutionPlan with ordered waves
+        ``ExecutionPlan[AgentRole]`` with ordered waves
     """
     graph = build_dependency_graph(roles)
     return graph.get_execution_plan()
@@ -358,7 +375,7 @@ def get_parallel_groups(
     return [runnable]
 
 
-def format_execution_plan(plan: ExecutionPlan) -> str:
+def format_execution_plan(plan: ExecutionPlan[AgentRole]) -> str:
     """Format an execution plan as a human-readable string.
 
     Args:

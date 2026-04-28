@@ -38,7 +38,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from egg_contracts.models import Contract, Slice
+from egg_contracts.models import Contract
 
 logger = logging.getLogger(__name__)
 

@@ -64,7 +64,7 @@ from typing import Any
 import yaml
 
 from .agent_roles import EXECUTION_ROLE_VALUES
-from .models import Phase, Slice, SliceStatus, Task, TaskStatus
+from .models import Slice, SliceStatus, Task, TaskStatus
 
 # Placeholder acceptance criteria for tasks that couldn't be parsed.
 # Used as a sentinel value to filter out non-real criteria during aggregation.

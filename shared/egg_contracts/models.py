@@ -7,7 +7,7 @@ and provide validation and type safety for contract operations.
 
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
 from pydantic import BaseModel, Field, PrivateAttr, field_validator, model_validator
 
@@ -627,20 +627,20 @@ class Contract(BaseModel):
         attribute on the constructed instance in one place.
         """
         if not isinstance(data, dict):
-            return handler(data)
+            return cast("Contract", handler(data))
 
         has_slices = "slices" in data
         has_phases = "phases" in data
 
         if has_slices or not has_phases:
-            return handler(data)
+            return cast("Contract", handler(data))
 
         legacy_phases = data.pop("phases")
         if not isinstance(legacy_phases, list):
             # Malformed input — restore for pydantic to surface the
             # error normally.
             data["phases"] = legacy_phases
-            return handler(data)
+            return cast("Contract", handler(data))
 
         migrated: list[Any] = []
         for entry in legacy_phases:
@@ -662,7 +662,7 @@ class Contract(BaseModel):
             migrated.append(new_entry)
 
         data["slices"] = migrated
-        instance = handler(data)
+        instance: Contract = cast("Contract", handler(data))
         instance._legacy_phases = legacy_phases
         return instance
 
