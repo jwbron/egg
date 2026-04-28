@@ -9263,6 +9263,42 @@ def _format_nack_summary(nack_details: list[dict]) -> str:
     )
 
 
+def _incomplete_consensus_decision_text(
+    final_consensus: dict,
+    container_failure_count: int,
+) -> tuple[str, str]:
+    """Build (question, log_suffix) for incomplete-consensus HITL escalation.
+
+    Distinguishes the two failure modes — unresolved NACKs vs. agents that
+    never confirmed — so the operator sees actionable detail in `/sdlc`.
+    """
+    nacks = final_consensus.get("unresolved_nacks", []) or []
+    blocking = final_consensus.get("blocking_agents", []) or []
+    if container_failure_count:
+        prefix = f"{container_failure_count} container(s) exited with non-zero code; "
+    else:
+        prefix = "All containers exited; "
+    if nacks:
+        summary = _format_nack_summary(nacks)
+        question = (
+            f"{prefix}consensus incomplete with {len(nacks)} unresolved NACK(s): "
+            f"{summary}. Committed work is preserved on the per-role branch — "
+            f"'Retry phase' restarts with artifacts intact. How to proceed?"
+        )
+        log_suffix = f"\n--- INCOMPLETE CONSENSUS / UNRESOLVED NACKs ({len(nacks)}) ---\n{summary}"
+    else:
+        agent_list = ", ".join(blocking) if blocking else "unknown"
+        question = (
+            f"{prefix}consensus incomplete; agents never confirmed: {agent_list}. "
+            f"Committed work is preserved on the per-role branch — "
+            f"'Retry phase' restarts with artifacts intact. How to proceed?"
+        )
+        log_suffix = (
+            f"\n--- INCOMPLETE CONSENSUS / NO CONFIRMATION ---\nblocking_agents={agent_list}"
+        )
+    return question, log_suffix
+
+
 def _handle_brc_consensus_timeout(
     pipeline: Pipeline,
     pipeline_id: str,
@@ -10135,6 +10171,35 @@ def _run_concurrent_phase(
                     _stop_running_containers()
                     return 0, combined_logs
 
+                # Incomplete consensus + container failures: surface an HITL
+                # decision so the operator can drive recovery (issue #2203).
+                # Without this, the phase fails terminally with no signal —
+                # the agent's committed work is still on the per-role branch
+                # and `restart_phase` would recover, but the operator has no
+                # way to know that without out-of-band investigation.
+                failure_count = sum(1 for info in exited_containers.values() if info.exit_code != 0)
+                question, log_suffix = _incomplete_consensus_decision_text(
+                    final_consensus, container_failure_count=failure_count
+                )
+                logger.warning(
+                    "Incomplete consensus with container failures — escalating to HITL",
+                    pipeline_id=pipeline_id,
+                    failure_count=failure_count,
+                    blocking_agents=final_consensus.get("blocking_agents", []),
+                    nack_count=len(final_consensus.get("unresolved_nacks", []) or []),
+                )
+                try:
+                    pipeline.add_decision(
+                        question=question,
+                        options=["Retry phase", "Accept current state", "Abort phase"],
+                        phase=pipeline.current_phase,
+                    )
+                except Exception:
+                    logger.warning(
+                        "Failed to create incomplete-consensus HITL decision (has_failures path)",
+                        exc_info=True,
+                    )
+                combined_logs += log_suffix
                 return 1, combined_logs
 
             # Before returning success, check the BRC approval matrix for
@@ -10179,11 +10244,30 @@ def _run_concurrent_phase(
                 final_consensus = {"is_complete": False}
 
             if not final_consensus.get("is_complete"):
+                # Symmetric to the has_failures path: clean exits with no
+                # consensus also need an HITL decision so the operator can
+                # drive recovery (issue #2203).
+                question, log_suffix = _incomplete_consensus_decision_text(
+                    final_consensus, container_failure_count=0
+                )
                 logger.warning(
-                    "All containers exited cleanly but consensus not reached",
+                    "All containers exited cleanly but consensus not reached — escalating to HITL",
                     pipeline_id=pipeline_id,
                     elapsed_seconds=round(elapsed, 1),
+                    blocking_agents=final_consensus.get("blocking_agents", []),
                 )
+                try:
+                    pipeline.add_decision(
+                        question=question,
+                        options=["Retry phase", "Accept current state", "Abort phase"],
+                        phase=pipeline.current_phase,
+                    )
+                except Exception:
+                    logger.warning(
+                        "Failed to create incomplete-consensus HITL decision (clean-exit path)",
+                        exc_info=True,
+                    )
+                combined_logs += log_suffix
                 return 1, combined_logs
 
             # Consensus confirmed on clean exit — mirror the has_failures

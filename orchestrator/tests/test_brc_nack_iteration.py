@@ -325,7 +325,7 @@ class TestPollingLoopWithNacks:
     def test_containers_exit_without_nacks_returns_failure_without_consensus(
         self, MockExecutor, mock_prompt, mock_lock, mock_monotonic, mock_sleep
     ):
-        """All containers exit code 0, no NACKs but no consensus -> returns (1, ...)."""
+        """Clean exit, no NACKs, no consensus -> failure + HITL decision (#2203)."""
         from routes.pipelines import _run_concurrent_phase
 
         mock_monotonic.return_value = 0.0
@@ -360,17 +360,235 @@ class TestPollingLoopWithNacks:
         mock_lock.return_value.__enter__ = MagicMock(return_value=None)
         mock_lock.return_value.__exit__ = MagicMock(return_value=False)
 
-        exit_code, logs = _run_concurrent_phase(
-            pipeline_id="issue-999",
-            pipeline=pipeline,
-            phase="implement",
-            spawner=mock_spawner,
-            store=mock_store,
-            **_CALL_ARGS,
+        mock_add_decision = MagicMock(return_value=MagicMock(id="dec-1"))
+        with patch.object(type(pipeline), "add_decision", mock_add_decision):
+            exit_code, logs = _run_concurrent_phase(
+                pipeline_id="issue-999",
+                pipeline=pipeline,
+                phase="implement",
+                spawner=mock_spawner,
+                store=mock_store,
+                **_CALL_ARGS,
+            )
+
+        # Issue #1581: clean exit without consensus must return failure.
+        assert exit_code == 1
+        # Issue #2203: it must also surface an HITL decision so the
+        # operator can drive recovery without out-of-band investigation.
+        mock_add_decision.assert_called_once()
+        call_kwargs = mock_add_decision.call_args.kwargs
+        assert "coder" in call_kwargs["question"]
+        assert call_kwargs["options"] == [
+            "Retry phase",
+            "Accept current state",
+            "Abort phase",
+        ]
+        assert "INCOMPLETE CONSENSUS" in logs
+
+
+class TestIncompleteConsensusWithFailures:
+    """Issue #2203: container failures + incomplete consensus must create
+    an HITL decision rather than failing the phase silently."""
+
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_failure_with_unresolved_nacks_creates_hitl_decision(
+        self, MockExecutor, mock_prompt, mock_lock, mock_monotonic, mock_sleep
+    ):
+        """Container exit-1 + incomplete consensus + unresolved NACKs."""
+        from routes.pipelines import _run_concurrent_phase
+
+        mock_monotonic.return_value = 0.0
+
+        executions = [
+            _make_execution(AgentRole.CODER, "coder-1"),
+            _make_execution(AgentRole.REVIEWER_CODE, "reviewer-1"),
+        ]
+
+        container_infos = {
+            "coder-1": ContainerInfo(
+                container_id="coder-1",
+                container_name="issue-999-coder",
+                status=ContainerStatus.EXITED,
+                exit_code=1,
+                exited_at=datetime.now(UTC),
+            ),
+            "reviewer-1": ContainerInfo(
+                container_id="reviewer-1",
+                container_name="issue-999-reviewer_code",
+                status=ContainerStatus.EXITED,
+                exit_code=0,
+                exited_at=datetime.now(UTC),
+            ),
+        }
+
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(
+            executions, container_infos=container_infos
         )
 
-        # Issue #1581: clean exit without consensus must return failure
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.return_value = {
+            "is_complete": False,
+            "has_objections": False,
+            "has_unresolved_nacks": True,
+            "unresolved_nacks": [
+                {
+                    "reviewer": "reviewer_code",
+                    "producer": "coder",
+                    "reason": "Run-loop wire-up missing",
+                    "version": 2,
+                },
+            ],
+            "blocking_agents": ["coder"],
+        }
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_add_decision = MagicMock(return_value=MagicMock(id="dec-1"))
+        with patch.object(type(pipeline), "add_decision", mock_add_decision):
+            exit_code, logs = _run_concurrent_phase(
+                pipeline_id="issue-999",
+                pipeline=pipeline,
+                phase="implement",
+                spawner=mock_spawner,
+                store=mock_store,
+                **_CALL_ARGS,
+            )
+
         assert exit_code == 1
+        mock_add_decision.assert_called_once()
+        call_kwargs = mock_add_decision.call_args.kwargs
+        assert "Run-loop wire-up missing" in call_kwargs["question"]
+        assert "1 container(s) exited with non-zero" in call_kwargs["question"]
+        assert call_kwargs["options"] == [
+            "Retry phase",
+            "Accept current state",
+            "Abort phase",
+        ]
+        assert "INCOMPLETE CONSENSUS / UNRESOLVED NACKs" in logs
+
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_failure_no_nacks_blocking_agents_creates_hitl_decision(
+        self, MockExecutor, mock_prompt, mock_lock, mock_monotonic, mock_sleep
+    ):
+        """Container exit-1, no NACKs, but agents never confirmed."""
+        from routes.pipelines import _run_concurrent_phase
+
+        mock_monotonic.return_value = 0.0
+
+        executions = [_make_execution(AgentRole.CODER, "coder-1")]
+        container_infos = {
+            "coder-1": ContainerInfo(
+                container_id="coder-1",
+                container_name="issue-999-coder",
+                status=ContainerStatus.EXITED,
+                exit_code=1,
+                exited_at=datetime.now(UTC),
+            ),
+        }
+
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(
+            executions, container_infos=container_infos
+        )
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.return_value = {
+            "is_complete": False,
+            "has_objections": False,
+            "has_unresolved_nacks": False,
+            "unresolved_nacks": [],
+            "blocking_agents": ["coder", "reviewer_code"],
+        }
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_add_decision = MagicMock(return_value=MagicMock(id="dec-1"))
+        with patch.object(type(pipeline), "add_decision", mock_add_decision):
+            exit_code, logs = _run_concurrent_phase(
+                pipeline_id="issue-999",
+                pipeline=pipeline,
+                phase="implement",
+                spawner=mock_spawner,
+                store=mock_store,
+                **_CALL_ARGS,
+            )
+
+        assert exit_code == 1
+        mock_add_decision.assert_called_once()
+        call_kwargs = mock_add_decision.call_args.kwargs
+        assert "coder" in call_kwargs["question"]
+        assert "reviewer_code" in call_kwargs["question"]
+        assert "never confirmed" in call_kwargs["question"]
+        assert "INCOMPLETE CONSENSUS / NO CONFIRMATION" in logs
+
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_add_decision_failure_does_not_break_return(
+        self, MockExecutor, mock_prompt, mock_lock, mock_monotonic, mock_sleep
+    ):
+        """If add_decision raises, the phase still returns (1, ...) cleanly."""
+        from routes.pipelines import _run_concurrent_phase
+
+        mock_monotonic.return_value = 0.0
+
+        executions = [_make_execution(AgentRole.CODER, "coder-1")]
+        container_infos = {
+            "coder-1": ContainerInfo(
+                container_id="coder-1",
+                container_name="issue-999-coder",
+                status=ContainerStatus.EXITED,
+                exit_code=1,
+                exited_at=datetime.now(UTC),
+            ),
+        }
+
+        pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(
+            executions, container_infos=container_infos
+        )
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.return_value = {
+            "is_complete": False,
+            "has_objections": False,
+            "has_unresolved_nacks": False,
+            "unresolved_nacks": [],
+            "blocking_agents": ["coder"],
+        }
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_add_decision = MagicMock(side_effect=RuntimeError("decision store down"))
+        with patch.object(type(pipeline), "add_decision", mock_add_decision):
+            exit_code, logs = _run_concurrent_phase(
+                pipeline_id="issue-999",
+                pipeline=pipeline,
+                phase="implement",
+                spawner=mock_spawner,
+                store=mock_store,
+                **_CALL_ARGS,
+            )
+
+        assert exit_code == 1
+        mock_add_decision.assert_called_once()
 
 
 class TestTimeoutWithNacks:

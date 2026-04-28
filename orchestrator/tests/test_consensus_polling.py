@@ -452,11 +452,24 @@ class TestObjectionHandling:
                 **_CALL_ARGS,
             )
 
-        # add_decision called exactly once despite multiple polls with objections
-        mock_add_decision.assert_called_once()
-        call_args = mock_add_decision.call_args
-        question = call_args[1].get("question", call_args[0][0] if call_args[0] else "")
-        assert "objecting" in question.lower()
+        # The objection HITL is created exactly once despite multiple polls
+        # with objections (the deduplication this test is really about).
+        # Issue #2203 added a separate incomplete-consensus HITL that also
+        # fires when containers exit cleanly without consensus closing —
+        # that's a distinct decision and is expected here.
+        objection_calls = [
+            c
+            for c in mock_add_decision.call_args_list
+            if "objecting" in c.kwargs.get("question", "").lower()
+        ]
+        assert len(objection_calls) == 1
+        incomplete_calls = [
+            c
+            for c in mock_add_decision.call_args_list
+            if "INCOMPLETE CONSENSUS" in c.kwargs.get("question", "")
+            or "consensus incomplete" in c.kwargs.get("question", "")
+        ]
+        assert len(incomplete_calls) == 1
 
 
 class TestContainerExitFallback:
