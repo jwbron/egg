@@ -522,3 +522,762 @@ class TestSingletonLifecycle:
         jira_client.reset_jira_client()
         c = jira_client.get_jira_client()
         assert c is not a
+
+
+# =============================================================================
+# Write verbs (issue #1924)
+#
+# The four ``JiraClient`` write methods bypass ``validate_jira_api_path`` and
+# call ``_request`` directly with hardcoded paths.  These tests assert the
+# exact wire shape the gateway sends, the idempotency-cache wiring, the
+# ``notifyUsers`` dispatch on ``edit_issue``, and the 429-audit-emit
+# behaviour required by refine feedback Q1.
+# =============================================================================
+
+
+import json as _wire_json  # noqa: E402 — used only by the write-method tests
+
+
+@pytest.fixture
+def reset_idempotency_cache():
+    """Idempotency cache is module-level — wipe it before / after each
+    test that exercises the cache to avoid cross-test bleed."""
+    import jira_idempotency
+
+    jira_idempotency.clear_cache()
+    yield
+    jira_idempotency.clear_cache()
+
+
+def _decode_request_json(request: httpx.Request) -> dict:
+    return _wire_json.loads(request.content)
+
+
+# -----------------------------------------------------------------------------
+# create_issue
+# -----------------------------------------------------------------------------
+
+
+class TestCreateIssue:
+    def test_minimal_body_shape(self, fake_creds: JiraCredentials, reset_idempotency_cache):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(
+                201,
+                json={"id": "10001", "key": "ENG-1", "self": "https://e/rest/api/3/issue/10001"},
+            )
+
+        client = _make_client(handler, fake_creds)
+        status, body = client.create_issue(
+            project_key="ENG",
+            issuetype="Task",
+            summary="hello",
+        )
+
+        assert status == 201
+        assert body["key"] == "ENG-1"
+        assert len(captured) == 1
+        assert captured[0].method == "POST"
+        assert str(captured[0].url).endswith("/rest/api/3/issue")
+        wire = _decode_request_json(captured[0])
+        assert wire == {
+            "fields": {
+                "project": {"key": "ENG"},
+                "summary": "hello",
+                "issuetype": {"name": "Task"},
+            }
+        }
+
+    def test_string_issuetype_normalised_to_dict(self, fake_creds: JiraCredentials):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(201, json={"id": "1", "key": "ENG-1"})
+
+        client = _make_client(handler, fake_creds)
+        client.create_issue(project_key="ENG", issuetype="Story", summary="x")
+        wire = _decode_request_json(captured[0])
+        assert wire["fields"]["issuetype"] == {"name": "Story"}
+
+    def test_dict_issuetype_with_id(self, fake_creds: JiraCredentials):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(201, json={"id": "1", "key": "ENG-1"})
+
+        client = _make_client(handler, fake_creds)
+        client.create_issue(
+            project_key="ENG",
+            issuetype={"id": "10001"},
+            summary="x",
+        )
+        wire = _decode_request_json(captured[0])
+        assert wire["fields"]["issuetype"] == {"id": "10001"}
+
+    def test_invalid_issuetype_raises(self, fake_creds: JiraCredentials):
+        client = _make_client(lambda _r: httpx.Response(200, json={}), fake_creds)
+        with pytest.raises(ValueError, match="issuetype"):
+            client.create_issue(project_key="ENG", issuetype=42, summary="x")  # type: ignore[arg-type]
+
+    def test_description_string_wrapped_to_adf(self, fake_creds: JiraCredentials):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(201, json={"id": "1", "key": "ENG-1"})
+
+        client = _make_client(handler, fake_creds)
+        client.create_issue(
+            project_key="ENG",
+            issuetype="Task",
+            summary="hi",
+            description="hello world",
+        )
+        wire = _decode_request_json(captured[0])
+        desc = wire["fields"]["description"]
+        # Plain text → minimal ADF doc.
+        assert desc["type"] == "doc"
+        assert desc["version"] == 1
+        assert desc["content"][0]["content"][0]["text"] == "hello world"
+
+    def test_description_adf_passes_through(self, fake_creds: JiraCredentials):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(201, json={"id": "1", "key": "ENG-1"})
+
+        client = _make_client(handler, fake_creds)
+        adf = {
+            "type": "doc",
+            "version": 1,
+            "content": [{"type": "paragraph", "content": []}],
+        }
+        client.create_issue(
+            project_key="ENG",
+            issuetype="Task",
+            summary="hi",
+            description=adf,
+        )
+        wire = _decode_request_json(captured[0])
+        assert wire["fields"]["description"] == adf
+
+    def test_labels_serialised_as_list(self, fake_creds: JiraCredentials):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(201, json={"id": "1", "key": "ENG-1"})
+
+        client = _make_client(handler, fake_creds)
+        client.create_issue(
+            project_key="ENG",
+            issuetype="Task",
+            summary="hi",
+            labels=["a", "b"],
+        )
+        wire = _decode_request_json(captured[0])
+        assert wire["fields"]["labels"] == ["a", "b"]
+
+    def test_parent_emits_parent_block(self, fake_creds: JiraCredentials):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(201, json={"id": "1", "key": "ENG-1"})
+
+        client = _make_client(handler, fake_creds)
+        client.create_issue(
+            project_key="ENG",
+            issuetype="Sub-task",
+            summary="x",
+            parent="ENG-100",
+        )
+        wire = _decode_request_json(captured[0])
+        assert wire["fields"]["parent"] == {"key": "ENG-100"}
+
+    def test_epic_link_with_parent_dispatch(self, fake_creds: JiraCredentials):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(201, json={"id": "1", "key": "ENG-1"})
+
+        client = _make_client(handler, fake_creds)
+        client.create_issue(
+            project_key="ENG",
+            issuetype="Task",
+            summary="x",
+            epic_link="ENG-99",
+            epic_link_field="parent",
+        )
+        wire = _decode_request_json(captured[0])
+        # epic_link uses parent dispatch for next-gen sites.
+        assert wire["fields"]["parent"] == {"key": "ENG-99"}
+        assert "customfield_10014" not in wire["fields"]
+
+    def test_epic_link_with_customfield_dispatch(self, fake_creds: JiraCredentials):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(201, json={"id": "1", "key": "ENG-1"})
+
+        client = _make_client(handler, fake_creds)
+        client.create_issue(
+            project_key="ENG",
+            issuetype="Task",
+            summary="x",
+            epic_link="ENG-99",
+            epic_link_field="customfield_10014",
+        )
+        wire = _decode_request_json(captured[0])
+        # Classic / team-managed sites still expose Epic Link as a custom
+        # field; the gateway must NOT auto-translate to ``parent`` here.
+        assert wire["fields"]["customfield_10014"] == "ENG-99"
+        assert "parent" not in wire["fields"]
+
+    def test_parent_and_epic_link_combined_raises(self, fake_creds: JiraCredentials):
+        client = _make_client(lambda _r: httpx.Response(201, json={}), fake_creds)
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            client.create_issue(
+                project_key="ENG",
+                issuetype="Task",
+                summary="x",
+                parent="ENG-1",
+                epic_link="ENG-2",
+            )
+
+    def test_idempotency_hit_avoids_second_request(
+        self, fake_creds: JiraCredentials, reset_idempotency_cache
+    ):
+        calls = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls["n"] += 1
+            return httpx.Response(201, json={"id": "1", "key": "ENG-1"})
+
+        client = _make_client(handler, fake_creds)
+        a = client.create_issue(
+            project_key="ENG",
+            issuetype="Task",
+            summary="x",
+            idempotency_key="key-1",
+        )
+        b = client.create_issue(
+            project_key="ENG",
+            issuetype="Task",
+            summary="x",
+            idempotency_key="key-1",
+        )
+        assert a == b
+        assert calls["n"] == 1
+
+    def test_idempotency_miss_with_different_keys(
+        self, fake_creds: JiraCredentials, reset_idempotency_cache
+    ):
+        calls = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls["n"] += 1
+            return httpx.Response(201, json={"id": str(calls["n"]), "key": f"ENG-{calls['n']}"})
+
+        client = _make_client(handler, fake_creds)
+        client.create_issue(project_key="ENG", issuetype="Task", summary="a", idempotency_key="k1")
+        client.create_issue(project_key="ENG", issuetype="Task", summary="b", idempotency_key="k2")
+        assert calls["n"] == 2
+
+    def test_no_idempotency_key_bypasses_cache(
+        self, fake_creds: JiraCredentials, reset_idempotency_cache
+    ):
+        calls = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls["n"] += 1
+            return httpx.Response(201, json={"id": "1", "key": "ENG-1"})
+
+        client = _make_client(handler, fake_creds)
+        client.create_issue(project_key="ENG", issuetype="Task", summary="x")
+        client.create_issue(project_key="ENG", issuetype="Task", summary="x")
+        assert calls["n"] == 2
+
+    def test_429_emits_audit_and_does_not_retry(
+        self, fake_creds: JiraCredentials, monkeypatch: pytest.MonkeyPatch
+    ):
+        """Refine feedback Q1: write verbs MUST emit
+        ``jira_upstream_rate_limited`` on 429 even though they don't retry."""
+        calls = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls["n"] += 1
+            return httpx.Response(429, headers={"Retry-After": "1"})
+
+        captured_audits: list[dict[str, Any]] = []
+
+        def fake_audit(*, path, method, attempt, retry_after):
+            captured_audits.append(
+                {
+                    "path": path,
+                    "method": method,
+                    "attempt": attempt,
+                    "retry_after": retry_after,
+                }
+            )
+
+        monkeypatch.setattr(jira_client, "_emit_rate_limited_audit", fake_audit)
+        monkeypatch.setattr(jira_client.time, "sleep", lambda _s: None)
+
+        client = _make_client(handler, fake_creds)
+        with pytest.raises(JiraUpstreamError) as exc_info:
+            client.create_issue(project_key="ENG", issuetype="Task", summary="x")
+        assert exc_info.value.status_code == 429
+        # POST to ``issue`` doesn't retry — exactly one upstream call.
+        assert calls["n"] == 1
+        # Exactly one audit fired with method=POST.
+        assert len(captured_audits) == 1
+        assert captured_audits[0]["method"] == "POST"
+        assert captured_audits[0]["path"] == "issue"
+
+
+# -----------------------------------------------------------------------------
+# edit_issue
+# -----------------------------------------------------------------------------
+
+
+class TestEditIssue:
+    def test_summary_only_replace_mode(self, fake_creds: JiraCredentials):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(204)
+
+        client = _make_client(handler, fake_creds)
+        result = client.edit_issue(key="ENG-1", summary="new summary")
+
+        assert result == {}  # 204 → empty dict
+        assert captured[0].method == "PUT"
+        assert str(captured[0].url).startswith(
+            "https://example.atlassian.net/rest/api/3/issue/ENG-1"
+        )
+        wire = _decode_request_json(captured[0])
+        assert wire == {"fields": {"summary": "new summary"}}
+
+    def test_replace_labels_mode(self, fake_creds: JiraCredentials):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(204)
+
+        client = _make_client(handler, fake_creds)
+        client.edit_issue(key="ENG-1", labels=["a", "b"])
+        wire = _decode_request_json(captured[0])
+        assert wire == {"fields": {"labels": ["a", "b"]}}
+        # No update.labels list when in replace mode.
+        assert "update" not in wire
+
+    def test_incremental_labels_mode(self, fake_creds: JiraCredentials):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(204)
+
+        client = _make_client(handler, fake_creds)
+        client.edit_issue(key="ENG-1", add_labels=["x"], remove_labels=["y"])
+        wire = _decode_request_json(captured[0])
+        assert wire == {
+            "update": {
+                "labels": [{"add": "x"}, {"remove": "y"}],
+            }
+        }
+        # Replace mode not engaged.
+        assert "fields" not in wire
+
+    def test_combined_replace_and_incremental_raises(self, fake_creds: JiraCredentials):
+        client = _make_client(lambda _r: httpx.Response(204), fake_creds)
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            client.edit_issue(key="ENG-1", labels=["a"], add_labels=["b"])
+
+    def test_no_fields_raises(self, fake_creds: JiraCredentials):
+        client = _make_client(lambda _r: httpx.Response(204), fake_creds)
+        with pytest.raises(ValueError, match="at least one"):
+            client.edit_issue(key="ENG-1")
+
+    def test_notify_users_false_sends_query_param(self, fake_creds: JiraCredentials):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(204)
+
+        client = _make_client(handler, fake_creds)
+        client.edit_issue(key="ENG-1", summary="hi", notify_users=False)
+        # default is False; query param must be present.
+        assert captured[0].url.params.get("notifyUsers") == "false"
+
+    def test_notify_users_true_omits_query_param(self, fake_creds: JiraCredentials):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(204)
+
+        client = _make_client(handler, fake_creds)
+        client.edit_issue(key="ENG-1", summary="hi", notify_users=True)
+        # ``notifyUsers=true`` matches Atlassian's default → no query param.
+        assert "notifyUsers" not in captured[0].url.params
+
+    def test_description_string_wrapped_to_adf(self, fake_creds: JiraCredentials):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(204)
+
+        client = _make_client(handler, fake_creds)
+        client.edit_issue(key="ENG-1", description="some text")
+        wire = _decode_request_json(captured[0])
+        assert wire["fields"]["description"]["type"] == "doc"
+
+    def test_description_adf_passes_through(self, fake_creds: JiraCredentials):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(204)
+
+        client = _make_client(handler, fake_creds)
+        adf = {"type": "doc", "version": 1, "content": []}
+        client.edit_issue(key="ENG-1", description=adf)
+        wire = _decode_request_json(captured[0])
+        assert wire["fields"]["description"] == adf
+
+    def test_429_emits_audit_no_retry(
+        self, fake_creds: JiraCredentials, monkeypatch: pytest.MonkeyPatch
+    ):
+        calls = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls["n"] += 1
+            return httpx.Response(429, headers={"Retry-After": "1"})
+
+        captured_audits: list[dict[str, Any]] = []
+        monkeypatch.setattr(
+            jira_client,
+            "_emit_rate_limited_audit",
+            lambda *, path, method, attempt, retry_after: captured_audits.append(
+                {"path": path, "method": method}
+            ),
+        )
+        monkeypatch.setattr(jira_client.time, "sleep", lambda _s: None)
+
+        client = _make_client(handler, fake_creds)
+        with pytest.raises(JiraUpstreamError):
+            client.edit_issue(key="ENG-1", summary="x")
+        # PUT is one-shot — exactly one upstream call.
+        assert calls["n"] == 1
+        assert len(captured_audits) == 1
+        assert captured_audits[0]["method"] == "PUT"
+
+
+# -----------------------------------------------------------------------------
+# add_comment
+# -----------------------------------------------------------------------------
+
+
+class TestAddComment:
+    def test_text_body_wrapped_to_adf(self, fake_creds: JiraCredentials, reset_idempotency_cache):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(201, json={"id": "1"})
+
+        client = _make_client(handler, fake_creds)
+        status, body = client.add_comment(key="ENG-1", body="hi there")
+        assert status == 201
+        assert captured[0].method == "POST"
+        assert str(captured[0].url).endswith("/issue/ENG-1/comment")
+        wire = _decode_request_json(captured[0])
+        adf = wire["body"]
+        assert adf["type"] == "doc"
+        assert adf["content"][0]["content"][0]["text"] == "hi there"
+
+    def test_adf_body_passthrough(self, fake_creds: JiraCredentials, reset_idempotency_cache):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(201, json={"id": "1"})
+
+        client = _make_client(handler, fake_creds)
+        adf = {"type": "doc", "version": 1, "content": []}
+        client.add_comment(key="ENG-1", body=adf)
+        wire = _decode_request_json(captured[0])
+        assert wire["body"] == adf
+
+    def test_idempotency_hit_skips_upstream(
+        self, fake_creds: JiraCredentials, reset_idempotency_cache
+    ):
+        calls = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls["n"] += 1
+            return httpx.Response(201, json={"id": "1"})
+
+        client = _make_client(handler, fake_creds)
+        client.add_comment(key="ENG-1", body="hi", idempotency_key="cmt-1")
+        client.add_comment(key="ENG-1", body="hi", idempotency_key="cmt-1")
+        assert calls["n"] == 1
+
+    def test_idempotency_namespaced_per_project(
+        self, fake_creds: JiraCredentials, reset_idempotency_cache
+    ):
+        """Same opaque idempotency key against tickets in DIFFERENT
+        projects must not collide — the cache key is namespaced by
+        ``project`` (extracted from the ticket key)."""
+        calls = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls["n"] += 1
+            return httpx.Response(201, json={"id": str(calls["n"])})
+
+        client = _make_client(handler, fake_creds)
+        client.add_comment(key="ENG-1", body="hi", idempotency_key="k")
+        client.add_comment(key="DEVOPS-1", body="hi", idempotency_key="k")
+        assert calls["n"] == 2
+
+    def test_429_emits_audit(self, fake_creds: JiraCredentials, monkeypatch: pytest.MonkeyPatch):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(429, headers={"Retry-After": "1"})
+
+        captured_audits: list[dict[str, Any]] = []
+        monkeypatch.setattr(
+            jira_client,
+            "_emit_rate_limited_audit",
+            lambda *, path, method, attempt, retry_after: captured_audits.append(
+                {"method": method, "path": path}
+            ),
+        )
+        monkeypatch.setattr(jira_client.time, "sleep", lambda _s: None)
+
+        client = _make_client(handler, fake_creds)
+        with pytest.raises(JiraUpstreamError):
+            client.add_comment(key="ENG-1", body="hi")
+        assert len(captured_audits) == 1
+        assert captured_audits[0]["method"] == "POST"
+
+
+# -----------------------------------------------------------------------------
+# create_issue_link
+# -----------------------------------------------------------------------------
+
+
+class TestCreateIssueLink:
+    def test_minimal_body(self, fake_creds: JiraCredentials, reset_idempotency_cache):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(201)
+
+        client = _make_client(handler, fake_creds)
+        status, body = client.create_issue_link(
+            link_type="Blocks",
+            inward_key="ENG-1",
+            outward_key="ENG-2",
+        )
+        assert status == 201
+        assert body == {}  # 201 + empty body → empty dict envelope
+        assert captured[0].method == "POST"
+        assert str(captured[0].url).endswith("/rest/api/3/issueLink")
+        wire = _decode_request_json(captured[0])
+        assert wire == {
+            "type": {"name": "Blocks"},
+            "inwardIssue": {"key": "ENG-1"},
+            "outwardIssue": {"key": "ENG-2"},
+        }
+
+    def test_with_text_comment_wraps_to_adf(
+        self, fake_creds: JiraCredentials, reset_idempotency_cache
+    ):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(201)
+
+        client = _make_client(handler, fake_creds)
+        client.create_issue_link(
+            link_type="Blocks",
+            inward_key="ENG-1",
+            outward_key="ENG-2",
+            comment="see issue #1924",
+        )
+        wire = _decode_request_json(captured[0])
+        assert wire["comment"]["body"]["type"] == "doc"
+        assert wire["comment"]["body"]["content"][0]["content"][0]["text"] == "see issue #1924"
+
+    def test_with_adf_comment_passthrough(
+        self, fake_creds: JiraCredentials, reset_idempotency_cache
+    ):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            return httpx.Response(201)
+
+        client = _make_client(handler, fake_creds)
+        adf = {"type": "doc", "version": 1, "content": []}
+        client.create_issue_link(
+            link_type="Blocks",
+            inward_key="ENG-1",
+            outward_key="ENG-2",
+            comment=adf,
+        )
+        wire = _decode_request_json(captured[0])
+        assert wire["comment"] == {"body": adf}
+
+    def test_idempotency_hit_same_triple(
+        self, fake_creds: JiraCredentials, reset_idempotency_cache
+    ):
+        calls = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls["n"] += 1
+            return httpx.Response(201)
+
+        client = _make_client(handler, fake_creds)
+        client.create_issue_link(
+            link_type="Blocks",
+            inward_key="ENG-1",
+            outward_key="ENG-2",
+            idempotency_key="link-1",
+        )
+        client.create_issue_link(
+            link_type="Blocks",
+            inward_key="ENG-1",
+            outward_key="ENG-2",
+            idempotency_key="link-1",
+        )
+        assert calls["n"] == 1
+
+    def test_idempotency_link_cache_aliasing_distinct_triples(
+        self, fake_creds: JiraCredentials, reset_idempotency_cache
+    ):
+        """Refine decision-28: same opaque idempotency key against
+        different ``(inward, outward, type)`` triples must produce distinct
+        cache entries.  This is the link-cache aliasing test required by
+        task-5-1's acceptance criteria, mirrored here at the JiraClient
+        level (the cache module test_jira_idempotency.py also covers it
+        via its synthetic-project shape)."""
+        calls = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls["n"] += 1
+            return httpx.Response(201)
+
+        client = _make_client(handler, fake_creds)
+        # Same opaque key, three different triples → three upstream calls.
+        client.create_issue_link(
+            link_type="Blocks",
+            inward_key="ENG-1",
+            outward_key="ENG-2",
+            idempotency_key="k",
+        )
+        client.create_issue_link(
+            link_type="Blocks",
+            inward_key="ENG-1",
+            outward_key="ENG-3",
+            idempotency_key="k",
+        )
+        client.create_issue_link(
+            link_type="Relates",
+            inward_key="ENG-1",
+            outward_key="ENG-2",
+            idempotency_key="k",
+        )
+        assert calls["n"] == 3
+
+    def test_a_to_b_and_b_to_a_distinct(self, fake_creds: JiraCredentials, reset_idempotency_cache):
+        """Direction matters: A→B and B→A are distinct links."""
+        calls = {"n": 0}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            calls["n"] += 1
+            return httpx.Response(201)
+
+        client = _make_client(handler, fake_creds)
+        client.create_issue_link(
+            link_type="Blocks",
+            inward_key="ENG-1",
+            outward_key="ENG-2",
+            idempotency_key="k",
+        )
+        client.create_issue_link(
+            link_type="Blocks",
+            inward_key="ENG-2",
+            outward_key="ENG-1",
+            idempotency_key="k",
+        )
+        assert calls["n"] == 2
+
+    def test_429_emits_audit(self, fake_creds: JiraCredentials, monkeypatch: pytest.MonkeyPatch):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(429, headers={"Retry-After": "1"})
+
+        captured_audits: list[dict[str, Any]] = []
+        monkeypatch.setattr(
+            jira_client,
+            "_emit_rate_limited_audit",
+            lambda *, path, method, attempt, retry_after: captured_audits.append(
+                {"method": method, "path": path}
+            ),
+        )
+        monkeypatch.setattr(jira_client.time, "sleep", lambda _s: None)
+
+        client = _make_client(handler, fake_creds)
+        with pytest.raises(JiraUpstreamError):
+            client.create_issue_link(
+                link_type="Blocks",
+                inward_key="ENG-1",
+                outward_key="ENG-2",
+            )
+        assert len(captured_audits) == 1
+        assert captured_audits[0]["method"] == "POST"
+        assert captured_audits[0]["path"] == "issueLink"
+
+
+# -----------------------------------------------------------------------------
+# Auth header on writes
+# -----------------------------------------------------------------------------
+
+
+class TestWriteAuthHeader:
+    def test_basic_auth_on_each_write(self, fake_creds: JiraCredentials, reset_idempotency_cache):
+        captured: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured.append(request)
+            # 201 for creates, 204 for the PUT.
+            if request.method == "PUT":
+                return httpx.Response(204)
+            return httpx.Response(201, json={"id": "1", "key": "ENG-1"})
+
+        client = _make_client(handler, fake_creds)
+        client.create_issue(project_key="ENG", issuetype="Task", summary="x")
+        client.edit_issue(key="ENG-1", summary="y")
+        client.add_comment(key="ENG-1", body="z")
+        client.create_issue_link(link_type="Blocks", inward_key="ENG-1", outward_key="ENG-2")
+
+        assert len(captured) == 4
+        for req in captured:
+            assert req.headers["authorization"] == fake_creds.basic_auth_header()
+            # Content-Type set on every write (we always send a body).
+            assert req.headers["content-type"] == "application/json"

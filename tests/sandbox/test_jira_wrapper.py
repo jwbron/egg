@@ -421,7 +421,703 @@ class TestUsage:
         assert proc.returncode == 0
         assert "jira ticket get" in proc.stderr or "jira ticket get" in proc.stdout
 
+    def test_help_includes_write_verbs(self, mock_gateway):
+        """The wrapper's ``show_usage`` must mention all four #1924 write
+        verbs so an agent grepping ``jira help`` discovers them."""
+        proc = _run_wrapper(mock_gateway, ["help"])
+        assert proc.returncode == 0
+        out = proc.stdout + proc.stderr
+        for snippet in (
+            "jira ticket create",
+            "jira ticket edit",
+            "jira ticket comment add",
+            "jira link create",
+        ):
+            assert snippet in out, f"missing {snippet!r} from `jira help`"
+
     def test_unknown_verb(self, mock_gateway):
         proc = _run_wrapper(mock_gateway, ["transition", "ENG-1"])
         assert proc.returncode != 0
         assert "unknown" in proc.stderr.lower()
+
+
+# =============================================================================
+# Write subcommands (issue #1924)
+# =============================================================================
+
+
+def _enqueue_success(mock_gateway, data: dict | None = None) -> None:
+    mock_gateway["server"].response_queue.append(
+        {
+            "status": 200,
+            "body": {"success": True, "data": data or {}},
+        }
+    )
+
+
+class TestTicketCreate:
+    """``jira ticket create`` — POST /api/v1/jira/ticket/create."""
+
+    def test_minimal_required_flags(self, mock_gateway):
+        _enqueue_success(
+            mock_gateway,
+            {
+                "status": "created",
+                "key": "ENG-1",
+                "id": "10001",
+                "browse_url": "https://e.atlassian.net/browse/ENG-1",
+            },
+        )
+        proc = _run_wrapper(
+            mock_gateway,
+            [
+                "ticket",
+                "create",
+                "--project",
+                "ENG",
+                "--type",
+                "Task",
+                "--summary",
+                "hello",
+            ],
+        )
+        assert proc.returncode == 0, proc.stderr
+        rec = mock_gateway["server"].recorded[-1]
+        assert rec["path"] == "/api/v1/jira/ticket/create"
+        assert rec["body"] == {
+            "project": "ENG",
+            "issuetype": "Task",
+            "summary": "hello",
+        }
+        # JSON envelope printed to stdout on success.
+        out = json.loads(proc.stdout)
+        assert out["key"] == "ENG-1"
+
+    def test_all_flags_forwarded(self, mock_gateway):
+        _enqueue_success(mock_gateway, {"status": "created", "key": "ENG-2"})
+        proc = _run_wrapper(
+            mock_gateway,
+            [
+                "ticket",
+                "create",
+                "--project",
+                "ENG",
+                "--type",
+                "Task",
+                "--summary",
+                "hi",
+                "--description",
+                "long body",
+                "--labels",
+                "alpha,beta",
+                "--parent",
+                "ENG-100",
+                "--idempotency-key",
+                "k-1",
+            ],
+        )
+        assert proc.returncode == 0, proc.stderr
+        rec = mock_gateway["server"].recorded[-1]
+        assert rec["body"] == {
+            "project": "ENG",
+            "issuetype": "Task",
+            "summary": "hi",
+            "description": "long body",
+            "labels": ["alpha", "beta"],
+            "parent": "ENG-100",
+            "idempotencyKey": "k-1",
+        }
+
+    def test_epic_link_flag(self, mock_gateway):
+        _enqueue_success(mock_gateway, {"status": "created", "key": "ENG-3"})
+        proc = _run_wrapper(
+            mock_gateway,
+            [
+                "ticket",
+                "create",
+                "--project",
+                "ENG",
+                "--type",
+                "Task",
+                "--summary",
+                "hi",
+                "--epic-link",
+                "ENG-99",
+            ],
+        )
+        assert proc.returncode == 0, proc.stderr
+        rec = mock_gateway["server"].recorded[-1]
+        assert rec["body"]["epicLink"] == "ENG-99"
+
+    def test_description_file_read(self, mock_gateway, tmp_path):
+        path = tmp_path / "desc.txt"
+        path.write_text("body from file\nsecond line")
+        _enqueue_success(mock_gateway, {"status": "created", "key": "ENG-1"})
+        proc = _run_wrapper(
+            mock_gateway,
+            [
+                "ticket",
+                "create",
+                "--project",
+                "ENG",
+                "--type",
+                "Task",
+                "--summary",
+                "hi",
+                "--description-file",
+                str(path),
+            ],
+        )
+        assert proc.returncode == 0, proc.stderr
+        rec = mock_gateway["server"].recorded[-1]
+        assert rec["body"]["description"] == "body from file\nsecond line"
+
+    def test_description_stdin(self, mock_gateway):
+        _enqueue_success(mock_gateway, {"status": "created", "key": "ENG-1"})
+        env = os.environ.copy()
+        env["GATEWAY_URL"] = mock_gateway["url"]
+        env["EGG_SESSION_TOKEN"] = "tok"
+        proc = subprocess.run(
+            [
+                "bash",
+                str(WRAPPER),
+                "ticket",
+                "create",
+                "--project",
+                "ENG",
+                "--type",
+                "Task",
+                "--summary",
+                "hi",
+                "--description-stdin",
+            ],
+            input="from stdin",
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=15,
+        )
+        assert proc.returncode == 0, proc.stderr
+        rec = mock_gateway["server"].recorded[-1]
+        assert rec["body"]["description"] == "from stdin"
+
+    def test_mutually_exclusive_description_flags_rejected(self, mock_gateway, tmp_path):
+        path = tmp_path / "desc.txt"
+        path.write_text("from file")
+        # No response queued — wrapper should fail before the gateway call.
+        proc = _run_wrapper(
+            mock_gateway,
+            [
+                "ticket",
+                "create",
+                "--project",
+                "ENG",
+                "--type",
+                "Task",
+                "--summary",
+                "hi",
+                "--description",
+                "literal",
+                "--description-file",
+                str(path),
+            ],
+        )
+        assert proc.returncode != 0
+        assert "mutually exclusive" in proc.stderr.lower()
+        # No upstream call recorded.
+        assert mock_gateway["server"].recorded == []
+
+    def test_missing_required_flag_rejected(self, mock_gateway):
+        proc = _run_wrapper(
+            mock_gateway,
+            ["ticket", "create", "--project", "ENG", "--summary", "hi"],
+        )
+        assert proc.returncode != 0
+        assert "required" in proc.stderr.lower()
+        assert mock_gateway["server"].recorded == []
+
+    def test_unknown_flag_rejected(self, mock_gateway):
+        proc = _run_wrapper(
+            mock_gateway,
+            [
+                "ticket",
+                "create",
+                "--project",
+                "ENG",
+                "--type",
+                "Task",
+                "--summary",
+                "hi",
+                "--bogus",
+                "x",
+            ],
+        )
+        assert proc.returncode != 0
+        assert "unknown" in proc.stderr.lower()
+
+    def test_gateway_400_surfaces_error(self, mock_gateway):
+        mock_gateway["server"].response_queue.append(
+            {
+                "status": 400,
+                "body": {
+                    "success": False,
+                    "message": "summary exceeds maximum length (255 chars)",
+                },
+            }
+        )
+        proc = _run_wrapper(
+            mock_gateway,
+            [
+                "ticket",
+                "create",
+                "--project",
+                "ENG",
+                "--type",
+                "Task",
+                "--summary",
+                "x" * 1000,
+            ],
+        )
+        assert proc.returncode != 0
+        assert "exceeds maximum" in proc.stderr.lower()
+
+
+class TestTicketEdit:
+    """``jira ticket edit`` — POST /api/v1/jira/ticket/edit."""
+
+    def test_summary_change(self, mock_gateway):
+        _enqueue_success(mock_gateway, {"status": "updated", "key": "ENG-1"})
+        proc = _run_wrapper(
+            mock_gateway,
+            ["ticket", "edit", "ENG-1", "--summary", "new"],
+        )
+        assert proc.returncode == 0, proc.stderr
+        rec = mock_gateway["server"].recorded[-1]
+        assert rec["path"] == "/api/v1/jira/ticket/edit"
+        # Default notify=true (gateway default is false; wrapper sends explicit
+        # true unless --no-notify).
+        assert rec["body"]["ticket"] == "ENG-1"
+        assert rec["body"]["summary"] == "new"
+        assert rec["body"]["notifyUsers"] is True
+
+    def test_no_notify_flag(self, mock_gateway):
+        _enqueue_success(mock_gateway, {"status": "updated", "key": "ENG-1"})
+        proc = _run_wrapper(
+            mock_gateway,
+            ["ticket", "edit", "ENG-1", "--summary", "x", "--no-notify"],
+        )
+        assert proc.returncode == 0, proc.stderr
+        rec = mock_gateway["server"].recorded[-1]
+        assert rec["body"]["notifyUsers"] is False
+
+    def test_replace_labels(self, mock_gateway):
+        _enqueue_success(mock_gateway, {"status": "updated", "key": "ENG-1"})
+        proc = _run_wrapper(
+            mock_gateway,
+            ["ticket", "edit", "ENG-1", "--labels", "a,b,c"],
+        )
+        assert proc.returncode == 0, proc.stderr
+        rec = mock_gateway["server"].recorded[-1]
+        assert rec["body"]["labels"] == ["a", "b", "c"]
+        # No mixing.
+        assert "addLabels" not in rec["body"]
+        assert "removeLabels" not in rec["body"]
+
+    def test_incremental_labels(self, mock_gateway):
+        _enqueue_success(mock_gateway, {"status": "updated", "key": "ENG-1"})
+        proc = _run_wrapper(
+            mock_gateway,
+            [
+                "ticket",
+                "edit",
+                "ENG-1",
+                "--add-labels",
+                "x,y",
+                "--remove-labels",
+                "z",
+            ],
+        )
+        assert proc.returncode == 0, proc.stderr
+        rec = mock_gateway["server"].recorded[-1]
+        assert rec["body"]["addLabels"] == ["x", "y"]
+        assert rec["body"]["removeLabels"] == ["z"]
+        assert "labels" not in rec["body"]
+
+    def test_mixed_labels_modes_rejected_client_side(self, mock_gateway):
+        proc = _run_wrapper(
+            mock_gateway,
+            [
+                "ticket",
+                "edit",
+                "ENG-1",
+                "--labels",
+                "a",
+                "--add-labels",
+                "b",
+            ],
+        )
+        assert proc.returncode != 0
+        assert "mutually exclusive" in proc.stderr.lower()
+        # Wrapper bails before contacting the gateway.
+        assert mock_gateway["server"].recorded == []
+
+    def test_description_file(self, mock_gateway, tmp_path):
+        path = tmp_path / "d.txt"
+        path.write_text("new body")
+        _enqueue_success(mock_gateway, {"status": "updated", "key": "ENG-1"})
+        proc = _run_wrapper(
+            mock_gateway,
+            [
+                "ticket",
+                "edit",
+                "ENG-1",
+                "--description-file",
+                str(path),
+            ],
+        )
+        assert proc.returncode == 0, proc.stderr
+        rec = mock_gateway["server"].recorded[-1]
+        assert rec["body"]["description"] == "new body"
+
+    def test_missing_ticket_key(self, mock_gateway):
+        proc = _run_wrapper(mock_gateway, ["ticket", "edit"])
+        assert proc.returncode != 0
+        assert "ticket" in proc.stderr.lower()
+
+    def test_unknown_flag_rejected(self, mock_gateway):
+        proc = _run_wrapper(
+            mock_gateway,
+            ["ticket", "edit", "ENG-1", "--summary", "x", "--bogus", "y"],
+        )
+        assert proc.returncode != 0
+        assert "unknown" in proc.stderr.lower()
+
+
+class TestTicketCommentAdd:
+    """``jira ticket comment add`` — POST /api/v1/jira/ticket/comment/add."""
+
+    def test_inline_body(self, mock_gateway):
+        _enqueue_success(mock_gateway, {"id": "10010"})
+        proc = _run_wrapper(
+            mock_gateway,
+            ["ticket", "comment", "add", "ENG-1", "--body", "hello"],
+        )
+        assert proc.returncode == 0, proc.stderr
+        rec = mock_gateway["server"].recorded[-1]
+        assert rec["path"] == "/api/v1/jira/ticket/comment/add"
+        assert rec["body"] == {"ticket": "ENG-1", "body": "hello"}
+
+    def test_body_file(self, mock_gateway, tmp_path):
+        path = tmp_path / "c.txt"
+        path.write_text("from file")
+        _enqueue_success(mock_gateway, {"id": "10010"})
+        proc = _run_wrapper(
+            mock_gateway,
+            ["ticket", "comment", "add", "ENG-1", "--body-file", str(path)],
+        )
+        assert proc.returncode == 0, proc.stderr
+        rec = mock_gateway["server"].recorded[-1]
+        assert rec["body"]["body"] == "from file"
+
+    def test_body_stdin(self, mock_gateway):
+        _enqueue_success(mock_gateway, {"id": "10010"})
+        env = os.environ.copy()
+        env["GATEWAY_URL"] = mock_gateway["url"]
+        env["EGG_SESSION_TOKEN"] = "tok"
+        proc = subprocess.run(
+            [
+                "bash",
+                str(WRAPPER),
+                "ticket",
+                "comment",
+                "add",
+                "ENG-1",
+                "--body-stdin",
+            ],
+            input="from stdin",
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=15,
+        )
+        assert proc.returncode == 0, proc.stderr
+        rec = mock_gateway["server"].recorded[-1]
+        assert rec["body"]["body"] == "from stdin"
+
+    def test_idempotency_key(self, mock_gateway):
+        _enqueue_success(mock_gateway, {"id": "10010"})
+        proc = _run_wrapper(
+            mock_gateway,
+            [
+                "ticket",
+                "comment",
+                "add",
+                "ENG-1",
+                "--body",
+                "hi",
+                "--idempotency-key",
+                "k-1",
+            ],
+        )
+        assert proc.returncode == 0, proc.stderr
+        rec = mock_gateway["server"].recorded[-1]
+        assert rec["body"]["idempotencyKey"] == "k-1"
+
+    def test_missing_body_flag_rejected(self, mock_gateway):
+        proc = _run_wrapper(mock_gateway, ["ticket", "comment", "add", "ENG-1"])
+        assert proc.returncode != 0
+        assert "body" in proc.stderr.lower()
+        assert mock_gateway["server"].recorded == []
+
+    def test_mutually_exclusive_body_flags(self, mock_gateway, tmp_path):
+        path = tmp_path / "x.txt"
+        path.write_text("x")
+        proc = _run_wrapper(
+            mock_gateway,
+            [
+                "ticket",
+                "comment",
+                "add",
+                "ENG-1",
+                "--body",
+                "hi",
+                "--body-file",
+                str(path),
+            ],
+        )
+        assert proc.returncode != 0
+        assert "mutually exclusive" in proc.stderr.lower()
+        assert mock_gateway["server"].recorded == []
+
+    def test_missing_ticket_key(self, mock_gateway):
+        proc = _run_wrapper(mock_gateway, ["ticket", "comment", "add"])
+        assert proc.returncode != 0
+        assert mock_gateway["server"].recorded == []
+
+    def test_unknown_subcommand(self, mock_gateway):
+        proc = _run_wrapper(mock_gateway, ["ticket", "comment", "remove", "ENG-1"])
+        assert proc.returncode != 0
+        assert "unknown" in proc.stderr.lower()
+
+
+class TestLinkCreate:
+    """``jira link create`` — POST /api/v1/jira/issue-link/create."""
+
+    def test_minimal_flags(self, mock_gateway):
+        _enqueue_success(
+            mock_gateway,
+            {
+                "status": "created",
+                "inwardIssue": "ENG-1",
+                "outwardIssue": "ENG-2",
+                "type": "Blocks",
+            },
+        )
+        proc = _run_wrapper(
+            mock_gateway,
+            [
+                "link",
+                "create",
+                "--type",
+                "Blocks",
+                "--inward",
+                "ENG-1",
+                "--outward",
+                "ENG-2",
+            ],
+        )
+        assert proc.returncode == 0, proc.stderr
+        rec = mock_gateway["server"].recorded[-1]
+        assert rec["path"] == "/api/v1/jira/issue-link/create"
+        assert rec["body"] == {
+            "type": "Blocks",
+            "inwardIssue": "ENG-1",
+            "outwardIssue": "ENG-2",
+        }
+
+    def test_with_comment_and_idempotency(self, mock_gateway):
+        _enqueue_success(mock_gateway, {"status": "created"})
+        proc = _run_wrapper(
+            mock_gateway,
+            [
+                "link",
+                "create",
+                "--type",
+                "Relates",
+                "--inward",
+                "ENG-1",
+                "--outward",
+                "ENG-2",
+                "--comment",
+                "see issue #1924",
+                "--idempotency-key",
+                "k-1",
+            ],
+        )
+        assert proc.returncode == 0, proc.stderr
+        rec = mock_gateway["server"].recorded[-1]
+        assert rec["body"]["comment"] == "see issue #1924"
+        assert rec["body"]["idempotencyKey"] == "k-1"
+
+    def test_comment_file(self, mock_gateway, tmp_path):
+        path = tmp_path / "c.txt"
+        path.write_text("from file")
+        _enqueue_success(mock_gateway, {"status": "created"})
+        proc = _run_wrapper(
+            mock_gateway,
+            [
+                "link",
+                "create",
+                "--type",
+                "Blocks",
+                "--inward",
+                "ENG-1",
+                "--outward",
+                "ENG-2",
+                "--comment-file",
+                str(path),
+            ],
+        )
+        assert proc.returncode == 0, proc.stderr
+        rec = mock_gateway["server"].recorded[-1]
+        assert rec["body"]["comment"] == "from file"
+
+    def test_missing_required_flag(self, mock_gateway):
+        proc = _run_wrapper(
+            mock_gateway,
+            ["link", "create", "--type", "Blocks", "--inward", "ENG-1"],
+        )
+        assert proc.returncode != 0
+        assert "required" in proc.stderr.lower()
+        assert mock_gateway["server"].recorded == []
+
+    def test_mutually_exclusive_comment_flags(self, mock_gateway, tmp_path):
+        path = tmp_path / "x.txt"
+        path.write_text("x")
+        proc = _run_wrapper(
+            mock_gateway,
+            [
+                "link",
+                "create",
+                "--type",
+                "Blocks",
+                "--inward",
+                "ENG-1",
+                "--outward",
+                "ENG-2",
+                "--comment",
+                "literal",
+                "--comment-file",
+                str(path),
+            ],
+        )
+        assert proc.returncode != 0
+        assert "mutually exclusive" in proc.stderr.lower()
+
+    def test_unknown_flag(self, mock_gateway):
+        proc = _run_wrapper(
+            mock_gateway,
+            [
+                "link",
+                "create",
+                "--type",
+                "Blocks",
+                "--inward",
+                "ENG-1",
+                "--outward",
+                "ENG-2",
+                "--bogus",
+                "y",
+            ],
+        )
+        assert proc.returncode != 0
+        assert "unknown" in proc.stderr.lower()
+
+    def test_unknown_link_subcommand(self, mock_gateway):
+        proc = _run_wrapper(mock_gateway, ["link", "delete", "x"])
+        assert proc.returncode != 0
+        assert "unknown" in proc.stderr.lower()
+
+    def test_gateway_400_surfaces_error(self, mock_gateway):
+        mock_gateway["server"].response_queue.append(
+            {
+                "status": 400,
+                "body": {
+                    "success": False,
+                    "message": "Link type 'Cloners' not in allowlist",
+                },
+            }
+        )
+        proc = _run_wrapper(
+            mock_gateway,
+            [
+                "link",
+                "create",
+                "--type",
+                "Cloners",
+                "--inward",
+                "ENG-1",
+                "--outward",
+                "ENG-2",
+            ],
+        )
+        assert proc.returncode != 0
+        assert "allowlist" in proc.stderr.lower()
+
+
+class TestAuthHeaderOnWriteVerbs:
+    """Every write subcommand must send the Bearer session token."""
+
+    def _common_env(self, mock_gateway):
+        return mock_gateway
+
+    def test_create_carries_bearer(self, mock_gateway):
+        _enqueue_success(mock_gateway, {"status": "created", "key": "ENG-1"})
+        _run_wrapper(
+            mock_gateway,
+            [
+                "ticket",
+                "create",
+                "--project",
+                "ENG",
+                "--type",
+                "Task",
+                "--summary",
+                "x",
+            ],
+        )
+        rec = mock_gateway["server"].recorded[-1]
+        assert rec["authorization"] == "Bearer test-session-token"
+
+    def test_edit_carries_bearer(self, mock_gateway):
+        _enqueue_success(mock_gateway, {"status": "updated", "key": "ENG-1"})
+        _run_wrapper(mock_gateway, ["ticket", "edit", "ENG-1", "--summary", "x"])
+        rec = mock_gateway["server"].recorded[-1]
+        assert rec["authorization"] == "Bearer test-session-token"
+
+    def test_comment_add_carries_bearer(self, mock_gateway):
+        _enqueue_success(mock_gateway, {"id": "10010"})
+        _run_wrapper(
+            mock_gateway,
+            ["ticket", "comment", "add", "ENG-1", "--body", "hi"],
+        )
+        rec = mock_gateway["server"].recorded[-1]
+        assert rec["authorization"] == "Bearer test-session-token"
+
+    def test_link_create_carries_bearer(self, mock_gateway):
+        _enqueue_success(mock_gateway, {"status": "created"})
+        _run_wrapper(
+            mock_gateway,
+            [
+                "link",
+                "create",
+                "--type",
+                "Blocks",
+                "--inward",
+                "ENG-1",
+                "--outward",
+                "ENG-2",
+            ],
+        )
+        rec = mock_gateway["server"].recorded[-1]
+        assert rec["authorization"] == "Bearer test-session-token"
