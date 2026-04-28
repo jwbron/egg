@@ -872,6 +872,21 @@ GIT_ALLOWED_COMMANDS: dict[str, dict[str, list[str]]] = {
     "update-ref": {
         "allowed_flags": [],
     },
+    # symbolic-ref is the canonical reattach primitive when an agent ends up
+    # on detached HEAD (e.g. after a `git rebase` against an advanced
+    # upstream silently leaves the worktree detached).  Restricted to the
+    # two-arg form (`symbolic-ref HEAD <ref>`) and further scoped in
+    # gateway.py to the session's assigned branch or the per-role local
+    # work branch.  Lower-level than `switch`/`checkout`: rewrites HEAD's
+    # symref but does not change branch contents.  Pairs with the
+    # already-allowed `git reset --hard <on-lineage>` to advance the
+    # local branch when needed.  ``-d``/``--delete``/``--short``/``-q``
+    # are intentionally absent: deletion is not a recovery primitive and
+    # the printed-output forms have no use in scripted recovery.
+    # Issue #2200.
+    "symbolic-ref": {
+        "allowed_flags": [],
+    },
 }
 
 # Per-subcommand flag normalization: map short flags to long form for consistent
