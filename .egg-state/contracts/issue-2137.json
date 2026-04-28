@@ -42,10 +42,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"moot \u2014 superseded by stacked PRs in revised issue text (no orchestrator-side merge step; slices stack via per-slice PRs through normal GitHub review/merge flow)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:32.334485Z",
       "debounce_until": null
     },
     {
@@ -80,10 +80,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Let siblings run to completion; only block on the failed slice's downstream subtree (matches issue text literally).\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:37.399186Z",
       "debounce_until": null
     },
     {
@@ -118,10 +118,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Per-slice only \u2014 lenses review each slice's diff in that slice's BRC; cheaper but loses cross-slice coherence (a security regression spanning two slices may be missed).\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:37.439802Z",
       "debounce_until": null
     },
     {
@@ -156,10 +156,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"resolved by #2152 (#2139 merged 2026-04-27) \u2014 reviewer_code subagent fan-out paths already torn out and lens reviewers (reviewer_security, reviewer_concurrency) already promoted to CRITICAL; no per-slice roster removal needed for #2137\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:37.471587Z",
       "debounce_until": null
     },
     {
@@ -194,10 +194,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Unbounded \u2014 spawn every wave-N slice simultaneously; trust container limits and gateway throttling.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:37.500028Z",
       "debounce_until": null
     },
     {
@@ -232,10 +232,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Soft guidance + post-plan advisory warning \u2014 plan reviewer flags slices estimated >1,000 LOC but does not NACK; refiner/operator can override.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:37.525214Z",
       "debounce_until": null
     },
     {
@@ -270,10 +270,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Rename, but ship a one-version migration that auto-translates `phases[]` \u2192 `slices[]` on contract load.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:37.548822Z",
       "debounce_until": null
     },
     {
@@ -303,10 +303,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Follow-up after #2137 lands \u2014 file a separate issue to slice babysit_pr's implement-equivalent flow; mention it in the analysis but don't block on it.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:37.571320Z",
       "debounce_until": null
     },
     {
@@ -341,10 +341,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Two-tier: each slice has a local cap (default 3); pipeline has a global cap on total cycles (default 10). Either trip escalates HITL.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:37.593516Z",
       "debounce_until": null
     },
     {
@@ -374,10 +374,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Hybrid: short grace period (e.g., 60s) after a slice failure for HITL resolution; if not resolved, walk the DAG and abort downstream.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:37.615223Z",
       "debounce_until": null
     },
     {
@@ -407,10 +407,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"1:1 with today's `Phase` \u2014 slice is just a renamed phase with the same `tasks[]` and `dependencies[]` fields; coder still iterates tasks within a slice.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:37.636897Z",
       "debounce_until": null
     },
     {
@@ -440,10 +440,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Identical roster per slice \u2014 every slice runs the same {coder, tester, documenter, reviewer_*} set. Predictable, simple.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:42.686766Z",
       "debounce_until": null
     },
     {
@@ -478,10 +478,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Per-slice only \u2014 lenses (still ADVISORY) review each slice's diff in that slice's BRC; cheaper but loses cross-slice coherence; even after CRITICAL promotion (#1997), per-slice would mean lens NACKs only block the slice they fired in.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:42.721146Z",
       "debounce_until": null
     },
     {
@@ -511,10 +511,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Hybrid: keep `pipeline_id` for cross-slice messages (HEARTBEAT, OVERSEER_ALERT) but use nested IDs for BRC consensus (CONSENSUS_*) so per-slice consensus state is naturally isolated.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:42.754313Z",
       "debounce_until": null
     },
     {
@@ -549,10 +549,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"moot \u2014 no merge endpoint per revised issue text (slices stack via PRs through normal GitHub review/merge flow; the orchestrator never calls a privileged merge endpoint)\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:42.782711Z",
       "debounce_until": null
     },
     {
@@ -587,10 +587,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Hybrid: rely on GitHub auto-retarget as the primary path; orchestrator runs a periodic reconciler (every N seconds) that checks for child PRs whose base no longer exists and rebases them via the gateway. Catches edge cases without adding webhook infrastructure.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:47.832929Z",
       "debounce_until": null
     },
     {
@@ -625,10 +625,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"Let the planner emit an explicit `serialized_chain_order` field per cluster \u2014 the planner's own judgement is the source of truth; the heuristic is just a fallback when the planner doesn't supply ordering. Refiner can spot-check the plan during plan review.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:47.867826Z",
       "debounce_until": null
     },
     {
@@ -663,10 +663,10 @@
           "description": null
         }
       ],
-      "resolved": false,
-      "resolution": null,
-      "resolved_by": null,
-      "resolved_at": null,
+      "resolved": true,
+      "resolution": "{\"action\": \"select\", \"selected\": \"At plan ingestion only (`_populate_contract_from_plan`) \u2014 reject the plan with a structured error that triggers the plan reviewer to NACK, forcing the planner to re-emit a forest. Single source of truth; matches the issue's literal text.\"}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-28T17:05:47.896016Z",
       "debounce_until": null
     }
   ],
@@ -1575,37 +1575,37 @@
       {
         "id": "Q1",
         "question": "What's the expected typical and worst-case slice count for a 'large' ticket today (e.g., the kind that triggers compaction)? This drives the default `max_parallel_slices` cap and informs whether we expect plans with 3 slices or 30.",
-        "answer": null
+        "answer": "Typical 3\u20137 slices per ticket; worst-case 10\u201315. Compaction empirically kicks in at ~33K LOC / 41 files (per #2105 background data); tickets above that threshold are the primary target. The default `max_parallel_slices` cap should accommodate the worst case without being overly conservative \u2014 a default of 5 is a reasonable starting point that the operator can raise as confidence builds."
       },
       {
         "id": "Q2",
         "question": "Do you want this work split into multiple PRs (e.g., #2134 prereq \u2192 schema rename \u2192 orchestrator slice scheduler \u2192 reviewer roster cleanup) or land as one large PR? The former matches the issue's hard prereq on #2134 but adds coordination overhead.",
-        "answer": null
+        "answer": "Single PR. We don't have multi-PR support \u2014 that's exactly what #2137 adds. Splitting #2137 into multiple PRs presupposes the very feature it introduces. The single-PR scope covers the schema rename (Phase \u2192 Slice + plan_parser + plan templates), the DependencyGraph generification (or slice-keyed parallel), forest validation at plan ingestion, the orchestrator slice scheduler with per-slice BRC tracker namespacing, per-slice branch creation via `create_phase_worktree`, per-slice PR creation, the stacked-PR rebase reconciler, and the planner-side auto-serialization heuristic. Rough order-of-magnitude size: 1,500\u20132,500 LOC across orchestrator, gateway, plan_parser, models, and dependency_graph."
       },
       {
         "id": "Q3",
         "question": "Should the per-slice branch be `egg/issue-N/slice-M` (slash-separated, matching `egg/babysit-pr/{pr}/{sha}/{role}`) or `egg/issue-N-slice-M` (dash-separated, matching `egg/issue-N-{role}/work`)? Branch-naming convention matters for any reviewer tooling that parses branch names.",
-        "answer": null
+        "answer": "`egg/issue-N/slice-M` (slash-separated) \u2014 matches the existing `egg/babysit-pr/{pr}/{sha}/{role}` precedent in `concurrent_executor.py`. Reference: GitHub's official stacked-PR guidance is at https://github.github.com/gh-stack/ \u2014 the plan phase should consult this when designing the rebase reconciler (decision-18) and per-slice PR creation hooks. The naming convention itself is independent of gh-stack, but gh-stack's workflow assumes branch names that allow human reviewers to follow the stack chain, so a hierarchical scheme like `egg/issue-N/slice-M` aligns well."
       },
       {
         "id": "Q4",
         "question": "Are there any operational constraints we should know about \u2014 e.g., gateway/container concurrency limits, GitHub Actions queue depth, Anthropic rate limits \u2014 that bound how many slices can run in parallel before things become unhealthy?",
-        "answer": null
+        "answer": "No specific known caps today; trust gateway/container limits and GHA queue depth. Anthropic rate limits apply at higher concurrency tiers but are not currently a concrete blocker for this work. Recommend a conservative `max_parallel_slices` default (5) that the operator can raise as confidence builds.\n\n**Per-slice MCP control follow-up \u2014 #2199**. The current MCP retry surface (`restart_phase`, `restart_agent`) operates at phase granularity. With slicing, operators will routinely need to restart a single failed slice without disturbing siblings, and to inspect or restart a specific agent within a specific slice. #2199 tracks `restart_slice`, `restart_agent` with optional `slice_id`, `get_slice_status`, and `list_slices` as a follow-up to #2137. **#2137 should expose the internal slice-addressable hooks** (the slice scheduler must already know how to teardown / respawn / query a slice in isolation), but the MCP verb layer itself is out of scope for #2137 and lands in #2199 immediately after."
       },
       {
         "id": "Q5",
         "question": "Beyond removing the diff-size fan-out paths in `reviewer_code` (#2127, #1965, #2067), is there any salvageable machinery from the current fan-out implementation we should keep (e.g., the partition cross-pass pattern, `ReviewerCodeConfig.parallel`)? Or is this a clean tear-out?",
-        "answer": null
+        "answer": "Clean tear-out \u2014 completed by PR #2152 (#2139, merged 2026-04-27). The `reviewer_code` subagent fan-out paths and `ReviewerCodeConfig.parallel` are gone. No salvage needed for #2137; the slice-scoped reviewers in this issue's roster (single-pass `reviewer_code` + `reviewer_code_holistic` + per-slice lens reviewers) replace the fan-out pattern entirely."
       },
       {
         "id": "Q6",
         "question": "Is there a target ticket / past pipeline that should be the regression test for the acceptance criterion 'a previously-oversized ticket completes without compaction'? Naming a specific ticket helps the implement phase pick a concrete benchmark.",
-        "answer": null
+        "answer": "Skip \u2014 leave for the implement phase to pick. The acceptance criterion (\"a previously-oversized ticket completes without compaction\") can be tested with any ticket exceeding the ~33K LOC / 41 files threshold from #2105. If the operator wants a specific past oversized pipeline as the regression benchmark, they can name it during plan-phase HITL or in the implement phase's test plan."
       }
     ],
-    "submitted": false,
-    "submitted_by": null,
-    "submitted_at": null,
+    "submitted": true,
+    "submitted_by": "human",
+    "submitted_at": "2026-04-28T17:06:13.308355Z",
     "comment_id": null,
     "debounce_until": null
   },
