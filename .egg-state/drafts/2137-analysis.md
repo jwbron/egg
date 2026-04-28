@@ -38,7 +38,7 @@ This is the second refine pass on #2137. The issue text was substantially revise
 - **Stacked-PR rebase mechanics is a new concern.** When a parent slice's PR merges, child PRs need to retarget. New decision: **decision-16** (GitHub auto-retarget vs orchestrator explicit rebase vs hybrid vs manual).
 - **#2139 (PR #2152) merged.** The reviewer roster cleanup (subagent fan-out tear-out + lens promotion to CRITICAL) is done. Consequence: **decision-4** (reviewer roster removal) is resolved by #2152 — the human can mark it accordingly. **feedback-1 Q5** ("salvage from `ReviewerCodeConfig.parallel`?") is also resolved: per the merged PR, it was a clean tear-out with no salvage.
 - **Several decisions are partially answered by the issue's own text.** Issue commits to "no concurrency cap" (partial answer to **decision-5**, but the operational cap question via feedback-1 Q4 remains valid). Issue commits to "no per-slice roster customization" (answers **decision-12** → option A, identical roster). Issue commits to "siblings keep running" (answers **decision-2** → option A, literal text). Plan phase should treat these as defaulted-to-the-issue's-text and only flip them if the human resolves them differently.
-- **Lens reviewers are CRITICAL today.** This makes the original **decision-3** framing correct again and the **decision-13** ADVISORY-framed correction obsolete. The human should answer decision-3 (or decision-13's option C/D, whose option labels are still informative); decision-13's premise about today's criticality is now wrong and the human can leave it unresolved or pick "Other (explain in reply): superseded by #2139 — answer decision-3 instead."
+- **Lens reviewers are CRITICAL today.** This makes the original **decision-3** framing correct again and the **decision-13** ADVISORY-framed correction obsolete. The recommended resolution for both is **per-slice only** (decision-3 option 1) — see caveat 4 of the recommendation. Decision-13 should either be left unresolved (decision-3 supersedes it) or answered identically.
 
 ## Current Behavior
 
@@ -76,7 +76,7 @@ This is the second refine pass on #2137. The issue text was substantially revise
 - `Contract.phases: list[Phase]` (line 478) — the orchestrator currently does not iterate `phases[]` to scope implement work; it just runs all tasks against one big diff.
 - The plan parser populates `Phase.dependencies` correctly: `ParsedPhase.to_contract_phase()` (`shared/egg_contracts/plan_parser.py:109`) and the collection wrapper `ParseResult.to_contract_phases()` (line 170) normalize values like `"phase 1"` → `"phase-1"`. **`ParsedPhase.dependencies` today is a `str` (line 106), parsed into a list inside `to_contract_phase()`** — a quirk worth knowing if the plan phase wants to redesign the parsing schema.
 - `ParsedTask` (line 75) has `files_affected: list[str]` (line 83). **`ParsedPhase` does NOT have `files_affected`** — files-affected is per-task, not per-phase. The `files_affected` clustering heuristic the issue suggests for auto-serialization (and decision-17) needs to either aggregate per-slice from `ParsedTask.files_affected` or extend `ParsedPhase` with a slice-level field.
-- **Hard prereq #2134**: the post-plan ingestion path has a wrapper at `orchestrator/routes/pipelines.py::_populate_contract_from_plan_safe` (line **10832**) that swallows all exceptions, calling the inner `_populate_contract_from_plan` (line **10860**). The inner function has 5 silent early-return paths plus the wrapper's outer `try/except`. For pipeline `issue-1931`, this path silently failed and `phases[]` shipped empty — meaning even if the orchestrator started reading `phases[]`/`slices[]` today, it would intermittently see an empty list. **#2134 is currently OPEN** (verified at refine time).
+- **Historical prereq #2134 (now fixed)**: the post-plan ingestion path had a wrapper at `orchestrator/routes/pipelines.py::_populate_contract_from_plan_safe` (line **10832**) that swallowed all exceptions, calling the inner `_populate_contract_from_plan` (line **10860**). The inner function had 5 silent early-return paths plus the wrapper's outer `try/except`. For pipeline `issue-1931`, this path silently failed and `phases[]` shipped empty. **#2134 closed 2026-04-27 via PR #2150**, so the silent-failure paths in `_populate_contract_from_plan_safe` are already fixed; the slice scheduler can rely on `slices[]` being populated whenever the planner emits a non-empty plan. Listed here as historical context for the plan phase, not as a live blocker.
 
 ### Branch / merge / PR machinery
 
@@ -113,7 +113,7 @@ This is the second refine pass on #2137. The issue text was substantially revise
 
 ### Technical
 
-- **Hard prereq on #2134**: `phases[]` ingestion has silent-failure paths. Slice scheduling cannot be reliable until #2134 is fixed (audit-logged populate outcomes + regression test).
+- **#2134 is closed (PR #2150, 2026-04-27).** The historical silent-failure paths in `_populate_contract_from_plan_safe` are fixed — slice scheduling can assume `slices[]` is populated whenever the planner emits a non-empty plan. No live dependency on #2134 remains.
 - **Existing `DependencyGraph` is role-keyed, not slice-keyed**. Either extend it to accept arbitrary node IDs (slice IDs) or introduce a parallel `SliceDependencyGraph`. The wave algorithm is reusable.
 - **Forest constraint is a real schema validation, not just guidance.** The planner must emit a forest; ingestion must reject non-forests. No precedent for plan-shape validation today — this is a new code path.
 - **Auto-serialization is a planner-side responsibility.** The orchestrator should not silently rewrite the DAG; the planner emits the serialized chain and the human can override during plan approval. `ParsedPhase` lacks a `files_affected` field today — either derive it from `tasks[].files_affected` aggregation or add a new field.
@@ -138,7 +138,7 @@ This is the second refine pass on #2137. The issue text was substantially revise
 - Refine and plan phases unchanged.
 - `babysit_pr` pipelines unchanged (#2063 stays separate; decision-8 asks how permanent this is).
 - Reviewer roster cleanup landed in #2139 (PR #2152, merged).
-- Silent-failure ingestion fixes land in #2134.
+- Silent-failure ingestion fixes landed in #2134 (PR #2150, merged 2026-04-27).
 - Multi-parent slices (diamond DAGs) deferred to a follow-up; MVP enforces forest constraint.
 
 ## Options Considered
@@ -156,7 +156,7 @@ This is the second refine pass on #2137. The issue text was substantially revise
 - **Lifts the one-PR-per-pipeline constraint** as a side effect, unblocking #1557's epic pipeline.
 
 **Cons**:
-- Cross-slice architectural defects (the `__checkout__` synthetic-key class of bugs that #2126 specifically targeted) may be invisible to per-slice CRITICAL reviewers (`reviewer_code_holistic` only sees one slice's diff at a time). Mitigation registered as decision-3/decision-13 (lens scope) — but the issue's mandate of "no per-slice roster customization" partially closes off the option of running a holistic pass on the merged-equivalent state. The plan phase will need to reconcile.
+- Cross-slice architectural defects (the `__checkout__` synthetic-key class of bugs that #2126 specifically targeted) may be invisible to per-slice CRITICAL reviewers (`reviewer_code_holistic` only sees one slice's diff at a time). **MVP accepts this risk explicitly**: there is no cross-slice mitigation in #2137. Lens reviewers (`reviewer_code_holistic`, `reviewer_security`, `reviewer_concurrency`) run per-slice only; no synthetic-merged-state review pass is run under any name. If cross-slice architectural defects materialize as a real production problem post-MVP, they get a *follow-up* ticket — they are not a #2137 acceptance criterion. Decisions 3 and 13 should resolve to "per-slice only" accordingly.
 - Stacked PRs add reviewer load (N PRs to read / land instead of 1) and CI multiplier.
 - Forest constraint may force unnatural serializations that slow the pipeline (a 5-slice DAG with two diamonds collapses to a chain of 3+2; latency reverts toward monolithic).
 - Stacked-PR rebase on parent merge is a known sharp edge in GitHub; decision-16 picks the recovery policy.
@@ -209,31 +209,25 @@ This is the second refine pass on #2137. The issue text was substantially revise
 
 **Option A (issue-as-written, slice scheduler + stacked PRs + forest constraint) is the recommended approach**, with these caveats made explicit for the plan phase:
 
-1. **#2134 must land first** (or as part of the same change set). The issue calls #2134 a hard prereq; this analysis confirms it: silent-failure ingestion of `phases[]`/`slices[]` would intermittently produce empty slice arrays, masquerading as a scheduling bug. Fixing #2134 also gives the slice scheduler the structured-logging surface that the implement-phase debug story badly needs.
+1. **#2134 is already fixed** (PR #2150 merged 2026-04-27). The originally-listed hard prereq is now historical context only. The slice scheduler can rely on `_populate_contract_from_plan_safe` populating `slices[]` whenever the planner emits a non-empty plan; no further ingestion-fix work is bundled into #2137. (The structured-logging surface PR #2150 introduced is reusable by the slice scheduler's debug story.)
 
 2. **Schema rename should be additive in implementation, atomic in the contract.** Internal Python types can be renamed in one go (`Phase` → `Slice`, `to_contract_phases` → `to_contract_slices`); the on-disk contract JSON should accept the old `phases[]` shape during a brief migration window so any in-flight pipelines aren't bricked. Decision-7 picks the strategy.
 
 3. **Forest validation lives at plan ingestion** (decision-18 option A or C). Validating only at the orchestrator scheduler is too late; a non-forest plan would already be on disk and committed.
 
-4. **Lens reviewer scope (decisions 3 / 13) needs explicit resolution** post-#2139. The "no per-slice roster customization" clause in the AC closes off some prior options — but it doesn't preclude a per-slice run *and* a non-slice cross-cutting run if the human asks for it. Recommended starting point: per-slice CRITICAL lenses today; revisit post-MVP if cross-slice security regressions surface in production.
+4. **Lens reviewers run per-slice only.** Cross-slice architectural coverage is explicitly out of scope for #2137 and deferred to a follow-up if needed. Decisions 3 and 13 should resolve to **per-slice only** (decision-3 option 1, decision-13 option 1). Do not run `reviewer_code_holistic`, `reviewer_security`, `reviewer_concurrency`, or any other lens against a synthetic merged state — including no draft-PR-style aggregation, no orchestrator-staged combined branch, and no "final cross-slice pass" under any other name. The MVP accepts that cross-slice defects may go uncaught; if production data shows this becoming a real problem, file a follow-up ticket.
 
 5. **Stacked-PR rebase on parent merge (decision-16) should default to GitHub's auto-retarget plus a periodic reconciler.** GitHub's auto-retarget covers the common case; a reconciler catches force-push / out-of-band-deletion edge cases. A webhook listener is cleaner but is net-new orchestrator infrastructure.
 
 6. **Auto-serialization heuristic (decision-17) should be planner-side.** The orchestrator should not rewrite the DAG silently. The planner emits the serialized chain in the plan draft, the refiner spot-checks it during plan review, and the human can override during plan approval (per the issue's literal text). The exact ordering rule is the decision; the issue's `files_affected` clustering + descending fan-out is a strong starting point.
 
-7. **Recommended PR sequence (informational; final shape via feedback-1 Q2):**
-   - **PR-1**: #2134 silent-failure fix (already a separate ticket; lands first).
-   - **PR-2**: Schema rename `contract.phases[]` → `contract.slices[]`, plan-parser update, plan-template update, doc updates. Pure rename; no runtime change. Validates that nothing reads `phases[]` today.
-   - **PR-3**: `DependencyGraph` generification + slice-keyed `ExecutionWave` builder + forest validation in `_populate_contract_from_plan`.
-   - **PR-4**: Orchestrator slice scheduler + per-slice BRC tracker namespacing (decision-14) + per-slice branch creation via `create_phase_worktree`.
-   - **PR-5**: Per-slice PR creation + stacked-PR rebase reconciler (decision-16).
-   - **PR-6**: Auto-serialization heuristic in the planner + plan-prompt update for slice sizing guidance (decision-6).
+7. **Single-PR delivery for #2137 itself.** #2137 must ship as **one cohesive PR**, not a sequence. Today's pipelines emit one PR per ticket, and the multi-PR support that would let us split this work is *exactly the capability #2137 introduces* — splitting #2137 into multiple PRs presupposes the very feature it is meant to add. The single PR scope covers all of: the `Phase` → `Slice` schema rename (plan_parser, plan-template, doc updates); the `DependencyGraph` generification (or slice-keyed parallel); forest validation at plan ingestion (decision-18); the orchestrator slice scheduler with per-slice BRC tracker namespacing (decision-14); per-slice branch creation via `create_phase_worktree`; per-slice PR creation; the stacked-PR rebase reconciler (decision-16); and the planner-side auto-serialization heuristic (decision-17) plus slice-sizing guidance (decision-6). Rough order-of-magnitude estimate: **1,500–2,500 LOC** spread across `orchestrator/` (run loop, slice scheduler, peer_consensus tracker namespacing, PR creation hook), `gateway/` (worktree manager wiring, any new rebase-onto helper if decision-16 picks the explicit-rebase option), `shared/egg_contracts/` (`models.py` rename, `dependency_graph.py` generification, `plan_parser.py` slices schema), and prompt/doc files. The plan phase should budget the implement-team accordingly: this is a large but well-bounded PR whose unit cohesion (it's all one feature) makes it easier to review than the same work artificially split — each split chunk would individually fail to satisfy the issue's AC. **feedback-1 Q2** ("single vs. multi-PR delivery") therefore resolves to single-PR; the question stays on the contract for the human to override if they disagree, but the recommended answer is no longer ambiguous.
 
-Option B is rejected as the *whole* answer because it doesn't satisfy acceptance criteria — but its decomposition discipline is folded into PR-2 above.
+Option B is rejected because it doesn't satisfy acceptance criteria — the runtime scheduler is part of the AC, not an optional follow-up.
 
 Option C is rejected because concurrent rebases on a shared branch are fundamentally unsafe at slice scale.
 
-Option D is rejected because it conflicts with the "no per-slice roster customization" AC and re-creates the merge surface the revised issue text explicitly removed. If cross-slice architectural coverage becomes a real problem in production, a follow-up issue can revisit it once we have per-slice empirical data.
+Option D is rejected because it conflicts with the "no per-slice roster customization" AC and re-creates the merge surface the revised issue text explicitly removed. **No cross-slice review pass under any name is in scope for #2137.** If cross-slice architectural coverage becomes a real problem in production, a follow-up issue can revisit it once we have per-slice empirical data.
 
 ## Open Questions
 
@@ -243,7 +237,7 @@ Option D is rejected because it conflicts with the "no per-slice roster customiz
 
 - **decision-1** — *Slice merge strategy*: **OBSOLETE** in revised issue text (no merge step; stacked PRs replace merging). Retain on contract but treat as no-op.
 - **decision-2** — *Slice failure semantics*: partially answered by issue ("siblings keep running"); options remain on contract for human to override or confirm.
-- **decision-3** — *Lens reviewer scope* (lenses CRITICAL today post-#2139): now correctly framed.
+- **decision-3** — *Lens reviewer scope* (lenses CRITICAL today post-#2139). **Recommended resolution: option 1 (per-slice only).** Cross-slice architectural coverage is explicitly out of scope for #2137 — see caveat 4.
 - **decision-4** — *Reviewer roster removal*: **resolved by #2152**. Human can mark this complete or pick "Other: handled by #2139/#2152".
 - **decision-5** — *Slice scheduling concurrency cap*: partially answered by issue ("no cap"). Operational ceilings (feedback-1 Q4) still apply.
 - **decision-6** — *Plan-phase slice sizing guidance*: still open.
@@ -253,7 +247,7 @@ Option D is rejected because it conflicts with the "no per-slice roster customiz
 - **decision-10** — *Deadlock detection latency*: still open.
 - **decision-11** — *Contract task → slice mapping*: still open; the issue's `files_affected` clustering hints at a hybrid 1:1+files-affected-informed option.
 - **decision-12** — *Per-slice agent team identity*: answered by issue ("no per-slice roster customization" → option A).
-- **decision-13** — ⚠️ *Superseded by decision-3* post-#2139 (lenses CRITICAL again). Pick "Other (explain in reply): superseded — answer decision-3" or leave unresolved.
+- **decision-13** — ⚠️ *Superseded by decision-3* post-#2139 (lenses CRITICAL again). Pick "Other (explain in reply): superseded — answer decision-3" or leave unresolved. If answered directly, the recommended resolution is **option 1 (per-slice only)** — same as decision-3; no cross-slice pass under any name.
 - **decision-14** — *BRC tracker namespacing for concurrent slice consensus*: still open; net-new field per code survey.
 - **decision-15** — *Orchestrator merge-endpoint authorization*: **OBSOLETE** in revised issue text (no merge endpoint).
 - **decision-16** — ⭐ *Stacked-PR rebase mechanics on parent merge* (NEW this cycle).
@@ -263,7 +257,7 @@ Option D is rejected because it conflicts with the "no per-slice roster customiz
 ### Open-ended feedback (registered as `feedback-1`)
 
 - **Q1** — Expected typical / worst-case slice count per ticket (drives operational concurrency planning).
-- **Q2** — Single PR vs. multi-PR delivery preference for #2137 itself? (Recommended caveat 7 above suggests 5 PRs.)
+- **Q2** — Single PR vs. multi-PR delivery preference for #2137 itself? **Recommendation: single PR** — splitting #2137 into multiple PRs presupposes the multi-PR-per-ticket capability that #2137 is meant to introduce. Caveat 7 above sizes the single-PR scope at ~1,500–2,500 LOC.
 - **Q3** — Branch naming: `egg/issue-N/slice-M` (slash) vs. `egg/issue-N-slice-M` (dash)?
 - **Q4** — Operational concurrency caps (gateway, container, GHA queue, Anthropic rate limits)?
 - **Q5** — Salvage anything from `reviewer_code` fan-out? **Resolved by #2152** as a clean tear-out.
@@ -276,7 +270,7 @@ Option D is rejected because it conflicts with the "no per-slice roster customiz
 Justification:
 - Touches the orchestrator's run loop (`pipelines.py::_run_pipeline`), the BRC tracker namespacing (`peer_consensus.py`), the contract schema (`models.py`), the plan parser output (`plan_parser.py`), the dependency graph (`dependency_graph.py`), the worktree/gateway interaction, and the implement-phase scheduler (`concurrent_executor.py`).
 - Introduces forest-constraint validation, planner-side auto-serialization, and stacked-PR retargeting — three net-new code paths with no precedent in the codebase.
-- Has a hard prereq (#2134) that itself has silent-failure paths needing audit logging + regression coverage.
+- Builds on top of the recently-fixed #2134 ingestion path (PR #2150, 2026-04-27); the slice scheduler depends on populated `slices[]`, which is now reliably emitted but is a young guarantee worth regression-covering.
 - Involves cross-cutting redefinition of "phase" terminology in code, prompts, and operator-facing UX (the renames list).
 - Has 18 multi-choice decisions + 6 open-ended feedback items the plan phase must absorb before producing tasks; the issue's revision since the prior refine cycle already closed off some prior options but opened three new ones.
 - **Lifts the one-PR-per-pipeline constraint** for the first time, which is itself a load-bearing architectural change.
