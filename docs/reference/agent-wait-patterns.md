@@ -353,12 +353,11 @@ in the window — that arrived after the anchor.
 
 ### Cursor threading across waits (issue #1995)
 
-Every `egg-orch message wait` / `wait-loop` response and every
-`mcp__brc__wait_for_event` / `mcp__brc__wait_loop` return dict now
-carries a `cursor` field that callers should thread into the `since`
-parameter of the next call. Without threading, events that arrive
-between a returning wait and the subsequent wait call are missed —
-the same wait→wait race window §7 closes on the host side.
+Every `egg-orch message wait` / `wait-loop` response carries a `cursor`
+field that callers should thread into the `since` parameter of the next
+call. Without threading, events that arrive between a returning wait and
+the subsequent wait call are missed — the same wait→wait race window §7
+closes on the host side.
 
 The `cursor` is opaque from the caller's perspective:
 
@@ -376,21 +375,24 @@ invocations by the agent.
 
 **Recommended pattern (BRC producer loop):**
 
-```python
-cursor = None
-while not consensus_done:
-    resp = mcp__brc__wait_loop(
-        for_types=["CONSENSUS_ACK", "CONSENSUS_NACK", "CONSENSUS_RE_REVIEW", "OVERSEER_ALERT"],
-        since=cursor,
-    )
-    cursor = resp.get("cursor", cursor)
-    for msg in resp["messages"]:
-        ...  # process ACK / NACK / re-review / alert
+```bash
+# egg-orch message wait-loop threads the cursor internally between
+# iterations; pass --since <cursor> across successive wait-loop calls
+# to close the wait→wait race for multi-ACK producer loops.
+cursor=""
+while true; do
+    out=$(egg-orch message wait-loop \
+        --for CONSENSUS_ACK --for CONSENSUS_NACK \
+        --for CONSENSUS_RE_REVIEW --for OVERSEER_ALERT \
+        ${cursor:+--since "$cursor"})
+    cursor=$(echo "$out" | jq -r '.cursor // empty' 2>/dev/null || echo "$cursor")
+    # process $out …
+done
 ```
 
-Legacy callers that ignore `cursor` and don't pass `since` keep their
-pre-#1995 behaviour — still correct for the common "wait once, exit"
-shape, still vulnerable to the wait→wait race for multi-ACK loops.
+Callers that omit `--since` keep their pre-#1995 behaviour — still
+correct for the common "wait once, exit" shape, still vulnerable to
+the wait→wait race for multi-ACK loops.
 
 ## 4. `HEARTBEAT` Message Type
 
@@ -443,8 +445,8 @@ waiting_on)` heartbeats, so repeated emissions on the same state are
 harmless but unnecessary.
 
 `WAITING_FOR_EVENT` is the one exception: it is a liveness keep-alive
-emitted automatically by `mcp__brc__wait_loop` while it is blocked on
-a message filter (issue #2036). Agents do **not** emit it manually —
+emitted automatically by `egg-orch message wait-loop` while it is
+blocked on a message filter (issue #2036). Agents do **not** emit it manually —
 the wait primitive owns its lifecycle and emits one beat on entry,
 one every 60 s while blocked, and a final `WORKING` transition on
 exit. The server-side dedup deliberately lets `WAITING_FOR_EVENT`
