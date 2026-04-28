@@ -1417,6 +1417,67 @@ class GatewayClient:
                 except Exception:
                     pass
 
+    def get_remote_branch_sha(
+        self,
+        pipeline_id: str,
+        repo_path: str,
+        ref: str,
+        mode: Literal["public", "private"] = "public",
+    ) -> str | None:
+        """Resolve a remote ref to its commit SHA via ``git ls-remote``.
+
+        Returns the SHA string when the ref exists on origin, or ``None``
+        when it doesn't (or when the gateway request fails).  Used by
+        ``create_pipeline`` to detect stale-pipeline-branch state on
+        re-submit (#2222): if ``origin/egg/issue-N`` resolves to a
+        different SHA than ``origin/<base_branch>``, the branch carries
+        prior-pipeline commits and starting on top of it would inherit
+        them — so refuse with a hint to ``cancel_task(cleanup=true)``.
+        """
+        temp_container_id = f"{pipeline_id}-state-ls-remote-sha"
+        session_token: str | None = None
+        try:
+            session = self.register_session(
+                container_id=temp_container_id,
+                container_ip=self.self_ip,
+                mode=mode,
+                pipeline_id=pipeline_id,
+            )
+            session_token = session.session_token
+
+            result = self._make_request(
+                "/api/v1/git/fetch",
+                method="POST",
+                data={
+                    "repo_path": repo_path,
+                    "remote": "origin",
+                    "operation": "ls-remote",
+                    "args": ["--heads", ref],
+                },
+                bearer_token=session_token,
+            )
+
+            stdout = result.get("data", {}).get("stdout", "")
+            if not stdout.strip():
+                return None
+            # ``git ls-remote`` output: ``<sha>\trefs/heads/<branch>``
+            sha = stdout.split()[0].strip()
+            return sha or None
+        except Exception as e:
+            logger.warning(
+                "ls-remote sha lookup failed",
+                pipeline_id=pipeline_id,
+                ref=ref,
+                error=str(e),
+            )
+            return None
+        finally:
+            if session_token:
+                try:
+                    self.delete_session(session_token)
+                except Exception:
+                    pass
+
     def get_repo_visibility(self, repo: str) -> str | None:
         """Query repo visibility from gateway.
 
@@ -1479,6 +1540,29 @@ def _rebase_with_agent_output_autoresolve(
     ``reconcile_rebase_conflict``, ``reconcile_rebase_failed``).
     """
     rebase_cmd = _build_rebase_cmd(git_base, branch, base_branch)
+    if rebase_cmd is None:
+        # ``base_branch`` was supplied but ``origin/{base_branch}`` is not
+        # resolvable in the worktree — most likely because the upstream
+        # best-effort fetch silently failed.  Surface the failure rather
+        # than fall back to the plain ``git rebase origin/{branch}`` form,
+        # which would replay every commit between the stale ``origin/
+        # {branch}`` tip and HEAD onto the stale tip — including upstream
+        # main commits that landed since.  See #2222.
+        logger.error(
+            "Push reconcile: origin/{base_branch} not resolvable — refusing unsafe rebase fallback",
+            pipeline_id=pipeline_id,
+            branch=branch,
+            base_branch=base_branch,
+        )
+        return PushResult(
+            ok=False,
+            category="reconcile_base_unavailable",
+            detail=(
+                f"origin/{base_branch} could not be resolved in the worktree; "
+                "refusing the plain `git rebase origin/{branch}` fallback "
+                "(would absorb upstream main commits — see #2222)"
+            ),
+        )
     try:
         rebase_result = subprocess.run(
             rebase_cmd,
@@ -1660,31 +1744,46 @@ def _build_rebase_cmd(
     git_base: list[str],
     branch: str,
     base_branch: str | None,
-) -> list[str]:
+) -> list[str] | None:
     """Construct the ``git rebase`` argv for the push-reconcile path.
 
-    When ``base_branch`` is set and ``origin/{base_branch}`` resolves in
-    the worktree, return the ``--onto origin/{branch} origin/{base_branch}``
-    form so only ``origin/{base_branch}..HEAD`` commits are replayed.
-    Otherwise return the plain ``git rebase origin/{branch}`` form
-    (pre-#1976 behavior) — used as a safe fallback when the base branch
-    is unknown or unavailable locally.
+    Three cases:
+
+    * ``base_branch`` is ``None`` (legacy callers that don't thread the
+      pipeline's base): return the plain ``git rebase origin/{branch}``
+      form.  This preserves pre-#1976 behaviour for any call site that
+      still doesn't know the base branch.
+    * ``base_branch`` is set and ``origin/{base_branch}`` resolves: return
+      the ``--onto origin/{branch} origin/{base_branch}`` form so only
+      ``origin/{base_branch}..HEAD`` commits are replayed.
+    * ``base_branch`` is set but ``origin/{base_branch}`` does NOT resolve
+      (the upstream best-effort fetch silently failed earlier, or rev-parse
+      timed out): return ``None``.  The caller must surface this as a
+      ``reconcile_base_unavailable`` failure rather than fall back to the
+      plain form — that fallback is the contamination vector behind #2222.
+      With HEAD at current main and ``origin/{branch}`` stuck on a stale
+      snapshot, the plain form replays merge-base..HEAD (i.e. all the
+      upstream main commits that landed since the stale snapshot) on top
+      of the stale tip, producing a PR full of duplicate-by-content
+      commits with rewritten SHAs.
     """
-    if base_branch:
-        base_ref = f"origin/{base_branch}"
-        try:
-            verify = subprocess.run(
-                [*git_base, "rev-parse", "--verify", base_ref],
-                capture_output=True,
-                text=True,
-                check=False,
-                timeout=10,
-            )
-        except subprocess.TimeoutExpired:
-            verify = None
-        if verify and verify.returncode == 0:
-            return [*git_base, "rebase", "--onto", f"origin/{branch}", base_ref]
-    return [*git_base, "rebase", f"origin/{branch}"]
+    if base_branch is None:
+        return [*git_base, "rebase", f"origin/{branch}"]
+
+    base_ref = f"origin/{base_branch}"
+    try:
+        verify = subprocess.run(
+            [*git_base, "rev-parse", "--verify", base_ref],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        verify = None
+    if verify and verify.returncode == 0:
+        return [*git_base, "rebase", "--onto", f"origin/{branch}", base_ref]
+    return None
 
 
 def _abort_rebase_best_effort(

@@ -491,13 +491,143 @@ class TestPushWorktreeBranchReconcile:
             f"expected 2 branch-only commits, got {len(branch_only_shas)}: {branch_only_shas}"
         )
 
-    def test_rebase_with_base_branch_falls_back_when_base_missing(self, tmp_path):
-        """When ``origin/{base_branch}`` is not resolvable locally (e.g. the
-        base-branch fetch failed and the tracking ref was never created),
-        the rebase falls back to the plain ``git rebase origin/{branch}``
-        form rather than erroring out.
+    def test_rebase_does_not_contaminate_when_base_fetch_silently_failed(self, tmp_path):
+        """End-to-end regression for #2222.
+
+        Reproduces the production shape:
+
+        - ``origin/egg/issue-N`` is stuck at an old main snapshot (yesterday's
+          aborted pipeline left it there).
+        - ``main`` has advanced by several upstream commits since.
+        - The local worktree is fresh off current main + an agent commit.
+        - The local ``origin/main`` remote-tracking ref is *missing* — the
+          best-effort base-branch fetch in ``_reconcile_and_retry_push``
+          can fail silently (logged-and-continued; see gateway_client.py
+          lines 1006-1031), leaving the rebase helper unable to verify it.
+
+        Before the #2222 fix this caused ``_build_rebase_cmd`` to fall
+        back to ``git rebase origin/egg/issue-N``, which from
+        HEAD-at-current-main replayed every upstream main commit onto
+        the stale tip — producing duplicate-by-content commits with new
+        SHAs in the eventual PR diff.  After the fix the rebase helper
+        returns ``reconcile_base_unavailable`` and the worktree HEAD is
+        unchanged, so no contamination is possible.
         """
-        client = _make_client([False, True])
+        # Bare "origin" remote.
+        origin = tmp_path / "origin.git"
+        subprocess.run(["git", "init", "--bare", "-b", "main", str(origin)], check=True)
+
+        # Seed main + push the stale pipeline branch tip.
+        seed = tmp_path / "seed"
+        seed.mkdir()
+        _git_init(seed, str(origin))
+        (seed / "README.md").write_text("initial\n")
+        _git(seed, "add", "README.md")
+        _git(seed, "commit", "-m", "initial main commit")
+        _git(seed, "push", "origin", "main")
+
+        _git(seed, "checkout", "-b", "egg/issue-2137")
+        (seed / "stale_contract.md").write_text("yesterday's run\n")
+        _git(seed, "add", "stale_contract.md")
+        _git(seed, "commit", "-m", "Initialize SDLC contract for #2137")
+        _git(seed, "push", "origin", "egg/issue-2137")
+
+        # Main advances by 3 upstream commits since the stale tip.
+        _git(seed, "checkout", "main")
+        upstream_shas = []
+        for i in range(3):
+            (seed / f"upstream_{i}.md").write_text(f"upstream work {i}\n")
+            _git(seed, "add", f"upstream_{i}.md")
+            _git(seed, "commit", "-m", f"Fix #{200 + i}: upstream landing {i}")
+            upstream_shas.append(_git(seed, "rev-parse", "HEAD").stdout.strip())
+        _git(seed, "push", "origin", "main")
+
+        # Today's worktree: cut from current main, with an agent commit.
+        # Critically: do NOT fetch origin/main into this worktree's
+        # remote-tracking refs — simulating the silent base-fetch failure
+        # path described in gateway_client.py lines 1006-1031.
+        work = tmp_path / "work"
+        work.mkdir()
+        _git_init(work, str(origin))
+        _git(work, "fetch", "origin", "main")
+        _git(work, "checkout", "-b", "egg/issue-2137-work", "origin/main")
+        (work / "agent_work.md").write_text("today's agent work\n")
+        _git(work, "add", "agent_work.md")
+        _git(work, "commit", "-m", "implement: agent commit on top of fresh main")
+        head_before = _git(work, "rev-parse", "HEAD").stdout.strip()
+
+        # Fetch only ``egg/issue-2137`` (so the stale-tip ref exists locally),
+        # then explicitly drop the ``origin/main`` ref to simulate the
+        # silent-fetch-failure precondition.
+        _git(work, "fetch", "origin", "egg/issue-2137")
+        try:
+            _git(work, "update-ref", "-d", "refs/remotes/origin/main")
+        except subprocess.CalledProcessError:
+            pass
+
+        verify_main = subprocess.run(
+            ["git", "-C", str(work), "rev-parse", "--verify", "origin/main"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert verify_main.returncode != 0, (
+            "precondition failed: origin/main should not be resolvable in this worktree"
+        )
+
+        git_base = [
+            "git",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            f"safe.directory={work}",
+            "-C",
+            str(work),
+        ]
+        result = _rebase_with_agent_output_autoresolve(
+            git_base=git_base,
+            pipeline_id="issue-2137",
+            branch="egg/issue-2137",
+            base_branch="main",
+        )
+
+        # The rebase must refuse rather than fall back to the unsafe form.
+        assert result.ok is False, "rebase should fail-closed when origin/main is missing"
+        assert result.category == "reconcile_base_unavailable", (
+            f"unexpected category: {result.category}"
+        )
+
+        # HEAD must be untouched — no contamination possible.
+        head_after = _git(work, "rev-parse", "HEAD").stdout.strip()
+        assert head_before == head_after, (
+            f"HEAD changed during failed rebase: {head_before} -> {head_after}"
+        )
+
+        # No upstream-main commit ended up duplicated into the worktree's
+        # local history (the contamination shape from #2222).
+        upstream_patch_ids = {_patch_id_of(seed, sha) for sha in upstream_shas}
+        log = _git(work, "log", "--format=%H", "HEAD").stdout.strip()
+        local_patch_ids = {_patch_id_of(work, sha) for sha in log.splitlines() if sha.strip()}
+        duplicates = local_patch_ids & upstream_patch_ids
+        assert not duplicates, (
+            f"worktree contains duplicate-by-content commits of upstream main: {duplicates}"
+        )
+
+    def test_rebase_fails_closed_when_base_unverifiable(self, tmp_path):
+        """When ``base_branch`` is provided but ``origin/{base_branch}`` is
+        not resolvable locally (e.g. the base-branch fetch failed silently
+        and the tracking ref was never created), the reconcile path fails
+        closed with ``reconcile_base_unavailable`` rather than falling back
+        to the plain ``git rebase origin/{branch}`` form.
+
+        The plain fallback is the contamination producer in #2222: from
+        HEAD-at-current-main with a stale ``origin/{branch}`` it replays
+        all the upstream main commits between the stale tip and HEAD onto
+        the stale tip, producing a PR full of duplicate-by-content
+        commits.  Surfacing the failure forces the operator to retry once
+        the base ref is healthy rather than silently producing a broken PR.
+        """
+        client = _make_client([False])  # only the initial push runs
         with patch(
             "gateway_client.subprocess.run",
             side_effect=[
@@ -506,7 +636,6 @@ class TestPushWorktreeBranchReconcile:
                     returncode=1, stderr="couldn't find remote ref"
                 ),  # fetch origin {base_branch} fails
                 _run_result(returncode=128, stderr="unknown revision"),  # rev-parse verify fails
-                _run_result(),  # rebase (plain form)
             ],
         ) as mock_run:
             ok = client.push_worktree_branch(
@@ -516,7 +645,13 @@ class TestPushWorktreeBranchReconcile:
                 base_branch="main",
             )
 
-        assert ok.ok is True
-        rebase_cmd = mock_run.call_args_list[3].args[0]
-        assert "rebase" in rebase_cmd and "--onto" not in rebase_cmd
-        assert "origin/egg/issue-42" in rebase_cmd
+        assert ok.ok is False
+        assert ok.category == "reconcile_base_unavailable"
+        assert "origin/main" in (ok.detail or "")
+        # Critically: no ``rebase`` call landed on the worktree.
+        all_cmds = [c.args[0] for c in mock_run.call_args_list]
+        assert not any("rebase" in c for c in all_cmds), (
+            f"unexpected rebase invocation in {all_cmds}"
+        )
+        # And the retry push was never attempted.
+        assert client._do_push.call_count == 1

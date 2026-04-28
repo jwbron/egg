@@ -118,15 +118,17 @@ class TestRebasePipelineBranchOntoBase:
             assert mock_run.call_count == 3
             spawner.gateway.push_worktree_branch.assert_not_called()
 
-    def test_skips_when_head_on_neither_branch_nor_base(self):
-        """HEAD carries commits on neither origin/<branch> nor origin/<base>
-        — defer to push reconcile rather than blow away unpublished work.
+    def test_recovers_when_head_on_neither_branch_nor_base(self):
+        """HEAD on neither origin/<branch> nor origin/<base> — reset to
+        origin/<base> and proceed rather than defer to push-reconcile.
 
-        Both supported resume paths land HEAD on one of those refs:
-        preserved-worktree → ancestor of origin/<branch> (state-file
-        commits already pushed); fresh-worktree → ancestor of
-        origin/<base> (recreated from base).  Only when *neither* holds
-        does HEAD carry truly unpublished commits worth preserving.
+        Previously this case skipped, on the theory that HEAD carried
+        "truly unpublished work" worth preserving.  In practice (#2222)
+        the next orchestrator push hit the unsafe ``_build_rebase_cmd``
+        fallback and absorbed upstream main commits onto the pipeline
+        branch.  Discarding a confused-HEAD's local-only commits is
+        recoverable (agents recreate them on the next phase); a
+        contaminated PR is not.
         """
         spawner = _make_spawner()
         with patch("routes.pipelines.subprocess.run") as mock_run:
@@ -136,9 +138,33 @@ class TestRebasePipelineBranchOntoBase:
                 _result(stdout="70\n"),  # 70 commits behind base
                 _result(returncode=1),  # is-ancestor: HEAD NOT on origin/<branch>
                 _result(returncode=1),  # is-ancestor: HEAD NOT on origin/<base>
+                _result(returncode=0),  # recovery reset --hard origin/<base>
+                _result(returncode=0),  # reset --hard origin/<branch>
+                _result(returncode=0),  # rebase succeeds
             ]
             _call(spawner)
-            assert mock_run.call_count == 5
+            assert mock_run.call_count == 8
+            spawner.gateway.push_worktree_branch.assert_called_once()
+            push_kwargs = spawner.gateway.push_worktree_branch.call_args.kwargs
+            assert push_kwargs["force"] is True
+
+    def test_skips_when_head_recovery_reset_to_base_fails(self):
+        """If even the recovery reset to origin/<base> fails, skip rather
+        than risk corruption.  Same best-effort posture as the existing
+        reset-to-branch failure handling.
+        """
+        spawner = _make_spawner()
+        with patch("routes.pipelines.subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                _result(returncode=0),  # rev-parse origin/<branch>
+                _result(returncode=0),  # rev-parse origin/<base>
+                _result(stdout="70\n"),  # 70 commits behind base
+                _result(returncode=1),  # is-ancestor: HEAD NOT on origin/<branch>
+                _result(returncode=1),  # is-ancestor: HEAD NOT on origin/<base>
+                _result(returncode=128, stderr="reset failed"),  # recovery reset fails
+            ]
+            _call(spawner)
+            assert mock_run.call_count == 6
             spawner.gateway.push_worktree_branch.assert_not_called()
 
     def test_proceeds_when_head_is_ancestor_of_base(self):

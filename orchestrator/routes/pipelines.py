@@ -1430,10 +1430,62 @@ def create_pipeline() -> tuple[Response, int]:
                         details={"reason": "branch_exists", "branch": branch},
                     )
                 else:
+                    # No active pipeline, but the branch may carry commits
+                    # from a prior failed/cancelled run.  Inheriting that
+                    # state was the precondition for #2222 (stale
+                    # pipeline-branch tip + advanced main → contaminated
+                    # PR via the push-reconcile fallback).  Compare the
+                    # branch tip to the configured base; only a fresh
+                    # branch (tip == base) is safe to silently reuse.
+                    _resolved_base = base_branch or "main"
+                    _branch_sha = gw.get_remote_branch_sha(
+                        pipeline_id=pipeline_id or f"branch-check-{uuid4().hex[:8]}",
+                        repo_path=str(repo_path),
+                        ref=f"refs/heads/{branch}",
+                    )
+                    _base_sha = gw.get_remote_branch_sha(
+                        pipeline_id=pipeline_id or f"branch-check-{uuid4().hex[:8]}",
+                        repo_path=str(repo_path),
+                        ref=f"refs/heads/{_resolved_base}",
+                    )
+                    if _branch_sha and _base_sha and _branch_sha != _base_sha:
+                        logger.warning(
+                            "Branch exists with prior-pipeline commits — refusing reuse (#2222)",
+                            branch=branch,
+                            base_branch=_resolved_base,
+                            branch_sha=_branch_sha,
+                            base_sha=_base_sha,
+                        )
+                        cleanup_hint = (
+                            f" Run cancel_task(task_id='{pipeline_id}', cleanup=true) "
+                            "to delete the stale branch and pipeline state, then "
+                            "resubmit."
+                            if pipeline_id
+                            else (
+                                " Delete the stale branch and any associated "
+                                "pipeline state, then resubmit."
+                            )
+                        )
+                        return make_error_response(
+                            f"Branch '{branch}' exists with commits from a prior "
+                            f"pipeline run (tip {_branch_sha[:8]} != "
+                            f"origin/{_resolved_base} {_base_sha[:8]}). Starting a "
+                            "new pipeline on top of it would inherit that history.",
+                            status_code=409,
+                            details={
+                                "reason": "stale_branch",
+                                "branch": branch,
+                                "branch_sha": _branch_sha,
+                                "base_sha": _base_sha,
+                                "hint": cleanup_hint.strip(),
+                            },
+                        )
                     logger.info(
                         "Branch exists but no active pipeline — allowing reuse",
                         branch=branch,
                         pipeline_id=pipeline_id,
+                        branch_sha=_branch_sha,
+                        base_sha=_base_sha,
                     )
         except Exception as e:
             # Non-fatal — if we can't reach the gateway, let creation proceed
@@ -5478,7 +5530,7 @@ def _rebase_pipeline_branch_onto_base(
         return
 
     # Step 4: Confirm reset-to-origin/<branch> is lossless before we
-    # overwrite HEAD.  Two real worktree states satisfy this:
+    # overwrite HEAD.  Three worktree states are handled:
     #
     #   (a) Preserved-worktree resume (#2098 canonical): the orchestrator-
     #       side worktree was kept across a cancel/resubmit, so HEAD
@@ -5491,24 +5543,38 @@ def _rebase_pipeline_branch_onto_base(
     #       from origin/<base>.  HEAD == origin/<base>; resetting to
     #       origin/<branch> discards no unique commits because every
     #       commit on origin/<base> is preserved as the rebase target.
-    #
-    # If HEAD is on neither ref, something unexpected lives on it and
-    # we defer to the existing push-reconcile path rather than blow it
-    # away.  An ahead-of-base check would have wrongly skipped (a); a
-    # branch-only ancestry check would have wrongly skipped (b).
+    #   (c) Confused-HEAD resume (#2222): the worktree carries a local-
+    #       only commit (e.g. a half-pushed statefiles commit) on top of
+    #       a stale origin/<branch> tip — HEAD is on neither ref.  The
+    #       previous behaviour was to "defer to push-reconcile", but the
+    #       reconcile path's _build_rebase_cmd fallback is the
+    #       contamination producer in #2222.  Recover by hard-resetting
+    #       to origin/<base>: any local-only work is dropped (it would
+    #       be re-created by agents on the next phase, vastly preferable
+    #       to a contaminated PR).
     def _head_on(ref: str) -> bool:
         result = _run_git(["merge-base", "--is-ancestor", "HEAD", ref], timeout=10)
         return result is not None and result.returncode == 0
 
     if not (_head_on(f"origin/{pipeline_branch}") or _head_on(f"origin/{base_branch}")):
-        logger.info(
-            "rebase-on-resume: HEAD on neither origin/<branch> nor origin/<base> — skipping",
+        logger.warning(
+            "rebase-on-resume: HEAD on neither origin/<branch> nor origin/<base> — "
+            "resetting to origin/<base> to avoid push-reconcile contamination (#2222)",
             pipeline_id=pipeline_id,
             branch=pipeline_branch,
             base_branch=base_branch,
             behind_base=behind_count,
         )
-        return
+        recovery_reset = _run_git(["reset", "--hard", f"origin/{base_branch}"], timeout=30)
+        if recovery_reset is None or recovery_reset.returncode != 0:
+            logger.warning(
+                "rebase-on-resume: recovery reset to origin/<base> failed, skipping",
+                pipeline_id=pipeline_id,
+                branch=pipeline_branch,
+                base_branch=base_branch,
+                stderr=(recovery_reset.stderr.strip() if recovery_reset is not None else None),
+            )
+            return
 
     logger.info(
         "rebase-on-resume: pipeline branch is behind base, attempting rebase",
