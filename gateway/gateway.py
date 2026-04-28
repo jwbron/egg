@@ -5322,12 +5322,45 @@ def jira_ticket_create() -> tuple[Response, int] | Response:
     if epic_link is not None:
         if not isinstance(epic_link, str) or not _JIRA_TICKET_KEY_RE.fullmatch(epic_link):
             return make_error("Invalid epicLink ticket key", status_code=400)
+        # epicLink writes to the same Atlassian field as `parent` when the
+        # site uses next-gen / company-managed projects (default
+        # `epic_link_field == "parent"`).  That makes `epicLink` a literal
+        # alias for `parent` at the wire level, so it MUST inherit the same
+        # allowlist + cross-project policy as `parent` (decision-9, decision-17).
+        # Otherwise an agent in an allowlisted project could parent a new
+        # ticket under an epic in a non-allowlisted project just by routing
+        # through the `epicLink` shorthand instead of `parent`.
+        epic_project = extract_project_key(epic_link)
+        if not is_project_allowed(epic_project):
+            return _project_not_allowlisted_response(
+                event=f"{operation}_denied",
+                ticket=epic_link,
+                project=epic_project,
+                reason="epicLink project not allowlisted",
+            )
+        if epic_project != project:
+            audit_log(
+                f"{operation}_rejected",
+                operation,
+                success=False,
+                details={
+                    "reason": "cross_project_epic_link",
+                    "project": project,
+                    "epic_project": epic_project,
+                    **_session_jira_context(),
+                },
+            )
+            return make_error(
+                "epicLink project must match the new ticket's project",
+                status_code=400,
+                details={"project": project, "epic_project": epic_project},
+            )
 
     if idempotency_key is not None and not isinstance(idempotency_key, str):
         return make_error("idempotencyKey must be a string", status_code=400)
 
     try:
-        status_code, body_json = get_jira_client().create_issue(
+        status_code, body_json, cache_hit = get_jira_client().create_issue(
             project_key=project,
             issuetype=issuetype_arg,
             summary=summary,
@@ -5365,14 +5398,19 @@ def jira_ticket_create() -> tuple[Response, int] | Response:
         site = self_url.split("/rest/api/", 1)[0]
         browse_url = f"{site}/browse/{new_key}"
 
+    # Match the doc's audit grammar: rejection events use ``_rejected`` /
+    # ``_denied`` / ``_upstream_error`` suffixes, so successful writes use
+    # ``_ok`` (reviewer_code_holistic cycle 1 finding #3, #1924).
     audit_log(
-        operation,
+        f"{operation}_ok",
         operation,
         success=True,
         details={
             "project": project,
             "ticket": new_key,
             "upstream_status": status_code,
+            "idempotency_key_present": bool(idempotency_key),
+            "idempotency_hit": cache_hit,
             **_jira_write_audit_meta(data),
             **_session_jira_context(),
         },
@@ -5528,13 +5566,18 @@ def jira_ticket_edit() -> tuple[Response, int] | Response:
         return _jira_error_from_upstream(exc)
 
     audit_log(
-        operation,
+        f"{operation}_ok",
         operation,
         success=True,
         details={
             "ticket": ticket,
             "project": project,
             "notify_users": notify_users,
+            # editIssue does not consult the idempotency cache (Atlassian
+            # PUT is naturally idempotent), but the field is included here
+            # for grammar parity with the create / comment / link routes.
+            "idempotency_key_present": False,
+            "idempotency_hit": False,
             **_jira_write_audit_meta(data),
             **_session_jira_context(),
         },
@@ -5607,7 +5650,7 @@ def jira_ticket_comment_add() -> tuple[Response, int] | Response:
         return make_error("idempotencyKey must be a string", status_code=400)
 
     try:
-        _status, comment_json = get_jira_client().add_comment(
+        _status, comment_json, cache_hit = get_jira_client().add_comment(
             key=ticket,
             body=cleaned_body,
             idempotency_key=idempotency_key if isinstance(idempotency_key, str) else None,
@@ -5632,12 +5675,14 @@ def jira_ticket_comment_add() -> tuple[Response, int] | Response:
         return _jira_error_from_upstream(exc)
 
     audit_log(
-        operation,
+        f"{operation}_ok",
         operation,
         success=True,
         details={
             "ticket": ticket,
             "project": project,
+            "idempotency_key_present": bool(idempotency_key),
+            "idempotency_hit": cache_hit,
             **_jira_write_audit_meta(data),
             **_session_jira_context(),
         },
@@ -5724,7 +5769,7 @@ def jira_issue_link_create() -> tuple[Response, int] | Response:
         return make_error("idempotencyKey must be a string", status_code=400)
 
     try:
-        get_jira_client().create_issue_link(
+        _status, _link_json, cache_hit = get_jira_client().create_issue_link(
             link_type=link_type,
             inward_key=inward,
             outward_key=outward,
@@ -5750,7 +5795,7 @@ def jira_issue_link_create() -> tuple[Response, int] | Response:
         return _jira_error_from_upstream(exc)
 
     audit_log(
-        operation,
+        f"{operation}_ok",
         operation,
         success=True,
         details={
@@ -5759,6 +5804,8 @@ def jira_issue_link_create() -> tuple[Response, int] | Response:
             "type": link_type,
             "inward_project": inward_project,
             "outward_project": outward_project,
+            "idempotency_key_present": bool(idempotency_key),
+            "idempotency_hit": cache_hit,
             **_jira_write_audit_meta(data),
             **_session_jira_context(),
         },

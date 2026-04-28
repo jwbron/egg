@@ -505,7 +505,7 @@ class JiraClient:
         epic_link: str | None = None,
         epic_link_field: str = "parent",
         idempotency_key: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> tuple[int, dict[str, Any], bool]:
         """``POST /rest/api/3/issue`` — create a new ticket.
 
         Args:
@@ -661,22 +661,23 @@ class JiraClient:
         key: str,
         body: str | dict[str, Any],
         idempotency_key: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> tuple[int, dict[str, Any], bool]:
         """``POST /rest/api/3/issue/{key}/comment`` — append a comment.
 
         ``body`` accepts either a plain string (wrapped via ``wrap_text_as_adf``)
         or a pre-built ADF dict (passed through verbatim).
 
         ``idempotency_key`` keys the in-memory cache by
-        ``(jira_comment_add, project, key)`` where ``project`` is extracted
-        from the ticket key.
+        ``(jira_comment_add, ticket_key, idempotency_key)`` so the same
+        opaque key against two different tickets — even within the same
+        project — is two distinct cache entries.  Project-only namespacing
+        was wrong: two agents both choosing
+        ``--idempotency-key bisect-start`` against ``ENG-1`` and ``ENG-2``
+        would silently replay the first response to the second caller
+        (reviewer_code_holistic cycle 1 finding #2, #1924).
         """
         adf_body = body if is_adf_dict(body) else wrap_text_as_adf(str(body))
         request_body = {"body": adf_body}
-        # Project derivation is intentionally local — keeps the cache
-        # namespaced per project so two tickets in different projects can
-        # use the same opaque key without colliding.
-        project = key.split("-", 1)[0] if "-" in key else key
 
         def _do_request() -> tuple[int, dict[str, Any]]:
             response = self._request("POST", f"issue/{key}/comment", body=request_body)
@@ -685,7 +686,7 @@ class JiraClient:
 
         return _idempotency_get_or_run(
             "jira_comment_add",
-            project,
+            key,
             idempotency_key,
             _do_request,
         )
@@ -698,7 +699,7 @@ class JiraClient:
         outward_key: str,
         comment: str | dict[str, Any] | None = None,
         idempotency_key: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> tuple[int, dict[str, Any], bool]:
         """``POST /rest/api/3/issueLink`` — link two tickets.
 
         Atlassian does **not** dedupe identical ``(inward, outward, type)``
