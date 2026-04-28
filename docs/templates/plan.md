@@ -125,6 +125,19 @@ phases:
 > the task's files — see [Agent Roles Reference](../reference/agent-roles.md#role-aware-task-assignment)
 > for the file-to-role mapping. Tasks without a `role` default to the coder.
 
+> **Slices vs. phases (#2137)**: The plan parser accepts either `slices:`
+> (canonical, post-#2137) or `phases:` (legacy alias) at the top of the
+> `# yaml-tasks` block. New plans should emit `slices:` so they ingest as
+> the slice-DAG implement model expects. Each slice is independently
+> implementable and gets its own integration branch, agent team, BRC
+> consensus, and PR. The slice DAG must be a **forest** — each slice has
+> at most one DAG parent. Multi-parent slices are rejected at plan
+> ingestion. When a planner identifies a would-be multi-parent slice, it
+> serialises the upstream cluster into a chain and records the chosen
+> order on the downstream slice's `serialized_chain_order: list[str]`
+> field. See [Slice-DAG Implement Phase](../architecture/slice-dag.md)
+> for the full design.
+
 ---
 
 *Authored-by: egg*

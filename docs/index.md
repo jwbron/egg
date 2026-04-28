@@ -25,6 +25,7 @@ This index helps both humans and LLMs navigate the documentation efficiently.
 | [Network Isolation](architecture/network-isolation.md) | Public/private network modes and domain allowlist |
 | [Kubernetes Migration](architecture/kubernetes-migration.md) | Docker to k8s (k3s) migration: architecture, network isolation, developer workflow |
 | [SDLC Pipeline](architecture/sdlc-pipeline.md) | Structurally enforced agent checkpoints and verification gates |
+| [Slice-DAG Implement Phase](architecture/slice-dag.md) | `Phase` → `Slice` schema rename, forest validation, slice scheduler (waves, two-tier `max_cycles`, failure cascade), stacked-PR reconciler, per-slice branches and BRC trackers |
 | [Declarative Setup](architecture/declarative-setup.md) | Python-based declarative setup system |
 | [Logging](architecture/logging.md) | Structured JSON logging with OpenTelemetry alignment |
 | [The Agentic Feedback Loop](architecture/agentic-feedback-loop.md) | The foundational work-review-feedback cycle that drives quality |
@@ -133,7 +134,8 @@ Each major component has detailed documentation:
 | **Using workflows in external repos** | [Reusable Workflows](guides/reusable-workflows.md) | [GitHub Automation](guides/github-automation.md), [GitHub Action](../action/README.md) |
 | **Designing agent workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [Architecture Overview](architecture/README.md) |
 | **Adding bot workflows** | [Agent-Mode Design](guides/agent-mode-design.md) | [Action README](../action/README.md), existing workflows in `.github/workflows/` |
-| **SDLC pipeline changes** | [SDLC Pipeline Guide](guides/sdlc-pipeline.md) | [The Agentic Feedback Loop](architecture/agentic-feedback-loop.md), [SDLC Pipeline Architecture](architecture/sdlc-pipeline.md), [Plan Template](templates/plan.md), [Analysis Template](templates/analysis.md), `orchestrator/` package |
+| **SDLC pipeline changes** | [SDLC Pipeline Guide](guides/sdlc-pipeline.md) | [The Agentic Feedback Loop](architecture/agentic-feedback-loop.md), [SDLC Pipeline Architecture](architecture/sdlc-pipeline.md), [Slice-DAG Implement Phase](architecture/slice-dag.md), [Plan Template](templates/plan.md), [Analysis Template](templates/analysis.md), `orchestrator/` package |
+| **Slice-DAG / stacked-PR / `Phase`→`Slice` rename** | [Slice-DAG Implement Phase](architecture/slice-dag.md) | [SDLC Pipeline Architecture](architecture/sdlc-pipeline.md), [Plan Template](templates/plan.md), `orchestrator/slice_scheduler.py`, `orchestrator/stacked_pr_reconciler.py`, `shared/egg_contracts/models.py` |
 | **Agent teams / Deliberative Consensus** | [Agent Teams Guide](guides/agent-teams.md) | [Concurrent Execution Guide](guides/concurrent-execution.md), [SDLC Pipeline Guide](guides/sdlc-pipeline.md) |
 | **Reviewer verdict choices (ACK / NACK / conditional)** | [Conditional ACK Reference](reference/conditional-ack.md) | [Concurrent Execution: Reviewer verdict variants](guides/concurrent-execution.md#reviewer-verdict-variants), [Orchestrator CLI](reference/orchestrator-cli.md) |
 | **Agent anchor / recovery changes** | [Anchor Recovery Guide](guides/anchor-recovery.md) | [egg_anchor README](../shared/egg_anchor/README.md), [Orchestrator CLI](reference/orchestrator-cli.md), [Concurrent Execution](guides/concurrent-execution.md) |
