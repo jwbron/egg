@@ -851,7 +851,7 @@ class TestRuntimeStateLeakageOnBranchReuse:
     A new pipeline that reuses an id from a prior terminal run (same
     branch, e.g. ``issue-1965``) must not inherit the prior run's
     consensus tracker, legacy consensus state, or message-store
-    history. Without isolation, ``wait_for_status_change`` reports
+    history. Without isolation, the ``/status/wait`` route reports
     ``concurrent.consensus.is_complete: true`` for a pipeline that has
     not spawned any agents.
     """

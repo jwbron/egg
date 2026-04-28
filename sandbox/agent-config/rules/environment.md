@@ -42,6 +42,10 @@ The `sandbox/scripts/jira` wrapper is the only way for the sandbox to reach Jira
 | `jira search '<JQL>' [--fields ...] [--max-results N] [--next-page-token TOK]` | `POST /api/v1/jira/search` |
 | `jira ticket comments <KEY>` | `POST /api/v1/jira/ticket/comments` |
 | `jira execute <METHOD> <PATH> [--query k=v,...] [--body-file path]` | `POST /api/v1/jira/execute` (GET-only) |
+| `jira ticket create --project KEY --type Task --summary "..." [opts]` | `POST /api/v1/jira/ticket/create` |
+| `jira ticket edit <KEY> [--summary ...] [--description ...] [--labels ...] [--no-notify]` | `POST /api/v1/jira/ticket/edit` |
+| `jira ticket comment add <KEY> [--body ... \| --body-file F \| --body-stdin] [--idempotency-key K]` | `POST /api/v1/jira/ticket/comment/add` |
+| `jira link create --type Blocks --inward FOO-1 --outward FOO-2 [opts]` | `POST /api/v1/jira/issue-link/create` |
 
 **Environment variables** (advisory, set by the orchestrator):
 
@@ -69,7 +73,7 @@ jira ticket comments "$EGG_JIRA_TICKET"
 jira search 'project = ENG OR project = SEC'
 ```
 
-**Hard limits (always denied):** `transitions`, `worklog`, `attachments`, `watchers`, HTTP `DELETE` / `PUT` / `PATCH`, path traversal (`..`), duplicate slashes, non-ASCII keys. Non-GET `execute` calls return 403 regardless of the path. See [Jira Wrapper Reference](../../../docs/reference/jira-wrapper.md) for the full endpoint surface, JQL scope extractor rules, and the `not_found` response envelope.
+**Hard limits (always denied):** `transitions`, `worklog`, `attachments`, `watchers`, HTTP `DELETE` (no exposed surface), path traversal (`..`), duplicate slashes, non-ASCII keys. The `/execute` passthrough is GET-only (`PUT` / `PATCH` return 403 there); the four write routes (`ticket/create`, `ticket/edit`, `ticket/comment/add`, `issue-link/create`) use their own dedicated paths and are the only write surface. See [Jira Wrapper Reference](../../../docs/reference/jira-wrapper.md) for the full endpoint surface, write verb body schemas, idempotency keys, and the `not_found` envelope.
 
 ### Confluence Wrapper (`confluence`)
 

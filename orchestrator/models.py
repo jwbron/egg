@@ -264,6 +264,38 @@ class CycleTiming(BaseModel):
     )
 
 
+class AgentExitInfo(BaseModel):
+    """Frozen-at-exit snapshot preserved across phase failure cleanup.
+
+    Captured when a container exits during concurrent BRC execution, so
+    operators can triage which role failed and what it said last even after
+    container cleanup. Field overlap with `AgentExecution` (role,
+    container_id) and `ContainerInfo` (exit_code, exited_at) is intentional:
+    those live structures may be mutated or removed during cleanup, while
+    this snapshot is immutable history. Only `last_lines` is genuinely new.
+    See issue #2205.
+    """
+
+    role: AgentRole = Field(..., description="Agent role that exited")
+    exit_code: int | None = Field(
+        ...,
+        description=(
+            "Container exit code. None when the pod-phase race surfaces "
+            "an exit before container_statuses[0].state.terminated is "
+            "populated (matches ContainerInfo.exit_code)."
+        ),
+    )
+    last_lines: list[str] = Field(
+        default_factory=list,
+        description="Tail of container stdout/stderr (up to 200 lines)",
+    )
+    terminated_at: datetime = Field(..., description="When the container exit was observed")
+    container_id: str | None = Field(
+        default=None,
+        description="Container ID at time of exit (may be unresolvable post-cleanup)",
+    )
+
+
 class PhaseExecution(BaseModel):
     """State of a single phase execution."""
 
@@ -294,6 +326,15 @@ class PhaseExecution(BaseModel):
     phase_start_sha: str | None = Field(
         default=None,
         description="Branch tip SHA at phase start, for completion signal verification",
+    )
+    agent_exits: list[AgentExitInfo] = Field(
+        default_factory=list,
+        description=(
+            "Frozen-at-exit snapshots from concurrent BRC execution. Populated "
+            "by _record_container_exit and never mutated afterwards — use this "
+            "for post-mortem triage. The live agents/containers lists are the "
+            "source of truth while the phase is running. See issue #2205."
+        ),
     )
 
 

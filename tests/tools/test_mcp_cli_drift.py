@@ -249,10 +249,12 @@ def test_cli_less_tools_are_documented_gaps():
     - Iter-2 net-new capabilities (#1917, decisions 4 and 8):
       ``brc_read_peer_artifact``, ``task_mark_gap``.
 
-    The #1897 directed-message primitives (``wait_for_event``,
-    ``wait_loop``, ``send_heartbeat``) DO have CLI counterparts
-    (``egg-orch message wait/wait-loop/heartbeat``) and are covered by
-    the parametrised subparser + delegation tests above.
+    The #1897 ``send_heartbeat`` primitive DOES have a CLI counterpart
+    (``egg-orch message heartbeat``) and is covered by the parametrised
+    subparser + delegation tests above.  The ``wait_for_event`` /
+    ``wait_loop`` MCP wrappers were removed in #2211 — long-poll waits
+    don't fit the SDK MCP transport's tool-call cap; agents use the
+    ``egg-orch message wait`` / ``wait-loop`` Bash CLI instead.
 
     If this set changes, the drift test must be updated to match the
     design intent — every cli_command=None entry also needs a

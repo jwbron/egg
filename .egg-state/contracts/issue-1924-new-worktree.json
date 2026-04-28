@@ -1,0 +1,2545 @@
+{
+  "schemaVersion": "1.0",
+  "issue": {
+    "number": 1924,
+    "title": "Issue #1924",
+    "url": "https://github.com/jwbron/egg/issues/1924"
+  },
+  "pipeline_id": "issue-1924-new-worktree",
+  "current_phase": "refine",
+  "acceptance_criteria": [],
+  "phases": [
+    {
+      "id": "phase-1",
+      "name": "Foundation modules",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-1-1",
+          "description": "Add `gateway/jira_idempotency.py`. The module exposes\n`get_or_run(verb: str, project: str, key: str | None,\nfn: Callable[[], tuple[int, dict]])` and `clear_cache()`.\nInternal storage is a module-level dict keyed by\n`(verb, project, key)` mapping to\n`(monotonic_seconds, status_code, response_json)` with a\n5-min TTL constant. Eviction is lazy at lookup time;\na threading lock guards mutations.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "File `gateway/jira_idempotency.py` exists exporting\n`get_or_run`, `clear_cache`, and `IDEMPOTENCY_TTL_SECONDS`.\n`make lint` passes.",
+          "files_affected": [
+            "gateway/jira_idempotency.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-1-2",
+          "description": "Add `gateway/jira_adf.py`. The module exposes\n`wrap_text_as_adf(text: str) -> dict` returning the minimal\nADF doc shape and `is_adf_dict(value: object) -> bool`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "File `gateway/jira_adf.py` exists exporting\n`wrap_text_as_adf` and `is_adf_dict`. `make lint` passes.",
+          "files_affected": [
+            "gateway/jira_adf.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-2",
+      "name": "JiraClient write methods + method-allowlist separation",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-2-1",
+          "description": "Add `JiraClient.create_issue(*, project_key, issuetype,\nsummary, description, labels, parent, epic_link,\nepic_link_field, idempotency_key)`. Builds the Atlassian body\nand calls `_request(\"POST\", \"issue\", body=body)`. Consults\n`jira_idempotency` when `idempotency_key` is provided.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The method exists, exported in `__all__`, with unit tests in\n`test_jira_client.py` using `httpx.MockTransport` to assert\nwire shape. `make test` passes.",
+          "files_affected": [
+            "gateway/jira_client.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-2-2",
+          "description": "Add `JiraClient.edit_issue(*, key, summary, description,\nlabels, add_labels, remove_labels, notify_users)`. Builds\nAtlassian's body in two modes: replace mode (`labels` only)\nand incremental mode (`add_labels`/`remove_labels` only).\nMutually exclusive at the client method level. Sends\n`notifyUsers=false` query string only when\n`notify_users=False`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The method exists. Unit tests assert body shape for\nreplace-only, incremental-only, combined raises ValueError,\nand notifyUsers query param behavior. `make test` passes.",
+          "files_affected": [
+            "gateway/jira_client.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-2-3",
+          "description": "Add `JiraClient.add_comment(*, key, body, idempotency_key)`.\nADF-wraps text or passes ADF dict through. Calls\n`_request(\"POST\", f\"issue/{key}/comment\", body=body)`.\nConsults idempotency cache when key provided.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The method exists. Unit tests assert the wire shape for\nplain-text body (ADF-wrapped), pre-built ADF (passes\nthrough), and idempotency cache hit/miss. `make test` passes.",
+          "files_affected": [
+            "gateway/jira_client.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-2-4",
+          "description": "Add `JiraClient.create_issue_link(*, link_type, inward_key,\noutward_key, comment, idempotency_key)`. Builds body with\n`type.name`, `inwardIssue.key`, `outwardIssue.key`. When\n`comment` provided, ADF-wraps and adds. Idempotency cache\nkeyed by canonical `(inward, outward, type)` triple per\ndecision-28.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The method exists. Unit tests assert body shape with and\nwithout comment, idempotency hit/miss for the same triple,\nand that same opaque key against different triples produces\ndistinct cache entries. `make test` passes.",
+          "files_affected": [
+            "gateway/jira_client.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-2-5",
+          "description": "Three touch-ups in `gateway/jira_client.py`: (1) update\ndocstring + comment block above `validate_jira_api_path` to\nclarify execute-passthrough vs write-method bypass; (2) move\nthe `jira_upstream_rate_limited` audit-emit out of the\nGET-only retry loop in `_request` so it fires on every 429\n(writes included); (3) update `__all__`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Docstring + comment present. 429 audit emit fires for write\nmethods (asserted in TASK-5-3). Denylist still enforced for\n`/execute`. `make test` passes.",
+          "files_affected": [
+            "gateway/jira_client.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-3",
+      "name": "Gateway routes + body validation + audit",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-3-1",
+          "description": "Add `POST /api/v1/jira/ticket/create` to `gateway/gateway.py`.\nBody schema with size caps (summary \u2264 255, description \u2264 32\nKiB, labels \u2264 30 \u00d7 50 chars), reject custom fields, project\nallowlist, cross-project parent reject, reject if both\n`parent` and `epicLink` are present, ADF wrap of text\ndescription. Calls `JiraClient.create_issue(...)`. Returns\nnormalized envelope `{key, id, browse_url, status: \"created\"}`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Route exists, decorated with `@require_session_auth` +\n`@require_private_mode`. Audit log fields match Q20\nredaction. Route in route-enumeration regression. `make\ntest` passes.",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-3-2",
+          "description": "Add `POST /api/v1/jira/ticket/edit`. Body schema validates\nticket key, allowlist, no custom fields, size caps, rejects\n400 if both `labels` (replace) and `addLabels`/`removeLabels`\n(incremental) present. Returns `{status: \"updated\", key}`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Route exists, decorated, in route-enumeration regression.\nMixed labels mode returns 400. `make test` passes.",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-3-3",
+          "description": "Add `POST /api/v1/jira/ticket/comment/add`. Body schema:\nticket, body (str | ADF, \u2264 32 KiB), idempotencyKey.\nVisibility rejected if present. Body content NEVER logged.\nReturns Atlassian comment object verbatim.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Route exists, decorated, in route-enumeration regression.\nBody content not in audit log. `make test` passes.",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-3-4",
+          "description": "Add `POST /api/v1/jira/issue-link/create`. Body schema: type\n(in jira_policy.link_types allowlist), inwardIssue,\noutwardIssue, comment?, idempotencyKey?. Strict allowlist on\nboth projects. Returns `{status: \"created\", inwardIssue,\noutwardIssue, type}` envelope.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Route exists, decorated, in route-enumeration regression.\nStrict allowlist enforced. Response envelope matches.\n`make test` passes.",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-3-5",
+          "description": "Extend `gateway/jira_policy.py` with `jira.link_types: list[str]`\n(default `[\"Blocks\", \"Relates\"]`) and\n`jira.epic_link_field: \"parent\" | \"customfield_10014\"`\n(default `\"parent\"`). Both fail-closed-on-malformed.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "`JiraPolicy` exposes `link_types`, `link_type_allowed(name)`,\n`epic_link_field`. Unit tests in `test_jira_policy.py`.\n`make test` passes.",
+          "files_affected": [
+            "gateway/jira_policy.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-3-6",
+          "description": "Update `gateway/gateway.py` module docstring to list four new\nwrite routes alongside existing read routes.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Docstring lists the four new routes. `make lint` passes.",
+          "files_affected": [
+            "gateway/gateway.py"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-3-7",
+          "description": "Edit `config/context-filters.yaml` with commented example\nblocks for `jira.link_types` and `jira.epic_link_field` knobs.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Both knobs documented with comment blocks. `make lint`\npasses.",
+          "files_affected": [
+            "config/context-filters.yaml"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-4",
+      "name": "Sandbox wrapper subcommands",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-4-1",
+          "description": "Add `jira ticket create --project KEY --type Task\n--summary \"...\" [--description ...] [--labels a,b]\n[--parent FOO-1] [--epic-link FOO-2] [--idempotency-key K]`.\nPOSTs to `/api/v1/jira/ticket/create`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Subcommand exists. `show_usage` updated. `make lint`\npasses.",
+          "files_affected": [
+            "sandbox/scripts/jira"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-4-2",
+          "description": "Add `jira ticket edit TICKET [--summary \"...\"]\n[--description ...] [--labels a,b] [--add-labels x]\n[--remove-labels y] [--no-notify]`. POSTs to\n`/api/v1/jira/ticket/edit`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Subcommand exists. Mutually exclusive description flags\nenforced. `make lint` passes.",
+          "files_affected": [
+            "sandbox/scripts/jira"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-4-3",
+          "description": "Add `jira ticket comment add TICKET [--body ...]\n[--idempotency-key K]`. POSTs to\n`/api/v1/jira/ticket/comment/add`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Subcommand exists. Exclusive body flags enforced.\n`make lint` passes.",
+          "files_affected": [
+            "sandbox/scripts/jira"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-4-4",
+          "description": "Add `jira link create --type Blocks --inward FOO-1\n--outward FOO-2 [--comment ...] [--idempotency-key K]`.\nPOSTs to `/api/v1/jira/issue-link/create`.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Subcommand exists. `show_usage` updated. `make lint`\npasses.",
+          "files_affected": [
+            "sandbox/scripts/jira"
+          ],
+          "role": "coder",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-5",
+      "name": "Tests",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-5-1",
+          "description": "Create `gateway/tests/test_jira_idempotency.py`: cache\nmiss/hit, TTL expiry, distinct keys, distinct verbs sharing\na key, missing-key bypass, threading-lock race-safety, link\ncache aliasing test (same opaque key against different\ntriples must produce distinct cache entries).",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "File exists with named tests. Coverage of\n`gateway/jira_idempotency.py` \u2265 95%. `make test` passes.",
+          "files_affected": [
+            "gateway/tests/test_jira_idempotency.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-5-2",
+          "description": "Create `gateway/tests/test_jira_adf.py`: plain text wrap,\nempty string wrap, multi-line, `is_adf_dict` true on\nAtlassian samples, false on plain dicts/lists/strings.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "File exists. Coverage \u2265 95%. `make test` passes.",
+          "files_affected": [
+            "gateway/tests/test_jira_adf.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-5-3",
+          "description": "Extend `gateway/tests/test_jira_client.py` with per-method\ntests for `create_issue`, `edit_issue`, `add_comment`,\n`create_issue_link`. Use `httpx.MockTransport`. Bound the\nmatrix at \u2265 1 success per option pair plus failure cases.\nRequired cases: parent only, epic_link with parent dispatch,\nepic_link with customfield_10014 dispatch, name-vs-ID\nissuetype, replace labels, incremental labels, combined\nraises ValueError, notify_users false vs true, ADF\npassthrough vs text wrap, idempotency hit/miss, 429 audit\nemit on each write verb.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "New test functions added. Coverage \u2265 95%. `make test`\npasses.",
+          "files_affected": [
+            "gateway/tests/test_jira_client.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-5-4",
+          "description": "Extend `gateway/tests/test_jira_routes.py` with per-route 403\ngrid for the four new routes. Each: public mode \u2192 403,\nmissing creds \u2192 503, non-allowlisted project \u2192 403, malformed\nbody \u2192 400, oversized \u2192 400, unknown issuetype \u2192 400,\ncross-project parent \u2192 400, both `parent` and `epicLink` set\n\u2192 400, mixed labels mode \u2192 400, custom-field smuggling \u2192 400,\nnon-allowlisted link-type \u2192 400, unicode-in-keys \u2192 400,\nHTTP-method tunnelling \u2192 400, success \u2192 2xx with audit\nassertion, issue-link response envelope shape. Update route\nenumeration regression.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The 403/400 grid covers every cell for each new route. Route\nenumeration includes four extra routes. `make test` passes.",
+          "files_affected": [
+            "gateway/tests/test_jira_routes.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-5-5",
+          "description": "Extend `gateway/tests/test_jira_policy.py` with tests for\n`link_types` config knob: missing key \u2192 defaults; explicit\nlist overrides; mtime-cache invalidation; case-sensitive\nlookup. Fail-closed when malformed.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Tests pass. Coverage \u2265 95% for new branch. `make test`\npasses.",
+          "files_affected": [
+            "gateway/tests/test_jira_policy.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-5-6",
+          "description": "Extend `tests/sandbox/test_jira_wrapper.py` with smoke tests\nfor the four new subcommands against a mocked gateway:\nsuccess path; mutually-exclusive body flags rejected;\nmissing required flag rejected; output JSON to stdout. Run\nvia subprocess.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "New tests pass. `make test` passes.",
+          "files_affected": [
+            "tests/sandbox/test_jira_wrapper.py"
+          ],
+          "role": "tester",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    },
+    {
+      "id": "phase-6",
+      "name": "Documentation",
+      "status": "pending",
+      "review_cycles": 0,
+      "max_cycles": 3,
+      "escalated": false,
+      "escalation_reason": null,
+      "tasks": [
+        {
+          "id": "task-6-1",
+          "description": "Extend `docs/reference/jira-wrapper.md` with a \"Write verbs\"\nsection documenting each subcommand, body schema, ADF\nwrapping rules, idempotency-key semantics, the\n`jira.link_types` config knob, audit-log redaction rules, and\ncross-project parent reject. Cross-link from v1 read-verbs\nsection.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The \"Write verbs\" section exists end-to-end. Markdown lints\nclean. The existing v1 read section is untouched.",
+          "files_affected": [
+            "docs/reference/jira-wrapper.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-6-2",
+          "description": "If `docs/reference/sandbox-tools.md` (or equivalent index)\nexists, add the four new `jira ticket create | edit | comment\nadd | link create` subcommands. Otherwise document as a no-op.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "Either index updated or task documented as no-op. `make\nlint` passes.",
+          "files_affected": [
+            "docs/reference/jira-wrapper.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        },
+        {
+          "id": "task-6-3",
+          "description": "Add a \"Phase rollback\" sub-section to the new \"Write verbs\"\ndoc spelling out that each phase is independently revertible.",
+          "status": "pending",
+          "commit": null,
+          "checkpoint_id": null,
+          "notes": "",
+          "acceptance_criteria": "The \"Phase rollback\" sub-section exists. `make lint` passes.",
+          "files_affected": [
+            "docs/reference/jira-wrapper.md"
+          ],
+          "role": "documenter",
+          "review_cycles": 0,
+          "max_cycles": 3,
+          "escalated": false,
+          "gaps": []
+        }
+      ],
+      "dependencies": [],
+      "commit": null,
+      "review_feedback": []
+    }
+  ],
+  "decisions": [
+    {
+      "id": "decision-1",
+      "question": "Custom field exposure scope (Open Q1) \u2014 Beyond summary/description/labels/parent/epicLink, do we expose a generic customFields map in the create/edit body, and under what allowlist?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Generic customFields map (any customfield_NNNN, only structural validation)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Operator-configured customField allowlist (config/context-filters.yaml: jira.custom_fields: [...])",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "No customFields map; only summary/description/labels/parent/epicLink shorthand exposed in v1",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-2",
+      "question": "Epic Link mechanism (Open Q2) \u2014 How should the gateway place new tickets under an epic?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "parent.key only (next-gen / company-managed)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "customfield_10014 only (classic / team-managed)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Auto-detect or accept either via the epicLink shorthand",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-3",
+      "question": "idempotency_key requirement for createJiraIssue / addCommentToJiraIssue (Open Q3)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Required (gateway 400 if missing)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Optional with documented warning",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Not implemented \u2014 caller responsibility",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-4",
+      "question": "Link type allowlist source for createIssueLink (Open Q4)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Hardcoded {Blocks, Relates}",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "config/context-filters.yaml jira.link_types: [...] (operator-configurable)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Accept any name upstream Jira recognizes",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-5",
+      "question": "notifyUsers default for editJiraIssue (Open Q5) \u2014 when caller doesn't specify, what should the gateway send to Atlassian?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "true (Atlassian default \u2014 sends email)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "false (quiet update; opt-in to notify)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-6",
+      "question": "addCommentToJiraIssue visibility field (Open Q6) \u2014 should v1 expose role/group visibility restrictions on comments?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Hide entirely in v1",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Expose role/group restrictions",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-7",
+      "question": "Body input format for description / comment (Open Q7) \u2014 what shape do agents send?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Plain text only (gateway wraps to ADF)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Pre-built ADF dict only (passthrough)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Both \u2014 accept whichever the caller passes",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-8",
+      "question": "Issuetype identifier accepted by createJiraIssue (Open Q8)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Name only (Task / Story / Bug / Epic / Sub-task)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Numeric ID only",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Both",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-9",
+      "question": "createIssueLink project allowlist semantics (Open Q9)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Both inwardIssue and outwardIssue projects must be allowlisted (strict)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Only one needs to be allowlisted (loose)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "One in main allowlist, the other in a separate 'linkable-only' config list",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-10",
+      "question": "Per-role write gating (Open Q10) \u2014 should specific agent roles be the only ones allowed to call write verbs?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Unrestricted within allowlisted projects",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Per-verb role allowlist (e.g., refiner=editJiraIssue, planner=createJiraIssue/createIssueLink)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Defer to a follow-up issue",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-11",
+      "question": "Phase gating for writes (Open Q11) \u2014 restrict per SDLC phase?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Unrestricted across phases",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Per-phase verb allowlist via gateway/phase_filter.py",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Defer to a follow-up issue",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-12",
+      "question": "createJiraIssue response shape (Open Q13)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Atlassian raw {id, key, self}",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Normalized envelope {key, id, browse_url, status: 'created'}",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-13",
+      "question": "editJiraIssue response shape (Open Q14)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Envelope {status: 'updated', key} (no extra Atlassian call)",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Echo post-edit ticket via Atlassian ?returnIssue=true (extra read latency)",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-14",
+      "question": "Idempotency cache scope (Open Q16)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "In-memory per-gateway-process, 5-minute TTL",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Persisted (disk or Redis) for multi-replica deployments",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-15",
+      "question": "Cross-project parent on createJiraIssue (Open Q17)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Reject if parent.key project differs from new ticket project",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Accept; let Atlassian decide",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-16",
+      "question": "createIssueLink optional comment payload (Open Q23)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Surface via 'comment' field in body",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Require a separate addCommentToJiraIssue call",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-17",
+      "question": "Dry-run / validation mode (Open Q24) \u2014 expose ?dry_run=true on each write route?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Expose ?dry_run=true on each write route",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Live calls only; orchestrator handles preview",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-18",
+      "question": "Documentation home for new write verbs (Open Q27)",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Extend existing docs/reference/jira-wrapper.md",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "New docs/reference/jira-writes.md plus link from jira-wrapper.md",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Both \u2014 high-level in jira-wrapper.md, deep dive in jira-writes.md",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-19",
+      "question": "createIssueLink idempotency (Open Q28, surfaced by reviewer_refine) \u2014 Atlassian's POST /rest/api/3/issueLink does not dedupe identical (inward, outward, type) triples; a retry after a transient 5xx creates a duplicate link. How should the gateway / orchestrator handle this?",
+      "type": "hitl",
+      "phase": "refine",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Extend the idempotency-key + cache (D1) to createIssueLink for symmetry with createJiraIssue / addCommentToJiraIssue",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Document that orchestrator's plan-apply must scan existing inwardIssue links before retrying createIssueLink",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Accept duplicates; orchestrator de-dups separately as a follow-up",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
+    },
+    {
+      "id": "decision-20",
+      "question": "Open feedback request feedback-1",
+      "type": "hitl",
+      "phase": null,
+      "options": [],
+      "resolved": true,
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Confirmed: no auto-retry on 429 for writes (matches v1 _request which restricts retry to GET). Yes \u2014 writes should still emit a jira_upstream_rate_limited audit on 429. Since the dedicated write client methods bypass _request's retry loop, the audit must fire from the write methods themselves (operation = jira_ticket_create / jira_ticket_edit / jira_comment_add / jira_issue_link_create) so 429s are still recorded.\", \"Q2\": \"summary: 255 chars (Atlassian default). description: 32 KB (32768 chars). labels: max 30 entries, each up to 50 chars. comment body: 32 KB. customFields map: max 32 entries (matches MAX_FIELDS in v1).\", \"Q3\": \"Idempotency key is sufficient for v1; no existing-issue probe. The idempotency cache (D1) covers the realistic retry window (transient 5xx within minutes); a probe would add upstream latency and a second failure surface for marginal benefit.\", \"Q4\": \"Confirmed: --description / --description-file / --description-stdin (and analogous --body / --body-file / --body-stdin for comment) match expected agent ergonomics. Mirrors gh wrapper conventions.\", \"Q5\": \"Yes \u2014 log only structural metadata (field names present, content lengths, label counts). Labels and link type names ARE loggable (operator-controlled, low-PII). Body content (summary, description, comment body) is NEVER logged verbatim.\", \"Q6\": \"Separate test_jira_writes_adversarial.py for adversarial body tests (oversized fields, custom-field smuggling, unknown issuetype, non-allowlisted link type). The per-route 403 grid stays in test_jira_routes.py.\", \"Q7\": \"Confirmed \u2014 v1 stays single-tenant exactly as #1556 left it. No multi-tenant work in #1924.\", \"Q8\": \"Confirmed \u2014 rollback / compensation is the orchestrator's responsibility. The gateway implements no transactions or compensating actions.\", \"Q9\": \"Reuse _jira_error_from_upstream verbatim for v1. Richer field-level error shapes are a follow-up if #1557 needs them.\"}}",
+      "resolved_by": "human",
+      "resolved_at": "2026-04-27T19:20:00.874308Z",
+      "debounce_until": null
+    }
+  ],
+  "workflow_owner": null,
+  "audit_log": [
+    {
+      "timestamp": "2026-04-27T18:47:08.876582Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.0",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-1",
+        "question": "Custom field exposure scope (Open Q1) \u2014 Beyond summary/description/labels/parent/epicLink, do we expose a generic customFields map in the create/edit body, and under what allowlist?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Generic customFields map (any customfield_NNNN, only structural validation)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Operator-configured customField allowlist (config/context-filters.yaml: jira.custom_fields: [...])",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "No customFields map; only summary/description/labels/parent/epicLink shorthand exposed in v1",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Custom field exposure scope (Open Q1) \u2014 Beyond sum...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:08.919462Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.1",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-2",
+        "question": "Epic Link mechanism (Open Q2) \u2014 How should the gateway place new tickets under an epic?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "parent.key only (next-gen / company-managed)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "customfield_10014 only (classic / team-managed)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Auto-detect or accept either via the epicLink shorthand",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Epic Link mechanism (Open Q2) \u2014 How should the gat...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:08.949490Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.2",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-3",
+        "question": "idempotency_key requirement for createJiraIssue / addCommentToJiraIssue (Open Q3)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Required (gateway 400 if missing)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Optional with documented warning",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Not implemented \u2014 caller responsibility",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: idempotency_key requirement for createJiraIssue / ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:08.977044Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.3",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-4",
+        "question": "Link type allowlist source for createIssueLink (Open Q4)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Hardcoded {Blocks, Relates}",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "config/context-filters.yaml jira.link_types: [...] (operator-configurable)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Accept any name upstream Jira recognizes",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Link type allowlist source for createIssueLink (Op...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:23.735954Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.4",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-5",
+        "question": "notifyUsers default for editJiraIssue (Open Q5) \u2014 when caller doesn't specify, what should the gateway send to Atlassian?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "true (Atlassian default \u2014 sends email)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "false (quiet update; opt-in to notify)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: notifyUsers default for editJiraIssue (Open Q5) \u2014 ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:23.800084Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.5",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-6",
+        "question": "addCommentToJiraIssue visibility field (Open Q6) \u2014 should v1 expose role/group visibility restrictions on comments?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Hide entirely in v1",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Expose role/group restrictions",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: addCommentToJiraIssue visibility field (Open Q6) \u2014...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:23.878921Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.6",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-7",
+        "question": "Body input format for description / comment (Open Q7) \u2014 what shape do agents send?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Plain text only (gateway wraps to ADF)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Pre-built ADF dict only (passthrough)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Both \u2014 accept whichever the caller passes",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Body input format for description / comment (Open ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:23.927158Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.7",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-8",
+        "question": "Issuetype identifier accepted by createJiraIssue (Open Q8)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Name only (Task / Story / Bug / Epic / Sub-task)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Numeric ID only",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Both",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Issuetype identifier accepted by createJiraIssue (...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:35.262347Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.8",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-9",
+        "question": "createIssueLink project allowlist semantics (Open Q9)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Both inwardIssue and outwardIssue projects must be allowlisted (strict)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Only one needs to be allowlisted (loose)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "One in main allowlist, the other in a separate 'linkable-only' config list",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: createIssueLink project allowlist semantics (Open ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:35.297315Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.9",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-10",
+        "question": "Per-role write gating (Open Q10) \u2014 should specific agent roles be the only ones allowed to call write verbs?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Unrestricted within allowlisted projects",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Per-verb role allowlist (e.g., refiner=editJiraIssue, planner=createJiraIssue/createIssueLink)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Defer to a follow-up issue",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Per-role write gating (Open Q10) \u2014 should specific...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:35.333351Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.10",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-11",
+        "question": "Phase gating for writes (Open Q11) \u2014 restrict per SDLC phase?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Unrestricted across phases",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Per-phase verb allowlist via gateway/phase_filter.py",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Defer to a follow-up issue",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Phase gating for writes (Open Q11) \u2014 restrict per ...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:35.368078Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.11",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-12",
+        "question": "createJiraIssue response shape (Open Q13)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Atlassian raw {id, key, self}",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Normalized envelope {key, id, browse_url, status: 'created'}",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: createJiraIssue response shape (Open Q13)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:44.604321Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.12",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-13",
+        "question": "editJiraIssue response shape (Open Q14)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Envelope {status: 'updated', key} (no extra Atlassian call)",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Echo post-edit ticket via Atlassian ?returnIssue=true (extra read latency)",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: editJiraIssue response shape (Open Q14)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:44.637675Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.13",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-14",
+        "question": "Idempotency cache scope (Open Q16)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "In-memory per-gateway-process, 5-minute TTL",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Persisted (disk or Redis) for multi-replica deployments",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Idempotency cache scope (Open Q16)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:44.669371Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.14",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-15",
+        "question": "Cross-project parent on createJiraIssue (Open Q17)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Reject if parent.key project differs from new ticket project",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Accept; let Atlassian decide",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Cross-project parent on createJiraIssue (Open Q17)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:47:44.706894Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.15",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-16",
+        "question": "createIssueLink optional comment payload (Open Q23)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Surface via 'comment' field in body",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Require a separate addCommentToJiraIssue call",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: createIssueLink optional comment payload (Open Q23...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:48:03.382780Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.16",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-17",
+        "question": "Dry-run / validation mode (Open Q24) \u2014 expose ?dry_run=true on each write route?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Expose ?dry_run=true on each write route",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Live calls only; orchestrator handles preview",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Dry-run / validation mode (Open Q24) \u2014 expose ?dry...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:48:03.425931Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.17",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-18",
+        "question": "Documentation home for new write verbs (Open Q27)",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Extend existing docs/reference/jira-wrapper.md",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "New docs/reference/jira-writes.md plus link from jira-wrapper.md",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Both \u2014 high-level in jira-wrapper.md, deep dive in jira-writes.md",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Documentation home for new write verbs (Open Q27)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:48:03.564386Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "feedback",
+      "old_value": null,
+      "new_value": {
+        "id": "feedback-1",
+        "phase": "refine",
+        "questions": [
+          {
+            "id": "Q1",
+            "question": "Open Q12 \u2014 write rate-limit policy: confirm 'no auto-retry on 429 for writes' is correct (matches v1 _request); should writes still emit jira_upstream_rate_limited audit on 429?",
+            "answer": null
+          },
+          {
+            "id": "Q2",
+            "question": "Open Q15 \u2014 body size caps: pick numeric limits for summary (default 255 from Atlassian), description, labels (count + per-label length), comment body, customFields map size.",
+            "answer": null
+          },
+          {
+            "id": "Q3",
+            "question": "Open Q18 \u2014 existing-issue probe before create / edit: is the idempotency key sufficient, or do we add a 'is there already a ticket matching this' safety check?",
+            "answer": null
+          },
+          {
+            "id": "Q4",
+            "question": "Open Q19 \u2014 sandbox wrapper input flags: confirm --description / --description-file / --description-stdin (and the analogous comment body flags) match expected agent ergonomics.",
+            "answer": null
+          },
+          {
+            "id": "Q5",
+            "question": "Open Q20 \u2014 audit body redaction: confirm we log only structural metadata (field names, content lengths, label counts) and never body content; any exceptions (labels, link type names)?",
+            "answer": null
+          },
+          {
+            "id": "Q6",
+            "question": "Open Q21 \u2014 adversarial body tests location: same file as the route 403 grid, or a separate test_jira_writes_adversarial.py?",
+            "answer": null
+          },
+          {
+            "id": "Q7",
+            "question": "Open Q22 \u2014 multi-tenant hooks: confirm v1 stays single-tenant exactly as #1556 left it, with no further work in #1924?",
+            "answer": null
+          },
+          {
+            "id": "Q8",
+            "question": "Open Q25 \u2014 failure recovery for batched plan apply: confirm rollback is the orchestrator's responsibility (gateway implements no transactions or compensating actions).",
+            "answer": null
+          },
+          {
+            "id": "Q9",
+            "question": "Open Q26 \u2014 error envelope for write upstream errors: reuse _jira_error_from_upstream verbatim, or surface field-level Atlassian error messages (e.g., 'Field parent cannot be set...') in a richer shape?",
+            "answer": null
+          }
+        ],
+        "submitted": false,
+        "submitted_by": null,
+        "submitted_at": null,
+        "comment_id": null,
+        "debounce_until": null
+      },
+      "reason": "Created feedback request with 9 question(s)",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-27T18:52:27.964849Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.18",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-19",
+        "question": "createIssueLink idempotency (Open Q28, surfaced by reviewer_refine) \u2014 Atlassian's POST /rest/api/3/issueLink does not dedupe identical (inward, outward, type) triples; a retry after a transient 5xx creates a duplicate link. How should the gateway / orchestrator handle this?",
+        "type": "hitl",
+        "phase": "refine",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Extend the idempotency-key + cache (D1) to createIssueLink for symmetry with createJiraIssue / addCommentToJiraIssue",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Document that orchestrator's plan-apply must scan existing inwardIssue links before retrying createIssueLink",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Accept duplicates; orchestrator de-dups separately as a follow-up",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: createIssueLink idempotency (Open Q28, surfaced by...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:07:08.109994Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": null,
+      "new_value": "1a2faa4004ca40a7b9a6a0b3699082d156abd73c",
+      "reason": "Linked commit 1a2faa4 to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:07:08.125294Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": null,
+      "new_value": "1a2faa4004ca40a7b9a6a0b3699082d156abd73c",
+      "reason": "Linked commit 1a2faa4 to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:11:51.963817Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.commit",
+      "old_value": null,
+      "new_value": "b8710c659aef28e0d9a8233cb1566b075c69d5ad",
+      "reason": "Linked commit b8710c6 to task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:11:51.999380Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.commit",
+      "old_value": null,
+      "new_value": "b8710c659aef28e0d9a8233cb1566b075c69d5ad",
+      "reason": "Linked commit b8710c6 to task-2-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:11:52.036884Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.2.commit",
+      "old_value": null,
+      "new_value": "b8710c659aef28e0d9a8233cb1566b075c69d5ad",
+      "reason": "Linked commit b8710c6 to task-2-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:11:52.057241Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.3.commit",
+      "old_value": null,
+      "new_value": "b8710c659aef28e0d9a8233cb1566b075c69d5ad",
+      "reason": "Linked commit b8710c6 to task-2-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:11:52.071853Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.4.commit",
+      "old_value": null,
+      "new_value": "b8710c659aef28e0d9a8233cb1566b075c69d5ad",
+      "reason": "Linked commit b8710c6 to task-2-5",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:11:52.101364Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.4.commit",
+      "old_value": null,
+      "new_value": "b8710c659aef28e0d9a8233cb1566b075c69d5ad",
+      "reason": "Linked commit b8710c6 to task-3-5",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:11:54.772540Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.commit",
+      "old_value": null,
+      "new_value": "d2e74178c61c984635eabed324b5ab887e819867",
+      "reason": "Linked commit d2e7417 to task-6-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:11:54.817069Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.1.commit",
+      "old_value": null,
+      "new_value": "d2e74178c61c984635eabed324b5ab887e819867",
+      "reason": "Linked commit d2e7417 to task-6-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:11:54.858486Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.2.commit",
+      "old_value": null,
+      "new_value": "d2e74178c61c984635eabed324b5ab887e819867",
+      "reason": "Linked commit d2e7417 to task-6-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:11:54.890168Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.1.notes",
+      "old_value": "",
+      "new_value": "No-op branch taken: docs/reference/sandbox-tools.md does not exist in this repo, and there is no equivalent sandbox-shell-wrapper index (docs/reference/agent-tools.md documents the in-process MCP tool surface, not sandbox/scripts/* wrappers). The canonical write-verb wrapper documentation lives in the new \"Sandbox wrapper subcommands\" sub-section of docs/reference/jira-wrapper.md. The \"Sandbox tools index\" sub-section of jira-wrapper.md records this no-op decision and notes the cross-link anchor (#sandbox-wrapper-subcommands) for any future sandbox-tools index.",
+      "reason": "Updated notes for task-6-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:15:33.200885Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.commit",
+      "old_value": null,
+      "new_value": "250e7869569d5266652664bccaeaa7daa6f31467",
+      "reason": "Linked commit 250e786 to task-3-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:15:33.237589Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.commit",
+      "old_value": null,
+      "new_value": "250e7869569d5266652664bccaeaa7daa6f31467",
+      "reason": "Linked commit 250e786 to task-3-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:15:33.263281Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.2.commit",
+      "old_value": null,
+      "new_value": "250e7869569d5266652664bccaeaa7daa6f31467",
+      "reason": "Linked commit 250e786 to task-3-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:15:33.284345Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.3.commit",
+      "old_value": null,
+      "new_value": "250e7869569d5266652664bccaeaa7daa6f31467",
+      "reason": "Linked commit 250e786 to task-3-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:15:33.300945Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.5.commit",
+      "old_value": null,
+      "new_value": "250e7869569d5266652664bccaeaa7daa6f31467",
+      "reason": "Linked commit 250e786 to task-3-6",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:15:33.323314Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.6.commit",
+      "old_value": null,
+      "new_value": "250e7869569d5266652664bccaeaa7daa6f31467",
+      "reason": "Linked commit 250e786 to task-3-7",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:17:33.744774Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.commit",
+      "old_value": null,
+      "new_value": "3f91c959e7e1fe3203def4b5da1e763096ca14cd",
+      "reason": "Linked commit 3f91c95 to task-4-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:17:33.775408Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.1.commit",
+      "old_value": null,
+      "new_value": "3f91c959e7e1fe3203def4b5da1e763096ca14cd",
+      "reason": "Linked commit 3f91c95 to task-4-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:17:33.798394Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.2.commit",
+      "old_value": null,
+      "new_value": "3f91c959e7e1fe3203def4b5da1e763096ca14cd",
+      "reason": "Linked commit 3f91c95 to task-4-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:17:33.820696Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.3.commit",
+      "old_value": null,
+      "new_value": "3f91c959e7e1fe3203def4b5da1e763096ca14cd",
+      "reason": "Linked commit 3f91c95 to task-4-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:29:42.624712Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.0.commit",
+      "old_value": "1a2faa4004ca40a7b9a6a0b3699082d156abd73c",
+      "new_value": "bf6c672e3196c87ef41ca2bac3341df1776d76a7",
+      "reason": "Linked commit bf6c672 to task-1-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:29:42.659901Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.0.tasks.1.commit",
+      "old_value": "1a2faa4004ca40a7b9a6a0b3699082d156abd73c",
+      "new_value": "bf6c672e3196c87ef41ca2bac3341df1776d76a7",
+      "reason": "Linked commit bf6c672 to task-1-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:29:42.679180Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.0.commit",
+      "old_value": "b8710c659aef28e0d9a8233cb1566b075c69d5ad",
+      "new_value": "bf6c672e3196c87ef41ca2bac3341df1776d76a7",
+      "reason": "Linked commit bf6c672 to task-2-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:29:42.713296Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.1.commit",
+      "old_value": "b8710c659aef28e0d9a8233cb1566b075c69d5ad",
+      "new_value": "bf6c672e3196c87ef41ca2bac3341df1776d76a7",
+      "reason": "Linked commit bf6c672 to task-2-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:29:42.726529Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.2.commit",
+      "old_value": "b8710c659aef28e0d9a8233cb1566b075c69d5ad",
+      "new_value": "bf6c672e3196c87ef41ca2bac3341df1776d76a7",
+      "reason": "Linked commit bf6c672 to task-2-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:29:42.742538Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.3.commit",
+      "old_value": "b8710c659aef28e0d9a8233cb1566b075c69d5ad",
+      "new_value": "bf6c672e3196c87ef41ca2bac3341df1776d76a7",
+      "reason": "Linked commit bf6c672 to task-2-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:29:42.763624Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.1.tasks.4.commit",
+      "old_value": "b8710c659aef28e0d9a8233cb1566b075c69d5ad",
+      "new_value": "bf6c672e3196c87ef41ca2bac3341df1776d76a7",
+      "reason": "Linked commit bf6c672 to task-2-5",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:29:42.782426Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.0.commit",
+      "old_value": "250e7869569d5266652664bccaeaa7daa6f31467",
+      "new_value": "bf6c672e3196c87ef41ca2bac3341df1776d76a7",
+      "reason": "Linked commit bf6c672 to task-3-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:29:42.803508Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.1.commit",
+      "old_value": "250e7869569d5266652664bccaeaa7daa6f31467",
+      "new_value": "bf6c672e3196c87ef41ca2bac3341df1776d76a7",
+      "reason": "Linked commit bf6c672 to task-3-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:29:42.826131Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.2.commit",
+      "old_value": "250e7869569d5266652664bccaeaa7daa6f31467",
+      "new_value": "bf6c672e3196c87ef41ca2bac3341df1776d76a7",
+      "reason": "Linked commit bf6c672 to task-3-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:29:42.867734Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.3.commit",
+      "old_value": "250e7869569d5266652664bccaeaa7daa6f31467",
+      "new_value": "bf6c672e3196c87ef41ca2bac3341df1776d76a7",
+      "reason": "Linked commit bf6c672 to task-3-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:29:42.908333Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.4.commit",
+      "old_value": "b8710c659aef28e0d9a8233cb1566b075c69d5ad",
+      "new_value": "bf6c672e3196c87ef41ca2bac3341df1776d76a7",
+      "reason": "Linked commit bf6c672 to task-3-5",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:29:42.931447Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.5.commit",
+      "old_value": "250e7869569d5266652664bccaeaa7daa6f31467",
+      "new_value": "bf6c672e3196c87ef41ca2bac3341df1776d76a7",
+      "reason": "Linked commit bf6c672 to task-3-6",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:29:42.970893Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.2.tasks.6.commit",
+      "old_value": "250e7869569d5266652664bccaeaa7daa6f31467",
+      "new_value": "bf6c672e3196c87ef41ca2bac3341df1776d76a7",
+      "reason": "Linked commit bf6c672 to task-3-7",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:29:43.013353Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.0.commit",
+      "old_value": "3f91c959e7e1fe3203def4b5da1e763096ca14cd",
+      "new_value": "bf6c672e3196c87ef41ca2bac3341df1776d76a7",
+      "reason": "Linked commit bf6c672 to task-4-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:29:43.028716Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.1.commit",
+      "old_value": "3f91c959e7e1fe3203def4b5da1e763096ca14cd",
+      "new_value": "bf6c672e3196c87ef41ca2bac3341df1776d76a7",
+      "reason": "Linked commit bf6c672 to task-4-2",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:29:43.045039Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.2.commit",
+      "old_value": "3f91c959e7e1fe3203def4b5da1e763096ca14cd",
+      "new_value": "bf6c672e3196c87ef41ca2bac3341df1776d76a7",
+      "reason": "Linked commit bf6c672 to task-4-3",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:29:43.066680Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.3.tasks.3.commit",
+      "old_value": "3f91c959e7e1fe3203def4b5da1e763096ca14cd",
+      "new_value": "bf6c672e3196c87ef41ca2bac3341df1776d76a7",
+      "reason": "Linked commit bf6c672 to task-4-4",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:36:48.993699Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.commit",
+      "old_value": "d2e74178c61c984635eabed324b5ab887e819867",
+      "new_value": "67d0408b1e7662ebd18e95a95bf88388400dcbd2",
+      "reason": "Linked commit 67d0408 to task-6-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:49:04.865969Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.commit",
+      "old_value": "67d0408b1e7662ebd18e95a95bf88388400dcbd2",
+      "new_value": "3a3f497ccb3b1af80e5518c68e816b791db455a3",
+      "reason": "Linked commit 3a3f497 to task-6-1",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T05:51:22.535202Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "phases.5.tasks.0.commit",
+      "old_value": "3a3f497ccb3b1af80e5518c68e816b791db455a3",
+      "new_value": "aef8db135",
+      "reason": "Linked commit aef8db1 to task-6-1",
+      "checkpoint_id": null
+    }
+  ],
+  "refine_review_cycles": 0,
+  "refine_review_feedback": "",
+  "plan_review_cycles": 0,
+  "plan_review_feedback": "",
+  "pr": {
+    "title": "Add bounded Jira write verbs to the gateway (create/edit/comment/link)",
+    "description": "Issue [#1556](https://github.com/jwbron/egg/issues/1556) shipped the\nv1 read-only Jira gateway. Issue\n[#1557](https://github.com/jwbron/egg/issues/1557) (Jira-epic SDLC\npipelines) is now blocked on the **write** counterpart. This PR is\nthe bounded write extension that unblocks #1557.\n\n**Changes:**\n\n1. **Four new gateway routes** under `/api/v1/jira/*` \u2014 `ticket/create`\n   (`POST /rest/api/3/issue`), `ticket/edit` (`PUT\n   /rest/api/3/issue/{key}`), `ticket/comment/add` (`POST\n   /rest/api/3/issue/{key}/comment`), and `issue-link/create`\n   (`POST /rest/api/3/issueLink`).\n2. **Four new `JiraClient` methods** (`create_issue`, `edit_issue`,\n   `add_comment`, `create_issue_link`) that bypass\n   `validate_jira_api_path` and use `_request` directly.\n3. **Per-verb body schema** \u2014 every write route validates a tight\n   schema. Custom fields are not exposed in v1; only `summary` /\n   `description` / `labels` / `parent` / `epicLink` shorthand.\n4. **ADF wrapping helper** (`gateway/jira_adf.py`) so callers can\n   send plain text and the gateway wraps it in ADF; pre-built ADF\n   dicts pass through.\n5. **Idempotency cache** (`gateway/jira_idempotency.py`) \u2014 a\n   per-gateway-process in-memory dict with a 5-minute TTL.\n6. **Sandbox wrapper subcommands** (`sandbox/scripts/jira ticket\n   create | edit | comment add | link create`) with\n   `--description` / `--description-file` / `--description-stdin`.\n7. **Tests** \u2014 per-route 403 grid extended to the four new routes;\n   new `test_jira_idempotency.py` and `test_jira_adf.py`.\n8. **Docs** \u2014 `docs/reference/jira-wrapper.md` gains a \"Write\n   verbs\" section.\n\nThe v1 read-only invariants are preserved verbatim \u2014 `*.atlassian.net`\nstays out of the Squid allowlist, Atlassian credentials remain\ngateway-only, the permanent denylist (`transitions`, `worklog`,\n`attachments`, `watchers`, `DELETE`) is unchanged, and `/execute`\nstays GET-only. Body content is never written to audit logs.",
+    "test_plan": "- Automated: `make test` runs every gateway and sandbox test, including\n  the new `test_jira_idempotency.py`, `test_jira_adf.py`, and\n  the extended `test_jira_routes.py` 403 grid. The route-enumeration\n  regression in `test_jira_routes.py` now asserts\n  `__egg_requires_private_mode__` on each of the four new routes.\n  `test_allowed_domains.py` continues to exclude `*.atlassian.net`.\n- Manual: reviewer reads the per-route 403 grid in\n  `test_jira_routes.py` to confirm coverage; reviewer skims\n  `docs/reference/jira-wrapper.md` write-verbs section. Integration\n  smoke against live Atlassian deferred to #1557.",
+    "manual_steps": "Pre-merge: optional \u2014 operator may add `jira.link_types: [...]` to\n`config/context-filters.yaml` if they want link types beyond the\ndefault `[\"Blocks\", \"Relates\"]`.\nPost-merge: none. Routes inert until #1557 ships.",
+    "deferred_actions": []
+  },
+  "feedback": {
+    "id": "feedback-1",
+    "phase": "refine",
+    "questions": [
+      {
+        "id": "Q1",
+        "question": "Open Q12 \u2014 write rate-limit policy: confirm 'no auto-retry on 429 for writes' is correct (matches v1 _request); should writes still emit jira_upstream_rate_limited audit on 429?",
+        "answer": null
+      },
+      {
+        "id": "Q2",
+        "question": "Open Q15 \u2014 body size caps: pick numeric limits for summary (default 255 from Atlassian), description, labels (count + per-label length), comment body, customFields map size.",
+        "answer": null
+      },
+      {
+        "id": "Q3",
+        "question": "Open Q18 \u2014 existing-issue probe before create / edit: is the idempotency key sufficient, or do we add a 'is there already a ticket matching this' safety check?",
+        "answer": null
+      },
+      {
+        "id": "Q4",
+        "question": "Open Q19 \u2014 sandbox wrapper input flags: confirm --description / --description-file / --description-stdin (and the analogous comment body flags) match expected agent ergonomics.",
+        "answer": null
+      },
+      {
+        "id": "Q5",
+        "question": "Open Q20 \u2014 audit body redaction: confirm we log only structural metadata (field names, content lengths, label counts) and never body content; any exceptions (labels, link type names)?",
+        "answer": null
+      },
+      {
+        "id": "Q6",
+        "question": "Open Q21 \u2014 adversarial body tests location: same file as the route 403 grid, or a separate test_jira_writes_adversarial.py?",
+        "answer": null
+      },
+      {
+        "id": "Q7",
+        "question": "Open Q22 \u2014 multi-tenant hooks: confirm v1 stays single-tenant exactly as #1556 left it, with no further work in #1924?",
+        "answer": null
+      },
+      {
+        "id": "Q8",
+        "question": "Open Q25 \u2014 failure recovery for batched plan apply: confirm rollback is the orchestrator's responsibility (gateway implements no transactions or compensating actions).",
+        "answer": null
+      },
+      {
+        "id": "Q9",
+        "question": "Open Q26 \u2014 error envelope for write upstream errors: reuse _jira_error_from_upstream verbatim, or surface field-level Atlassian error messages (e.g., 'Field parent cannot be set...') in a richer shape?",
+        "answer": null
+      }
+    ],
+    "submitted": false,
+    "submitted_by": null,
+    "submitted_at": null,
+    "comment_id": null,
+    "debounce_until": null
+  },
+  "phase_configs": null,
+  "agent_executions": []
+}

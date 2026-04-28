@@ -182,3 +182,85 @@ class TestHealthEndpointIsolationFromMessageStore:
         ):
             response = client.get("/api/v1/health")
             assert response.status_code == 200
+
+
+class TestProbeEndpointsAvoidStateStoreOnRequestPath:
+    """Issue #2191 regression lock: the kubelet-targeted probe paths
+    (``/api/v1/live`` and ``/api/v1/ready``) MUST NOT invoke the
+    state-store probe, ``get_state_store``, or any ``subprocess`` call
+    on the request path.
+
+    Motivation: under burst BRC load the state-store probe ran inline
+    inside ``/api/v1/health`` and queued behind waitress workers held
+    by long-polls, pushing tail latency past the 3 s readinessProbe
+    timeout and flapping the pod to unhealthy. The fix moves the probe
+    to a background thread (``state_store_probe.StateStoreProbe``) so
+    request handlers serve cached values only. These tests lock that
+    invariant: any future refactor that re-introduces inline probing
+    surfaces here as a clear regression signal.
+    """
+
+    @pytest.fixture
+    def client(self):
+        from flask import Flask
+        from routes.health import health_bp
+
+        app = Flask(__name__)
+        app.register_blueprint(health_bp)
+        app.config["TESTING"] = True
+        return app.test_client()
+
+    @pytest.fixture(autouse=True)
+    def _reset_state_store_probe(self):
+        """Each test starts with an empty probe cache."""
+        from state_store_probe import reset_state_store_probe_for_test
+
+        reset_state_store_probe_for_test()
+        try:
+            yield
+        finally:
+            reset_state_store_probe_for_test()
+
+    def test_live_does_not_invoke_state_store(self, client):
+        """``/api/v1/live`` must not call ``get_state_store`` even
+        indirectly — it's a pure liveness signal."""
+        err = RuntimeError("get_state_store MUST NOT be called from /api/v1/live — see #2191.")
+        with patch("state_store.get_state_store", side_effect=err):
+            response = client.get("/api/v1/live")
+        assert response.status_code == 200
+        assert response.get_json() == {"alive": True}
+
+    def test_live_does_not_run_subprocess(self, client):
+        """Belt-and-braces check: no ``git`` (or any other subprocess)
+        is spawned by ``/api/v1/live``."""
+        err = RuntimeError("subprocess MUST NOT be invoked from /api/v1/live — see #2191.")
+        with patch("subprocess.run", side_effect=err):
+            response = client.get("/api/v1/live")
+        assert response.status_code == 200
+
+    def test_ready_does_not_invoke_state_store(self, client):
+        """``/api/v1/ready`` reads the cache only; the underlying probe
+        runs in a background thread, never on the request path."""
+        err = RuntimeError("get_state_store MUST NOT be called from /api/v1/ready — see #2191.")
+        with patch("state_store.get_state_store", side_effect=err):
+            # Empty cache → 503, but importantly: no exception.
+            response = client.get("/api/v1/ready")
+        assert response.status_code in (200, 503)
+
+    def test_ready_does_not_run_subprocess(self, client):
+        """``/api/v1/ready`` must not spawn ``git`` on the request path."""
+        err = RuntimeError("subprocess MUST NOT be invoked from /api/v1/ready — see #2191.")
+        with patch("subprocess.run", side_effect=err):
+            response = client.get("/api/v1/ready")
+        assert response.status_code in (200, 503)
+
+    def test_health_does_not_invoke_state_store_on_request_path(self, client):
+        """``/api/v1/health`` must read the cache populated by the BG
+        thread, not invoke ``get_state_store`` on the request itself.
+        Regression lock against re-introducing inline probing under
+        time pressure (which is exactly how #2191 came back after the
+        #2167 self-heal fix landed)."""
+        err = RuntimeError("get_state_store MUST NOT be called from /api/v1/health — see #2191.")
+        with patch("state_store.get_state_store", side_effect=err):
+            response = client.get("/api/v1/health")
+        assert response.status_code == 200

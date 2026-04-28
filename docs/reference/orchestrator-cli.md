@@ -13,6 +13,7 @@ Run `egg-orch --help` for full usage. All commands support `--json` for machine-
 | `egg-orch pipeline list` | List all pipelines |
 | `egg-orch pipeline get <id>` | Get pipeline details |
 | `egg-orch pipeline status <id>` | Get pipeline status |
+| `egg-orch pipeline wait-status <id> [--since <cursor>]` | **Canonical host monitor idiom** — long-poll the pipeline for events, JSON-lines on stdout, exit codes per §3 contract. See [Agent Wait Patterns §7](agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status). |
 | `egg-orch pipeline create --repo <owner/name>` | Create a pipeline |
 | `egg-orch pipeline delete <id>` | Delete a pipeline |
 | `egg-orch signal complete [<id>] --role <role>` | Signal agent completion |
@@ -70,10 +71,12 @@ Agent role can be omitted when `EGG_AGENT_ROLE` is set.
 | `EGG_ISSUE_NUMBER` | Current issue number |
 | `EGG_BRANCH` | Target branch for the agent's worktree (auto-set; defaults to `egg/{pipeline_id}/work`) |
 | `EGG_REPO_PATH` | Repository path (auto-set; points to specific repo when one exists, otherwise `~/repos/`) |
+| `EGG_AUTHORSHIP_REPO` | Override which repo the commit-authorship store uses in multi-repo deployments. Accepts an absolute path or a repo directory name relative to `EGG_REPO_PATH`. When unset, the store prefers a repo named `egg`; falls back to the first repo alphabetically. |
 | `GATEWAY_URL` | Gateway URL (default: `http://egg-gateway:9848`) |
 | `EGG_CONCURRENT_MODE` | `true` when running in concurrent execution mode |
 | `EGG_MESSAGE_POLL_INTERVAL` | Suggested message polling interval in seconds (default: 30) |
 | `EGG_MESSAGE_POLL_MAX_WAIT` | Server-side cap (seconds) on `message wait --timeout`. Default `60`, minimum `1`. Values `> 90` trigger a startup `warnings.warn` + WARNING log because the gateway's baked-in Squid `read_timeout` / `request_timeout` directives cap backend long-polls at ~60s — raising the cap above that requires a gateway image rebuild, not a ConfigMap edit. See [Agent Wait Patterns §6](agent-wait-patterns.md#6-egg_message_poll_max_wait--long-poll-cap-coupling). |
+| `EGG_ORCH_STATE_STORE_PROBE_INTERVAL` | Cadence (seconds) of the background state-store self-heal probe. Default `15`. Lowering tightens wedge-detection at the cost of more frequent `git` calls; raising it does the inverse. The staleness watchdog flips `/api/v1/ready` to 503 when cache age exceeds `interval × 2`, so this setting also controls the readiness-flap window. Values above ~30s can exceed the readinessProbe's boot tolerance (`initialDelaySeconds + periodSeconds × failureThreshold = 35s`). |
 | `EGG_ORCH_WAITRESS_THREADS` | Waitress WSGI thread pool size. Default `16`, minimum `4`. Values `< 4` cause the orchestrator to `sys.exit(78)` (EX_CONFIG) at boot with an ERROR log. Each blocking long-poll occupies one thread; size the pool above the concurrent-agent count plus short-request headroom. The `egg_inflight_long_polls` Prometheus gauge exposes saturation. See [Agent Wait Patterns §7](agent-wait-patterns.md#7-egg_orch_waitress_threads--thread-pool--long-poll-coupling). |
 | `EGG_HEARTBEAT_RATE_LIMIT` | Per-`(pipeline_id, agent_role)` `HEARTBEAT` rate cap (messages per minute). Default `20`. Exceeding returns HTTP 429 with a `Retry-After` header; the CLI surfaces 429 as exit 3 (permanent). See [Agent Wait Patterns §5](agent-wait-patterns.md#5-egg_heartbeat_rate_limit--per-role-heartbeat-cap). |
 | `AGENT_ANCHOR_ID` | Agent anchor ID (`{role}-{short_container_id}`), auto-set by container spawner |

@@ -91,7 +91,8 @@ def log_message_poll_max_wait_startup() -> None:
 # -----------------------------------------------------------------
 # EGG_ORCH_WAITRESS_THREADS — worker thread count for the waitress
 # production server.  Raised from 16 → 24 in issue #1932 so the pool
-# can absorb host-side ``wait_for_status_change`` load on top of the
+# can absorb host-side ``/status/wait`` load (now driven by the
+# ``egg-orch pipeline wait-status`` Bash CLI per #2211) on top of the
 # existing sandbox-side ``egg-orch message wait-loop`` long-poll
 # volume.  Each host-side wait costs two threads for up to the wait
 # duration (one Waitress worker blocked on ``queue.get``, one daemon
@@ -287,3 +288,40 @@ def get_stacked_pr_reconciler_interval_seconds() -> float:
         "EGG_ORCH_STACKED_PR_RECONCILER_INTERVAL_SECONDS",
         DEFAULT_STACKED_PR_RECONCILER_INTERVAL_SECONDS,
     )
+
+
+# -----------------------------------------------------------------
+# EGG_ORCH_STATE_STORE_PROBE_INTERVAL — cadence (in seconds) of the
+# background state-store self-heal probe (#2191). Lowering this
+# tightens the wedge-detection window at the cost of more frequent
+# ``git`` calls; raising it does the inverse. The staleness watchdog
+# in :mod:`state_store_probe` flips ``/api/v1/ready`` to 503 when the
+# cache age exceeds ``interval * 2``, so operators tuning this knob
+# also widen/narrow the readiness flap window proportionally. Note the
+# boot first-probe window also scales with this value: until the BG
+# thread completes one iteration, ``/api/v1/ready`` returns 503, so
+# raising the interval above ~30s can exceed the readinessProbe's
+# ``initialDelaySeconds (5) + periodSeconds (10) * failureThreshold (3)
+# = 35s`` boot tolerance.
+# -----------------------------------------------------------------
+
+DEFAULT_STATE_STORE_PROBE_INTERVAL_SECONDS = 15.0
+
+
+def get_state_store_probe_interval() -> float:
+    """Return the BG state-store probe cadence in seconds (default 15)."""
+    raw = os.environ.get("EGG_ORCH_STATE_STORE_PROBE_INTERVAL", "").strip()
+    if not raw:
+        return DEFAULT_STATE_STORE_PROBE_INTERVAL_SECONDS
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "EGG_ORCH_STATE_STORE_PROBE_INTERVAL=%r is not a number; falling back to %.1fs",
+            raw,
+            DEFAULT_STATE_STORE_PROBE_INTERVAL_SECONDS,
+        )
+        return DEFAULT_STATE_STORE_PROBE_INTERVAL_SECONDS
+    if val <= 0:
+        return DEFAULT_STATE_STORE_PROBE_INTERVAL_SECONDS
+    return val

@@ -42,16 +42,16 @@ BRC consensus + heartbeats:
 - `mcp__brc__ack` — Prefer this over `egg-orch consensus ack`. Reviewer ACKs a proposal.
 - `mcp__brc__nack` — Prefer this over `egg-orch consensus nack`. Reviewer NACKs with a blocker reason.
 - `mcp__brc__confirm` — Prefer this over `egg-orch consensus confirmed`. Producer confirms after all reviewers ACK. Returns `ok: True` only when the producer transitioned to CONFIRMED; on `ok: False` (status `pending_acks`) the transition was rejected — read `message` for the reason (e.g. `producer_not_fully_acked`, `global_zero_proposal`, `stale_acks`) and take corrective action before retrying.
-- `mcp__brc__wait_for_event` — Prefer this over `egg-orch message wait`. Block on typed BRC messages.
-- `mcp__brc__wait_loop` — Prefer this over `egg-orch message wait-loop`. Loop wait_for_event with retry on transient errors.
 - `mcp__brc__send_heartbeat` — Prefer this over `egg-orch message heartbeat`. Emit a structured HEARTBEAT to the dedicated `/heartbeat` endpoint.
+
+> **Blocking waits use Bash, not MCP** (#2211). Both MCP transports cap tool calls below typical quiet-phase intervals (~30 s streamable-HTTP, ~60 s in-process SDK), so every cap-elapsed return is a wasted LLM turn. For STAY ALIVE blocking waits use `egg-orch message wait` / `egg-orch message wait-loop` via Bash — the canonical idiom is in `docs/reference/agent-wait-patterns.md` §1.
 
 Progress + overseer (iter-2 added the overseer surface):
 
 - `mcp__progress__emit` — Prefer this over `egg-orch progress emit`. Emit a structured progress event (step/state/detail/blocker).
 - `mcp__progress__signal_error` — Prefer this over `egg-orch signal error`. Signal a recoverable / unrecoverable error.
 - `mcp__progress__heartbeat` — Prefer this over `egg-orch signal heartbeat`. Send a coarse-grained heartbeat.
-- `mcp__progress__overseer_alert` — Prefer this over `egg-orch overseer alert`. Broadcast an `OVERSEER_ALERT` to all agents in the pipeline.
+- `mcp__progress__overseer_alert` — Prefer this over `egg-orch overseer alert`. Broadcast an `OVERSEER_ALERT` to all agents in the pipeline. **Producers blocked by reviewer NACKs (or proactive scope questions) on operator-decidable architectural choices — use `mcp__sdlc__register_open_question`, not this. Alerts are informational; decisions are HITL gates. See [`mission.md`](mission.md) → "HITL Decisions vs. Operational Alerts".**
 - `mcp__progress__query_status` — Prefer this over `egg-orch pipeline status`. Read structured pipeline status (agent matrix, BRC phase, blocked roles). Note: the MCP tool lives in the `progress` namespace per decision-5; the CLI lives in the `pipeline` subcommand subtree (decision-17 keeps the drift-gate symmetric with `overseer_alert`).
 
 No-CLI BRC introspection (iteration 1 + 2):

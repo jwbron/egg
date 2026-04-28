@@ -11,6 +11,11 @@ Covers:
 - invalid project keys skipped (non-string, bad shape)
 - ``extract_project_key`` on good / bad / non-string input
 - module-level singleton + ``reset`` helper
+- ``jira.link_types`` config knob (#1924): missing key → defaults; explicit
+  list overrides; mtime-cache invalidation; case-sensitive lookup; fail-
+  closed (defaults) on malformed input.
+- ``jira.epic_link_field`` knob: missing key → ``"parent"`` default; valid
+  values accepted; invalid values fall back to default.
 """
 
 from __future__ import annotations
@@ -227,3 +232,227 @@ class TestModuleSingleton:
 
         reload_jira_policy()
         assert allowed_projects_singleton() == frozenset({"SEC"})
+
+
+# -----------------------------------------------------------------------------
+# link_types config knob (#1924)
+#
+# Refine decision-4: ``createIssueLink`` accepts only link types in the
+# ``jira.link_types`` allowlist; default is ``["Blocks", "Relates"]``.
+# Lookups are case-sensitive (Atlassian's link-type names are case-sensitive
+# too).  Malformed values fail closed to defaults (never to "any").
+# -----------------------------------------------------------------------------
+
+
+class TestLinkTypes:
+    def test_missing_key_uses_defaults(self, tmp_yaml: Path):
+        _write_yaml(tmp_yaml, "jira:\n  projects: [ENG]\n")
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.link_types() == frozenset({"Blocks", "Relates"})
+
+    def test_explicit_list_overrides_defaults(self, tmp_yaml: Path):
+        _write_yaml(
+            tmp_yaml,
+            "jira:\n  projects: [ENG]\n  link_types: [Cloners, Duplicate]\n",
+        )
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.link_types() == frozenset({"Cloners", "Duplicate"})
+
+    def test_link_type_allowed_membership(self, tmp_yaml: Path):
+        _write_yaml(
+            tmp_yaml,
+            "jira:\n  projects: [ENG]\n  link_types: [Blocks]\n",
+        )
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.link_type_allowed("Blocks") is True
+        assert policy.link_type_allowed("Relates") is False
+        assert policy.link_type_allowed("Other") is False
+        assert policy.link_type_allowed("") is False
+
+    def test_link_type_allowed_case_sensitive(self, tmp_yaml: Path):
+        _write_yaml(
+            tmp_yaml,
+            "jira:\n  projects: [ENG]\n  link_types: [Blocks]\n",
+        )
+        policy = JiraPolicy(tmp_yaml)
+        # Atlassian rejects mismatched case; the gateway must not silently
+        # canonicalise.
+        assert policy.link_type_allowed("Blocks") is True
+        assert policy.link_type_allowed("blocks") is False
+        assert policy.link_type_allowed("BLOCKS") is False
+
+    def test_link_type_allowed_non_string_inputs_rejected(self, tmp_yaml: Path):
+        _write_yaml(
+            tmp_yaml,
+            "jira:\n  projects: [ENG]\n  link_types: [Blocks]\n",
+        )
+        policy = JiraPolicy(tmp_yaml)
+        # Defence in depth — non-string callers (a route layer bug, say)
+        # should be safely rejected.
+        assert policy.link_type_allowed(None) is False  # type: ignore[arg-type]
+        assert policy.link_type_allowed(123) is False  # type: ignore[arg-type]
+
+    def test_explicit_empty_list_falls_back_to_defaults(self, tmp_yaml: Path):
+        """Refine decision-4: an empty list is meaningless (would block ALL
+        link creation).  The loader treats it as 'no override → use the
+        default allowlist' so an operator can't accidentally lock everyone
+        out by setting ``link_types: []``."""
+        _write_yaml(
+            tmp_yaml,
+            "jira:\n  projects: [ENG]\n  link_types: []\n",
+        )
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.link_types() == frozenset({"Blocks", "Relates"})
+
+    def test_non_list_value_falls_back_to_defaults(self, tmp_yaml: Path):
+        """A scalar / dict in place of a list is malformed; loader logs an
+        error and uses defaults rather than crashing."""
+        _write_yaml(
+            tmp_yaml,
+            "jira:\n  projects: [ENG]\n  link_types: Blocks\n",
+        )
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.link_types() == frozenset({"Blocks", "Relates"})
+
+        _write_yaml(
+            tmp_yaml,
+            "jira:\n  projects: [ENG]\n  link_types:\n    a: 1\n",
+        )
+        # Different mtime so the cache reloads.
+        new_mtime = tmp_yaml.stat().st_mtime + 2
+        os.utime(tmp_yaml, (new_mtime, new_mtime))
+        assert policy.link_types() == frozenset({"Blocks", "Relates"})
+
+    def test_non_string_entries_skipped(self, tmp_yaml: Path):
+        """Mixed-type list — drop the bad entries, keep the good ones."""
+        _write_yaml(
+            tmp_yaml,
+            "jira:\n  projects: [ENG]\n  link_types: [Blocks, 42, Cloners]\n",
+        )
+        policy = JiraPolicy(tmp_yaml)
+        # 42 dropped; Blocks + Cloners retained.
+        assert policy.link_types() == frozenset({"Blocks", "Cloners"})
+
+    def test_blank_strings_skipped(self, tmp_yaml: Path):
+        _write_yaml(
+            tmp_yaml,
+            "jira:\n  projects: [ENG]\n  link_types: [Blocks, '', '   ']\n",
+        )
+        policy = JiraPolicy(tmp_yaml)
+        # Empty / whitespace-only entries are filtered; Blocks survives.
+        assert policy.link_types() == frozenset({"Blocks"})
+
+    def test_mtime_cache_invalidation(self, tmp_yaml: Path):
+        """Operator edits the YAML; on the next ``link_types()`` call the
+        new value is observed (mtime-driven reload)."""
+        _write_yaml(
+            tmp_yaml,
+            "jira:\n  projects: [ENG]\n  link_types: [Blocks]\n",
+        )
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.link_types() == frozenset({"Blocks"})
+
+        new_mtime = tmp_yaml.stat().st_mtime + 2
+        _write_yaml(
+            tmp_yaml,
+            "jira:\n  projects: [ENG]\n  link_types: [Cloners, Relates]\n",
+        )
+        os.utime(tmp_yaml, (new_mtime, new_mtime))
+        assert policy.link_types() == frozenset({"Cloners", "Relates"})
+
+    def test_disappearing_file_returns_defaults(self, tmp_yaml: Path):
+        _write_yaml(
+            tmp_yaml,
+            "jira:\n  projects: [ENG]\n  link_types: [Cloners]\n",
+        )
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.link_types() == frozenset({"Cloners"})
+
+        tmp_yaml.unlink()
+        # File gone — projects clears, link_types returns to defaults.
+        assert policy.link_types() == frozenset({"Blocks", "Relates"})
+        assert policy.allowed_projects() == frozenset()
+
+    def test_malformed_yaml_returns_defaults(self, tmp_yaml: Path):
+        _write_yaml(tmp_yaml, "jira:\n  projects: [\n")  # truncated list
+        policy = JiraPolicy(tmp_yaml)
+        # Parse error → fail closed for projects, defaults for link_types.
+        assert policy.link_types() == frozenset({"Blocks", "Relates"})
+
+
+# -----------------------------------------------------------------------------
+# epic_link_field config knob (#1924)
+#
+# Refine decision-2: ``createJiraIssue``'s ``epicLink`` shorthand emits
+# whichever Atlassian field this knob names.  ``"parent"`` (next-gen) is
+# the default; ``"customfield_10014"`` is the classic / team-managed
+# variant.  Anything else is malformed and falls back to the default.
+# -----------------------------------------------------------------------------
+
+
+class TestEpicLinkField:
+    def test_missing_key_uses_default(self, tmp_yaml: Path):
+        _write_yaml(tmp_yaml, "jira:\n  projects: [ENG]\n")
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.epic_link_field() == "parent"
+
+    def test_parent_value_accepted(self, tmp_yaml: Path):
+        _write_yaml(
+            tmp_yaml,
+            "jira:\n  projects: [ENG]\n  epic_link_field: parent\n",
+        )
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.epic_link_field() == "parent"
+
+    def test_customfield_value_accepted(self, tmp_yaml: Path):
+        _write_yaml(
+            tmp_yaml,
+            "jira:\n  projects: [ENG]\n  epic_link_field: customfield_10014\n",
+        )
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.epic_link_field() == "customfield_10014"
+
+    def test_unknown_value_falls_back_to_default(self, tmp_yaml: Path):
+        _write_yaml(
+            tmp_yaml,
+            "jira:\n  projects: [ENG]\n  epic_link_field: customfield_99999\n",
+        )
+        policy = JiraPolicy(tmp_yaml)
+        # Refine decision-2 pinned the allowlist to {"parent",
+        # "customfield_10014"}; anything else is malformed and falls back.
+        assert policy.epic_link_field() == "parent"
+
+    def test_non_string_value_falls_back_to_default(self, tmp_yaml: Path):
+        _write_yaml(
+            tmp_yaml,
+            "jira:\n  projects: [ENG]\n  epic_link_field: 42\n",
+        )
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.epic_link_field() == "parent"
+
+    def test_mtime_cache_invalidation(self, tmp_yaml: Path):
+        _write_yaml(tmp_yaml, "jira:\n  projects: [ENG]\n")
+        policy = JiraPolicy(tmp_yaml)
+        assert policy.epic_link_field() == "parent"
+
+        new_mtime = tmp_yaml.stat().st_mtime + 2
+        _write_yaml(
+            tmp_yaml,
+            "jira:\n  projects: [ENG]\n  epic_link_field: customfield_10014\n",
+        )
+        os.utime(tmp_yaml, (new_mtime, new_mtime))
+        assert policy.epic_link_field() == "customfield_10014"
+
+    def test_singleton_accessor_matches_instance(self, tmp_yaml: Path, monkeypatch):
+        _write_yaml(
+            tmp_yaml,
+            "jira:\n  projects: [ENG]\n  link_types: [Blocks]\n  epic_link_field: customfield_10014\n",
+        )
+        monkeypatch.setattr(jira_policy, "_DEFAULT_CONFIG_PATH", tmp_yaml)
+        reset_jira_policy()
+        policy = jira_policy.get_jira_policy()
+        policy._config_path = tmp_yaml
+        assert jira_policy.link_types() == frozenset({"Blocks"})
+        assert jira_policy.link_type_allowed("Blocks") is True
+        assert jira_policy.link_type_allowed("Relates") is False
+        assert jira_policy.epic_link_field() == "customfield_10014"

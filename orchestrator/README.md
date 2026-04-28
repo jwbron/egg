@@ -214,13 +214,15 @@ in-cluster agents cannot bypass HITL phase gates. Successful calls log a
 
 ### Health
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/health` | Service health |
-| `GET` | `/ready` | Readiness check |
-| `GET` | `/live` | Liveness check |
-| `GET` | `/pipelines/{id}/health` | On-demand pipeline health check |
-| `GET` | `/pipelines/{id}/health/alerts` | Active deterministic health alerts |
+| Method | Path | Purpose | Wired to | Cost on request path |
+|--------|------|---------|----------|----------------------|
+| `GET` | `/health` | Rich operator/dashboard payload (status, components, transitions) | `mcp__egg__check_health`, manual diagnostics | Single dict read (cache) |
+| `GET` | `/ready` | Traffic-routing readiness — flips when state-store cache is stale or unhealthy | kubelet `readinessProbe`, `startupProbe` | Single dict read (cache) |
+| `GET` | `/live` | Process liveness | kubelet `livenessProbe` | Pure JSON return |
+| `GET` | `/pipelines/{id}/health` | On-demand pipeline health check | manual / phase-advance gating | Two-tier framework run |
+| `GET` | `/pipelines/{id}/health/alerts` | Active deterministic health alerts | manual / overseer | In-memory read |
+
+The first three endpoints serve cached values populated by a background thread (`state_store_probe.py`); none of them runs `git`, calls `get_state_store()`, or holds locks on the request path. See [`docs/guides/deployment.md` § Orchestrator health](../docs/guides/deployment.md#orchestrator-health) for the curative-probe cadence and #2191 for the rationale.
 
 ### Metrics
 

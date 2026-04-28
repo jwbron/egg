@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from models import (
     AgentExecution,
     AgentExecutionStatus,
+    AgentExitInfo,
     AgentRole,
     ContainerInfo,
     ContainerStatus,
@@ -278,6 +279,114 @@ class TestPhaseExecution:
         assert data["phase_start_sha"] is None
         restored = PhaseExecution(**data)
         assert restored.phase_start_sha is None
+
+    def test_agent_exits_defaults_to_empty_list(self):
+        """agent_exits defaults to an empty list (issue #2205)."""
+        phase = PhaseExecution(phase=PipelinePhase.IMPLEMENT)
+        assert phase.agent_exits == []
+
+    def test_agent_exits_appends_records(self):
+        """agent_exits accepts AgentExitInfo records, preserving order."""
+        now = datetime.now(UTC)
+        phase = PhaseExecution(phase=PipelinePhase.IMPLEMENT)
+        phase.agent_exits.append(
+            AgentExitInfo(
+                role=AgentRole.CODER,
+                exit_code=0,
+                terminated_at=now,
+            )
+        )
+        phase.agent_exits.append(
+            AgentExitInfo(
+                role=AgentRole.TESTER,
+                exit_code=1,
+                last_lines=["traceback line 1", "traceback line 2"],
+                terminated_at=now,
+                container_id="abc123",
+            )
+        )
+        assert [ae.role for ae in phase.agent_exits] == [AgentRole.CODER, AgentRole.TESTER]
+        assert phase.agent_exits[1].exit_code == 1
+        assert phase.agent_exits[1].last_lines == ["traceback line 1", "traceback line 2"]
+        assert phase.agent_exits[1].container_id == "abc123"
+
+    def test_agent_exits_round_trip(self):
+        """agent_exits serializes and rehydrates through model_dump."""
+        now = datetime.now(UTC)
+        phase = PhaseExecution(
+            phase=PipelinePhase.IMPLEMENT,
+            agent_exits=[
+                AgentExitInfo(
+                    role=AgentRole.CODER,
+                    exit_code=1,
+                    last_lines=["line a", "line b"],
+                    terminated_at=now,
+                    container_id="cid-1",
+                ),
+            ],
+        )
+        data = phase.model_dump(mode="json")
+        assert len(data["agent_exits"]) == 1
+        assert data["agent_exits"][0]["role"] == AgentRole.CODER.value
+        assert data["agent_exits"][0]["exit_code"] == 1
+        assert data["agent_exits"][0]["last_lines"] == ["line a", "line b"]
+        assert data["agent_exits"][0]["container_id"] == "cid-1"
+
+        restored = PhaseExecution(**phase.model_dump())
+        assert len(restored.agent_exits) == 1
+        assert restored.agent_exits[0].role == AgentRole.CODER
+        assert restored.agent_exits[0].exit_code == 1
+
+
+class TestAgentExitInfo:
+    """Tests for AgentExitInfo (issue #2205)."""
+
+    def test_minimal(self):
+        """exit_code and role are required, last_lines defaults to []."""
+        now = datetime.now(UTC)
+        info = AgentExitInfo(
+            role=AgentRole.TESTER,
+            exit_code=1,
+            terminated_at=now,
+        )
+        assert info.role == AgentRole.TESTER
+        assert info.exit_code == 1
+        assert info.last_lines == []
+        assert info.container_id is None
+
+    def test_full(self):
+        """All fields populated round-trip."""
+        now = datetime.now(UTC)
+        info = AgentExitInfo(
+            role=AgentRole.CODER,
+            exit_code=137,
+            last_lines=["a", "b", "c"],
+            terminated_at=now,
+            container_id="cid-9",
+        )
+        data = info.model_dump(mode="json")
+        restored = AgentExitInfo(**info.model_dump())
+        assert data["exit_code"] == 137
+        assert restored.role == AgentRole.CODER
+        assert restored.last_lines == ["a", "b", "c"]
+        assert restored.container_id == "cid-9"
+
+    def test_exit_code_none_accepted(self):
+        """exit_code=None is valid (matches ContainerInfo.exit_code).
+
+        The k8s path leaves exit_code=None during pod-phase races where
+        status is FAILED but container_statuses[0].state.terminated hasn't
+        populated yet. AgentExitInfo must not reject this.
+        """
+        now = datetime.now(UTC)
+        info = AgentExitInfo(
+            role=AgentRole.CODER,
+            exit_code=None,
+            terminated_at=now,
+        )
+        assert info.exit_code is None
+        restored = AgentExitInfo(**info.model_dump())
+        assert restored.exit_code is None
 
 
 class TestPipelineConfig:

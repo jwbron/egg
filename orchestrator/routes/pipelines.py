@@ -94,6 +94,7 @@ try:
     from ..kubernetes_spawner import KubernetesSpawnError, get_kubernetes_spawner
     from ..models import (
         AgentExecutionStatus,
+        AgentExitInfo,
         AgentRole,
         AggregatedReviewResult,
         ContainerStatus,
@@ -139,6 +140,7 @@ except ImportError:
     )
     from models import (  # type: ignore
         AgentExecutionStatus,
+        AgentExitInfo,
         AgentRole,
         AggregatedReviewResult,
         ContainerStatus,
@@ -1683,7 +1685,7 @@ def _clear_pipeline_runtime_state(pipeline_id: str, *, reason: str) -> None:
     matching ``run_epoch`` namespace, a fresh pipeline that reuses an id
     from a prior terminal run (same branch, e.g. ``issue-1965``) will
     inherit the prior run's CONFIRMED consensus and message history. The
-    leak surfaces in ``wait_for_status_change``'s Path-B envelope, which
+    leak surfaces in the ``/status/wait`` route's Path-B envelope, which
     would report ``concurrent.consensus.is_complete: true`` for a
     pipeline that has not spawned any agents yet (#2053).
 
@@ -9372,11 +9374,99 @@ def _format_nack_summary(nack_details: list[dict]) -> str:
     )
 
 
+def _incomplete_consensus_decision_text(
+    final_consensus: dict,
+    container_failure_count: int,
+) -> tuple[str, str]:
+    """Build (question, log_suffix) for incomplete-consensus HITL escalation.
+
+    Distinguishes the two failure modes — unresolved NACKs vs. agents that
+    never confirmed — so the operator sees actionable detail in `/sdlc`.
+    """
+    nacks = final_consensus.get("unresolved_nacks", []) or []
+    blocking = final_consensus.get("blocking_agents", []) or []
+    if container_failure_count:
+        prefix = f"{container_failure_count} container(s) exited with non-zero code; "
+    else:
+        prefix = "All containers exited; "
+    if nacks:
+        summary = _format_nack_summary(nacks)
+        question = (
+            f"{prefix}consensus incomplete with {len(nacks)} unresolved NACK(s): "
+            f"{summary}. Committed work is preserved on the per-role branch — "
+            f"'Retry phase' restarts with artifacts intact. How to proceed?"
+        )
+        log_suffix = f"\n--- INCOMPLETE CONSENSUS / UNRESOLVED NACKs ({len(nacks)}) ---\n{summary}"
+    else:
+        agent_list = ", ".join(blocking) if blocking else "unknown"
+        question = (
+            f"{prefix}consensus incomplete; agents never confirmed: {agent_list}. "
+            f"Committed work is preserved on the per-role branch — "
+            f"'Retry phase' restarts with artifacts intact. How to proceed?"
+        )
+        log_suffix = (
+            f"\n--- INCOMPLETE CONSENSUS / NO CONFIRMATION ---\nblocking_agents={agent_list}"
+        )
+    return question, log_suffix
+
+
+def _persist_hitl_decision(
+    pipeline_id: str,
+    pipeline: Pipeline,
+    store: StateStore,
+    *,
+    question: str,
+    options: list[str],
+    phase: PipelinePhase | None = None,
+):
+    """Create and persist an HITL decision under the pipeline state lock.
+
+    `pipeline.add_decision()` only mutates an in-memory object.  The caller
+    of `_run_concurrent_phase` reloads the pipeline fresh from disk before
+    writing FAILED, so any in-memory decision is silently dropped — the
+    on-disk state (which `/sdlc` reads via `pipeline.get_pending_decisions()`)
+    never sees it.  This helper mirrors the *persistence half* of
+    `DecisionQueue.queue_decision()` and the HITL-gate write at
+    pipelines.py:13080-13089: load → mutate → save under the reentrant
+    pipeline state lock.  Note: it intentionally does **not** invoke
+    `_notify_handlers` — no production code currently registers a
+    `DecisionHandler` and `/sdlc` reads from disk on each request, so
+    notifications are not needed for the issue-2203 path.  The in-memory
+    `pipeline` argument is also synced so callers observe consistent state.
+
+    Returns the created decision, or None if persistence failed (logged;
+    callers should not raise — losing an HITL decision is bad but losing
+    the rest of the cleanup path is worse).
+    """
+    try:
+        with get_pipeline_state_lock(pipeline_id):
+            disk_pipeline = store.load_pipeline(pipeline_id)
+            decision = disk_pipeline.add_decision(
+                question=question,
+                options=options,
+                phase=phase or disk_pipeline.current_phase,
+            )
+            store.save_pipeline(disk_pipeline)
+        # Defensive copy: avoid sharing the list reference with the
+        # disk-loaded copy, which is local and goes out of scope.
+        pipeline.decisions = list(disk_pipeline.decisions)
+        return decision
+    except Exception:
+        logger.warning(
+            "Failed to persist HITL decision",
+            pipeline_id=pipeline_id,
+            question=question[:100],
+            exc_info=True,
+        )
+        return None
+
+
 def _handle_brc_consensus_timeout(
     pipeline: Pipeline,
     pipeline_id: str,
     consensus_timeout: float,
     blocking_agents: list[str],
+    store: StateStore,
     slice_id: str | None = None,
 ) -> None:
     # Extracted from _run_concurrent_phase so k3s-style top-level-module
@@ -9418,21 +9508,17 @@ def _handle_brc_consensus_timeout(
         and _brc_timeout_result is not None
         and _brc_timeout_result.get("action") == "escalate"
     ):
-        try:
-            pipeline.add_decision(
-                question=(
-                    f"BRC consensus failure: critical reviewers unconfirmed after "
-                    f"{int(consensus_timeout / 60)} minutes. How to proceed?"
-                ),
-                options=["Continue waiting", "Accept current state", "Abort phase"],
-                phase=pipeline.current_phase,
-            )
-        except Exception as decision_err:
-            logger.error(
-                "Failed to queue HITL decision after BRC escalation — pipeline will stall",
-                pipeline_id=pipeline_id,
-                error=str(decision_err),
-            )
+        _persist_hitl_decision(
+            pipeline_id,
+            pipeline,
+            store,
+            question=(
+                f"BRC consensus failure: critical reviewers unconfirmed after "
+                f"{int(consensus_timeout / 60)} minutes. How to proceed?"
+            ),
+            options=["Continue waiting", "Accept current state", "Abort phase"],
+            phase=pipeline.current_phase,
+        )
     elif not _brc_handled:
         if _emit_event is not None:
             _emit_event(
@@ -9443,21 +9529,17 @@ def _handle_brc_consensus_timeout(
                     "blocking_agents": blocking_agents,
                 },
             )
-        try:
-            pipeline.add_decision(
-                question=(
-                    f"Consensus not reached after {int(consensus_timeout / 60)} minutes. "
-                    f"How to proceed?"
-                ),
-                options=["Continue waiting", "Accept current state", "Abort phase"],
-                phase=pipeline.current_phase,
-            )
-        except Exception as decision_err:
-            logger.error(
-                "Failed to queue HITL decision after consensus timeout — pipeline will stall",
-                pipeline_id=pipeline_id,
-                error=str(decision_err),
-            )
+        _persist_hitl_decision(
+            pipeline_id,
+            pipeline,
+            store,
+            question=(
+                f"Consensus not reached after {int(consensus_timeout / 60)} minutes. "
+                f"How to proceed?"
+            ),
+            options=["Continue waiting", "Accept current state", "Abort phase"],
+            phase=pipeline.current_phase,
+        )
 
 
 def _start_stacked_pr_reconciler(
@@ -10414,7 +10496,10 @@ def _run_concurrent_phase(
                 pass
 
         with _logs_lock:
-            if final_info.exit_code != 0:
+            # 143 (SIGTERM) is orchestrator-initiated teardown, not a
+            # failure — match the K8s monitor's classifier (#2210) so
+            # the two layers don't disagree about what 143 means.
+            if final_info.exit_code not in (0, 143):
                 has_failures[0] = True
             all_logs.append(
                 f"--- {exec_info.role.value} (exit={final_info.exit_code}) ---\n{container_logs}"
@@ -10436,12 +10521,30 @@ def _run_concurrent_phase(
                     for agent in pe.agents:
                         if agent.container_id == exec_info.container_id:
                             agent.completed_at = datetime.now(UTC)
-                            if final_info.exit_code == 0:
+                            if final_info.exit_code in (0, 143):
                                 agent.status = StateAgentStatus.COMPLETE
                             else:
                                 agent.status = StateAgentStatus.FAILED
                                 agent.error = f"Container exited with code {final_info.exit_code}"
                             break
+
+                    # Cap each tail line at 4096 chars: containers that print
+                    # large JSON blobs on one line could otherwise persist
+                    # multi-MB lines into pipeline state on every chatty exit.
+                    last_lines = (
+                        [ln[:4096] for ln in container_logs.splitlines()[-200:]]
+                        if container_logs
+                        else []
+                    )
+                    pe.agent_exits.append(
+                        AgentExitInfo(
+                            role=exec_info.role,
+                            exit_code=final_info.exit_code,
+                            last_lines=last_lines,
+                            terminated_at=datetime.now(UTC),
+                            container_id=exec_info.container_id,
+                        )
+                    )
 
                     store.save_pipeline(pip)
             except Exception as track_err:
@@ -10641,23 +10744,20 @@ def _run_concurrent_phase(
         #    the next poll iteration.  "Abort phase" triggers pipeline
         #    cancellation via a separate control path.
         if consensus.get("has_objections") and not objection_decision_created:
-            try:
-                pipeline.add_decision(
-                    question="Agent(s) objecting to phase completion. How to proceed?",
-                    options=["Override objections", "Wait for resolution", "Abort phase"],
-                    phase=pipeline.current_phase,
-                )
+            decision = _persist_hitl_decision(
+                pipeline_id,
+                pipeline,
+                store,
+                question="Agent(s) objecting to phase completion. How to proceed?",
+                options=["Override objections", "Wait for resolution", "Abort phase"],
+                phase=pipeline.current_phase,
+            )
+            if decision is not None:
                 objection_decision_created = True
                 logger.info(
                     "Objection detected, HITL decision created",
                     pipeline_id=pipeline_id,
                     blocking_agents=consensus.get("blocking_agents", []),
-                )
-            except Exception as e:
-                logger.warning(
-                    "Failed to create objection HITL decision",
-                    pipeline_id=pipeline_id,
-                    error=str(e),
                 )
 
         # 3b. RC3: Stall demotion for dual-role agents.
@@ -10745,8 +10845,12 @@ def _run_concurrent_phase(
                 exited_containers[exec_info.container_id] = info
                 _record_container_exit(exec_info, info)
 
-                # Handle non-zero exit as agent failure
-                if info.exit_code != 0:
+                # Handle non-clean exit as agent failure.  0 = normal,
+                # 143 = orchestrator-initiated SIGTERM (#2210) — both
+                # are classified as clean here to match the K8s monitor's
+                # _classify_exit, so the two layers can't race to write
+                # contradictory agent.status values.
+                if info.exit_code not in (0, 143):
                     try:
                         executor.handle_agent_failure(
                             role=exec_info.role.value,
@@ -10759,14 +10863,15 @@ def _run_concurrent_phase(
                             error=str(e),
                         )
                 else:
-                    # Clean exit (code 0): the consensus wrapper inside the
-                    # container handles restarts if the agent didn't signal
-                    # READY. We do NOT auto-register READY here — agents
-                    # must explicitly participate in consensus.
+                    # Clean exit (0 or 143): the consensus wrapper inside
+                    # the container handles restarts if the agent didn't
+                    # signal READY. We do NOT auto-register READY here —
+                    # agents must explicitly participate in consensus.
                     logger.info(
                         "Container exited cleanly, wrapper handles consensus",
                         pipeline_id=pipeline_id,
                         role=exec_info.role.value,
+                        exit_code=info.exit_code,
                     )
 
         # 5. All containers exited — fall back to exit-code-based result
@@ -10799,20 +10904,17 @@ def _run_concurrent_phase(
                             nack_count=len(nack_details),
                             nack_summary=nack_summary,
                         )
-                        try:
-                            pipeline.add_decision(
-                                question=(
-                                    f"Consensus reached but {len(nack_details)} NACK(s) "
-                                    f"remain unresolved: {nack_summary}. How to proceed?"
-                                ),
-                                options=["Retry phase", "Accept current state", "Abort phase"],
-                                phase=pipeline.current_phase,
-                            )
-                        except Exception:
-                            logger.warning(
-                                "Failed to create NACK escalation decision (step 5 has_failures path)",
-                                exc_info=True,
-                            )
+                        _persist_hitl_decision(
+                            pipeline_id,
+                            pipeline,
+                            store,
+                            question=(
+                                f"Consensus reached but {len(nack_details)} NACK(s) "
+                                f"remain unresolved: {nack_summary}. How to proceed?"
+                            ),
+                            options=["Retry phase", "Accept current state", "Abort phase"],
+                            phase=pipeline.current_phase,
+                        )
                         combined_logs += (
                             f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
                         )
@@ -10857,6 +10959,40 @@ def _run_concurrent_phase(
                     _stop_running_containers()
                     return 0, combined_logs
 
+                # Incomplete consensus + container failures: surface an HITL
+                # decision so the operator can drive recovery (issue #2203).
+                # Without this, the phase fails terminally with no signal —
+                # the agent's committed work is still on the per-role branch
+                # and `restart_phase` would recover, but the operator has no
+                # way to know that without out-of-band investigation.
+                #
+                # If an objection HITL was created earlier in the polling loop
+                # this is intentionally a *second* pending decision: it
+                # carries different options ("Retry phase" / "Accept current
+                # state" / "Abort phase" vs the objection set) and conveys a
+                # different operator action.  The test
+                # `test_objection_dedup_distinct_from_incomplete_consensus_hitl`
+                # locks in the two-decision UX.
+                failure_count = sum(1 for info in exited_containers.values() if info.exit_code != 0)
+                question, log_suffix = _incomplete_consensus_decision_text(
+                    final_consensus, container_failure_count=failure_count
+                )
+                logger.warning(
+                    "Incomplete consensus with container failures — escalating to HITL",
+                    pipeline_id=pipeline_id,
+                    failure_count=failure_count,
+                    blocking_agents=final_consensus.get("blocking_agents", []),
+                    nack_count=len(final_consensus.get("unresolved_nacks", []) or []),
+                )
+                _persist_hitl_decision(
+                    pipeline_id,
+                    pipeline,
+                    store,
+                    question=question,
+                    options=["Retry phase", "Accept current state", "Abort phase"],
+                    phase=pipeline.current_phase,
+                )
+                combined_logs += log_suffix
                 return 1, combined_logs
 
             # Before returning success, check the BRC approval matrix for
@@ -10872,17 +11008,17 @@ def _run_concurrent_phase(
                     nack_count=len(nack_details),
                     nack_summary=nack_summary,
                 )
-                try:
-                    pipeline.add_decision(
-                        question=(
-                            f"All agents exited but {len(nack_details)} NACK(s) remain "
-                            f"unresolved: {nack_summary}. How to proceed?"
-                        ),
-                        options=["Retry phase", "Accept current state", "Abort phase"],
-                        phase=pipeline.current_phase,
-                    )
-                except Exception:
-                    logger.warning("Failed to create NACK escalation decision", exc_info=True)
+                _persist_hitl_decision(
+                    pipeline_id,
+                    pipeline,
+                    store,
+                    question=(
+                        f"All agents exited but {len(nack_details)} NACK(s) remain "
+                        f"unresolved: {nack_summary}. How to proceed?"
+                    ),
+                    options=["Retry phase", "Accept current state", "Abort phase"],
+                    phase=pipeline.current_phase,
+                )
                 combined_logs += f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
                 return 1, combined_logs
 
@@ -10901,11 +11037,27 @@ def _run_concurrent_phase(
                 final_consensus = {"is_complete": False}
 
             if not final_consensus.get("is_complete"):
+                # Symmetric to the has_failures path: clean exits with no
+                # consensus also need an HITL decision so the operator can
+                # drive recovery (issue #2203).
+                question, log_suffix = _incomplete_consensus_decision_text(
+                    final_consensus, container_failure_count=0
+                )
                 logger.warning(
-                    "All containers exited cleanly but consensus not reached",
+                    "All containers exited cleanly but consensus not reached — escalating to HITL",
                     pipeline_id=pipeline_id,
                     elapsed_seconds=round(elapsed, 1),
+                    blocking_agents=final_consensus.get("blocking_agents", []),
                 )
+                _persist_hitl_decision(
+                    pipeline_id,
+                    pipeline,
+                    store,
+                    question=question,
+                    options=["Retry phase", "Accept current state", "Abort phase"],
+                    phase=pipeline.current_phase,
+                )
+                combined_logs += log_suffix
                 return 1, combined_logs
 
             # Consensus confirmed on clean exit — mirror the has_failures
@@ -10938,6 +11090,7 @@ def _run_concurrent_phase(
                 pipeline_id,
                 consensus_timeout,
                 consensus.get("blocking_agents", []),
+                store,
                 slice_id=slice_id,
             )
 
@@ -11087,20 +11240,17 @@ def _run_concurrent_phase(
                             nack_count=len(nack_details),
                             nack_summary=nack_summary,
                         )
-                        try:
-                            pipeline.add_decision(
-                                question=(
-                                    f"Consensus reached after timeout but {len(nack_details)} NACK(s) "
-                                    f"remain unresolved: {nack_summary}. How to proceed?"
-                                ),
-                                options=["Retry phase", "Accept current state", "Abort phase"],
-                                phase=pipeline.current_phase,
-                            )
-                        except Exception:
-                            logger.warning(
-                                "Failed to create NACK escalation decision (timeout path)",
-                                exc_info=True,
-                            )
+                        _persist_hitl_decision(
+                            pipeline_id,
+                            pipeline,
+                            store,
+                            question=(
+                                f"Consensus reached after timeout but {len(nack_details)} NACK(s) "
+                                f"remain unresolved: {nack_summary}. How to proceed?"
+                            ),
+                            options=["Retry phase", "Accept current state", "Abort phase"],
+                            phase=pipeline.current_phase,
+                        )
                         combined_logs += (
                             f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
                         )
@@ -12360,9 +12510,24 @@ def _run_pipeline(
                     except GatewayError as gw_err:
                         is_transient = gw_err.status_code is None or gw_err.status_code >= 500
                         if not is_transient or wt_attempt == wt_max_attempts:
+                            # Surface gw_err.details so per-repo failures
+                            # captured by the gateway aren't dropped.  See
+                            # #2186.
+                            logger.error(
+                                "Worktree creation failed permanently",
+                                pipeline_id=pipeline_id,
+                                attempts=wt_attempt,
+                                status_code=gw_err.status_code,
+                                error_message=gw_err.message,
+                                details=gw_err.details,
+                            )
+                            detail_suffix = (
+                                f" (details: {gw_err.details})" if gw_err.details else ""
+                            )
                             raise RuntimeError(
                                 f"Failed to create worktrees for pipeline {pipeline_id} "
-                                f"after {wt_max_attempts} attempts: {gw_err}"
+                                f"after {wt_max_attempts} attempts: "
+                                f"{gw_err.message}{detail_suffix}"
                             ) from gw_err
                         logger.warning(
                             "Worktree creation failed, retrying",
@@ -12370,6 +12535,7 @@ def _run_pipeline(
                             attempt=wt_attempt,
                             max_attempts=wt_max_attempts,
                             error=str(gw_err),
+                            details=gw_err.details,
                         )
                         time.sleep(wt_backoff)
                         wt_backoff *= 2

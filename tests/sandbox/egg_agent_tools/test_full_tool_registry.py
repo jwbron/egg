@@ -125,13 +125,21 @@ class TestStateMachineEffectNamedInDescription:
 
 class TestToolCountAndNamespaces:
     """Derived assertions locked here so the integration suite trips on
-    silent drift."""
+    silent drift.
 
-    def test_thirty_tools(self):
-        assert len(TOOL_LIST) == 30
+    Count is **28** (was 30) — ``mcp__brc__wait_for_event`` and
+    ``mcp__brc__wait_loop`` were removed in #2211.  Long-poll waits
+    don't fit the in-process SDK MCP transport (~60 s tool-call cap);
+    agents now use ``egg-orch message wait`` / ``wait-loop`` via Bash.
+    """
 
-    def test_thirty_registrations(self):
-        assert len(TOOL_REGISTRY) == 30
+    EXPECTED_TOOL_COUNT = 28
+
+    def test_tool_count(self):
+        assert len(TOOL_LIST) == self.EXPECTED_TOOL_COUNT
+
+    def test_registration_count(self):
+        assert len(TOOL_REGISTRY) == self.EXPECTED_TOOL_COUNT
 
     def test_tool_list_names_unique(self):
         """Catches a namespace-prefix collision (two registrations
@@ -143,4 +151,6 @@ class TestToolCountAndNamespaces:
         assert len(set(full_names)) == len(full_names), (
             "TOOL_REGISTRY keys collided — two registrations share a mcp__<ns>__ path."
         )
-        assert len(short_names) == 30, "TOOL_LIST length != 30"
+        assert len(short_names) == self.EXPECTED_TOOL_COUNT, (
+            f"TOOL_LIST length != {self.EXPECTED_TOOL_COUNT}"
+        )

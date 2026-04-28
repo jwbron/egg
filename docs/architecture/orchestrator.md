@@ -472,9 +472,9 @@ NetworkPolicies (enforced by Calico CNI):
 - `GET /health` - MCP server health check
 - `POST /mcp` - Streamable HTTP transport endpoint (MCP protocol via JSON-RPC)
 
-Available MCP tools (orchestrator-backed): `submit_task`, `get_status`, `wait_for_status_change`, `provide_input`, `list_tasks`, `cancel_task`, `check_health`, `list_containers`, `get_container_logs`, `send_message`, `get_consensus_status`, `get_phase`, `get_pipeline_snapshot`, `validate_config`, `restart_agent`, `restart_phase`, `advance_phase`, `start_phase`, `complete_phase`, `populate_contract`
+Available MCP tools (orchestrator-backed): `submit_task`, `get_status`, `provide_input`, `list_tasks`, `cancel_task`, `check_health`, `list_containers`, `get_container_logs`, `send_message`, `get_consensus_status`, `get_phase`, `get_pipeline_snapshot`, `validate_config`, `restart_agent`, `restart_phase`, `advance_phase`, `start_phase`, `complete_phase`, `populate_contract`
 
-The `wait_for_status_change` tool is the event-triggered sibling of `get_status` and is the canonical host-side poll vehicle for the SDLC skill (issue [#1932](https://github.com/jwbron/egg/issues/1932)). It blocks server-side for up to 25 s and returns immediately on a phase transition, terminal pipeline state, new HITL `DECISION_CREATED`, new `OVERSEER_ALERT`, or consensus message (`CONSENSUS_CONFIRMED` / `CONSENSUS_NACK` / `CONSENSUS_RE_REVIEW`). Callers thread the response `cursor` (opaque `msg:<id>|evt:<seq>` shape) into the next call's `since` to close the snapshot→wait race window. See [Host-Side Waits](../reference/agent-wait-patterns.md#7-host-side-waits--wait_for_status_change) for the full envelope contract and concurrency model.
+Blocking host-side waits run via the `egg-orch pipeline wait-status` Bash CLI rather than an MCP tool (issue [#2211](https://github.com/jwbron/egg/issues/2211)). The CLI loops the orchestrator's `/api/v1/pipelines/<id>/status/wait` route server-side and emits one JSON-line per pipeline-relevant event. See [Host-Side Waits](../reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the envelope, exit-code contract, and cursor protocol. The route itself stays — the CLI is a wrapper.
 
 Available MCP tools (gateway-backed, requires `gateway_url`): `list_checkpoints`, `search_checkpoints`, `get_contract`
 

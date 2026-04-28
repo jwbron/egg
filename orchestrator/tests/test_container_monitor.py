@@ -120,8 +120,14 @@ def _make_container_info(container_id: str, exit_code: int = 1) -> ContainerInfo
 class TestReconcileContainerState:
     """Tests for the _reconcile_container_state helper."""
 
-    def test_marks_pipeline_failed_when_container_exits(self):
-        """A RUNNING pipeline whose container exits is marked FAILED."""
+    def test_reconciles_records_without_escalating_pipeline(self):
+        """A RUNNING pipeline whose container exits gets sub-records reconciled.
+
+        #2210: pipeline.status is no longer mutated by this path — that
+        decision belongs to the BRC poll loop which has consensus context.
+        The agent + container records still get the failure recorded so
+        observers can see what happened.
+        """
         container_id = "dead_container_xyz"
         pipeline = _make_pipeline_with_running_agent(container_id)
         store = _make_store(pipeline)
@@ -130,8 +136,9 @@ class TestReconcileContainerState:
         result = _reconcile_container_state(store, exited_info)
 
         assert result is True
-        assert pipeline.status == PipelineStatus.FAILED
-        assert pipeline.error is not None
+        # Pipeline.status preserved.
+        assert pipeline.status == PipelineStatus.RUNNING
+        assert pipeline.error is None
         store.save_pipeline.assert_called_once_with(
             pipeline,
             expected_version=pipeline.version,
@@ -251,10 +258,11 @@ class TestReconcileContainerState:
         assert result is False
 
     def test_reconciles_running_container_in_completed_phase(self):
-        """A RUNNING agent in a COMPLETE phase with an exited container is marked FAILED.
+        """A RUNNING agent in a COMPLETE phase with an exited container is reconciled.
 
         Reviewers run inside phases already marked complete. The reconciler
-        must still scan completed phases for exited containers.
+        must still scan completed phases for exited containers and update
+        the agent record, but it must not escalate the pipeline (#2210).
         """
         container_id = "reviewer_dead_xyz"
         pipeline = _make_pipeline_with_running_agent(container_id)
@@ -268,7 +276,8 @@ class TestReconcileContainerState:
         result = _reconcile_container_state(store, exited_info)
 
         assert result is True
-        assert pipeline.status == PipelineStatus.FAILED
+        # Pipeline status preserved — only sub-records reconciled.
+        assert pipeline.status == PipelineStatus.RUNNING
         agent = phase.agents[0]
         assert agent.status == AgentExecutionStatus.FAILED
         assert agent.completed_at is not None
@@ -303,17 +312,19 @@ class TestReconcileContainerState:
         # Agent should still be COMPLETE (not overwritten to FAILED)
         assert phase.agents[0].status == AgentExecutionStatus.COMPLETE
 
-    def test_sigterm_143_skips_reconciliation_when_phase_complete(self):
-        """SIGTERM (exit 143) during a completed phase is benign (issue #1405).
+    def test_sigterm_143_marks_agent_complete_regardless_of_phase_status(self):
+        """SIGTERM (exit 143) is treated as a clean exit regardless of phase status.
 
-        When the orchestrator kills agent containers during a phase transition,
-        containers exit with code 143. If the phase has already completed
-        successfully, the reconciler should NOT mark the pipeline as FAILED.
+        #2210: under the new classifier, 143 is always a clean exit
+        (orchestrator-initiated stop).  The agent flips to COMPLETE,
+        the container to EXITED, pipeline.status is untouched.  The
+        prior "143 only counts as clean during phase teardown" carve-
+        out is gone — that distinction was a workaround for the
+        K8s-monitor escalation bug, not a real semantic difference.
         """
         container_id = "sigterm_phase_done_xyz"
         pipeline = _make_pipeline_with_running_agent(container_id)
         phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
-        # Phase has completed successfully before containers were killed
         phase.status = PipelineStatus.COMPLETE
 
         store = _make_store(pipeline)
@@ -321,17 +332,21 @@ class TestReconcileContainerState:
 
         result = _reconcile_container_state(store, exited_info)
 
-        # SIGTERM during completed phase should not mark as FAILED
-        assert result is False
-        assert pipeline.status == PipelineStatus.RUNNING  # Unchanged
+        assert result is True
+        assert pipeline.status == PipelineStatus.RUNNING
         agent = phase.agents[0]
-        assert agent.status == AgentExecutionStatus.RUNNING  # Unchanged
+        assert agent.status == AgentExecutionStatus.COMPLETE
+        ci = phase.containers[0]
+        assert ci.status == ContainerStatus.EXITED
 
     def test_sigterm_143_reconciles_when_phase_still_running(self):
-        """SIGTERM (exit 143) during a still-running phase IS a failure.
+        """SIGTERM (exit 143) during a still-running phase: agent COMPLETE, pipeline preserved.
 
-        If the phase is still RUNNING when a container exits with 143, this
-        is an unexpected termination and should be treated as a real failure.
+        #2210: SIGTERM is orchestrator-initiated and treated as clean
+        regardless of phase state.  The reconciler updates the agent
+        record but does not escalate the pipeline.  If 143 ever
+        represents a genuine failure, the BRC poll loop's
+        consensus-aware path catches that on the next tick.
         """
         container_id = "sigterm_running_phase_xyz"
         pipeline = _make_pipeline_with_running_agent(container_id)
@@ -344,9 +359,11 @@ class TestReconcileContainerState:
 
         result = _reconcile_container_state(store, exited_info)
 
-        # SIGTERM during running phase IS a failure
         assert result is True
-        assert pipeline.status == PipelineStatus.FAILED
+        # Pipeline.status preserved — RUNNING.
+        assert pipeline.status == PipelineStatus.RUNNING
+        agent = phase.agents[0]
+        assert agent.status == AgentExecutionStatus.COMPLETE
 
 
 # ---------------------------------------------------------------------------
@@ -359,7 +376,11 @@ class TestCreatePipelineReconciliationHandler:
 
     @patch("state_store.get_state_store")
     def test_handler_calls_reconcile_on_failed_event(self, mock_get_store):
-        """Handler processes FAILED events (non-zero exit)."""
+        """Handler processes FAILED events: agent record reconciled, pipeline preserved.
+
+        #2210: the handler still fires on FAILED events, but the resulting
+        reconciliation no longer escalates pipeline.status.
+        """
         container_id = "dead_container"
         pipeline = _make_pipeline_with_running_agent(container_id)
         store = _make_store(pipeline)
@@ -372,7 +393,10 @@ class TestCreatePipelineReconciliationHandler:
         )
         handler(event)
 
-        assert pipeline.status == PipelineStatus.FAILED
+        # Pipeline.status preserved — agent record reconciled separately.
+        assert pipeline.status == PipelineStatus.RUNNING
+        phase = pipeline.get_phase_execution(PipelinePhase.IMPLEMENT)
+        assert phase.agents[0].status == AgentExecutionStatus.FAILED
 
     @patch("state_store.get_state_store")
     def test_handler_ignores_started_event(self, mock_get_store):
@@ -581,7 +605,14 @@ class TestPeriodicReconciliation:
     """Tests for the _reconciliation_loop background thread."""
 
     def test_detects_stale_container_in_current_phase(self):
-        """Loop detects a stale container in the current phase and reconciles it."""
+        """Loop detects a stale container in the current phase and reconciles it.
+
+        #2210: the sweep now hands ``_reconcile_pod_state`` the live
+        observation of the pod (with the actual exit code), not the
+        stored ``ContainerInfo`` whose ``exit_code`` is ``None`` while
+        the agent is RUNNING.  This test asserts both the container_id
+        plumbing and that a real exit_code reaches the reconciler.
+        """
         container_id = "stale_abc"
         pipeline = _make_pipeline_with_running_agent(container_id)
         store = _make_store(pipeline)
@@ -590,6 +621,13 @@ class TestPeriodicReconciliation:
         # No live containers — the agent's container is missing
         mock_docker.list_containers.return_value = []
         mock_docker.list_jobs.return_value = []
+        mock_docker.get_container_info.return_value = ContainerInfo(
+            container_id=container_id,
+            container_name="job-stale",
+            status=ContainerStatus.FAILED,
+            exit_code=137,
+            exited_at=datetime.now(UTC),
+        )
 
         monitor = ContainerMonitor(docker_client=mock_docker, check_interval=1)
 
@@ -600,11 +638,13 @@ class TestPeriodicReconciliation:
 
             _run_one_reconciliation_sweep(monitor)
 
-            # Should have called _reconcile with the matching ContainerInfo
+            # Should have called _reconcile with the live observed
+            # ContainerInfo, not the stored record.
             mock_reconcile.assert_called()
             call_args = mock_reconcile.call_args
             assert call_args[0][0] is store
             assert call_args[0][1].container_id == container_id
+            assert call_args[0][1].exit_code == 137
 
     def test_reconciles_stale_records_on_complete_pipeline(self):
         """Loop reconciles COMPLETE pipelines that have stale RUNNING records (#1840)."""

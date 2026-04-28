@@ -33,7 +33,7 @@ the contract verbs that iteration-1 left as Bash-only:
 - `mcp__phase__complete_phase` — Prefer this over `egg-contract complete-phase`. Transitions phase status to "complete" (downstream `phase_complete` signal fires).
 - `mcp__sdlc__verify_criterion` — Prefer this over `egg-contract verify-criterion`. Marks an acceptance criterion verified; **REVIEWER role only** (the gateway rejects non-REVIEWER writers — no in-process re-check).
 - `mcp__task__complete` — Prefer this over `egg-contract complete-task`. Marks a contract task complete and optionally links a commit.
-- `mcp__sdlc__register_open_question` — Prefer this over `egg-contract add-decision`. Creates a HITL multiple-choice decision.
+- `mcp__sdlc__register_open_question` — Prefer this over `egg-contract add-decision`. Creates a HITL multiple-choice decision. **Available to every role, not just refiner/planner** — coders should call this when reviewer NACKs name an architectural scope question the operator (not the coder) must decide. See [`mission.md`](mission.md) → "HITL Decisions vs. Operational Alerts" for the producer-side checklist; do NOT file an `OVERSEER_ALERT` for this.
 - `mcp__sdlc__request_feedback` — Prefer this over `egg-contract add-feedback`. Creates an open-ended HITL feedback request.
 
 A new no-CLI tool also lives in the contract surface:

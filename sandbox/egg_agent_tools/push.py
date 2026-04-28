@@ -84,39 +84,56 @@ def consensus_push() -> tuple[int, str | None]:
     except (subprocess.CalledProcessError, FileNotFoundError):
         branch = ""
 
-    if not branch:
-        msg = "could not determine current branch for push"
-        print(f"Error: {msg}", file=sys.stderr)
-        return 1, msg
+    payload_data: dict[str, object] = {
+        "repo_path": repo_path,
+        "remote": "origin",
+        "force": False,
+        "container_id": container_id,
+        "consensus_push": True,
+    }
 
-    # Retarget to the assigned pipeline branch when on a per-agent work
-    # branch (shared logic with ``cli_push``).
-    retarget = _retarget_refspec(branch)
-    if retarget:
-        refspec = retarget
+    if branch:
+        # Retarget to the assigned pipeline branch when on a per-agent work
+        # branch (shared logic with ``cli_push``).
+        retarget = _retarget_refspec(branch)
+        if retarget:
+            refspec = retarget
+        else:
+            try:
+                tracking = subprocess.check_output(
+                    ["git", "config", f"branch.{branch}.merge"],
+                    text=True,
+                    cwd=repo_path or None,
+                    stderr=subprocess.DEVNULL,
+                ).strip()
+                remote_branch = tracking.removeprefix("refs/heads/")
+                refspec = f"{branch}:{remote_branch}" if remote_branch != branch else branch
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                refspec = branch
+        payload_data["refspec"] = refspec
     else:
+        # Detached HEAD (post-rebase, after manual checkout-by-sha, etc.).
+        # Push by SHA instead — the gateway resolves the assigned branch
+        # from the session and constructs the refspec server-side. See
+        # issue #2200: when the worktree was on detached HEAD the helper
+        # used to bail with "could not determine current branch", trapping
+        # the agent with no way to publish its BRC proposal.
         try:
-            tracking = subprocess.check_output(
-                ["git", "config", f"branch.{branch}.merge"],
+            commit_sha = subprocess.check_output(
+                ["git", "rev-parse", "HEAD"],
                 text=True,
                 cwd=repo_path or None,
                 stderr=subprocess.DEVNULL,
             ).strip()
-            remote_branch = tracking.removeprefix("refs/heads/")
-            refspec = f"{branch}:{remote_branch}" if remote_branch != branch else branch
         except (subprocess.CalledProcessError, FileNotFoundError):
-            refspec = branch
+            commit_sha = ""
+        if not commit_sha:
+            msg = "could not determine HEAD commit for push"
+            print(f"Error: {msg}", file=sys.stderr)
+            return 1, msg
+        payload_data["commit_sha"] = commit_sha
 
-    payload = json.dumps(
-        {
-            "repo_path": repo_path,
-            "remote": "origin",
-            "refspec": refspec,
-            "force": False,
-            "container_id": container_id,
-            "consensus_push": True,
-        }
-    ).encode()
+    payload = json.dumps(payload_data).encode()
 
     req = urllib.request.Request(
         f"{gateway_url}/api/v1/git/push",
