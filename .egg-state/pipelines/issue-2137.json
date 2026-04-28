@@ -82,7 +82,7 @@
       ],
       "artifacts": {},
       "error": null,
-      "hitl_feedback": "Three corrections before the gate is approved. The recommendation (Option A) is correct; only the supporting facts and packaging need to change.\n\n## 1. #2134 status\n\nThe analysis says \"#2134 is currently OPEN (verified at refine time)\" and uses that as load-bearing risk in the recommendation (\"silent-failure ingestion of phases[]/slices[] would intermittently produce empty slice arrays\"). #2134 is **CLOSED and fixed** as of 2026-04-27 (closed via PR #2185 / commit landing on main yesterday). Verify with `gh issue view 2134 --repo jwbron/egg --json state,closedAt` if you want to double-check.\n\nRemove the \"currently OPEN\" claim. Drop the warning that empty slice arrays are an intermittent risk today. The silent-failure code paths in `_populate_contract_from_plan_safe` are already fixed; the slice scheduler can rely on `slices[]` being populated.\n\nAdjust caveat 1 of the recommendation accordingly. The hard-prereq narrative is now a *historical* dependency, not a live blocker. PR-1 in the proposed PR sequence (the #2134 silent-failure fix) is moot.\n\n## 2. Single-PR mandate for #2137\n\nThe 6-PR landing sequence in caveat 7 (PR-1 through PR-6) is the wrong shape and reflects a misunderstanding of the meta-constraint. #2137 itself must ship as **one PR**, because today's pipelines produce one PR per ticket and the multi-PR support that would let us split #2137 into 6 reviewable chunks is *exactly what #2137 is supposed to add*. Splitting #2137 itself into 6 PRs presupposes the very capability the ticket is meant to introduce.\n\nCollapse the sequence into a single PR scope:\n\n- The schema rename (`Phase` -> `Slice`), the `DependencyGraph` generification, the forest-validation at plan ingestion, the orchestrator slice scheduler, the per-slice BRC tracker namespacing, the per-slice branch creation via `create_phase_worktree`, the per-slice PR creation, the stacked-PR rebase reconciler, and the planner's auto-serialization heuristic all land in **one cohesive PR** as the implementation of #2137.\n\nFlag the size honestly in the recommendation (rough order of magnitude: 1500-2500 LOC across orchestrator, gateway, plan_parser, models, dependency_graph) so the plan phase can budget the implement-phase agent team appropriately. This is a large but well-bounded PR; the unit cohesion (it's all one feature) makes it easier to review than the 6 PRs would be in practice, since each of those would individually fail to satisfy the AC.\n\nDrop the \"decompose into reviewable chunks\" rationale from caveat 7 and replace it with the single-PR framing.\n\n## 3. No cross-slice reviewer\n\nOption D is fully out (you already rejected it; this is just confirming it stays rejected). Equally, the design must not synthesize a cross-slice review pass under any other name. Specifically:\n\n- Decisions 3 and 13 (lens reviewer scope) should resolve to **per-slice only** when Wave 2 surfaces them. Don't run `reviewer_code_holistic`, `reviewer_security`, `reviewer_concurrency`, or any other lens against a synthetic merged state.\n- The mitigation discussion in Option A's cons section (\"Mitigation registered as decision-3/decision-13 (lens scope)\") should be updated to reflect that the resolution is *no cross-slice mitigation* in MVP. If cross-slice architectural defects become a real production problem post-MVP, they get a *follow-up* ticket; they are not a #2137 acceptance criterion.\n- Recommendation caveat 4 (\"Lens reviewer scope (decisions 3 / 13) needs explicit resolution post-#2139\") should be replaced with: \"Lens reviewers run per-slice only. Cross-slice architectural coverage is explicitly out of scope for #2137 and deferred to a follow-up if needed.\"\n\n## What stays\n\nKeep Option A as the recommendation. Keep the new decisions 16, 17, 18 (stacked-PR rebase mechanics, auto-serialization heuristic, forest-constraint enforcement point) -- they're correctly framed for the revised issue text. Keep the obsolete-decision markers (1, 4, 13, 15) -- those are useful operator context. Keep the technical findings (DependencyGraph is role-keyed, BRC tracker keys only on pipeline_id, `create_phase_worktree` exists but is unused, etc.) -- those are accurate and load-bearing for the plan phase.",
+      "hitl_feedback": null,
       "phase_start_sha": "335069f7fe2f481d09d259aa7ba11d8f99b6bed4"
     }
   },
@@ -106,7 +106,7 @@
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T16:41:36.019167Z",
+  "updated_at": "2026-04-28T16:41:36.042135Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -120,6 +120,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 14,
+  "version": 15,
   "jira_ticket": null
 }
