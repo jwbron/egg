@@ -1,8 +1,17 @@
 # Slice-DAG Implement Phase
 
 > Status: building blocks shipped (#2137). The orchestrator's implement-phase
-> run-loop wire-up is deliberately deferred — every other component listed
-> here is in place and unit-testable today.
+> run-loop wire-up (slice integration-branch creation, per-slice agent-team
+> spawn, post-CONSENSUS_CONFIRMED `create_slice_pr` invocation, and
+> reconciler scheduling — TASK-4-2, TASK-4-4, TASK-5-1 invocation, TASK-5-3
+> scheduling) is **deliberately deferred under HITL decision-20**. Every
+> other component listed here — schema rename + migration shim, plan-parser
+> forest validation with structured `ForestValidationError`, the
+> generified `DependencyGraph`, `SliceScheduler`, slice-aware worktree
+> branch helpers, BRC tracker keying, `GatewayClient.create_slice_pr` /
+> `GatewayClient.rebase_onto`, `stacked_pr_reconciler`, planner +
+> plan-reviewer prompt updates, and the env-var defaults — is in place and
+> unit-testable today.
 
 The implement phase used to run as a single monolithic agent team on one
 branch through one BRC consensus. Tickets large enough to fill the context
@@ -70,10 +79,27 @@ def validate_forest(slices: list[Slice]) -> list[str]:
 ```
 
 The orchestrator's `_populate_contract_from_plan` route invokes
-`validate_forest()` and stashes any returned errors on
-`Contract.plan_review_feedback` so the plan reviewer NACKs the planner.
-Slices are not written to the contract in this case — leaving
-`contract.slices` empty so downstream code visibly fails fast.
+`validate_forest()`, stashes any returned errors on
+`Contract.plan_review_feedback` (so the plan reviewer NACKs the planner),
+**and then raises a structured `ForestValidationError`**. Slices are not
+written to the contract in this case — leaving `contract.slices` empty
+so downstream code visibly fails fast.
+
+```python
+class ForestValidationError(Exception):
+    status_code: int = 422
+    errors: list[str]
+    def to_response(self) -> tuple[dict[str, object], int]: ...
+```
+
+`ForestValidationError.to_response()` returns the canonical
+`({"error": "forest_violation", "errors": [...]}, 422)` Flask shape so any
+future route that ingests a plan in-band can catch it and return a 422
+with the inlined errors. The internal `_populate_contract_from_plan_safe`
+wrapper catches `ForestValidationError` with a dedicated structured
+warning (separate audit-log discriminator from the catch-all
+`except Exception`) and re-raises `ForestValidationError` — only generic
+exceptions are swallowed by the safe wrapper.
 
 A typical error message:
 
@@ -89,9 +115,13 @@ TASK-2-3 for the auto-serialization rule.
 
 `shared/egg_contracts/dependency_graph.py` was generified in #2137.
 `DependencyNode`, `ExecutionWave`, `ExecutionPlan`, and `DependencyGraph`
-are now `Generic[NodeT]`. Existing agent-role-keyed callers continue to use
-`DependencyGraph[AgentRole]`; the slice scheduler uses `DependencyGraph[str]`
-with slice IDs as node keys. One implementation, two parameterisations.
+are now generic over the node-key type. The classes use **PEP 695 generic
+class syntax** (`class DependencyGraph[NodeT: Hashable]: ...`) — matching
+`pyproject.toml`'s `target-version = "py313"` — rather than the older
+`Generic[NodeT]` + `TypeVar` shape. Existing agent-role-keyed callers
+continue to use `DependencyGraph[AgentRole]`; the slice scheduler uses
+`DependencyGraph[str]` with slice IDs as node keys. One implementation,
+two parameterisations.
 
 ## SliceScheduler
 
@@ -134,7 +164,14 @@ field), which only tracks declarative state.
 
 Every public method acquires the scheduler's `RLock`, so callers may invoke
 them from arbitrary threads (the BRC tracker, the cascade poller, and the
-run loop all run in different threads).
+run loop all run in different threads). The HITL escalator hook is one
+deliberate exception — see "Two-tier `max_cycles` accounting" below.
+
+The constructor lazy-resolves `EGG_ORCH_*` defaults from
+`orchestrator.env_config` whenever the corresponding kwarg is left as
+`None`. A bare `SliceScheduler(contract)` therefore picks up the
+operator's env-var overrides without any explicit threading; callers can
+still pin values explicitly (the existing test fixtures do).
 
 ### Two-tier `max_cycles` accounting
 
@@ -147,6 +184,13 @@ all slices. Either trip calls `hitl_escalator(slice_id, reason)`.
 | local 3 | `EGG_ORCH_SLICE_LOCAL_MAX_CYCLES` |
 | global 10 | `EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES` |
 
+`record_cycle` captures the escalation arguments under the scheduler's
+lock and then **invokes `hitl_escalator` after releasing the lock**. The
+escalator may issue HTTP / contract-write I/O whose latency would
+otherwise serialise every other scheduler operation; a >180 s round trip
+would also trip the orchestrator's stuck-phase-transition timeout. (Same
+pattern as #2012 for the BRC tracker.)
+
 ### Failure cascade
 
 When `record_failure(slice_id)` is called, the scheduler arms a timer for
@@ -157,6 +201,15 @@ marks every transitive descendant `BLOCKED_ON_FAILED_DEPENDENCY`. **Sibling
 slices are unaffected** — only the failed slice's downstream subtree is
 blocked, and one `OVERSEER_ALERT` (anomaly type `slice-cascade-block`) is
 emitted with the full subtree.
+
+Cascades can be unwound. If HITL resolves the underlying failure and the
+operator calls `teardown_slice` → `respawn_slice` → eventually
+`record_complete` on the failed slice, `_unblock_children` re-promotes
+both `PENDING` **and** `BLOCKED_ON_FAILED_DEPENDENCY` children whose
+remaining dependencies are satisfied. (Without this promotion the
+descendants of a respawned-and-completed parent would stay permanently
+blocked even after recovery — the failed cascade was previously a
+one-way trip.)
 
 ## Per-slice branches & BRC trackers
 
@@ -176,6 +229,13 @@ integration branch for a slice's BRC: `egg/issue-N/slice-M`. Per-role
 work branches rebase onto it. Roots base their integration branch off the
 pipeline branch directly; child slices base off their parent slice's
 integration branch.
+
+Both helpers `re.fullmatch` the normalised slice id against
+`r"slice-[0-9]+"` before embedding it in a git ref. The contract-layer
+pydantic regex already enforces this on the source of truth, but the
+executor helpers sit on the gateway-facing surface — re-validating closes
+the seam against any future caller that forgets the upstream check
+(defense-in-depth, per the security reviewer's ACK suggestion).
 
 The BRC tracker layer (`orchestrator/peer_consensus.py`) was extended so
 `create/get/remove_peer_consensus_tracker(pipeline_id, slice_id=None)` keys
@@ -242,6 +302,56 @@ GitHub API so unit tests can substitute deterministic fakes. The
 `rebase_onto(branch, new_base, deleted_base) → bool` callable wraps the
 existing per-agent rebase allowlist — **no new privileged
 orchestrator-role endpoint is introduced** (refine-phase decision-15).
+
+In production the reconciler binds that callable to
+`GatewayClient.rebase_onto(pipeline_id, repo_path, branch=..., new_base=...,
+old_base=...) → bool`, which sits on the orchestrator side and bridges
+the reconciler's `Callable[[str, str, str], bool]` shape to the
+gateway-side `gateway.git_client.build_rebase_onto_args`. The argv builder
+constructs the canonical `["--onto", new_base, old_base, branch]` shape
+and runs it through the existing `validate_git_args("rebase", ...)`
+allowlist — extra flags (e.g. `--strategy-option=ours`) are rejected.
+After validation the bridge submits the args through the existing
+per-agent `/api/v1/git` endpoint via the same temp-session pattern that
+`create_pr` and `fetch_worktree_branch` use; failures (validation reject,
+HTTP error, gateway unavailable) return `False` and the reconciler counts
+them as `rebases_failed`.
+
+## Planner & plan-reviewer prompt updates
+
+The dynamic prompt builders for `task_planner` and `reviewer_plan` were
+extended to teach the agents the new schema and constraints:
+
+- **Planner (`task_planner`)** — three new sections appended to the plan
+  phase prompt:
+  1. *Slice-sizing guidance* (advisory only, never enforced; HITL
+     decision-6 opt-2): the planner is encouraged to keep slices ≤1,000
+     LOC and informed that the plan reviewer issues escalating advisories
+     at >1,000 / >2,000 LOC.
+  2. *Forest constraint* (HARD): every slice must have ≤1 DAG parent;
+     the populator hard-rejects multi-parent slices with
+     `ForestValidationError`.
+  3. *Auto-serialization rule with worked example*: when the planner
+     identifies a slice that would otherwise have >1 parents, it
+     serialises the upstream cluster into a chain and records the chosen
+     order on the downstream slice's `serialized_chain_order` field. The
+     fallback heuristic (`files_affected` Jaccard >0.3, then descending
+     fan-out) is documented; the planner's own ordering is the source of
+     truth (HITL decision-17).
+  4. The yaml-block key swap: `slices:` is canonical, `phases:` is
+     backward-compat.
+- **Plan reviewer (`reviewer_plan`)** — two new prompt sections:
+  1. *Forest-violation NACK*: when the populator left a "Plan ingestion
+     REJECTED" block on `plan_review_feedback` (or a `forest_violation`
+     log discriminator is present), the reviewer NACKs the planner with
+     the structured errors verbatim and instructs re-emission with
+     `serialized_chain_order` populated.
+  2. *Slice-sizing advisory* (advisory only, NEVER NACK): tone scales
+     with magnitude — 1,000–2,000 LOC: "consider splitting"; >2,000 LOC:
+     "well above the soft target — strongly consider splitting". HITL
+     decision-6 opt-2 keeps override authority with the
+     refiner/operator; promoting the advisory to a hard NACK requires a
+     fresh HITL revision.
 
 ## Configuration knobs
 
