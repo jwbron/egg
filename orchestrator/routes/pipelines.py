@@ -12077,7 +12077,10 @@ def _run_pipeline(
                         ),
                         pipeline_id=pipeline_id,
                     )
-                except subprocess.CalledProcessError as git_err:
+                except Exception as git_err:
+                    # Catch broadly so TimeoutExpired/OSError also produce
+                    # an explicit FAILED state rather than silently
+                    # propagating to the outer handler (#2219).
                     logger.error(
                         "Failed to commit initial statefiles — aborting pipeline",
                         pipeline_id=pipeline_id,
@@ -12574,7 +12577,8 @@ def _run_pipeline(
                             ),
                             pipeline_id=pipeline_id,
                         )
-                    except subprocess.CalledProcessError as git_err:
+                    except Exception as git_err:
+                        # Catch broadly: see #2219.
                         logger.warning(
                             "Pre-PR statefile commit failed (continuing)",
                             pipeline_id=pipeline_id,
@@ -12956,13 +12960,27 @@ def _run_pipeline(
             # ensures _populate_contract_from_plan can read agent-produced
             # draft files that only exist on the remote.
             if pipeline.branch and worktree_repo_path != repo_path:
-                _sync_worktree_with_remote(
-                    spawner,
-                    pipeline_id,
-                    worktree_repo_path,
-                    gateway_mode=gateway_mode,
-                    base_branch=pipeline.base_branch,
-                )
+                # Best-effort: a sync failure must not strand the
+                # auto-advance.  Without this guard, a gateway HTTP error
+                # or git subprocess failure inside the helper propagates
+                # to the outer Exception handler and (if marking FAILED
+                # also fails) leaves the pipeline wedged with phase
+                # COMPLETE but no successor (#2219).
+                try:
+                    _sync_worktree_with_remote(
+                        spawner,
+                        pipeline_id,
+                        worktree_repo_path,
+                        gateway_mode=gateway_mode,
+                        base_branch=pipeline.base_branch,
+                    )
+                except Exception as sync_err:
+                    logger.warning(
+                        "Failed to sync worktree with remote after phase (continuing)",
+                        pipeline_id=pipeline_id,
+                        phase=current_phase.value,
+                        error=str(sync_err),
+                    )
 
             # After plan phase: populate contract with task structure.
             # NOTE: worktree_repo_path is used for both draft reads and
@@ -13029,7 +13047,12 @@ def _run_pipeline(
                     pipeline_identifier=_pipeline_identifier(pipeline.issue_number, pipeline_id),
                     pipeline_id=pipeline_id,
                 )
-            except subprocess.CalledProcessError as git_err:
+            except Exception as git_err:
+                # Catch broadly: the helper does ``subprocess.run(check=True,
+                # timeout=30)`` which can raise ``TimeoutExpired`` (not a
+                # CalledProcessError) and ``glob.glob`` which can raise
+                # ``OSError``.  A narrow ``except`` here let either escape
+                # to the outer handler and stranded the pipeline (#2219).
                 logger.warning(
                     "Failed to commit statefiles after phase (continuing)",
                     pipeline_id=pipeline_id,
@@ -13396,7 +13419,10 @@ def _run_pipeline(
                         ),
                         pipeline_id=pipeline_id,
                     )
-                except subprocess.CalledProcessError as git_err:
+                except Exception as git_err:
+                    # Catch broadly: see #2219.  The helper raises
+                    # ``TimeoutExpired`` and ``OSError`` paths that a
+                    # ``CalledProcessError``-only handler did not catch.
                     logger.warning(
                         "Failed to commit statefiles after phase gate resolution (continuing)",
                         pipeline_id=pipeline_id,
@@ -13669,8 +13695,19 @@ def _run_pipeline(
                     message=f"Pipeline failed: {str(e)[:100]}",
                 )
                 _emit_pipeline_event(pipeline, "pipeline.failed")
-        except Exception:
-            pass
+        except Exception as fail_err:
+            # If FAILED-marking itself fails (state-store contention, lock
+            # timeout, etc.), the pipeline stays at ``running`` with no
+            # error recorded — exactly the silent-wedge symptom in #2219.
+            # Log so the next occurrence is visible in the orchestrator
+            # log instead of vanishing.
+            logger.error(
+                "Failed to mark pipeline FAILED after exception",
+                pipeline_id=pipeline_id,
+                original_error=str(e),
+                mark_error=str(fail_err),
+                exc_info=True,
+            )
     finally:
         # Stop health monitor polling and unsubscribe from events
         if health_monitor_timer is not None:
