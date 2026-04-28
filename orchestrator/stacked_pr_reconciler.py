@@ -114,13 +114,9 @@ def find_orphaned_child_prs(
             pr_by_head[head] = pr
 
     orphans: list[OrphanedChildPR] = []
-    issue_number = (
-        contract.issue.number if contract.issue is not None else None
-    )
+    issue_number = contract.issue.number if contract.issue is not None else None
     pipeline_id = contract.contract_key
-    issue_branch = (
-        f"egg/issue-{issue_number}" if issue_number else f"egg/{pipeline_id}"
-    )
+    issue_branch = f"egg/issue-{issue_number}" if issue_number else f"egg/{pipeline_id}"
 
     for slice_ in contract.slices:
         parent = slice_.parent_branch_at_creation

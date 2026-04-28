@@ -51,6 +51,7 @@ class ForestValidationError(Exception):
         """Serialise into a Flask-compatible (body, status) tuple."""
         return ({"error": "forest_violation", "errors": self.errors}, 422)
 
+
 # Add shared directory to path for egg_logging
 _shared_path = Path(__file__).parent.parent.parent / "shared"
 if _shared_path.exists() and str(_shared_path) not in sys.path:
@@ -11109,9 +11110,7 @@ def _populate_contract_from_plan(
                 # pipeline run-loop) catch and log instead — the
                 # ``plan_review_feedback`` stash above is the durable
                 # signal the reviewer prompt picks up either way.
-                raise ForestValidationError(
-                    "slice DAG is not a forest", errors=forest_errors
-                )
+                raise ForestValidationError("slice DAG is not a forest", errors=forest_errors)
             contract.slices = contract_slices
             changed = True
 

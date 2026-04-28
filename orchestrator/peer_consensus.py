@@ -1794,9 +1794,7 @@ def create_peer_consensus_tracker(
     return tracker
 
 
-def remove_peer_consensus_tracker(
-    pipeline_id: str, slice_id: str | None = None
-) -> None:
+def remove_peer_consensus_tracker(pipeline_id: str, slice_id: str | None = None) -> None:
     """Remove a tracker for a pipeline (or per-slice scope)."""
     key = _tracker_key(pipeline_id, slice_id)
     with _trackers_lock:

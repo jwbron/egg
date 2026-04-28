@@ -1278,8 +1278,7 @@ class GatewayClient:
                 body_lines.append(f"{bullet_prefix}{desc}")
         body_lines.append("")
         body_lines.append(
-            f"Slice {slice_id} of pipeline {pipeline_id}. "
-            f"Stacked on top of `{base}`."
+            f"Slice {slice_id} of pipeline {pipeline_id}. Stacked on top of `{base}`."
         )
         body = "\n".join(body_lines)
 

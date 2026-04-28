@@ -254,11 +254,7 @@ class ConcurrentPhaseExecutor:
             # the issue-number / pipeline id.
             issue = self.pipeline.issue_number or self.pipeline.id
             issue_branch = self.pipeline.branch or f"egg/issue-{issue}"
-            normalised_slice = (
-                slice_id
-                if slice_id.startswith("slice-")
-                else f"slice-{slice_id}"
-            )
+            normalised_slice = slice_id if slice_id.startswith("slice-") else f"slice-{slice_id}"
             # Defense-in-depth: re-validate the normalised slice id
             # shape before embedding it in a git ref. The contract-
             # layer pydantic regex already enforces this on the
@@ -272,8 +268,7 @@ class ConcurrentPhaseExecutor:
 
             if not re.fullmatch(r"slice-[0-9]+", normalised_slice):
                 raise ValueError(
-                    f"slice_id={slice_id!r} does not match the canonical "
-                    "shape ``slice-<N>``"
+                    f"slice_id={slice_id!r} does not match the canonical shape ``slice-<N>``"
                 )
             return f"{issue_branch}/{normalised_slice}/{role.value}/work"
 
@@ -296,15 +291,12 @@ class ConcurrentPhaseExecutor:
         """
         issue = self.pipeline.issue_number or self.pipeline.id
         issue_branch = self.pipeline.branch or f"egg/issue-{issue}"
-        normalised_slice = (
-            slice_id if slice_id.startswith("slice-") else f"slice-{slice_id}"
-        )
+        normalised_slice = slice_id if slice_id.startswith("slice-") else f"slice-{slice_id}"
         import re
 
         if not re.fullmatch(r"slice-[0-9]+", normalised_slice):
             raise ValueError(
-                f"slice_id={slice_id!r} does not match the canonical "
-                "shape ``slice-<N>``"
+                f"slice_id={slice_id!r} does not match the canonical shape ``slice-<N>``"
             )
         return f"{issue_branch}/{normalised_slice}"
 

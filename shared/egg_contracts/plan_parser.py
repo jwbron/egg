@@ -147,9 +147,7 @@ class ParsedPhase:
                         # Try to extract slice/phase number — prefer
                         # explicit "slice N" / "phase N" patterns to
                         # avoid extracting unrelated numbers from prose.
-                        m = re.search(
-                            r"(?:slice|phase)\s*(\d+)", dep_str, re.IGNORECASE
-                        )
+                        m = re.search(r"(?:slice|phase)\s*(\d+)", dep_str, re.IGNORECASE)
                         if not m:
                             # Fall back to bare number only if the string is
                             # short (likely just "1" or "2", not prose).
@@ -557,14 +555,10 @@ def parse_phases_from_yaml(
         # upstream cluster into a chain. Validation that each entry
         # references a real sibling slice id happens at the parser
         # level (warning) and at ingestion (forest validation).
-        phase_serialized_chain_order_raw = phase_data.get(
-            "serialized_chain_order", []
-        )
+        phase_serialized_chain_order_raw = phase_data.get("serialized_chain_order", [])
         if isinstance(phase_serialized_chain_order_raw, str):
             phase_serialized_chain_order = [
-                e.strip()
-                for e in phase_serialized_chain_order_raw.split(",")
-                if e.strip()
+                e.strip() for e in phase_serialized_chain_order_raw.split(",") if e.strip()
             ]
         elif isinstance(phase_serialized_chain_order_raw, list):
             phase_serialized_chain_order = [
@@ -726,10 +720,7 @@ def parse_phases_from_yaml(
                             f"Slice {parsed.number} 'serialized_chain_order' "
                             f"references unknown sibling '{entry}'"
                         ),
-                        context=(
-                            "serialized_chain_order entries must name real "
-                            "sibling slice IDs"
-                        ),
+                        context=("serialized_chain_order entries must name real sibling slice IDs"),
                     )
                 )
 

@@ -260,23 +260,17 @@ def _coerce_positive_float(env_name: str, default: float) -> float:
 
 def get_max_parallel_slices() -> int:
     """Return the per-pipeline parallel-slice spawn cap (default 5)."""
-    return _coerce_positive_int(
-        "EGG_ORCH_MAX_PARALLEL_SLICES", DEFAULT_MAX_PARALLEL_SLICES
-    )
+    return _coerce_positive_int("EGG_ORCH_MAX_PARALLEL_SLICES", DEFAULT_MAX_PARALLEL_SLICES)
 
 
 def get_slice_local_max_cycles() -> int:
     """Return the per-slice BRC cycle ceiling (default 3)."""
-    return _coerce_positive_int(
-        "EGG_ORCH_SLICE_LOCAL_MAX_CYCLES", DEFAULT_SLICE_LOCAL_MAX_CYCLES
-    )
+    return _coerce_positive_int("EGG_ORCH_SLICE_LOCAL_MAX_CYCLES", DEFAULT_SLICE_LOCAL_MAX_CYCLES)
 
 
 def get_slice_global_max_cycles() -> int:
     """Return the pipeline-wide BRC cycle ceiling (default 10)."""
-    return _coerce_positive_int(
-        "EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES", DEFAULT_SLICE_GLOBAL_MAX_CYCLES
-    )
+    return _coerce_positive_int("EGG_ORCH_SLICE_GLOBAL_MAX_CYCLES", DEFAULT_SLICE_GLOBAL_MAX_CYCLES)
 
 
 def get_slice_failure_grace_seconds() -> float:

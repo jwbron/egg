@@ -161,13 +161,9 @@ class SliceScheduler:
         if local_max_cycles is None:
             local_max_cycles = int(_resolve_default("get_slice_local_max_cycles", 3))
         if global_max_cycles is None:
-            global_max_cycles = int(
-                _resolve_default("get_slice_global_max_cycles", 10)
-            )
+            global_max_cycles = int(_resolve_default("get_slice_global_max_cycles", 10))
         if failure_grace_seconds is None:
-            failure_grace_seconds = float(
-                _resolve_default("get_slice_failure_grace_seconds", 60.0)
-            )
+            failure_grace_seconds = float(_resolve_default("get_slice_failure_grace_seconds", 60.0))
 
         self._contract = contract
         self._max_parallel_slices = max(1, int(max_parallel_slices))
@@ -226,9 +222,7 @@ class SliceScheduler:
         for slice_ in self._contract.slices:
             deps = slice_.dependencies or []
             parent = deps[0] if deps else None
-            initial_state = (
-                SchedulerSliceState.READY if not deps else SchedulerSliceState.PENDING
-            )
+            initial_state = SchedulerSliceState.READY if not deps else SchedulerSliceState.PENDING
             self._runtimes[slice_.id] = SliceRuntime(
                 slice_id=slice_.id,
                 parent_slice_id=parent,
@@ -255,9 +249,7 @@ class SliceScheduler:
         # slices and slices we've just yielded in this iteration.
         with self._lock:
             in_flight = sum(
-                1
-                for rt in self._runtimes.values()
-                if rt.state == SchedulerSliceState.RUNNING
+                1 for rt in self._runtimes.values() if rt.state == SchedulerSliceState.RUNNING
             )
             available = self._max_parallel_slices - in_flight
             if available <= 0:
@@ -316,8 +308,7 @@ class SliceScheduler:
                     f"({runtime.local_cycles}/{self._local_max_cycles})"
                     if runtime.local_cycles >= self._local_max_cycles
                     else (
-                        f"pipeline hit global cap "
-                        f"({self._global_cycles}/{self._global_max_cycles})"
+                        f"pipeline hit global cap ({self._global_cycles}/{self._global_max_cycles})"
                     )
                 )
                 escalation_args = (slice_id, reason)
@@ -388,9 +379,7 @@ class SliceScheduler:
                         SchedulerSliceState.PENDING,
                         SchedulerSliceState.READY,
                     }:
-                        desc_runtime.state = (
-                            SchedulerSliceState.BLOCKED_ON_FAILED_DEPENDENCY
-                        )
+                        desc_runtime.state = SchedulerSliceState.BLOCKED_ON_FAILED_DEPENDENCY
                 events.append(
                     CascadeEvent(
                         failed_slice_id=slice_id,
