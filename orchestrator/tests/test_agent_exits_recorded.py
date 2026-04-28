@@ -141,6 +141,9 @@ class TestAgentExitsRecorded:
         assert info.last_lines == ["line one", "line two", "line three"]
         assert info.container_id == "coder-1"
         assert info.terminated_at is not None
+        # PR's value proposition is "survives container teardown" —
+        # so the in-memory mutation must reach the store.
+        assert mock_store.save_pipeline.called
 
     @patch("routes.pipelines.time.sleep")
     @patch("routes.pipelines.time.monotonic")
@@ -195,6 +198,7 @@ class TestAgentExitsRecorded:
         assert info.exit_code == 0
         # Clean exits don't fetch logs (no IO on healthy containers).
         assert info.last_lines == []
+        assert mock_store.save_pipeline.called
 
     @patch("routes.pipelines.time.sleep")
     @patch("routes.pipelines.time.monotonic")
@@ -255,11 +259,99 @@ class TestAgentExitsRecorded:
         )
 
         assert len(phase_exec.agent_exits) == 2
-        roles = {ae.role for ae in phase_exec.agent_exits}
-        assert roles == {AgentRole.CODER, AgentRole.TESTER}
-        coder = next(ae for ae in phase_exec.agent_exits if ae.role == AgentRole.CODER)
-        tester = next(ae for ae in phase_exec.agent_exits if ae.role == AgentRole.TESTER)
+        # The polling loop iterates `active_executions` in order and calls
+        # `_record_container_exit` synchronously, so the recorded order
+        # mirrors the spawn order — coder first, tester second.
+        assert [ae.role for ae in phase_exec.agent_exits] == [
+            AgentRole.CODER,
+            AgentRole.TESTER,
+        ]
+        coder, tester = phase_exec.agent_exits
         assert coder.exit_code == 1
         assert tester.exit_code == 0
         assert coder.last_lines == ["boom"]
         assert tester.last_lines == []
+        # Each recorded exit triggered a persistence call.
+        assert mock_store.save_pipeline.call_count >= 2
+
+    @patch("routes.pipelines.time.sleep")
+    @patch("routes.pipelines.time.monotonic")
+    @patch("routes.pipelines.get_pipeline_state_lock")
+    @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
+    @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
+    def test_none_exit_code_is_recorded_not_dropped(
+        self, MockExecutor, mock_prompt, mock_lock, mock_monotonic, mock_sleep
+    ):
+        """Pod-phase race: status FAILED but exit_code=None must still record.
+
+        ContainerInfo.exit_code is `int | None`, and the k8s path leaves it
+        None when `container_statuses[0].state.terminated` hasn't populated
+        yet. Reviewer flagged that an `int`-only AgentExitInfo would raise
+        ValidationError under the broad except, drop the agent_status
+        update, and leave the agent stuck as RUNNING. AgentExitInfo accepts
+        None; the agent must be marked FAILED and the snapshot persisted.
+        """
+        mock_monotonic.return_value = 0.0
+
+        executions = [_make_execution(AgentRole.CODER, "coder-1")]
+        container_infos = {
+            "coder-1": ContainerInfo(
+                container_id="coder-1",
+                container_name="issue-2205-coder",
+                status=ContainerStatus.FAILED,
+                exit_code=None,
+                exited_at=datetime.now(UTC),
+            ),
+        }
+
+        pipeline, mock_store, mock_spawner, mock_docker, phase_exec = _setup(
+            container_infos, executions
+        )
+        # Pre-populate the live agents/containers so we can assert the
+        # in-lock mutations that previously got rolled back on ValidationError.
+        phase_exec.containers.append(
+            ContainerInfo(
+                container_id="coder-1",
+                container_name="issue-2205-coder",
+                status=ContainerStatus.RUNNING,
+            )
+        )
+        phase_exec.agents.append(
+            AgentExecution(
+                role=AgentRole.CODER,
+                status=AgentExecutionStatus.RUNNING,
+                container_id="coder-1",
+                started_at=datetime.now(UTC),
+            )
+        )
+
+        mock_executor_instance = MagicMock()
+        mock_executor_instance.spawn_all.return_value = executions
+        mock_executor_instance.check_consensus.return_value = {
+            "is_complete": False,
+            "has_objections": False,
+            "blocking_agents": ["coder"],
+        }
+        MockExecutor.return_value = mock_executor_instance
+
+        mock_lock.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+
+        _run_concurrent_phase(
+            pipeline_id="issue-2205",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            **_CALL_ARGS,
+        )
+
+        assert len(phase_exec.agent_exits) == 1
+        info = phase_exec.agent_exits[0]
+        assert info.role == AgentRole.CODER
+        assert info.exit_code is None
+        # The pre-existing failure-marking code must reach persistence
+        # (the original bug: ValidationError swallowed by the broad except
+        # caused save_pipeline to never run).
+        assert phase_exec.agents[0].status == AgentExecutionStatus.FAILED
+        assert mock_store.save_pipeline.called

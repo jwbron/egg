@@ -371,6 +371,23 @@ class TestAgentExitInfo:
         assert restored.last_lines == ["a", "b", "c"]
         assert restored.container_id == "cid-9"
 
+    def test_exit_code_none_accepted(self):
+        """exit_code=None is valid (matches ContainerInfo.exit_code).
+
+        The k8s path leaves exit_code=None during pod-phase races where
+        status is FAILED but container_statuses[0].state.terminated hasn't
+        populated yet. AgentExitInfo must not reject this.
+        """
+        now = datetime.now(UTC)
+        info = AgentExitInfo(
+            role=AgentRole.CODER,
+            exit_code=None,
+            terminated_at=now,
+        )
+        assert info.exit_code is None
+        restored = AgentExitInfo(**info.model_dump())
+        assert restored.exit_code is None
+
 
 class TestPipelineConfig:
     """Tests for PipelineConfig model."""
