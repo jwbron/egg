@@ -680,6 +680,39 @@
       "resolved_by": "human",
       "resolved_at": "2026-04-28T17:06:09.351281Z",
       "debounce_until": null
+    },
+    {
+      "id": "decision-20",
+      "question": "Per reviewer_contract NACK on commit 3164df186, the run-loop integration of the new SliceScheduler / slice spawning / per-slice PR creation / reconciler scheduling is missing. These are TASK-4-2 (slice integration-branch creation), TASK-4-4 (per-slice agent-team spawn), TASK-5-1 invocation (call create_slice_pr after CONSENSUS_CONFIRMED), TASK-5-3 wire-up (register the periodic reconciler). The library code is shipped and unit-tested, but the orchestrator's existing implement-phase run loop still spawns one monolithic team. Wiring it up is a large change to pipelines.py state-machine code that touches phase transitions, BRC tracker creation, and container spawn \u2014 high-risk to land in a single PR. Should we (1) defer the run-loop wire-up to a follow-up issue (alongside #2199's MCP control verbs) and explicitly amend this contract to mark TASK-4-2/4-4/5-1-invocation/5-3-scheduling as scope-reduced, or (2) require the wire-up to land here before consensus?",
+      "type": "hitl",
+      "phase": "implement",
+      "options": [
+        {
+          "id": "opt-1",
+          "label": "Defer run-loop wire-up to follow-up issue. Mark TASK-4-2, TASK-4-4, TASK-5-1 invocation, and TASK-5-3 scheduling as deferred. Land the library modules + unit tests now; the operator can validate the building blocks in isolation. Follow-up issue tracks the integration.",
+          "description": null
+        },
+        {
+          "id": "opt-2",
+          "label": "Require the run-loop wire-up here. Coder must land TASK-4-2/4-4/5-1-invocation/5-3-scheduling before re-proposing. PR is larger but ships the end-to-end feature in one commit.",
+          "description": null
+        },
+        {
+          "id": "opt-3",
+          "label": "Hybrid: land the cheaper TASK-2-3 / TASK-2-4 / TASK-5-2 / TASK-1-3 cleanup / TASK-2-2 (HTTP 422) fixes here so the reviewer's other gaps close, but defer the run-loop wire-up (TASK-4-2/4-4/5-1-invocation/5-3-scheduling) to a follow-up since those require non-trivial state-machine surgery.",
+          "description": null
+        },
+        {
+          "id": "opt-4",
+          "label": "Other (explain in reply)",
+          "description": null
+        }
+      ],
+      "resolved": false,
+      "resolution": null,
+      "resolved_by": null,
+      "resolved_at": null,
+      "debounce_until": null
     }
   ],
   "workflow_owner": null,
@@ -1572,6 +1605,49 @@
         "debounce_until": null
       },
       "reason": "Created HITL decision: **Forest constraint enforcement point** \u2014 The issu...",
+      "checkpoint_id": null
+    },
+    {
+      "timestamp": "2026-04-28T18:20:07.838322Z",
+      "actor": "egg",
+      "role": "implementer",
+      "action": "update",
+      "field_path": "decisions.19",
+      "old_value": null,
+      "new_value": {
+        "id": "decision-20",
+        "question": "Per reviewer_contract NACK on commit 3164df186, the run-loop integration of the new SliceScheduler / slice spawning / per-slice PR creation / reconciler scheduling is missing. These are TASK-4-2 (slice integration-branch creation), TASK-4-4 (per-slice agent-team spawn), TASK-5-1 invocation (call create_slice_pr after CONSENSUS_CONFIRMED), TASK-5-3 wire-up (register the periodic reconciler). The library code is shipped and unit-tested, but the orchestrator's existing implement-phase run loop still spawns one monolithic team. Wiring it up is a large change to pipelines.py state-machine code that touches phase transitions, BRC tracker creation, and container spawn \u2014 high-risk to land in a single PR. Should we (1) defer the run-loop wire-up to a follow-up issue (alongside #2199's MCP control verbs) and explicitly amend this contract to mark TASK-4-2/4-4/5-1-invocation/5-3-scheduling as scope-reduced, or (2) require the wire-up to land here before consensus?",
+        "type": "hitl",
+        "phase": "implement",
+        "options": [
+          {
+            "id": "opt-1",
+            "label": "Defer run-loop wire-up to follow-up issue. Mark TASK-4-2, TASK-4-4, TASK-5-1 invocation, and TASK-5-3 scheduling as deferred. Land the library modules + unit tests now; the operator can validate the building blocks in isolation. Follow-up issue tracks the integration.",
+            "description": null
+          },
+          {
+            "id": "opt-2",
+            "label": "Require the run-loop wire-up here. Coder must land TASK-4-2/4-4/5-1-invocation/5-3-scheduling before re-proposing. PR is larger but ships the end-to-end feature in one commit.",
+            "description": null
+          },
+          {
+            "id": "opt-3",
+            "label": "Hybrid: land the cheaper TASK-2-3 / TASK-2-4 / TASK-5-2 / TASK-1-3 cleanup / TASK-2-2 (HTTP 422) fixes here so the reviewer's other gaps close, but defer the run-loop wire-up (TASK-4-2/4-4/5-1-invocation/5-3-scheduling) to a follow-up since those require non-trivial state-machine surgery.",
+            "description": null
+          },
+          {
+            "id": "opt-4",
+            "label": "Other (explain in reply)",
+            "description": null
+          }
+        ],
+        "resolved": false,
+        "resolution": null,
+        "resolved_by": null,
+        "resolved_at": null,
+        "debounce_until": null
+      },
+      "reason": "Created HITL decision: Per reviewer_contract NACK on commit 3164df186, th...",
       "checkpoint_id": null
     }
   ],
