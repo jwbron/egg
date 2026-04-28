@@ -169,3 +169,40 @@ def get_heartbeat_rate_limit() -> int:
     if val <= 0:
         return DEFAULT_HEARTBEAT_RATE_LIMIT_PER_MIN
     return val
+
+
+# -----------------------------------------------------------------
+# EGG_ORCH_STATE_STORE_PROBE_INTERVAL — cadence (in seconds) of the
+# background state-store self-heal probe (#2191). Lowering this
+# tightens the wedge-detection window at the cost of more frequent
+# ``git`` calls; raising it does the inverse. The staleness watchdog
+# in :mod:`state_store_probe` flips ``/api/v1/ready`` to 503 when the
+# cache age exceeds ``interval * 2``, so operators tuning this knob
+# also widen/narrow the readiness flap window proportionally. Note the
+# boot first-probe window also scales with this value: until the BG
+# thread completes one iteration, ``/api/v1/ready`` returns 503, so
+# raising the interval above ~30s can exceed the readinessProbe's
+# ``initialDelaySeconds (5) + periodSeconds (10) * failureThreshold (3)
+# = 35s`` boot tolerance.
+# -----------------------------------------------------------------
+
+DEFAULT_STATE_STORE_PROBE_INTERVAL_SECONDS = 15.0
+
+
+def get_state_store_probe_interval() -> float:
+    """Return the BG state-store probe cadence in seconds (default 15)."""
+    raw = os.environ.get("EGG_ORCH_STATE_STORE_PROBE_INTERVAL", "").strip()
+    if not raw:
+        return DEFAULT_STATE_STORE_PROBE_INTERVAL_SECONDS
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "EGG_ORCH_STATE_STORE_PROBE_INTERVAL=%r is not a number; falling back to %.1fs",
+            raw,
+            DEFAULT_STATE_STORE_PROBE_INTERVAL_SECONDS,
+        )
+        return DEFAULT_STATE_STORE_PROBE_INTERVAL_SECONDS
+    if val <= 0:
+        return DEFAULT_STATE_STORE_PROBE_INTERVAL_SECONDS
+    return val

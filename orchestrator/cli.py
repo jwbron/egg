@@ -277,6 +277,31 @@ def cmd_serve(args: argparse.Namespace) -> int:
                 error=str(hc_init_err),
             )
 
+    # Start the background state-store probe regardless of EGG_REPO_PATH —
+    # when unset, the probe records ``healthy=True, "probe-skipped"``
+    # each tick so /api/v1/ready returns 200 instead of staying stuck at
+    # 503. Decouples curative self-heal from kubelet probe traffic
+    # (#2191). Drives ``routes.health._health_tracker`` via callback so
+    # ``healthy_since`` / ``recent_transitions`` reflect every wedge
+    # cycle observed by the BG thread, not just events that happen
+    # between sporadic /api/v1/health hits. No synchronous priming —
+    # ``probe_state_store_at`` calls ``git`` without a per-call timeout,
+    # so a wedged repo at boot would block ``serve()`` from listening
+    # and CrashLoopBackOff the pod. The startupProbe is wired to /live,
+    # which doesn't read the cache, so the un-primed window is harmless.
+    try:
+        from routes.health import _health_tracker
+        from state_store_probe import get_state_store_probe
+
+        probe = get_state_store_probe()
+        probe.set_on_observation(_health_tracker.record)
+        probe.start()
+    except Exception as probe_err:
+        logger.warning(
+            "State-store probe startup failed",
+            error=str(probe_err),
+        )
+
     if debug:
         # Use Flask's built-in server for development
         app.run(host=host, port=port, debug=True)

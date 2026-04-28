@@ -1,9 +1,17 @@
 """
 Health and pipeline health check endpoints for egg-orchestrator.
 
-Includes standard service health/readiness/liveness probes and an
-on-demand pipeline health check endpoint that runs the full two-tier
-health check framework (see ``health_checks/`` package).
+Three probe-friendly endpoints (``/api/v1/live``, ``/api/v1/ready``,
+``/api/v1/health``) plus an on-demand pipeline health check endpoint
+that runs the full two-tier health check framework (see
+``health_checks/`` package).
+
+Probe-path contract (locked by ``test_health_routes.py``): ``/live``,
+``/ready`` and ``/health`` MUST NOT invoke ``MessageStore``,
+``state_store.get_state_store``, ``subprocess.*`` or any other I/O on
+the request path. The state-store self-heal that ``/api/v1/health``
+used to drive synchronously now runs in a background thread (see
+:mod:`state_store_probe`); these endpoints serve cached values only.
 """
 
 import os
@@ -22,106 +30,90 @@ if _shared_path.exists() and str(_shared_path) not in sys.path:
     sys.path.insert(0, str(_shared_path))
 
 from egg_health import HealthTracker
+from state_store_probe import get_state_store_probe, probe_state_store_at
 
 health_bp = Blueprint("health", __name__, url_prefix="/api/v1")
 
-# Module-level health tracker — updated every time /api/v1/health is
-# evaluated. Exposes readiness history so operators can tell "healthy
-# since boot" from "just came up" (see issue #1855).
+# Module-level health tracker — updated every time a cached health
+# observation is read. Exposes readiness history so operators can tell
+# "healthy since boot" from "just came up" (see issue #1855).
 _health_tracker = HealthTracker()
 
 
 def _probe_state_store() -> tuple[bool, str]:
-    """Probe whether the state-store worktree is loadable.
+    """Request-context-aware shim around :func:`probe_state_store_at`.
 
-    Walks the configured ``EGG_REPO_PATH`` (or each child repo in
-    multi-repo mode) and accesses ``store.worktree`` on each.  Reports
-    degraded if any probe raises — typically ``GitOperationError`` from
-    ``git worktree add`` contention or a stale ``prunable`` admin dir
-    (#2167).  Returns the actual error message so the operator sees it
-    in the health payload instead of having to grep orchestrator logs.
-
-    Probe is cheap when healthy: ``_ensure_worktree`` short-circuits
-    on a valid worktree via ``git rev-parse --is-inside-work-tree``.
-
-    NOTE: This is not a side-effect-free GET.  ``store.worktree``
-    triggers ``_add_worktree_with_branch_recovery`` on a wedged repo,
-    which may ``shutil.rmtree`` a stale admin dir and retry the
-    ``git worktree add``.  Frequent pollers of ``/api/v1/health``
-    (Prometheus, operator dashboards, ``deployment.py``) will therefore
-    drive recovery attempts during a wedge — the desired behavior, but
-    operators should be aware the probe is curative, not just observational.
+    Retained at this import path so callers/tests that patch
+    ``routes.health._probe_state_store`` continue to work. The
+    kubelet-probe path no longer calls this directly — the BG thread in
+    :mod:`state_store_probe` does — but several wedge-propagation tests
+    (``test_state_store_wedge_propagation.py``) exercise it as a unit.
     """
     from routes import get_repo_path
-    from state_store import discover_repo_paths, get_state_store
 
     try:
         base_path = get_repo_path()
     except Exception as exc:
-        # Request context missing or repo lookup failed — don't flap
-        # the health check on configuration issues unrelated to the
-        # state-store wedge we're trying to detect.
         return True, f"probe-skipped: {exc}"
-
-    if (base_path / ".git").exists():
-        repos = [base_path]
-    else:
-        repos = list(discover_repo_paths(base_path))
-        if not repos:
-            return True, "probe-skipped: no git repos under base_path"
-
-    for repo_path in repos:
-        try:
-            store = get_state_store(repo_path)
-            _ = store.worktree
-        except Exception as exc:
-            return False, f"{type(exc).__name__}: {exc}"
-
-    return True, "ok"
+    return probe_state_store_at(base_path)
 
 
 @health_bp.route("/health", methods=["GET"])
 def health_check() -> tuple[Response, int]:
     """
-    Health check endpoint.
+    Health check endpoint — operator/dashboard fast path.
 
-    Returns basic service status and component health.  The state-store
-    component is probed live: if ``_ensure_worktree`` fails (e.g. the
-    ``egg/pipeline-state`` branch is pinned by a prunable worktree —
-    #2167), the top-level ``status`` flips to ``degraded`` and the
-    failing error message is reported in ``components.state_store``.
+    Reads the cached state-store status populated by the background
+    probe (see :mod:`state_store_probe`). Always 200; the body's
+    ``status`` field is ``"healthy"`` or ``"degraded"`` so JSON consumers
+    (``mcp__egg__check_health``, dashboards) can branch on it without
+    interpreting HTTP codes.
 
-    The HTTP status stays 200 regardless so kubernetes liveness/readiness
-    probes (``/live``, ``/ready``) are unaffected.  Clients reading the
-    health JSON should branch on the ``status`` field, not the HTTP code.
+    Note: for kubelet liveness/readiness, point probes at ``/live`` and
+    ``/ready`` instead. Those endpoints serve the same cache but with
+    HTTP-code semantics (200 vs 503) suited to probe consumers.
 
-    Response:
+    Response::
+
         {
             "status": "healthy" | "degraded",
             "service": "egg-orchestrator",
-            "timestamp": "2024-01-15T12:00:00Z",
-            "components": {
-                "state_store": "ok" | "<error message>",
-                "docker": "unknown"
-            }
+            "timestamp": "...",
+            "components": {"state_store": "ok" | "<error>", "docker": "unknown"},
+            "process_start_time": "...",
+            "healthy_since": "...",
+            "last_unhealthy_at": "...",
+            "recent_transitions": [...],
+            "probe": {"fresh": bool, "age_seconds": float | null}
         }
     """
-    state_store_healthy, state_store_status = _probe_state_store()
-    _health_tracker.record(state_store_healthy)
+    snap = get_state_store_probe().snapshot()
+    healthy = bool(snap["healthy"])
+    # Dual-write to _health_tracker: the BG probe's on_observation
+    # callback records the raw probe result at probe-interval cadence;
+    # this request-path record() captures the staleness-corrected value
+    # (so a wedged BG thread surfaces as an unhealthy transition the BG
+    # itself cannot observe). HealthTracker.record is thread-safe and
+    # idempotent on no-state-change, so the overlap is harmless.
+    _health_tracker.record(healthy)
     tracker_snapshot = _health_tracker.snapshot()
 
     response = {
-        "status": "healthy" if state_store_healthy else "degraded",
+        "status": "healthy" if healthy else "degraded",
         "service": "egg-orchestrator",
         "timestamp": datetime.now(UTC).isoformat(),
         "components": {
-            "state_store": state_store_status,
-            "docker": "unknown",  # Will be updated when docker client is available
+            "state_store": snap["message"],
+            "docker": "unknown",
         },
         "process_start_time": tracker_snapshot["process_start_time"],
         "healthy_since": tracker_snapshot["healthy_since"],
         "last_unhealthy_at": tracker_snapshot["last_unhealthy_at"],
         "recent_transitions": tracker_snapshot["recent_transitions"],
+        "probe": {
+            "fresh": snap["fresh"],
+            "age_seconds": snap["age_seconds"],
+        },
     }
 
     return jsonify(response), 200
@@ -130,27 +122,40 @@ def health_check() -> tuple[Response, int]:
 @health_bp.route("/ready", methods=["GET"])
 def readiness_check() -> tuple[Response, int]:
     """
-    Readiness check endpoint.
+    Readiness check — kubelet ``readinessProbe`` target.
 
-    Indicates if the service is ready to accept requests.
-    Used by container orchestrators for traffic routing.
+    Returns 200 when the cached state-store probe is fresh and healthy,
+    503 otherwise. No I/O on the request path: this is a dict read.
 
-    Response:
-        {"ready": true}
+    Response (200)::
+
+        {"ready": true, "state_store": "ok", "age_seconds": 4.2}
+
+    Response (503)::
+
+        {"ready": false, "state_store": "<error or 'starting'>",
+         "fresh": false, "age_seconds": null}
     """
-    return jsonify({"ready": True}), 200
+    snap = get_state_store_probe().snapshot()
+    ready = bool(snap["healthy"]) and bool(snap["fresh"])
+    body = {
+        "ready": ready,
+        "state_store": snap["message"],
+        "fresh": snap["fresh"],
+        "age_seconds": snap["age_seconds"],
+    }
+    return jsonify(body), (200 if ready else 503)
 
 
 @health_bp.route("/live", methods=["GET"])
 def liveness_check() -> tuple[Response, int]:
     """
-    Liveness check endpoint.
+    Liveness check — kubelet ``livenessProbe`` target.
 
-    Indicates if the service is alive and should not be restarted.
-    Used by container orchestrators for health monitoring.
-
-    Response:
-        {"alive": true}
+    Pure JSON return: confirms the process is up and the WSGI listener
+    can serve requests. Does not consult the state-store cache — a
+    state-store wedge takes the pod out of *traffic rotation* via
+    ``/ready``, but does not justify a pod *restart* via ``/live``.
     """
     return jsonify({"alive": True}), 200
 
