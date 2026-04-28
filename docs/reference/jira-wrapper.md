@@ -192,6 +192,7 @@ The write verbs do **not** extend the `/execute` passthrough — its regex allow
 - `labels` is optional; ≤ 30 entries, each ≤ 50 chars.
 - `parent` and `epicLink` are mutually exclusive — passing both returns 400 with audit reason `parent_and_epic_link`. Pass `parent` for next-gen / company-managed projects; pass `epicLink` for the operator-configured shorthand (see [Epic-link dispatch](#jiralink_types-and-jiraepic_link_field-config-knobs)).
 - `parent.key` must belong to the same project as `projectKey` — the gateway rejects cross-project parents with 400 and audit reason `cross_project_parent` (decision-17). Atlassian also rejects this server-side, but the gateway returns the error before the upstream call to keep the audit log honest.
+- `epicLink.key` is held to the **same** allowlist + cross-project rules as `parent` (decision-9 + decision-17 symmetry). When `jira.epic_link_field == "parent"` the `epicLink` shorthand is a literal alias for `parent` at the Atlassian wire level, so allowing `epicLink` to target a non-allowlisted or cross-project epic would let an agent slip past the parent-side gate. The gateway runs `is_project_allowed` on `epicLink`'s extracted project and 400-rejects with audit reason `cross_project_parent` if it differs from `projectKey`.
 - **Custom fields are not exposed in v1** — any `customFields` map (or `customfield_NNNN` keys at the body root) returns 400; the gateway uses a write-keys allowlist (`_validate_jira_write_keys`) so unknown keys are caught up front. The shorthand surface is `summary` / `description` / `labels` / `parent` / `epicLink` only.
 - `idempotencyKey` is optional but **strongly recommended** for transient-5xx retry safety. See [Idempotency keys](#idempotency-keys).
 
@@ -318,7 +319,7 @@ Atlassian's create / comment / link endpoints are **not** naturally idempotent �
 | Verb | `verb` tag | `project` slot | Notes |
 |------|-----------|----------------|-------|
 | `ticket/create` | `"jira_ticket_create"` | `projectKey` (e.g. `"ENG"`) | First call computes the envelope; subsequent hits within TTL replay it. |
-| `ticket/comment/add` | `"jira_comment_add"` | extracted ticket project (e.g. `"ENG"`) | Keyed by the ticket's project so the same opaque key against two tickets in different projects stores two entries. |
+| `ticket/comment/add` | `"jira_comment_add"` | full ticket key (e.g. `"ENG-1234"`) | Keyed per ticket so the same opaque key against two different tickets stores two entries. (v1 keyed by project, but that allowed silent cross-ticket replay between two tickets in the same project; v2 keys per ticket.) |
 | `issue-link/create` | `"jira_issue_link_create"` | synthetic tag `"<inward>__<outward>__<type>"` (e.g. `"ENG-1200__ENG-1234__Blocks"`) | Atlassian does not dedupe identical `(inward, outward, type)` triples (Open Q28). The synthetic tag namespaces the opaque key so the same key against a different triple stores a distinct entry — preventing aliasing while still de-duping retries on the same triple (decision-28 + the test's `link_cache_aliasing` case). |
 | `ticket/edit` | n/a | not cached | Edits are naturally idempotent at Atlassian — same body re-applied is a no-op. The cache adds no safety here and would mask intentional sequential edits. |
 
@@ -328,7 +329,7 @@ Atlassian's create / comment / link endpoints are **not** naturally idempotent �
 - Keep keys narrow — same key against two distinct intents (e.g. two different summaries) is a caller bug; the cache cannot prevent it for `/ticket/create` and `/ticket/comment/add` because the body is not part of the cache key.
 - Treat `idempotencyKey` as advisory: when omitted, the cache is bypassed and the gateway forwards the call directly. Missing key never raises a 400.
 
-**Hit semantics:** on cache hit `JiraClient` returns the **stored** `(status_code, response_json)` tuple without re-issuing the upstream call. The cache entries are stored at the `JiraClient` layer (per `gateway/jira_idempotency.py`'s `(monotonic_seconds, status_code, response_json)` tuple), so a route that received a cache hit emits its normal success audit (`*_ok`) — operators distinguish hits from misses externally, e.g. by absence of a corresponding upstream Atlassian log entry.
+**Hit semantics:** on cache hit `JiraClient` returns the stored `(status_code, response_json, cache_hit=True)` tuple (`get_or_run` threads a `cache_hit` flag through alongside the cached response per `gateway/jira_idempotency.py`'s internal `(monotonic_seconds, status_code, response_json)` storage). Each route handler emits its `{operation}_ok` success audit with `idempotency_hit: true` and `idempotency_key_present: true` so operators can tell hits from misses by inspecting the audit log directly. On a cache miss with `idempotency_key_present: true`, the cache entry is created and a fresh upstream call runs. When the caller omits `idempotencyKey`, both `idempotency_key_present` and `idempotency_hit` are `false` (the latter is always false when no key was supplied; `ticket/edit` always emits `idempotency_hit: false` for grammar parity since it never consults the cache).
 
 ### `jira.link_types` and `jira.epic_link_field` config knobs
 
@@ -383,18 +384,21 @@ Audit entries for write verbs preserve the same envelope as the read verbs (`ses
 
 | Field | Logged? | Notes |
 |-------|---------|-------|
-| `verb` (`create` / `edit` / `comment_add` / `link_create`) | ✅ | Always present. |
-| `project` (or `inward_project` / `outward_project` for links) | ✅ | Drives the allowlist decision. |
-| `ticket` (for `edit` / `comment_add`) | ✅ | Same as the read-verb shape. |
-| `issuetype`, `parent_present`, `epic_link_present`, `notify_users` | ✅ | Boolean / enumerated metadata. |
-| `summary_length`, `description_length`, `comment_length` | ✅ | Lengths only — never values. |
-| `labels` values | ✅ | Operator-controlled enumerated strings, low-PII (Q20). |
+| `operation` (`jira_ticket_create` / `jira_ticket_edit` / `jira_comment_add` / `jira_issue_link_create`) + `success=True` for hits, `_rejected` / `_denied` / `_upstream_error` for failures | ✅ | Each route emits a single audit entry with operation tag + `_ok` suffix on success. |
+| `project` (and audit reason that names the offending side for cross-project rejections) | ✅ | Drives the allowlist decision. Set on every route. |
+| `ticket` (for `edit` / `comment_add`; `new_key` recorded in `create`'s success audit) | ✅ | The ticket key being mutated. |
+| `fields_present` (list of body keys actually set, e.g. `["summary","description","labels","parent"]`) | ✅ | Tells operators **which** body keys were used without leaking values. Surfaced by `_jira_write_audit_meta`. |
+| `summary_length`, `description_length`, `body_length` (-1 marks an ADF passthrough; `description_kind` / `body_kind = "adf"` accompanies it) | ✅ | Lengths only — never values. |
+| `labels` / `add_labels` / `remove_labels` values | ✅ | Operator-controlled enumerated strings, low-PII (Q20). |
 | `link_type` name | ✅ | Operator-controlled allowlist; needed for audit. |
+| `issuetype_name`, `issuetype_id` (create only) | ✅ | Whichever shape the caller passed. |
+| `notify_users` (edit only) | ✅ | Boolean — set on the success audit of `ticket/edit`. |
+| `idempotency_key_present` (bool), `idempotency_hit` (bool), `upstream_status` (int) | ✅ | Cache + transport metadata; lets operators distinguish hits from misses. |
 | `summary` text, `description` text, `comment` body, ADF tree | ❌ | **Never logged verbatim or in any form.** The gateway only retains the size and structural fingerprints. |
-| `customFields` keys | ❌ | Body is rejected before audit; nothing to log. |
-| `idempotencyKey` raw value | ❌ | The idempotency key is **never** logged in audit entries (omission, not redaction) — callers may safely embed user identifiers in the key without PII leakage. |
+| `customFields` keys | ❌ | Body is rejected by the write-keys allowlist before audit; nothing to log. |
+| `idempotencyKey` raw value | ❌ | The idempotency key is **never** logged in audit entries (only the boolean `idempotency_key_present`) — callers may safely embed user identifiers in the key without PII leakage. |
 
-Each route emits structured audit entries keyed by the `operation` tag (`jira_ticket_create` / `jira_ticket_edit` / `jira_comment_add` / `jira_issue_link_create`). Body-shape rejections emit `{operation}_rejected`; policy-allowlist rejections emit `{operation}_denied`. Both carry a machine-readable `reason` field (e.g., `cross_project_parent`, `parent_and_epic_link`, `not_allowlisted`) inside the `details` dict. Successful calls emit a single audit entry tagged with the `operation` and `success=True`. Upstream 4xx/5xx surface as `{operation}_upstream_error`; 429 emits `jira_upstream_rate_limited` for **all** verbs, write or read (Q12 — the audit emit was lifted out of the GET-only retry loop in `_request` into `_emit_rate_limited_audit()` so write 429s record too).
+Each route emits structured audit entries keyed by the `operation` tag. Successful calls emit `{operation}_ok` (e.g., `jira_ticket_create_ok`) with `success=True`. Body-shape rejections emit `{operation}_rejected`; policy-allowlist rejections emit `{operation}_denied`. Both rejection variants carry a machine-readable `reason` field (e.g., `cross_project_parent`, `parent_and_epic_link`, `not_allowlisted`) inside the `details` dict. Upstream 4xx/5xx surface as `{operation}_upstream_error`; 429 emits `jira_upstream_rate_limited` for **all** verbs, write or read (Q12 — the audit emit was lifted out of the GET-only retry loop in `_request` into `_emit_rate_limited_audit()` so write 429s record too).
 
 ### Sandbox wrapper subcommands
 
