@@ -390,7 +390,16 @@ while true; do
         --for CONSENSUS_RE_REVIEW --for OVERSEER_ALERT \
         --timeout 60 \
         ${cursor:+--since "$cursor"})
-    cursor=$(echo "$out" | jq -r '.data.cursor // empty')
+    rc=$?
+    # rc: 0 match, 1 timeout, 2 transient (retry-safe), 3 permanent (escalate).
+    # Production callers should branch on $rc per §3 — the simplified body below
+    # treats only rc≤1 as cursor-bearing and bails on permanent errors so a 4xx
+    # doesn't silently reset the cursor and reopen the race.
+    case $rc in
+        0|1) cursor=$(echo "$out" | jq -r '.data.cursor // empty') ;;
+        2)   sleep 2; continue ;;
+        *)   echo "wait failed rc=$rc" >&2; exit "$rc" ;;
+    esac
     # process matched messages from $out (.data.messages) …
 done
 ```
