@@ -70,6 +70,7 @@ Agent role can be omitted when `EGG_AGENT_ROLE` is set.
 | `EGG_ISSUE_NUMBER` | Current issue number |
 | `EGG_BRANCH` | Target branch for the agent's worktree (auto-set; defaults to `egg/{pipeline_id}/work`) |
 | `EGG_REPO_PATH` | Repository path (auto-set; points to specific repo when one exists, otherwise `~/repos/`) |
+| `EGG_AUTHORSHIP_REPO` | Override which repo the commit-authorship store uses in multi-repo deployments. Accepts an absolute path or a repo directory name relative to `EGG_REPO_PATH`. When unset, the store prefers a repo named `egg`; falls back to the first repo alphabetically. |
 | `GATEWAY_URL` | Gateway URL (default: `http://egg-gateway:9848`) |
 | `EGG_CONCURRENT_MODE` | `true` when running in concurrent execution mode |
 | `EGG_MESSAGE_POLL_INTERVAL` | Suggested message polling interval in seconds (default: 30) |
