@@ -190,10 +190,12 @@ The write verbs do **not** extend the `/execute` passthrough — its regex allow
 - `summary` is required; ≤ 255 chars (Atlassian's hard limit).
 - `description` may be a plain text string or a pre-built [ADF](https://developer.atlassian.com/cloud/jira/platform/apis/document/structure/) dict. Plain text is wrapped via `gateway/jira_adf.py`'s `wrap_text_as_adf`; ADF dicts pass through unchanged. ≤ 32 KiB (32 768 chars) regardless of shape.
 - `labels` is optional; ≤ 30 entries, each ≤ 50 chars.
-- `parent` and `epicLink` are mutually exclusive — passing both returns 400 `conflicting_fields`. Pass `parent` for next-gen / company-managed projects; pass `epicLink` for the operator-configured shorthand (see [Epic-link dispatch](#jiralink_types-and-jiraepic_link_field-config-knobs)).
-- `parent.key` must belong to the same project as `projectKey` — the gateway rejects cross-project parents 400 `cross_project_parent` (decision-17). Atlassian also rejects this server-side, but the gateway returns the error before the upstream call to keep the audit log honest.
-- **Custom fields are not exposed in v1** — any `customFields` map (or `customfield_NNNN` keys) returns 400 `custom_fields_disabled`. The shorthand surface is `summary` / `description` / `labels` / `parent` / `epicLink` only.
+- `parent` and `epicLink` are mutually exclusive — passing both returns 400 with audit reason `parent_and_epic_link`. Pass `parent` for next-gen / company-managed projects; pass `epicLink` for the operator-configured shorthand (see [Epic-link dispatch](#jiralink_types-and-jiraepic_link_field-config-knobs)).
+- `parent.key` must belong to the same project as `projectKey` — the gateway rejects cross-project parents with 400 and audit reason `cross_project_parent` (decision-17). Atlassian also rejects this server-side, but the gateway returns the error before the upstream call to keep the audit log honest.
+- **Custom fields are not exposed in v1** — any `customFields` map (or `customfield_NNNN` keys at the body root) returns 400; the gateway uses a write-keys allowlist (`_validate_jira_write_keys`) so unknown keys are caught up front. The shorthand surface is `summary` / `description` / `labels` / `parent` / `epicLink` only.
 - `idempotencyKey` is optional but **strongly recommended** for transient-5xx retry safety. See [Idempotency keys](#idempotency-keys).
+
+> **Field-name asymmetry:** `/ticket/create` uses `projectKey` (no existing ticket yet) while `/ticket/edit` and `/ticket/comment/add` use `ticket` (the project key is extracted from the existing ticket). The wire shape mirrors Atlassian's own create-vs-edit asymmetry; agents that compose write payloads need to remember which slot to fill on each verb.
 
 **Response:** normalized envelope (decision-13).
 ```json
@@ -223,10 +225,10 @@ On idempotency-cache hit the same envelope is replayed verbatim with no upstream
 
 **Validation:**
 - `ticket` must match `^[A-Z][A-Z0-9_]*-\d+$`; `extract_project_key` must be in `jira.projects`.
-- All non-ticket fields are optional. The body must contain **at least one** mutating field, otherwise 400 `empty_edit`.
+- All non-ticket fields are optional. The body must contain **at least one** mutating field (`summary` / `description` / `labels` / `addLabels` / `removeLabels`); otherwise 400 (`edit requires at least one of summary/description/labels/addLabels/removeLabels`).
 - Size caps are identical to `/ticket/create`: `summary` ≤ 255, `description` ≤ 32 KiB, labels ≤ 30 × 50 chars.
-- **Labels modes are mutually exclusive:** either `labels` (replace mode — overwrites the existing label set) or `addLabels` / `removeLabels` (incremental mode — applies set deltas). Mixing returns 400 `mixed_labels_mode`. The replace+incremental separation is enforced both at the gateway and at `JiraClient.edit_issue` (which raises `ValueError` if both arrive).
-- `customFields` and any raw `customfield_NNNN` keys remain 400 `custom_fields_disabled`.
+- **Labels modes are mutually exclusive:** either `labels` (replace mode — overwrites the existing label set) or `addLabels` / `removeLabels` (incremental mode — applies set deltas). Mixing returns 400. The replace+incremental separation is enforced both at the gateway and at `JiraClient.edit_issue` (which raises `ValueError` if both arrive).
+- `customFields` and any raw `customfield_NNNN` keys remain rejected by the write-keys allowlist (400).
 - `notifyUsers` defaults to `false` (decision-5 — quiet update; opt-in to notify). When `false`, the gateway sends `notifyUsers=false` as a query string. Pass `true` explicitly to fall back to Atlassian's email-everyone default.
 
 **Response:**
@@ -252,7 +254,7 @@ The gateway does **not** issue an extra `?returnIssue=true` round-trip (decision
 **Validation:**
 - `ticket` shape + project-allowlist check identical to `/ticket/edit`.
 - `body` is required; same dual-shape contract as `/ticket/create`'s `description` (plain text → ADF wrap; ADF dict → passthrough). ≤ 32 KiB.
-- **`visibility` field is rejected** in v1 (decision-6). Any `visibility` (or `restrictions`) key in the body returns 400 `visibility_disabled`.
+- **`visibility` field is rejected** in v1 (decision-6). The body's write-keys allowlist excludes `visibility` (and `restrictions`); passing either returns 400.
 - `idempotencyKey` is optional. See [Idempotency keys](#idempotency-keys).
 
 **Response:** the Atlassian comment object verbatim (no envelope wrap — comments already carry `id`, `author`, `created`, `updated`, `body`).
@@ -271,10 +273,10 @@ The gateway does **not** issue an extra `?returnIssue=true` round-trip (decision
 ```
 
 **Validation:**
-- `type` must be in the operator-configured `jira.link_types` allowlist (default `["Blocks", "Relates"]`). The lookup is **case-sensitive** — `"blocks"` does not match `"Blocks"`. Mismatch → 400 `link_type_not_allowed`.
-- **Strict project allowlist** (decision-9): both `inwardIssue` and `outwardIssue` projects must be in `jira.projects`. If either fails, 403 `jira_issue_link_create_denied`, reason names which side failed.
+- `type` must be in the operator-configured `jira.link_types` allowlist (default `["Blocks", "Relates"]`). The lookup is **case-sensitive** — `"blocks"` does not match `"Blocks"`. Mismatch → 400.
+- **Strict project allowlist** (decision-9): both `inwardIssue` and `outwardIssue` projects must be in `jira.projects`. If either fails, 403 with audit reason naming the offending side.
 - `comment` is optional and travels in the same Atlassian payload (decision-23 — single round-trip, no separate `/comment/add` call). Plain text gets ADF-wrapped; ≤ 32 KiB.
-- `idempotencyKey` is optional. The cache key includes the canonical `(inward, outward, type)` triple **plus** the opaque key, so passing the same opaque key against a different triple does not return a stale link — see [Idempotency keys](#idempotency-keys).
+- `idempotencyKey` is optional. The cache key namespaces the opaque key under a synthetic `"<inward>__<outward>__<type>"` tag, so passing the same opaque key against a different triple does not return a stale link — see [Idempotency keys](#idempotency-keys).
 
 **Response:** normalized envelope.
 ```json
@@ -290,7 +292,7 @@ The gateway does **not** issue an extra `?returnIssue=true` round-trip (decision
 
 [Atlassian Document Format](https://developer.atlassian.com/cloud/jira/platform/apis/document/structure/) (ADF) is Atlassian's structured JSON tree for rich-text fields. Atlassian's REST API requires ADF for `description`, comment `body`, and the inline `comment` on issue links. The gateway accepts **both** plain text and pre-built ADF (decision-7) so agents do not have to learn ADF for the common case:
 
-- **Plain text** (`"body": "regression confirmed"`) → wrapped via `gateway/jira_adf.py`'s `wrap_text_as_adf` into the minimal one-paragraph doc shape:
+- **Plain text** (`"body": "regression confirmed"`) → wrapped via `gateway/jira_adf.py`'s `wrap_text_as_adf` into the minimal doc shape, splitting on `\n` so each line becomes its own paragraph node (matches how Atlassian renders pasted plain text in the web UI):
   ```json
   {
     "type": "doc",
@@ -300,8 +302,8 @@ The gateway does **not** issue an extra `?returnIssue=true` round-trip (decision
     ]
   }
   ```
-  Empty strings produce a doc with an empty paragraph; multi-line strings produce one paragraph with embedded newlines (no soft-break splitting — agents who need rich layout pass ADF directly).
-- **Pre-built ADF dict** (any `dict` matching `is_adf_dict` — `type == "doc"`, `version == 1`, `content` is a list) → passes through verbatim. The gateway does not re-validate the tree structure beyond the doc-shape sniff.
+  Empty strings produce a doc with one empty paragraph (still a valid ADF doc). Multi-line strings produce **one paragraph per line**: `"a\nb"` becomes two paragraphs. Empty lines (consecutive newlines) emit empty-paragraph nodes so blank lines round-trip through Atlassian's renderer. Agents needing finer layout (lists, headings, marks) pass ADF directly.
+- **Pre-built ADF dict** (any `dict` matching `is_adf_dict` — `type == "doc"`, `version == 1`, `content` is a list) → passes through verbatim. The gateway does not re-validate the tree structure beyond the doc-shape sniff. Body content is not sanitised — size caps in the route layer are the only post-shape check.
 
 This dual-shape contract is uniform across `/ticket/create.description`, `/ticket/edit.description`, `/ticket/comment/add.body`, and `/issue-link/create.comment`.
 
@@ -309,16 +311,16 @@ This dual-shape contract is uniform across `/ticket/create.description`, `/ticke
 
 Atlassian's create / comment / link endpoints are **not** naturally idempotent — a transient 5xx followed by a client retry produces a duplicate ticket / comment / link. To make agent retry safe without involving the orchestrator, the gateway exposes a caller-supplied `idempotencyKey` (decision-3, decision-28) backed by an in-process cache (`gateway/jira_idempotency.py`).
 
-**Cache scope** (decision-16): per-gateway-process Python dict, 5-minute TTL (`IDEMPOTENCY_TTL_SECONDS = 300`), threading-lock guarded, lazy eviction at lookup time. Not persisted across gateway restarts and not shared between gateway replicas — both are deliberate (decision-16) because the realistic transient-5xx retry window is seconds-to-minutes; cross-process / cross-replica idempotency belongs to the orchestrator.
+**Cache scope** (decision-16): per-gateway-process Python dict, 5-minute TTL (`IDEMPOTENCY_TTL_SECONDS = 300`), threading-lock guarded, lazy eviction at lookup time. Not persisted across gateway restarts and not shared between gateway replicas — both are deliberate (decision-16) because the realistic transient-5xx retry window is seconds-to-minutes; cross-process / cross-replica idempotency belongs to the orchestrator. The `fn` callable that performs the actual upstream call runs **outside** the lock, so two concurrent callers with the same key may both miss the cache and both invoke the upstream call; whichever writes its result last wins (still a valid response for the logical operation).
 
-**Cache key shape:**
+**Cache key shape** — internally the cache is keyed on a `(verb, project, key)` triple where `verb` is the operation tag and `project` carries verb-specific scoping:
 
-| Verb | Cache key | Notes |
-|------|-----------|-------|
-| `ticket/create` | `("create", projectKey, idempotencyKey)` | First call computes the envelope; subsequent hits within TTL replay it. |
-| `ticket/comment/add` | `("comment", ticket, idempotencyKey)` | Keyed by ticket so the same opaque key against two different tickets stores two entries. |
-| `issue-link/create` | `("link", canonical_triple, idempotencyKey)` where `canonical_triple` is the lexicographically sorted `(inward, outward, type)` | Atlassian does not dedupe identical triples (Open Q28); the cache covers both retries on the same triple **and** prevents same-key-against-different-triple aliasing. |
-| `ticket/edit` | not cached | Edits are naturally idempotent at Atlassian — same body re-applied is a no-op. The cache adds no safety here and would mask intentional sequential edits. |
+| Verb | `verb` tag | `project` slot | Notes |
+|------|-----------|----------------|-------|
+| `ticket/create` | `"jira_ticket_create"` | `projectKey` (e.g. `"ENG"`) | First call computes the envelope; subsequent hits within TTL replay it. |
+| `ticket/comment/add` | `"jira_comment_add"` | extracted ticket project (e.g. `"ENG"`) | Keyed by the ticket's project so the same opaque key against two tickets in different projects stores two entries. |
+| `issue-link/create` | `"jira_issue_link_create"` | synthetic tag `"<inward>__<outward>__<type>"` (e.g. `"ENG-1200__ENG-1234__Blocks"`) | Atlassian does not dedupe identical `(inward, outward, type)` triples (Open Q28). The synthetic tag namespaces the opaque key so the same key against a different triple stores a distinct entry — preventing aliasing while still de-duping retries on the same triple (decision-28 + the test's `link_cache_aliasing` case). |
+| `ticket/edit` | n/a | not cached | Edits are naturally idempotent at Atlassian — same body re-applied is a no-op. The cache adds no safety here and would mask intentional sequential edits. |
 
 **Caller obligations:**
 
@@ -326,7 +328,7 @@ Atlassian's create / comment / link endpoints are **not** naturally idempotent �
 - Keep keys narrow — same key against two distinct intents (e.g. two different summaries) is a caller bug; the cache cannot prevent it for `/ticket/create` and `/ticket/comment/add` because the body is not part of the cache key.
 - Treat `idempotencyKey` as advisory: when omitted, the cache is bypassed and the gateway forwards the call directly. Missing key never raises a 400.
 
-**Hit semantics:** on cache hit the gateway returns the **stored** status code and response JSON without re-issuing the upstream call. The audit log marks the entry with `idempotency_hit: true` and the original `upstream_status` so operators can tell hits from misses without inspecting body content.
+**Hit semantics:** on cache hit `JiraClient` returns the **stored** `(status_code, response_json)` tuple without re-issuing the upstream call. The cache entries are stored at the `JiraClient` layer (per `gateway/jira_idempotency.py`'s `(monotonic_seconds, status_code, response_json)` tuple), so a route that received a cache hit emits its normal success audit (`*_ok`) — operators distinguish hits from misses externally, e.g. by absence of a corresponding upstream Atlassian log entry.
 
 ### `jira.link_types` and `jira.epic_link_field` config knobs
 
@@ -363,7 +365,7 @@ The config is reloaded on file `mtime` change (same mechanism `jira.projects` us
 | `labels` per-entry length | 50 chars | Atlassian rejects longer labels at the API level. |
 | `customFields` map | **disabled** in v1 (size cap N/A) | Decision-1 — only the shorthand surface is exposed. The cap is documented for symmetry with v1.1 if it ever lifts. |
 
-Oversized fields return 400 `field_too_large` with the offending field name and the cap.
+Oversized fields return 400 with the offending field name and the cap in the error message.
 
 ### Cross-project parent reject
 
@@ -386,14 +388,13 @@ Audit entries for write verbs preserve the same envelope as the read verbs (`ses
 | `ticket` (for `edit` / `comment_add`) | ✅ | Same as the read-verb shape. |
 | `issuetype`, `parent_present`, `epic_link_present`, `notify_users` | ✅ | Boolean / enumerated metadata. |
 | `summary_length`, `description_length`, `comment_length` | ✅ | Lengths only — never values. |
-| `labels` values | ✅ | Operator-controlled enumerated strings, low-PII (Q20). Truncated count + values logged. |
+| `labels` values | ✅ | Operator-controlled enumerated strings, low-PII (Q20). |
 | `link_type` name | ✅ | Operator-controlled allowlist; needed for audit. |
-| `idempotency_key_present`, `idempotency_hit` | ✅ | Cache metadata; the key itself is hashed before logging (length-bounded). |
 | `summary` text, `description` text, `comment` body, ADF tree | ❌ | **Never logged verbatim or in any form.** The gateway only retains the size and structural fingerprints. |
 | `customFields` keys | ❌ | Body is rejected before audit; nothing to log. |
-| `idempotency_key` raw value | ❌ | Hashed (or omitted) to avoid PII leakage if a caller embeds user identifiers in the key. |
+| `idempotencyKey` raw value | ❌ | The idempotency key is **never** logged in audit entries (omission, not redaction) — callers may safely embed user identifiers in the key without PII leakage. |
 
-Successful writes emit `jira_ticket_create_ok` / `jira_ticket_edit_ok` / `jira_comment_add_ok` / `jira_issue_link_create_ok`. Rejections emit the verb-scoped `*_rejected` / `*_denied` event with a machine-readable `reason`. Upstream 4xx/5xx surface as `jira_upstream_error`; 429 surfaces as `jira_upstream_rate_limited` for **all** verbs, write or read (Q12 — the audit emit was moved out of the GET-only retry loop in `_request` so writes are not silently dropped).
+Each route emits structured audit entries keyed by the `operation` tag (`jira_ticket_create` / `jira_ticket_edit` / `jira_comment_add` / `jira_issue_link_create`). Body-shape rejections emit `{operation}_rejected`; policy-allowlist rejections emit `{operation}_denied`. Both carry a machine-readable `reason` field (e.g., `cross_project_parent`, `parent_and_epic_link`, `not_allowlisted`) inside the `details` dict. Successful calls emit a single audit entry tagged with the `operation` and `success=True`. Upstream 4xx/5xx surface as `{operation}_upstream_error`; 429 emits `jira_upstream_rate_limited` for **all** verbs, write or read (Q12 — the audit emit was lifted out of the GET-only retry loop in `_request` into `_emit_rate_limited_audit()` so write 429s record too).
 
 ### Sandbox wrapper subcommands
 
@@ -452,7 +453,7 @@ There is **no** `docs/reference/sandbox-tools.md` in the repository today (and n
 
 ### Phase rollback
 
-The implementation lands as six commits inside a single PR (#1924) — Foundation modules (phase 1), JiraClient write methods (phase 2), gateway routes (phase 3), sandbox wrapper subcommands (phase 4), tests (phase 5), and this documentation (phase 6). The split is intentional so each phase is **independently revertible** if a regression surfaces post-merge:
+The implementation was planned as six logical phases inside a single PR (#1924) — Foundation modules (phase 1), JiraClient write methods (phase 2), gateway routes (phase 3), sandbox wrapper subcommands (phase 4), tests (phase 5), and this documentation (phase 6). The coder squashed phases 1–5 (code + tests in `gateway/`, `sandbox/scripts/jira`, and `config/`) into a single commit; phase 6 (this doc + `docs/index.md`) is a separate commit. The phase split below describes the **logical revert effects** per layer; for the squashed code commit, reverts are an all-or-nothing operation across phases 1–5:
 
 | Phase | Revert effect |
 |-------|---------------|
@@ -463,7 +464,7 @@ The implementation lands as six commits inside a single PR (#1924) — Foundatio
 | 5 — Tests | Reverts the per-route 403 grid extension, `test_jira_idempotency.py`, `test_jira_adf.py`, and the per-method `test_jira_client.py` additions. The implementation behavior is unchanged — only coverage drops — so reverting phase 5 alone is safe but leaves a regression-detection hole. |
 | 6 — Documentation (this section) | Reverts the "Write verbs" section. The implementation in phases 1–4 keeps working but is undocumented; agent prompts that reference this section break. Re-add the doc before re-introducing the implementation if the team wants a documentation-first redo. |
 
-**Single-PR caveat:** because all six phases land in one PR, a `git revert <merge-commit>` removes everything. To revert a single phase post-merge, identify its commit (`git log --oneline -- gateway/jira_idempotency.py` etc.) and `git revert <phase-commit>`. The plan author included a `--first-parent`-friendly commit message convention so phase reverts compose cleanly.
+**Single-PR caveat:** because all six phases land in one PR, a `git revert <merge-commit>` removes everything. To revert a single phase post-merge, identify its commit (`git log --oneline -- gateway/jira_idempotency.py` etc.) and `git revert <phase-commit>`. The plan author included a `--first-parent`-friendly commit message convention so phase reverts compose cleanly. **If the project squashes PRs on merge** (the squash-merge flow collapses every phase into one commit), the per-phase rollback table loses its surgical-revert utility — operators have to revert the whole PR or hand-craft a patch. The coder squashed phases 1–5 into a single commit before merge; phase 6 (this doc) is a separate commit, so doc-only rollback remains surgical even after a squash.
 
 **Deferred to a follow-up issue (explicit, not silently dropped):**
 
