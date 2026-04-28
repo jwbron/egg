@@ -498,7 +498,13 @@ def _resolve_authorship_repo_path() -> Path:
     on each entry — see ``register``).  It needs exactly one git repo
     whose state branch can host that tree.
 
-    ``EGG_REPO_PATH`` may point at:
+    ``EGG_AUTHORSHIP_REPO`` (optional) explicitly names the repo path or
+    repo directory name to use.  When set, it bypasses ``EGG_REPO_PATH``
+    discovery entirely — useful for forked / renamed deployments where
+    the default ``egg``-name preference would silently pick the wrong
+    repo.
+
+    ``EGG_REPO_PATH`` may otherwise point at:
 
     1. A single git repo (e.g. ``/home/egg/repos/egg``) — use it directly.
     2. A parent directory containing several repos (e.g. ``/home/egg/repos``
@@ -508,9 +514,9 @@ def _resolve_authorship_repo_path() -> Path:
        when ``egg`` is absent so the failure mode is deterministic in
        hand-rolled deployments.
     3. A non-existent or non-repo path — return the env value verbatim and
-       let ``StateStore`` raise its own actionable error from
-       ``_ensure_worktree`` (the defensive fallback added alongside this
-       multi-repo fix).
+       let ``get_state_store`` raise its own actionable error
+       (the defensive ``_ensure_worktree`` guard catches direct
+       ``StateStore`` constructions that bypass this resolver).
 
     Empty / unset ``EGG_REPO_PATH`` keeps the historical default
     ``/home/egg/repos/egg`` for backwards compatibility with single-repo
@@ -519,6 +525,18 @@ def _resolve_authorship_repo_path() -> Path:
     from state_store import discover_repo_paths  # type: ignore[import-not-found]
 
     env_path = Path(os.environ.get("EGG_REPO_PATH", "/home/egg/repos/egg"))
+
+    # Explicit override wins over discovery — handles forked / renamed
+    # deployments where the alphabetical fallback would pick the wrong
+    # repo.  Accepts either an absolute path or a repo name relative to
+    # ``EGG_REPO_PATH``.
+    override = os.environ.get("EGG_AUTHORSHIP_REPO", "").strip()
+    if override:
+        override_path = Path(override)
+        if override_path.is_absolute():
+            return override_path
+        return env_path / override
+
     repos: list[Path] = discover_repo_paths(env_path)
     if len(repos) == 0:
         return env_path
@@ -540,10 +558,21 @@ def get_store(state_store: StateStore | None = None) -> CommitAuthorshipStore:
             if state_store is None:
                 # Late import to avoid pulling in the full state_store
                 # module graph at import time.
-                from state_store import StateStore as _SS  # type: ignore[import-not-found]
+                #
+                # Route through ``get_state_store`` so the worktree path
+                # matches the rest of the orchestrator (multi-repo
+                # deployments derive ``pipeline-worktree-<name>`` from
+                # the repo dir name — see ``state_store.get_state_store``).
+                # Constructing ``StateStore`` directly would fall back to
+                # the default ``pipeline-worktree`` path and conflict with
+                # ``unified_sse`` / ``routes/health`` over the
+                # ``egg/pipeline-state`` branch.
+                from state_store import (  # type: ignore[import-not-found]
+                    get_state_store as _get_state_store,
+                )
 
                 repo_path = _resolve_authorship_repo_path()
-                _singleton = CommitAuthorshipStore(state_store=_SS(repo_path=repo_path))
+                _singleton = CommitAuthorshipStore(state_store=_get_state_store(repo_path))
             else:
                 _singleton = CommitAuthorshipStore(state_store=state_store)
         return _singleton

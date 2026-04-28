@@ -1844,15 +1844,23 @@ class TestEnsureWorktreeRepoPathGuard:
         assert str(parent) in msg
 
     def test_repo_path_with_dot_git_passes_guard(self, tmp_path, mock_git):
-        """``repo_path`` with a ``.git`` dir clears the guard and reaches
-        the existing worktree-add path (mocked)."""
+        """``repo_path`` with a ``.git`` dir clears the guard.
+
+        With ``mock_git`` returning success for every git invocation and
+        the worktree dir present on disk, ``_ensure_worktree`` takes the
+        ``rev-parse --is-inside-work-tree`` healthy fast path and returns
+        without reaching the orphan-branch logic.  That is fine for this
+        test — the only assertion is that the new fail-fast guard does
+        not trigger when ``.git`` is present; orphan-branch behaviour is
+        covered by other tests in this module.
+        """
         repo_path = tmp_path / "repo"
         repo_path.mkdir()
         (repo_path / ".git").mkdir()
-        store = StateStore(repo_path, worktree_dir=tmp_path / "wt")
-        # Should not raise — falls through to mocked git operations.
-        # The mocked `_run_git` returns success, so the orphan-branch
-        # branch runs and tries to iterate the worktree dir; create it
-        # so iterdir() doesn't blow up.
-        (tmp_path / "wt").mkdir(parents=True, exist_ok=True)
-        store._ensure_worktree()
+        wt = tmp_path / "wt"
+        wt.mkdir(parents=True, exist_ok=True)
+        store = StateStore(repo_path, worktree_dir=wt)
+
+        # Should not raise — guard passes, fast path returns the
+        # healthy worktree.
+        assert store._ensure_worktree() == wt
