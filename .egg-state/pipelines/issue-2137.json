@@ -475,10 +475,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-17",
+      "question": "**Orchestrator merge-endpoint authorization** — The orchestrator gains the ability to merge slice branches into the pipeline branch via the gateway. Today's gateway allowlist is per-agent. How should the new merge endpoint authenticate the orchestrator?",
+      "context": "Open contract question decision-15, registered by an agent during the refine phase.",
+      "options": [
+        "Reuse the orchestrator's existing gateway-client identity — simplest; the orchestrator already has a privileged session with the gateway for non-agent operations; minimal new code.",
+        "Introduce a privileged `orchestrator` role on the gateway with its own credential and audit log — cleanest separation of concerns; the merge endpoint refuses any non-orchestrator caller.",
+        "Restrict the merge endpoint to a single allowlisted CLI invocation pattern (e.g., `git merge --no-ff <slice-branch>` only) — minimum surface; rejects merges with arbitrary flags (no `--strategy-option=ours`); paranoid but well-scoped.",
+        "Combination: privileged role (option B) AND CLI allowlist (option C) — belt-and-suspenders; matches the analysis's framing of merging as the most security-sensitive code path.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-28T16:55:14.691917Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T16:55:14.565263Z",
+  "updated_at": "2026-04-28T16:55:14.767087Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -492,6 +512,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 35,
+  "version": 36,
   "jira_ticket": null
 }
