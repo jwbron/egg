@@ -570,7 +570,7 @@ class TestCreateIssue:
             )
 
         client = _make_client(handler, fake_creds)
-        status, body = client.create_issue(
+        status, body, cache_hit = client.create_issue(
             project_key="ENG",
             issuetype="Task",
             summary="hello",
@@ -578,6 +578,8 @@ class TestCreateIssue:
 
         assert status == 201
         assert body["key"] == "ENG-1"
+        # No idempotency_key supplied → cache bypassed → cache_hit is False.
+        assert cache_hit is False
         assert len(captured) == 1
         assert captured[0].method == "POST"
         assert str(captured[0].url).endswith("/rest/api/3/issue")
@@ -762,19 +764,22 @@ class TestCreateIssue:
             return httpx.Response(201, json={"id": "1", "key": "ENG-1"})
 
         client = _make_client(handler, fake_creds)
-        a = client.create_issue(
+        status_a, body_a, hit_a = client.create_issue(
             project_key="ENG",
             issuetype="Task",
             summary="x",
             idempotency_key="key-1",
         )
-        b = client.create_issue(
+        status_b, body_b, hit_b = client.create_issue(
             project_key="ENG",
             issuetype="Task",
             summary="x",
             idempotency_key="key-1",
         )
-        assert a == b
+        # First call ran fn; second call replayed.
+        assert hit_a is False
+        assert hit_b is True
+        assert (status_a, body_a) == (status_b, body_b)
         assert calls["n"] == 1
 
     def test_idempotency_miss_with_different_keys(
@@ -1000,8 +1005,10 @@ class TestAddComment:
             return httpx.Response(201, json={"id": "1"})
 
         client = _make_client(handler, fake_creds)
-        status, body = client.add_comment(key="ENG-1", body="hi there")
+        status, body, cache_hit = client.add_comment(key="ENG-1", body="hi there")
         assert status == 201
+        # No idempotency_key supplied → cache bypassed.
+        assert cache_hit is False
         assert captured[0].method == "POST"
         assert str(captured[0].url).endswith("/issue/ENG-1/comment")
         wire = _decode_request_json(captured[0])
@@ -1036,12 +1043,15 @@ class TestAddComment:
         client.add_comment(key="ENG-1", body="hi", idempotency_key="cmt-1")
         assert calls["n"] == 1
 
-    def test_idempotency_namespaced_per_project(
+    def test_idempotency_namespaced_per_ticket(
         self, fake_creds: JiraCredentials, reset_idempotency_cache
     ):
-        """Same opaque idempotency key against tickets in DIFFERENT
-        projects must not collide — the cache key is namespaced by
-        ``project`` (extracted from the ticket key)."""
+        """Same opaque idempotency key against DIFFERENT tickets must not
+        collide — the cache key is namespaced by the ticket key (not just
+        the project).  Two agents using ``--idempotency-key bisect-start``
+        against ``ENG-1`` and ``ENG-2`` must each reach Atlassian instead
+        of the second silently replaying the first response (reviewer_code_
+        holistic cycle 1 finding #2, #1924 v2 fix)."""
         calls = {"n": 0}
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -1049,9 +1059,17 @@ class TestAddComment:
             return httpx.Response(201, json={"id": str(calls["n"])})
 
         client = _make_client(handler, fake_creds)
+        # Two tickets in the SAME project — same opaque key.  Project-only
+        # namespacing was the v1 bug; v2 keys by ticket so this MUST miss
+        # the cache twice.
         client.add_comment(key="ENG-1", body="hi", idempotency_key="k")
-        client.add_comment(key="DEVOPS-1", body="hi", idempotency_key="k")
+        client.add_comment(key="ENG-2", body="hi", idempotency_key="k")
         assert calls["n"] == 2
+
+        # Defence in depth — two tickets in different projects also stay
+        # distinct.
+        client.add_comment(key="DEVOPS-1", body="hi", idempotency_key="k")
+        assert calls["n"] == 3
 
     def test_429_emits_audit(self, fake_creds: JiraCredentials, monkeypatch: pytest.MonkeyPatch):
         def handler(request: httpx.Request) -> httpx.Response:
@@ -1088,13 +1106,15 @@ class TestCreateIssueLink:
             return httpx.Response(201)
 
         client = _make_client(handler, fake_creds)
-        status, body = client.create_issue_link(
+        status, body, cache_hit = client.create_issue_link(
             link_type="Blocks",
             inward_key="ENG-1",
             outward_key="ENG-2",
         )
         assert status == 201
         assert body == {}  # 201 + empty body → empty dict envelope
+        # No idempotency_key supplied → cache bypassed.
+        assert cache_hit is False
         assert captured[0].method == "POST"
         assert str(captured[0].url).endswith("/rest/api/3/issueLink")
         wire = _decode_request_json(captured[0])

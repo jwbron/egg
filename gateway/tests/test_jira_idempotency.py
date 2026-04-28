@@ -3,8 +3,10 @@ Tests for ``gateway/jira_idempotency.py``.
 
 Covers:
 
-- Cache miss → ``fn`` invoked once and result cached.
+- Cache miss → ``fn`` invoked once and result cached.  ``cache_hit`` flag
+  in the returned 3-tuple is ``False``.
 - Cache hit → ``fn`` is **not** invoked; cached value replayed verbatim.
+  ``cache_hit`` flag is ``True``.
 - TTL expiry — once ``time.monotonic()`` advances past
   ``IDEMPOTENCY_TTL_SECONDS`` the entry is dropped and ``fn`` runs again.
 - Distinct ``key`` values → distinct entries (no collision).
@@ -57,9 +59,11 @@ class TestCacheMissAndHit:
             calls.append(1)
             return 201, {"key": "ENG-1", "id": "10001"}
 
-        status, body = get_or_run("jira_ticket_create", "ENG", "key-1", fn)
+        status, body, cache_hit = get_or_run("jira_ticket_create", "ENG", "key-1", fn)
         assert status == 201
         assert body == {"key": "ENG-1", "id": "10001"}
+        # First call → fn ran → cache_hit is False.
+        assert cache_hit is False
         assert calls == [1]
 
     def test_hit_does_not_invoke_fn(self):
@@ -70,11 +74,15 @@ class TestCacheMissAndHit:
             return 201, {"key": f"ENG-{len(calls)}"}
 
         # Prime the cache.
-        first = get_or_run("jira_ticket_create", "ENG", "key-1", fn)
+        first_status, first_body, first_hit = get_or_run("jira_ticket_create", "ENG", "key-1", fn)
+        assert first_hit is False
         # Replay should not invoke fn again.
-        second = get_or_run("jira_ticket_create", "ENG", "key-1", fn)
+        second_status, second_body, second_hit = get_or_run(
+            "jira_ticket_create", "ENG", "key-1", fn
+        )
+        assert second_hit is True
 
-        assert first == second
+        assert (first_status, first_body) == (second_status, second_body)
         assert calls == [1], f"fn invoked more than once: {calls}"
 
     def test_hit_replays_response_verbatim(self):
@@ -86,10 +94,11 @@ class TestCacheMissAndHit:
             return 201, captured
 
         get_or_run("v", "ENG", "k", fn)
-        _, replayed = get_or_run("v", "ENG", "k", fn)
+        _status, replayed, hit = get_or_run("v", "ENG", "k", fn)
         # Same dict reference (not a deep copy) — Atlassian responses are
         # treated as opaque payloads by the route layer.
         assert replayed is captured
+        assert hit is True
 
 
 # -----------------------------------------------------------------------------
@@ -107,9 +116,13 @@ class TestBypass:
             return 201, {"k": "v"}
 
         # Two calls with no key — fn must run twice.
-        get_or_run("jira_ticket_create", "ENG", missing_key, fn)
-        get_or_run("jira_ticket_create", "ENG", missing_key, fn)
+        _, _, hit_a = get_or_run("jira_ticket_create", "ENG", missing_key, fn)
+        _, _, hit_b = get_or_run("jira_ticket_create", "ENG", missing_key, fn)
         assert calls == [1, 1]
+        # Bypass path: cache_hit is always False because the cache wasn't
+        # consulted (refine decision-16 + audit-grammar parity).
+        assert hit_a is False
+        assert hit_b is False
 
 
 # -----------------------------------------------------------------------------
@@ -120,7 +133,7 @@ class TestBypass:
 class TestTtlExpiry:
     def test_stale_entry_evicted_and_fn_re_runs(self, monkeypatch):
         """Advance the monotonic clock past the TTL; the next lookup should
-        miss and re-invoke ``fn``."""
+        miss and re-invoke ``fn`` and return ``cache_hit=False``."""
         # Seed a deterministic clock starting at t=1000.
         clock = {"now": 1000.0}
         monkeypatch.setattr(jira_idempotency.time, "monotonic", lambda: clock["now"])
@@ -132,13 +145,16 @@ class TestTtlExpiry:
             return 201, {"call_number": len(calls)}
 
         # Insert at t=1000.
-        first = get_or_run("v", "P", "k", fn)
-        assert first[1]["call_number"] == 1
+        _status, body, hit = get_or_run("v", "P", "k", fn)
+        assert body["call_number"] == 1
+        assert hit is False
 
         # Advance past the TTL.
         clock["now"] = 1000.0 + IDEMPOTENCY_TTL_SECONDS + 0.001
-        second = get_or_run("v", "P", "k", fn)
-        assert second[1]["call_number"] == 2
+        _status, body, hit = get_or_run("v", "P", "k", fn)
+        assert body["call_number"] == 2
+        # Stale entry was evicted before fn ran → cache_hit is False.
+        assert hit is False
         assert calls == [1, 1]
 
     def test_entry_within_ttl_still_hits(self, monkeypatch):
@@ -153,8 +169,9 @@ class TestTtlExpiry:
 
         get_or_run("v", "P", "k", fn)
         clock["now"] = 1000.0 + IDEMPOTENCY_TTL_SECONDS - 1
-        get_or_run("v", "P", "k", fn)
+        _status, _body, hit = get_or_run("v", "P", "k", fn)
         assert calls == [1]
+        assert hit is True
 
     def test_ttl_constant_matches_5_min(self):
         # Refine decision-16 pinned the TTL at 5 minutes.  If a future
@@ -261,7 +278,7 @@ class TestConcurrency:
         - The number of ``fn`` invocations is bounded (>=1, <= n_threads).
         """
         n_threads = 32
-        results: list[tuple[int, dict[str, Any]]] = []
+        results: list[tuple[int, dict[str, Any], bool]] = []
         results_lock = threading.Lock()
         run_count = {"n": 0}
         run_count_lock = threading.Lock()
@@ -291,17 +308,18 @@ class TestConcurrency:
 
         assert len(results) == n_threads
         # All callers see the SAME stable response.
-        for status, body in results:
+        for status, body, _hit in results:
             assert status == 201
             assert body == {"value": "stable"}
         # ``fn`` ran at least once, and no more than n_threads times.
         assert 1 <= run_count["n"] <= n_threads
 
         # Once the dust settles, a fresh call should hit the cache (no new
-        # ``fn`` invocations).  Sample the run count, then call.
+        # ``fn`` invocations) and report cache_hit=True.
         before = run_count["n"]
-        get_or_run("v", "P", "race-key", fn)
+        _status, _body, hit = get_or_run("v", "P", "race-key", fn)
         assert run_count["n"] == before, "post-contention call did not hit cache"
+        assert hit is True
 
 
 # -----------------------------------------------------------------------------

@@ -822,6 +822,8 @@ class TestTicketCreate:
         self, client, private_headers, allow_eng, captured_audit
     ):
         fake_client = MagicMock()
+        # JiraClient.create_issue returns (status, body, cache_hit) since
+        # v2 (#1924 reviewer_code_holistic finding #3).
         fake_client.create_issue.return_value = (
             201,
             {
@@ -829,6 +831,7 @@ class TestTicketCreate:
                 "key": "ENG-1",
                 "self": "https://example.atlassian.net/rest/api/3/issue/10001",
             },
+            False,
         )
         with patch.object(gateway, "get_jira_client", return_value=fake_client):
             resp = client.post(
@@ -855,7 +858,9 @@ class TestTicketCreate:
 
         success = _last_audit_for_op(captured_audit, self.OP)
         assert success is not None
-        assert success["event_type"] == self.OP  # success-path event_type matches op
+        # Success-path event_type is ``f"{op}_ok"`` since v2 (audit grammar
+        # parity per reviewer_code_holistic cycle 1 finding #3).
+        assert success["event_type"] == f"{self.OP}_ok"
         assert success["success"] is True
         details = success["details"]
         assert details["project"] == "ENG"
@@ -867,6 +872,10 @@ class TestTicketCreate:
         # Body never logged.
         assert "summary" not in details
         assert "description" not in details
+        # idempotency_hit / idempotency_key_present surfaced in audit so
+        # operators can distinguish replays from upstream calls.
+        assert details.get("idempotency_key_present") is True
+        assert details.get("idempotency_hit") is False
 
     def test_happy_path_with_adf_description(
         self, client, private_headers, allow_eng, captured_audit
@@ -875,6 +884,7 @@ class TestTicketCreate:
         fake_client.create_issue.return_value = (
             201,
             {"id": "1", "key": "ENG-1", "self": "https://e.atlassian.net/rest/api/3/issue/1"},
+            False,
         )
         adf = {"type": "doc", "version": 1, "content": []}
         with patch.object(gateway, "get_jira_client", return_value=fake_client):
@@ -1055,11 +1065,17 @@ class TestTicketEdit:
 
         success = _last_audit_for_op(captured_audit, self.OP)
         assert success is not None and success["success"] is True
+        # ``f"{op}_ok"`` event_type since v2 audit-grammar parity.
+        assert success["event_type"] == f"{self.OP}_ok"
         details = success["details"]
         assert details["ticket"] == "ENG-1"
         assert details["project"] == "ENG"
         assert details["notify_users"] is True
         assert details.get("labels") == ["a", "b"]
+        # edit_issue is naturally idempotent (PUT) → idempotency_hit is
+        # ALWAYS False on the edit route, for grammar parity with the
+        # other write routes.
+        assert details.get("idempotency_hit") is False
 
 
 class TestTicketCommentAdd:
@@ -1178,7 +1194,7 @@ class TestTicketCommentAdd:
         self, client, private_headers, allow_eng, captured_audit
     ):
         fake_client = MagicMock()
-        fake_client.add_comment.return_value = (201, {"id": "10010"})
+        fake_client.add_comment.return_value = (201, {"id": "10010"}, False)
         with patch.object(gateway, "get_jira_client", return_value=fake_client):
             resp = client.post(
                 self.PATH,
@@ -1193,12 +1209,16 @@ class TestTicketCommentAdd:
 
         success = _last_audit_for_op(captured_audit, self.OP)
         assert success is not None and success["success"] is True
+        assert success["event_type"] == f"{self.OP}_ok"
         details = success["details"]
         assert details["ticket"] == "ENG-1"
         assert details["project"] == "ENG"
         # Body length recorded; raw body never recorded.
         assert details.get("body_length") == len("hello")
         assert "hello" not in json.dumps(details)
+        # No idempotency_key supplied; cache bypassed.
+        assert details.get("idempotency_key_present") is False
+        assert details.get("idempotency_hit") is False
 
 
 class TestIssueLinkCreate:
@@ -1369,7 +1389,7 @@ class TestIssueLinkCreate:
 
     def test_happy_path_returns_envelope(self, client, private_headers, allow_eng, captured_audit):
         fake_client = MagicMock()
-        fake_client.create_issue_link.return_value = (201, {})
+        fake_client.create_issue_link.return_value = (201, {}, False)
         with patch.object(gateway, "get_jira_client", return_value=fake_client):
             resp = client.post(
                 self.PATH,
@@ -1389,6 +1409,7 @@ class TestIssueLinkCreate:
 
         success = _last_audit_for_op(captured_audit, self.OP)
         assert success is not None and success["success"] is True
+        assert success["event_type"] == f"{self.OP}_ok"
         details = success["details"]
         assert details["inwardIssue"] == "ENG-1"
         assert details["outwardIssue"] == "ENG-2"
@@ -1399,12 +1420,15 @@ class TestIssueLinkCreate:
         # Link type recorded (refine feedback Q5 — operator-controlled,
         # low-PII).
         assert details.get("link_type") == "Blocks"
+        # No idempotency_key supplied; cache bypassed.
+        assert details.get("idempotency_key_present") is False
+        assert details.get("idempotency_hit") is False
 
     def test_happy_path_with_comment_audit_redacts_body(
         self, client, private_headers, allow_eng, captured_audit
     ):
         fake_client = MagicMock()
-        fake_client.create_issue_link.return_value = (201, {})
+        fake_client.create_issue_link.return_value = (201, {}, False)
         comment = "see issue #1924"
         with patch.object(gateway, "get_jira_client", return_value=fake_client):
             resp = client.post(
