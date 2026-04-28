@@ -93,22 +93,44 @@ spec:
             # (`egg-sandbox:latest`), and nothing exists at docker.io/egg.
             - name: EGG_SANDBOX_IMAGE
               value: "egg-sandbox:latest"
+          # Probes target the cheap, cache-backed endpoints introduced
+          # in #2191. ``/api/v1/live`` is a pure JSON return — restart
+          # signal only. ``/api/v1/ready`` reads the background
+          # state-store probe cache (see orchestrator/state_store_probe.py)
+          # — traffic-routing signal that flips when the cache is stale
+          # or unhealthy. Neither endpoint runs ``git`` or holds locks,
+          # so probe latency is decoupled from waitress thread-pool
+          # pressure under burst load. The rich operator payload moved
+          # to ``/api/v1/health`` (also cache-backed).
           livenessProbe:
             httpGet:
-              path: /api/v1/health
+              path: /api/v1/live
               port: api
             initialDelaySeconds: 10
             periodSeconds: 15
-            timeoutSeconds: 5
+            timeoutSeconds: 3
             failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /api/v1/health
+              path: /api/v1/ready
               port: api
             initialDelaySeconds: 5
             periodSeconds: 10
             timeoutSeconds: 3
             failureThreshold: 3
+          # Startup probe gives the orchestrator up to 60s to come
+          # online — the synchronous priming probe in cmd_serve runs
+          # before serve() returns, but reconciliation loops on cold
+          # boot can push first-listen past the readinessProbe's
+          # tighter window.
+          startupProbe:
+            httpGet:
+              path: /api/v1/live
+              port: api
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 12
           volumeMounts:
             # emptyDir at /home/egg makes $HOME writable (needed for
             # .gitconfig, .egg-worktrees, sharing/notifications, etc.)

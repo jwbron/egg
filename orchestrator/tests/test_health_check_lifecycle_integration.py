@@ -274,12 +274,46 @@ class TestPipelineHealthEndpointErrors:
 class TestBasicEndpoints:
     """Test /health, /ready, /live endpoints."""
 
-    def test_health_returns_service_info(self, app, client):
-        # Mock the state-store probe (independently covered in
-        # test_state_store_wedge_propagation.py) so the test exercises
-        # the route response shape, not the live probe behavior — the
-        # probe would fail in test envs without /home/egg/.egg-state.
-        with patch("routes.health._probe_state_store", return_value=(True, "ok")):
+    @pytest.fixture(autouse=True)
+    def _reset_state_store_probe(self):
+        """Clear the probe singleton between tests so cached observations
+        from one test don't leak into another (#2191)."""
+        from state_store_probe import reset_state_store_probe_for_test
+
+        reset_state_store_probe_for_test()
+        try:
+            yield
+        finally:
+            reset_state_store_probe_for_test()
+
+    @pytest.fixture(autouse=True)
+    def _reset_health_tracker(self):
+        """``routes.health._health_tracker`` is a module-level singleton.
+        Reset between tests so transition counts are deterministic
+        regardless of execution order."""
+        import routes.health as health_module
+        from egg_health import HealthTracker
+
+        original = health_module._health_tracker
+        health_module._health_tracker = HealthTracker()
+        try:
+            yield
+        finally:
+            health_module._health_tracker = original
+
+    def test_health_returns_service_info(self, app, client, monkeypatch):
+        """Prime the state-store probe cache (independently covered in
+        test_state_store_wedge_propagation.py) so the test exercises
+        the route response shape, not the live probe behavior — the
+        probe would fail in test envs without /home/egg/.egg-state."""
+        from state_store_probe import get_state_store_probe
+
+        monkeypatch.setenv("EGG_REPO_PATH", "/sentinel/repo/path")
+        with patch(
+            "state_store_probe.probe_state_store_at",
+            return_value=(True, "ok"),
+        ):
+            get_state_store_probe().probe_now()
             resp = client.get("/api/v1/health")
         assert resp.status_code == 200
         data = json.loads(resp.data)
@@ -295,10 +329,17 @@ class TestBasicEndpoints:
         assert data["last_unhealthy_at"] is None
         assert isinstance(data["recent_transitions"], list)
 
-    def test_health_recent_transitions_accumulate(self, app, client):
-        # Two successive hits should not double-record a transition —
-        # the service has been healthy the whole time.
-        with patch("routes.health._probe_state_store", return_value=(True, "ok")):
+    def test_health_recent_transitions_accumulate(self, app, client, monkeypatch):
+        """Two successive hits should not double-record a transition —
+        the service has been healthy the whole time."""
+        from state_store_probe import get_state_store_probe
+
+        monkeypatch.setenv("EGG_REPO_PATH", "/sentinel/repo/path")
+        with patch(
+            "state_store_probe.probe_state_store_at",
+            return_value=(True, "ok"),
+        ):
+            get_state_store_probe().probe_now()
             client.get("/api/v1/health")
             resp = client.get("/api/v1/health")
         data = json.loads(resp.data)
@@ -306,12 +347,55 @@ class TestBasicEndpoints:
         healthy_transitions = [t for t in data["recent_transitions"] if t["state"] == "healthy"]
         assert len(healthy_transitions) == 1
 
-    def test_ready_returns_true(self, app, client):
-        resp = client.get("/api/v1/ready")
+    def test_ready_returns_true_when_cache_healthy(self, app, client, monkeypatch):
+        """``/api/v1/ready`` returns 200 when the cached probe is fresh
+        and healthy — the steady-state contract for kubelet readiness."""
+        from state_store_probe import get_state_store_probe
+
+        monkeypatch.setenv("EGG_REPO_PATH", "/sentinel/repo/path")
+        with patch(
+            "state_store_probe.probe_state_store_at",
+            return_value=(True, "ok"),
+        ):
+            get_state_store_probe().probe_now()
+            resp = client.get("/api/v1/ready")
         assert resp.status_code == 200
-        assert json.loads(resp.data)["ready"] is True
+        body = json.loads(resp.data)
+        assert body["ready"] is True
+        assert body["state_store"] == "ok"
+
+    def test_ready_returns_503_before_first_probe(self, app, client):
+        """Before the BG thread runs its first probe, ``/api/v1/ready``
+        returns 503 with ``ready=false``. The startupProbe in the k8s
+        manifest absorbs this window so the pod doesn't flap unready."""
+        resp = client.get("/api/v1/ready")
+        assert resp.status_code == 503
+        body = json.loads(resp.data)
+        assert body["ready"] is False
+        assert body["fresh"] is False
+
+    def test_ready_returns_503_when_probe_unhealthy(self, app, client, monkeypatch):
+        """A real state-store wedge takes the pod out of traffic
+        rotation — kubelet stops routing to it, but the pod is not
+        restarted (that's ``/live``'s job)."""
+        from state_store_probe import get_state_store_probe
+
+        monkeypatch.setenv("EGG_REPO_PATH", "/sentinel/repo/path")
+        with patch(
+            "state_store_probe.probe_state_store_at",
+            return_value=(False, "GitOperationError: wedged"),
+        ):
+            get_state_store_probe().probe_now()
+            resp = client.get("/api/v1/ready")
+        assert resp.status_code == 503
+        body = json.loads(resp.data)
+        assert body["ready"] is False
+        assert "wedged" in body["state_store"]
 
     def test_live_returns_true(self, app, client):
+        """``/api/v1/live`` is a pure JSON return. State-store status
+        is irrelevant — a wedge takes the pod out of traffic rotation
+        via ``/ready`` but does not justify a restart via ``/live``."""
         resp = client.get("/api/v1/live")
         assert resp.status_code == 200
         assert json.loads(resp.data)["alive"] is True

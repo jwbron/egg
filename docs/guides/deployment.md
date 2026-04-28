@@ -320,7 +320,17 @@ The k8s Deployment includes liveness and readiness probes on port 9851:
 
 ### Orchestrator health
 
-The orchestrator health endpoint (`GET /api/v1/health` on port 9849) is also wired to the k8s liveness and readiness probes (see `k8s/base/orchestrator-deployment.yaml`). It always returns HTTP 200 — degraded status is signaled only via the `status` field in the JSON body, so a `degraded` response does not trigger a pod restart. Branch on the `status` field, not the HTTP code:
+The orchestrator exposes three probe endpoints on port 9849. Each has a single, narrow job — the split (introduced in [#2191](https://github.com/jwbron/egg/issues/2191)) keeps kubelet probe latency decoupled from in-flight workload latency under burst BRC load.
+
+| Endpoint | Purpose | Wired to | Cost on request path |
+|----------|---------|----------|----------------------|
+| `GET /api/v1/live` | Process liveness | kubelet `livenessProbe` | Pure JSON return |
+| `GET /api/v1/ready` | Traffic-routing readiness — flips when state-store cache is stale or unhealthy | kubelet `readinessProbe`, `startupProbe` | Single dict read |
+| `GET /api/v1/health` | Rich operator/dashboard payload (status, components, transitions) | `mcp__egg__check_health`, manual diagnostics | Single dict read |
+
+All three serve cached values populated by a background thread (`orchestrator/state_store_probe.py`). The thread runs the curative state-store probe on a fixed cadence (default 15s) and stores the result in a thread-safe cache; request handlers never run `git`, never call `get_state_store()`, and never block on locks held by long-polls.
+
+`/api/v1/health` always returns HTTP 200 — degraded status is signaled only via the `status` field in the JSON body, so a `degraded` response does not trigger a pod restart. Branch on the `status` field, not the HTTP code:
 
 ```bash
 kubectl exec -n egg-system deploy/orchestrator -- curl -s http://localhost:9849/api/v1/health
@@ -334,13 +344,13 @@ Normal response:
   "service": "egg-orchestrator",
   "components": {"state_store": "ok", "docker": "unknown"},
   "healthy_since": "2026-04-27T12:00:00+00:00",
-  ...
+  "probe": {"fresh": true, "age_seconds": 4.2}
 }
 ```
 
-`healthy_since` is the timestamp of the most recent healthy → unhealthy → healthy transition (or process start if the orchestrator has been healthy since boot); use it to distinguish "stable since boot" from "just recovered."
+`healthy_since` is the timestamp of the most recent healthy → unhealthy → healthy transition (or process start if the orchestrator has been healthy since boot); use it to distinguish "stable since boot" from "just recovered." `probe.age_seconds` is how long ago the background probe last ran — values consistently above ~2× the probe interval indicate the BG thread itself has wedged, and `/api/v1/ready` will flip to 503 even if the cached observation was healthy.
 
-If the state-store worktree is wedged (for example, after a state-volume reset that left a stale `.git/worktrees/` admin dir), `status` becomes `"degraded"` and `components.state_store` shows the underlying git error. The probe is **curative**: each `/api/v1/health` call attempts to remove the stale admin dir and retry `git worktree add`. Because k8s itself polls this endpoint every 10–15s (`livenessProbe.periodSeconds: 15`, `readinessProbe.periodSeconds: 10`), the curative probe runs continuously without operator action — under normal conditions the orchestrator self-heals within a few k8s poll cycles. See [Orchestrator status: degraded](#orchestrator-status-degraded-state-store-wedge) if degraded persists.
+If the state-store worktree is wedged (for example, after a state-volume reset that left a stale `.git/worktrees/` admin dir), `status` becomes `"degraded"` and `components.state_store` shows the underlying git error. The probe is **curative**: each tick of the background thread attempts to remove the stale admin dir and retry `git worktree add`. The curative cadence (15s) is now independent of kubelet probe traffic — operators do not need to do anything; under normal conditions the orchestrator self-heals within a few BG-thread cycles. See [Orchestrator status: degraded](#orchestrator-status-degraded-state-store-wedge) if degraded persists.
 
 ## Troubleshooting
 
@@ -482,13 +492,13 @@ sudo chown -R $(id -u):$(id -g) ~/repos/*/.git
 
 If `GET /api/v1/health` returns `"status": "degraded"` with a `components.state_store` error mentioning `"is already used by worktree"`, the state branch is pinned by a stale git admin dir — typically left behind after a state-volume reset or a deployment that changed the worktree path.
 
-Because k8s probes hit `/api/v1/health` every 10–15s (see [Orchestrator health](#orchestrator-health)), the curative self-heal runs continuously. Wait 30–60 seconds and re-check; the orchestrator should recover on its own. If `degraded` persists, the self-heal could not match the stale entry — typically because the path embedded in the git error is still on disk (so `_add_worktree_with_branch_recovery` refuses to touch it, treating it as a live worktree) or because no admin dir under `<repo>/.git/worktrees/` references that path. Check orchestrator logs for the underlying error:
+Because the orchestrator's background state-store probe runs the curative self-heal every 15s (see [Orchestrator health](#orchestrator-health)), the recovery attempt happens continuously without operator action. Wait 30–60 seconds and re-check; the orchestrator should recover on its own. If `degraded` persists, the self-heal could not match the stale entry — typically because the path embedded in the git error is still on disk (so `_add_worktree_with_branch_recovery` refuses to touch it, treating it as a live worktree) or because no admin dir under `<repo>/.git/worktrees/` references that path. Check orchestrator logs for the underlying error:
 
 ```bash
 kubectl logs -n egg-system deploy/orchestrator | grep "State store"
 ```
 
-When the self-heal cannot match, the stale admin dir must be removed manually from the volume holding the source repo at `EGG_REPO_PATH` (mounted at `/home/egg/repos` in the local overlay; production deployments should substitute their own `EGG_REPO_PATH`). The state volume at `/home/egg/.egg-state` only holds the worktree itself (e.g. `pipeline-worktree`, or `pipeline-worktree-<repo>` in multi-repo setups) — admin dirs live in the source repo's `.git/worktrees/`. The path is reported in the `components.state_store` error string; resolve it to the matching admin dir under `<repo>/.git/worktrees/<name>/` (the `gitdir` file inside each admin dir points to the worktree it was created for) and `rm -rf` that single admin dir. After removal, the next k8s probe will succeed at `git worktree add` and the orchestrator returns to `healthy` without further action. Rolling the pod is not required and will not help on its own — without removing the admin dir, the wedge reproduces immediately on restart:
+When the self-heal cannot match, the stale admin dir must be removed manually from the volume holding the source repo at `EGG_REPO_PATH` (mounted at `/home/egg/repos` in the local overlay; production deployments should substitute their own `EGG_REPO_PATH`). The state volume at `/home/egg/.egg-state` only holds the worktree itself (e.g. `pipeline-worktree`, or `pipeline-worktree-<repo>` in multi-repo setups) — admin dirs live in the source repo's `.git/worktrees/`. The path is reported in the `components.state_store` error string; resolve it to the matching admin dir under `<repo>/.git/worktrees/<name>/` (the `gitdir` file inside each admin dir points to the worktree it was created for) and `rm -rf` that single admin dir. After removal, the next BG probe tick will succeed at `git worktree add` and the orchestrator returns to `healthy` without further action. Rolling the pod is not required and will not help on its own — without removing the admin dir, the wedge reproduces immediately on restart:
 
 ```bash
 # After locating the matching admin dir under EGG_REPO_PATH:

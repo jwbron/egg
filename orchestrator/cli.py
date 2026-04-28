@@ -277,6 +277,23 @@ def cmd_serve(args: argparse.Namespace) -> int:
                 error=str(hc_init_err),
             )
 
+        # Start the background state-store probe. Decouples curative
+        # self-heal from kubelet probe traffic — see #2191 and
+        # state_store_probe.py for the rationale. Prime the cache with a
+        # synchronous probe so the first /api/v1/ready hit after boot
+        # has a real result rather than the "starting" placeholder.
+        try:
+            from state_store_probe import get_state_store_probe
+
+            probe = get_state_store_probe()
+            probe.probe_now()
+            probe.start()
+        except Exception as probe_err:
+            logger.warning(
+                "State-store probe startup failed",
+                error=str(probe_err),
+            )
+
     if debug:
         # Use Flask's built-in server for development
         app.run(host=host, port=port, debug=True)

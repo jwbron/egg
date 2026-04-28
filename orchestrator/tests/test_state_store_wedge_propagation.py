@@ -159,6 +159,19 @@ class TestHealthEndpointReflectsStateStoreFailure:
         finally:
             health_module._health_tracker = original
 
+    @pytest.fixture(autouse=True)
+    def _reset_state_store_probe(self):
+        """``state_store_probe._PROBE`` is a module-level singleton with
+        cached observations. Reset between tests so each test starts
+        with an empty cache and isn't affected by sibling tests."""
+        from state_store_probe import reset_state_store_probe_for_test
+
+        reset_state_store_probe_for_test()
+        try:
+            yield
+        finally:
+            reset_state_store_probe_for_test()
+
     @pytest.fixture
     def client(self):
         from routes.health import health_bp
@@ -168,8 +181,22 @@ class TestHealthEndpointReflectsStateStoreFailure:
         app.config["TESTING"] = True
         return app.test_client()
 
-    def test_healthy_when_probe_succeeds(self, client):
-        with patch("routes.health._probe_state_store", return_value=(True, "ok")):
+    def test_healthy_when_probe_succeeds(self, client, monkeypatch):
+        """Prime the cached state-store probe with a healthy observation
+        and confirm ``/api/v1/health`` reports it. Since #2191 the
+        endpoint reads the cache instead of running the probe inline,
+        so we drive the cache via ``probe_now()`` after patching the
+        underlying probe function. ``EGG_REPO_PATH`` must be set or
+        ``probe_now()`` short-circuits to ``"probe-skipped"`` before
+        the patch can intercept."""
+        from state_store_probe import get_state_store_probe
+
+        monkeypatch.setenv("EGG_REPO_PATH", "/sentinel/repo/path")
+        with patch(
+            "state_store_probe.probe_state_store_at",
+            return_value=(True, "ok"),
+        ):
+            get_state_store_probe().probe_now()
             response = client.get("/api/v1/health")
 
         assert response.status_code == 200
@@ -177,15 +204,22 @@ class TestHealthEndpointReflectsStateStoreFailure:
         assert body["status"] == "healthy"
         assert body["components"]["state_store"] == "ok"
 
-    def test_degraded_when_probe_fails(self, client):
+    def test_degraded_when_probe_fails(self, client, monkeypatch):
         """The exact wedge from #2167: the probe surfaces the
         worktree-contention error and we flip status."""
+        from state_store_probe import get_state_store_probe
+
+        monkeypatch.setenv("EGG_REPO_PATH", "/sentinel/repo/path")
         err_msg = (
             "GitOperationError: Git command failed: fatal: "
             "'egg/pipeline-state' is already used by worktree at "
             "'/home/egg/.egg-state/pipeline-worktree'"
         )
-        with patch("routes.health._probe_state_store", return_value=(False, err_msg)):
+        with patch(
+            "state_store_probe.probe_state_store_at",
+            return_value=(False, err_msg),
+        ):
+            get_state_store_probe().probe_now()
             response = client.get("/api/v1/health")
 
         # HTTP status stays 200 so kubernetes probes don't flap, but the

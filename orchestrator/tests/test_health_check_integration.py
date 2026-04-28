@@ -233,21 +233,49 @@ class TestPipelineHealthEndpoint:
 
 
 class TestBasicHealthEndpoints:
-    def test_health(self, client):
-        # Mock the state-store probe so the test exercises the route shape,
-        # not the live probe behavior.  In test environments the probe
-        # would fail (no /home/egg/.egg-state) and report degraded;
-        # _probe_state_store is independently covered in
-        # test_state_store_wedge_propagation.py (#2167).
-        with patch("routes.health._probe_state_store", return_value=(True, "ok")):
+    @pytest.fixture(autouse=True)
+    def _reset_state_store_probe(self):
+        """Each test starts with an empty probe cache; clean up after."""
+        from state_store_probe import reset_state_store_probe_for_test
+
+        reset_state_store_probe_for_test()
+        try:
+            yield
+        finally:
+            reset_state_store_probe_for_test()
+
+    def test_health(self, client, monkeypatch):
+        """Prime the cached state-store probe so the test exercises the
+        route shape, not the live probe behavior. In test environments
+        the probe would fail (no /home/egg/.egg-state) and report
+        degraded; ``probe_state_store_at`` is independently covered in
+        ``test_state_store_wedge_propagation.py`` (#2167)."""
+        from state_store_probe import get_state_store_probe
+
+        monkeypatch.setenv("EGG_REPO_PATH", "/sentinel/repo/path")
+        with patch(
+            "state_store_probe.probe_state_store_at",
+            return_value=(True, "ok"),
+        ):
+            get_state_store_probe().probe_now()
             resp = client.get("/api/v1/health")
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["status"] == "healthy"
         assert data["service"] == "egg-orchestrator"
 
-    def test_ready(self, client):
-        resp = client.get("/api/v1/ready")
+    def test_ready_returns_200_when_cache_healthy(self, client, monkeypatch):
+        """Steady-state contract: ``/api/v1/ready`` is 200 when the
+        cached probe is fresh and healthy."""
+        from state_store_probe import get_state_store_probe
+
+        monkeypatch.setenv("EGG_REPO_PATH", "/sentinel/repo/path")
+        with patch(
+            "state_store_probe.probe_state_store_at",
+            return_value=(True, "ok"),
+        ):
+            get_state_store_probe().probe_now()
+            resp = client.get("/api/v1/ready")
         assert resp.status_code == 200
         data = resp.get_json()
         assert data["ready"] is True
