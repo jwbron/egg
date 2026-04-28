@@ -739,6 +739,86 @@ class TestTicketCreate:
         ]
         assert rejected
 
+    def test_cross_project_epic_link_400(
+        self, client, private_headers, allow_eng, captured_audit, monkeypatch
+    ):
+        """Regression for the cycle-1 reviewer_security NACK fix
+        (gateway/gateway.py:5370-5384).  ``epicLink`` writes to the same
+        Atlassian field as ``parent`` when ``epic_link_field == "parent"``;
+        a cross-project epicLink would let an agent parent a new ticket
+        under an epic in a different project, bypassing the
+        ``parent``-side cross-project rejection.  The route must reject
+        with 400 and an audit reason of ``cross_project_epic_link``."""
+        # Both ENG and DEVOPS allowlisted so the rejection is the
+        # cross-project guard, not the project-allowlist guard.
+        monkeypatch.setattr(gateway, "is_project_allowed", lambda p: p in {"ENG", "DEVOPS"})
+        resp = client.post(
+            self.PATH,
+            headers=private_headers,
+            data=json.dumps(
+                {
+                    **self._valid_body(),
+                    "epicLink": "DEVOPS-1",  # not the new ticket's project
+                }
+            ),
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+        rejected = [
+            a for a in captured_audit if a["details"].get("reason") == "cross_project_epic_link"
+        ]
+        assert rejected, "cross_project_epic_link audit reason missing"
+        # Audit must record both projects so operators can grep the cross-
+        # project pair after the fact.
+        assert rejected[-1]["details"]["project"] == "ENG"
+        assert rejected[-1]["details"]["epic_project"] == "DEVOPS"
+
+    def test_non_allowlisted_epic_link_403(
+        self, client, private_headers, captured_audit, monkeypatch
+    ):
+        """Regression for the cycle-1 reviewer_security NACK fix
+        (gateway/gateway.py:5363-5369).  An agent in an allowlisted
+        project (ENG) MUST NOT be able to point ``epicLink`` at a
+        non-allowlisted project — that would let them read / write the
+        epic by virtue of the parent-link relationship.  The route
+        returns 403 with ``epicLink project not allowlisted`` and the
+        ``{operation}_denied`` event_type."""
+        # Allowlist ONLY ENG; FORBIDDEN is excluded.
+        monkeypatch.setattr(gateway, "is_project_allowed", lambda p: p == "ENG")
+        resp = client.post(
+            self.PATH,
+            headers=private_headers,
+            data=json.dumps(
+                {
+                    **self._valid_body(),
+                    "epicLink": "FORBIDDEN-1",
+                }
+            ),
+            content_type="application/json",
+        )
+        assert resp.status_code == 403
+        denied = [a for a in captured_audit if a["event_type"] == f"{self.OP}_denied"]
+        assert denied, f"{self.OP}_denied event missing"
+        assert denied[-1]["details"]["reason"] == "epicLink project not allowlisted"
+        # Audit captures the rejected project key so an operator can
+        # forensic-search for the leak attempt.
+        assert denied[-1]["details"]["project"] == "FORBIDDEN"
+
+    def test_invalid_epic_link_shape_400(self, client, private_headers, allow_eng, captured_audit):
+        """``epicLink: not-a-key`` is rejected at the regex layer with
+        400 — defence-in-depth before any allowlist check."""
+        resp = client.post(
+            self.PATH,
+            headers=private_headers,
+            data=json.dumps(
+                {**self._valid_body(), "epicLink": "not-a-ticket"},
+            ),
+            content_type="application/json",
+        )
+        assert resp.status_code == 400
+        body = json.loads(resp.data)
+        assert "epiclink" in body["message"].lower() or "ticket" in body["message"].lower()
+
     def test_custom_field_smuggling_400(self, client, private_headers, allow_eng, captured_audit):
         resp = client.post(
             self.PATH,
