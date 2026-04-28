@@ -89,11 +89,24 @@ def _issue_pipeline(
 
 
 class TestSliceAwareWorktreeBranch:
+    """slice-aware branch composition (post-coder v6).
+
+    Coder v6 (commit 97de1061d) collapsed the per-role suffix
+    (``egg/issue-N/slice-M/{role}/work``) to a shared per-slice
+    branch (``egg/issue-N/slice-M``) so every agent in a slice
+    pushes commits to the same head ref the per-slice PR opens
+    against. This eliminates the empty-diff PR failure mode where
+    each role's commits sat on a separate branch the PR never
+    referenced (reviewer_code_holistic v5 NACK #1).
+    """
+
     def test_slice_aware_branch_for_canonical_id(self) -> None:
         pipeline = _issue_pipeline(branch="egg/issue-2137")
         ex = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
         result = ex.get_worktree_branch(AgentRole.CODER, slice_id="slice-3")
-        assert result == "egg/issue-2137/slice-3/coder/work"
+        # v6 shared-branch shape: every role in slice-3 pushes to the
+        # same head ref the per-slice PR opens against.
+        assert result == "egg/issue-2137/slice-3"
 
     def test_bare_integer_slice_id_normalised(self) -> None:
         pipeline = _issue_pipeline(branch="egg/issue-2137")
@@ -102,7 +115,7 @@ class TestSliceAwareWorktreeBranch:
         # Bare-integer ids are accepted and normalised to ``slice-N``
         # so callers that haven't plumbed canonical ids through don't
         # need a separate code path.
-        assert result == "egg/issue-2137/slice-3/coder/work"
+        assert result == "egg/issue-2137/slice-3"
 
     def test_no_slice_id_returns_pipeline_branch(self) -> None:
         # Sanity: legacy non-slice path is untouched.
@@ -114,7 +127,21 @@ class TestSliceAwareWorktreeBranch:
         pipeline = _issue_pipeline(branch=None, issue_number=2137)
         ex = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
         result = ex.get_worktree_branch(AgentRole.CODER, slice_id="slice-1")
-        assert result == "egg/issue-2137/slice-1/coder/work"
+        assert result == "egg/issue-2137/slice-1"
+
+    def test_role_does_not_affect_branch_name_when_slice_set(self) -> None:
+        # Coder v6 invariant: every role in a slice shares the SAME
+        # branch (``egg/issue-N/slice-M``) so per-slice PR diffs are
+        # never empty. Verify by sampling several roles.
+        pipeline = _issue_pipeline(branch="egg/issue-2137")
+        ex = ConcurrentPhaseExecutor(pipeline, spawn_fn=MagicMock())
+        coder_branch = ex.get_worktree_branch(AgentRole.CODER, slice_id="slice-2")
+        tester_branch = ex.get_worktree_branch(AgentRole.TESTER, slice_id="slice-2")
+        documenter_branch = ex.get_worktree_branch(AgentRole.DOCUMENTER, slice_id="slice-2")
+        assert coder_branch == tester_branch == documenter_branch == "egg/issue-2137/slice-2", (
+            "Coder v6 fix: every role in a slice shares the same branch so the "
+            "per-slice PR head contains commits from all roles in the slice."
+        )
 
 
 # ---------- get_slice_integration_branch ----------

@@ -583,7 +583,14 @@ class TestRunImplementPhaseSlices:
         assert "slice-1" not in pr_calls_slice_ids
         assert "slice-2" in pr_calls_slice_ids
 
-    def test_pr_creation_failure_does_not_abort_loop(self) -> None:
+    def test_pr_creation_failure_marks_slice_failed(self) -> None:
+        """Coder v6 hardened the PR-creation path: a slice whose
+        ``create_slice_pr`` raises is now ``record_failure()``-d and
+        contributes to a non-zero overall exit code, instead of being
+        silently ``record_complete()``-d. Sibling slices still run
+        (decision-2 sibling-independence). This test pins the post-v6
+        invariant — previously asserted ``exit_code == 0`` (silent
+        fallback) which we now treat as a regression."""
         pipeline = _make_pipeline()
         contract = _make_contract(slices=[_make_slice("slice-1"), _make_slice("slice-2")])
 
@@ -612,10 +619,16 @@ class TestRunImplementPhaseSlices:
                 certs_volume=None,
                 worktree_repo_path=Path("/tmp/x"),
             )
-        # PR creation is best-effort — overall exit stays 0 and both
-        # slices ran.
-        assert exit_code == 0
-        assert spawner.gateway.create_slice_pr.call_count == 2
+        # PR creation failure on slice-1 surfaces as non-zero exit
+        # (no silent fallback). slice-2 still runs (decision-2
+        # sibling-independence) and gets its own PR opened.
+        assert exit_code != 0, (
+            "Coder v6 invariant: PR creation failure must surface as a "
+            "non-zero exit — no silent record_complete on failure"
+        )
+        assert spawner.gateway.create_slice_pr.call_count == 2, (
+            "Sibling slice must still run regardless of slice-1's PR failure"
+        )
 
     def test_reconciler_started_and_stopped(self) -> None:
         pipeline = _make_pipeline()
