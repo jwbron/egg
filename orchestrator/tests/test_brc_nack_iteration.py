@@ -198,21 +198,25 @@ def _make_phase_execution():
 def _make_real_store(pipeline):
     """MagicMock store that round-trips a real Pipeline through load/save.
 
-    Preserves the MagicMock surface for tests that already inspect call
-    history while making ``load`` return the latest persisted state and
-    ``save`` update it.  The HITL persistence path the issue #2208
-    review flagged is then observable through
-    ``store.load_pipeline(...).decisions`` after ``_run_concurrent_phase``
-    returns — and a missing ``save_pipeline`` call would be visible
-    because the held Pipeline is intentionally a *different object* from
-    the in-memory ``pipeline`` argument.
+    Serializes on save and deserializes on load via Pydantic's
+    ``model_dump_json`` / ``model_validate_json`` so a missing
+    ``save_pipeline`` call after an in-place mutation surfaces as a
+    failed assertion: the in-memory mutation is invisible to the next
+    ``load_pipeline`` because the held state is the JSON snapshot from
+    the last save.  This is the round-trip fidelity the issue #2208
+    re-review asked for — verifying the *persistence* path, not just
+    that ``add_decision`` was called.
+
+    Preserves the MagicMock surface (``load_pipeline.call_count``,
+    ``save_pipeline.call_args_list``) for tests that inspect call
+    history.
     """
-    holder = {"pipeline": pipeline}
+    holder = {"json": pipeline.model_dump_json()}
     store = MagicMock()
-    store.load_pipeline.side_effect = lambda _pid: holder["pipeline"]
+    store.load_pipeline.side_effect = lambda _pid: Pipeline.model_validate_json(holder["json"])
 
     def _save(p):
-        holder["pipeline"] = p
+        holder["json"] = p.model_dump_json()
 
     store.save_pipeline.side_effect = _save
     return store

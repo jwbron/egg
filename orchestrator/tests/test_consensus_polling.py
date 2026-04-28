@@ -67,22 +67,25 @@ def _make_phase_execution():
 def _make_real_store(pipeline):
     """MagicMock store that round-trips a real Pipeline through load/save.
 
+    Serializes on save and deserializes on load via Pydantic's
+    ``model_dump_json`` / ``model_validate_json`` so a missing
+    ``save_pipeline`` call after an in-place mutation surfaces as a
+    failed assertion: the in-memory mutation is invisible to the next
+    ``load_pipeline`` because the held state is the JSON snapshot from
+    the last save.  This is the round-trip fidelity the issue #2208
+    re-review asked for — verifying the *persistence* path, not just
+    that ``add_decision`` was called.
+
     Preserves the MagicMock surface (``load_pipeline.call_count``,
-    ``save_pipeline.call_args_list``) for tests that already inspect
-    call history, while ``load`` returns the latest persisted state
-    and ``save`` updates it.  This lets HITL persistence be observed
-    through ``store.load_pipeline(...).decisions`` after
-    ``_run_concurrent_phase`` returns — the round-trip the issue #2208
-    review asked for.  The held Pipeline is intentionally distinct from
-    the ``pipeline`` argument passed to the function under test so a
-    missing ``save_pipeline`` call would fail the assertion.
+    ``save_pipeline.call_args_list``) for tests that inspect call
+    history.
     """
-    holder = {"pipeline": pipeline}
+    holder = {"json": pipeline.model_dump_json()}
     store = MagicMock()
-    store.load_pipeline.side_effect = lambda _pid: holder["pipeline"]
+    store.load_pipeline.side_effect = lambda _pid: Pipeline.model_validate_json(holder["json"])
 
     def _save(p):
-        holder["pipeline"] = p
+        holder["json"] = p.model_dump_json()
 
     store.save_pipeline.side_effect = _save
     return store
@@ -944,11 +947,12 @@ class TestFailedRecovery:
         pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions)
 
         # Simulate the reconciliation thread marking the pipeline FAILED.
-        # The in-memory _InMemoryStore holds a real Pipeline; mutate its
-        # status so subsequent load_pipeline() calls observe FAILED.
+        # The store round-trips through JSON, so mutate then save back to
+        # update the held snapshot.
         disk_pipeline = mock_store.load_pipeline("issue-999")
         disk_pipeline.status = PipelineStatus.FAILED
         disk_pipeline.error = "Container exited unexpectedly"
+        mock_store.save_pipeline(disk_pipeline)
 
         def _check_consensus():
             poll_count[0] += 1
@@ -985,11 +989,15 @@ class TestFailedRecovery:
         # and _update_agents_complete.  The extra lock (vs 2 in normal case)
         # proves recovery ran.
         assert mock_lock.call_count == 3
-        # Verify save_pipeline was called to persist recovery.
+        # Verify save_pipeline was called to persist recovery.  The first
+        # save is the test's own setup (writing FAILED to the holder); the
+        # recovery save is the next one — find it by status.
         save_calls = mock_store.save_pipeline.call_args_list
-        assert len(save_calls) >= 1
-        recovered = save_calls[0][0][0]  # first save is from recovery
-        assert recovered.status == PipelineStatus.RUNNING
+        recovered = next(
+            (call[0][0] for call in save_calls if call[0][0].status == PipelineStatus.RUNNING),
+            None,
+        )
+        assert recovered is not None, "recovery save not found"
         assert recovered.error is None
 
     @patch("routes.pipelines.time.sleep")

@@ -9302,7 +9302,7 @@ def _incomplete_consensus_decision_text(
 def _persist_hitl_decision(
     pipeline_id: str,
     pipeline: Pipeline,
-    store,
+    store: StateStore,
     *,
     question: str,
     options: list[str],
@@ -9314,10 +9314,14 @@ def _persist_hitl_decision(
     of `_run_concurrent_phase` reloads the pipeline fresh from disk before
     writing FAILED, so any in-memory decision is silently dropped — the
     on-disk state (which `/sdlc` reads via `pipeline.get_pending_decisions()`)
-    never sees it.  This helper mirrors `DecisionQueue.queue_decision()` and
-    the HITL-gate write at pipelines.py:13080-13089: load → mutate → save
-    under the reentrant pipeline state lock.  The in-memory `pipeline`
-    argument is also synced so callers observe consistent state.
+    never sees it.  This helper mirrors the *persistence half* of
+    `DecisionQueue.queue_decision()` and the HITL-gate write at
+    pipelines.py:13080-13089: load → mutate → save under the reentrant
+    pipeline state lock.  Note: it intentionally does **not** invoke
+    `_notify_handlers` — no production code currently registers a
+    `DecisionHandler` and `/sdlc` reads from disk on each request, so
+    notifications are not needed for the issue-2203 path.  The in-memory
+    `pipeline` argument is also synced so callers observe consistent state.
 
     Returns the created decision, or None if persistence failed (logged;
     callers should not raise — losing an HITL decision is bad but losing
@@ -9332,7 +9336,9 @@ def _persist_hitl_decision(
                 phase=phase or disk_pipeline.current_phase,
             )
             store.save_pipeline(disk_pipeline)
-        pipeline.decisions = disk_pipeline.decisions
+        # Defensive copy: avoid sharing the list reference with the
+        # disk-loaded copy, which is local and goes out of scope.
+        pipeline.decisions = list(disk_pipeline.decisions)
         return decision
     except Exception:
         logger.warning(
@@ -9349,7 +9355,7 @@ def _handle_brc_consensus_timeout(
     pipeline_id: str,
     consensus_timeout: float,
     blocking_agents: list[str],
-    store,
+    store: StateStore,
 ) -> None:
     # Extracted from _run_concurrent_phase so k3s-style top-level-module
     # layouts (and tests) can exercise this path in isolation — issue #1783.
