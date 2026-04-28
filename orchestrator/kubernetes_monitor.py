@@ -729,10 +729,13 @@ class KubernetesMonitor:
                             completed_container_ids.add(agent.container_id)
 
                 # Synthetically mark containers EXITED (exit_code=0) so
-                # _reconcile_pod_state doesn't flip the pipeline to FAILED
-                # when the pods are deleted below.  Mirrors the normal
+                # the periodic reconciler treats them as clean exits when
+                # the pods are deleted below.  Mirrors the normal
                 # _update_agents_complete path in routes/pipelines.py
-                # (see #1294).
+                # (see #1294).  As of #2210 the reconciler no longer
+                # escalates pipeline.status itself, but matching the
+                # clean-exit shape here still keeps the agent/container
+                # records consistent with the recovery decision.
                 pods_to_stop: list[str] = []
                 for ci in phase_exec.containers:
                     if (
@@ -883,13 +886,51 @@ def get_kubernetes_monitor() -> KubernetesMonitor:
     return _kubernetes_monitor
 
 
+def _classify_exit(exit_code: int | None) -> tuple[bool, str]:
+    """Classify a container exit code as clean or failed.
+
+    Returns ``(is_clean, error_message)``.
+
+    - exit_code 0 (normal exit) and 143 (SIGTERM, orchestrator-initiated
+      stop) are treated as clean — these are the post-BRC and
+      teardown-shutdown cases respectively.
+    - Anything else is a failure; the error string includes the actual
+      exit code so observers can distinguish OOM, crash, etc.
+
+    Sub-record reconciliation only — the pipeline-level decision about
+    whether the pipeline itself has failed lives in the BRC poll loop
+    (see ``orchestrator/routes/pipelines.py::_run_concurrent_phase``),
+    which has consensus context this monitor lacks.  See #2210.
+    """
+    if exit_code in (0, 143):
+        return True, ""
+    code_repr = "unknown" if exit_code is None else str(exit_code)
+    return (
+        False,
+        f"Pod exited with code {code_repr} — detected by Kubernetes runtime monitor",
+    )
+
+
 def _reconcile_pod_state(store: Any, container_info: ContainerInfo) -> bool:
     """Update pipeline state for a single pod that has exited.
 
     Scans pipelines for a container matching the given container_info
-    and reconciles stale RUNNING agent/container records.  On RUNNING
-    pipelines the pipeline itself is also marked FAILED; on terminal or
-    AWAITING_HUMAN pipelines only the sub-records are updated.
+    and reconciles stale RUNNING agent/container records based on the
+    pod's exit code:
+
+    - exit_code 0 / 143 → agent COMPLETE, container EXITED (clean exit
+      after BRC protocol work, or orchestrator-initiated SIGTERM).
+    - any other exit code → agent FAILED with the code in the error
+      string, container FAILED.
+
+    The pipeline's own ``status`` is never mutated here.  That decision
+    belongs to the BRC poll loop in
+    ``orchestrator/routes/pipelines.py::_run_concurrent_phase``, which
+    has full consensus context.  See #2210 for why making that call
+    from here was wrong: the K8s monitor cannot tell a clean post-BRC
+    exit apart from a crash without consulting consensus state, so it
+    used to escalate the pipeline to FAILED on agents that had finished
+    their protocol obligations and exited 0.
 
     Args:
         store: StateStore instance
@@ -948,6 +989,8 @@ def _reconcile_pod_state(store: Any, container_info: ContainerInfo) -> bool:
                     if a.status == AgentExecutionStatus.COMPLETE and a.container_id
                 }
 
+                is_clean_exit, agent_error = _classify_exit(container_info.exit_code)
+
                 for ci in phase_execution.containers:
                     if (
                         ci.container_id == container_info.container_id
@@ -960,23 +1003,22 @@ def _reconcile_pod_state(store: Any, container_info: ContainerInfo) -> bool:
                                 container_id=ci.container_id[:12],
                             )
                             continue
-                        if (
-                            container_info.exit_code == 143
-                            and phase_execution.status != PipelineStatus.RUNNING
-                        ):
+                        if is_clean_exit:
                             logger.info(
-                                "Runtime reconciliation: SIGTERM (143) during "
-                                "completed phase, skipping FAILED reconciliation",
+                                "Runtime reconciliation: pod exited cleanly, marking EXITED",
                                 pipeline_id=pipeline_id,
                                 container_id=container_info.container_id[:12],
+                                exit_code=container_info.exit_code,
                             )
-                            continue
-                        logger.warning(
-                            "Runtime reconciliation: pod exited, marking FAILED",
-                            pipeline_id=pipeline_id,
-                            container_id=container_info.container_id,
-                        )
-                        ci.status = ContainerStatus.FAILED
+                            ci.status = ContainerStatus.EXITED
+                        else:
+                            logger.warning(
+                                "Runtime reconciliation: pod exited with non-zero code, marking FAILED",
+                                pipeline_id=pipeline_id,
+                                container_id=container_info.container_id,
+                                exit_code=container_info.exit_code,
+                            )
+                            ci.status = ContainerStatus.FAILED
                         ci.exit_code = (
                             container_info.exit_code if container_info.exit_code is not None else -1
                         )
@@ -988,36 +1030,33 @@ def _reconcile_pod_state(store: Any, container_info: ContainerInfo) -> bool:
                         agent.status == AgentExecutionStatus.RUNNING
                         and agent.container_id == container_info.container_id
                     ):
-                        if (
-                            container_info.exit_code == 143
-                            and phase_execution.status != PipelineStatus.RUNNING
-                        ):
-                            continue
-                        logger.warning(
-                            "Runtime reconciliation: agent pod exited, marking FAILED",
-                            pipeline_id=pipeline_id,
-                            agent_role=str(agent.role),
-                            container_id=container_info.container_id,
-                        )
-                        agent.status = AgentExecutionStatus.FAILED
+                        if is_clean_exit:
+                            logger.info(
+                                "Runtime reconciliation: agent pod exited cleanly, marking COMPLETE",
+                                pipeline_id=pipeline_id,
+                                agent_role=str(agent.role),
+                                container_id=container_info.container_id,
+                                exit_code=container_info.exit_code,
+                            )
+                            agent.status = AgentExecutionStatus.COMPLETE
+                        else:
+                            logger.warning(
+                                "Runtime reconciliation: agent pod exited with non-zero code, marking FAILED",
+                                pipeline_id=pipeline_id,
+                                agent_role=str(agent.role),
+                                container_id=container_info.container_id,
+                                exit_code=container_info.exit_code,
+                            )
+                            agent.status = AgentExecutionStatus.FAILED
+                            agent.error = agent_error
                         agent.completed_at = datetime.now(UTC)
-                        agent.error = (
-                            "Pod exited unexpectedly during execution — "
-                            "detected by Kubernetes runtime monitor"
-                        )
                         changed = True
 
             if changed:
-                # Only escalate the pipeline's own status when it was
-                # still RUNNING. Terminal states (FAILED/COMPLETE/
-                # CANCELLED) and AWAITING_HUMAN stay as-is — we only
-                # reconciled stale records underneath them.
-                if pipeline.status == PipelineStatus.RUNNING:
-                    pipeline.status = PipelineStatus.FAILED
-                    pipeline.error = (
-                        "Pipeline marked FAILED: agent pod exited unexpectedly "
-                        "during execution. Restart via POST /pipelines/{id}/start."
-                    )
+                # The K8s monitor never mutates pipeline.status here.
+                # Pipeline-level FAILED decisions belong to the BRC poll
+                # loop, which has consensus context (#2210).  Sub-record
+                # updates above are sufficient for this layer.
                 try:
                     store.save_pipeline(
                         pipeline,
