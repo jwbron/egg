@@ -9265,11 +9265,99 @@ def _format_nack_summary(nack_details: list[dict]) -> str:
     )
 
 
+def _incomplete_consensus_decision_text(
+    final_consensus: dict,
+    container_failure_count: int,
+) -> tuple[str, str]:
+    """Build (question, log_suffix) for incomplete-consensus HITL escalation.
+
+    Distinguishes the two failure modes — unresolved NACKs vs. agents that
+    never confirmed — so the operator sees actionable detail in `/sdlc`.
+    """
+    nacks = final_consensus.get("unresolved_nacks", []) or []
+    blocking = final_consensus.get("blocking_agents", []) or []
+    if container_failure_count:
+        prefix = f"{container_failure_count} container(s) exited with non-zero code; "
+    else:
+        prefix = "All containers exited; "
+    if nacks:
+        summary = _format_nack_summary(nacks)
+        question = (
+            f"{prefix}consensus incomplete with {len(nacks)} unresolved NACK(s): "
+            f"{summary}. Committed work is preserved on the per-role branch — "
+            f"'Retry phase' restarts with artifacts intact. How to proceed?"
+        )
+        log_suffix = f"\n--- INCOMPLETE CONSENSUS / UNRESOLVED NACKs ({len(nacks)}) ---\n{summary}"
+    else:
+        agent_list = ", ".join(blocking) if blocking else "unknown"
+        question = (
+            f"{prefix}consensus incomplete; agents never confirmed: {agent_list}. "
+            f"Committed work is preserved on the per-role branch — "
+            f"'Retry phase' restarts with artifacts intact. How to proceed?"
+        )
+        log_suffix = (
+            f"\n--- INCOMPLETE CONSENSUS / NO CONFIRMATION ---\nblocking_agents={agent_list}"
+        )
+    return question, log_suffix
+
+
+def _persist_hitl_decision(
+    pipeline_id: str,
+    pipeline: Pipeline,
+    store: StateStore,
+    *,
+    question: str,
+    options: list[str],
+    phase: PipelinePhase | None = None,
+):
+    """Create and persist an HITL decision under the pipeline state lock.
+
+    `pipeline.add_decision()` only mutates an in-memory object.  The caller
+    of `_run_concurrent_phase` reloads the pipeline fresh from disk before
+    writing FAILED, so any in-memory decision is silently dropped — the
+    on-disk state (which `/sdlc` reads via `pipeline.get_pending_decisions()`)
+    never sees it.  This helper mirrors the *persistence half* of
+    `DecisionQueue.queue_decision()` and the HITL-gate write at
+    pipelines.py:13080-13089: load → mutate → save under the reentrant
+    pipeline state lock.  Note: it intentionally does **not** invoke
+    `_notify_handlers` — no production code currently registers a
+    `DecisionHandler` and `/sdlc` reads from disk on each request, so
+    notifications are not needed for the issue-2203 path.  The in-memory
+    `pipeline` argument is also synced so callers observe consistent state.
+
+    Returns the created decision, or None if persistence failed (logged;
+    callers should not raise — losing an HITL decision is bad but losing
+    the rest of the cleanup path is worse).
+    """
+    try:
+        with get_pipeline_state_lock(pipeline_id):
+            disk_pipeline = store.load_pipeline(pipeline_id)
+            decision = disk_pipeline.add_decision(
+                question=question,
+                options=options,
+                phase=phase or disk_pipeline.current_phase,
+            )
+            store.save_pipeline(disk_pipeline)
+        # Defensive copy: avoid sharing the list reference with the
+        # disk-loaded copy, which is local and goes out of scope.
+        pipeline.decisions = list(disk_pipeline.decisions)
+        return decision
+    except Exception:
+        logger.warning(
+            "Failed to persist HITL decision",
+            pipeline_id=pipeline_id,
+            question=question[:100],
+            exc_info=True,
+        )
+        return None
+
+
 def _handle_brc_consensus_timeout(
     pipeline: Pipeline,
     pipeline_id: str,
     consensus_timeout: float,
     blocking_agents: list[str],
+    store: StateStore,
 ) -> None:
     # Extracted from _run_concurrent_phase so k3s-style top-level-module
     # layouts (and tests) can exercise this path in isolation — issue #1783.
@@ -9305,21 +9393,17 @@ def _handle_brc_consensus_timeout(
         and _brc_timeout_result is not None
         and _brc_timeout_result.get("action") == "escalate"
     ):
-        try:
-            pipeline.add_decision(
-                question=(
-                    f"BRC consensus failure: critical reviewers unconfirmed after "
-                    f"{int(consensus_timeout / 60)} minutes. How to proceed?"
-                ),
-                options=["Continue waiting", "Accept current state", "Abort phase"],
-                phase=pipeline.current_phase,
-            )
-        except Exception as decision_err:
-            logger.error(
-                "Failed to queue HITL decision after BRC escalation — pipeline will stall",
-                pipeline_id=pipeline_id,
-                error=str(decision_err),
-            )
+        _persist_hitl_decision(
+            pipeline_id,
+            pipeline,
+            store,
+            question=(
+                f"BRC consensus failure: critical reviewers unconfirmed after "
+                f"{int(consensus_timeout / 60)} minutes. How to proceed?"
+            ),
+            options=["Continue waiting", "Accept current state", "Abort phase"],
+            phase=pipeline.current_phase,
+        )
     elif not _brc_handled:
         if _emit_event is not None:
             _emit_event(
@@ -9330,21 +9414,17 @@ def _handle_brc_consensus_timeout(
                     "blocking_agents": blocking_agents,
                 },
             )
-        try:
-            pipeline.add_decision(
-                question=(
-                    f"Consensus not reached after {int(consensus_timeout / 60)} minutes. "
-                    f"How to proceed?"
-                ),
-                options=["Continue waiting", "Accept current state", "Abort phase"],
-                phase=pipeline.current_phase,
-            )
-        except Exception as decision_err:
-            logger.error(
-                "Failed to queue HITL decision after consensus timeout — pipeline will stall",
-                pipeline_id=pipeline_id,
-                error=str(decision_err),
-            )
+        _persist_hitl_decision(
+            pipeline_id,
+            pipeline,
+            store,
+            question=(
+                f"Consensus not reached after {int(consensus_timeout / 60)} minutes. "
+                f"How to proceed?"
+            ),
+            options=["Continue waiting", "Accept current state", "Abort phase"],
+            phase=pipeline.current_phase,
+        )
 
 
 def _run_concurrent_phase(
@@ -9945,23 +10025,20 @@ def _run_concurrent_phase(
         #    the next poll iteration.  "Abort phase" triggers pipeline
         #    cancellation via a separate control path.
         if consensus.get("has_objections") and not objection_decision_created:
-            try:
-                pipeline.add_decision(
-                    question="Agent(s) objecting to phase completion. How to proceed?",
-                    options=["Override objections", "Wait for resolution", "Abort phase"],
-                    phase=pipeline.current_phase,
-                )
+            decision = _persist_hitl_decision(
+                pipeline_id,
+                pipeline,
+                store,
+                question="Agent(s) objecting to phase completion. How to proceed?",
+                options=["Override objections", "Wait for resolution", "Abort phase"],
+                phase=pipeline.current_phase,
+            )
+            if decision is not None:
                 objection_decision_created = True
                 logger.info(
                     "Objection detected, HITL decision created",
                     pipeline_id=pipeline_id,
                     blocking_agents=consensus.get("blocking_agents", []),
-                )
-            except Exception as e:
-                logger.warning(
-                    "Failed to create objection HITL decision",
-                    pipeline_id=pipeline_id,
-                    error=str(e),
                 )
 
         # 3b. RC3: Stall demotion for dual-role agents.
@@ -10097,20 +10174,17 @@ def _run_concurrent_phase(
                             nack_count=len(nack_details),
                             nack_summary=nack_summary,
                         )
-                        try:
-                            pipeline.add_decision(
-                                question=(
-                                    f"Consensus reached but {len(nack_details)} NACK(s) "
-                                    f"remain unresolved: {nack_summary}. How to proceed?"
-                                ),
-                                options=["Retry phase", "Accept current state", "Abort phase"],
-                                phase=pipeline.current_phase,
-                            )
-                        except Exception:
-                            logger.warning(
-                                "Failed to create NACK escalation decision (step 5 has_failures path)",
-                                exc_info=True,
-                            )
+                        _persist_hitl_decision(
+                            pipeline_id,
+                            pipeline,
+                            store,
+                            question=(
+                                f"Consensus reached but {len(nack_details)} NACK(s) "
+                                f"remain unresolved: {nack_summary}. How to proceed?"
+                            ),
+                            options=["Retry phase", "Accept current state", "Abort phase"],
+                            phase=pipeline.current_phase,
+                        )
                         combined_logs += (
                             f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
                         )
@@ -10155,6 +10229,40 @@ def _run_concurrent_phase(
                     _stop_running_containers()
                     return 0, combined_logs
 
+                # Incomplete consensus + container failures: surface an HITL
+                # decision so the operator can drive recovery (issue #2203).
+                # Without this, the phase fails terminally with no signal —
+                # the agent's committed work is still on the per-role branch
+                # and `restart_phase` would recover, but the operator has no
+                # way to know that without out-of-band investigation.
+                #
+                # If an objection HITL was created earlier in the polling loop
+                # this is intentionally a *second* pending decision: it
+                # carries different options ("Retry phase" / "Accept current
+                # state" / "Abort phase" vs the objection set) and conveys a
+                # different operator action.  The test
+                # `test_objection_dedup_distinct_from_incomplete_consensus_hitl`
+                # locks in the two-decision UX.
+                failure_count = sum(1 for info in exited_containers.values() if info.exit_code != 0)
+                question, log_suffix = _incomplete_consensus_decision_text(
+                    final_consensus, container_failure_count=failure_count
+                )
+                logger.warning(
+                    "Incomplete consensus with container failures — escalating to HITL",
+                    pipeline_id=pipeline_id,
+                    failure_count=failure_count,
+                    blocking_agents=final_consensus.get("blocking_agents", []),
+                    nack_count=len(final_consensus.get("unresolved_nacks", []) or []),
+                )
+                _persist_hitl_decision(
+                    pipeline_id,
+                    pipeline,
+                    store,
+                    question=question,
+                    options=["Retry phase", "Accept current state", "Abort phase"],
+                    phase=pipeline.current_phase,
+                )
+                combined_logs += log_suffix
                 return 1, combined_logs
 
             # Before returning success, check the BRC approval matrix for
@@ -10170,17 +10278,17 @@ def _run_concurrent_phase(
                     nack_count=len(nack_details),
                     nack_summary=nack_summary,
                 )
-                try:
-                    pipeline.add_decision(
-                        question=(
-                            f"All agents exited but {len(nack_details)} NACK(s) remain "
-                            f"unresolved: {nack_summary}. How to proceed?"
-                        ),
-                        options=["Retry phase", "Accept current state", "Abort phase"],
-                        phase=pipeline.current_phase,
-                    )
-                except Exception:
-                    logger.warning("Failed to create NACK escalation decision", exc_info=True)
+                _persist_hitl_decision(
+                    pipeline_id,
+                    pipeline,
+                    store,
+                    question=(
+                        f"All agents exited but {len(nack_details)} NACK(s) remain "
+                        f"unresolved: {nack_summary}. How to proceed?"
+                    ),
+                    options=["Retry phase", "Accept current state", "Abort phase"],
+                    phase=pipeline.current_phase,
+                )
                 combined_logs += f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
                 return 1, combined_logs
 
@@ -10199,11 +10307,27 @@ def _run_concurrent_phase(
                 final_consensus = {"is_complete": False}
 
             if not final_consensus.get("is_complete"):
+                # Symmetric to the has_failures path: clean exits with no
+                # consensus also need an HITL decision so the operator can
+                # drive recovery (issue #2203).
+                question, log_suffix = _incomplete_consensus_decision_text(
+                    final_consensus, container_failure_count=0
+                )
                 logger.warning(
-                    "All containers exited cleanly but consensus not reached",
+                    "All containers exited cleanly but consensus not reached — escalating to HITL",
                     pipeline_id=pipeline_id,
                     elapsed_seconds=round(elapsed, 1),
+                    blocking_agents=final_consensus.get("blocking_agents", []),
                 )
+                _persist_hitl_decision(
+                    pipeline_id,
+                    pipeline,
+                    store,
+                    question=question,
+                    options=["Retry phase", "Accept current state", "Abort phase"],
+                    phase=pipeline.current_phase,
+                )
+                combined_logs += log_suffix
                 return 1, combined_logs
 
             # Consensus confirmed on clean exit — mirror the has_failures
@@ -10236,6 +10360,7 @@ def _run_concurrent_phase(
                 pipeline_id,
                 consensus_timeout,
                 consensus.get("blocking_agents", []),
+                store,
             )
 
             # Fall back: event-driven wait for remaining containers.
@@ -10384,20 +10509,17 @@ def _run_concurrent_phase(
                             nack_count=len(nack_details),
                             nack_summary=nack_summary,
                         )
-                        try:
-                            pipeline.add_decision(
-                                question=(
-                                    f"Consensus reached after timeout but {len(nack_details)} NACK(s) "
-                                    f"remain unresolved: {nack_summary}. How to proceed?"
-                                ),
-                                options=["Retry phase", "Accept current state", "Abort phase"],
-                                phase=pipeline.current_phase,
-                            )
-                        except Exception:
-                            logger.warning(
-                                "Failed to create NACK escalation decision (timeout path)",
-                                exc_info=True,
-                            )
+                        _persist_hitl_decision(
+                            pipeline_id,
+                            pipeline,
+                            store,
+                            question=(
+                                f"Consensus reached after timeout but {len(nack_details)} NACK(s) "
+                                f"remain unresolved: {nack_summary}. How to proceed?"
+                            ),
+                            options=["Retry phase", "Accept current state", "Abort phase"],
+                            phase=pipeline.current_phase,
+                        )
                         combined_logs += (
                             f"\n--- UNRESOLVED NACKs ({len(nack_details)}) ---\n{nack_summary}"
                         )
