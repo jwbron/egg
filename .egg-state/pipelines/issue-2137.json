@@ -549,10 +549,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-28T16:55:14.947986Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-28T17:05:45.567152Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"At plan ingestion only (`_populate_contract_from_plan`) — reject the plan with a structured error that triggers the plan reviewer to NACK, forcing the planner to re-emit a forest. Single source of truth; matches the issue's literal text.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -603,7 +603,7 @@
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T17:05:44.580911Z",
+  "updated_at": "2026-04-28T17:05:45.594369Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -617,6 +617,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 57,
+  "version": 58,
   "jira_ticket": null
 }
