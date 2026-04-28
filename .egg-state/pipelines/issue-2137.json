@@ -274,10 +274,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-28T16:55:13.728289Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-28T17:05:34.295680Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"resolved by #2152 (#2139 merged 2026-04-27) — reviewer_code subagent fan-out paths already torn out and lens reviewers (reviewer_security, reviewer_concurrency) already promoted to CRITICAL; no per-slice roster removal needed for #2137\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -603,7 +603,7 @@
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T17:05:34.031053Z",
+  "updated_at": "2026-04-28T17:05:34.315982Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -617,6 +617,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 43,
+  "version": 44,
   "jira_ticket": null
 }
