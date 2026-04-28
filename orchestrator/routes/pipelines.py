@@ -9666,7 +9666,21 @@ def _run_implement_phase_slices(
     issue_number = pipeline.issue_number
     issue_branch = f"egg/issue-{issue_number}" if issue_number is not None else pipeline_branch
 
-    scheduler = SliceScheduler(contract)
+    # Wrap scheduler construction so the run loop doesn't crash if the
+    # contract bypassed plan-ingestion validation and reaches the
+    # scheduler with a multi-parent / cyclic forest. ``SliceScheduler``
+    # raises ``ValueError`` with the structured forest errors; surface
+    # them to the operator via the existing return path so the run
+    # loop can route to HITL escalation rather than wedge the pipeline.
+    try:
+        scheduler = SliceScheduler(contract)
+    except ValueError as exc:
+        logger.error(
+            "Slice loop: scheduler refused to start (forest validation failed)",
+            pipeline_id=pipeline_id,
+            error=str(exc),
+        )
+        return 1, f"slice scheduler validation failed: {exc}"
 
     def _contract_loader() -> Any:
         try:
@@ -9773,14 +9787,17 @@ def _run_implement_phase_slices(
                 # #2137 TASK-4-2: create the slice integration branch
                 # on origin BEFORE spawning containers. Push
                 # ``parent_branch:refs/heads/integration_branch``
-                # through the existing per-agent push allowlist so
-                # agents pushing to ``<integration>/<role>/work`` find
-                # the stem ref already extant. Surfaces a clear
-                # error when ``parent_branch`` does not exist on
-                # origin.
+                # through the existing per-agent push allowlist. Agents
+                # then push their commits directly to the slice's
+                # integration branch (``egg/issue-N/slice-M``) so the
+                # slice PR's diff is non-empty when ``gh pr create``
+                # runs. On failure, mark the slice failed so the
+                # cascade machinery can surface the missing-parent
+                # error to the operator instead of silently spawning
+                # agents that would push to a missing parent.
                 if pipeline.repo:
                     try:
-                        ok = bool(
+                        branch_ok = bool(
                             spawner.gateway.create_slice_integration_branch(
                                 pipeline_id,
                                 str(worktree_repo_path),
@@ -9790,21 +9807,28 @@ def _run_implement_phase_slices(
                                 mode=gateway_mode,  # type: ignore[arg-type]
                             )
                         )
-                        if not ok:
-                            logger.error(
-                                "Slice integration branch creation failed; "
-                                "agents will push to a missing parent",
-                                pipeline_id=pipeline_id,
-                                slice_id=slice_id,
-                                parent_branch=parent_branch,
-                                integration_branch=integration_branch,
-                            )
                     except Exception as branch_err:  # noqa: BLE001
                         logger.error(
                             "Slice integration branch creation raised",
                             pipeline_id=pipeline_id,
                             slice_id=slice_id,
                             error=str(branch_err),
+                        )
+                        branch_ok = False
+                    if not branch_ok:
+                        logger.error(
+                            "Slice integration branch creation failed; "
+                            "marking slice failed (agents not spawned)",
+                            pipeline_id=pipeline_id,
+                            slice_id=slice_id,
+                            parent_branch=parent_branch,
+                            integration_branch=integration_branch,
+                        )
+                        scheduler.record_failure(slice_id)
+                        return 1, (
+                            f"slice {slice_id}: integration branch "
+                            f"{integration_branch} could not be created from "
+                            f"{parent_branch}"
                         )
 
                 logger.info(
@@ -9840,8 +9864,13 @@ def _run_implement_phase_slices(
                     )
                     return exit_code_inner, logs_inner
 
-                # Slice consensus reached — open the per-slice PR
-                # under the per-pipeline state lock.
+                # Slice consensus reached — snapshot the slice's PR
+                # data under the per-pipeline state lock, then RELEASE
+                # the lock before the gateway HTTP round-trip so we
+                # don't serialise other contract writers for the
+                # gateway timeout (~30 s). The lock only needs to
+                # cover the contract read.
+                slice_pr_data: dict[str, Any] | None = None
                 try:
                     with get_pipeline_state_lock(pipeline_id):
                         contract_post = load_contract(pipeline_id, worktree_repo_path)
@@ -9850,28 +9879,50 @@ def _run_implement_phase_slices(
                             None,
                         )
                         if slice_obj is not None and pipeline.repo:
-                            slice_tasks_inner = [
-                                {"id": t.id, "description": t.description}
-                                for t in (slice_obj.tasks or [])
-                            ]
-                            spawner.gateway.create_slice_pr(
-                                pipeline_id=pipeline_id,
-                                repo=pipeline.repo,
-                                slice_id=slice_id,
-                                slice_name=slice_obj.name or slice_id,
-                                slice_tasks=slice_tasks_inner,
-                                head=integration_branch,
-                                base=parent_branch,
-                                issue_number=issue_number,
-                                agent_role="coder",
-                                mode=gateway_mode,  # type: ignore[arg-type]
-                            )
-                except Exception as pr_err:  # noqa: BLE001
+                            slice_pr_data = {
+                                "slice_name": slice_obj.name or slice_id,
+                                "slice_tasks": [
+                                    {"id": t.id, "description": t.description}
+                                    for t in (slice_obj.tasks or [])
+                                ],
+                            }
+                except Exception as load_err:  # noqa: BLE001
                     logger.warning(
-                        "Slice PR creation failed (continuing)",
+                        "Slice PR pre-load failed (continuing)",
                         pipeline_id=pipeline_id,
                         slice_id=slice_id,
-                        error=str(pr_err),
+                        error=str(load_err),
+                    )
+
+                pr_created = True
+                if slice_pr_data is not None and pipeline.repo:
+                    try:
+                        spawner.gateway.create_slice_pr(
+                            pipeline_id=pipeline_id,
+                            repo=pipeline.repo,
+                            slice_id=slice_id,
+                            slice_name=slice_pr_data["slice_name"],
+                            slice_tasks=slice_pr_data["slice_tasks"],
+                            head=integration_branch,
+                            base=parent_branch,
+                            issue_number=issue_number,
+                            agent_role="coder",
+                            mode=gateway_mode,  # type: ignore[arg-type]
+                        )
+                    except Exception as pr_err:  # noqa: BLE001
+                        logger.error(
+                            "Slice PR creation failed",
+                            pipeline_id=pipeline_id,
+                            slice_id=slice_id,
+                            error=str(pr_err),
+                        )
+                        pr_created = False
+
+                if not pr_created:
+                    scheduler.record_failure(slice_id)
+                    return 1, (
+                        f"slice {slice_id}: PR creation failed (head={integration_branch}, "
+                        f"base={parent_branch})"
                     )
 
                 scheduler.record_complete(slice_id)
