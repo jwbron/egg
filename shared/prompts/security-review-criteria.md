@@ -200,14 +200,29 @@ Common shapes:
 Verification recipe:
 
 1. For every changed MCP tool, route, or skill that accepts a path
-   argument, find every place that path flows into `open()`,
-   `Path.read_text` / `read_bytes`, `os.scandir`, `glob`,
-   `pathlib.Path.iterdir`, `shutil.copy`, etc.
+   argument, find every place that path flows into a filesystem API.
+   The list is non-exhaustive — flag any API that opens the file or
+   returns metadata about it. Common shapes:
+   - **Reads / opens**: `open()`, `Path.read_text` / `read_bytes`,
+     `shutil.copy`.
+   - **Directory enumeration**: `os.scandir`, `os.walk`, `os.listdir`,
+     `glob`, `pathlib.Path.iterdir` — leaks names of files outside the
+     workspace.
+   - **Existence / metadata oracles**: `Path.exists()`, `Path.is_file()`,
+     `Path.is_dir()`, `Path.stat()`, `os.path.exists()`,
+     `os.path.isdir()` — a `True` / `False` return based on
+     `Path(agent_path).exists()` leaks filesystem layout.
+   - **Symlink inspection**: `Path.is_symlink()`, `os.readlink()` —
+     leaks the symlink target outside the workspace.
+   - **Loaders that take a `Path`**: `yaml.safe_load(Path(p).read_text())`,
+     `json.load(open(p))`, `tomllib.load(open(p, "rb"))`,
+     `configparser.read()`.
 2. Confirm a workspace-root prefix check
    (`p.resolve().is_relative_to(WORKSPACE_ROOT.resolve())` or
-   equivalent) runs **before** the access. Symlink resolution must
-   happen on the resolved path, not on the raw string the agent
-   supplied.
+   equivalent) runs **before** the access. `.resolve()` must run before
+   the prefix check, so symlinks and `..` segments are collapsed first;
+   checking `is_relative_to` on the unresolved `Path` lets a symlink
+   inside the workspace point outside it.
 3. NACK on any agent-supplied read of an unconstrained path — even
    when the handler does not write, does not shell out, and does not
    return the contents to the caller. Reading
