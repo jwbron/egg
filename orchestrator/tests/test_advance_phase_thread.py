@@ -313,3 +313,107 @@ class TestAutoAdvanceRespawnsThread:
             "The auto-advance block must not update the dying thread's "
             "health monitor — the new thread builds its own."
         )
+
+
+# ---------------------------------------------------------------------------
+# Tests for #2219: post-BRC band must not strand the pipeline on
+# best-effort sub-call failures.  The implement→PR auto-advance silently
+# wedged when an exception escaped one of the post-phase helpers and the
+# outer FAILED-marking handler then failed silently.
+# ---------------------------------------------------------------------------
+
+
+class TestPostBrcBandSwallowsErrors:
+    """Verify the band between BRC return and auto-advance never propagates
+    a sub-call exception out of ``_run_pipeline``.
+
+    Source-inspection assertions in the same style as
+    ``TestAutoAdvanceRespawnsThread`` — full behavioural coverage would
+    need a phase-loop harness, but these guarantee the structural
+    invariants that close the wedge in #2219.
+    """
+
+    def _run_pipeline_source(self) -> str:
+        from routes import pipelines
+
+        return inspect.getsource(pipelines._run_pipeline)
+
+    def test_sync_worktree_with_remote_is_wrapped(self):
+        """``_sync_worktree_with_remote`` was unwrapped — a gateway HTTP
+        error or git failure inside it propagated to the outer Exception
+        handler and (when FAILED-marking also failed) stranded the pipeline.
+        """
+        source = self._run_pipeline_source()
+        # The post-phase call site (after BRC return) must sit inside a
+        # ``try`` whose ``except`` matches ``Exception`` so any failure
+        # mode is swallowed with a warning rather than killing the thread.
+        # Indentation-tolerant: ``\s+`` between ``try:`` and the call.
+        assert re.search(
+            r"try:\s*\n\s*_sync_worktree_with_remote\(",
+            source,
+        ), (
+            "_sync_worktree_with_remote(...) call after BRC return must be "
+            "wrapped in try/except so a sub-call failure can't strand the "
+            "pipeline (#2219)."
+        )
+
+    def test_commit_statefiles_handler_catches_broadly(self):
+        """``_commit_statefiles_to_worktree`` raises ``TimeoutExpired`` and
+        ``OSError`` paths that a ``CalledProcessError``-only ``except``
+        does not catch.  The fix broadens the handler to ``Exception``.
+        """
+        source = self._run_pipeline_source()
+        # Both call sites (post-phase and post-HITL-resolution) must use
+        # the broader handler.  Find every call to the helper and assert
+        # the immediately-following ``except`` clause is ``Exception``.
+        call_sites = list(re.finditer(r"_commit_statefiles_to_worktree\(", source))
+        # Four known call sites in ``_run_pipeline``: initial statefile
+        # commit, pre-PR commit, post-phase commit, post-HITL-resolution
+        # commit.  Pin the count so a future move/delete is caught
+        # rather than silently degrading coverage.
+        assert len(call_sites) == 4, (
+            f"Expected 4 _commit_statefiles_to_worktree call sites in "
+            f"_run_pipeline, found {len(call_sites)}.  If a call was "
+            f"intentionally added/removed, update this count and the "
+            f"comment above."
+        )
+        for match in call_sites:
+            # Look at the next ~500 chars for the matching except clause.
+            window = source[match.end() : match.end() + 500]
+            except_match = re.search(r"except\s+([^\s:]+)", window)
+            assert except_match is not None, (
+                f"_commit_statefiles_to_worktree call at offset "
+                f"{match.start()} has no matching except clause"
+            )
+            caught = except_match.group(1)
+            assert caught == "Exception", (
+                f"_commit_statefiles_to_worktree call at offset "
+                f"{match.start()} catches {caught!r}, but must catch "
+                f"Exception so TimeoutExpired/OSError can't strand the "
+                f"pipeline (#2219)."
+            )
+
+    def test_failed_marking_handler_logs_on_failure(self):
+        """If the FAILED-marking step itself raises (state-store
+        contention, lock timeout), the original ``except Exception: pass``
+        silently dropped both errors — the thread died and the pipeline
+        stayed ``running`` with no error recorded.  The handler must log
+        instead.
+        """
+        source = self._run_pipeline_source()
+        # The outer Exception handler's inner try/except must NOT end in
+        # a bare ``pass`` — it must log so future occurrences are visible.
+        # Match the structural shape: ``except Exception as fail_err:``
+        # immediately followed (within ~500 chars, indentation-tolerant)
+        # by the new log line.  This pins the assertion to the invariant
+        # rather than just any occurrence of the string.
+        assert re.search(
+            r"except\s+Exception\s+as\s+fail_err:[\s\S]{0,500}?"
+            r"Failed to mark pipeline FAILED after exception",
+            source,
+        ), (
+            "Outer Exception handler must log inside an "
+            "``except Exception as fail_err:`` block when FAILED-marking "
+            "itself fails so silent wedges (#2219) become visible in the "
+            "log."
+        )
