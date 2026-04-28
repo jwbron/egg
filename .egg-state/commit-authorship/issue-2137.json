@@ -553,6 +553,13 @@
       "repo": "jwbron/egg-checkpoints",
       "role": "reviewer_code_holistic"
     },
+    "7ebb6a6dca2653bffb05f37fd681a1b194fcd5fc": {
+      "branch": "egg/issue-2137",
+      "pipeline_id": "issue-2137",
+      "registered_at": "2026-04-28T19:59:24.055861+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_contract"
+    },
     "8318f1307177b71df0a0a3b14daca1504b5ce1df": {
       "branch": "egg/issue-2137",
       "pipeline_id": "issue-2137",
