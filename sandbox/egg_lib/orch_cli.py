@@ -3151,7 +3151,13 @@ def create_parser() -> argparse.ArgumentParser:
             "Anomaly type -- intentionally free-text so new types can emerge "
             "without CLI changes. Known types: stuck-phase-transition, "
             "agent-heartbeat-stall, agent-loop, orchestrator-consensus-silent, "
-            "unauthorized-overseer-action, unmediated-disagreement"
+            "unauthorized-overseer-action, unmediated-disagreement. NOTE: "
+            "'unmediated-disagreement' is for observers (overseer/mediator) "
+            "flagging that no one is adjudicating; producers blocked by "
+            "reviewer NACKs naming an operator-decidable scope question "
+            "should use 'egg-contract add-decision' / "
+            "'mcp__sdlc__register_open_question' instead -- alerts are "
+            "informational, decisions are HITL gates."
         ),
     )
     ov_alert.add_argument(

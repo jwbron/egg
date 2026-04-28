@@ -169,6 +169,17 @@ egg-orch progress emit --step "applying fix" --state blocked --blocker "missing 
 
 Emit progress when: starting/completing major steps, encountering blockers, during long-running operations. Progress events supplement heartbeats — they tell the orchestrator *what* you're doing, not just that you're alive.
 
+### HITL Decisions vs. Operational Alerts
+
+When you hit a NACK that names an **architectural scope question** the operator must decide — not a code-level fix you can make — register a HITL decision. Do **NOT** file an `OVERSEER_ALERT` for this; alerts are informational broadcasts, not decision gates.
+
+- **`mcp__sdlc__register_open_question`** — for **decisions blocking your re-propose**. Writes to the contract, surfaces in `pending_decisions`, and is resolvable via `/sdlc` / `provide_input`. Reference the returned decision id in your re-propose summary so reviewers and the operator can correlate.
+- **`mcp__progress__overseer_alert`** — for **runtime anomalies**: stalls, ambiguous failures, agent-loop, heartbeat gaps. Informational broadcast only — no contract write, no HITL gate. The operator may or may not see it depending on tooling.
+
+**Checklist before re-proposing after NACKs:** do any of these NACKs require an operator scope decision (not just a code change I can make)? If yes, register a multi-choice HITL question and reference the decision id in your next propose. If no, fix the code and re-propose. The OCC barrier blocks the re-propose either way; the question is whether the operator gets a contract-tracked surface to resolve from.
+
+Note: the `unmediated-disagreement` anomaly type on `overseer_alert` is for **observers** (overseer / mediator) to flag that no one is adjudicating a disagreement. Producers facing reviewer disagreement on a scope question should `register_open_question` instead — that is the right surface, not an alert.
+
 ### Handling Agent Failures
 
 If you receive an `AGENT_FAILED` message about another agent:

@@ -65,7 +65,13 @@ _OVERSEER_ALERT_SCHEMA: dict[str, Any] = {
             "description": (
                 "Anomaly type (free text). Known types: stuck-phase-transition, "
                 "agent-heartbeat-stall, agent-loop, orchestrator-consensus-silent, "
-                "unauthorized-overseer-action, unmediated-disagreement."
+                "unauthorized-overseer-action, unmediated-disagreement. NOTE: "
+                "`unmediated-disagreement` is for OBSERVERS (overseer/mediator) "
+                "flagging that no one is adjudicating a disagreement. If you are "
+                "a producer blocked by reviewer NACKs that name an architectural "
+                "scope question for the operator, use "
+                "`mcp__sdlc__register_open_question` instead -- it creates a "
+                "contract-tracked HITL gate; this alert is informational only."
             ),
         },
         "priority": {
