@@ -1,15 +1,19 @@
-"""Event-driven message @tool wrappers (wait, wait_loop, send_heartbeat).
+"""Event-driven message @tool wrappers (send_heartbeat).
 
-Exposes the three event-driven primitives #1897 added to
-``egg-orch message`` as first-class MCP tools so SDK agents can consume
-them on the ``tool_use`` stream instead of shelling out to Bash.
+Exposes the heartbeat primitive as a first-class MCP tool so SDK agents
+can emit structured liveness signals on the ``tool_use`` stream instead
+of shelling out to Bash.
 
-The tools live under the ``brc`` namespace because every current
-consumer is a BRC coordination loop; they render as
-``mcp__brc__wait_for_event`` / ``mcp__brc__wait_loop`` /
-``mcp__brc__send_heartbeat``.  Sharing the namespace with
-``mcp__brc__propose`` / ``ack`` / ``nack`` / ``confirm`` keeps
-related verbs discoverable together.
+The blocking-wait variants (``wait_for_event`` / ``wait_loop``) were
+removed in #2211 — long-poll waits don't fit the MCP transport (the
+in-process SDK caps tool calls at ~60 s and the streamable-HTTP MCP
+caps at ~30 s), and the cap-elapsed return is a full LLM turn.  Use
+``egg-orch message wait`` / ``egg-orch message wait-loop`` via Bash
+instead; the §1 idiom in ``docs/reference/agent-wait-patterns.md``
+covers the canonical STAY ALIVE shape.
+
+The remaining tool lives under the ``brc`` namespace; it renders as
+``mcp__brc__send_heartbeat``.
 """
 
 from __future__ import annotations
@@ -22,59 +26,6 @@ from egg_agent_tools.tools._registry import ToolRegistration
 from egg_agent_tools.tools._tool_compat import tool
 
 NAMESPACE = "brc"
-
-
-_WAIT_PROPS: dict[str, Any] = {
-    "for_types": {
-        "type": "array",
-        "items": {"type": "string"},
-        "description": (
-            "Message types to block on (e.g. CONSENSUS_ACK, CONSENSUS_NACK). "
-            "Required — at least one entry."
-        ),
-        "minItems": 1,
-    },
-    "role": {"type": "string", "description": "Filter for this receiver role"},
-    "from_role": {"type": "string", "description": "Filter by sender role"},
-    "since": {
-        "type": "string",
-        "description": (
-            "Return messages after this ID. Thread the ``cursor`` from the "
-            "previous wait_for_event / wait_loop response here to avoid "
-            "missing events that arrive between successive calls."
-        ),
-    },
-    "limit": {"type": "integer", "description": "Max messages to return"},
-    "timeout": {
-        "type": "integer",
-        "description": "Server-side block timeout in seconds (default 60)",
-        "default": 60,
-    },
-    "pipeline_id": {"type": "string"},
-}
-
-
-_WAIT_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": _WAIT_PROPS,
-    "required": ["for_types"],
-}
-
-
-_WAIT_LOOP_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        **_WAIT_PROPS,
-        "max_iterations": {
-            "type": "integer",
-            "description": (
-                "Safety cap on outer-loop iterations.  Non-positive / "
-                "absent means loop forever (matches the CLI's default)."
-            ),
-        },
-    },
-    "required": ["for_types"],
-}
 
 
 _HEARTBEAT_SCHEMA: dict[str, Any] = {
@@ -108,28 +59,6 @@ _HEARTBEAT_SCHEMA: dict[str, Any] = {
 
 
 @tool(
-    "wait_for_event",
-    "Block until a typed message (e.g. CONSENSUS_ACK, CONSENSUS_NACK) arrives "
-    "for this agent. Event-driven alternative to polling in a Bash loop. "
-    "Prefer this over 'egg-orch message wait'.",
-    _WAIT_SCHEMA,
-)
-async def brc_wait_for_event(args: dict[str, Any]) -> dict[str, Any]:
-    return await invoke_handler(handlers.message_wait, args)
-
-
-@tool(
-    "wait_loop",
-    "Loop 'wait_for_event' until a match arrives or 'max_iterations' trips. "
-    "Rides through timeouts and short transient gateway errors so callers "
-    "don't have to. Prefer this over 'egg-orch message wait-loop'.",
-    _WAIT_LOOP_SCHEMA,
-)
-async def brc_wait_loop(args: dict[str, Any]) -> dict[str, Any]:
-    return await invoke_handler(handlers.message_wait_loop, args)
-
-
-@tool(
     "send_heartbeat",
     "Emit a structured HEARTBEAT (schema-validated, per-role deduped, "
     "rate-limited) to the dedicated /heartbeat endpoint. Use "
@@ -142,20 +71,6 @@ async def brc_send_heartbeat(args: dict[str, Any]) -> dict[str, Any]:
 
 
 REGISTRATIONS: list[ToolRegistration] = [
-    ToolRegistration(
-        name="mcp__brc__wait_for_event",
-        namespace=NAMESPACE,
-        handler=handlers.message_wait,
-        sdk_tool=brc_wait_for_event,
-        cli_command=("egg-orch", "message", "wait"),
-    ),
-    ToolRegistration(
-        name="mcp__brc__wait_loop",
-        namespace=NAMESPACE,
-        handler=handlers.message_wait_loop,
-        sdk_tool=brc_wait_loop,
-        cli_command=("egg-orch", "message", "wait-loop"),
-    ),
     ToolRegistration(
         name="mcp__brc__send_heartbeat",
         namespace=NAMESPACE,

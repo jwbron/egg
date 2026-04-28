@@ -39,8 +39,6 @@ _ITER1_TOOL_NAMES = {
     "mcp__brc__confirm",
     "mcp__brc__get_state",
     "mcp__brc__list_blocking",
-    "mcp__brc__wait_for_event",
-    "mcp__brc__wait_loop",
     "mcp__brc__send_heartbeat",
     "mcp__phase__get_context",
     "mcp__phase__get_assigned_tasks",
@@ -87,12 +85,15 @@ EXPECTED_NAMESPACES = {
 
 
 class TestToolRegistry:
-    def test_thirty_tools_registered(self):
-        # 18 iteration-1 verbs + 12 iteration-2 verbs (#1917) = 30.
+    def test_tool_count_registered(self):
+        # 18 iter-1 + 12 iter-2 (#1917) = 30, then -2 in #2211
+        # (``wait_for_event`` + ``wait_loop`` removed — agents now use
+        # the ``egg-orch message wait`` / ``wait-loop`` Bash CLI for
+        # blocking waits per the transport-mismatch carve-out) = 28.
         # Derived assertion: trips when a future iteration drifts the
         # count without updating the prose verb-counts in
         # docs/reference/agent-tools.md.
-        assert len(TOOL_LIST) == 30
+        assert len(TOOL_LIST) == 28
 
     def test_expected_names_present(self):
         names = set(TOOL_REGISTRY.keys())

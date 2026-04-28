@@ -576,105 +576,90 @@ There is also a deliberately-misconfigured integration test
 (`test_misconfigured_cap_504`) that exercises the 504 path so the named
 failure mode cannot regress silently.
 
-## 7. Host-Side Waits — `wait_for_status_change`
+## 7. Host-Side Waits — `egg-orch pipeline wait-status`
 
 The first six sections cover **sandbox-side** waits: an agent inside a
 sandbox container waits for BRC messages via `egg-orch message wait` /
 `wait-loop`. This section covers the **host-side** wait — the SDLC
-skill running in a Claude Code session on the operator's host waits for
-pipeline state changes via the `wait_for_status_change` MCP tool.
+skill running in a Claude Code session on the operator's host waits
+for pipeline state changes via the `egg-orch pipeline wait-status`
+Bash CLI.
 
-`wait_for_status_change` is the event-triggered sibling of `get_status`
-landed by [#1932](https://github.com/jwbron/egg/issues/1932). It exists
-because the SDLC skill's monitor loop previously polled
-`get_status(task_id, wait=25)` on a pure time-based sleep — every 25 s
-the orchestrator returned a full snapshot regardless of whether
-anything had changed, burning tokens during quiet phases and delaying
-reactions to `OVERSEER_ALERT`, phase transitions, and HITL gates by up
-to a full poll interval.
+This replaces the `wait_for_status_change` MCP tool that #1932 shipped
+([#2211](https://github.com/jwbron/egg/issues/2211)). The MCP variant
+was capped at 25 s server-side because the streamable-HTTP MCP
+transport caps every tool call at ~30 s
+([anthropics/claude-code#20335](https://github.com/anthropics/claude-code/issues/20335),
+closed not-planned). On a quiet pipeline that translated to ~144
+host-LLM turns per hour with zero state change — every cap-elapsed
+return cost a full LLM round-trip with full-context re-read.
 
-`wait_for_status_change` blocks server-side and returns **immediately**
-when any pipeline-relevant event arrives, or returns a minimal
-no-change envelope on the 25 s timeout so the dashboard re-render
-stays cheap. `get_status` itself is unchanged — it remains the
-correct one-shot snapshot tool.
+The Bash CLI moves the loop off the LLM turn and onto the
+orchestrator. The CLI process blocks server-side, threading the
+opaque cursor between successive `/status/wait` calls, and emits one
+JSON-line on stdout per pipeline-relevant event. The skill's monitor
+loop calls the CLI as a single Bash invocation and reads events as
+they arrive; it only re-issues when a terminal pipeline state is
+reached or when Claude Code's 10 min Bash cap forces a re-issue.
+
+The route itself (`GET /api/v1/pipelines/<id>/status/wait`) is
+unchanged — the CLI is a wrapper around the route the MCP tool used
+to call. `get_status` (and its MCP counterpart) is also unchanged; it
+remains the correct one-shot snapshot tool for the first poll and for
+re-fetching the full envelope when needed.
 
 > **Audience:** prompt maintainers wiring up host-side polling, and
 > operators sizing the orchestrator's Waitress thread pool (see
-> §8 — the `EGG_ORCH_WAITRESS_THREADS` default raised from 16 → 24
-> to absorb the host-side wait load).
+> §8 — the 16 → 24 default still applies because the route still
+> holds two threads per in-flight wait).
 
-### 7.1 The two response envelopes
+### 7.1 The CLI
 
-`wait_for_status_change` returns one of two structurally distinct
-envelopes. The skill's render path branches on the `no_change` key,
-**not** on the `changed` boolean alone — `no_change` is a separate
-top-level key for exactly this purpose.
+```bash
+egg-orch pipeline wait-status <pipeline_id> [--since <cursor>]
+```
+
+The CLI loops `GET /api/v1/pipelines/<id>/status/wait?wait=25`,
+threading the cursor between successive calls. Stdout is **JSON-lines**
+— one line per pipeline-relevant event. The process exits with:
+
+| Exit code | Meaning |
+|-----------|---------|
+| `0` | Pipeline reached terminal state (`complete` / `failed` / `cancelled`) or terminal-event wire value (`pipeline.completed` / `pipeline.failed` / `pipeline.cancelled`). |
+| `1` | `--max-iterations` cap hit (test harnesses only — default loops forever). |
+| `2` | Transient error budget exceeded (5xx / connection errors after backoff). Caller should retry. |
+| `3` | Permanent error (4xx, malformed cursor, unknown pipeline). Caller should surface to user, not retry. |
+
+Each emitted JSON line is a stable subset of the route's Path-A
+envelope:
 
 ```json
-// Path A — changed: true, trigger: "event" (EventBus event fired)
 {
-  "changed": true,
   "trigger": "event",
-  "event_type": "phase.started",             // wire value — e.g. "phase.started", "decision.created", "pipeline.completed"
+  "event_type": "phase.started",
   "cursor": "msg:1738012734-0|evt:142",
   "current_phase": "plan",
   "status": "running",
   "phase_elapsed_seconds": 127,
-  "pipeline":          { "id": "...", "repo": "...", "issue_number": 1932, ... },
-  "running_agents":    [ ... ],
-  "completed_agents":  [ ... ],
-  "pending_decisions": [ ... ],
-  "recent_messages":   [ ... ],
   "concurrent": { "consensus": { ... } }
-}
-
-// Path A — changed: true, trigger: "message" (message-bus wake)
-{
-  "changed": true,
-  "trigger": "message",
-  "messages": [ { "type": "OVERSEER_ALERT", ... } ],   // array of new messages
-  "cursor": "msg:1738012740-0|evt:142",
-  "current_phase": "plan",
-  "status": "running",
-  "phase_elapsed_seconds": 130,
-  "pipeline":          { "id": "...", "repo": "...", "issue_number": 1932, ... },
-  "running_agents":    [ ... ],
-  "completed_agents":  [ ... ],
-  "pending_decisions": [ ... ],
-  "recent_messages":   [ ... ],
-  "concurrent": { "consensus": { ... } }
-}
-
-// Path B — no_change: true (25 s elapsed, no event)
-{
-  "changed": false,
-  "no_change": true,
-  "current_phase": "plan",
-  "status": "running",
-  "phase_elapsed_seconds": 152,
-  "concurrent": { "consensus": { ... } },
-  "cursor": "msg:1738012750-0|evt:148"
 }
 ```
 
-| Field | Path A | Path B | Notes |
-|-------|--------|--------|-------|
-| `changed` | `true` | `false` | Always present. |
-| `no_change` | absent | `true` | **Distinct top-level key** — branch on this, not on `!changed`. |
-| `trigger` | `"event"` or `"message"` | absent | Names which source unblocked the wait. |
-| `event_type` | string when `trigger == "event"` | absent | Wire-format value from `EventType`, e.g. `phase.started`, `decision.created`, `pipeline.completed`. |
-| `messages` | array when `trigger == "message"` | absent | Passed through `_apply_delphi_filter` for consistency with the message bus route; currently a no-op for the host caller (`role=None`). |
-| `cursor` | always | always | Opaque `msg:<id>|evt:<seq>`. Thread into next call's `since`. |
-| `current_phase`, `status` | always | always | Refreshed on every call. |
-| `phase_elapsed_seconds` | when current phase has a `started_at` | when current phase has a `started_at` | Absent at phase boundaries (the new phase hasn't recorded `started_at` yet) and on pending phases. Fall back to `phase_started_at` (full envelope only) or wall-clock when absent. |
-| `concurrent.consensus` | when consensus data is available | when consensus data is available | Absent on non-BRC pipelines. The Path B minimal envelope ships it whenever it would have been on Path A — so consensus drift never goes invisible during quiet phases on BRC pipelines, and is correctly absent for non-BRC pipelines. |
-| `pipeline`, `running_agents`, `completed_agents`, `pending_decisions`, `recent_messages` | always | absent | On Path B, reuse the cached values from the prior Path A response. |
-| `concurrent.agents` | when concurrent data is available | absent | On Path B, reuse the cached value from the prior Path A response. |
+For `trigger == "message"` the `event_type` key is replaced with
+`messages` (the array from the route envelope). On `no_change` the
+CLI emits **nothing** and silently loops — the LLM only wakes when
+something happened.
 
-Path A is a **superset of `get_status`** plus `changed/trigger/
-(event_type|messages)/cursor`. Drop-in compatible with any code that
-already consumes `get_status` output.
+> **Why no full snapshot in the JSON line?** The full `_build_status_snapshot`
+> envelope (running/completed agents, pipeline metadata, recent_messages,
+> `pending_decisions`) costs tokens on every emission and is what the route's
+> minimal envelope deliberately omits. The skill calls `egg-orch pipeline
+> status <id> --json` (or the MCP `get_status` tool) separately when it needs
+> the full envelope — for example on `event_type: "decision.created"` to
+> render `pending_decisions` ahead of HITL. The CLI emits only the
+> dashboard-relevant subset (`current_phase` / `status` /
+> `phase_elapsed_seconds` / `concurrent.consensus`) the route's
+> `_build_minimal_status_envelope` ships.
 
 ### 7.2 Event-trigger allowlist
 
@@ -696,9 +681,9 @@ even if it changes pipeline state.
 | `DECISION_CREATED` | EventBus | New HITL gate; surface to the user. Wire value: `decision.created`. |
 
 > **Wire values vs Python constants:** The names in this table are the Python
-> `EventType` constant names. The JSON responses use **dotted lowercase wire
+> `EventType` constant names. The JSON-lines emit **dotted lowercase wire
 > values** (e.g. `phase.started`, `decision.created`). Always compare against
-> wire values in code — see §7.1 response fields for the exact strings.
+> wire values in code.
 
 **Explicitly excluded:** `DECISION_RESOLVED`. This is the post-
 `provide_input` event and would cause the host to self-wake on an
@@ -709,31 +694,30 @@ host does not need to render.
 
 ### 7.3 The opaque cursor protocol
 
-Every response carries a `cursor` field of shape `msg:<id>|evt:<seq>`.
-The two halves cover the two underlying sources:
+Every emitted JSON line carries a `cursor` field of shape
+`msg:<id>|evt:<seq>`. The two halves cover the two underlying
+sources:
 
 - `msg:<redis_stream_id>` — the message-bus cursor, identical to the
   `--since` cursor used by `egg-orch message wait`. Either half may
   be empty: `msg:|evt:5` means "no message seen yet, EventBus tip is
   at sequence 5".
 - `evt:<seq>` — the in-process EventBus monotonic sequence counter
-  (a new field on the `Event` dataclass, populated under the existing
-  EventBus lock). Each `EventBus.publish()` call increments the
-  counter, so consumers can prove "I have seen everything up to
-  seq N".
+  on the `Event` dataclass, populated under the EventBus lock. Each
+  `EventBus.publish()` call increments the counter, so consumers can
+  prove "I have seen everything up to seq N".
 
-The cursor is **opaque**. Callers should treat it as a string and
-thread it through `since` on the next call. The server parses the
-two halves independently and routes the message-bus half to the
-`get_messages(since_id=...)` long-poll and the EventBus half to a
-per-pipeline sequence gate. This closes the snapshot→wait race window
-on **both** sources: an event that fired between the prior snapshot
-and the next call still wakes the wait.
+The cursor is **opaque**. The CLI threads it through `--since` on
+the next route call automatically. The skill stores the most-recent
+cursor in conversation context (as `last_cursor`) so a new Bash
+invocation after the 10 min cap can pick up where the prior call
+left off without re-waking on already-seen events. This closes the
+snapshot→wait race window on **both** sources: an event that fired
+between the prior wake and the next call still wakes the wait.
 
-A cursor-less call (omit `since` or pass `""`) starts from the
-**tip** of both sources — the call only matches events that arrive
-after the call begins. Same semantics as the `wait` / `wait-loop`
-default since #1925.
+A cursor-less first call (omit `--since`) starts from the **tip** of
+both sources — only events that arrive after the call begins will
+wake it.
 
 ### 7.4 Concurrency model — queue + daemon thread
 
@@ -789,8 +773,7 @@ store for up to 25 s after the route returns. We accept this:
 
 If saturation becomes a real issue, a follow-up can add an explicit
 cancellation signal to `message_store.get_messages` (a
-`threading.Event` polled every ~500 ms) — a mechanical refactor,
-out of scope for the initial #1932 PR.
+`threading.Event` polled every ~500 ms) — a mechanical refactor.
 
 #### Queue-full path
 
@@ -823,64 +806,54 @@ human-readable explanation from `message`.
 **not** an error — they are clamped silently to the bound. Only
 non-integer `wait` strings produce a 400.
 
-The route does **not** retry on transient errors — the MCP client
-(skill) handles its own retry. Permanent errors (400/404) propagate
-to the skill as MCP tool errors, which the skill should surface to
-the user rather than silently retry.
+The CLI maps these to its exit-code contract: 4xx → exit 3
+(permanent), 5xx / connection errors → backoff and retry, exhausting
+a 60 s cumulative budget → exit 2 (transient). 200 responses reset
+the transient budget.
 
 ### 7.6 Liveness floor (aspirational)
 
-The 25 s server-side cap on every `wait_for_status_change` call,
-combined with the skill's immediate loop re-entry on each return,
-bounds the aggregate quiet interval at **~25 s + one LLM turn ≤
-~55 s** — well inside the aspirational 60 s liveness floor by
-construction. The skill does not need a second timing mechanism.
+Per-route-call cap stays at 25 s server-side. The CLI loops the
+route, so the aggregate quiet interval is bounded by the route cap
+(no LLM turn between iterations), and the only LLM round-trip during
+a quiet phase is the eventual Bash-cap timeout (10 min in Claude
+Code). On an idle implement phase, that's ~6 LLM turns/hour vs. the
+prior ~144/hour with the MCP variant.
 
 The **overseer is the primary deadlock detector**. It emits
 `OVERSEER_ALERT` on stalls, which is in the trigger allowlist, so a
 wedged pipeline wakes the host naturally via the early-return path.
-A future hard 60 s liveness watchdog (covered as "Future work" in
-the [release note](../releases/wait-for-status-change.md)) would be
-a defence-in-depth addition; the current design relies on the
-construction above for liveness.
 
 ### 7.7 Worked example
 
 ```text
-# poll cycle in pseudocode (the skill itself uses MCP tool calls,
-# but the shape is the same)
+# poll cycle from the skill prompt (compressed)
 
 # first poll — one-shot snapshot (no cursor)
-last_status = get_status(task_id)
+last_status = $(egg-orch pipeline status $TASK_ID --json)
 render_full_dashboard(last_status)
+last_cursor = ""   # no cursor yet — first wait-status snaps to tip
 
-# bootstrap cursor — first wait_for_status_change, no since
-resp = wait_for_status_change(task_id, wait=25)
-last_cursor = resp.cursor
-if not resp.no_change:
-    last_status = resp
-    render_full_dashboard(last_status)
+# blocking wait via Bash; emits one JSON line per event, exits on terminal
+egg-orch pipeline wait-status $TASK_ID --since "$last_cursor" \
+  | while IFS= read -r line; do
+      cursor=$(jq -r .cursor <<< "$line")
+      trigger=$(jq -r .trigger <<< "$line")
+      event_type=$(jq -r '.event_type // empty' <<< "$line")
 
-# subsequent polls — event-triggered wait
-while not last_status.status in {"complete", "failed", "cancelled"}:
-    resp = wait_for_status_change(task_id, wait=25, since=last_cursor)
-    last_cursor = resp.cursor
-    if resp.no_change:
-        # Path B — refresh four fields, reuse cached snapshot
-        last_status.current_phase           = resp.current_phase
-        last_status.status                  = resp.status
-        last_status.phase_elapsed_seconds   = resp.phase_elapsed_seconds
-        last_status.concurrent.consensus    = resp.concurrent.consensus
-        render_dashboard_lite(last_status)   # cheap re-render
-    else:
-        # Path A — replace cached snapshot, render full dashboard
-        last_status = resp
-        render_full_dashboard(last_status)
-        TERMINAL_STATES = {"pipeline.completed", "pipeline.failed", "pipeline.cancelled"}
-        if resp.event_type in TERMINAL_STATES:
-            break
-        if resp.event_type == "decision.created":
-            handle_hitl(last_status.pending_decisions)
+      render_dashboard_from_event(line)
+
+      if [[ "$trigger" == "event" && "$event_type" == "decision.created" ]]; then
+        # re-fetch full snapshot for pending_decisions
+        last_status = $(egg-orch pipeline status $TASK_ID --json)
+        handle_hitl(last_status.pending_decisions)
+      fi
+      last_cursor="$cursor"
+    done
+
+# CLI exit code: 0 = terminal pipeline state, 2 = transient (retry),
+# 3 = permanent (surface to user). Caller threads $last_cursor into
+# the next invocation if Bash cap forced re-issue.
 ```
 
 ## 8. `EGG_ORCH_WAITRESS_THREADS` — Thread-Pool / Long-Poll Coupling
@@ -895,20 +868,21 @@ blocked long-polls and trigger spurious k8s readiness-probe restarts.
 |---------|---------|--------------------------|--------|
 | `EGG_ORCH_WAITRESS_THREADS` | `24` | `4` | Sets Waitress `threads=` on `serve()`. Values `< 4` cause the orchestrator to `sys.exit(78)` (EX_CONFIG) at boot with an ERROR log. |
 
-> **Default raised from 16 → 24 in [#1932](https://github.com/jwbron/egg/issues/1932)** to absorb the host-side
-> `wait_for_status_change` load on top of the existing sandbox-side
-> `message wait-loop` waits. Each `wait_for_status_change` call costs
-> **2 threads** for up to the wait duration (one main worker + one
-> daemon thread running `message_store.get_messages` — see §7.4).
-> Operators who set `EGG_ORCH_WAITRESS_THREADS` explicitly are
-> unaffected; the new default only applies when the env var is unset.
+> **Default raised from 16 → 24 in [#1932](https://github.com/jwbron/egg/issues/1932)** to absorb host-side
+> `/status/wait` load on top of the existing sandbox-side
+> `message wait-loop` waits. Each `/status/wait` call (now driven by
+> the `egg-orch pipeline wait-status` CLI per #2211) costs **2 threads**
+> for up to the wait duration (one main worker + one daemon thread
+> running `message_store.get_messages` — see §7.4). Operators who set
+> `EGG_ORCH_WAITRESS_THREADS` explicitly are unaffected; the new default
+> only applies when the env var is unset.
 
 ### Sizing rule of thumb
 
 > **Thread budget = (concurrent long-poll count) + (concurrent
 > host-wait count × 2) + (headroom for short requests)**. With
 > `EGG_MESSAGE_POLL_MAX_WAIT=60`, each sandbox agent holds one thread
-> for up to 60 s; each host `wait_for_status_change` holds 2 threads
+> for up to 60 s; each host `wait-status` CLI in flight holds 2 threads
 > for up to 25 s. For a six-agent concurrent pipeline plus one host
 > session, 24 threads leaves 16 threads free for short requests
 > after sandbox waits (`6 × 1 = 6`) and host waits (`1 × 2 = 2`),
@@ -923,10 +897,11 @@ saturation:
 - `egg_inflight_long_polls` — sandbox-side `message wait` calls in
   flight.
 - `egg_inflight_host_waits` (new in #1932, label `endpoint=
-  pipelines.status_wait`) — host-side `wait_for_status_change` route
-  calls in flight. **Does not** count the lame-duck daemon thread
-  (see §7.4) — that is bounded at 25 s and does not need separate
-  metric coverage.
+  pipelines.status_wait`) — host-side `/status/wait` route calls in
+  flight (now driven by the `egg-orch pipeline wait-status` CLI per
+  #2211). **Does not** count the lame-duck daemon thread (see §7.4)
+  — that is bounded at 25 s and does not need separate metric
+  coverage.
 
 If `egg_inflight_long_polls + 2 × egg_inflight_host_waits` approaches
 the configured thread count, raise it.
@@ -941,8 +916,10 @@ the configured thread count, raise it.
 - [Concurrent Execution Guide — Consensus Wrapper](../guides/concurrent-execution.md#consensus-wrapper) — how the wrapper uses SSE + `wait-loop`
 - [Orchestrator CLI Reference — `egg-orch message`](orchestrator-cli.md#common-workflows) — full command surface
 - [Pipeline Health Monitoring](../guides/pipeline-health-monitoring.md) — how `HEARTBEAT` feeds stall detection
-- [Orchestrator Architecture — MCP Server](../architecture/orchestrator.md#api-endpoints) — full MCP tool inventory including `wait_for_status_change`
-- [SDLC Skill](../../skills/sdlc/SKILL.md) — host-side consumer of `wait_for_status_change` (see §Phase 3 and §Phase S5)
-- [Release note — `wait_for_status_change`](../releases/wait-for-status-change.md) — rationale, rollback, and follow-up work for #1932
+- [Orchestrator Architecture — MCP Server](../architecture/orchestrator.md#api-endpoints) — full MCP tool inventory
+- [SDLC Skill](../../skills/sdlc/SKILL.md) — host-side consumer of `egg-orch pipeline wait-status` (see §Phase 3 and §Phase S5)
+- [Release note — `wait_for_status_change`](../releases/wait-for-status-change.md) — original rationale (superseded by #2211)
+- [Release note — `pipelines wait-status` CLI](../releases/pipelines-wait-status-cli.md) — rationale, rollback, and migration for #2211
 - [Issue #1897](https://github.com/jwbron/egg/issues/1897) — original bug report with the four observed anti-patterns
-- [Issue #1932](https://github.com/jwbron/egg/issues/1932) — host-side event-driven wake (this section's source issue)
+- [Issue #1932](https://github.com/jwbron/egg/issues/1932) — host-side event-driven wake (the MCP variant superseded by #2211)
+- [Issue #2211](https://github.com/jwbron/egg/issues/2211) — wake-storm fix: replace MCP wait tools with Bash CLI

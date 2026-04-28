@@ -1,5 +1,16 @@
 # Release note — `wait_for_status_change` (host-side event-driven wake)
 
+> **Superseded by [#2211](https://github.com/jwbron/egg/issues/2211).** The
+> `wait_for_status_change` MCP tool was removed in favour of the
+> `egg-orch pipeline wait-status` Bash CLI — same `/status/wait`
+> route, but the loop runs on the orchestrator instead of costing
+> a full LLM turn on every 25 s cap-elapsed return. The route, event
+> allowlist, cursor protocol, and concurrency model documented below
+> still describe the underlying wire contract; only the client
+> changes. See
+> [`pipelines-wait-status-cli.md`](pipelines-wait-status-cli.md) for
+> the migration rationale and the new client surface.
+
 **Issue:** [#1932](https://github.com/jwbron/egg/issues/1932) — make
 the SDLC skill's host-side monitor loop event-triggered instead of
 time-triggered, so the host wakes within ~1 s of an

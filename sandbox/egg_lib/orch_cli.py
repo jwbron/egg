@@ -522,6 +522,112 @@ def cmd_pipeline_delete(args: argparse.Namespace) -> int:
     return 1
 
 
+# Terminal pipeline statuses that end the wait-status loop (issue #2211).
+_WAIT_STATUS_TERMINAL_STATUSES = frozenset({"complete", "failed", "cancelled"})
+_WAIT_STATUS_TERMINAL_EVENTS = frozenset(
+    {"pipeline.completed", "pipeline.failed", "pipeline.cancelled"}
+)
+
+
+def cmd_pipeline_wait_status(args: argparse.Namespace) -> int:
+    """Long-poll for pipeline events; emit JSON-lines (issue #2211).
+
+    Host-side counterpart to ``egg-orch message wait-loop``. Loops the
+    orchestrator's ``/api/v1/pipelines/<id>/status/wait`` route,
+    threading the response cursor between calls. On Path-A (changed)
+    emits one JSON-line on stdout with the dashboard-relevant subset
+    of the envelope; on Path-B (no_change) loops silently. Exits per
+    the §3 contract in ``docs/reference/agent-wait-patterns.md``: 0
+    terminal, 1 max-iter, 2 transient, 3 permanent.
+    """
+    import time as _time
+
+    # ``require_pipeline_id`` calls ``validate_id`` which already URL-encodes
+    # the result; ``pid`` is therefore safe to interpolate into the endpoint
+    # path directly.
+    pid = require_pipeline_id(args)
+    cursor = (getattr(args, "since", "") or "").strip()
+    inner_timeout = max(int(getattr(args, "inner_timeout", 25) or 25), 1)
+    max_iterations = getattr(args, "max_iterations", None)
+    if not isinstance(max_iterations, int) or max_iterations <= 0:
+        max_iterations = sys.maxsize
+
+    backoff = 1.0
+    # Cumulative *backoff sleep* time across consecutive transient failures.
+    # NOT wall-clock — a stuck orchestrator that holds connections open for
+    # ``inner_timeout + 15`` s per call would not advance this counter while
+    # blocked, only while sleeping between retries.  The 60 s budget below
+    # bounds how long the loop *backs off* before giving up; the operator
+    # always retains the option to re-invoke after exit 2.
+    backoff_sleep_total = 0.0
+    backoff_sleep_budget = 60.0
+
+    for _ in range(max_iterations):
+        endpoint = f"/api/v1/pipelines/{pid}/status/wait?wait={inner_timeout}"
+        if cursor:
+            endpoint += f"&since={quote(cursor, safe='')}"
+
+        try:
+            result = api_request(get_orchestrator_url(), endpoint, timeout=inner_timeout + 15)
+        except ApiError as err:
+            status = err.status_code or 0
+            if status and 400 <= status < 500:
+                # 4xx — permanent.
+                print(f"wait-status: {status} {err.message}", file=sys.stderr)
+                return 3
+            # 5xx, network errors, timeouts — transient.
+            backoff_sleep_total += backoff
+            if backoff_sleep_total > backoff_sleep_budget:
+                print(
+                    f"wait-status: transient error backoff budget exceeded ({err.message})",
+                    file=sys.stderr,
+                )
+                return 2
+            _time.sleep(min(backoff, 5.0))
+            backoff = min(backoff * 2, 5.0)
+            continue
+
+        # Successful call resets the backoff window.
+        backoff = 1.0
+        backoff_sleep_total = 0.0
+
+        envelope = result.get("data") if isinstance(result.get("data"), dict) else result
+        if not isinstance(envelope, dict):
+            print("wait-status: unexpected envelope shape", file=sys.stderr)
+            return 3
+
+        new_cursor = envelope.get("cursor")
+        if isinstance(new_cursor, str) and new_cursor:
+            cursor = new_cursor
+
+        if envelope.get("changed") is True:
+            line: dict[str, Any] = {
+                "trigger": envelope.get("trigger"),
+                "cursor": envelope.get("cursor"),
+                "current_phase": envelope.get("current_phase"),
+                "status": envelope.get("status"),
+            }
+            if "phase_elapsed_seconds" in envelope:
+                line["phase_elapsed_seconds"] = envelope["phase_elapsed_seconds"]
+            if envelope.get("trigger") == "event":
+                line["event_type"] = envelope.get("event_type")
+            elif envelope.get("trigger") == "message":
+                line["messages"] = envelope.get("messages")
+            if "concurrent" in envelope:
+                line["concurrent"] = envelope["concurrent"]
+            print(json.dumps(line), flush=True)
+
+            status_str = envelope.get("status")
+            event_type = envelope.get("event_type") or ""
+            if (
+                isinstance(status_str, str) and status_str in _WAIT_STATUS_TERMINAL_STATUSES
+            ) or event_type in _WAIT_STATUS_TERMINAL_EVENTS:
+                return 0
+        # Path B (no_change): silent, loop again.
+
+    return 1
+
+
 # ---------------------------------------------------------------------------
 # Signal commands
 # ---------------------------------------------------------------------------
@@ -2603,6 +2709,58 @@ def create_parser() -> argparse.ArgumentParser:
     pl_delete.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
     _add_json_flag(pl_delete)
     pl_delete.set_defaults(func=cmd_pipeline_delete)
+
+    # pipeline wait-status — host-side blocking-wait CLI (issue #2211).
+    # Counterpart to `egg-orch message wait-loop`. Loops the orchestrator's
+    # /status/wait route, threads the cursor, emits JSON-lines on each
+    # Path-A event; silent on Path-B. Exit codes per
+    # docs/reference/agent-wait-patterns.md §3.
+    pl_wait_status = pipeline_sub.add_parser(
+        "wait-status",
+        help="Long-poll for pipeline events; JSON-lines on stdout",
+        description=(
+            "Loops the orchestrator's /status/wait route server-side, "
+            "threading the response cursor between calls. Emits one JSON "
+            "line per pipeline-relevant event (phase transition, terminal "
+            "state, HITL DECISION_CREATED, OVERSEER_ALERT, consensus "
+            "message). Silent on no_change. Exits 0 on terminal pipeline "
+            "state, 1 on --max-iterations cap (test only), 2 on transient "
+            "errors after backoff budget, 3 on permanent errors (4xx). "
+            "Use --since <cursor> to resume after a Bash-cap timeout."
+        ),
+    )
+    pl_wait_status.add_argument("pipeline_id", nargs="?", help="Pipeline ID")
+    pl_wait_status.add_argument(
+        "--since",
+        default="",
+        help=(
+            "Opaque cursor from a prior wait-status JSON-line. Empty / "
+            "absent snaps to the tip of both event sources."
+        ),
+    )
+    pl_wait_status.add_argument(
+        "--inner-timeout",
+        type=int,
+        default=25,
+        help=(
+            "Per-call server-side block timeout in seconds (default 25, "
+            "clamped server-side by GET_STATUS_MAX_WAIT)."
+        ),
+    )
+    pl_wait_status.add_argument(
+        "--max-iterations",
+        type=int,
+        default=None,
+        help=(
+            "Safety cap on outer-loop iterations (test harnesses only). "
+            "Loops until terminal pipeline state by default."
+        ),
+    )
+    # --json is intentionally NOT supported on wait-status: the loop emits
+    # one JSON object per event already (JSON-lines on stdout); a --json
+    # toggle would just re-print the last envelope and confuse the
+    # streaming contract.
+    pl_wait_status.set_defaults(func=cmd_pipeline_wait_status)
 
     # -- signal --
     signal_parser = subparsers.add_parser("signal", help="Send signals to orchestrator")

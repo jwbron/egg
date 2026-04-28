@@ -158,8 +158,6 @@ class TestSdkToolShape:
             "mcp__brc__ack",
             "mcp__brc__nack",
             "mcp__brc__confirm",
-            "mcp__brc__wait_for_event",
-            "mcp__brc__wait_loop",
             "mcp__brc__send_heartbeat",
             "mcp__progress__emit",
             "mcp__progress__signal_error",
@@ -305,36 +303,13 @@ class TestBrcProposePushStep:
 
 
 class TestMessagePrimitiveWrappers:
-    """Event-driven wrappers added in #1922 (wait_for_event / wait_loop /
-    send_heartbeat) also return JSON-serialised responses on success and
-    SDK-shaped is_error blocks on failure."""
-
-    def test_wait_for_event_success(self):
-        with patch(
-            "egg_agent_tools.handlers.message.message_wait",
-            return_value={
-                "ok": True,
-                "matched": True,
-                "messages": [{"id": "m-1"}],
-                "role": "coder",
-                "for_types": ["CONSENSUS_ACK"],
-            },
-        ):
-            wrapper = TOOL_REGISTRY["mcp__brc__wait_for_event"].sdk_tool
-            resp = _run(wrapper.handler({"for_types": ["CONSENSUS_ACK"]}))
-        body = json.loads(resp["content"][0]["text"])
-        assert body["matched"] is True
-        assert body["messages"][0]["id"] == "m-1"
-
-    def test_wait_loop_handler_error_surfaces_as_is_error(self):
-        with patch(
-            "egg_agent_tools.handlers.message.message_wait_loop",
-            side_effect=HandlerError("bad args"),
-        ):
-            wrapper = TOOL_REGISTRY["mcp__brc__wait_loop"].sdk_tool
-            resp = _run(wrapper.handler({"for_types": ["X"]}))
-        assert resp["is_error"] is True
-        assert "bad args" in resp["content"][0]["text"]
+    """The remaining message-namespace MCP wrapper (``send_heartbeat``)
+    returns JSON-serialised responses on success and SDK-shaped is_error
+    blocks on failure.  ``wait_for_event`` and ``wait_loop`` were
+    removed in #2211 — agents use the ``egg-orch message wait`` /
+    ``wait-loop`` Bash CLI instead, since long-poll waits don't fit the
+    in-process SDK MCP transport's ~60 s tool-call cap.
+    """
 
     def test_send_heartbeat_wraps_gateway_error(self):
         with patch(
