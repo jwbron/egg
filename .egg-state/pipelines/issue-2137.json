@@ -594,16 +594,16 @@
           "answer": ""
         }
       ],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-28T16:55:15.011453Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-28T17:06:09.351281Z",
+      "resolution": "{\"action\": \"submit_feedback\", \"answers\": {\"Q1\": \"Typical 3–7 slices per ticket; worst-case 10–15. Compaction empirically kicks in at ~33K LOC / 41 files (per #2105 background data); tickets above that threshold are the primary target. The default `max_parallel_slices` cap should accommodate the worst case without being overly conservative — a default of 5 is a reasonable starting point that the operator can raise as confidence builds.\", \"Q2\": \"Single PR. We don't have multi-PR support — that's exactly what #2137 adds. Splitting #2137 into multiple PRs presupposes the very feature it introduces. The single-PR scope covers the schema rename (Phase → Slice + plan_parser + plan templates), the DependencyGraph generification (or slice-keyed parallel), forest validation at plan ingestion, the orchestrator slice scheduler with per-slice BRC tracker namespacing, per-slice branch creation via `create_phase_worktree`, per-slice PR creation, the stacked-PR rebase reconciler, and the planner-side auto-serialization heuristic. Rough order-of-magnitude size: 1,500–2,500 LOC across orchestrator, gateway, plan_parser, models, and dependency_graph.\", \"Q3\": \"`egg/issue-N/slice-M` (slash-separated) — matches the existing `egg/babysit-pr/{pr}/{sha}/{role}` precedent in `concurrent_executor.py`. Reference: GitHub's official stacked-PR guidance is at https://github.github.com/gh-stack/ — the plan phase should consult this when designing the rebase reconciler (decision-18) and per-slice PR creation hooks. The naming convention itself is independent of gh-stack, but gh-stack's workflow assumes branch names that allow human reviewers to follow the stack chain, so a hierarchical scheme like `egg/issue-N/slice-M` aligns well.\", \"Q4\": \"No specific known caps today; trust gateway/container limits and GHA queue depth. Anthropic rate limits apply at higher concurrency tiers but are not currently a concrete blocker for this work. Recommend a conservative `max_parallel_slices` default (5) that the operator can raise as confidence builds.\\n\\n**Per-slice MCP control follow-up — #2199**. The current MCP retry surface (`restart_phase`, `restart_agent`) operates at phase granularity. With slicing, operators will routinely need to restart a single failed slice without disturbing siblings, and to inspect or restart a specific agent within a specific slice. #2199 tracks `restart_slice`, `restart_agent` with optional `slice_id`, `get_slice_status`, and `list_slices` as a follow-up to #2137. **#2137 should expose the internal slice-addressable hooks** (the slice scheduler must already know how to teardown / respawn / query a slice in isolation), but the MCP verb layer itself is out of scope for #2137 and lands in #2199 immediately after.\", \"Q5\": \"Clean tear-out — completed by PR #2152 (#2139, merged 2026-04-27). The `reviewer_code` subagent fan-out paths and `ReviewerCodeConfig.parallel` are gone. No salvage needed for #2137; the slice-scoped reviewers in this issue's roster (single-pass `reviewer_code` + `reviewer_code_holistic` + per-slice lens reviewers) replace the fan-out pattern entirely.\", \"Q6\": \"Skip — leave for the implement phase to pick. The acceptance criterion (\\\"a previously-oversized ticket completes without compaction\\\") can be tested with any ticket exceeding the ~33K LOC / 41 files threshold from #2105. If the operator wants a specific past oversized pipeline as the regression benchmark, they can name it during plan-phase HITL or in the implement phase's test plan.\"}}",
       "phase": "refine",
       "content_changed": null
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T17:05:45.594369Z",
+  "updated_at": "2026-04-28T17:06:09.371338Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -617,6 +617,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 58,
+  "version": 59,
   "jira_ticket": null
 }
