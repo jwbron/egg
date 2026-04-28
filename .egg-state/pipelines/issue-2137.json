@@ -260,10 +260,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-6",
+      "question": "**Reviewer roster removal** — Which reviewers should be removed from each slice's BRC roster (relative to today's implement-phase roster: `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_security`, `reviewer_concurrency` + `tester` dual-role)?",
+      "context": "Open contract question decision-4, registered by an agent during the refine phase.",
+      "options": [
+        "Remove `reviewer_code` (fan-out version) only — the issue says diff-size fan-out becomes unnecessary; keep `reviewer_code_holistic` as the per-slice CRITICAL code reviewer.",
+        "Remove both `reviewer_code` and `reviewer_code_holistic` — replace with a single `reviewer_code` that runs single-pass (since slices are now small).",
+        "Keep both `reviewer_code` and `reviewer_code_holistic`, but disable fan-out in `reviewer_code` (always single-pass on slice-scoped diffs).",
+        "Keep current roster as-is per slice; just let fan-out be inert because slice diffs are below the >10 files / >500 LOC threshold.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-28T16:55:13.728289Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T16:55:13.687807Z",
+  "updated_at": "2026-04-28T16:55:13.749798Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -277,6 +297,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 24,
+  "version": 25,
   "jira_ticket": null
 }
