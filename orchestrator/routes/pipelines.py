@@ -1658,7 +1658,7 @@ def _clear_pipeline_runtime_state(pipeline_id: str, *, reason: str) -> None:
     matching ``run_epoch`` namespace, a fresh pipeline that reuses an id
     from a prior terminal run (same branch, e.g. ``issue-1965``) will
     inherit the prior run's CONFIRMED consensus and message history. The
-    leak surfaces in ``wait_for_status_change``'s Path-B envelope, which
+    leak surfaces in the ``/status/wait`` route's Path-B envelope, which
     would report ``concurrent.consensus.is_complete: true`` for a
     pipeline that has not spawned any agents yet (#2053).
 

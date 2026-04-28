@@ -1990,14 +1990,15 @@ class TestHeartbeatRoute:
 
     def test_heartbeat_route_does_not_dedupe_waiting_for_event(self, client, app):
         """Issue #2036: ``WAITING_FOR_EVENT`` is a liveness keep-alive
-        emitted by ``mcp__brc__wait_loop`` while it's blocked. Periodic
-        identical beats are exactly the signal the overseer's stall
-        detector needs — so this state MUST skip the ``(state,
-        waiting_on)`` dedup filter even when consecutive posts are
-        byte-for-byte identical.
+        emitted by the ``message_wait_loop`` handler while it's blocked
+        (driving ``egg-orch message wait-loop``). Periodic identical
+        beats are exactly the signal the overseer's stall detector
+        needs — so this state MUST skip the ``(state, waiting_on)``
+        dedup filter even when consecutive posts are byte-for-byte
+        identical.
 
         If a future refactor re-enables dedup for this state, every
-        agent blocked in a wait_loop would once again stop emitting
+        agent blocked in a wait-loop would once again stop emitting
         heartbeats after the first beat, and the overseer would resume
         firing the false-positive stall alerts described in #2036.
         """

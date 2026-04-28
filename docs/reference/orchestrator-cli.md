@@ -13,6 +13,7 @@ Run `egg-orch --help` for full usage. All commands support `--json` for machine-
 | `egg-orch pipeline list` | List all pipelines |
 | `egg-orch pipeline get <id>` | Get pipeline details |
 | `egg-orch pipeline status <id>` | Get pipeline status |
+| `egg-orch pipeline wait-status <id> [--since <cursor>]` | **Canonical host monitor idiom** — long-poll the pipeline for events, JSON-lines on stdout, exit codes per §3 contract. See [Agent Wait Patterns §7](agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status). |
 | `egg-orch pipeline create --repo <owner/name>` | Create a pipeline |
 | `egg-orch pipeline delete <id>` | Delete a pipeline |
 | `egg-orch signal complete [<id>] --role <role>` | Signal agent completion |

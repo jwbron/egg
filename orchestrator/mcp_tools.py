@@ -303,58 +303,6 @@ PIPELINE_TOOLS = [
         },
     },
     {
-        "name": "wait_for_status_change",
-        "description": (
-            "Block up to ``wait`` seconds on the next pipeline-relevant "
-            "event for the given task.  Returns one of two envelope "
-            "shapes: "
-            "(1) ``{changed: true, trigger: 'event'|'message', "
-            "event_type|messages, cursor, ...snapshot}`` when an "
-            "allowlisted EventBus event (phase.started / phase.completed "
-            "/ decision.created / pipeline.{completed,failed,cancelled}) "
-            "or allowlisted message type (OVERSEER_ALERT / "
-            "CONSENSUS_CONFIRMED / CONSENSUS_NACK / CONSENSUS_RE_REVIEW) "
-            "fires before the timeout.  ``...snapshot`` is the full "
-            "enriched status that ``get_status`` would return. "
-            "(2) ``{changed: false, no_change: true, current_phase, "
-            "status, phase_elapsed_seconds, concurrent: {consensus}, "
-            "cursor}`` when the wait window elapsed with no relevant "
-            "event.  Thread ``cursor`` from one response into ``since`` "
-            "on the next to avoid re-waking on already-seen events. "
-            "See docs/reference/agent-wait-patterns.md §7."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "task_id": {
-                    "type": "string",
-                    "description": "Pipeline/task ID to watch",
-                },
-                "wait": {
-                    "type": "number",
-                    "description": (
-                        "Seconds to block.  Default 25.  Capped at 25 "
-                        "server-side to stay under Claude Code's "
-                        "streamable-HTTP MCP tool-call timeout."
-                    ),
-                    "default": 25,
-                },
-                "since": {
-                    "type": "string",
-                    "description": (
-                        "Opaque cursor from a prior response's "
-                        "``cursor`` field, formatted "
-                        "``msg:<id>|evt:<seq>``.  Either half may be "
-                        "empty.  Leave empty on the first call to snap "
-                        "to the tip of both sources."
-                    ),
-                    "default": "",
-                },
-            },
-            "required": ["task_id"],
-        },
-    },
-    {
         "name": "provide_input",
         "description": "Provide human input for a pipeline decision.",
         "inputSchema": {
@@ -1103,7 +1051,6 @@ class PipelineToolHandler:
             "run_agent_task": self._handle_run_agent_task,
             "babysit_pr": self._handle_babysit_pr,
             "get_status": self._handle_get_status,
-            "wait_for_status_change": self._handle_wait_for_status_change,
             "provide_input": self._handle_provide_input,
             "list_tasks": self._handle_list_tasks,
             "cancel_task": self._handle_cancel_task,
@@ -1615,12 +1562,6 @@ class PipelineToolHandler:
     def _build_status_snapshot(self, raw_task_id: str) -> dict[str, Any]:
         """Build the full enriched status snapshot for a pipeline.
 
-        Pulled out of ``_handle_get_status`` (issue #1932 TASK-2-2) so
-        ``_handle_wait_for_status_change`` can call the same enrichment
-        after a wait wakes on ``changed: true`` — both MCP tools return
-        the same envelope shape modulo the extra ``changed`` / ``trigger``
-        / ``cursor`` keys added by the wait tool.
-
         Args:
             raw_task_id: Pipeline/task ID (unquoted).
 
@@ -1714,13 +1655,6 @@ class PipelineToolHandler:
         # threshold (#2166). Lets operators fail loudly within a minute
         # instead of polling for 10+ min hoping to spot the absence of
         # progress.
-        #
-        # NB: this snapshot's pipeline read is not synchronized with the
-        # ``/status/wait`` route's read in ``_handle_wait_for_status_change``.
-        # If a successor phase is scheduled between the two reads, the
-        # merged response there can carry the route's newer ``current_phase``
-        # AND this block's older ``wedged_no_successor`` — a transient
-        # false positive that resolves on the next poll.
         if (
             pipeline_data.get("status") == "running"
             and not status["pending_decisions"]
@@ -1763,63 +1697,6 @@ class PipelineToolHandler:
         self._enrich_pending_decisions(status, raw_task_id, pipeline_data)
 
         return status
-
-    def _handle_wait_for_status_change(self, args: dict[str, Any]) -> dict[str, Any]:
-        """Event-driven host-side wait (issue #1932).
-
-        Calls the ``/api/v1/pipelines/<id>/status/wait`` route and, on
-        a ``changed: true`` response, enriches the minimal envelope with
-        the full ``_build_status_snapshot`` output.  On a ``changed:
-        false, no_change: true`` response the route envelope is
-        returned verbatim so dashboards can branch on the
-        ``no_change`` key.
-
-        The async MCP wrapper (``mcp_server._apply_get_status_wait``)
-        explicitly short-circuits on ``tool_name != 'get_status'``, so
-        the server-side block is NOT compounded by a second
-        ``asyncio.sleep`` on the event loop.  Regression test for this
-        lives in ``test_mcp_server.py`` (TASK-4-4).
-        """
-        raw_task_id = args["task_id"]
-        task_id = quote(raw_task_id, safe="")
-
-        wait = args.get("wait", 25)
-        if isinstance(wait, bool):
-            wait = 25
-        if not isinstance(wait, (int, float)) or wait <= 0:
-            wait = 25
-        wait_int = int(wait)
-
-        since = args.get("since", "") or ""
-        since_q = quote(since, safe="")
-
-        endpoint = f"/api/v1/pipelines/{task_id}/status/wait?wait={wait_int}"
-        if since_q:
-            endpoint += f"&since={since_q}"
-
-        result = self._make_request(endpoint, timeout=wait_int + 15)
-        data = (result or {}).get("data") or {}
-
-        # Route failure / unexpected shape — bubble up unchanged so the
-        # caller sees the error message rather than silently getting a
-        # bogus envelope.
-        if not isinstance(data, dict):
-            return result
-
-        if data.get("changed") is True:
-            snapshot = self._build_status_snapshot(raw_task_id)
-            # Route-provided fields take precedence over the snapshot
-            # where keys overlap (current_phase / status /
-            # phase_elapsed_seconds / pipeline) — the route already
-            # re-read the pipeline after the wake so its view is the
-            # newest.
-            merged = dict(snapshot)
-            merged.update(data)
-            return merged
-
-        # ``changed: false`` — pass through the minimal envelope so the
-        # caller can branch structurally on ``no_change``.
-        return data
 
     def _enrich_pending_decisions(
         self,

@@ -410,10 +410,11 @@ class TestWaitressSizing:
 
     def test_default_threads_is_24(self, monkeypatch):
         """Default raised 16 → 24 in issue #1932 TASK-1-4 to absorb
-        host-side ``wait_for_status_change`` load on top of existing
-        sandbox-side long polls. Each host wait costs two threads for
-        up to the wait duration. Raising this further requires an
-        explicit EGG_ORCH_WAITRESS_THREADS value. See
+        host-side ``/status/wait`` load on top of existing sandbox-side
+        long polls. Each host wait (now driven by the
+        ``egg-orch pipeline wait-status`` Bash CLI per #2211) costs two
+        threads for up to the wait duration. Raising this further
+        requires an explicit EGG_ORCH_WAITRESS_THREADS value. See
         docs/reference/agent-wait-patterns.md §7.
         """
         monkeypatch.delenv("EGG_ORCH_WAITRESS_THREADS", raising=False)
