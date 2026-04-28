@@ -542,6 +542,9 @@ def cmd_pipeline_wait_status(args: argparse.Namespace) -> int:
     """
     import time as _time
 
+    # ``require_pipeline_id`` calls ``validate_id`` which already URL-encodes
+    # the result; ``pid`` is therefore safe to interpolate into the endpoint
+    # path directly.
     pid = require_pipeline_id(args)
     cursor = (getattr(args, "since", "") or "").strip()
     inner_timeout = max(int(getattr(args, "inner_timeout", 25) or 25), 1)
@@ -550,13 +553,17 @@ def cmd_pipeline_wait_status(args: argparse.Namespace) -> int:
         max_iterations = sys.maxsize
 
     backoff = 1.0
-    transient_total = 0.0
-    transient_budget = 60.0  # cumulative transient retry budget before exit 2
-
-    pid_q = quote(pid, safe="")
+    # Cumulative *backoff sleep* time across consecutive transient failures.
+    # NOT wall-clock — a stuck orchestrator that holds connections open for
+    # ``inner_timeout + 15`` s per call would not advance this counter while
+    # blocked, only while sleeping between retries.  The 60 s budget below
+    # bounds how long the loop *backs off* before giving up; the operator
+    # always retains the option to re-invoke after exit 2.
+    backoff_sleep_total = 0.0
+    backoff_sleep_budget = 60.0
 
     for _ in range(max_iterations):
-        endpoint = f"/api/v1/pipelines/{pid_q}/status/wait?wait={inner_timeout}"
+        endpoint = f"/api/v1/pipelines/{pid}/status/wait?wait={inner_timeout}"
         if cursor:
             endpoint += f"&since={quote(cursor, safe='')}"
 
@@ -564,18 +571,15 @@ def cmd_pipeline_wait_status(args: argparse.Namespace) -> int:
             result = api_request(get_orchestrator_url(), endpoint, timeout=inner_timeout + 15)
         except ApiError as err:
             status = err.status_code or 0
-            if status in (400, 404):
-                print(f"wait-status: {status} {err.message}", file=sys.stderr)
-                return 3
             if status and 400 <= status < 500:
-                # Other 4xx — permanent.
+                # 4xx — permanent.
                 print(f"wait-status: {status} {err.message}", file=sys.stderr)
                 return 3
             # 5xx, network errors, timeouts — transient.
-            transient_total += backoff
-            if transient_total > transient_budget:
+            backoff_sleep_total += backoff
+            if backoff_sleep_total > backoff_sleep_budget:
                 print(
-                    f"wait-status: transient error budget exceeded ({err.message})",
+                    f"wait-status: transient error backoff budget exceeded ({err.message})",
                     file=sys.stderr,
                 )
                 return 2
@@ -583,9 +587,9 @@ def cmd_pipeline_wait_status(args: argparse.Namespace) -> int:
             backoff = min(backoff * 2, 5.0)
             continue
 
-        # Successful call resets the transient budget.
+        # Successful call resets the backoff window.
         backoff = 1.0
-        transient_total = 0.0
+        backoff_sleep_total = 0.0
 
         envelope = result.get("data") if isinstance(result.get("data"), dict) else result
         if not isinstance(envelope, dict):
@@ -611,8 +615,6 @@ def cmd_pipeline_wait_status(args: argparse.Namespace) -> int:
                 line["messages"] = envelope.get("messages")
             if "concurrent" in envelope:
                 line["concurrent"] = envelope["concurrent"]
-            if "pending_decisions" in envelope:
-                line["pending_decisions"] = envelope["pending_decisions"]
             print(json.dumps(line), flush=True)
 
             status_str = envelope.get("status")

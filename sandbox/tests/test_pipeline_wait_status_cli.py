@@ -194,7 +194,7 @@ class TestExitCodes:
     def test_5xx_exhausts_budget_returns_two(self):
         err = ApiError("server error", status_code=500)
         # Many 5xx in a row; with sleep mocked the loop iterates until the
-        # transient_total exceeds the 60 s budget.
+        # cumulative backoff sleep exceeds the 60 s budget.
         with (
             patch(_API_MOCK_PATH, side_effect=err),
             patch("time.sleep"),
@@ -279,6 +279,31 @@ class TestCursorThreading:
         # URL-encoded (the ``|`` becomes %7C).
         assert "since=msg" in second_endpoint
         assert "%7C" in second_endpoint
+
+    def test_path_b_cursor_threaded_into_next_call(self):
+        """Pin: a Path-B (no_change) response's cursor is threaded into
+        the next call's ``since`` exactly like a Path-A cursor.
+
+        Without this, a regression that resets the cursor only on
+        Path-B would silently re-start the wait at tip on every quiet
+        stretch — events that fired during the no-change window would
+        be missed by the next call's subscription.
+        """
+        with patch(
+            _API_MOCK_PATH,
+            side_effect=[
+                _no_change("msg:abc|evt:5"),
+                _terminal_event("msg:|evt:6"),
+            ],
+        ) as mock:
+            cmd_pipeline_wait_status(_ns(max_iterations=5))
+        first_endpoint = mock.call_args_list[0][0][1]
+        second_endpoint = mock.call_args_list[1][0][1]
+        assert "since=" not in first_endpoint
+        # Cursor from the no_change response is URL-encoded
+        # (``msg:abc|evt:5`` → ``msg%3Aabc%7Cevt%3A5``) and appears on
+        # the second call's URL.
+        assert "since=msg%3Aabc%7Cevt%3A5" in second_endpoint
 
 
 @pytest.fixture(autouse=True)

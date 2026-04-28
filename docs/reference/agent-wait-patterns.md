@@ -613,8 +613,6 @@ re-fetching the full envelope when needed.
 > §8 — the 16 → 24 default still applies because the route still
 > holds two threads per in-flight wait).
 
-### 7.1 The two response envelopes
-
 ### 7.1 The CLI
 
 ```bash
@@ -643,8 +641,7 @@ envelope:
   "current_phase": "plan",
   "status": "running",
   "phase_elapsed_seconds": 127,
-  "concurrent": { "consensus": { ... } },
-  "pending_decisions": [ ... ]
+  "concurrent": { "consensus": { ... } }
 }
 ```
 
@@ -654,11 +651,15 @@ CLI emits **nothing** and silently loops — the LLM only wakes when
 something happened.
 
 > **Why no full snapshot in the JSON line?** The full `_build_status_snapshot`
-> envelope (running/completed agents, pipeline metadata, recent_messages) costs
-> tokens on every emission. The skill calls `egg-orch pipeline status <id>
-> --json` separately when it needs the full envelope (e.g. on
-> `decision.created` to render `pending_decisions`). The CLI emits the
-> structurally-distinct fields the dashboard renders incrementally.
+> envelope (running/completed agents, pipeline metadata, recent_messages,
+> `pending_decisions`) costs tokens on every emission and is what the route's
+> minimal envelope deliberately omits. The skill calls `egg-orch pipeline
+> status <id> --json` (or the MCP `get_status` tool) separately when it needs
+> the full envelope — for example on `event_type: "decision.created"` to
+> render `pending_decisions` ahead of HITL. The CLI emits only the
+> dashboard-relevant subset (`current_phase` / `status` /
+> `phase_elapsed_seconds` / `concurrent.consensus`) the route's
+> `_build_minimal_status_envelope` ships.
 
 ### 7.2 Event-trigger allowlist
 

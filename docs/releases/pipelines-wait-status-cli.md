@@ -88,13 +88,18 @@ unchanged, and the CLI surfaces the same data.
 
 ## Cancellation
 
-CLI receives `SIGTERM` → closes its HTTP connection → the route's
-Waitress worker detects client disconnect and unsubscribes the
-EventBus handler in its `finally` block. The lame-duck daemon thread
-documented in
+When the CLI receives `SIGTERM`, the local process closes its HTTP
+connection, but Waitress does **not** proactively interrupt a
+synchronous handler on client disconnect — the route handler keeps
+running until its `wake_q.get(timeout=...)` returns or the 25 s cap
+elapses. The route's `finally` block (which unsubscribes the
+EventBus handler) only runs once that wake completes. The lame-duck
+daemon thread documented in
 [§7.4](../reference/agent-wait-patterns.md#74-concurrency-model--queue--daemon-thread)
-continues for ≤ 25 s after disconnect — same behavior as the MCP
-variant.
+also continues for ≤ 25 s after disconnect. In practice the
+EventBus subscription is bounded at ≤ 25 s after a SIGTERM — same
+upper bound as the prior MCP variant; "detects disconnect →
+unsubscribes" is not what Waitress actually does here.
 
 ## Rollback
 

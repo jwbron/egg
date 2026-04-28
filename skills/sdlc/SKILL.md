@@ -341,8 +341,7 @@ Drive the pipeline through one Bash invocation per quiet stretch. On entry:
      "current_phase": "plan",
      "status": "running",
      "phase_elapsed_seconds": 127,
-     "concurrent": { "consensus": { ... } },
-     "pending_decisions": [ ... ]
+     "concurrent": { "consensus": { ... } }
    }
    ```
 
@@ -358,14 +357,14 @@ Drive the pipeline through one Bash invocation per quiet stretch. On entry:
    Recent: <event_type or first messages[] entry>
    ```
 
-   Use the server-computed `phase_elapsed_seconds` from the line. The line carries the dashboard-relevant fields (`current_phase`, `status`, `phase_elapsed_seconds`, `concurrent`, `pending_decisions`) but **not** the full snapshot (running_agents, completed_agents, recent_messages, pipeline metadata). When you need the full envelope — for example to enrich an `OVERSEER_ALERT` with `recent_messages`, or to render `pending_decisions` ahead of HITL — call `get_status(task_id)` again as a one-shot snapshot and refresh `last_status`.
+   Use the server-computed `phase_elapsed_seconds` from the line. The line carries only the dashboard-relevant subset (`current_phase`, `status`, `phase_elapsed_seconds`, `concurrent.consensus`) — it does **not** include the full snapshot (running_agents, completed_agents, recent_messages, pipeline metadata, `pending_decisions`). When you need the full envelope — for example to enrich an `OVERSEER_ALERT` with `recent_messages`, or to render `pending_decisions` ahead of HITL on a `decision.created` line — call `get_status(task_id)` again as a one-shot snapshot and refresh `last_status`.
 
 5. **Check for overseer alerts** on each `trigger: "message"` line where any entry's `type` is `OVERSEER_ALERT` — see [Overseer Alert Detection](#overseer-alert-detection) below.
 
 6. **Check consensus health** on each line carrying `concurrent.consensus` — see [Consensus Monitoring](#consensus-monitoring) below. The wait-status JSON-line ships `concurrent.consensus` whenever the route saw it, so consensus drift never goes invisible during quiet phases on BRC pipelines.
 
 7. **State transitions:**
-   - On a line with non-empty `pending_decisions` (or `event_type: "decision.created"`) → re-fetch the full snapshot via `get_status(task_id)` and move to Phase 4 (HITL).
+   - On `event_type: "decision.created"` → re-fetch the full snapshot via `get_status(task_id)` (the JSON-line does not carry `pending_decisions`) and move to Phase 4 (HITL).
    - On `status: "complete"` or `event_type: "pipeline.completed"` → exit the monitor loop and move to Phase 5.
    - On `status: "failed"` or `event_type: "pipeline.failed"` → apply the **failed status grace period** (see below) before exiting.
 
@@ -1322,8 +1321,7 @@ Drive the pipeline through one Bash invocation per quiet stretch. On entry:
      "current_phase": "implement",
      "status": "running",
      "phase_elapsed_seconds": 127,
-     "concurrent": { "consensus": { ... } },
-     "pending_decisions": [ ... ]
+     "concurrent": { "consensus": { ... } }
    }
    ```
 
@@ -1340,10 +1338,10 @@ Drive the pipeline through one Bash invocation per quiet stretch. On entry:
    Recent: <event_type or first messages[] entry>
    ```
 
-   The JSON-line ships only the dashboard-relevant fields (`current_phase`, `status`, `phase_elapsed_seconds`, `concurrent`, `pending_decisions`) — not the full snapshot. When you need the full envelope (agent list, recent_messages, pipeline metadata), call `get_status(task_id)` as a one-shot and refresh `last_status`.
+   The JSON-line ships only the dashboard-relevant subset (`current_phase`, `status`, `phase_elapsed_seconds`, `concurrent.consensus`) — it does **not** include the full snapshot (agent list, recent_messages, pipeline metadata, `pending_decisions`). When you need the full envelope (e.g. on `decision.created` to render `pending_decisions` ahead of HITL), call `get_status(task_id)` as a one-shot and refresh `last_status`.
 
 5. **State transitions:**
-   - On a line with non-empty `pending_decisions` (or `event_type: "decision.created"`) → re-fetch the full snapshot via `get_status(task_id)` and handle the decision inline (see below).
+   - On `event_type: "decision.created"` → re-fetch the full snapshot via `get_status(task_id)` (the JSON-line does not carry `pending_decisions`) and handle the decision inline (see below).
    - On `status: "complete"` or `event_type: "pipeline.completed"` → exit, move to Phase S6.
    - On `status: "failed"` or `event_type: "pipeline.failed"` → apply the **failed status grace period** (see below) before exiting.
 
