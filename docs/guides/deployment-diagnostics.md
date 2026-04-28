@@ -180,10 +180,28 @@ The skill detects this case and surfaces it in the Top finding — it does
 You will still get the Job spec, Events, and env keys; the classifier
 runs against the reduced evidence.
 
-The same [#1805](https://github.com/jwbron/egg/issues/1805) follow-up
-addresses this — once agent logs persist beyond the Pod lifetime, the
-`agent-diagnose` catalogue row `short-lived pod, log unavailable` becomes
-obsolete.
+**Concurrent BRC phases**: For pipelines running in concurrent execution
+mode, the orchestrator now captures a frozen exit snapshot
+(`AgentExitInfo`) for each container as it exits and appends it to
+`PhaseExecution.agent_exits`. This snapshot includes the last 200 lines
+of container stdout/stderr (each capped at 4 096 chars), the exit code,
+the role, and the container ID at time of exit — and it persists in
+pipeline state even after the Pod is gone. Retrieve it via:
+
+```bash
+egg-orch phase get <pipeline-id>
+# look for the "agent_exits" array in the phase_execution block
+```
+
+The `container_id` in each entry can also be fed directly to
+`/agent-diagnose` while the Pod still exists; `last_lines` gives you the
+log tail after it doesn't. This means the `short-lived pod, log
+unavailable` failure class is mitigated for concurrent phases even without
+a persistent log aggregator.
+
+The broader [#1805](https://github.com/jwbron/egg/issues/1805) follow-up
+(persistent log aggregation for all agent types) remains open; the
+`agent_exits` snapshot only covers concurrent BRC phases.
 
 ### Cluster Event retention
 
