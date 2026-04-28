@@ -220,10 +220,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-4",
+      "question": "**Slice failure semantics** — A slice fails (BRC stuck, repeated NACKs, agent crash). The issue says \"downstream slices that depend on a failed slice will block, eventually deadlocking the pipeline → HITL escalation.\" What should happen to *independent* sibling slices that have already started or could still start?",
+      "context": "Open contract question decision-2, registered by an agent during the refine phase.",
+      "options": [
+        "Let siblings run to completion; only block on the failed slice's downstream subtree (matches issue text literally).",
+        "Pause new slice spawns once any failure is observed; let in-flight siblings finish, then escalate to HITL with the global state.",
+        "Cancel all in-flight slices on first failure to conserve tokens; HITL escalation immediately.",
+        "Treat slice failure as recoverable: auto-retry the failed slice once with a fresh agent team before escalating to HITL.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-28T16:55:13.609509Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T16:55:13.561712Z",
+  "updated_at": "2026-04-28T16:55:13.629662Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -237,6 +257,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 22,
+  "version": 23,
   "jira_ticket": null
 }
