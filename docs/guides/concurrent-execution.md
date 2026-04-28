@@ -752,7 +752,7 @@ A complementary check, `IncompleteConsensusStallCheck`, handles the inverse scen
 
 ### All-Container-Exit Consensus Recovery
 
-Step 5 of `_run_concurrent_phase` handles the terminal path where all agent containers have exited. It has two branches — one for when failures occurred (non-zero exit codes) and one for clean exits (all exit code 0). **Both branches now perform a final consensus recheck** via `executor.check_consensus()` before deciding the phase outcome.
+Step 5 of `_run_concurrent_phase` handles the terminal path where all agent containers have exited. It has two branches — one for when failures occurred (non-clean exit codes) and one for clean exits (exit code 0 or 143). **Both branches now perform a final consensus recheck** via `executor.check_consensus()` before deciding the phase outcome.
 
 **Has-failures branch** (at least one non-zero exit code):
 
@@ -788,12 +788,9 @@ When an agent crashes, `PeerConsensusTracker.handle_agent_crash()` assesses impa
 
 ### SIGTERM Handling During Phase Transitions
 
-When a phase completes and the orchestrator stops agent containers, agents receive SIGTERM and exit with code 143. The container monitor's reconciliation loop distinguishes these expected exits from genuine failures:
+When a phase completes and the orchestrator stops agent containers, agents receive SIGTERM and exit with code 143. The Kubernetes monitor's `_classify_exit` treats exit codes 0 and 143 identically as clean exits — the agent is marked `COMPLETE`, the container `EXITED`, and `pipeline.status` is never mutated by the monitor regardless of phase state. The `routes/pipelines.py` BRC poll loop applies the same classifier, so the two layers cannot race to write contradictory agent status values.
 
-- **Exit code 143 when phase status is no longer `RUNNING`** (i.e., the phase has already transitioned): Skipped during reconciliation — no `FAILED` status is set, no HITL escalation is triggered.
-- **Exit code 143 during an actively `RUNNING` phase**: Treated as a genuine failure and reconciled normally, since the phase has not yet completed.
-
-This scoping ensures that the container polling loop (`_check_container`) still emits a `FAILED` event for exit code 143 — preserving the signal for the agent-loop guard that checks exit codes — while the reconciliation layer suppresses the false failure when phase context confirms the exit was expected. This prevents noisy `[ERROR] Agent failed` log entries and false HITL escalations on successful phase transitions.
+This means clean BRC exits (exit code 0) and orchestrator-initiated teardowns (exit code 143) are both safe to observe without triggering HITL escalation or false `FAILED` pipeline transitions. Only genuinely unexpected exits (any other non-zero code) are classified as failures.
 
 ## Failure Recovery
 
