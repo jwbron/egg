@@ -1559,7 +1559,7 @@ def _rebase_with_agent_output_autoresolve(
             category="reconcile_base_unavailable",
             detail=(
                 f"origin/{base_branch} could not be resolved in the worktree; "
-                "refusing the plain `git rebase origin/{branch}` fallback "
+                f"refusing the plain `git rebase origin/{branch}` fallback "
                 "(would absorb upstream main commits — see #2222)"
             ),
         )

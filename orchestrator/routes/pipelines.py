@@ -1437,7 +1437,14 @@ def create_pipeline() -> tuple[Response, int]:
                     # PR via the push-reconcile fallback).  Compare the
                     # branch tip to the configured base; only a fresh
                     # branch (tip == base) is safe to silently reuse.
-                    _resolved_base = base_branch or "main"
+                    #
+                    # Resolve the default branch via ``_detect_default_branch``
+                    # rather than hardcoding ``"main"`` so repos whose default
+                    # is ``master`` / ``develop`` still get the stale-branch
+                    # check (otherwise the ``origin/main`` lookup returns
+                    # ``None``, the guard falls through, and the precondition
+                    # check is silently disabled).
+                    _resolved_base = base_branch or _detect_default_branch(repo_path)
                     _branch_sha = gw.get_remote_branch_sha(
                         pipeline_id=pipeline_id or f"branch-check-{uuid4().hex[:8]}",
                         repo_path=str(repo_path),
@@ -1448,6 +1455,23 @@ def create_pipeline() -> tuple[Response, int]:
                         repo_path=str(repo_path),
                         ref=f"refs/heads/{_resolved_base}",
                     )
+                    # When either lookup returns ``None`` the stale-branch
+                    # check is bypassed.  ``get_remote_branch_sha`` swallows
+                    # transient gateway errors and returns ``None`` (same
+                    # value it returns when the ref legitimately doesn't
+                    # exist), so we surface a warning here to make the
+                    # silent skip visible to operators investigating a
+                    # post-merge contamination — rather than letting the
+                    # precondition fix vanish behind a transient hiccup.
+                    if _branch_sha is None or _base_sha is None:
+                        logger.warning(
+                            "Stale-branch check skipped: SHA lookup returned None "
+                            "(transient gateway error or ref missing — see #2222)",
+                            branch=branch,
+                            base_branch=_resolved_base,
+                            branch_sha=_branch_sha,
+                            base_sha=_base_sha,
+                        )
                     if _branch_sha and _base_sha and _branch_sha != _base_sha:
                         logger.warning(
                             "Branch exists with prior-pipeline commits — refusing reuse (#2222)",
@@ -5565,6 +5589,15 @@ def _rebase_pipeline_branch_onto_base(
             base_branch=base_branch,
             behind_base=behind_count,
         )
+        # Step 4a: hard-reset to ``origin/<base>`` first.  Note that step 5
+        # immediately overwrites HEAD again with ``reset --hard
+        # origin/<branch>`` in the success path, so this reset's effect on
+        # HEAD is short-lived — its purpose is to act as a safe-state floor:
+        # if step 5 itself fails (network blip, ref vanishes), we leave the
+        # worktree on a known-good ref (``origin/<base>``) instead of the
+        # ambiguous pre-recovery state that prompted the rescue.  Don't
+        # "simplify" by dropping this — the back-to-back hard resets are
+        # intentional.
         recovery_reset = _run_git(["reset", "--hard", f"origin/{base_branch}"], timeout=30)
         if recovery_reset is None or recovery_reset.returncode != 0:
             logger.warning(

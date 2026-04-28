@@ -717,6 +717,11 @@ class TestCreatePipelineJiraAndQualifier:
             },
         )
         assert response.status_code == 200
+        # A 200 alone is consistent with several short-circuit paths
+        # through ``create_pipeline``; assert the request actually
+        # reached creation so a future regression that returns 200
+        # without persisting the pipeline can't quietly pass this test.
+        mock_store.create_pipeline.assert_called_once()
 
     @patch("routes.pipelines.get_gateway_client")
     @patch("routes.pipelines.get_state_store")
