@@ -340,10 +340,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-10",
+      "question": "**Babysit-PR pipelines** — Issue says `babysit_pr` is \"out of scope (#2063 stays separate).\" Is that an indefinite carve-out or a follow-up?",
+      "context": "Open contract question decision-8, registered by an agent during the refine phase.",
+      "options": [
+        "Indefinite — babysit_pr stays single-pass forever; it operates on existing PR diffs that are already bounded, so slicing has no benefit.",
+        "Follow-up after #2137 lands — file a separate issue to slice babysit_pr's implement-equivalent flow; mention it in the analysis but don't block on it.",
+        "Concurrent design — #2137 work should keep babysit_pr in mind so the slice machinery is reusable; don't ship slicing for it but make the API extensible.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-28T16:55:13.975669Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T16:55:13.937554Z",
+  "updated_at": "2026-04-28T16:55:13.995310Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -357,6 +376,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 28,
+  "version": 29,
   "jira_ticket": null
 }
