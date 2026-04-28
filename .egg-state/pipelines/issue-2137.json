@@ -353,10 +353,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-28T16:55:13.975669Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-28T17:05:35.778644Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Follow-up after #2137 lands — file a separate issue to slice babysit_pr's implement-equivalent flow; mention it in the analysis but don't block on it.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -603,7 +603,7 @@
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T17:05:35.480981Z",
+  "updated_at": "2026-04-28T17:05:35.802376Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -617,6 +617,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 47,
+  "version": 48,
   "jira_ticket": null
 }
