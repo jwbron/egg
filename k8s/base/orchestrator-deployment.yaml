@@ -119,10 +119,12 @@ spec:
             timeoutSeconds: 3
             failureThreshold: 3
           # Startup probe gives the orchestrator up to 60s to come
-          # online — the synchronous priming probe in cmd_serve runs
-          # before serve() returns, but reconciliation loops on cold
-          # boot can push first-listen past the readinessProbe's
-          # tighter window.
+          # online — cold-boot reconciliation in cmd_serve runs before
+          # waitress.serve() and can push first-listen past the
+          # readinessProbe's tighter window. The BG state-store probe
+          # also needs one EGG_ORCH_STATE_STORE_PROBE_INTERVAL cycle
+          # (default 15s) to populate the cache, during which /ready
+          # returns 503; /live (probed here) is cache-independent.
           startupProbe:
             httpGet:
               path: /api/v1/live

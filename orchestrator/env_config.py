@@ -178,7 +178,12 @@ def get_heartbeat_rate_limit() -> int:
 # ``git`` calls; raising it does the inverse. The staleness watchdog
 # in :mod:`state_store_probe` flips ``/api/v1/ready`` to 503 when the
 # cache age exceeds ``interval * 2``, so operators tuning this knob
-# also widen/narrow the readiness flap window proportionally.
+# also widen/narrow the readiness flap window proportionally. Note the
+# boot first-probe window also scales with this value: until the BG
+# thread completes one iteration, ``/api/v1/ready`` returns 503, so
+# raising the interval above ~30s can exceed the readinessProbe's
+# ``initialDelaySeconds (5) + periodSeconds (10) * failureThreshold (3)
+# = 35s`` boot tolerance.
 # -----------------------------------------------------------------
 
 DEFAULT_STATE_STORE_PROBE_INTERVAL_SECONDS = 15.0

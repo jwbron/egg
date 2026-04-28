@@ -89,6 +89,12 @@ def health_check() -> tuple[Response, int]:
     """
     snap = get_state_store_probe().snapshot()
     healthy = bool(snap["healthy"])
+    # Dual-write to _health_tracker: the BG probe's on_observation
+    # callback records the raw probe result at probe-interval cadence;
+    # this request-path record() captures the staleness-corrected value
+    # (so a wedged BG thread surfaces as an unhealthy transition the BG
+    # itself cannot observe). HealthTracker.record is thread-safe and
+    # idempotent on no-state-change, so the overlap is harmless.
     _health_tracker.record(healthy)
     tracker_snapshot = _health_tracker.snapshot()
 
