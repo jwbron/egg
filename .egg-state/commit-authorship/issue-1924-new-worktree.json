@@ -1,0 +1,12 @@
+{
+  "entries": {
+    "65aa0fa190eb20b5c1944ab1a5f95018fe57a0be": {
+      "branch": "egg/issue-1924-new-worktree",
+      "pipeline_id": "issue-1924-new-worktree",
+      "registered_at": "2026-04-28T05:05:04.863139+00:00",
+      "repo": "jwbron/egg-checkpoints",
+      "role": "reviewer_contract"
+    }
+  },
+  "version": 1
+}
