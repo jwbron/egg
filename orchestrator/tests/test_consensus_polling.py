@@ -64,6 +64,30 @@ def _make_phase_execution():
     )
 
 
+def _make_real_store(pipeline):
+    """MagicMock store that round-trips a real Pipeline through load/save.
+
+    Preserves the MagicMock surface (``load_pipeline.call_count``,
+    ``save_pipeline.call_args_list``) for tests that already inspect
+    call history, while ``load`` returns the latest persisted state
+    and ``save`` updates it.  This lets HITL persistence be observed
+    through ``store.load_pipeline(...).decisions`` after
+    ``_run_concurrent_phase`` returns — the round-trip the issue #2208
+    review asked for.  The held Pipeline is intentionally distinct from
+    the ``pipeline`` argument passed to the function under test so a
+    missing ``save_pipeline`` call would fail the assertion.
+    """
+    holder = {"pipeline": pipeline}
+    store = MagicMock()
+    store.load_pipeline.side_effect = lambda _pid: holder["pipeline"]
+
+    def _save(p):
+        holder["pipeline"] = p
+
+    store.save_pipeline.side_effect = _save
+    return store
+
+
 def _base_mocks(executions, container_infos=None):
     """Create common mocks for the consensus polling tests.
 
@@ -73,12 +97,11 @@ def _base_mocks(executions, container_infos=None):
             Defaults to RUNNING status for all containers.
     """
     pipeline = _make_concurrent_pipeline()
-    phase_exec = _make_phase_execution()
-
-    mock_store = MagicMock()
-    mock_pipeline_state = MagicMock()
-    mock_pipeline_state.get_phase_execution.return_value = phase_exec
-    mock_store.load_pipeline.return_value = mock_pipeline_state
+    # Disk-side pipeline mirrors the in-memory one but is a distinct
+    # object; tests assert HITL decisions land on this side, mirroring
+    # what /sdlc reads from disk.
+    disk_pipeline = _make_concurrent_pipeline()
+    mock_store = _make_real_store(disk_pipeline)
 
     mock_docker = MagicMock()
 
@@ -389,10 +412,12 @@ class TestObjectionHandling:
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
     @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
-    def test_objection_creates_hitl_decision_once(
+    def test_objection_dedup_distinct_from_incomplete_consensus_hitl(
         self, MockExecutor, mock_prompt, mock_lock, mock_monotonic, mock_sleep
     ):
-        """When has_objections=True, a HITL decision is created only once."""
+        """The objection HITL is created exactly once despite repeated polls
+        with ``has_objections=True``; it's a distinct decision from the
+        incomplete-consensus HITL that fires once at exit (issue #2203)."""
         poll_count = [0]
 
         def _monotonic():
@@ -441,35 +466,32 @@ class TestObjectionHandling:
         mock_lock.return_value.__enter__ = MagicMock(return_value=None)
         mock_lock.return_value.__exit__ = MagicMock(return_value=False)
 
-        mock_add_decision = MagicMock(return_value=MagicMock(id="dec-1"))
-        with patch.object(type(pipeline), "add_decision", mock_add_decision):
-            _run_concurrent_phase(
-                pipeline_id="issue-999",
-                pipeline=pipeline,
-                phase="implement",
-                spawner=mock_spawner,
-                store=mock_store,
-                **_CALL_ARGS,
-            )
+        _run_concurrent_phase(
+            pipeline_id="issue-999",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            **_CALL_ARGS,
+        )
 
-        # The objection HITL is created exactly once despite multiple polls
-        # with objections (the deduplication this test is really about).
-        # Issue #2203 added a separate incomplete-consensus HITL that also
-        # fires when containers exit cleanly without consensus closing —
-        # that's a distinct decision and is expected here.
-        objection_calls = [
-            c
-            for c in mock_add_decision.call_args_list
-            if "objecting" in c.kwargs.get("question", "").lower()
+        # Read the persisted (round-tripped) decisions to verify what
+        # ``/sdlc`` would actually see.  Issue #2208 review pointed out
+        # that asserting only on ``add_decision`` call shape masks
+        # missing-save bugs.
+        disk_decisions = mock_store.load_pipeline("issue-999").decisions
+        objection_decisions = [d for d in disk_decisions if "objecting" in d.question.lower()]
+        # Deduplication: only one objection HITL despite repeated polls.
+        assert len(objection_decisions) == 1
+        # Plus exactly one incomplete-consensus HITL fired at exit
+        # (clean-exit-without-consensus path, issue #2203).
+        incomplete_decisions = [
+            d for d in disk_decisions if "consensus incomplete" in d.question.lower()
         ]
-        assert len(objection_calls) == 1
-        incomplete_calls = [
-            c
-            for c in mock_add_decision.call_args_list
-            if "INCOMPLETE CONSENSUS" in c.kwargs.get("question", "")
-            or "consensus incomplete" in c.kwargs.get("question", "")
-        ]
-        assert len(incomplete_calls) == 1
+        assert len(incomplete_decisions) == 1
+        # The two decisions carry different option lists — they convey
+        # different operator actions and are intentionally distinct.
+        assert objection_decisions[0].options != incomplete_decisions[0].options
 
 
 class TestContainerExitFallback:
@@ -922,10 +944,11 @@ class TestFailedRecovery:
         pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions)
 
         # Simulate the reconciliation thread marking the pipeline FAILED.
-        # load_pipeline returns a mock with status=FAILED for the recovery check.
-        mock_pipeline_state = mock_store.load_pipeline.return_value
-        mock_pipeline_state.status = PipelineStatus.FAILED
-        mock_pipeline_state.error = "Container exited unexpectedly"
+        # The in-memory _InMemoryStore holds a real Pipeline; mutate its
+        # status so subsequent load_pipeline() calls observe FAILED.
+        disk_pipeline = mock_store.load_pipeline("issue-999")
+        disk_pipeline.status = PipelineStatus.FAILED
+        disk_pipeline.error = "Container exited unexpectedly"
 
         def _check_consensus():
             poll_count[0] += 1
@@ -984,9 +1007,9 @@ class TestFailedRecovery:
         executions = [_make_execution(AgentRole.CODER, "coder-1")]
         pipeline, mock_store, mock_spawner, mock_docker = _base_mocks(executions)
 
-        # Pipeline is RUNNING (normal state) — recovery should not trigger.
-        mock_pipeline_state = mock_store.load_pipeline.return_value
-        mock_pipeline_state.status = PipelineStatus.RUNNING
+        # Pipeline is RUNNING (normal state, from _make_concurrent_pipeline)
+        # — recovery should not trigger.
+        assert mock_store.load_pipeline("issue-999").status == PipelineStatus.RUNNING
 
         mock_executor_instance = MagicMock()
         mock_executor_instance.spawn_all.return_value = executions
@@ -1068,7 +1091,10 @@ class TestUpdateAgentsCompleteContainerCleanup:
                 )
             )
 
-        mock_store.load_pipeline.return_value = real_pipeline
+        # Override the in-memory store's held pipeline so subsequent
+        # load_pipeline() calls observe the test's pre-populated state
+        # (containers + agents).  Saves continue to update the holder.
+        mock_store.load_pipeline.side_effect = lambda _pid: real_pipeline
 
         mock_executor_instance = MagicMock()
         mock_executor_instance.spawn_all.return_value = executions

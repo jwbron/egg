@@ -195,14 +195,36 @@ def _make_phase_execution():
     )
 
 
+def _make_real_store(pipeline):
+    """MagicMock store that round-trips a real Pipeline through load/save.
+
+    Preserves the MagicMock surface for tests that already inspect call
+    history while making ``load`` return the latest persisted state and
+    ``save`` update it.  The HITL persistence path the issue #2208
+    review flagged is then observable through
+    ``store.load_pipeline(...).decisions`` after ``_run_concurrent_phase``
+    returns — and a missing ``save_pipeline`` call would be visible
+    because the held Pipeline is intentionally a *different object* from
+    the in-memory ``pipeline`` argument.
+    """
+    holder = {"pipeline": pipeline}
+    store = MagicMock()
+    store.load_pipeline.side_effect = lambda _pid: holder["pipeline"]
+
+    def _save(p):
+        holder["pipeline"] = p
+
+    store.save_pipeline.side_effect = _save
+    return store
+
+
 def _base_mocks(executions, container_infos=None):
     pipeline = _make_concurrent_pipeline()
-    phase_exec = _make_phase_execution()
-
-    mock_store = MagicMock()
-    mock_pipeline_state = MagicMock()
-    mock_pipeline_state.get_phase_execution.return_value = phase_exec
-    mock_store.load_pipeline.return_value = mock_pipeline_state
+    # Disk-side pipeline mirrors the in-memory one but is a distinct
+    # object; tests assert HITL decisions land on this side, mirroring
+    # what /sdlc reads from disk.
+    disk_pipeline = _make_concurrent_pipeline()
+    mock_store = _make_real_store(disk_pipeline)
 
     mock_docker = MagicMock()
 
@@ -360,29 +382,33 @@ class TestPollingLoopWithNacks:
         mock_lock.return_value.__enter__ = MagicMock(return_value=None)
         mock_lock.return_value.__exit__ = MagicMock(return_value=False)
 
-        mock_add_decision = MagicMock(return_value=MagicMock(id="dec-1"))
-        with patch.object(type(pipeline), "add_decision", mock_add_decision):
-            exit_code, logs = _run_concurrent_phase(
-                pipeline_id="issue-999",
-                pipeline=pipeline,
-                phase="implement",
-                spawner=mock_spawner,
-                store=mock_store,
-                **_CALL_ARGS,
-            )
+        exit_code, logs = _run_concurrent_phase(
+            pipeline_id="issue-999",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            **_CALL_ARGS,
+        )
 
         # Issue #1581: clean exit without consensus must return failure.
         assert exit_code == 1
         # Issue #2203: it must also surface an HITL decision so the
         # operator can drive recovery without out-of-band investigation.
-        mock_add_decision.assert_called_once()
-        call_kwargs = mock_add_decision.call_args.kwargs
-        assert "coder" in call_kwargs["question"]
-        assert call_kwargs["options"] == [
+        # Assert via the on-disk pipeline (round-tripped through
+        # save_pipeline/load_pipeline) — a missing save in
+        # `_persist_hitl_decision` would surface here.
+        disk_decisions = mock_store.load_pipeline("issue-999").decisions
+        assert len(disk_decisions) == 1
+        decision = disk_decisions[0]
+        assert "coder" in decision.question
+        assert decision.options == [
             "Retry phase",
             "Accept current state",
             "Abort phase",
         ]
+        # The in-memory `pipeline` arg is also synced for caller consistency.
+        assert len(pipeline.decisions) == 1
         assert "INCOMPLETE CONSENSUS" in logs
 
 
@@ -450,27 +476,31 @@ class TestIncompleteConsensusWithFailures:
         mock_lock.return_value.__enter__ = MagicMock(return_value=None)
         mock_lock.return_value.__exit__ = MagicMock(return_value=False)
 
-        mock_add_decision = MagicMock(return_value=MagicMock(id="dec-1"))
-        with patch.object(type(pipeline), "add_decision", mock_add_decision):
-            exit_code, logs = _run_concurrent_phase(
-                pipeline_id="issue-999",
-                pipeline=pipeline,
-                phase="implement",
-                spawner=mock_spawner,
-                store=mock_store,
-                **_CALL_ARGS,
-            )
+        exit_code, logs = _run_concurrent_phase(
+            pipeline_id="issue-999",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            **_CALL_ARGS,
+        )
 
         assert exit_code == 1
-        mock_add_decision.assert_called_once()
-        call_kwargs = mock_add_decision.call_args.kwargs
-        assert "Run-loop wire-up missing" in call_kwargs["question"]
-        assert "1 container(s) exited with non-zero" in call_kwargs["question"]
-        assert call_kwargs["options"] == [
+        # Assert against the on-disk pipeline so a missing save_pipeline
+        # would fail the test (issue #2208 review): `add_decision` on the
+        # in-memory ref alone is not enough — `/sdlc` reads the persisted
+        # state.
+        disk_decisions = mock_store.load_pipeline("issue-999").decisions
+        assert len(disk_decisions) == 1
+        decision = disk_decisions[0]
+        assert "Run-loop wire-up missing" in decision.question
+        assert "1 container(s) exited with non-zero" in decision.question
+        assert decision.options == [
             "Retry phase",
             "Accept current state",
             "Abort phase",
         ]
+        assert len(pipeline.decisions) == 1
         assert "INCOMPLETE CONSENSUS / UNRESOLVED NACKs" in logs
 
     @patch("routes.pipelines.time.sleep")
@@ -515,23 +545,23 @@ class TestIncompleteConsensusWithFailures:
         mock_lock.return_value.__enter__ = MagicMock(return_value=None)
         mock_lock.return_value.__exit__ = MagicMock(return_value=False)
 
-        mock_add_decision = MagicMock(return_value=MagicMock(id="dec-1"))
-        with patch.object(type(pipeline), "add_decision", mock_add_decision):
-            exit_code, logs = _run_concurrent_phase(
-                pipeline_id="issue-999",
-                pipeline=pipeline,
-                phase="implement",
-                spawner=mock_spawner,
-                store=mock_store,
-                **_CALL_ARGS,
-            )
+        exit_code, logs = _run_concurrent_phase(
+            pipeline_id="issue-999",
+            pipeline=pipeline,
+            phase="implement",
+            spawner=mock_spawner,
+            store=mock_store,
+            **_CALL_ARGS,
+        )
 
         assert exit_code == 1
-        mock_add_decision.assert_called_once()
-        call_kwargs = mock_add_decision.call_args.kwargs
-        assert "coder" in call_kwargs["question"]
-        assert "reviewer_code" in call_kwargs["question"]
-        assert "never confirmed" in call_kwargs["question"]
+        disk_decisions = mock_store.load_pipeline("issue-999").decisions
+        assert len(disk_decisions) == 1
+        decision = disk_decisions[0]
+        assert "coder" in decision.question
+        assert "reviewer_code" in decision.question
+        assert "never confirmed" in decision.question
+        assert len(pipeline.decisions) == 1
         assert "INCOMPLETE CONSENSUS / NO CONFIRMATION" in logs
 
     @patch("routes.pipelines.time.sleep")
@@ -539,10 +569,12 @@ class TestIncompleteConsensusWithFailures:
     @patch("routes.pipelines.get_pipeline_state_lock")
     @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
     @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
-    def test_add_decision_failure_does_not_break_return(
+    def test_persistence_failure_does_not_break_return(
         self, MockExecutor, mock_prompt, mock_lock, mock_monotonic, mock_sleep
     ):
-        """If add_decision raises, the phase still returns (1, ...) cleanly."""
+        """If the store raises during HITL persistence, the phase still
+        returns (1, ...) cleanly — losing the decision is bad, but losing
+        the rest of the cleanup path is worse."""
         from routes.pipelines import _run_concurrent_phase
 
         mock_monotonic.return_value = 0.0
@@ -576,8 +608,19 @@ class TestIncompleteConsensusWithFailures:
         mock_lock.return_value.__enter__ = MagicMock(return_value=None)
         mock_lock.return_value.__exit__ = MagicMock(return_value=False)
 
-        mock_add_decision = MagicMock(side_effect=RuntimeError("decision store down"))
-        with patch.object(type(pipeline), "add_decision", mock_add_decision):
+        # Make save_pipeline raise — _persist_hitl_decision must swallow
+        # the exception and return None, leaving the phase free to fail
+        # the rest of its cleanup path normally.
+        original_save = mock_store.save_pipeline
+        save_calls = {"count": 0}
+
+        def boom(pipeline):
+            save_calls["count"] += 1
+            raise RuntimeError("decision store down")
+
+        mock_store.save_pipeline = boom
+
+        try:
             exit_code, logs = _run_concurrent_phase(
                 pipeline_id="issue-999",
                 pipeline=pipeline,
@@ -586,9 +629,13 @@ class TestIncompleteConsensusWithFailures:
                 store=mock_store,
                 **_CALL_ARGS,
             )
+        finally:
+            mock_store.save_pipeline = original_save
 
         assert exit_code == 1
-        mock_add_decision.assert_called_once()
+        # Persistence was attempted at least once; the decision is lost
+        # (logged) but the phase still returned cleanly.
+        assert save_calls["count"] >= 1
 
 
 class TestTimeoutWithNacks:
