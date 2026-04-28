@@ -39,6 +39,10 @@
 - Are there tests for new functionality?
 - Do existing tests still pass?
 - Are edge cases covered?
+- **Tests must exercise the production code path.** The following patterns are blocking:
+  - *Self-seeding goldens* — a golden fixture written on the test's first run from the implementation under test pins whatever bug the first run had (broken detector → broken golden, pinned forever). Goldens must be authored against an independently verified expectation.
+  - *Hand-built fixtures that bypass the production code path* — a test that directly constructs a manifest entry, serialised payload, or cache key rather than going through the production helper does not exercise that helper. A regression there would not break the test.
+  - *Name-vs-behaviour contradictions* — e.g. a test named `test_zero_major_hard_fails` that asserts `'0.1'` is accepted. Either the name is misleading or the assertion is wrong; resolve the contradiction before merging.
 
 **Documentation**:
 - Are significant changes documented?
@@ -58,6 +62,8 @@
 **Blocking** (request changes):
 - Security vulnerabilities
 - Non-functional features — the feature's core purpose does not work end-to-end
+- **Primary advertised use case silently no-ops** — the producer's output is filtered, dropped, or defaulted by a downstream consumer such that the feature does nothing in its normal path, while every individual file looks internally consistent. Distinct from the bullet above: each unit test passes, but the cross-module wiring dead-ends. Synthetic-key dead-ends across modules are the canonical example (one module emits a synthetic sentinel; the consumer's filter excludes it).
+- **Operator-facing misconfiguration produces no signal** — silent exception fallbacks (bare `except Exception:` followed by a default), `None`-on-error returns, or no-op default branches that mask invalid operator input. The safety floor holding ("no crash, no security violation") does not make this non-blocking when the operator gets no feedback that their input was ignored. Symlinks, schema errors, and denied paths a user *deliberately set* should fail loudly, not silently.
 - Logic errors that produce incorrect results
 - Breaking changes to existing functionality
 - Resource leaks or crashes
