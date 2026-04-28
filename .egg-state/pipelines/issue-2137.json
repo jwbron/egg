@@ -294,10 +294,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-28T16:55:13.792723Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-28T17:05:34.728177Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Unbounded — spawn every wave-N slice simultaneously; trust container limits and gateway throttling.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -603,7 +603,7 @@
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T17:05:34.315982Z",
+  "updated_at": "2026-04-28T17:05:34.752144Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -617,6 +617,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 44,
+  "version": 45,
   "jira_ticket": null
 }
