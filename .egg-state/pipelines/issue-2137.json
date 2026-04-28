@@ -422,14 +422,14 @@
         },
         {
           "role": "reviewer_concurrency",
-          "status": "running",
+          "status": "failed",
           "container_id": "e6249056-2220-4285-9a62-146f6cc38d49",
           "container_info": null,
           "started_at": "2026-04-28T19:41:18.815280Z",
-          "completed_at": null,
+          "completed_at": "2026-04-28T20:13:04.579864Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Pod exited unexpectedly during execution — detected by Kubernetes runtime monitor",
           "retry_count": 0,
           "conflicts": []
         }
@@ -904,7 +904,7 @@
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T20:13:04.508537Z",
+  "updated_at": "2026-04-28T20:13:04.580732Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -918,6 +918,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-28T17:41:46.586368Z",
-  "version": 92,
+  "version": 93,
   "jira_ticket": null
 }
