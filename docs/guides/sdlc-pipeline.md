@@ -1275,7 +1275,7 @@ Agents communicate via the orchestrator message bus using structured envelopes:
 | `PROGRESS` | Notify about completed work | Coder: "API endpoints committed" |
 | `STATUS` | Share current activity | Documenter: "Documenting API section" |
 | `HANDOFF` | Signal a role-boundary artifact for another agent | Coder: "Test scaffolding ready — tester should create test files" |
-| `HEARTBEAT` | Typed agent state transition (`WORKING`/`WAITING_ON_ROLE`/`WAITING_FOR_EVENT`/`PROPOSED`/`IDLE`) emitted via `egg-orch message heartbeat` (`WAITING_FOR_EVENT` is auto-emitted by `mcp__brc__wait_loop`) | Tester: `state=WAITING_ON_ROLE`, `waiting_on=coder` |
+| `HEARTBEAT` | Typed agent state transition (`WORKING`/`WAITING_ON_ROLE`/`WAITING_FOR_EVENT`/`PROPOSED`/`IDLE`) emitted via `egg-orch message heartbeat` (`WAITING_FOR_EVENT` is auto-emitted by `egg-orch message wait-loop`) | Tester: `state=WAITING_ON_ROLE`, `waiting_on=coder` |
 | `AGENT_FAILED` | System notification of failure | System: "Tester agent crashed" |
 
 > `QUESTION` was removed in [#1897](https://github.com/jwbron/egg/issues/1897) — it had no reliable respondent. Reviewer questions go in `NACK` rationales; producer-to-producer requests go in `HANDOFF`; "I'm blocked on peer X" goes in a `HEARTBEAT` with `state=WAITING_ON_ROLE`. See [Agent Wait Patterns](../reference/agent-wait-patterns.md#anti-pattern-4--question-bus-messages-as-informal-status).
