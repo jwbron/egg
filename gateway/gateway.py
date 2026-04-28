@@ -1156,7 +1156,13 @@ def git_push() -> tuple[Response, int] | Response:
                 "commit_sha push requires consensus_push=true",
                 status_code=400,
             )
-        if not re.fullmatch(r"[0-9a-f]{7,64}", commit_sha):
+        # Require a full SHA (40 = SHA-1, 64 = SHA-256). Abbreviated SHAs
+        # (7-39 chars) can resolve ambiguously on the gateway side; the
+        # helper always emits the full output of ``git rev-parse HEAD`` so
+        # there is no legitimate caller of the shorter range. The explicit
+        # ``isinstance`` guard turns a non-string payload into a clean 400
+        # rather than a 500 from ``re.fullmatch``.
+        if not isinstance(commit_sha, str) or not re.fullmatch(r"[0-9a-f]{40,64}", commit_sha):
             audit_log(
                 "push_blocked",
                 "git_push",
@@ -1167,7 +1173,7 @@ def git_push() -> tuple[Response, int] | Response:
                 },
             )
             return make_error(
-                f"Invalid commit_sha {commit_sha!r}: must be 7-64 hex chars",
+                f"Invalid commit_sha {commit_sha!r}: must be 40-64 hex chars",
                 status_code=400,
             )
         session = getattr(g, "session", None)
@@ -1187,6 +1193,21 @@ def git_push() -> tuple[Response, int] | Response:
                 status_code=400,
             )
         refspec = f"{commit_sha}:refs/heads/{assigned}"
+        # Distinct audit event so post-incident review can distinguish a
+        # gateway-constructed refspec (commit_sha path) from an
+        # agent-supplied refspec; both flow through the same downstream
+        # ``push_*`` audit events and would otherwise be indistinguishable.
+        audit_log(
+            "push_via_commit_sha",
+            "git_push",
+            success=True,
+            details={
+                "repo_path": repo_path,
+                "commit_sha": commit_sha,
+                "assigned_branch": assigned,
+                "constructed_refspec": refspec,
+            },
+        )
 
     # Validate repo_path to prevent path traversal attacks
     path_valid, path_error = validate_repo_path(repo_path)
@@ -2222,10 +2243,16 @@ def git_execute() -> tuple[Response, int] | Response:
             )
         else:
             allowed_refs = {f"refs/heads/{assigned}"}
-            if isinstance(container_id, str) and container_id:
+            # Defense in depth: scope the per-role local work branch from
+            # ``session.container_id`` (canonical, set by the orchestrator at
+            # session registration), not ``data.get("container_id")`` which
+            # is agent-supplied.  Mirrors the ``update-ref`` guard above which
+            # also ignores the request-body container_id.
+            session_container_id = getattr(session, "container_id", None)
+            if isinstance(session_container_id, str) and session_container_id:
                 # Per-role local work branch (`egg/{container_id}/work`)
                 # — see worktree_manager._create_or_reuse_worktree.
-                allowed_refs.add(f"refs/heads/egg/{container_id}/work")
+                allowed_refs.add(f"refs/heads/egg/{session_container_id}/work")
             if positional[1] not in allowed_refs:
                 denial_reason = (
                     f"git symbolic-ref target '{positional[1]}' is not allowed. "

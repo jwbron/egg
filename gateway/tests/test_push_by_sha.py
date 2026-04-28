@@ -283,3 +283,146 @@ class TestCommitShaPush:
         cmd = push_invocations[0]
         assert "egg/issue-2200" in cmd
         assert not any(":refs/heads/" in arg for arg in cmd)
+
+    def test_refspec_takes_precedence_when_both_supplied(self, client):
+        """When refspec and commit_sha are both supplied, refspec wins.
+
+        Pins the current ``if commit_sha and not refspec:`` short-circuit so a
+        future refactor cannot quietly flip which input takes precedence.
+        """
+        session = _make_session()
+        captured: list[list[str]] = []
+        patches = _push_context(session, captured)
+        sha = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            response = _post(
+                client,
+                {
+                    "repo_path": "/home/egg/repos/test-repo",
+                    "remote": "origin",
+                    "refspec": "egg/issue-2200",
+                    "commit_sha": sha,
+                    "consensus_push": True,
+                },
+            )
+        assert response.status_code == 200, response.data
+        push_invocations = [c for c in captured if "push" in c and "--no-verify" in c]
+        assert len(push_invocations) == 1
+        cmd = push_invocations[0]
+        # The plain refspec passes through; the SHA-derived form must NOT appear.
+        assert "egg/issue-2200" in cmd
+        assert not any(arg.startswith(f"{sha}:") for arg in cmd)
+
+    def test_commit_sha_non_string_rejected_clean_400(self, client):
+        """A non-string commit_sha must produce a clean 400, not a 500.
+
+        Pre-fix, the path was ``re.fullmatch(r"...", commit_sha)`` with no
+        ``isinstance`` guard — a JSON ``"commit_sha": 123`` payload was
+        truthy, slipped past the ``if commit_sha`` check, and raised
+        ``TypeError`` from ``re.fullmatch``.
+        """
+        session = _make_session()
+        captured: list[list[str]] = []
+        patches = _push_context(session, captured)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            response = _post(
+                client,
+                {
+                    "repo_path": "/home/egg/repos/test-repo",
+                    "remote": "origin",
+                    "commit_sha": 123,
+                    "consensus_push": True,
+                },
+            )
+        assert response.status_code == 400, response.data
+        body = json.loads(response.data)
+        assert "commit_sha" in body.get("message", "")
+
+    def test_commit_sha_abbreviated_rejected(self, client):
+        """A 7-char abbreviated SHA is rejected — only full SHAs (40-64) are valid.
+
+        Abbreviated SHAs can resolve ambiguously on the gateway side.  The
+        helper always emits the full output of ``git rev-parse HEAD`` so the
+        7-39 range has no legitimate caller.
+        """
+        session = _make_session()
+        captured: list[list[str]] = []
+        patches = _push_context(session, captured)
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            response = _post(
+                client,
+                {
+                    "repo_path": "/home/egg/repos/test-repo",
+                    "remote": "origin",
+                    "commit_sha": "abcdef0",
+                    "consensus_push": True,
+                },
+            )
+        assert response.status_code == 400, response.data
+        body = json.loads(response.data)
+        assert "commit_sha" in body.get("message", "")
+
+    def test_commit_sha_private_mode_unaffected(self, client):
+        """Private-mode sessions can use the SHA path the same as public.
+
+        The SHA→refspec construction happens before the private-repo policy
+        check; the constructed refspec then flows through every downstream
+        gate (private-repo policy, branch ownership, file restrictions) the
+        same as an agent-supplied refspec.
+        """
+        session = _make_session()
+        session.mode = "private"
+        captured: list[list[str]] = []
+        patches = _push_context(session, captured)
+        sha = "cafebabecafebabecafebabecafebabecafebabe"
+        with (
+            patches[0],
+            patches[1],
+            patches[2],
+            patches[3],
+            patches[4],
+            patches[5],
+            patches[6],
+            patches[7],
+        ):
+            response = _post(
+                client,
+                {
+                    "repo_path": "/home/egg/repos/test-repo",
+                    "remote": "origin",
+                    "commit_sha": sha,
+                    "consensus_push": True,
+                },
+            )
+        assert response.status_code == 200, response.data
+        push_invocations = [c for c in captured if "push" in c and "--no-verify" in c]
+        assert len(push_invocations) == 1
+        cmd = push_invocations[0]
+        assert f"{sha}:refs/heads/egg/issue-2200" in cmd

@@ -236,3 +236,36 @@ class TestSymbolicRefScope:
             assert response.status_code == 400
             data = json.loads(response.data)
             assert "--short" in data.get("message", "")
+
+    def test_symbolic_ref_request_container_id_does_not_widen_scope(self, client):
+        """An attacker-supplied ``container_id`` in the request body cannot
+        widen the symbolic-ref scope past the session's own per-role branch.
+
+        Defense in depth: the allowlist is computed from
+        ``session.container_id`` (canonical, set by the orchestrator at
+        session registration), not ``data.get("container_id")``.  Mismatched
+        values reach the same gate as any other unrelated target — 403.
+        """
+        session = _make_session("egg/issue-2200", container_id="issue-2200-coder")
+        headers, mock_result, mock_policy, current_sm = _setup_auth(session)
+
+        with (
+            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy),
+            patch.object(gateway, "audit_log"),
+            patch.object(gateway, "validate_repo_path", return_value=(True, "")),
+        ):
+            # Request claims a different container_id than the session holds.
+            response = _execute(
+                client,
+                headers,
+                ["HEAD", "refs/heads/egg/other-pipeline-coder/work"],
+                container_id="other-pipeline-coder",
+            )
+            assert response.status_code == 403, response.data
+            data = json.loads(response.data)
+            msg = data.get("message", "")
+            # The attempted target must appear in the denial; the allowed set
+            # must reflect the session's container_id, not the request's.
+            assert "refs/heads/egg/other-pipeline-coder/work" in msg
+            assert "refs/heads/egg/issue-2200-coder/work" in msg
