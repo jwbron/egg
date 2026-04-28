@@ -654,7 +654,7 @@ Handle each response:
 
 ## Phase 4 — HITL (Human-in-the-Loop)
 
-When the cached `last_status` (sourced from `get_status`, re-fetched after a `wait-status` line emits `event_type: "decision.created"` or non-empty `pending_decisions`) carries a non-empty `pending_decisions` list, partition the batch by `decision_type` and handle each group as described below. `wait-status` wakes immediately on `decision.created`, so a freshly-created decision is visible on the very next emitted line — re-fetch the full snapshot via `get_status` to get the enriched `pending_decisions` envelope. A single snapshot can surface multiple pending decisions at once (e.g. a refiner that registered 10 `choice` decisions via `register_open_question`); when that happens, group them so the user sees up to 4 per `AskUserQuestion` call rather than one prompt per decision.
+When the cached `last_status` (sourced from `get_status`, re-fetched after a `wait-status` line emits `event_type: "decision.created"`) carries a non-empty `pending_decisions` list, partition the batch by `decision_type` and handle each group as described below. `wait-status` wakes immediately on `decision.created`, so a freshly-created decision is visible on the very next emitted line — re-fetch the full snapshot via `get_status` to get the enriched `pending_decisions` envelope. A single snapshot can surface multiple pending decisions at once (e.g. a refiner that registered 10 `choice` decisions via `register_open_question`); when that happens, group them so the user sees up to 4 per `AskUserQuestion` call rather than one prompt per decision.
 
 ### Two-wave surfacing
 
