@@ -178,7 +178,7 @@ Whenever you identify an **architectural scope question** the operator (not you)
 
 **Checklist (any time, not just at re-propose):** is what's blocking me an operator scope decision (not a code change I can make)? If yes, register a multi-choice HITL question and reference the decision id when I next surface state (propose, proposal summary, comment). If no, fix the code and proceed.
 
-**Registering is necessary but not sufficient to unblock.** The OCC barrier on re-propose clears only after reviewers re-ACK; that requires the operator to resolve the decision *and* you to update the proposal per the resolution. The full unblock path is: `register_open_question` → operator resolves via `/sdlc` → you fix per the resolution → reviewers re-ACK → OCC clears. Without the decision, the operator has no contract-tracked surface to resolve from at all — that is the value-add, not auto-unblocking.
+**Registering is necessary but not sufficient to unblock.** The OCC (optimistic concurrency control) barrier on re-propose clears only after reviewers re-ACK; that requires the operator to resolve the decision *and* you to update the proposal per the resolution. The full unblock path is: `register_open_question` → operator resolves via `/sdlc` → you fix per the resolution → reviewers re-ACK → OCC clears. Without the decision, the operator has no contract-tracked surface to resolve from at all — that is the value-add, not auto-unblocking.
 
 Note: the `unmediated-disagreement` anomaly type on `overseer_alert` is for **observers** (overseer / mediator) to flag that no one is adjudicating a disagreement. Producers facing reviewer disagreement on a scope question should `register_open_question` instead — that is the right surface, not an alert.
 
