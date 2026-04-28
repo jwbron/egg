@@ -307,12 +307,12 @@ except ImportError:
     from jira_policy import (  # type: ignore[no-redef, import-untyped]
         epic_link_field as jira_epic_link_field,
     )
-    from jira_policy import (  # type: ignore[no-redef, import-untyped]
+    from jira_policy import (  # type: ignore[no-redef]
         extract_project_key,
         is_project_allowed,
         reload_jira_policy,
     )
-    from jira_policy import (
+    from jira_policy import (  # type: ignore[no-redef]
         link_type_allowed as jira_link_type_allowed,
     )
     from jira_search import (  # type: ignore[no-redef, import-untyped]
@@ -5108,7 +5108,7 @@ def _validate_jira_text_field(
         try:
             from .jira_adf import is_adf_dict
         except ImportError:
-            from jira_adf import is_adf_dict  # type: ignore[no-redef]
+            from jira_adf import is_adf_dict  # type: ignore[no-redef, import-untyped]
         if not is_adf_dict(value):
             return None, make_error(
                 f"{field} must be a string or a valid ADF document",
