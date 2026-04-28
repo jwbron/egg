@@ -64,7 +64,7 @@ from typing import Any
 import yaml
 
 from .agent_roles import EXECUTION_ROLE_VALUES
-from .models import Phase, PhaseStatus, Task, TaskStatus
+from .models import Phase, PhaseStatus, Slice, Task, TaskStatus
 
 # Placeholder acceptance criteria for tasks that couldn't be parsed.
 # Used as a sentinel value to filter out non-real criteria during aggregation.
@@ -97,7 +97,13 @@ class ParsedTask:
 
 @dataclass
 class ParsedPhase:
-    """A phase extracted from a plan document."""
+    """A slice (legacy: phase) extracted from a plan document.
+
+    The class name is preserved for backward compat but post-#2137 the
+    canonical SDLC term is "slice". The plan parser accepts either
+    ``slices:`` (canonical) or ``phases:`` (legacy alias) at the
+    ``# yaml-tasks`` level — see ``parse_phases_from_yaml``.
+    """
 
     number: int
     name: str
@@ -105,10 +111,21 @@ class ParsedPhase:
     tasks: list[ParsedTask] = field(default_factory=list)
     dependencies: str = ""
     exit_criteria: str = ""
+    serialized_chain_order: list[str] = field(default_factory=list)
 
     def to_contract_phase(self) -> Phase:
-        """Convert to a contract Phase model."""
-        # Normalize dependencies to phase-N format
+        """Convert to a contract Slice model (legacy alias name)."""
+        return self.to_contract_slice()
+
+    def to_contract_slice(self) -> Phase:
+        """Convert to a contract Slice model.
+
+        Renamed from ``to_contract_phase`` in #2137. The output uses
+        the canonical ``slice-<N>`` ID shape; legacy ``phase-<N>``
+        dependency strings emitted by older planners are translated
+        to ``slice-<N>`` so post-rename consumers see a uniform DAG.
+        """
+        # Normalize dependencies to slice-N format
         normalized_deps: list[str] = []
         if self.dependencies:
             raw_deps: str | list[str] = self.dependencies
@@ -121,26 +138,50 @@ class ParsedPhase:
             if isinstance(dep_list, list):
                 for dep in dep_list:
                     dep_str = str(dep).strip()
-                    if dep_str.startswith("phase-"):
+                    if dep_str.startswith("slice-"):
                         normalized_deps.append(dep_str)
+                    elif dep_str.startswith("phase-"):
+                        # Legacy planner output — rewrite the prefix.
+                        normalized_deps.append("slice-" + dep_str[len("phase-") :])
                     else:
-                        # Try to extract phase number — prefer "phase N" pattern
-                        # to avoid extracting unrelated numbers from prose text.
-                        m = re.search(r"phase\s*(\d+)", dep_str, re.IGNORECASE)
+                        # Try to extract slice/phase number — prefer
+                        # explicit "slice N" / "phase N" patterns to
+                        # avoid extracting unrelated numbers from prose.
+                        m = re.search(
+                            r"(?:slice|phase)\s*(\d+)", dep_str, re.IGNORECASE
+                        )
                         if not m:
                             # Fall back to bare number only if the string is
                             # short (likely just "1" or "2", not prose).
                             if len(dep_str) <= 10:
                                 m = re.search(r"(\d+)", dep_str)
                         if m:
-                            normalized_deps.append(f"phase-{m.group(1)}")
+                            normalized_deps.append(f"slice-{m.group(1)}")
+
+        # Normalise serialized_chain_order entries the same way so the
+        # planner can emit either ``slice-N`` or ``phase-N`` and the
+        # contract always sees the canonical form.
+        normalised_chain: list[str] = []
+        for entry in self.serialized_chain_order:
+            entry_str = str(entry).strip()
+            if entry_str.startswith("slice-"):
+                normalised_chain.append(entry_str)
+            elif entry_str.startswith("phase-"):
+                normalised_chain.append("slice-" + entry_str[len("phase-") :])
+            else:
+                m = re.search(r"(?:slice|phase)\s*(\d+)", entry_str, re.IGNORECASE)
+                if not m and len(entry_str) <= 10:
+                    m = re.search(r"(\d+)", entry_str)
+                if m:
+                    normalised_chain.append(f"slice-{m.group(1)}")
 
         return Phase(
-            id=f"phase-{self.number}",
+            id=f"slice-{self.number}",
             name=self.name,
             status=PhaseStatus.PENDING,
             tasks=[task.to_contract_task() for task in self.tasks],
             dependencies=normalized_deps,
+            serialized_chain_order=normalised_chain,
         )
 
 
@@ -168,8 +209,17 @@ class ParseResult:
     pr_manual_steps: str | None = None
 
     def to_contract_phases(self) -> list[Phase]:
-        """Convert all parsed phases to contract Phase models."""
-        return [phase.to_contract_phase() for phase in self.phases]
+        """Backward-compat alias for ``to_contract_slices`` (#2137).
+
+        The canonical name is now ``to_contract_slices`` since the
+        contract field is ``slices``; this alias keeps existing
+        callers working during the transition window.
+        """
+        return self.to_contract_slices()
+
+    def to_contract_slices(self) -> list[Phase]:
+        """Convert all parsed slices to contract Slice models."""
+        return [phase.to_contract_slice() for phase in self.phases]
 
 
 # Regex pattern for task IDs in markdown
@@ -384,19 +434,26 @@ def parse_phases_from_yaml(
     warnings: list[ParseWarning] = []
     seen_phase_ids: set[int] = set()
 
+    # Accept either ``slices:`` (canonical post-#2137) or ``phases:``
+    # (legacy alias). When both keys are present ``slices`` wins and a
+    # warning surfaces; when neither is present we fall through to the
+    # ``tasks:`` flat-list legacy path below.
+    slices_list = yaml_data.get("slices", [])
+    legacy_phases_list = yaml_data.get("phases", [])
+
     # Reject multi-PR format: pr_plan key indicates the LLM proposed
     # multiple PRs, which violates the one-issue-one-PR constraint.
     if "pr_plan" in yaml_data:
-        phase_list = yaml_data.get("phases", [])
-        if not phase_list:
-            # pr_plan without phases means the LLM put the task breakdown
-            # under the wrong key — treat as a parse error.
+        if not slices_list and not legacy_phases_list:
+            # pr_plan without slices/phases means the LLM put the task
+            # breakdown under the wrong key — treat as a parse error.
             return [], [
                 ParseWarning(
                     line_number=None,
-                    message="'pr_plan' key found without 'phases' — the plan uses the "
-                    "unsupported multi-PR format. Each issue must produce exactly one PR "
-                    "using the 'phases' key.",
+                    message="'pr_plan' key found without 'slices' or 'phases' — "
+                    "the plan uses the unsupported multi-PR format. Each issue must "
+                    "produce exactly one PR using the 'slices' (canonical) or "
+                    "'phases' (legacy) key.",
                     context="The 'pr_plan' multi-PR format is not supported",
                 )
             ]
@@ -409,7 +466,22 @@ def parse_phases_from_yaml(
             )
         )
 
-    phase_list = yaml_data.get("phases", [])
+    if slices_list and legacy_phases_list:
+        warnings.append(
+            ParseWarning(
+                line_number=None,
+                message=(
+                    "yaml-tasks contains both 'slices:' and 'phases:' keys — "
+                    "'slices' wins. Remove 'phases:' to silence this warning."
+                ),
+                context="Canonical key is 'slices' post-#2137",
+            )
+        )
+        phase_list: list[Any] = slices_list
+    elif slices_list:
+        phase_list = slices_list
+    else:
+        phase_list = legacy_phases_list
 
     if not phase_list:
         # Check for legacy flat task list format
@@ -418,8 +490,8 @@ def parse_phases_from_yaml(
         warnings.append(
             ParseWarning(
                 line_number=None,
-                message="yaml-tasks block has no 'phases' key",
-                context="Expected format: phases: [...]",
+                message="yaml-tasks block has no 'slices' or 'phases' key",
+                context="Expected format: slices: [...] (or legacy phases: [...])",
             )
         )
         return phases, warnings
@@ -450,7 +522,7 @@ def parse_phases_from_yaml(
         try:
             phase_num = int(phase_id)
         except (ValueError, TypeError):
-            # Try extracting number from string like "phase-1"
+            # Try extracting number from string like "phase-1" or "slice-1"
             id_match = re.search(r"(\d+)", str(phase_id))
             if id_match:
                 phase_num = int(id_match.group(1))
@@ -458,7 +530,7 @@ def parse_phases_from_yaml(
                 warnings.append(
                     ParseWarning(
                         line_number=None,
-                        message=f"Cannot parse phase ID: {phase_id}",
+                        message=f"Cannot parse slice/phase ID: {phase_id}",
                     )
                 )
                 continue
@@ -475,10 +547,42 @@ def parse_phases_from_yaml(
             continue
         seen_phase_ids.add(phase_num)
 
-        phase_name = phase_data.get("name", f"Phase {phase_num}")
+        phase_name = phase_data.get("name", f"Slice {phase_num}")
         phase_goal = phase_data.get("goal", "")
         phase_dependencies = phase_data.get("dependencies", "")
         phase_exit_criteria = phase_data.get("exit_criteria", "")
+        # ``serialized_chain_order`` is a planner-emitted field added in
+        # #2137. The planner uses it to record the deliberate ordering
+        # of would-be multi-parent slices when it serialises the
+        # upstream cluster into a chain. Validation that each entry
+        # references a real sibling slice id happens at the parser
+        # level (warning) and at ingestion (forest validation).
+        phase_serialized_chain_order_raw = phase_data.get(
+            "serialized_chain_order", []
+        )
+        if isinstance(phase_serialized_chain_order_raw, str):
+            phase_serialized_chain_order = [
+                e.strip()
+                for e in phase_serialized_chain_order_raw.split(",")
+                if e.strip()
+            ]
+        elif isinstance(phase_serialized_chain_order_raw, list):
+            phase_serialized_chain_order = [
+                str(e).strip() for e in phase_serialized_chain_order_raw if str(e).strip()
+            ]
+        else:
+            phase_serialized_chain_order = []
+            warnings.append(
+                ParseWarning(
+                    line_number=None,
+                    message=(
+                        f"Slice {phase_num} 'serialized_chain_order' must be a "
+                        f"list or comma-separated string; got "
+                        f"{type(phase_serialized_chain_order_raw).__name__} — "
+                        "ignoring"
+                    ),
+                )
+            )
 
         # Parse tasks for this phase
         parsed_tasks: list[ParsedTask] = []
@@ -592,11 +696,42 @@ def parse_phases_from_yaml(
                 tasks=parsed_tasks,
                 dependencies=phase_dependencies,
                 exit_criteria=phase_exit_criteria,
+                serialized_chain_order=phase_serialized_chain_order,
             )
         )
 
     # Sort phases by number
     phases.sort(key=lambda p: p.number)
+
+    # Validate ``serialized_chain_order`` references — entries must
+    # name real sibling slice IDs (otherwise the chain can't be
+    # honoured at ingestion). Surfaces as a warning per TASK-2-1
+    # acceptance.
+    known_slice_ids = {f"slice-{p.number}" for p in phases}
+    known_phase_ids = {f"phase-{p.number}" for p in phases}
+    for parsed in phases:
+        for entry in parsed.serialized_chain_order:
+            normalised = entry
+            if entry.startswith("phase-"):
+                normalised = "slice-" + entry[len("phase-") :]
+            if (
+                normalised not in known_slice_ids
+                and entry not in known_phase_ids
+                and entry not in known_slice_ids
+            ):
+                warnings.append(
+                    ParseWarning(
+                        line_number=None,
+                        message=(
+                            f"Slice {parsed.number} 'serialized_chain_order' "
+                            f"references unknown sibling '{entry}'"
+                        ),
+                        context=(
+                            "serialized_chain_order entries must name real "
+                            "sibling slice IDs"
+                        ),
+                    )
+                )
 
     return phases, warnings
 
@@ -1034,3 +1169,68 @@ def format_warnings_for_comment(warnings: list[ParseWarning]) -> str:
             lines.append(f"  - {warning.context}")
 
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# #2137 — slice DAG forest validation
+# ---------------------------------------------------------------------------
+
+
+def validate_forest(slices: list[Slice]) -> list[str]:
+    """Walk the slice DAG and reject any slice with >1 parent.
+
+    Added in #2137 (TASK-2-2). The slice scheduler / stacked-PR
+    machinery requires the implement-phase slice DAG to be a forest:
+    each slice has at most one DAG parent. Multi-parent slices break
+    the stacking invariant (a child PR has exactly one base) and are
+    rejected at plan ingestion so the plan reviewer NACKs the planner.
+
+    Args:
+        slices: The slice list extracted from the contract / plan.
+
+    Returns:
+        A list of structured-error strings — one entry per offending
+        slice. An empty list means the DAG is a valid forest. Each
+        entry is a human-readable, reviewer-NACK-able message that
+        explicitly names the offender, its parents, and the
+        ``serialized_chain_order`` remediation (per refine-phase
+        decision-17).
+    """
+    errors: list[str] = []
+    seen_ids: set[str] = set()
+    for slice_ in slices:
+        if slice_.id in seen_ids:
+            errors.append(
+                f"Duplicate slice id '{slice_.id}' — every slice must have a "
+                "unique identifier within the contract"
+            )
+        seen_ids.add(slice_.id)
+
+    for slice_ in slices:
+        deps = slice_.dependencies or []
+        # Filter out unknown dependency targets — those are a separate
+        # ingestion error and would otherwise drown the forest signal.
+        real_parents = [d for d in deps if d in seen_ids]
+        if len(real_parents) > 1:
+            errors.append(
+                f"Slice '{slice_.id}' has {len(real_parents)} DAG parents "
+                f"({sorted(real_parents)!r}); the implement-phase slice DAG "
+                "must be a forest (≤1 parent per slice). Serialise the "
+                "upstream cluster into a chain and record the chosen order "
+                "on this slice's 'serialized_chain_order' field — see "
+                "issue #2137 plan TASK-2-3 for the auto-serialization rule."
+            )
+
+    return errors
+
+
+__all__ = (
+    "ParsedPhase",
+    "ParsedTask",
+    "ParseResult",
+    "ParseWarning",
+    "format_warnings_for_comment",
+    "parse_plan",
+    "parse_plan_file",
+    "validate_forest",
+)

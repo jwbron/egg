@@ -10936,8 +10936,49 @@ def _populate_contract_from_plan(
         changed = False
 
         if contract_phases:
-            contract.phases = contract_phases
-            changed = True
+            # Forest validation (#2137 TASK-2-2): the slice DAG must be
+            # a forest (every slice has ≤1 DAG parent). Multi-parent
+            # slices break the stacked-PR invariant and are rejected
+            # at ingestion so the plan reviewer NACKs the planner.
+            try:
+                from egg_contracts.plan_parser import validate_forest
+            except ImportError:
+                forest_errors: list[str] = []
+            else:
+                forest_errors = validate_forest(contract_phases)
+
+            if forest_errors:
+                # Stash the structured errors onto the contract's
+                # ``plan_review_feedback`` so the plan reviewer's
+                # prompt picks them up and NACKs the planner with the
+                # error verbatim. The slices are NOT written to the
+                # contract — leaving ``contract.phases`` empty makes
+                # downstream phases visibly broken so the violation
+                # cannot silently leak through.
+                logger.warning(
+                    "contract_phases_ingest_failed",
+                    pipeline_id=pipeline_id,
+                    reason="forest_violation",
+                    errors=forest_errors,
+                )
+                feedback_lines = [
+                    "Plan ingestion REJECTED: the slice DAG is not a forest.",
+                    "",
+                    "Each slice must have at most one DAG parent. The "
+                    "implement phase ships every slice as a stacked PR with "
+                    "exactly one base branch — multi-parent slices break "
+                    "this invariant. Re-emit the plan with "
+                    "``serialized_chain_order`` populated on the downstream "
+                    "slice (see issue #2137 plan TASK-2-3 for the rule).",
+                    "",
+                    "Structured errors:",
+                ]
+                feedback_lines.extend(f"- {e}" for e in forest_errors)
+                contract.plan_review_feedback = "\n".join(feedback_lines)
+                changed = True
+            else:
+                contract.phases = contract_phases
+                changed = True
 
         # Populate PR metadata from plan if available
         if result.pr_title:

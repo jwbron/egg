@@ -195,7 +195,12 @@ class ConcurrentPhaseExecutor:
         )
         return [AgentRole(r.value) for r in contract_roles]
 
-    def get_worktree_branch(self, role: AgentRole) -> str:
+    def get_worktree_branch(
+        self,
+        role: AgentRole,
+        *,
+        slice_id: str | None = None,
+    ) -> str:
         """Get the worktree branch name for an agent role.
 
         Returns the pipeline's shared branch when set, falling back to
@@ -212,6 +217,17 @@ class ConcurrentPhaseExecutor:
         to the PR head moves forward.  If the PR head SHA is not known at
         call time, we fall back to the PR head branch so agents can still
         operate against the live PR.
+
+        Slice-aware mode (#2137): when ``slice_id`` is supplied, the
+        branch is namespaced under the slice's integration branch
+        (``egg/issue-N/slice-M/{role}/work``). This keeps commits across
+        slices completely isolated so a slice that fails or is restarted
+        cannot corrupt sibling slices' history. The ``slice_id`` is
+        normalised — both ``slice-2`` and the bare integer ``2`` are
+        accepted (the latter for callers that haven't yet plumbed
+        canonical IDs through). Babysit-pr mode is **not** slice-aware
+        in this PR (refine-phase decision-8 deferred babysit slicing
+        to a follow-up).
         """
         # Babysit-pr AND CUSTOM+PR (#1762): per-role staging branch
         # namespaced by PR head SHA. CUSTOM-mode pipelines that supply a
@@ -230,10 +246,41 @@ class ConcurrentPhaseExecutor:
             if self.pipeline.branch:
                 return self.pipeline.branch
 
+        if slice_id is not None:
+            # Issue-mode slice scope: ``egg/issue-N/slice-M/{role}/work``.
+            # This is what the slice scheduler uses for per-slice agent
+            # teams (#2137 TASK-4-1). We honour the pipeline's existing
+            # branch as the issue prefix when set, otherwise fall back to
+            # the issue-number / pipeline id.
+            issue = self.pipeline.issue_number or self.pipeline.id
+            issue_branch = self.pipeline.branch or f"egg/issue-{issue}"
+            normalised_slice = (
+                slice_id
+                if slice_id.startswith("slice-")
+                else f"slice-{slice_id}"
+            )
+            return f"{issue_branch}/{normalised_slice}/{role.value}/work"
+
         if self.pipeline.branch:
             return self.pipeline.branch
         issue = self.pipeline.issue_number or self.pipeline.id
         return f"egg/issue-{issue}"
+
+    def get_slice_integration_branch(self, slice_id: str) -> str:
+        """Return the shared integration branch for a slice's BRC.
+
+        Each slice has its own integration branch under the pipeline
+        branch — ``egg/issue-N/slice-M`` — that the per-role work
+        branches rebase onto. Roots base off the pipeline branch
+        directly; child slices base off their parent slice's
+        integration branch.
+        """
+        issue = self.pipeline.issue_number or self.pipeline.id
+        issue_branch = self.pipeline.branch or f"egg/issue-{issue}"
+        normalised_slice = (
+            slice_id if slice_id.startswith("slice-") else f"slice-{slice_id}"
+        )
+        return f"{issue_branch}/{normalised_slice}"
 
     def get_agent_env(self, role: AgentRole) -> dict[str, str]:
         """Get additional environment variables for concurrent mode."""

@@ -1228,6 +1228,74 @@ class GatewayClient:
                 except Exception:
                     pass
 
+    # ------------------------------------------------------------
+    # #2137 — slice PR creation helpers
+    # ------------------------------------------------------------
+
+    def create_slice_pr(
+        self,
+        pipeline_id: str,
+        repo: str,
+        *,
+        slice_id: str,
+        slice_name: str,
+        slice_tasks: list[dict[str, str]] | None,
+        head: str,
+        base: str,
+        issue_number: int | None = None,
+        agent_role: str | None = None,
+        mode: Literal["public", "private"] = "public",
+        draft: bool = False,
+    ) -> str | None:
+        """Open a PR for one slice in a stacked-PR chain.
+
+        Title is deterministic: ``slice {slice_id}: {slice_name}``
+        truncated to 70 chars (matches the existing PR-title
+        guidance). Body lists the slice's tasks as bullets, each
+        truncated to 300 chars per #2137 plan TASK-5-1. The
+        human-authored ``pr.title`` / ``pr.description`` /
+        ``pr.test_plan`` block from the plan's yaml-tasks remains
+        the source of truth for the *terminal* slice (the chain's
+        tip) — the implement phase aggregates it there. Sibling
+        roots and intermediate slices ship with the auto-generated
+        copy this helper produces.
+        """
+        title = f"slice {slice_id}: {slice_name}".strip()
+        if len(title) > 70:
+            title = title[:67] + "..."
+
+        body_lines: list[str] = [slice_name]
+        if slice_tasks:
+            body_lines.append("")
+            body_lines.append("Tasks in this slice:")
+            for task in slice_tasks:
+                desc = task.get("description") or task.get("id") or ""
+                desc = " ".join(desc.split())  # collapse whitespace
+                if len(desc) > 300:
+                    desc = desc[:297] + "..."
+                task_id = task.get("id") or ""
+                bullet_prefix = f"- {task_id}: " if task_id else "- "
+                body_lines.append(f"{bullet_prefix}{desc}")
+        body_lines.append("")
+        body_lines.append(
+            f"Slice {slice_id} of pipeline {pipeline_id}. "
+            f"Stacked on top of `{base}`."
+        )
+        body = "\n".join(body_lines)
+
+        return self.create_pr(
+            pipeline_id=pipeline_id,
+            repo=repo,
+            title=title,
+            body=body,
+            head=head,
+            base=base,
+            issue_number=issue_number,
+            agent_role=agent_role,
+            mode=mode,
+            draft=draft,
+        )
+
     def fetch_worktree_branch(
         self,
         pipeline_id: str,

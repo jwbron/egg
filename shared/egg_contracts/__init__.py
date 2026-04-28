@@ -159,6 +159,8 @@ from .models import (
     PipelinePhase,
     PRMetadata,
     ReviewFeedback,
+    Slice,
+    SliceStatus,
     Task,
     TaskStatus,
 )
@@ -194,6 +196,7 @@ from .plan_parser import (
     format_warnings_for_comment,
     parse_plan,
     parse_plan_file,
+    validate_forest,
 )
 from .resilience import (
     CheckpointState,
@@ -252,6 +255,8 @@ __all__ = [
     "Phase",
     "PhaseStatus",
     "PipelinePhase",
+    "Slice",
+    "SliceStatus",
     "ReviewFeedback",
     "Role",
     "Task",
@@ -289,6 +294,7 @@ __all__ = [
     "format_warnings_for_comment",
     "parse_plan",
     "parse_plan_file",
+    "validate_forest",
     # Phase Defaults
     "get_default_phase_config",
     "get_effective_phase_config",
