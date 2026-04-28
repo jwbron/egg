@@ -51,7 +51,7 @@ Progress + overseer (iter-2 added the overseer surface):
 - `mcp__progress__emit` — Prefer this over `egg-orch progress emit`. Emit a structured progress event (step/state/detail/blocker).
 - `mcp__progress__signal_error` — Prefer this over `egg-orch signal error`. Signal a recoverable / unrecoverable error.
 - `mcp__progress__heartbeat` — Prefer this over `egg-orch signal heartbeat`. Send a coarse-grained heartbeat.
-- `mcp__progress__overseer_alert` — Prefer this over `egg-orch overseer alert`. Broadcast an `OVERSEER_ALERT` to all agents in the pipeline.
+- `mcp__progress__overseer_alert` — Prefer this over `egg-orch overseer alert`. Broadcast an `OVERSEER_ALERT` to all agents in the pipeline. **Producers blocked by reviewer NACKs (or proactive scope questions) on operator-decidable architectural choices — use `mcp__sdlc__register_open_question`, not this. Alerts are informational; decisions are HITL gates. See [`mission.md`](mission.md) → "HITL Decisions vs. Operational Alerts".**
 - `mcp__progress__query_status` — Prefer this over `egg-orch pipeline status`. Read structured pipeline status (agent matrix, BRC phase, blocked roles). Note: the MCP tool lives in the `progress` namespace per decision-5; the CLI lives in the `pipeline` subcommand subtree (decision-17 keeps the drift-gate symmetric with `overseer_alert`).
 
 No-CLI BRC introspection (iteration 1 + 2):

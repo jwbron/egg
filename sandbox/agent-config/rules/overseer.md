@@ -110,7 +110,7 @@ Each `--once` call to the monitoring script (`/opt/egg-runtime/sandbox/overseer_
 **Your responsibilities** when reading the script's output:
 1. **Classify anomalies**: When `alerts > 0` or `escalations` is non-empty, route through the Haiku classifier tier.
 2. **Decide whether to escalate**: Route classified results through the Sonnet/Opus decision tier. The decision is "alert or keep watching," not "what to do about it."
-3. **Emit `OVERSEER_ALERT`**: Use `egg-orch overseer alert ...` for any anomaly that needs human attention. Do not attempt corrective actions on the pipeline itself.
+3. **Emit `OVERSEER_ALERT`**: Use `egg-orch overseer alert ...` for any anomaly that needs human attention. Do not attempt corrective actions on the pipeline itself. Note: this is the **observer** surface — when the overseer flags `unmediated-disagreement`, that is correct (no one is adjudicating). Producers facing the same disagreement should instead use `mcp__sdlc__register_open_question` to create a contract-tracked HITL gate; see [`mission.md`](mission.md) → "HITL Decisions vs. Operational Alerts" for the role distinction.
 4. **Track self-monitoring**: Record LLM call costs and message volume.
 
 ## Haiku/Sonnet Split

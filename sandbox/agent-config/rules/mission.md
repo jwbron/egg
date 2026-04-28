@@ -169,6 +169,19 @@ egg-orch progress emit --step "applying fix" --state blocked --blocker "missing 
 
 Emit progress when: starting/completing major steps, encountering blockers, during long-running operations. Progress events supplement heartbeats — they tell the orchestrator *what* you're doing, not just that you're alive.
 
+### HITL Decisions vs. Operational Alerts
+
+Whenever you identify an **architectural scope question** the operator (not you) must decide — whether you spotted it proactively during planning, hit it as a NACK from a reviewer, or recognized it mid-implementation — register a HITL decision. Do **NOT** file an `OVERSEER_ALERT` for this; alerts are informational broadcasts, not decision gates.
+
+- **`mcp__sdlc__register_open_question`** — for **decisions blocking forward progress**. Writes to the contract, surfaces in `pending_decisions`, and is resolvable via `/sdlc` / `provide_input`. Reference the returned decision id in your next propose / proposal-summary so reviewers and the operator can correlate.
+- **`mcp__progress__overseer_alert`** — for **runtime anomalies**: stalls, ambiguous failures, agent-loop, heartbeat gaps. Informational broadcast only — no contract write, no HITL gate. The operator may or may not see it depending on tooling.
+
+**Checklist (any time, not just at re-propose):** is what's blocking me an operator scope decision (not a code change I can make)? If yes, register a multi-choice HITL question and reference the decision id when I next surface state (propose, proposal summary, comment). If no, fix the code and proceed.
+
+**Registering is necessary but not sufficient to unblock.** The OCC (optimistic concurrency control) barrier on re-propose clears only after reviewers re-ACK; that requires the operator to resolve the decision *and* you to update the proposal per the resolution. The full unblock path is: `register_open_question` → operator resolves via `/sdlc` → you fix per the resolution → reviewers re-ACK → OCC clears. Without the decision, the operator has no contract-tracked surface to resolve from at all — that is the value-add, not auto-unblocking.
+
+Note: the `unmediated-disagreement` anomaly type on `overseer_alert` is for **observers** (overseer / mediator) to flag that no one is adjudicating a disagreement. Producers facing reviewer disagreement on a scope question should `register_open_question` instead — that is the right surface, not an alert.
+
 ### Handling Agent Failures
 
 If you receive an `AGENT_FAILED` message about another agent:
