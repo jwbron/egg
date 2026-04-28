@@ -509,10 +509,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-28T16:55:14.809863Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-28T17:05:42.886712Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"Hybrid: rely on GitHub auto-retarget as the primary path; orchestrator runs a periodic reconciler (every N seconds) that checks for child PRs whose base no longer exists and rebases them via the gateway. Catches edge cases without adding webhook infrastructure.\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -603,7 +603,7 @@
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T17:05:41.717813Z",
+  "updated_at": "2026-04-28T17:05:42.907293Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -617,6 +617,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 55,
+  "version": 56,
   "jira_ticket": null
 }
