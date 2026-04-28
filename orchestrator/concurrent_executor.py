@@ -140,6 +140,7 @@ class ConcurrentPhaseExecutor:
         max_concurrent: int = 6,
         review_graph: ReviewGraph | None = None,
         roles: list[AgentRole] | None = None,
+        slice_id: str | None = None,
     ) -> None:
         """Initialise the executor.
 
@@ -157,12 +158,21 @@ class ConcurrentPhaseExecutor:
                 ``Pipeline.active_roles`` when CUSTOM-mode (#1762) or when
                 BABYSIT's subsumption path populates the persisted roster.
                 None falls through to the full phase-default roster.
+            slice_id: Optional slice scope (#2137 TASK-4-3 / TASK-4-4).
+                When supplied, the executor namespaces the BRC consensus
+                tracker key under ``{pipeline_id}/{slice_id}`` so per-
+                slice consensus is naturally isolated, and per-role
+                worktree branches are emitted in the slice-scoped form
+                ``egg/issue-N/{slice_id}/{role}/work`` so commits across
+                slices stay isolated. ``None`` preserves the pre-slicing
+                pipeline-scoped semantics.
         """
         self.pipeline = pipeline
         self.spawn_fn = spawn_fn
         self.max_concurrent = max_concurrent
         self._review_graph = review_graph
         self._roles_override = roles
+        self._slice_id = slice_id
         self._failure_times: list[datetime] = []
         self._lock = threading.Lock()
 
@@ -345,9 +355,14 @@ class ConcurrentPhaseExecutor:
         roles = self.get_agent_roles()
         graph = self._get_review_graph()
         config = self.pipeline.config
+        # When ``slice_id`` is set, the tracker is registered under the
+        # nested key ``{pipeline_id}/{slice_id}`` so each slice's BRC
+        # consensus is fully isolated from siblings (#2137 TASK-4-3,
+        # refine-phase decision-14 hybrid).
         tracker = create_peer_consensus_tracker(
             self.pipeline.id,
             graph,
+            slice_id=self._slice_id,
             auto_repropose_debounce_seconds=config.auto_repropose_debounce_seconds,
             max_auto_repropose=config.max_auto_repropose,
         )
@@ -433,7 +448,7 @@ class ConcurrentPhaseExecutor:
         Works with both ContainerSpawner.create_concurrent_spawn_fn() and
         KubernetesSpawner.create_concurrent_spawn_fn().
         """
-        branch = self.get_worktree_branch(role)
+        branch = self.get_worktree_branch(role, slice_id=self._slice_id)
         env = self.get_agent_env(role)
 
         command: list[str] | None = None
@@ -584,13 +599,21 @@ class ConcurrentPhaseExecutor:
 
     def check_consensus(self) -> dict[str, Any]:
         """Check if consensus has been reached for phase completion."""
-        tracker = get_peer_consensus_tracker(self.pipeline.id)
+        tracker = get_peer_consensus_tracker(self.pipeline.id, self._slice_id)
         if not tracker:
             logger.warning(
                 "Consensus tracker not found, attempting reconstruction",
                 pipeline_id=self.pipeline.id,
+                slice_id=self._slice_id,
             )
             # Attempt lazy reconstruction from message store
+            # Reconstruction does NOT yet support slice scoping — for
+            # slice-scoped trackers we fall back to fetching the bare
+            # pipeline-id tracker (legacy behaviour). This is acceptable
+            # because reconstruction is a backstop for orchestrator
+            # restarts, not the steady-state path; per-slice trackers
+            # are stateless event consumers and are recreated by the
+            # slice scheduler on the next iteration.
             try:
                 from peer_consensus import reconstruct_tracker_from_messages
 
