@@ -115,7 +115,8 @@ bypass the gateway. **But** a compromised wrapper can still:
 The role-level write filter does **not** block writes under
 `sandbox/scripts/` — the credential-routing invariant is enforced by
 this lens, not by `patterns.py`. Treat any diff that touches
-`sandbox/scripts/*` as a trust-boundary change.
+`sandbox/scripts/*` as a trust-boundary change. Read-only file access
+of agent-supplied paths is covered separately in §8.
 
 Verification recipe:
 
@@ -173,6 +174,60 @@ changed files**. Common shapes:
 A line-by-line code reviewer often misses these because the file
 under inspection looks self-consistent. The security lens runs on the
 full changeset and is the natural seam to flag them.
+
+### 8. Agent-supplied paths flowing into read-only file access
+
+The lens has historically downgraded read-only file access
+(`Path(p).read_text()`, `open(p)`, `glob(p)`) of agent-supplied paths
+because there was no shell-out and no write. That is the wrong
+threat-model. PR [#2105](https://github.com/jwbron/egg/pull/2105)'s
+`_handle_validate_repo_config` shipped this way — `reviewer_security`
+approved it as "appropriate read-only delegation," and the GHA reviewer
+correctly flagged it as path traversal. **Read access to attacker-chosen
+workspace-readable targets is a path-traversal bug class regardless of
+whether the handler also writes or shells out.**
+
+Common shapes:
+
+- An MCP-tool / route handler accepts a path argument and passes it
+  to `Path(...).read_text()` without a workspace-root prefix check.
+- A skill writes to or reads from `<repo-path>/.egg/...` where
+  `<repo-path>` is agent-supplied and unvalidated against a workspace
+  root.
+- A validator that *rejects* an unsafe path on one entrypoint, while a
+  sibling entrypoint reads the same path before validation runs.
+
+Verification recipe:
+
+1. For every changed MCP tool, route, or skill that accepts a path
+   argument, find every place that path flows into a filesystem API.
+   The list is non-exhaustive — flag any API that opens the file or
+   returns metadata about it. Common shapes:
+   - **Reads / opens**: `open()`, `Path.read_text` / `read_bytes`,
+     `shutil.copy`.
+   - **Directory enumeration**: `os.scandir`, `os.walk`, `os.listdir`,
+     `glob`, `pathlib.Path.iterdir` — leaks names of files outside the
+     workspace.
+   - **Existence / metadata oracles**: `Path.exists()`, `Path.is_file()`,
+     `Path.is_dir()`, `Path.stat()`, `os.path.exists()`,
+     `os.path.isdir()` — a `True` / `False` return based on
+     `Path(agent_path).exists()` leaks filesystem layout.
+   - **Symlink inspection**: `Path.is_symlink()`, `os.readlink()` —
+     leaks the symlink target outside the workspace.
+   - **Loaders that take a `Path`**: `yaml.safe_load(Path(p).read_text())`,
+     `json.load(open(p))`, `tomllib.load(open(p, "rb"))`,
+     `configparser.read()`.
+2. Confirm a workspace-root prefix check
+   (`p.resolve().is_relative_to(WORKSPACE_ROOT.resolve())` or
+   equivalent) runs **before** the access. `.resolve()` must run before
+   the prefix check, so symlinks and `..` segments are collapsed first;
+   checking `is_relative_to` on the unresolved `Path` lets a symlink
+   inside the workspace point outside it.
+3. NACK on any agent-supplied read of an unconstrained path — even
+   when the handler does not write, does not shell out, and does not
+   return the contents to the caller. Reading
+   `/etc/shadow` / `~/.ssh/id_rsa` / `<other-repo>/.git/config` is the
+   bug.
 
 ## How to Review
 
