@@ -15,11 +15,13 @@ make lint-fix      # Auto-fix lint issues
 make security      # Run security scans (bandit, safety, trivy)
 ```
 
-**Use `make test`, not raw `pytest`/`.venv/bin/pytest`.** It narrows to the tests your diff actually touches (transitively, via static imports), so you don't have to guess which suites to run. Reach for direct `pytest` only when you need a flag the wrapper doesn't expose. See [docs/guides/testing.md](docs/guides/testing.md) for the narrowing model and `make test-all` escape hatch.
+**Use `make test`, not raw `pytest`/`.venv/bin/pytest`.** `make test` is changeset-aware — it narrows to the tests your diff actually touches (transitively, via static imports), so you don't have to guess which suites to run. It also picks up `.venv/bin/pytest` automatically, so the venv's pinned versions are what runs. Reach for direct `pytest` only when you need a flag the wrapper doesn't expose, and even then **invoke it from the venv** (`.venv/bin/pytest …`) — the system `pytest` won't have the project's deps. See [docs/guides/testing.md](docs/guides/testing.md) for the narrowing model and `make test-all` escape hatch.
 
 ## Python Environment
 
-If `.venv` is absent, run `make deps` to install all dependencies. This installs `uv` if needed and creates a `.venv` with all dev dependencies. Always use the `.venv` for project-specific Python usage such as tests and linting.
+This project requires a `.venv` for all Python tooling — pytest, ruff, mypy, etc. `make` targets resolve to `.venv/bin/<tool>` automatically, so following the "use `make test` / `make lint`" guidance above keeps you in the venv without thinking about it. If you ever invoke a Python tool directly, prefix it with `.venv/bin/` (e.g. `.venv/bin/pytest`, `.venv/bin/ruff`) — never the system binary.
+
+If `.venv` is absent, run `make deps` to install everything. This installs `uv` if needed and creates a `.venv` with all dev dependencies.
 
 ## Repo Layout
 
