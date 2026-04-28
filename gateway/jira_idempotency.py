@@ -85,7 +85,7 @@ def get_or_run(
     project: str,
     key: str | None,
     fn: Callable[[], tuple[int, dict[str, Any]]],
-) -> tuple[int, dict[str, Any]]:
+) -> tuple[int, dict[str, Any], bool]:
     """Replay a cached response for ``(verb, project, key)`` or call ``fn``.
 
     Args:
@@ -95,19 +95,26 @@ def get_or_run(
             **do not** collide.
         project: The Jira project key the operation targets (e.g.
             ``"ENG"``).  For verbs whose targets span projects (e.g.
-            ``createIssueLink``), pass a canonical synthetic project tag
-            built by the caller (see ``JiraClient.create_issue_link``).
-        key: The caller-supplied opaque idempotency key.  ``None`` bypasses
-            the cache entirely; the caller doesn't want dedup.
+            ``createIssueLink``) or scope below project (e.g.
+            ``add_comment`` keys by ticket key), pass the canonical
+            namespace tag built by the caller.
+        key: The caller-supplied opaque idempotency key.  ``None`` or
+            empty string bypasses the cache entirely; the caller doesn't
+            want dedup.
         fn: A zero-arg callable that performs the upstream work and returns
             ``(status_code, response_json)``.  Called only on cache miss.
 
     Returns:
-        ``(status_code, response_json)`` either replayed from the cache or
-        produced by ``fn``.
+        ``(status_code, response_json, cache_hit)`` — ``cache_hit`` is
+        ``True`` when the response came from the cache, ``False`` when
+        ``fn()`` was called (also ``False`` when ``key`` is empty/None).
+        The flag is threaded into the route's audit log so operators can
+        distinguish replays from upstream calls without inspecting body
+        content.
     """
     if not key:
-        return fn()
+        status, body = fn()
+        return status, body, False
 
     cache_key: _CacheKey = (verb, project, key)
     now = time.monotonic()
@@ -122,7 +129,7 @@ def get_or_run(
                     verb=verb,
                     project=project,
                 )
-                return status, body
+                return status, body, True
             # Stale — drop it now so concurrent callers don't re-replay it.
             _cache.pop(cache_key, None)
 
@@ -133,7 +140,7 @@ def get_or_run(
     with _cache_lock:
         _cache[cache_key] = (time.monotonic(), status, body)
 
-    return status, body
+    return status, body, False
 
 
 def clear_cache() -> None:

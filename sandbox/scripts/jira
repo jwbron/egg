@@ -556,7 +556,12 @@ print(json.dumps(body))
 }
 
 handle_ticket_comment() {
-    shift  # consume "comment"
+    # NOTE: the outer dispatch in the main case-statement already shifted
+    # past "comment" before calling us, so the leading argv here is the
+    # subcommand (e.g. "add") followed by the ticket key.  Don't shift
+    # again — that would consume "add" and route the ticket key through
+    # the unknown-subcommand arm (regression caught by reviewer_code_holistic
+    # cycle 1, #1924).
     if [ $# -lt 1 ]; then
         echo "ERROR: missing comment subcommand. Usage: jira ticket comment add <KEY>" >&2
         exit 1
