@@ -535,10 +535,30 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-20",
+      "question": "**Forest constraint enforcement point** — The issue says \"multi-parent slices are rejected at plan ingestion in MVP.\" Where exactly should the validation fire, and what should it do on violation?",
+      "context": "Open contract question decision-18, registered by an agent during the refine phase.",
+      "options": [
+        "At plan ingestion only (`_populate_contract_from_plan`) — reject the plan with a structured error that triggers the plan reviewer to NACK, forcing the planner to re-emit a forest. Single source of truth; matches the issue's literal text.",
+        "At plan reviewer only (a new lint in `reviewer_plan`'s prompt) — the reviewer NACKs plans with multi-parent slices; ingestion stays permissive. Avoids hard-failing ingestion but couples the constraint to prompt adherence.",
+        "Both: the plan reviewer NACKs as a soft check (better feedback), AND ingestion hard-rejects as a final safety net. Belt-and-suspenders.",
+        "At the slice scheduler in the orchestrator's run loop — fail fast at runtime if the contract has multi-parent slices, escalating to HITL. Latest possible point; useful as a backstop but not a primary defence.",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-28T16:55:14.947986Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-28T16:14:35.059863Z",
-  "updated_at": "2026-04-28T16:55:14.901385Z",
+  "updated_at": "2026-04-28T16:55:14.968392Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -552,6 +572,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 38,
+  "version": 39,
   "jira_ticket": null
 }
