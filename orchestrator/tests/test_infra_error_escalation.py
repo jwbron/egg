@@ -673,12 +673,12 @@ _tier2_available = True
 
 try:
     from overseer.classifier import classify_error, classify_stall, clear_cache
-except (ImportError, ModuleNotFoundError):
+except ImportError, ModuleNotFoundError:
     _tier2_available = False
 
 try:
     from overseer.decision_maker import decide_corrective_action, decide_escalation_level
-except (ImportError, ModuleNotFoundError):
+except ImportError, ModuleNotFoundError:
     _tier2_available = False
 
 # AgentResult helper for mocking

@@ -106,7 +106,7 @@ def _parse_k8s_datetime(ts: Any) -> datetime | None:
         return ts
     try:
         return datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return None
 
 
@@ -954,7 +954,7 @@ class KubernetesClient:
                         raise ImagePullError(f"Image pull failed for pod {pod_name}: {reason}")
 
             return _pod_phase_to_status(phase)
-        except (PodNotFoundError, ImagePullError):
+        except PodNotFoundError, ImagePullError:
             raise
         except Exception as exc:
             error_msg = str(exc).lower()

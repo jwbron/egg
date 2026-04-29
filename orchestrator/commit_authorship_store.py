@@ -430,7 +430,7 @@ class CommitAuthorshipStore:
                 data = json.loads(raw)
                 if isinstance(data, dict):
                     shards.append(data)
-            except (json.JSONDecodeError, OSError):
+            except json.JSONDecodeError, OSError:
                 logger.warning(
                     "Ignoring corrupt authorship shard: %s",
                     path,
