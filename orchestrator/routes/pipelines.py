@@ -10686,17 +10686,12 @@ def _run_concurrent_phase(
         the per-iteration budget on producer progress.  Returns ``None`` if
         the tracker is unavailable, has no proposals, or any lookup raises —
         callers treat ``None`` as "no progress signal yet" and proceed
-        without a rebaseline.  The slice-aware lookup falls back to the bare
-        pipeline tracker for older tracker shims (matches the pattern in
-        ``_update_agents_complete``).
+        without a rebaseline.
         """
         if _get_brc_tracker is None:
             return None
         try:
-            try:
-                _t = _get_brc_tracker(_pid, _sid)
-            except TypeError:
-                _t = _get_brc_tracker(_pid)
+            _t = _get_brc_tracker(_pid, _sid)
         except Exception:
             return None
         if _t is None:
@@ -11249,20 +11244,19 @@ def _run_concurrent_phase(
             # can't stall the pipeline indefinitely.
             remaining = [e for e in active_executions if e.container_id not in exited_containers]
             if remaining:
-                post_timeout_iteration_budget = getattr(
-                    pipeline.config, "post_consensus_iteration_budget_seconds", 3600
+                post_timeout_iteration_budget = (
+                    pipeline.config.post_consensus_iteration_budget_seconds
                 )
-                post_timeout_max_total = getattr(
-                    pipeline.config, "post_consensus_max_total_seconds", 14400
-                )
+                post_timeout_max_total = pipeline.config.post_consensus_max_total_seconds
                 post_timeout_poll_interval = 30  # seconds between checks
                 post_timeout_start = time.monotonic()
                 last_progress_at = post_timeout_start
 
                 # Snapshot the latest proposal timestamp at entry so we
-                # only count *new* proposals as progress signals.  None
-                # is fine: any proposal arriving during the wait will
-                # compare strictly greater than None.
+                # only count *new* proposals as progress signals.  ``None``
+                # is fine: the rebaseline check at the bottom of the loop
+                # short-circuits on ``last_seen_proposal_ts is None``
+                # before any datetime comparison runs.
                 last_seen_proposal_ts = _latest_proposal_ts(pipeline_id, slice_id)
 
                 while remaining:

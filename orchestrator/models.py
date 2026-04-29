@@ -620,6 +620,23 @@ class PipelineConfig(BaseModel):
         ),
     )
 
+    @model_validator(mode="after")
+    def _validate_post_consensus_budgets(self) -> "PipelineConfig":
+        """Reject configs where the absolute cap is below the per-iteration budget.
+
+        Without this, a misconfigured pipeline (e.g. ``iteration_budget=7200``
+        with ``max_total=3600``) silently makes the per-iteration logic
+        unreachable — the absolute cap would always fire first. See #2245.
+        """
+        if self.post_consensus_max_total_seconds < self.post_consensus_iteration_budget_seconds:
+            raise ValueError(
+                "post_consensus_max_total_seconds "
+                f"({self.post_consensus_max_total_seconds}) must be >= "
+                "post_consensus_iteration_budget_seconds "
+                f"({self.post_consensus_iteration_budget_seconds})"
+            )
+        return self
+
     @model_validator(mode="before")
     @classmethod
     def _alias_post_propose_grace(cls, data: Any) -> Any:

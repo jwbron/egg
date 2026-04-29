@@ -46,7 +46,6 @@ def _make_concurrent_pipeline(
     iteration_budget: int | None = None,
     max_total: int | None = None,
 ) -> Pipeline:
-    config = PipelineConfig()
     overrides: dict[str, object] = {
         "concurrent_execution": True,
         "max_concurrent_agents": 5,
@@ -58,11 +57,7 @@ def _make_concurrent_pipeline(
     if max_total is not None:
         overrides["post_consensus_max_total_seconds"] = max_total
 
-    for key, val in overrides.items():
-        try:
-            setattr(config, key, val)
-        except (AttributeError, ValueError):
-            config.__dict__[key] = val
+    config = PipelineConfig(**overrides)
 
     return Pipeline(
         id=pipeline_id,
@@ -170,6 +165,30 @@ class TestPipelineConfigKnobs:
 
         with pytest.raises(ValidationError):
             PipelineConfig(post_consensus_max_total_seconds=30)
+
+    def test_max_total_must_be_at_least_iteration_budget(self):
+        """``max_total < iteration_budget`` is a misconfiguration.
+
+        It would silently make the per-iteration logic unreachable —
+        the absolute cap would always fire first.  Reject it at config
+        construction time.
+        """
+        import pytest
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            PipelineConfig(
+                post_consensus_iteration_budget_seconds=7200,
+                post_consensus_max_total_seconds=3600,
+            )
+
+    def test_equal_budgets_accepted(self):
+        """``max_total == iteration_budget`` is valid (boundary case)."""
+        config = PipelineConfig(
+            post_consensus_iteration_budget_seconds=2500,
+            post_consensus_max_total_seconds=2500,
+        )
+        assert config.post_consensus_max_total_seconds == 2500
 
 
 class TestPostTimeoutRebaseline:
@@ -360,9 +379,14 @@ class TestPostTimeoutRebaseline:
         mock_monotonic.side_effect = _monotonic
 
         executions = [_make_execution(AgentRole.CODER, "coder-1")]
-        # Iteration budget = 5000s (won't fire), max_total = 2500s
-        # (will fire on the 3rd post-timeout monotonic read).
-        pipeline = _make_concurrent_pipeline(iteration_budget=5000, max_total=2500)
+        # Both budgets at 2500s.  With a fresh proposal every loop the
+        # per-iteration clock keeps rebaselining (~1000s elapsed since
+        # last rebaseline never reaches 2500), but ``total_elapsed``
+        # grows monotonically from ``post_timeout_start`` and crosses
+        # 2500s within a few iterations — so the absolute cap fires
+        # first.  Equal values are accepted by the cross-field
+        # validator (max_total >= iteration_budget).
+        pipeline = _make_concurrent_pipeline(iteration_budget=2500, max_total=2500)
         mock_store, mock_spawner, mock_docker, _ = _common_mocks(executions)
 
         mock_executor_instance = MagicMock()
