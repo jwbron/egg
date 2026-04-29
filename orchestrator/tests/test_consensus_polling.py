@@ -305,8 +305,8 @@ class TestConsensusTimeout:
         """
         # Use a callable side_effect that (a) starts before the timeout,
         # (b) jumps past the 30-min consensus timeout, and (c) keeps
-        # advancing so the post-timeout polling budget (#1921) also
-        # exhausts within a bounded number of iterations.
+        # advancing so the post-timeout per-iteration budget (#1921 /
+        # #2245) also exhausts within a bounded number of iterations.
         _calls = [0]
 
         def _monotonic():
@@ -314,8 +314,8 @@ class TestConsensusTimeout:
             if _calls[0] == 1:
                 return 0.0
             # Each subsequent call jumps 2000s so both the 1800s
-            # consensus timeout and the 3600s post-timeout budget
-            # elapse quickly.
+            # consensus timeout and the default 3600s per-iteration
+            # post-timeout budget elapse quickly.
             return float(1801.0 + _calls[0] * 2000.0)
 
         mock_monotonic.side_effect = _monotonic
@@ -387,7 +387,8 @@ class TestConsensusTimeout:
         from events import EventType
 
         # See test_timeout_creates_hitl_decision for why monotonic must
-        # keep advancing past the 3600s post-timeout budget (#1921).
+        # keep advancing past the post-timeout per-iteration budget
+        # (#1921 / #2245).
         _calls = [0]
 
         def _monotonic():

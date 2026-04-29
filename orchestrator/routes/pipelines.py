@@ -10982,6 +10982,28 @@ def _run_concurrent_phase(
             get_peer_consensus_tracker as _get_brc_tracker,  # type: ignore[no-redef]
         )
 
+    def _latest_proposal_ts(_pid: str, _sid: str | None) -> "datetime | None":
+        """Return the latest CONSENSUS_PROPOSE timestamp from the BRC tracker.
+
+        Used by the post-consensus-timeout poll loop (#2245) to rebaseline
+        the per-iteration budget on producer progress.  Returns ``None`` if
+        the tracker is unavailable, has no proposals, or any lookup raises —
+        callers treat ``None`` as "no progress signal yet" and proceed
+        without a rebaseline.
+        """
+        if _get_brc_tracker is None:
+            return None
+        try:
+            _t = _get_brc_tracker(_pid, _sid)
+        except Exception:
+            return None
+        if _t is None:
+            return None
+        try:
+            return _t.get_latest_proposal_timestamp()
+        except Exception:
+            return None
+
     def _update_agents_complete() -> None:
         """Mark all running agents as COMPLETE in pipeline state (consensus path)."""
         if store is None:
@@ -11558,15 +11580,52 @@ def _run_concurrent_phase(
             # container status in short steps and re-check consensus
             # between steps, early-returning on completion before
             # force-killing anything.
+            #
+            # Issue #2245: the per-iteration budget rebaselines on
+            # producer progress.  Each new CONSENSUS_PROPOSE (initial
+            # or NACK→re-propose) resets ``last_progress_at`` so the
+            # producer's next iteration gets a clean clock instead of
+            # inheriting the prior iterations' wall-clock spend.  An
+            # absolute cap (``post_consensus_max_total_seconds``)
+            # bounds the total wait so an unbounded propose churn
+            # can't stall the pipeline indefinitely.
             remaining = [e for e in active_executions if e.container_id not in exited_containers]
             if remaining:
-                post_timeout_budget = 3600  # seconds total
+                post_timeout_iteration_budget = (
+                    pipeline.config.post_consensus_iteration_budget_seconds
+                )
+                post_timeout_max_total = pipeline.config.post_consensus_max_total_seconds
                 post_timeout_poll_interval = 30  # seconds between checks
                 post_timeout_start = time.monotonic()
+                last_progress_at = post_timeout_start
+
+                # Snapshot the latest proposal timestamp at entry so we
+                # only count *new* proposals as progress signals.  ``None``
+                # is fine: the rebaseline check at the bottom of the loop
+                # short-circuits on ``last_seen_proposal_ts is None``
+                # before any datetime comparison runs.
+                last_seen_proposal_ts = _latest_proposal_ts(pipeline_id, slice_id)
 
                 while remaining:
-                    elapsed_post_timeout = time.monotonic() - post_timeout_start
-                    if elapsed_post_timeout >= post_timeout_budget:
+                    now_monotonic = time.monotonic()
+                    total_elapsed = now_monotonic - post_timeout_start
+                    iteration_elapsed = now_monotonic - last_progress_at
+                    if total_elapsed >= post_timeout_max_total:
+                        logger.warning(
+                            "Post-consensus-timeout absolute cap reached",
+                            pipeline_id=pipeline_id,
+                            total_elapsed_seconds=round(total_elapsed, 1),
+                            max_total_seconds=post_timeout_max_total,
+                        )
+                        break
+                    if iteration_elapsed >= post_timeout_iteration_budget:
+                        logger.warning(
+                            "Post-consensus-timeout iteration budget exhausted",
+                            pipeline_id=pipeline_id,
+                            iteration_elapsed_seconds=round(iteration_elapsed, 1),
+                            iteration_budget_seconds=post_timeout_iteration_budget,
+                            total_elapsed_seconds=round(total_elapsed, 1),
+                        )
                         break
 
                     # A. Re-check consensus; if agents converged during
@@ -11598,12 +11657,32 @@ def _run_concurrent_phase(
                         logger.info(
                             "Consensus reached during post-timeout wait",
                             pipeline_id=pipeline_id,
-                            elapsed_post_timeout_seconds=round(elapsed_post_timeout, 1),
+                            elapsed_post_timeout_seconds=round(total_elapsed, 1),
                             total_elapsed_seconds=round(_total_elapsed, 1),
                         )
                         _update_agents_complete()
                         _stop_running_containers()
                         return 0, combined_logs
+
+                    # A'. Rebaseline the iteration clock on producer
+                    # progress (#2245).  A fresh CONSENSUS_PROPOSE
+                    # timestamp means a producer just landed work
+                    # (initial propose or NACK→re-propose) — the next
+                    # round of reviews deserves its own iteration
+                    # budget, not whatever's left of the prior round's.
+                    current_proposal_ts = _latest_proposal_ts(pipeline_id, slice_id)
+                    if current_proposal_ts is not None and (
+                        last_seen_proposal_ts is None or current_proposal_ts > last_seen_proposal_ts
+                    ):
+                        logger.info(
+                            "Post-consensus-timeout clock rebaselined on producer progress",
+                            pipeline_id=pipeline_id,
+                            iteration_elapsed_seconds=round(iteration_elapsed, 1),
+                            total_elapsed_seconds=round(total_elapsed, 1),
+                            proposal_timestamp=current_proposal_ts.isoformat(),
+                        )
+                        last_seen_proposal_ts = current_proposal_ts
+                        last_progress_at = time.monotonic()
 
                     # B. Non-blocking container status check; record
                     # any that have exited naturally.

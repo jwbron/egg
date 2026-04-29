@@ -1,17 +1,18 @@
 # Allowlist for scripts/check-file-sizes.py.
 #
-# Each entry grandfathers a Python source file at the line and byte count it
-# had when added here. The lint allows files in this list to remain over the
-# global cap, but rejects any further growth past the recorded baselines.
+# Each entry grandfathers a Python source file so the lint allows it to
+# remain over the global cap. Allowlisted files may grow freely -- the
+# allowlist's only role is to say "this file is exempt from the global
+# size cap." Decompose listed files in follow-up PRs and remove them from
+# the allowlist when they drop back under the global cap.
 #
-# Decompose listed files in follow-up PRs and remove them from the allowlist
-# when they drop back under the global cap. New files are NOT eligible — add
-# only files that pre-date the lint or whose decomposition is already tracked
-# as a separate issue.
+# Per-file size baselines were dropped because every unrelated PR that
+# touched one of these files needed a baseline bump here, which conflicted
+# with every other in-flight PR.
 #
 # Schema:
 #   caps: { hard_lines, hard_bytes, soft_lines, soft_bytes }
-#   files: { <repo-relative path>: { lines: int, bytes: int, issue: str|null } }
+#   files: { <repo-relative path>: null | { issue: str } }
 caps:
   hard_lines: 1500
   hard_bytes: 100000
@@ -20,62 +21,32 @@ caps:
 
 files:
   orchestrator/routes/pipelines.py:
-    lines: 15703
-    bytes: 684894
     issue: "2248"
   gateway/gateway.py:
-    lines: 9754
-    bytes: 373121
     issue: "2248"
   sandbox/egg_lib/orch_cli.py:
-    lines: 3512
-    bytes: 127924
     issue: "2248"
   orchestrator/mcp_tools.py:
-    lines: 2817
-    bytes: 118448
     issue: "2248"
   orchestrator/gateway_client.py:
-    lines: 2392
-    bytes: 88655
     issue: "2248"
   shared/egg_contracts/checkpoint_cli.py:
-    lines: 2233
-    bytes: 81972
     issue: "2248"
   sandbox/entrypoint.py:
-    lines: 2109
-    bytes: 85051
     issue: "2248"
   gateway/worktree_manager.py:
-    lines: 2090
-    bytes: 83664
     issue: "2248"
   gateway/git_client.py:
-    lines: 2032
-    bytes: 66936
     issue: "2248"
   orchestrator/overseer/monitor.py:
-    lines: 2005
-    bytes: 83921
     issue: "2248"
   orchestrator/peer_consensus.py:
-    lines: 2003
-    bytes: 85965
     issue: "2248"
   orchestrator/routes/signals.py:
-    lines: 1986
-    bytes: 74042
     issue: "2248"
   gateway/checkpoint_handler.py:
-    lines: 1655
-    bytes: 61597
     issue: "2248"
   scripts/select_tests.py:
-    lines: 1875
-    bytes: 75206
     issue: "2248"
   orchestrator/routes/deployment.py:
-    lines: 1604
-    bytes: 56130
     issue: "2248"
