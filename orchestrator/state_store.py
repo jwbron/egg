@@ -273,6 +273,17 @@ class StateStore:
             )
             try:
                 shutil.rmtree(wt)
+            except FileNotFoundError:
+                # Concurrent caller (e.g. the state-store probe at
+                # ``state_store_probe.py``, a sibling pipeline thread, or
+                # the ``/api/v1/health`` probe) already cleaned up the
+                # worktree between our ``wt.exists()`` check and this
+                # rmtree.  ``_ensure_worktree`` is invoked from many
+                # threads concurrently and is not wrapped in
+                # ``_git_op()``, so the TOCTOU window is real.  ENOENT
+                # here is exactly the post-state we wanted — fall
+                # through to recreate.  Issue #2234.
+                pass
             except OSError as exc:
                 raise GitOperationError(
                     f"Failed to remove stale state worktree at {wt}: {exc}"
