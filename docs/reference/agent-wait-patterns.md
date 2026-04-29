@@ -636,6 +636,14 @@ re-fetching the full envelope when needed.
 egg-orch pipeline wait-status <pipeline_id> [--since <cursor>]
 ```
 
+Hosts invoke this via the SDLC skill's launcher,
+`skills/sdlc/bin/wait-status`, which sets `PYTHONPATH` and
+`EGG_ORCHESTRATOR_URL` so no host-side configuration is required
+beyond `make deps` ([#2232](https://github.com/jwbron/egg/issues/2232)).
+The launcher's default URL (`http://localhost:9849`) relies on the
+`hostPort: 9849` binding in
+`k8s/overlays/local/patches/orchestrator-volumes.yaml`.
+
 The CLI loops `GET /api/v1/pipelines/<id>/status/wait?wait=25`,
 threading the cursor between successive calls. Stdout is **JSON-lines**
 — one line per pipeline-relevant event. The process exits with:
@@ -851,7 +859,8 @@ last_status = $(egg-orch pipeline status $TASK_ID --json)
 render_full_dashboard(last_status)
 last_cursor = ""   # no cursor yet — first wait-status snaps to tip
 
-# blocking wait via Bash; emits one JSON line per event, exits on terminal
+# blocking wait via Bash; emits one JSON line per event, exits on terminal.
+# Hosts call this through the SDLC skill's launcher (skills/sdlc/bin/wait-status, #2232).
 egg-orch pipeline wait-status $TASK_ID --since "$last_cursor" \
   | while IFS= read -r line; do
       cursor=$(jq -r .cursor <<< "$line")
