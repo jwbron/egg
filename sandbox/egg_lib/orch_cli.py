@@ -336,7 +336,23 @@ def cmd_health(args: argparse.Namespace) -> int:
                 print(f"  Time:   {result['timestamp']}")
             components = result.get("components", {})
             for name, state in components.items():
-                print(f"  {name}: {state}")
+                if name == "state_store" and isinstance(state, dict):
+                    # Per-repo map (#2176): print one line per repo so the
+                    # human-text path stays readable even with many repos.
+                    # The aggregate string lives in `state_store_summary`.
+                    print(f"  {name}:")
+                    for repo_path, repo_state in state.items():
+                        if isinstance(repo_state, dict):
+                            status = repo_state.get("status", "unknown")
+                            error = repo_state.get("error")
+                            if error:
+                                print(f"    {repo_path}: {status} ({error})")
+                            else:
+                                print(f"    {repo_path}: {status}")
+                        else:
+                            print(f"    {repo_path}: {repo_state}")
+                else:
+                    print(f"  {name}: {state}")
     except ApiError:
         health_data["orchestrator"] = {"status": "unreachable", "reachable": False}
         if not args.json:

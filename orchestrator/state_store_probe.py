@@ -44,40 +44,59 @@ DEFAULT_PROBE_INTERVAL_SECONDS = 15.0
 DEFAULT_STALE_MULTIPLIER = 2.0
 
 
-def probe_state_store_at(base_path: Path) -> tuple[bool, str]:
+def probe_state_store_at(
+    base_path: Path,
+) -> tuple[bool, str, dict[str, dict[str, str]]]:
     """Probe whether the state-store worktree(s) under ``base_path`` are loadable.
 
     Pure function — no Flask request context required. Walks the path
     via :func:`state_store.discover_repo_paths` and accesses
-    ``store.worktree`` on each. Reports degraded if any probe raises.
+    ``store.worktree`` on each. **All** repos are probed every call —
+    a wedge on repo A no longer hides an independent wedge on repo B
+    (#2176). The curative ``_ensure_worktree`` self-heal still runs as a
+    side effect on each repo, so every wedged repo gets a heal attempt
+    per probe interval.
 
     Returns:
-        ``(healthy, message)``. ``message`` is ``"ok"`` on success or a
-        human-readable error string (``"<ExceptionType>: <message>"``)
-        on failure. The same curative side effect documented on
-        :class:`state_store.StateStore` applies — wedged repos may be
-        self-healed as a side effect of this call.
+        ``(healthy, summary, repos)``.
+
+        - ``healthy`` is True when every probed repo loaded cleanly (or
+          the probe was skipped — no base_path, no repos discovered).
+        - ``summary`` is a short human-readable aggregate ("ok",
+          "probe-skipped: ...", or "N/M repos wedged: a, b").
+        - ``repos`` maps each probed repo path (str) to
+          ``{"status": "ok"} | {"status": "error", "error": "..."}``.
+          Empty when the probe was skipped.
     """
     from state_store import discover_repo_paths, get_state_store
 
     if not base_path.exists():
-        return True, f"probe-skipped: base_path does not exist: {base_path}"
+        return True, f"probe-skipped: base_path does not exist: {base_path}", {}
 
     if (base_path / ".git").exists():
         repos = [base_path]
     else:
         repos = list(discover_repo_paths(base_path))
         if not repos:
-            return True, "probe-skipped: no git repos under base_path"
+            return True, "probe-skipped: no git repos under base_path", {}
 
+    results: dict[str, dict[str, str]] = {}
+    failures: list[str] = []
     for repo_path in repos:
         try:
             store = get_state_store(repo_path)
             _ = store.worktree
+            results[str(repo_path)] = {"status": "ok"}
         except Exception as exc:
-            return False, f"{type(exc).__name__}: {exc}"
+            error_msg = f"{type(exc).__name__}: {exc}"
+            results[str(repo_path)] = {"status": "error", "error": error_msg}
+            failures.append(str(repo_path))
 
-    return True, "ok"
+    if not failures:
+        return True, "ok", results
+
+    summary = f"{len(failures)}/{len(repos)} repos wedged: " + ", ".join(failures)
+    return False, summary, results
 
 
 def _resolve_base_path() -> Path | None:
@@ -114,6 +133,7 @@ class StateStoreProbe:
         self._lock = threading.Lock()
         self._healthy: bool | None = None
         self._message: str = "starting"
+        self._repos: dict[str, dict[str, str]] = {}
         self._last_check_monotonic: float | None = None
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
@@ -161,19 +181,22 @@ class StateStoreProbe:
 
         try:
             base_path = _resolve_base_path()
+            repos: dict[str, dict[str, str]] = {}
             if base_path is None:
                 healthy, message = True, "probe-skipped: EGG_REPO_PATH not set"
             else:
                 try:
-                    healthy, message = probe_state_store_at(base_path)
+                    healthy, message, repos = probe_state_store_at(base_path)
                 except Exception as exc:  # pragma: no cover — defensive
                     healthy = False
                     message = f"probe-error: {type(exc).__name__}: {exc}"
+                    repos = {}
                     logger.warning("State-store probe raised", error=str(exc), exc_info=True)
 
             with self._lock:
                 self._healthy = healthy
                 self._message = message
+                self._repos = repos
                 self._last_check_monotonic = time.monotonic()
                 callback = self._on_observation
         finally:
@@ -194,7 +217,11 @@ class StateStoreProbe:
 
         - ``healthy``: bool — most recent observation, forced to ``False``
           if the cache is stale.
-        - ``message``: str — human-readable probe message.
+        - ``message``: str — human-readable aggregate probe message.
+        - ``repos``: dict[str, dict] — per-repo probe results keyed by
+          path. Each value is ``{"status": "ok"}`` or
+          ``{"status": "error", "error": "..."}``. Empty when the probe
+          was skipped or has not yet run (#2176).
         - ``fresh``: bool — whether the most recent probe is within the
           staleness window (``interval * stale_multiplier``).
         - ``age_seconds``: float | None — seconds since the most recent
@@ -203,12 +230,14 @@ class StateStoreProbe:
         with self._lock:
             healthy = self._healthy
             message = self._message
+            repos = dict(self._repos)
             last = self._last_check_monotonic
 
         if last is None:
             return {
                 "healthy": False,
                 "message": message,
+                "repos": repos,
                 "fresh": False,
                 "age_seconds": None,
             }
@@ -218,6 +247,7 @@ class StateStoreProbe:
         return {
             "healthy": bool(healthy) if fresh else False,
             "message": message if fresh else f"stale (age={age:.1f}s): {message}",
+            "repos": repos,
             "fresh": fresh,
             "age_seconds": age,
         }
