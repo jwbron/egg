@@ -83,7 +83,7 @@ def _post(
         try:
             raw = exc.read().decode("utf-8")
             parsed = json.loads(raw) if raw else None
-        except (json.JSONDecodeError, Exception):
+        except json.JSONDecodeError, Exception:
             parsed = None
         return exc.code, parsed, f"HTTPError {exc.code}"
     except (URLError, TimeoutError) as exc:
