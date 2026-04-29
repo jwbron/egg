@@ -55,7 +55,7 @@ class MockConfig(BaseConfig):
         return {"name": self._name, "token": "****"}
 
     @classmethod
-    def from_env(cls) -> "MockConfig":
+    def from_env(cls) -> MockConfig:
         return cls()
 
 

@@ -599,7 +599,7 @@ class Contract(BaseModel):
 
     @model_validator(mode="wrap")
     @classmethod
-    def _migrate_phases_to_slices(cls, data: Any, handler: Any) -> "Contract":
+    def _migrate_phases_to_slices(cls, data: Any, handler: Any) -> Contract:
         """Translate legacy ``phases: [...]`` JSON to ``slices: [...]``.
 
         Added in #2137. Detects pre-rename contract JSON (no ``slices``
@@ -667,7 +667,7 @@ class Contract(BaseModel):
         return instance
 
     @model_validator(mode="after")
-    def _require_issue_or_pipeline_id(self) -> "Contract":
+    def _require_issue_or_pipeline_id(self) -> Contract:
         """At least one of issue or pipeline_id must be set."""
         if self.issue is None and self.pipeline_id is None:
             raise ValueError("At least one of 'issue' or 'pipeline_id' must be set")

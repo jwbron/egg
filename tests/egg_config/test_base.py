@@ -288,7 +288,7 @@ class TestCompleteConfigSubclass:
                 }
 
             @classmethod
-            def from_env(cls) -> "TestConfig":
+            def from_env(cls) -> TestConfig:
                 import os
 
                 return cls(

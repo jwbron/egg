@@ -210,7 +210,7 @@ class EggLogger:
 
         self._logger.addHandler(file_handler)
 
-    def with_context(self, **kwargs: Any) -> "BoundLogger":
+    def with_context(self, **kwargs: Any) -> BoundLogger:
         """Create a bound logger with additional context.
 
         Usage:
@@ -258,7 +258,7 @@ class BoundLogger:
     def exception(self, msg: str, *args: Any, **kwargs: Any) -> None:
         self._parent.exception(msg, *args, _stacklevel=2, **self._merge_kwargs(kwargs))
 
-    def with_context(self, **kwargs: Any) -> "BoundLogger":
+    def with_context(self, **kwargs: Any) -> BoundLogger:
         """Create a new bound logger with additional context."""
         merged = dict(self._bound_fields)
         merged.update(kwargs)

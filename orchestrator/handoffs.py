@@ -81,7 +81,7 @@ class HandoffData:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "HandoffData":
+    def from_dict(cls, d: dict[str, Any]) -> HandoffData:
         """Create from dictionary representation."""
         return cls(
             source_role=AgentRole(d["source_role"]),
@@ -133,7 +133,7 @@ class AgentOutput:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "AgentOutput":
+    def from_dict(cls, d: dict[str, Any]) -> AgentOutput:
         """Create from dictionary representation."""
         output = cls(
             role=AgentRole(d["role"]),

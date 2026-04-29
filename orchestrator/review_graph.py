@@ -108,7 +108,7 @@ class ReviewGraph:
     def demote_edges_for_reviewer(
         self,
         reviewer: str,
-        new_criticality: "ReviewCriticality | None" = None,
+        new_criticality: ReviewCriticality | None = None,
     ) -> list[str]:
         """Demote all CRITICAL edges for a reviewer to a new criticality.
 
@@ -156,7 +156,7 @@ class ReviewGraph:
         }
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "ReviewGraph":
+    def from_dict(cls, data: dict[str, Any]) -> ReviewGraph:
         """Deserialize a graph."""
         edges = [
             ReviewEdge(

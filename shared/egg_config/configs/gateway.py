@@ -158,7 +158,7 @@ class GatewayConfig(BaseConfig):
         }
 
     @classmethod
-    def from_env(cls) -> "GatewayConfig":
+    def from_env(cls) -> GatewayConfig:
         """Load gateway configuration from environment and files.
 
         Secret sources (in priority order):

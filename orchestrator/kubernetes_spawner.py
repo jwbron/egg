@@ -362,7 +362,7 @@ class KubernetesSpawner:
         command: list[str] | None = None,
         branch: str | None = None,
         base_branch: str | None = None,
-        extra_mounts: list["MountSpec"] | None = None,
+        extra_mounts: list["MountSpec"] | None = None,  # noqa: UP037
         preserve_worktree_on_failure: bool = False,
         certs_volume: str | None = None,  # noqa: ARG002 — Docker-era compat
         spawn_max_retries: int = DEFAULT_SPAWN_MAX_RETRIES,
@@ -983,7 +983,7 @@ class KubernetesSpawner:
         command: list[str] | None = None,
         branch: str | None = None,
         base_branch: str | None = None,
-        extra_mounts: list["MountSpec"] | None = None,
+        extra_mounts: list["MountSpec"] | None = None,  # noqa: UP037
         max_restarts: int = 2,
         reason: str = "",
         spawn_max_retries: int = DEFAULT_SPAWN_MAX_RETRIES,

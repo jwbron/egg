@@ -285,7 +285,7 @@ orchestrator/
 ├── metrics.py              # Metrics collection and reporting
 ├── status_reporter.py      # Status reporting utilities
 ├── webhooks.py             # GitHub webhook handlers
-├── Dockerfile              # Container image (Python 3.11-slim)
+├── Dockerfile              # Container image (Python 3.14-slim)
 ├── entrypoint.sh           # Container startup script
 ├── requirements.txt        # Python dependencies
 ├── overseer/               # Overseer agent server-side logic

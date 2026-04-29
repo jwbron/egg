@@ -22,7 +22,7 @@ class DeploymentMode(StrEnum):
     DISTRIBUTED = "distributed"
 
     @classmethod
-    def from_env(cls) -> "DeploymentMode":
+    def from_env(cls) -> DeploymentMode:
         """Detect deployment mode from environment."""
         import os
 
@@ -311,7 +311,7 @@ class SignalResponse:
     data: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "SignalResponse":
+    def from_dict(cls, data: dict[str, Any]) -> SignalResponse:
         """Create from API response dictionary."""
         return cls(
             success=data.get("success", False),
