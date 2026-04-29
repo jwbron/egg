@@ -3001,6 +3001,25 @@ class TestProducerOrientation:
         assert "test" in orient.lower()
         assert "edge case" in orient.lower()
 
+    def test_tester_orientation_directs_scaffold_first(self):
+        """Tester producer orientation tells tester to draft scaffolds before
+        wait-loop on coder.
+
+        Issue #2249: the scaffold-first instruction previously lived only in
+        the reviewer-preparation block; the producer-orientation block (which
+        is what tester reads while deciding whether to call wait-loop) had no
+        such directive. Mirror it on the producer side so the comfort path
+        (`wait-loop`) does not pull tester away from work it could do without
+        coder output.
+        """
+        orient = _build_producer_orientation("tester", "implement", [])
+        assert "scaffold" in orient.lower()
+        assert "wait-loop" in orient.lower()
+        # The directive must point at plan-derived scaffolding inputs so the
+        # agent has a concrete starting point, not just a mandate.
+        assert "tasks[].files" in orient
+        assert "acceptance criteria" in orient.lower()
+
     def test_documenter_checks_doc_structure(self):
         """Documenter orientation includes checking documentation structure."""
         orient = _build_producer_orientation("documenter", "implement", [])

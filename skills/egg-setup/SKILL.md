@@ -29,7 +29,7 @@ Verify all required dependencies are installed and meet minimum versions. Run th
 
 | Dependency | Check command | Minimum version | Install guidance |
 |------------|--------------|-----------------|------------------|
-| **Python** | `python3 --version` | 3.11+ | python.org or system package manager |
+| **Python** | `python3 --version` | 3.14+ | python.org or system package manager |
 | **Docker** | `docker --version` | 20.10+ | docker.com/get-docker |
 | **Docker Compose** | `docker compose version` | 2.0+ | Included with Docker Desktop; Linux: install docker-compose-plugin |
 | **Git** | `git --version` | 2.30+ | git-scm.com |
@@ -49,7 +49,7 @@ Present results as a compact checklist:
 ```
 ## Dependency Check
 
-- [x] Python 3.13.2
+- [x] Python 3.14.0
 - [x] Docker 27.5.1
 - [x] Docker Compose v2.32.4
 - [x] Git 2.48.1

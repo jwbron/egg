@@ -72,7 +72,7 @@ _TRANSIENT_AGENT_ERROR_SUBSTRINGS: tuple[str, ...] = (
 )
 
 
-def _uses_per_role_staging(pipeline: "Pipeline") -> bool:
+def _uses_per_role_staging(pipeline: Pipeline) -> bool:
     """Return True when a pipeline uses BABYSIT-style per-role staging branches.
 
     Mirrors the helper in ``orchestrator/routes/pipelines.py``: BABYSIT

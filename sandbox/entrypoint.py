@@ -105,7 +105,7 @@ class StartupTimer:
         phase_name = name
 
         class PhaseContext:
-            def __enter__(self) -> "PhaseContext":
+            def __enter__(self) -> PhaseContext:
                 timer.start_phase(phase_name)
                 return self
 

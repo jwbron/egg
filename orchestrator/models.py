@@ -375,7 +375,9 @@ class PipelineConfig(BaseModel):
         default=30, ge=1, description="Suggested message polling interval for agents"
     )
     consensus_timeout_minutes: int = Field(
-        default=30, ge=1, description="Timeout for consensus before HITL escalation"
+        default=30,
+        ge=1,
+        description="Timeout for consensus before publishing an OVERSEER_ALERT (#2264)",
     )
     post_consensus_iteration_budget_seconds: int = Field(
         default=3600,
@@ -405,9 +407,9 @@ class PipelineConfig(BaseModel):
         default=300,
         ge=0,
         description=(
-            "Defer the consensus-timeout HITL decision while any BRC progress signal "
+            "Defer the consensus-timeout OVERSEER_ALERT while any BRC progress signal "
             "(CONSENSUS_PROPOSE/ACK/NACK or container heartbeat) has fired within this "
-            "many seconds. 0 disables the gate. (#2243)"
+            "many seconds. 0 disables the gate. (#2243, #2264)"
         ),
     )
     agent_idle_timeout_minutes: int = Field(
@@ -650,7 +652,7 @@ class PipelineConfig(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _validate_post_consensus_budgets(self) -> "PipelineConfig":
+    def _validate_post_consensus_budgets(self) -> PipelineConfig:
         """Reject configs where the absolute cap is below the per-iteration budget.
 
         Without this, a misconfigured pipeline (e.g. ``iteration_budget=7200``
