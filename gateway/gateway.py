@@ -56,9 +56,7 @@ import traceback
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, TypeVar
-
-F = TypeVar("F", bound=Callable[..., Any])  # noqa: UP047 – Python 3.11 compat
+from typing import Any
 
 import httpx
 from flask import Flask, Response, g, has_request_context, jsonify, request, stream_with_context
@@ -743,7 +741,7 @@ def check_launcher_auth() -> tuple[bool, str]:
     return False, "Invalid launcher authorization token"
 
 
-def require_launcher_auth(f: F) -> F:  # noqa: UP047
+def require_launcher_auth[F: Callable[..., Any]](f: F) -> F:
     """Decorator to require launcher authentication for an endpoint."""
 
     @functools.wraps(f)
@@ -762,7 +760,7 @@ def require_launcher_auth(f: F) -> F:  # noqa: UP047
     return decorated  # type: ignore[return-value]
 
 
-def require_session_or_launcher_auth(f: F) -> F:  # noqa: UP047
+def require_session_or_launcher_auth[F: Callable[..., Any]](f: F) -> F:
     """Endpoint accepts either a session token or the launcher secret.
 
     When the Authorization bearer matches the launcher secret, the request
