@@ -86,6 +86,10 @@ runs:
       with:
         python-version: "3.14"
 
+    - name: Install Python orchestration dependencies
+      shell: bash
+      run: python3 -m pip install --disable-pip-version-check pyyaml
+
     - name: Run egg
       id: run
       shell: bash
