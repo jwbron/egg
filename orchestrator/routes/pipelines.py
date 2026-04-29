@@ -10071,6 +10071,10 @@ def _branch_divergence_tick(
             base_branch=base,
         )
         if not offenders and alerted_shas:
+            # Note: transient git errors in ``_check_branch_divergence_for_alert``
+            # also surface as ``offenders == []`` and therefore flush the dedupe
+            # set; this is intentional per #2224's "rather over-alert than miss"
+            # posture — a flaky git tick will re-fire on the next clean tick.
             alerted_shas.clear()
         new_offenders = [(sha, subj) for sha, subj in offenders if sha not in alerted_shas]
         if new_offenders:
