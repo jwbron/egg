@@ -5757,6 +5757,248 @@ def _rebase_pipeline_branch_onto_base(
     )
 
 
+def _refresh_pipeline_branch_against_current_base(
+    spawner: "ContainerSpawner",  # noqa: UP037
+    pipeline_id: str,
+    worktree_repo_path: Path,
+    pipeline_branch: str,
+    base_branch: str,
+    gateway_mode: Literal["public", "private"] = "public",
+) -> bool:
+    """Rebase ``origin/<pipeline_branch>`` onto current ``origin/<base_branch>``
+    immediately before opening the PR (#2224 PR 2).
+
+    ``_rebase_pipeline_branch_onto_base`` runs at the start of each
+    phase iteration to clean up stale branch state on resume.  Nothing
+    between branch-cut and PR-open refreshes against
+    ``origin/<base_branch>``; if ``base_branch`` advances *during* the
+    PR phase's own work, the resulting PR is behind.  This helper
+    closes that gap.
+
+    The pipeline branch is the only ref this helper writes to: the
+    rebase replays pipeline-branch commits onto current
+    ``origin/<base_branch>``, and the force-push targets
+    ``pipeline_branch``.  ``base_branch`` is read-only here — no
+    commits are ever pushed to it, even when it happens to be
+    ``main``.
+
+    On success, force-pushes the rebased branch so the open PR's head
+    SHA reflects the rebase.
+
+    On *any* failure (rebase conflict, push rejection, transient gateway
+    error), restores the worktree to ``origin/<pipeline_branch>``,
+    logs at WARNING, and returns ``False`` — the caller still opens the
+    PR against the un-rebased tip.  This is intentional: a merge conflict
+    at PR-open time is better surfaced to the human reviewer than
+    swallowed by failing the whole pipeline.
+
+    Returns ``True`` when a rebase was performed and pushed; ``False``
+    when no rebase was needed or any step failed (in which case the
+    caller proceeds with the un-rebased tip).
+    """
+    if not pipeline_branch or not base_branch or pipeline_branch == base_branch:
+        return False
+
+    git_base = [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        f"safe.directory={worktree_repo_path}",
+        "-C",
+        str(worktree_repo_path),
+    ]
+
+    def _run_git(
+        args: list[str],
+        timeout: int,
+    ) -> subprocess.CompletedProcess[str] | None:
+        try:
+            return subprocess.run(
+                [*git_base, *args],
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            logger.warning(
+                "pr-open rebase: git command failed",
+                pipeline_id=pipeline_id,
+                branch=pipeline_branch,
+                git_args=args,
+                error=str(exc),
+            )
+            return None
+
+    # Step 1: Fetch fresh refs.  Without this we'd rebase against the
+    # base tip we saw at branch-cut, defeating the whole point.
+    fetch_ok = spawner.gateway.fetch_worktree_branch(
+        pipeline_id=pipeline_id,
+        repo_path=str(worktree_repo_path),
+        mode=gateway_mode,
+    )
+    if not fetch_ok:
+        logger.warning(
+            "pr-open rebase: fetch failed, skipping",
+            pipeline_id=pipeline_id,
+            branch=pipeline_branch,
+        )
+        return False
+
+    # Step 2: Verify both refs resolve.
+    verify_branch = _run_git(["rev-parse", "--verify", f"origin/{pipeline_branch}"], timeout=10)
+    if verify_branch is None or verify_branch.returncode != 0:
+        return False
+    verify_base = _run_git(["rev-parse", "--verify", f"origin/{base_branch}"], timeout=10)
+    if verify_base is None or verify_base.returncode != 0:
+        return False
+
+    # Step 3: No-op when the branch is already up-to-date with current base
+    # (no commits behind).  Saves a force-push when none is needed.
+    behind = _run_git(
+        [
+            "rev-list",
+            "--count",
+            f"origin/{pipeline_branch}..origin/{base_branch}",
+        ],
+        timeout=10,
+    )
+    if behind is None or behind.returncode != 0:
+        return False
+    try:
+        behind_count = int((behind.stdout or "0").strip() or "0")
+    except ValueError:
+        behind_count = 0
+    if behind_count == 0:
+        return False
+
+    # Step 4: Compute the merge-base so we can use the safe
+    # ``--onto <new_base> <upstream>`` form (HEAD is the implicit branch
+    # being rebased after the step-5 reset).  The merge-base is the
+    # commit where the branch diverged from base_branch; using it as
+    # ``<upstream>`` tells git "replay only the commits unique to HEAD
+    # onto <new_base>" — no base-branch commits get absorbed into the
+    # branch's linear history, which is the contamination shape #2222
+    # hardened against in the push-reconcile path.
+    merge_base_proc = _run_git(
+        ["merge-base", f"origin/{pipeline_branch}", f"origin/{base_branch}"],
+        timeout=15,
+    )
+    if merge_base_proc is None or merge_base_proc.returncode != 0:
+        logger.warning(
+            "pr-open rebase: merge-base resolution failed, skipping",
+            pipeline_id=pipeline_id,
+            branch=pipeline_branch,
+            base_branch=base_branch,
+            stderr=(merge_base_proc.stderr.strip() if merge_base_proc is not None else None),
+        )
+        return False
+    merge_base = (merge_base_proc.stdout or "").strip()
+    if not merge_base:
+        return False
+
+    # Step 5: Reset the worktree to the current branch tip so the
+    # rebase operates on the right starting state.  The reset target
+    # is ``origin/<pipeline_branch>`` — fresh from fetch in step 1 —
+    # so we are not rebasing on top of stale local state.
+    #
+    # Unlike ``_rebase_pipeline_branch_onto_base`` (resume-time helper),
+    # there is no ``_head_on(...)`` ancestry guard before this reset.
+    # That is intentional at the PR-open call site: if we got here,
+    # ``_finalize_pr_phase_failed`` either left HEAD on
+    # ``origin/<branch>`` (push_ok=True path → reset is a no-op) or
+    # carries unpushed orchestrator housekeeping commits that are
+    # already orphan-by-design per its docstring.  Either way, no
+    # local-only work needs to be preserved here.
+    reset = _run_git(["reset", "--hard", f"origin/{pipeline_branch}"], timeout=30)
+    if reset is None or reset.returncode != 0:
+        logger.warning(
+            "pr-open rebase: reset to origin/<branch> failed, skipping",
+            pipeline_id=pipeline_id,
+            branch=pipeline_branch,
+            stderr=(reset.stderr.strip() if reset is not None else None),
+        )
+        return False
+
+    # Step 6: Rebase using the safe ``--onto <new_base> <upstream>``
+    # form.  HEAD is the implicit branch being rebased (set by the
+    # step-5 reset above).  The closest argv-shape prior art is
+    # ``gateway_client._build_rebase_cmd`` — that one rebases in the
+    # opposite direction (replay HEAD onto a stale branch tip) but uses
+    # the same explicit-upstream pattern that pins the replay range to
+    # ``<upstream>..HEAD`` and so sidesteps the bare-form contamination
+    # shape behind #2222.
+    rebase = _run_git(
+        [
+            "rebase",
+            "--onto",
+            f"origin/{base_branch}",
+            merge_base,
+        ],
+        timeout=120,
+    )
+    if rebase is None or rebase.returncode != 0:
+        # Conflict, timeout, or any failure: abort cleanly and restore
+        # to origin/<branch> so the caller can still open the PR
+        # against the un-rebased tip.  Unlike the resume-time helper,
+        # we *don't* raise here — pipeline failure for a merge conflict
+        # at PR-open time is worse than a slightly-behind PR.
+        _run_git(["rebase", "--abort"], timeout=30)
+        _run_git(["reset", "--hard", f"origin/{pipeline_branch}"], timeout=30)
+        stderr_text = rebase.stderr.strip() if rebase is not None else "rebase command timed out"
+        logger.warning(
+            "pr-open rebase: rebase failed, opening PR against un-rebased tip",
+            pipeline_id=pipeline_id,
+            branch=pipeline_branch,
+            base_branch=base_branch,
+            behind_base=behind_count,
+            stderr=stderr_text,
+            timed_out=rebase is None,
+        )
+        return False
+
+    # Step 7: Force-push the rebased tip so origin/<branch> matches the
+    # SHAs the PR will be opened against.
+    push_result = spawner.gateway.push_worktree_branch(
+        pipeline_id=pipeline_id,
+        repo_path=str(worktree_repo_path),
+        branch=pipeline_branch,
+        mode=gateway_mode,
+        base_branch=base_branch,
+        force=True,
+    )
+    if not push_result.ok:
+        # Best-effort restore so the worktree state is predictable for
+        # downstream callers; the PR still opens against the pre-rebase
+        # remote tip (which is what origin/<branch> still reflects).
+        _run_git(["reset", "--hard", f"origin/{pipeline_branch}"], timeout=30)
+        logger.warning(
+            "pr-open rebase: force-push of rebased branch failed, "
+            "opening PR against un-rebased remote tip",
+            pipeline_id=pipeline_id,
+            branch=pipeline_branch,
+            category=push_result.category,
+            detail=push_result.detail,
+        )
+        return False
+
+    # Re-fetch so origin/<branch> reflects the pushed tip locally.
+    spawner.gateway.fetch_worktree_branch(
+        pipeline_id=pipeline_id,
+        repo_path=str(worktree_repo_path),
+        mode=gateway_mode,
+    )
+    logger.info(
+        "pr-open rebase: rebased and force-pushed pipeline branch",
+        pipeline_id=pipeline_id,
+        branch=pipeline_branch,
+        base_branch=base_branch,
+        behind_base_at_start=behind_count,
+    )
+    return True
+
+
 def _commit_statefiles_to_worktree(
     worktree_path: Path,
     message: str,
@@ -7374,6 +7616,35 @@ def _auto_create_pr(
         logger.warning(
             "Auto PR opened as draft: planner metadata fallback used",
             pipeline_id=pipeline.id,
+        )
+
+    # Refresh the pipeline branch against current
+    # ``origin/<base_branch>`` so the PR opens with a clean linear
+    # diff (#2224 PR 2).  Phase-start rebases
+    # (``_rebase_pipeline_branch_onto_base``) only run once per phase
+    # iteration; if ``base_branch`` advanced *during* the PR phase,
+    # the pipeline branch is now behind.  The helper is best-effort —
+    # on any failure (rebase conflict, push reject, transient gateway
+    # error) the PR still opens against the un-rebased tip and the
+    # divergence becomes visible to the human reviewer.  Only
+    # ``pipeline.branch`` is rewritten; ``base_branch`` is never
+    # modified or pushed to.
+    try:
+        _refresh_pipeline_branch_against_current_base(
+            spawner=spawner,
+            pipeline_id=pipeline.id,
+            worktree_repo_path=worktree_repo_path,
+            pipeline_branch=pipeline.branch,
+            base_branch=base,
+            gateway_mode=gateway_mode,
+        )
+    except Exception as e:
+        # Defensive — the helper already swallows its own errors, but a
+        # bug in the helper itself must not block PR creation.
+        logger.warning(
+            "pr-open rebase helper raised; opening PR against un-rebased tip",
+            pipeline_id=pipeline.id,
+            error=str(e),
         )
 
     try:
