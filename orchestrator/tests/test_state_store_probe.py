@@ -14,7 +14,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -69,7 +69,7 @@ class TestCacheLifecycle:
         probe = StateStoreProbe()
         with patch(
             "state_store_probe.probe_state_store_at",
-            return_value=(True, "ok"),
+            return_value=(True, "ok", {"/sentinel/repo/path": {"status": "ok"}}),
         ):
             probe.probe_now()
         snap = probe.snapshot()
@@ -85,12 +85,23 @@ class TestCacheLifecycle:
         probe = StateStoreProbe()
         with patch(
             "state_store_probe.probe_state_store_at",
-            return_value=(False, "GitOperationError: wedged"),
+            return_value=(
+                False,
+                "1/1 repos wedged: /sentinel/repo/path",
+                {
+                    "/sentinel/repo/path": {
+                        "status": "error",
+                        "error": "GitOperationError: wedged",
+                    }
+                },
+            ),
         ):
             probe.probe_now()
         snap = probe.snapshot()
         assert snap["healthy"] is False
         assert "wedged" in snap["message"]
+        assert snap["repos"]["/sentinel/repo/path"]["status"] == "error"
+        assert "wedged" in snap["repos"]["/sentinel/repo/path"]["error"]
 
     def test_probe_now_skipped_when_egg_repo_path_unset(self, monkeypatch):
         from state_store_probe import StateStoreProbe
@@ -113,7 +124,7 @@ class TestWatchdog:
         probe = StateStoreProbe(interval=10.0, stale_multiplier=2.0)
         with patch(
             "state_store_probe.probe_state_store_at",
-            return_value=(True, "ok"),
+            return_value=(True, "ok", {"/sentinel/repo/path": {"status": "ok"}}),
         ):
             probe.probe_now()
         snap = probe.snapshot()
@@ -130,7 +141,7 @@ class TestWatchdog:
         # rewind ``last_check_monotonic`` so the snapshot sees it as stale.
         with patch(
             "state_store_probe.probe_state_store_at",
-            return_value=(True, "ok"),
+            return_value=(True, "ok", {"/sentinel/repo/path": {"status": "ok"}}),
         ):
             probe.probe_now()
 
@@ -172,11 +183,11 @@ class TestExceptionIsolation:
 
         call_count = {"n": 0}
 
-        def flaky_probe(_path: Path) -> tuple[bool, str]:
+        def flaky_probe(_path: Path) -> tuple[bool, str, dict[str, dict[str, str]]]:
             call_count["n"] += 1
             if call_count["n"] == 1:
                 raise RuntimeError("transient failure")
-            return True, "ok"
+            return True, "ok", {str(_path): {"status": "ok"}}
 
         with patch("state_store_probe.probe_state_store_at", side_effect=flaky_probe):
             probe = StateStoreProbe(interval=0.05)
@@ -208,7 +219,7 @@ class TestThreadLifecycle:
         probe = StateStoreProbe(interval=10.0)
         with patch(
             "state_store_probe.probe_state_store_at",
-            return_value=(True, "ok"),
+            return_value=(True, "ok", {"/sentinel/repo/path": {"status": "ok"}}),
         ):
             probe.start()
             first_thread = probe._thread  # type: ignore[attr-defined]
@@ -225,7 +236,7 @@ class TestThreadLifecycle:
         probe = StateStoreProbe(interval=0.1)
         with patch(
             "state_store_probe.probe_state_store_at",
-            return_value=(True, "ok"),
+            return_value=(True, "ok", {"/sentinel/repo/path": {"status": "ok"}}),
         ):
             probe.start()
             time.sleep(0.05)
@@ -306,19 +317,28 @@ class TestOnObservationCallback:
 
         with patch(
             "state_store_probe.probe_state_store_at",
-            return_value=(True, "ok"),
+            return_value=(True, "ok", {"/sentinel/repo/path": {"status": "ok"}}),
         ):
             probe.probe_now()
 
         with patch(
             "state_store_probe.probe_state_store_at",
-            return_value=(False, "GitOperationError: wedged"),
+            return_value=(
+                False,
+                "1/1 repos wedged: /sentinel/repo/path",
+                {
+                    "/sentinel/repo/path": {
+                        "status": "error",
+                        "error": "GitOperationError: wedged",
+                    }
+                },
+            ),
         ):
             probe.probe_now()
 
         with patch(
             "state_store_probe.probe_state_store_at",
-            return_value=(True, "ok"),
+            return_value=(True, "ok", {"/sentinel/repo/path": {"status": "ok"}}),
         ):
             probe.probe_now()
 
@@ -336,7 +356,7 @@ class TestOnObservationCallback:
 
         with patch(
             "state_store_probe.probe_state_store_at",
-            return_value=(True, "ok"),
+            return_value=(True, "ok", {"/sentinel/repo/path": {"status": "ok"}}),
         ):
             probe.probe_now()
 
@@ -344,7 +364,16 @@ class TestOnObservationCallback:
 
         with patch(
             "state_store_probe.probe_state_store_at",
-            return_value=(False, "wedged"),
+            return_value=(
+                False,
+                "1/1 repos wedged: /sentinel/repo/path",
+                {
+                    "/sentinel/repo/path": {
+                        "status": "error",
+                        "error": "wedged",
+                    }
+                },
+            ),
         ):
             probe.probe_now()
 
@@ -362,7 +391,7 @@ class TestOnObservationCallback:
         probe = StateStoreProbe(on_observation=boom)
         with patch(
             "state_store_probe.probe_state_store_at",
-            return_value=(True, "ok"),
+            return_value=(True, "ok", {"/sentinel/repo/path": {"status": "ok"}}),
         ):
             healthy, message = probe.probe_now()
 
@@ -388,11 +417,11 @@ class TestProbeNowConcurrency:
         release_first = threading.Event()
         call_count = {"n": 0}
 
-        def slow_probe(_path: Path) -> tuple[bool, str]:
+        def slow_probe(_path: Path) -> tuple[bool, str, dict[str, dict[str, str]]]:
             call_count["n"] += 1
             first_started.set()
             release_first.wait(timeout=2.0)
-            return True, "ok-slow"
+            return True, "ok-slow", {str(_path): {"status": "ok"}}
 
         with patch("state_store_probe.probe_state_store_at", side_effect=slow_probe):
             t1 = threading.Thread(target=probe.probe_now)
@@ -416,3 +445,84 @@ class TestProbeNowConcurrency:
         # First probe completed normally.
         assert call_count["n"] == 1
         assert probe.snapshot()["message"] == "ok-slow"
+
+
+class TestProbeStateStoreAtMultiRepo:
+    """Regression coverage for #2176 — ``probe_state_store_at`` must
+    walk every repo, not bail on the first failure. In multi-repo
+    deployments a wedge on repo A used to hide an independent wedge on
+    repo B from ``/api/v1/health`` until A was healed."""
+
+    def test_one_wedged_one_healthy_surfaces_both(self, tmp_path):
+        """Two repos under a parent dir, repo A wedged + repo B healthy.
+        The probe must return both entries, mark the aggregate as
+        unhealthy, and name the wedged repo in the summary."""
+        from state_store_probe import probe_state_store_at
+
+        repo_a = tmp_path / "repo-a"
+        repo_a.mkdir()
+        (repo_a / ".git").mkdir()
+        repo_b = tmp_path / "repo-b"
+        repo_b.mkdir()
+        (repo_b / ".git").mkdir()
+
+        healthy_store = MagicMock()
+        healthy_store.worktree = "/some/worktree/path"
+
+        def fake_get_state_store(repo_path: Path):
+            if repo_path == repo_a:
+                raise RuntimeError("wedged: worktree contention")
+            return healthy_store
+
+        with patch(
+            "state_store.get_state_store",
+            side_effect=fake_get_state_store,
+        ):
+            healthy, summary, repos = probe_state_store_at(tmp_path)
+
+        assert healthy is False
+        assert str(repo_a) in repos
+        assert str(repo_b) in repos
+        assert repos[str(repo_a)]["status"] == "error"
+        assert "wedged" in repos[str(repo_a)]["error"]
+        assert repos[str(repo_b)] == {"status": "ok"}
+        # Summary names the wedged repo so an operator scanning the
+        # /health response sees which repo is the problem.
+        assert str(repo_a) in summary
+        assert "1/2" in summary
+
+    def test_all_healthy_returns_ok(self, tmp_path):
+        """All repos load cleanly → healthy=True, summary='ok', and
+        every repo is recorded."""
+        from state_store_probe import probe_state_store_at
+
+        repo_a = tmp_path / "repo-a"
+        repo_a.mkdir()
+        (repo_a / ".git").mkdir()
+        repo_b = tmp_path / "repo-b"
+        repo_b.mkdir()
+        (repo_b / ".git").mkdir()
+
+        store = MagicMock()
+        store.worktree = "/some/worktree/path"
+        with patch("state_store.get_state_store", return_value=store):
+            healthy, summary, repos = probe_state_store_at(tmp_path)
+
+        assert healthy is True
+        assert summary == "ok"
+        assert repos == {
+            str(repo_a): {"status": "ok"},
+            str(repo_b): {"status": "ok"},
+        }
+
+    def test_no_repos_under_base_path_skips(self, tmp_path):
+        """An empty base dir is treated as a config issue, not a wedge.
+        Healthy=True, repos empty so /health stays 'healthy' rather
+        than flapping degraded."""
+        from state_store_probe import probe_state_store_at
+
+        healthy, summary, repos = probe_state_store_at(tmp_path)
+
+        assert healthy is True
+        assert "probe-skipped" in summary
+        assert repos == {}

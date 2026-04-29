@@ -48,6 +48,10 @@ def _probe_state_store() -> tuple[bool, str]:
     kubelet-probe path no longer calls this directly — the BG thread in
     :mod:`state_store_probe` does — but several wedge-propagation tests
     (``test_state_store_wedge_propagation.py``) exercise it as a unit.
+
+    Returns the aggregate ``(healthy, summary)`` pair from
+    :func:`probe_state_store_at`. The per-repo detail is dropped here;
+    callers that need it should consume the snapshot directly.
     """
     from routes import get_repo_path
 
@@ -55,7 +59,8 @@ def _probe_state_store() -> tuple[bool, str]:
         base_path = get_repo_path()
     except Exception as exc:
         return True, f"probe-skipped: {exc}"
-    return probe_state_store_at(base_path)
+    healthy, summary, _repos = probe_state_store_at(base_path)
+    return healthy, summary
 
 
 @health_bp.route("/health", methods=["GET"])
@@ -73,13 +78,24 @@ def health_check() -> tuple[Response, int]:
     ``/ready`` instead. Those endpoints serve the same cache but with
     HTTP-code semantics (200 vs 503) suited to probe consumers.
 
+    The ``components.state_store`` field is a per-repo map (#2176) so
+    operators in multi-repo deployments see every wedged repo at once
+    rather than just the first one the probe loop hit. Empty in
+    skip cases (no ``EGG_REPO_PATH``, no repos discovered, or before
+    the first probe completes); ``components.state_store_summary``
+    carries the human-readable aggregate string in those cases.
+
     Response::
 
         {
             "status": "healthy" | "degraded",
             "service": "egg-orchestrator",
             "timestamp": "...",
-            "components": {"state_store": "ok" | "<error>", "docker": "unknown"},
+            "components": {
+                "state_store": {"<repo>": {"status": "ok"} | {"status": "error", "error": "..."}},
+                "state_store_summary": "ok" | "<aggregate error>",
+                "docker": "unknown"
+            },
             "process_start_time": "...",
             "healthy_since": "...",
             "last_unhealthy_at": "...",
@@ -103,7 +119,8 @@ def health_check() -> tuple[Response, int]:
         "service": "egg-orchestrator",
         "timestamp": datetime.now(UTC).isoformat(),
         "components": {
-            "state_store": snap["message"],
+            "state_store": snap["repos"],
+            "state_store_summary": snap["message"],
             "docker": "unknown",
         },
         "process_start_time": tracker_snapshot["process_start_time"],
@@ -127,20 +144,31 @@ def readiness_check() -> tuple[Response, int]:
     Returns 200 when the cached state-store probe is fresh and healthy,
     503 otherwise. No I/O on the request path: this is a dict read.
 
+    ``state_store`` is the per-repo map (#2176), matching ``/api/v1/health``
+    so operators see the same shape regardless of which probe they hit.
+    ``state_store_summary`` carries the aggregate human string for
+    skip/starting/stale cases where the per-repo map is empty.
+
     Response (200)::
 
-        {"ready": true, "state_store": "ok", "age_seconds": 4.2}
+        {"ready": true,
+         "state_store": {"<repo>": {"status": "ok"}},
+         "state_store_summary": "ok",
+         "fresh": true, "age_seconds": 4.2}
 
     Response (503)::
 
-        {"ready": false, "state_store": "<error or 'starting'>",
+        {"ready": false,
+         "state_store": {"<repo>": {"status": "error", "error": "..."}},
+         "state_store_summary": "<aggregate error or 'starting'>",
          "fresh": false, "age_seconds": null}
     """
     snap = get_state_store_probe().snapshot()
     ready = bool(snap["healthy"]) and bool(snap["fresh"])
     body = {
         "ready": ready,
-        "state_store": snap["message"],
+        "state_store": snap["repos"],
+        "state_store_summary": snap["message"],
         "fresh": snap["fresh"],
         "age_seconds": snap["age_seconds"],
     }

@@ -311,7 +311,7 @@ class TestBasicEndpoints:
         monkeypatch.setenv("EGG_REPO_PATH", "/sentinel/repo/path")
         with patch(
             "state_store_probe.probe_state_store_at",
-            return_value=(True, "ok"),
+            return_value=(True, "ok", {"/sentinel/repo/path": {"status": "ok"}}),
         ):
             get_state_store_probe().probe_now()
             resp = client.get("/api/v1/health")
@@ -337,7 +337,7 @@ class TestBasicEndpoints:
         monkeypatch.setenv("EGG_REPO_PATH", "/sentinel/repo/path")
         with patch(
             "state_store_probe.probe_state_store_at",
-            return_value=(True, "ok"),
+            return_value=(True, "ok", {"/sentinel/repo/path": {"status": "ok"}}),
         ):
             get_state_store_probe().probe_now()
             client.get("/api/v1/health")
@@ -355,14 +355,15 @@ class TestBasicEndpoints:
         monkeypatch.setenv("EGG_REPO_PATH", "/sentinel/repo/path")
         with patch(
             "state_store_probe.probe_state_store_at",
-            return_value=(True, "ok"),
+            return_value=(True, "ok", {"/sentinel/repo/path": {"status": "ok"}}),
         ):
             get_state_store_probe().probe_now()
             resp = client.get("/api/v1/ready")
         assert resp.status_code == 200
         body = json.loads(resp.data)
         assert body["ready"] is True
-        assert body["state_store"] == "ok"
+        assert body["state_store"] == {"/sentinel/repo/path": {"status": "ok"}}
+        assert body["state_store_summary"] == "ok"
 
     def test_ready_returns_503_before_first_probe(self, app, client):
         """Before the BG thread runs its first probe, ``/api/v1/ready``
@@ -383,14 +384,26 @@ class TestBasicEndpoints:
         monkeypatch.setenv("EGG_REPO_PATH", "/sentinel/repo/path")
         with patch(
             "state_store_probe.probe_state_store_at",
-            return_value=(False, "GitOperationError: wedged"),
+            return_value=(
+                False,
+                "1/1 repos wedged: /sentinel/repo/path",
+                {
+                    "/sentinel/repo/path": {
+                        "status": "error",
+                        "error": "GitOperationError: wedged",
+                    }
+                },
+            ),
         ):
             get_state_store_probe().probe_now()
             resp = client.get("/api/v1/ready")
         assert resp.status_code == 503
         body = json.loads(resp.data)
         assert body["ready"] is False
-        assert "wedged" in body["state_store"]
+        repo_entry = body["state_store"]["/sentinel/repo/path"]
+        assert repo_entry["status"] == "error"
+        assert "wedged" in repo_entry["error"]
+        assert "wedged" in body["state_store_summary"]
 
     def test_live_returns_true(self, app, client):
         """``/api/v1/live`` is a pure JSON return. State-store status
