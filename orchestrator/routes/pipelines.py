@@ -9842,6 +9842,193 @@ def _publish_consensus_timeout_alert(
         )
 
 
+# Pipeline-branch divergence alert (#2224 PR 3).
+#
+# Watches ``origin/<pipeline_branch>`` for the contamination shape from
+# #2222: branch is more than ``BRANCH_DIVERGENCE_THRESHOLD`` commits
+# ahead of ``origin/<base>`` AND those ahead-commits contain merged-PR
+# subject signatures (``(#NNNN)``).  A real pipeline branch grows by
+# refine/plan/implement/state-file commits authored by agents — none of
+# those would carry a ``(#NNNN)`` suffix in the subject.  When that
+# signature appears, the branch has absorbed merged-main commits, which
+# is the exact failure mode #2222 fixed at the root.
+#
+# The signature heuristic is intentionally cheap and false-positive-
+# tolerant — per the issue, "we'd rather over-alert than miss another
+# contaminated PR."
+BRANCH_DIVERGENCE_THRESHOLD = 20
+_BRANCH_DIVERGENCE_PR_RE = re.compile(r"\(#\d+\)")
+
+
+def _check_branch_divergence_for_alert(
+    pipeline_id: str,
+    worktree_repo_path: Path,
+    pipeline_branch: str,
+    base_branch: str,
+    threshold: int = BRANCH_DIVERGENCE_THRESHOLD,
+) -> list[tuple[str, str]]:
+    """Return offending ``(sha, subject)`` pairs, or ``[]`` if no alert.
+
+    Returns the list of ahead-commits whose subjects look like
+    merged-main PRs (``(#NNNN)``) when the pipeline branch is more
+    than ``threshold`` commits ahead of base.  Returns ``[]`` when
+    the branch is not far enough ahead, no signatures match, or any
+    git invocation fails (best-effort — observability must never
+    block the pipeline).
+    """
+    if not pipeline_branch or not base_branch or pipeline_branch == base_branch:
+        return []
+
+    git_base = [
+        "git",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        f"safe.directory={worktree_repo_path}",
+        "-C",
+        str(worktree_repo_path),
+    ]
+
+    def _run(args: list[str]) -> subprocess.CompletedProcess[str] | None:
+        try:
+            return subprocess.run(
+                [*git_base, *args],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            logger.debug(
+                "branch-divergence: git command failed",
+                pipeline_id=pipeline_id,
+                git_args=args,
+                error=str(exc),
+            )
+            return None
+
+    count = _run(
+        [
+            "rev-list",
+            "--count",
+            f"origin/{base_branch}..origin/{pipeline_branch}",
+        ]
+    )
+    if count is None or count.returncode != 0:
+        return []
+    try:
+        ahead = int((count.stdout or "0").strip() or "0")
+    except ValueError:
+        return []
+    if ahead <= threshold:
+        return []
+
+    log = _run(
+        [
+            "log",
+            "--no-merges",
+            "--pretty=format:%H%x09%s",
+            f"origin/{base_branch}..origin/{pipeline_branch}",
+        ]
+    )
+    if log is None or log.returncode != 0:
+        return []
+
+    offenders: list[tuple[str, str]] = []
+    for line in (log.stdout or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        sha, _, subject = line.partition("\t")
+        if not sha or not subject:
+            continue
+        if _BRANCH_DIVERGENCE_PR_RE.search(subject):
+            offenders.append((sha, subject))
+    return offenders
+
+
+def _publish_branch_divergence_alert(
+    pipeline: Pipeline,
+    pipeline_id: str,
+    *,
+    pipeline_branch: str,
+    base_branch: str,
+    ahead_count: int,
+    offenders: list[tuple[str, str]],
+) -> None:
+    """Publish an ``OVERSEER_ALERT`` for branch-divergence contamination.
+
+    Best-effort: import or write failures are logged at WARNING and
+    swallowed — the orchestrator log is the always-on fallback.
+    """
+    phase_value = (
+        pipeline.current_phase.value
+        if hasattr(pipeline.current_phase, "value")
+        else str(pipeline.current_phase)
+    )
+    subject = f"branch-divergence: {pipeline_branch} contains merged-main commits"
+    offender_render = "\n".join(f"  {sha[:12]} {subj}" for sha, subj in offenders[:10])
+    if len(offenders) > 10:
+        offender_render += f"\n  ... and {len(offenders) - 10} more"
+    body = (
+        f"Pipeline branch ``origin/{pipeline_branch}`` is {ahead_count} commits "
+        f"ahead of ``origin/{base_branch}`` and contains {len(offenders)} "
+        f"commit(s) whose subjects look like merged-main PRs "
+        f"(``(#NNNN)`` signature).  This is the contamination shape "
+        f"investigated in #2222 (Phase 4 / #2224 detector).\n\n"
+        f"Offending commits:\n{offender_render}\n\n"
+        f"If this is real contamination, the resulting PR will show a "
+        f"borked diff against current main — see #2222 recovery procedure "
+        f"(rebase ``--onto`` the right base).  If this is a false positive "
+        f"(e.g. an agent legitimately copied a ``(#NNNN)`` reference into "
+        f"a commit subject), no action is required."
+    )
+    metadata: dict[str, Any] = {
+        "anomaly_type": "branch-divergence",
+        "phase": phase_value,
+        "pipeline_branch": pipeline_branch,
+        "base_branch": base_branch,
+        "ahead_count": ahead_count,
+        "offending_shas": [sha for sha, _ in offenders],
+    }
+
+    try:
+        try:
+            from message_store import Message, MessageType
+        except ImportError:
+            from ..message_store import (  # type: ignore[no-redef]
+                Message,
+                MessageType,
+            )
+        store_fn = _get_message_store()
+        if store_fn is None:
+            logger.warning(
+                "Branch-divergence alert: message store unavailable",
+                pipeline_id=pipeline_id,
+            )
+            return
+        msg_store = store_fn()
+        msg_store.add_message(
+            Message(
+                pipeline_id=pipeline_id,
+                from_role="orchestrator",
+                to_role="all",
+                message_type=MessageType.OVERSEER_ALERT,
+                subject=subject,
+                body=body,
+                metadata=metadata,
+                phase=phase_value,
+            )
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to publish branch-divergence OVERSEER_ALERT",
+            pipeline_id=pipeline_id,
+            error=str(e),
+            exc_info=True,
+        )
+
+
 def _handle_brc_consensus_timeout(
     pipeline: Pipeline,
     pipeline_id: str,
@@ -13594,6 +13781,11 @@ def _run_pipeline(
             overseer_respawn_count = 0
             max_overseer_respawns = pipeline.config.overseer_max_respawns
 
+            # SHAs we've already raised a branch-divergence alert for
+            # (#2224 PR 3).  Per-pipeline dedupe so we fire once per
+            # offending commit, not once per 30s tick.
+            divergence_alerted_shas: set[str] = set()
+
             def _health_monitor_poll(monitor, stop_event: threading.Event, interval: float = 30.0):
                 nonlocal overseer_container_id, overseer_respawn_count, phase_overseer_active
                 while not stop_event.is_set():
@@ -13607,6 +13799,69 @@ def _run_pipeline(
                             "Health monitor poll error",
                             pipeline_id=pipeline_id,
                             error=str(poll_err),
+                        )
+
+                    # Branch-divergence detector (#2224 PR 3).  Reads the
+                    # latest pipeline state each tick so a base_branch /
+                    # branch update mid-pipeline is picked up; logs and
+                    # swallows all errors so observability never blocks
+                    # the pipeline.
+                    try:
+                        _div_pipeline = store.load_pipeline(pipeline_id)
+                        _div_branch = _div_pipeline.branch
+                        _div_base = _div_pipeline.base_branch
+                        if _div_branch and _div_base:
+                            offenders = _check_branch_divergence_for_alert(
+                                pipeline_id=pipeline_id,
+                                worktree_repo_path=worktree_repo_path,
+                                pipeline_branch=_div_branch,
+                                base_branch=_div_base,
+                            )
+                            new_offenders = [
+                                (sha, subj)
+                                for sha, subj in offenders
+                                if sha not in divergence_alerted_shas
+                            ]
+                            if new_offenders:
+                                # Re-count ahead for the alert body — the
+                                # offender list is the contaminated subset,
+                                # the body should report total divergence.
+                                _ahead_proc = subprocess.run(
+                                    [
+                                        "git",
+                                        "-c",
+                                        "core.hooksPath=/dev/null",
+                                        "-c",
+                                        f"safe.directory={worktree_repo_path}",
+                                        "-C",
+                                        str(worktree_repo_path),
+                                        "rev-list",
+                                        "--count",
+                                        f"origin/{_div_base}..origin/{_div_branch}",
+                                    ],
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=15,
+                                    check=False,
+                                )
+                                try:
+                                    _ahead = int((_ahead_proc.stdout or "0").strip() or "0")
+                                except ValueError:
+                                    _ahead = 0
+                                _publish_branch_divergence_alert(
+                                    _div_pipeline,
+                                    pipeline_id,
+                                    pipeline_branch=_div_branch,
+                                    base_branch=_div_base,
+                                    ahead_count=_ahead,
+                                    offenders=new_offenders,
+                                )
+                                divergence_alerted_shas.update(sha for sha, _ in new_offenders)
+                    except Exception as div_err:
+                        logger.debug(
+                            "Branch-divergence check failed",
+                            pipeline_id=pipeline_id,
+                            error=str(div_err),
                         )
 
                     # Check overseer liveness and respawn if it exited mid-phase.
