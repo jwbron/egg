@@ -57,12 +57,19 @@ class _GlobalSliceAdmit:
     def _resolve_cap(self) -> int:
         if self._cap_override is not None:
             return self._cap_override
+        # Dual-path import mirrors ``routes/pipelines.py`` so the cap is
+        # resolved consistently whether the orchestrator process has the
+        # repo root on ``sys.path`` (``orchestrator.env_config``) or only
+        # ``orchestrator/`` itself (bare ``env_config``). Previously a
+        # bare ``except Exception:`` swallowed ImportError and silently
+        # returned 4, so an operator-set
+        # ``EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES`` was ignored on the bare
+        # path with no signal.
         try:
             from orchestrator import env_config
-
-            return env_config.get_global_max_parallel_slices()
-        except Exception:  # noqa: BLE001 — fall back to literal default
-            return 4
+        except ImportError:
+            import env_config  # type: ignore[no-redef]
+        return env_config.get_global_max_parallel_slices()
 
     def try_admit(self, pipeline_id: str, slice_id: str) -> bool:
         """Admit one slice if the global cap has headroom.
@@ -181,9 +188,13 @@ def reset_for_testing(*, cap: int | None = None) -> None:
         _singleton._force_cap(cap)
 
 
+# ``reset_for_testing`` is intentionally omitted from ``__all__`` — it is
+# a test-only escape hatch that mutates the singleton, and the package
+# contract is ``try_admit`` / ``release`` / ``snapshot``. Tests still
+# reach it as ``global_slice_admit.reset_for_testing`` via attribute
+# access.
 __all__ = (
     "release",
-    "reset_for_testing",
     "snapshot",
     "try_admit",
 )

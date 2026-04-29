@@ -12,13 +12,23 @@ import sys
 import threading
 from pathlib import Path
 
+# Make the package import (``orchestrator.global_slice_admit``) resolve
+# at module load time. The orchestrator conftest only adds
+# ``orchestrator/`` and ``shared/`` to ``sys.path``; pytest's rootdir
+# injection of the repo root only fires after collection, not before
+# top-level imports. Adding the repo root here lets the test module
+# import via the same package path production uses.
 _project_root = Path(__file__).parent.parent.parent
-_orchestrator_path = _project_root / "orchestrator"
-for _p in (_orchestrator_path,):
-    if _p.exists() and str(_p) not in sys.path:
-        sys.path.insert(0, str(_p))
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
 
-import global_slice_admit  # noqa: E402
+# Import via the package path that production code uses
+# (``routes.pipelines`` does ``from orchestrator import global_slice_admit``).
+# A bare ``import global_slice_admit`` would resolve to a *different*
+# module object — same code, separate ``_singleton`` — so any regression
+# in the real singleton's locking, idempotency, or env-var resolution
+# would slip past these unit tests.
+from orchestrator import global_slice_admit  # noqa: E402
 
 
 def setup_function() -> None:

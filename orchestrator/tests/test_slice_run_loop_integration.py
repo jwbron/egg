@@ -1222,7 +1222,11 @@ class TestGlobalSliceAdmit:
         global_slice_admit.reset_for_testing()
 
     def test_release_called_on_integration_branch_failure(self) -> None:
-        """create_slice_integration_branch failure must still release admit."""
+        """create_slice_integration_branch failure must still release admit.
+
+        The codepath returns before reaching ``_run_concurrent_phase``, so
+        no patch on it is needed.
+        """
         from orchestrator import global_slice_admit
 
         global_slice_admit.reset_for_testing(cap=4)
@@ -1234,7 +1238,6 @@ class TestGlobalSliceAdmit:
             patch("egg_contracts.loader.load_contract", return_value=contract),
             patch("egg_contracts.loader.save_contract"),
             patch("routes.pipelines._start_stacked_pr_reconciler") as mock_start_recon,
-            patch("routes.pipelines._run_concurrent_phase", return_value=(0, "ok")),
             patch("orchestrator.peer_consensus.remove_peer_consensus_tracker"),
         ):
             mock_start_recon.return_value = (MagicMock(), threading.Event())
