@@ -9568,8 +9568,9 @@ def _check_brc_progress_gate(
 ) -> tuple[bool, str | None]:
     """Return (defer, reason) for the BRC consensus-timeout progress gate (#2243).
 
-    Defers the auto-HITL consensus-failure decision when *any* of the
-    following has fired within ``gate_seconds``:
+    Defers the consensus-timeout ``OVERSEER_ALERT`` (#2264; previously
+    an auto-``choice`` HITL decision) when *any* of the following has
+    fired within ``gate_seconds``:
 
     * The BRC tracker's most recent ``CONSENSUS_PROPOSE`` (producer
       proposal) timestamp.
@@ -9582,13 +9583,13 @@ def _check_brc_progress_gate(
     :data:`consensus_timeout_minutes` we previously opened a `choice`
     decision unconditionally, even when producers were minutes from
     their first commit. With the gate, the polling loop keeps polling
-    while signals are alive; the decision only opens once the bus and
-    containers have both gone quiet for ``gate_seconds``.
+    while signals are alive; the alert is only published once the bus
+    and containers have both gone quiet for ``gate_seconds``.
 
     ``gate_seconds <= 0`` disables the gate (returns ``(False, None)``).
     Failures in any signal source are logged at WARNING and treated as
     "no signal from that source" — never as a gate defer, since a
-    crashed signal collector must not silently keep us off the HITL
+    crashed signal collector must not silently keep us off the alert
     surface.
 
     Heartbeat-cadence contract: the decision-17 path (coder mid-merge-
@@ -9716,6 +9717,7 @@ def _latest_active_role_heartbeat(active_role_names: list[str]) -> datetime | No
         logger.warning(
             "Consensus-timeout alert heartbeat lookup failed",
             error=str(e),
+            exc_info=True,
         )
         return None
 
@@ -9749,7 +9751,14 @@ def _publish_consensus_timeout_alert(
         if hasattr(pipeline.current_phase, "value")
         else str(pipeline.current_phase)
     )
-    subject = f"consensus-timeout: {phase_value} [{priority}]"
+    # Subject role slot follows the SDLC skill convention
+    # ``<anomaly_type>: <agent_role> [<priority>]`` (skills/sdlc/SKILL.md
+    # §"Overseer Alert Detection") so "Check agent logs" extracts a role
+    # the host can pass to ``get_container_logs``. Fall back to the phase
+    # only when no blocking role is reported — the phase still appears in
+    # ``metadata.phase`` regardless.
+    subject_role = blocking_agents[0] if blocking_agents else phase_value
+    subject = f"consensus-timeout: {subject_role} [{priority}]"
     blockers_render = ", ".join(blocking_agents) if blocking_agents else "(none reported)"
     proposal_render = (
         latest_proposal_at.isoformat() if latest_proposal_at is not None else "no proposals seen"
@@ -9765,9 +9774,10 @@ def _publish_consensus_timeout_alert(
         f"Blocking agents: {blockers_render}\n"
         f"Latest proposal: {proposal_render}\n"
         f"Latest heartbeat (active roles): {heartbeat_render}\n\n"
-        "The pipeline continues to poll for convergence. If you want to "
-        "intervene, use `cancel_task` to stop the pipeline, `restart_phase` "
-        "to retry, or `provide_input` against any open agent decision."
+        "The pipeline continues to poll for convergence (up to ~60 min "
+        "before still-running containers are force-killed). If you want "
+        "to intervene, use `cancel_task` to stop the pipeline or "
+        "`restart_phase` to retry."
     )
     metadata: dict[str, Any] = {
         "anomaly_type": "consensus-timeout",
@@ -9880,6 +9890,7 @@ def _handle_brc_consensus_timeout(
                 "Consensus-timeout alert proposal lookup failed",
                 pipeline_id=pipeline_id,
                 error=str(e),
+                exc_info=True,
             )
     latest_heartbeat_at = _latest_active_role_heartbeat(active_role_names or [])
 
@@ -9888,11 +9899,23 @@ def _handle_brc_consensus_timeout(
         and _brc_timeout_result is not None
         and _brc_timeout_result.get("action") == "escalate"
     ):
+        # Narrow the alert's blocking_agents to the *critical* blockers
+        # the tracker just escalated on. The caller-supplied
+        # ``blocking_agents`` is the full unconfirmed-roles set
+        # (advisory + critical) from ``evaluate()`` — surfacing
+        # advisory roles on a high-priority alert dilutes the signal.
+        critical_entries = _brc_timeout_result.get("critical_blockers") or []
+        critical_role_names: list[str] = []
+        for entry in critical_entries:
+            for role in (entry.get("reviewer_role"), entry.get("producer_role")):
+                if role and role not in critical_role_names:
+                    critical_role_names.append(role)
+        escalate_blocking = critical_role_names or blocking_agents
         _publish_consensus_timeout_alert(
             pipeline,
             pipeline_id,
             consensus_timeout,
-            blocking_agents,
+            escalate_blocking,
             priority="high",
             latest_proposal_at=latest_proposal_at,
             latest_heartbeat_at=latest_heartbeat_at,
@@ -11470,12 +11493,13 @@ def _run_concurrent_phase(
 
         # 6. Consensus timeout
         if elapsed >= consensus_timeout:
-            # #2243 progress gate: keep polling instead of opening the
-            # auto-HITL decision while producer/reviewer activity is
-            # still live on the BRC bus or in container heartbeats.
-            # Without this gate, decision-15 / decision-17 on
-            # ``issue-1557-v2`` fired minutes before the next commit
-            # landed; "Continue waiting" was the only correct answer.
+            # #2243 progress gate: keep polling instead of publishing
+            # the consensus-timeout alert while producer/reviewer
+            # activity is still live on the BRC bus or in container
+            # heartbeats. Without this gate, the historical decision-15
+            # / decision-17 misfires on ``issue-1557-v2`` (now
+            # ``OVERSEER_ALERT`` post-#2264) fired minutes before the
+            # next commit landed.
             _gate_seconds = max(
                 0,
                 int(getattr(pipeline.config, "brc_consensus_progress_gate_seconds", 300)),

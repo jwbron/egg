@@ -721,13 +721,13 @@ If any agent is in the `OBJECTING` readiness state (separate from BRC phase), th
 
 If consensus is not reached within `consensus_timeout_minutes`, the BRC tracker (`PeerConsensusTracker.handle_timeout()`) evaluates blocking agents by role criticality:
 
-- **Critical blockers** (required reviewers still unconfirmed): emits `CONSENSUS_FAILURE` and publishes an `OVERSEER_ALERT` (subject `consensus-timeout: <phase> [high]`) so the SDLC skill surfaces it as a non-blocking notification — see [issue #2264](https://github.com/jwbron/egg/issues/2264).
+- **Critical blockers** (required reviewers still unconfirmed): emits `CONSENSUS_FAILURE` and publishes an `OVERSEER_ALERT` (subject `consensus-timeout: <agent_role> [high]`, where `<agent_role>` is the first critical-blocker role; the phase is preserved in `metadata.phase`) so the SDLC skill surfaces it as a non-blocking notification — see [issue #2264](https://github.com/jwbron/egg/issues/2264). The alert's `metadata.blocking_agents` is narrowed to the critical-blocker roles only (advisory roles, if any, are excluded so the high-priority signal isn't diluted).
 - **Advisory-only blockers** (non-critical roles unconfirmed): emits `CONSENSUS_TIMEOUT` and proceeds automatically — no alert created.
 - **No blockers**: proceeds immediately with no alert.
 
 After the timeout check, if the approval matrix still has unresolved NACKs (producers that exited without addressing reviewer feedback), the phase returns failure regardless of which agents are confirmed.
 
-If the BRC tracker is unavailable, the orchestrator publishes a fallback `OVERSEER_ALERT` (subject `consensus-timeout: <phase> [medium]`) so the timeout remains visible to the operator. The alert metadata carries `anomaly_type=consensus-timeout`, `phase`, `blocking_agents`, `latest_proposal_at`, `latest_heartbeat_at`, and `consensus_timeout_minutes`. The polling loop continues with the post-timeout budget — the alert is informational, not a gate; the operator can intervene with `cancel_task` / `restart_phase` / `provide_input` if desired.
+If the BRC tracker is unavailable, the orchestrator publishes a fallback `OVERSEER_ALERT` (subject `consensus-timeout: <agent_role> [medium]`, falling back to `<phase>` in the role slot when no blocking agents are reported) so the timeout remains visible to the operator. The alert metadata carries `anomaly_type=consensus-timeout`, `phase`, `blocking_agents`, `latest_proposal_at`, `latest_heartbeat_at`, and `consensus_timeout_minutes`. The polling loop continues with a bounded post-timeout budget (~60 minutes before still-running containers are force-killed); the alert is informational, not a gate, and the operator can intervene with `cancel_task` or `restart_phase` if desired.
 
 Timeout handling is idempotent — if the timeout fires multiple times (e.g., due to a race with the overseer), only the first invocation takes effect.
 

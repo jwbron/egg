@@ -370,6 +370,9 @@ class TestConsensusTimeout:
         assert alert.metadata["consensus_timeout_minutes"] == 30
         assert alert.metadata["blocking_agents"] == ["coder"]
         assert alert.metadata["priority"] == "medium"
+        # Subject role slot follows the SDLC-skill convention so the
+        # host's "Check agent logs" can extract a real role.
+        assert alert.subject == "consensus-timeout: coder [medium]"
 
     @patch("routes.pipelines.time.sleep")
     @patch("routes.pipelines.time.monotonic")

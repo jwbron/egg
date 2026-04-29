@@ -20,7 +20,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 from events import EventType
 from models import Pipeline, PipelinePhase
-from routes.pipelines import _check_brc_progress_gate, _handle_brc_consensus_timeout
+from routes.pipelines import (
+    _check_brc_progress_gate,
+    _handle_brc_consensus_timeout,
+    _latest_active_role_heartbeat,
+)
 
 
 @pytest.fixture
@@ -41,7 +45,7 @@ def _make_store():
     return MagicMock()
 
 
-def _capture_alerts(monkeypatch_target=None):
+def _capture_alerts():
     """Return ``(patch_context, alerts_list)`` for capturing OVERSEER_ALERT writes.
 
     Patches ``routes.pipelines._get_message_store`` to return a factory
@@ -98,8 +102,12 @@ class TestHandleBrcConsensusTimeout:
         assert alert.message_type == "OVERSEER_ALERT"
         assert alert.from_role == "orchestrator"
         assert alert.to_role == "all"
-        assert alert.subject.startswith("consensus-timeout: ")
-        assert "[medium]" in alert.subject
+        # Subject role slot follows the SDLC-skill convention
+        # ``<anomaly_type>: <agent_role> [<priority>]`` so "Check
+        # agent logs" extracts a role the host can pass to
+        # ``get_container_logs``. With one blocking agent reported,
+        # that role lands in the subject.
+        assert alert.subject == "consensus-timeout: reviewer_code [medium]"
         assert alert.metadata["anomaly_type"] == "consensus-timeout"
         assert alert.metadata["consensus_timeout_minutes"] == 30
         assert alert.metadata["blocking_agents"] == ["reviewer_code"]
@@ -115,7 +123,19 @@ class TestHandleBrcConsensusTimeout:
     def test_brc_escalate_publishes_high_priority_alert(self, mock_emit, pipeline):
         store = _make_store()
         tracker = MagicMock()
-        tracker.handle_timeout.return_value = {"action": "escalate"}
+        # The tracker's escalate result carries ``critical_blockers``
+        # — the alert must narrow to those rather than including
+        # advisory roles from the caller-supplied ``blocking_agents``.
+        tracker.handle_timeout.return_value = {
+            "action": "escalate",
+            "critical_blockers": [
+                {
+                    "reviewer_role": "reviewer_code",
+                    "producer_role": "coder",
+                    "state": "pending",
+                }
+            ],
+        }
         tracker.is_timeout_handled.return_value = True
         proposal_ts = datetime(2026, 4, 29, 12, 0, 0, tzinfo=UTC)
         tracker.get_latest_proposal_timestamp.return_value = proposal_ts
@@ -129,7 +149,9 @@ class TestHandleBrcConsensusTimeout:
                 pipeline,
                 pipeline.id,
                 consensus_timeout=1800.0,
-                blocking_agents=["reviewer_code"],
+                # Caller-supplied list includes an advisory role; the
+                # alert metadata must drop it on the escalate path.
+                blocking_agents=["reviewer_code", "tester_advisory"],
                 store=store,
                 slice_id="slice-1",
             )
@@ -140,10 +162,44 @@ class TestHandleBrcConsensusTimeout:
         mock_emit.assert_not_called()
         assert len(alerts) == 1
         alert = alerts[0]
-        assert "[high]" in alert.subject
+        # First critical-blocker role lands in the subject's role slot.
+        assert alert.subject == "consensus-timeout: reviewer_code [high]"
         assert alert.metadata["priority"] == "high"
         assert alert.metadata["latest_proposal_at"] == proposal_ts.isoformat()
         assert alert.metadata["slice_id"] == "slice-1"
+        # Critical blockers only — advisory ``tester_advisory`` excluded.
+        assert alert.metadata["blocking_agents"] == ["reviewer_code", "coder"]
+
+    @patch("routes.pipelines._emit_event")
+    def test_brc_escalate_falls_back_to_caller_blocking_agents(self, mock_emit, pipeline):
+        # Defensive: if the tracker's escalate result omits
+        # ``critical_blockers`` (older return shape, or the matrix
+        # cleared between handle_timeout calls), fall back to the
+        # caller-supplied list rather than emitting an alert with no
+        # roles in the subject.
+        store = _make_store()
+        tracker = MagicMock()
+        tracker.handle_timeout.return_value = {"action": "escalate"}
+        tracker.is_timeout_handled.return_value = True
+        tracker.get_latest_proposal_timestamp.return_value = None
+
+        capture, alerts = _capture_alerts()
+        with (
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=tracker),
+            capture,
+        ):
+            _handle_brc_consensus_timeout(
+                pipeline,
+                pipeline.id,
+                consensus_timeout=1800.0,
+                blocking_agents=["reviewer_code"],
+                store=store,
+            )
+
+        mock_emit.assert_not_called()
+        assert len(alerts) == 1
+        alert = alerts[0]
+        assert alert.subject == "consensus-timeout: reviewer_code [high]"
         assert alert.metadata["blocking_agents"] == ["reviewer_code"]
 
     @patch("routes.pipelines._emit_event")
@@ -425,3 +481,90 @@ class TestBrcProgressGate:
             "heartbeat check failed" in (call.args[0] if call.args else "")
             for call in mock_logger.warning.call_args_list
         )
+
+
+class TestLatestActiveRoleHeartbeat:
+    """Issue #2264 — direct coverage for the alert-side heartbeat helper.
+
+    ``_latest_active_role_heartbeat`` mirrors the heartbeat half of
+    ``_check_brc_progress_gate`` but writes ``latest_heartbeat_at``
+    into the consensus-timeout ``OVERSEER_ALERT`` metadata. The
+    BRC-progress-gate tests above only exercise the gate's inline
+    code; this class covers the helper's branches directly.
+    """
+
+    def _patch_health_monitor(self, last_heartbeats: dict[str, float] | None):
+        if last_heartbeats is None:
+            return patch("health_monitor.get_health_monitor", return_value=None)
+        hm = MagicMock()
+        hm._lock = MagicMock()
+        hm._lock.__enter__ = MagicMock(return_value=hm._lock)
+        hm._lock.__exit__ = MagicMock(return_value=False)
+        hm._last_heartbeat = dict(last_heartbeats)
+        return patch("health_monitor.get_health_monitor", return_value=hm)
+
+    def test_empty_active_roles_returns_none(self):
+        # Short-circuit before any health-monitor lookup. The alert
+        # then carries ``latest_heartbeat_at: null``.
+        assert _latest_active_role_heartbeat([]) is None
+
+    def test_recent_heartbeat_returns_datetime(self):
+        recent_hb = time.time() - 30
+        with self._patch_health_monitor({"coder": recent_hb}):
+            result = _latest_active_role_heartbeat(["coder", "tester"])
+        assert isinstance(result, datetime)
+        assert result.tzinfo is UTC
+        # Within 1s of the input wall-clock value.
+        assert abs(result.timestamp() - recent_hb) < 1
+
+    def test_picks_most_recent_across_active_roles(self):
+        older = time.time() - 120
+        newer = time.time() - 10
+        with self._patch_health_monitor({"coder": older, "tester": newer}):
+            result = _latest_active_role_heartbeat(["coder", "tester"])
+        assert result is not None
+        assert abs(result.timestamp() - newer) < 1
+
+    def test_inactive_role_heartbeats_are_ignored(self):
+        # Cross-phase pollution: the singleton ``HealthMonitor`` may
+        # still carry a ``refiner`` heartbeat during a coder phase.
+        # The helper must filter to the active set so the alert
+        # doesn't surface a ghost timestamp from a finished phase.
+        ghost_hb = time.time() - 30
+        with self._patch_health_monitor({"refiner": ghost_hb}):
+            result = _latest_active_role_heartbeat(["coder", "tester"])
+        assert result is None
+
+    def test_monitor_unavailable_returns_none(self):
+        with self._patch_health_monitor(None):
+            result = _latest_active_role_heartbeat(["coder"])
+        assert result is None
+
+    def test_no_heartbeats_returns_none(self):
+        with self._patch_health_monitor({}):
+            result = _latest_active_role_heartbeat(["coder"])
+        assert result is None
+
+    def test_lookup_failure_logs_with_exc_info_and_returns_none(self):
+        # A crashed signal collector must NOT break the alert
+        # publish — the helper logs at WARNING with ``exc_info=True``
+        # and returns ``None`` so the alert proceeds with a null
+        # ``latest_heartbeat_at``.
+        bad_hm = MagicMock()
+        bad_hm._lock = MagicMock()
+        bad_hm._lock.__enter__ = MagicMock(side_effect=RuntimeError("hm boom"))
+        bad_hm._lock.__exit__ = MagicMock(return_value=False)
+        with (
+            patch("health_monitor.get_health_monitor", return_value=bad_hm),
+            patch("routes.pipelines.logger") as mock_logger,
+        ):
+            result = _latest_active_role_heartbeat(["coder"])
+        assert result is None
+        warning_calls = [
+            call
+            for call in mock_logger.warning.call_args_list
+            if call.args and "heartbeat lookup failed" in call.args[0]
+        ]
+        assert warning_calls, "heartbeat-lookup failure must be logged"
+        _, kwargs = warning_calls[0]
+        assert kwargs.get("exc_info") is True

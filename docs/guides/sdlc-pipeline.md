@@ -1443,12 +1443,13 @@ role. Messages are filtered by `to_role` — only targeted messages and broadcas
 (`to_role: "all"`) are returned.
 
 **Consensus timeout**: If agents don't reach consensus within `consensus_timeout_minutes`,
-the orchestrator publishes an `OVERSEER_ALERT` (subject `consensus-timeout: <phase> [<priority>]`)
-rather than gating the pipeline on a `choice` decision (see [issue #2264](https://github.com/jwbron/egg/issues/2264)).
-The SDLC skill surfaces the alert via its existing notification flow (Check agent logs /
-Acknowledge / Cancel pipeline). Check agent states via `egg-orch pipeline status` to
-identify blocked or stuck agents; intervene with `cancel_task` / `restart_phase` /
-`provide_input` if you want to act.
+the orchestrator publishes an `OVERSEER_ALERT` (subject `consensus-timeout: <agent_role> [<priority>]`,
+matching the SDLC skill's `<anomaly_type>: <agent_role> [<priority>]` convention so "Check agent
+logs" can extract the role) rather than gating the pipeline on a `choice` decision
+(see [issue #2264](https://github.com/jwbron/egg/issues/2264)). The SDLC skill surfaces the alert via
+its existing notification flow (Check agent logs / Acknowledge / Cancel pipeline). Check agent
+states via `egg-orch pipeline status` to identify blocked or stuck agents; intervene with
+`cancel_task` or `restart_phase` if you want to act.
 
 **Message bus empty**: Verify the pipeline has `concurrent_execution: true` in its
 config. The message bus is only active for concurrent pipelines.
