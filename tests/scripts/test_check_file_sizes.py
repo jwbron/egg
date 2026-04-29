@@ -20,7 +20,6 @@ sys.modules["check_file_sizes"] = _mod
 _spec.loader.exec_module(_mod)
 
 Caps = _mod.Caps
-Baseline = _mod.Baseline
 Config = _mod.Config
 FileStats = _mod.FileStats
 evaluate = _mod.evaluate
@@ -39,7 +38,7 @@ def caps() -> Caps:
 
 @pytest.fixture
 def empty_config(caps: Caps) -> Config:
-    return Config(caps=caps, baselines={})
+    return Config(caps=caps, allowlist={})
 
 
 def _stats(lines: int, bts: int, name: str = "x.py") -> FileStats:
@@ -80,28 +79,24 @@ class TestEvaluate:
         assert errors == []
         assert len(warnings) == 2
 
-    def test_allowlisted_at_baseline_passes(self, caps: Caps) -> None:
-        config = Config(caps=caps, baselines={"big.py": Baseline(lines=2000, bytes=80_000)})
+    def test_allowlisted_over_hard_cap_passes(self, caps: Caps) -> None:
+        config = Config(caps=caps, allowlist={"big.py": "2248"})
         errors, warnings = evaluate(_stats(2000, 80_000), "big.py", config)
         assert errors == []
         assert warnings == []
 
-    def test_allowlisted_growth_in_lines_fails(self, caps: Caps) -> None:
-        config = Config(caps=caps, baselines={"big.py": Baseline(lines=2000, bytes=80_000)})
-        errors, _ = evaluate(_stats(2001, 80_000), "big.py", config)
-        assert len(errors) == 1
-        assert "exceeds allowlist baseline" in errors[0]
+    def test_allowlisted_growth_is_allowed(self, caps: Caps) -> None:
+        """Allowlisted files may grow freely -- removing the baseline check
+        is the whole point of dropping per-file lines/bytes from the YAML."""
+        config = Config(caps=caps, allowlist={"big.py": "2248"})
+        errors, warnings = evaluate(_stats(50_000, 5_000_000), "big.py", config)
+        assert errors == []
+        assert warnings == []
 
-    def test_allowlisted_growth_in_bytes_fails(self, caps: Caps) -> None:
-        config = Config(caps=caps, baselines={"big.py": Baseline(lines=2000, bytes=80_000)})
-        errors, _ = evaluate(_stats(2000, 80_001), "big.py", config)
-        assert len(errors) == 1
-        assert "exceeds allowlist baseline" in errors[0]
-
-    def test_allowlisted_shrinkage_passes(self, caps: Caps) -> None:
-        """Cleanup that drops the file is fine even if still over hard cap."""
-        config = Config(caps=caps, baselines={"big.py": Baseline(lines=2000, bytes=80_000)})
-        errors, warnings = evaluate(_stats(1900, 79_000), "big.py", config)
+    def test_allowlisted_with_no_issue_link_still_allowed(self, caps: Caps) -> None:
+        """Membership alone gates the lint; the issue field is documentation."""
+        config = Config(caps=caps, allowlist={"big.py": None})
+        errors, warnings = evaluate(_stats(2000, 80_000), "big.py", config)
         assert errors == []
         assert warnings == []
 
@@ -110,7 +105,7 @@ class TestEvaluate:
 
         It should not produce a soft-cap warning for an allowlisted file.
         """
-        config = Config(caps=caps, baselines={"big.py": Baseline(lines=2000, bytes=80_000)})
+        config = Config(caps=caps, allowlist={"big.py": "2248"})
         errors, warnings = evaluate(_stats(900, 30_000), "big.py", config)
         assert errors == []
         assert warnings == []
@@ -201,13 +196,11 @@ class TestYamlRoundTrip:
               soft_bytes: 60000
             files:
               foo/bar.py:
-                lines: 2000
-                bytes: 80000
                 issue: "2248"
             """,
         )
         config = load_config(path)
-        assert config.baselines["foo/bar.py"].issue == "2248"
+        assert config.allowlist["foo/bar.py"] == "2248"
 
     def test_load_handles_missing_issue_field(self, tmp_path: Path) -> None:
         path = self._yaml(
@@ -219,15 +212,35 @@ class TestYamlRoundTrip:
               soft_lines: 800
               soft_bytes: 60000
             files:
-              foo/bar.py:
-                lines: 2000
-                bytes: 80000
+              foo/bar.py: {}
             """,
         )
         config = load_config(path)
-        assert config.baselines["foo/bar.py"].issue is None
+        assert config.allowlist["foo/bar.py"] is None
 
-    def test_load_handles_null_issue_field(self, tmp_path: Path) -> None:
+    def test_load_handles_null_entry(self, tmp_path: Path) -> None:
+        """An entry with no value at all is just a path -- the bare-key
+        form keeps the YAML maximally compact when there's no issue link."""
+        path = self._yaml(
+            tmp_path,
+            """
+            caps:
+              hard_lines: 1500
+              hard_bytes: 100000
+              soft_lines: 800
+              soft_bytes: 60000
+            files:
+              foo/bar.py:
+            """,
+        )
+        config = load_config(path)
+        assert "foo/bar.py" in config.allowlist
+        assert config.allowlist["foo/bar.py"] is None
+
+    def test_load_ignores_legacy_lines_bytes(self, tmp_path: Path) -> None:
+        """Legacy YAMLs with lines/bytes keys still load -- the lint just
+        ignores the now-defunct fields. This protects branches that haven't
+        rebased onto the simplified schema yet."""
         path = self._yaml(
             tmp_path,
             """
@@ -240,40 +253,33 @@ class TestYamlRoundTrip:
               foo/bar.py:
                 lines: 2000
                 bytes: 80000
-                issue: null
+                issue: "2248"
             """,
         )
         config = load_config(path)
-        assert config.baselines["foo/bar.py"].issue is None
+        assert config.allowlist["foo/bar.py"] == "2248"
 
     def test_write_emits_issue_when_present(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caps: Caps
     ) -> None:
         out = tmp_path / "out.yaml"
         monkeypatch.setattr(_mod, "ALLOWLIST_PATH", out)
-        config = Config(caps=caps, baselines={})
-        baselines = {"foo/bar.py": Baseline(lines=2000, bytes=80_000, issue="2248")}
-        write_allowlist(config, baselines)
+        config = Config(caps=caps, allowlist={})
+        write_allowlist(config, {"foo/bar.py": "2248"})
         loaded = yaml.safe_load(out.read_text())
-        assert loaded["files"]["foo/bar.py"] == {
-            "lines": 2000,
-            "bytes": 80_000,
-            "issue": "2248",
-        }
+        assert loaded["files"]["foo/bar.py"] == {"issue": "2248"}
 
     def test_write_omits_issue_when_absent(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caps: Caps
     ) -> None:
         out = tmp_path / "out.yaml"
         monkeypatch.setattr(_mod, "ALLOWLIST_PATH", out)
-        config = Config(caps=caps, baselines={})
-        baselines = {"foo/bar.py": Baseline(lines=2000, bytes=80_000)}
-        write_allowlist(config, baselines)
+        config = Config(caps=caps, allowlist={})
+        write_allowlist(config, {"foo/bar.py": None})
         loaded = yaml.safe_load(out.read_text())
-        # No `issue:` key emitted when the baseline has none -- avoids
-        # littering new entries with `issue: null`.
-        assert loaded["files"]["foo/bar.py"] == {"lines": 2000, "bytes": 80_000}
-        assert "issue" not in loaded["files"]["foo/bar.py"]
+        # Bare key (null value) when there's no issue link -- avoids
+        # littering the YAML with `issue: null` placeholders.
+        assert loaded["files"]["foo/bar.py"] is None
 
     def test_round_trip_preserves_issue(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caps: Caps
@@ -281,15 +287,15 @@ class TestYamlRoundTrip:
         """Regression: --update-allowlist must not silently drop issue links."""
         out = tmp_path / "out.yaml"
         monkeypatch.setattr(_mod, "ALLOWLIST_PATH", out)
-        config = Config(caps=caps, baselines={})
+        config = Config(caps=caps, allowlist={})
         original = {
-            "a.py": Baseline(lines=2000, bytes=80_000, issue="2248"),
-            "b.py": Baseline(lines=2500, bytes=90_000, issue="9999"),
-            "c.py": Baseline(lines=1800, bytes=70_000),  # no issue
+            "a.py": "2248",
+            "b.py": "9999",
+            "c.py": None,
         }
         write_allowlist(config, original)
         reloaded = load_config(out)
-        assert reloaded.baselines == original
+        assert reloaded.allowlist == original
 
     def test_update_allowlist_carries_issue_forward(
         self,
@@ -304,9 +310,8 @@ class TestYamlRoundTrip:
         big = repo_root / "orchestrator" / "big.py"
         big.write_text("x = 1\n" * 50)
 
-        # Seed deliberately stale line/byte values so the post-update
-        # assertion only passes when update_allowlist genuinely re-measures
-        # from the live file (rather than silently preserving the seed).
+        # Seed deliberately stale line/byte values so we also confirm that
+        # legacy fields don't trip up loading or get re-emitted on write.
         allowlist = tmp_path / "allowlist.yaml"
         allowlist.write_text(
             textwrap.dedent(
@@ -331,9 +336,79 @@ class TestYamlRoundTrip:
         capsys.readouterr()  # discard the "Wrote N entries" print
 
         reloaded = load_config(allowlist)
-        entry = reloaded.baselines["orchestrator/big.py"]
-        assert entry.issue == "2248"
-        # And the line/byte counts were refreshed from the live file —
-        # not preserved from the stale seed values above.
-        assert entry.lines == 50
-        assert entry.bytes == len(big.read_bytes())
+        assert reloaded.allowlist["orchestrator/big.py"] == "2248"
+        # Legacy lines/bytes keys are not re-emitted on write.
+        raw = yaml.safe_load(allowlist.read_text())
+        entry = raw["files"]["orchestrator/big.py"]
+        assert entry == {"issue": "2248"}
+
+    def test_update_allowlist_adds_new_over_cap_file(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """A newly oversize file not yet listed gets added with no issue."""
+        repo_root = tmp_path / "repo"
+        (repo_root / "orchestrator").mkdir(parents=True)
+        big = repo_root / "orchestrator" / "new_big.py"
+        big.write_text("x = 1\n" * 50)
+
+        allowlist = tmp_path / "allowlist.yaml"
+        allowlist.write_text(
+            textwrap.dedent(
+                """
+                caps:
+                  hard_lines: 10
+                  hard_bytes: 1000000
+                  soft_lines: 5
+                  soft_bytes: 500000
+                files: {}
+                """
+            )
+        )
+        monkeypatch.setattr(_mod, "ALLOWLIST_PATH", allowlist)
+
+        rc = update_allowlist(repo_root)
+        assert rc == 0
+        capsys.readouterr()
+
+        reloaded = load_config(allowlist)
+        assert "orchestrator/new_big.py" in reloaded.allowlist
+        assert reloaded.allowlist["orchestrator/new_big.py"] is None
+
+    def test_update_allowlist_drops_now_under_cap_file(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """A file that has shrunk under the cap is dropped from the allowlist."""
+        repo_root = tmp_path / "repo"
+        (repo_root / "orchestrator").mkdir(parents=True)
+        small = repo_root / "orchestrator" / "small.py"
+        small.write_text("x = 1\n")
+
+        allowlist = tmp_path / "allowlist.yaml"
+        allowlist.write_text(
+            textwrap.dedent(
+                """
+                caps:
+                  hard_lines: 10
+                  hard_bytes: 1000000
+                  soft_lines: 5
+                  soft_bytes: 500000
+                files:
+                  orchestrator/small.py:
+                    issue: "2248"
+                """
+            )
+        )
+        monkeypatch.setattr(_mod, "ALLOWLIST_PATH", allowlist)
+
+        rc = update_allowlist(repo_root)
+        assert rc == 0
+        capsys.readouterr()
+
+        reloaded = load_config(allowlist)
+        assert "orchestrator/small.py" not in reloaded.allowlist
