@@ -464,7 +464,15 @@ class TestOverseerConsultAdvisorCommand:
     ) -> None:
         """``0`` is the documented "disable cap" sentinel and must reach
         ``consult_advisor`` rather than being treated as "absent" by a
-        truthiness check on the dict value (issue #2170)."""
+        truthiness check on the dict value (issue #2170).
+
+        The status payload mirrors what the orchestrator route emits in
+        production: both ``overseer_advisor_model`` and
+        ``overseer_advisor_recent_log_bytes_cap`` are always present
+        together (``orchestrator/routes/pipelines.py``), so we include
+        the model alongside the ``0`` cap to match the realistic shape
+        rather than the artificial cap-only payload.
+        """
         inputs = tmp_path / "inputs.json"
         _write_inputs(inputs)
 
@@ -477,7 +485,10 @@ class TestOverseerConsultAdvisorCommand:
         class _StubClient:
             def get_pipeline_status(self, pid: str) -> dict[str, object]:
                 return {
-                    "config": {"overseer_advisor_recent_log_bytes_cap": 0},
+                    "config": {
+                        "overseer_advisor_model": "opus",
+                        "overseer_advisor_recent_log_bytes_cap": 0,
+                    },
                 }
 
         with (
@@ -491,6 +502,7 @@ class TestOverseerConsultAdvisorCommand:
         assert rc == 0
         cfg = captured["config"]
         assert cfg is not None
+        assert getattr(cfg, "overseer_advisor_model", None) == "opus"
         assert getattr(cfg, "overseer_advisor_recent_log_bytes_cap", "missing") == 0
 
     def test_pipeline_id_from_env_resolves_advisor_model(
