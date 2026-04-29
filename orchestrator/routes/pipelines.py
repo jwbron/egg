@@ -9561,12 +9561,13 @@ def _start_stacked_pr_reconciler(
     decouple it from the gateway client.
 
     The list-callables (``list_open_prs`` and ``list_remote_branches``)
-    are stubbed to return empty collections in this build — the gateway
-    side of those helpers ships in a follow-up so the reconciler is
-    essentially a no-op until then. The thread itself is wired so the
-    operator can confirm it starts and stops cleanly, and the rebase
-    callable already routes through ``GatewayClient.rebase_onto`` which
-    forwards to the existing per-agent ``/api/v1/git`` endpoint.
+    forward to ``GatewayClient.list_open_prs`` /
+    ``GatewayClient.list_remote_branches`` — both route through
+    existing per-agent allowlists. The rebase callable forwards to
+    ``GatewayClient.rebase_onto``, which performs the full local
+    rebase + ``--force-with-lease`` push + ``gh api PATCH base=…``
+    retarget so an orphaned child PR is fully healed on origin
+    rather than just locally rewritten.
     """
     try:
         from orchestrator.env_config import get_stacked_pr_reconciler_interval_seconds
@@ -9635,15 +9636,21 @@ def _start_stacked_pr_reconciler(
             )
             return set()
 
-    def _rebase_onto(branch: str, new_base: str, old_base: str) -> bool:
+    def _rebase_onto(orphan: Any) -> bool:
+        # ``orphan`` is a ``stacked_pr_reconciler.OrphanedChildPR``;
+        # avoid the import here so this module stays a pure consumer
+        # of the reconciler's typed interface (the type checker at
+        # the reconciler boundary already validates the shape).
         try:
             return bool(
                 gateway.rebase_onto(
                     pipeline_id,
                     repo_path_str,
-                    branch=branch,
-                    new_base=new_base,
-                    old_base=old_base,
+                    branch=orphan.branch,
+                    new_base=orphan.intended_new_base,
+                    old_base=orphan.deleted_base,
+                    pr_number=orphan.pr_number,
+                    repo=pr_repo or None,
                     agent_role="coder",
                 )
             )
@@ -9651,7 +9658,7 @@ def _start_stacked_pr_reconciler(
             logger.debug(
                 "stacked_pr_reconciler: rebase_onto raised — counted as failure",
                 pipeline_id=pipeline_id,
-                branch=branch,
+                branch=getattr(orphan, "branch", "?"),
             )
             return False
 

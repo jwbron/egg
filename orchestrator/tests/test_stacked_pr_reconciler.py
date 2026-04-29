@@ -78,7 +78,16 @@ def _pr(
     head: str,
     base: str,
 ) -> dict[str, Any]:
-    return {"number": number, "head": head, "base": base}
+    """Build a PR record matching ``GatewayClient.list_open_prs``'s shape.
+
+    The producer normalises GitHub's ``headRefName``/``baseRefName``
+    fields to ``head_ref``/``base_ref``. Earlier drafts of these
+    tests fed in ``head``/``base`` keys that matched a since-fixed
+    consumer bug; we now drive the documented contract so a future
+    regression of the same shape mismatch surfaces here instead of
+    in production.
+    """
+    return {"number": number, "head_ref": head, "base_ref": base}
 
 
 # ---------- find_orphaned_child_prs ----------
@@ -209,12 +218,69 @@ class TestFindOrphans:
                 parent_branch="egg/issue-2137/slice-1",
             )
         )
-        prs = [{"number": 11, "head": "egg/issue-2137/slice-2", "base": None}]
+        prs = [{"number": 11, "head_ref": "egg/issue-2137/slice-2", "base_ref": None}]
         # Should not raise.
         orphans = find_orphaned_child_prs(contract, prs, set())
         # And should NOT count this PR as orphaned (we have no way to
         # know its base disappeared if there's no string to check).
         assert orphans == []
+
+    def test_pr_with_legacy_head_base_keys_still_accepted(self) -> None:
+        # Backwards-compat: callers built before the producer/consumer
+        # shape was aligned passed ``head``/``base`` keys. The
+        # reconciler should still match those records so any
+        # out-of-tree wiring keeps working while the canonical
+        # contract is the ``_ref`` form.
+        contract = _contract(
+            _slice(
+                "slice-2",
+                deps=["slice-1"],
+                parent_branch="egg/issue-2137/slice-1",
+            )
+        )
+        prs: list[dict[str, Any]] = [
+            {
+                "number": 11,
+                "head": "egg/issue-2137/slice-2",
+                "base": "egg/issue-2137/slice-1",
+            }
+        ]
+        orphans = find_orphaned_child_prs(contract, prs, set())
+        assert len(orphans) == 1
+        assert orphans[0].pr_number == 11
+        assert orphans[0].deleted_base == "egg/issue-2137/slice-1"
+
+    def test_pr_with_missing_number_dropped(self) -> None:
+        # A PR record without a real ``number`` cannot be retargeted
+        # via ``gh pr edit``, so the reconciler must drop it rather
+        # than emit a phantom orphan with ``pr_number=0``.
+        contract = _contract(
+            _slice(
+                "slice-2",
+                deps=["slice-1"],
+                parent_branch="egg/issue-2137/slice-1",
+            )
+        )
+        prs: list[dict[str, Any]] = [
+            {
+                "head_ref": "egg/issue-2137/slice-2",
+                "base_ref": "egg/issue-2137/slice-1",
+            }
+        ]
+        orphans = find_orphaned_child_prs(contract, prs, set())
+        assert orphans == []
+
+    def test_pr_with_zero_number_dropped(self) -> None:
+        # Same defence: an explicit ``"number": 0`` is rejected.
+        contract = _contract(
+            _slice(
+                "slice-2",
+                deps=["slice-1"],
+                parent_branch="egg/issue-2137/slice-1",
+            )
+        )
+        prs = [_pr(number=0, head="egg/issue-2137/slice-2", base="egg/issue-2137/slice-1")]
+        assert find_orphaned_child_prs(contract, prs, set()) == []
 
 
 # ---------- reconcile_once ----------
@@ -222,15 +288,55 @@ class TestFindOrphans:
 
 class _RecordingRebaser:
     def __init__(self, *, return_value: bool = True, raise_exc: Exception | None = None) -> None:
-        self.calls: list[tuple[str, str, str]] = []
+        self.calls: list[OrphanedChildPR] = []
         self._return_value = return_value
         self._raise = raise_exc
 
-    def __call__(self, branch: str, new_base: str, old_base: str) -> bool:
-        self.calls.append((branch, new_base, old_base))
+    def __call__(self, orphan: OrphanedChildPR) -> bool:
+        self.calls.append(orphan)
         if self._raise is not None:
             raise self._raise
         return self._return_value
+
+
+class TestProducerConsumerContract:
+    """The reconciler must consume ``GatewayClient.list_open_prs``'s
+    actual output without a translation layer.
+
+    Earlier drafts of the reconciler matched dicts with ``head``
+    and ``base`` keys while the gateway producer normalised to
+    ``head_ref`` and ``base_ref``. The mismatch made
+    ``find_orphaned_child_prs`` a silent no-op in production. Lock
+    the contract here so any future drift fails this test instead
+    of slipping through to the reconciler thread.
+    """
+
+    def test_producer_normalised_shape_round_trips(self) -> None:
+        # Mirror the exact shape that
+        # ``GatewayClient.list_open_prs`` produces (see
+        # ``orchestrator/gateway_client.py`` — keys are
+        # ``number`` (int), ``head_ref`` (str), ``base_ref`` (str)).
+        contract = _contract(
+            _slice(
+                "slice-2",
+                deps=["slice-1"],
+                parent_branch="egg/issue-2137/slice-1",
+            )
+        )
+        producer_shape: list[dict[str, Any]] = [
+            {
+                "number": 11,
+                "head_ref": "egg/issue-2137/slice-2",
+                "base_ref": "egg/issue-2137/slice-1",
+            }
+        ]
+        orphans = find_orphaned_child_prs(contract, producer_shape, set())
+        assert len(orphans) == 1
+        # ``pr_number`` MUST be the real PR number from the producer
+        # — not silently defaulted to 0 — so the production rebase
+        # bridge can retarget the PR.
+        assert orphans[0].pr_number == 11
+        assert orphans[0].deleted_base == "egg/issue-2137/slice-1"
 
 
 class TestReconcileOnce:
@@ -281,13 +387,14 @@ class TestReconcileOnce:
         assert result.rebases_attempted == 1
         assert result.rebases_succeeded == 1
         assert result.rebases_failed == 0
-        assert rebaser.calls == [
-            (
-                "egg/issue-2137/slice-2",
-                "egg/issue-2137/slice-1",
-                "egg/issue-2137/slice-1",
-            )
-        ]
+        assert len(rebaser.calls) == 1
+        called = rebaser.calls[0]
+        assert called.branch == "egg/issue-2137/slice-2"
+        assert called.intended_new_base == "egg/issue-2137/slice-1"
+        assert called.deleted_base == "egg/issue-2137/slice-1"
+        # The orphan now carries the PR number so the production
+        # bridge can retarget the PR after the rebase.
+        assert called.pr_number == 11
 
     def test_rebase_returning_false_counts_failure(self) -> None:
         contract = self._orphaned_setup()

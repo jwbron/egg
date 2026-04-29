@@ -87,9 +87,11 @@ def find_orphaned_child_prs(
     """Return the orphans whose base branch has disappeared.
 
     Pure function: given the contract, a list of open PRs (each a
-    dict with at least ``number``, ``head``, and ``base`` keys),
-    and the set of branch names known to exist on origin, return
-    one :class:`OrphanedChildPR` per detected orphan.
+    dict with at least ``number``, ``head_ref``, and ``base_ref``
+    keys — the normalised shape produced by
+    :meth:`GatewayClient.list_open_prs`), and the set of branch
+    names known to exist on origin, return one
+    :class:`OrphanedChildPR` per detected orphan.
 
     A child slice PR is orphaned when:
 
@@ -102,15 +104,25 @@ def find_orphaned_child_prs(
     Roots, completed slices, and slices whose base still exists
     are silently skipped so the reconciler is idempotent on each
     pass.
+
+    PR records missing ``head_ref`` (or its legacy ``head`` alias),
+    a real integer ``number``, or ``base_ref`` are dropped — a
+    malformed record is treated as "no PR" rather than coerced
+    into a phantom orphan with ``pr_number=0``.
     """
     if not contract.slices:
         return []
 
-    # Index PRs by head branch for O(1) lookup.
+    # Index PRs by head branch for O(1) lookup. Accept both the
+    # canonical ``head_ref``/``base_ref`` shape (from
+    # ``GatewayClient.list_open_prs``) and the legacy
+    # ``head``/``base`` shape that earlier drafts of the reconciler
+    # consumed; the latter keeps any out-of-tree caller working
+    # while the documented contract is the ``_ref`` form.
     pr_by_head: dict[str, dict[str, Any]] = {}
     for pr in open_prs:
-        head = pr.get("head")
-        if isinstance(head, str):
+        head = pr.get("head_ref") or pr.get("head")
+        if isinstance(head, str) and head:
             pr_by_head[head] = pr
 
     orphans: list[OrphanedChildPR] = []
@@ -126,13 +138,24 @@ def find_orphaned_child_prs(
         pr = pr_by_head.get(slice_branch)
         if pr is None:
             continue  # slice's PR hasn't been opened yet (or is closed)
-        deleted_base = pr.get("base")
+        deleted_base = pr.get("base_ref") or pr.get("base")
         if not isinstance(deleted_base, str) or deleted_base in extant_branches:
             continue  # base still alive — GitHub auto-retarget did its job
+        raw_number = pr.get("number")
+        if isinstance(raw_number, bool) or not isinstance(raw_number, int) or raw_number <= 0:
+            # A malformed record without a real PR number cannot be
+            # retargeted by ``rebase_onto``. Drop it; the next
+            # reconciler tick will pick the slice up if the PR
+            # surfaces with a valid number.
+            logger.debug(
+                "stacked_pr_reconciler: dropping PR record with invalid 'number'",
+                extra={"slice_id": slice_.id, "head": slice_branch, "raw_number": raw_number},
+            )
+            continue
         orphans.append(
             OrphanedChildPR(
                 slice_id=slice_.id,
-                pr_number=int(pr.get("number", 0)),
+                pr_number=int(raw_number),
                 branch=slice_branch,
                 deleted_base=deleted_base,
                 intended_new_base=parent,
@@ -146,7 +169,7 @@ def reconcile_once(
     *,
     list_open_prs: Callable[[], list[dict[str, Any]]],
     list_extant_branches: Callable[[], set[str]],
-    rebase_onto: Callable[[str, str, str], bool],
+    rebase_onto: Callable[[OrphanedChildPR], bool],
 ) -> ReconciliationResult:
     """Run a single reconciliation pass.
 
@@ -154,8 +177,15 @@ def reconcile_once(
     gateway client / GitHub API, so the unit tests can substitute
     deterministic fakes. In production they wrap
     :meth:`GatewayClient.list_open_prs`,
-    :meth:`GatewayClient.list_remote_branches`, and the new
+    :meth:`GatewayClient.list_remote_branches`, and the
     ``rebase_onto`` helper landing in TASK-5-2.
+
+    The ``rebase_onto`` callable receives the full
+    :class:`OrphanedChildPR` so the production wiring can use
+    ``pr_number`` to retarget the PR's base after the local
+    rebase. Returning ``True`` indicates the orphan is fully
+    healed (rebased + pushed + retargeted on GitHub); ``False``
+    counts as ``rebases_failed`` and is retried on the next tick.
 
     Returns a :class:`ReconciliationResult` snapshot for telemetry.
     """
@@ -167,11 +197,7 @@ def reconcile_once(
     failed = 0
     for orphan in orphans:
         try:
-            ok = rebase_onto(
-                orphan.branch,
-                orphan.intended_new_base,
-                orphan.deleted_base,
-            )
+            ok = rebase_onto(orphan)
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "stacked_pr_reconciler_rebase_failed",

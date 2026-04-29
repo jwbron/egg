@@ -1303,23 +1303,44 @@ class GatewayClient:
         branch: str,
         new_base: str,
         old_base: str,
+        pr_number: int | None = None,
+        repo: str | None = None,
         agent_role: str = "coder",
         mode: Literal["public", "private"] = "public",
     ) -> bool:
-        """Submit a ``git rebase --onto <new_base> <old_base> <branch>``.
+        """Heal an orphaned stacked PR end-to-end.
 
-        Bridges the stacked-PR reconciler's ``rebase_onto`` callable
-        (signature ``Callable[[str, str, str], bool]``, see
-        ``stacked_pr_reconciler.reconcile_once``) to the gateway-side
-        ``build_rebase_onto_args`` helper that constructs and
-        validates the canonical argv shape. The actual rebase
-        command runs through the existing per-agent ``/git`` endpoint
-        on the gateway — no new privileged orchestrator-role
-        endpoint is introduced (refine-phase decision-15).
+        Three steps, in order — any failure short-circuits and
+        returns ``False`` so the reconciler counts it as
+        ``rebases_failed`` and retries on the next tick:
 
-        Returns ``True`` on success, ``False`` on argument validation
-        failure or HTTP error. The reconciler's
-        ``ReconciliationResult`` counts both shapes as ``rebases_failed``.
+        1. ``git rebase --onto <new_base> <old_base> <branch>``
+           (via the existing per-agent ``/api/v1/git`` endpoint and
+           the canonical argv from
+           :func:`gateway.git_client.build_rebase_onto_args`).
+        2. ``git push --force-with-lease origin <branch>``
+           (via the existing per-agent ``/api/v1/git/push``
+           endpoint) — propagates the rewritten history to origin
+           so the open PR's head ref reflects the rebase. Without
+           this step the local rebase is invisible to GitHub and
+           the orphan remains.
+        3. ``gh api repos/<repo>/pulls/<pr_number> -X PATCH -f
+           base=<new_base>`` (via the existing per-agent
+           ``/api/v1/gh/pr/edit`` endpoint) — retargets the PR's
+           base on GitHub so the diff renders against the new
+           parent. Skipped when ``pr_number`` / ``repo`` are not
+           supplied (callers without PR context just want the
+           local rebase + push).
+
+        No new privileged orchestrator-role endpoint is introduced
+        (refine-phase decision-15) — every step routes through the
+        same per-agent allowlists already in production.
+
+        Returns ``True`` only when every applicable step succeeded.
+        Returns ``False`` on argument validation failure, push
+        failure, retarget failure, or any HTTP error. The
+        reconciler counts both ``False`` and exceptions as
+        ``rebases_failed``.
         """
         try:
             from gateway.git_client import build_rebase_onto_args
@@ -1342,6 +1363,33 @@ class GatewayClient:
             )
             return False
 
+        # Validate retarget inputs early — if the caller asked for
+        # PR retargeting, we want to fail fast rather than rebase +
+        # push and then discover the PR number was bogus.
+        retarget_requested = pr_number is not None or bool(repo)
+        if retarget_requested:
+            if (
+                pr_number is None
+                or isinstance(pr_number, bool)
+                or not isinstance(pr_number, int)
+                or pr_number <= 0
+            ):
+                logger.warning(
+                    "rebase_onto: pr_number must be a positive int when retargeting",
+                    pipeline_id=pipeline_id,
+                    branch=branch,
+                    pr_number=pr_number,
+                )
+                return False
+            if not repo or not isinstance(repo, str):
+                logger.warning(
+                    "rebase_onto: repo must be 'owner/name' when retargeting",
+                    pipeline_id=pipeline_id,
+                    branch=branch,
+                    repo=repo,
+                )
+                return False
+
         temp_container_id = f"{pipeline_id}-stacked-pr-rebase"
         session_token: str | None = None
         try:
@@ -1351,18 +1399,54 @@ class GatewayClient:
                 mode=mode,
                 pipeline_id=pipeline_id,
                 agent_role=agent_role,
+                branch=branch if retarget_requested else None,
             )
             session_token = session.session_token
 
-            payload: dict[str, Any] = {
-                "operation": "rebase",
-                "args": args,
-                "repo_path": repo_path,
-            }
+            # Step 1: local rebase via /api/v1/git.
             self._make_request(
                 "/api/v1/git",
                 method="POST",
-                data=payload,
+                data={
+                    "operation": "rebase",
+                    "args": args,
+                    "repo_path": repo_path,
+                },
+                bearer_token=session_token,
+            )
+
+            # If the caller didn't ask for the full heal (push +
+            # retarget), preserve the legacy local-only behaviour.
+            if not retarget_requested:
+                return True
+
+            # Step 2: push --force-with-lease so origin sees the
+            # rebased history. The reconciler is the only writer of
+            # this branch; force-with-lease catches the rare case of
+            # a concurrent push from elsewhere and refuses rather
+            # than clobbering it.
+            self._make_request(
+                "/api/v1/git/push",
+                method="POST",
+                data={
+                    "repo_path": repo_path,
+                    "remote": "origin",
+                    "refspec": f"{branch}:refs/heads/{branch}",
+                    "mode": mode,
+                    "force_with_lease": True,
+                },
+                bearer_token=session_token,
+            )
+
+            # Step 3: retarget the PR's base on GitHub.
+            self._make_request(
+                "/api/v1/gh/pr/edit",
+                method="POST",
+                data={
+                    "repo": repo,
+                    "pr_number": int(pr_number),  # type: ignore[arg-type]
+                    "base": new_base,
+                },
                 bearer_token=session_token,
             )
             return True

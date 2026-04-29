@@ -309,9 +309,19 @@ class TestStartStackedPrReconciler:
                 thread.join(timeout=2.0)
 
         rebase_callable = captured["rebase_onto"]
-        result = rebase_callable(
-            "egg/issue-9999/slice-2", "egg/issue-9999", "egg/issue-9999/slice-1"
+        # The reconciler now passes a single OrphanedChildPR per orphan
+        # so the wrapper can thread pr_number/repo through to the
+        # gateway client's full heal flow (rebase + push + pr/edit).
+        from stacked_pr_reconciler import OrphanedChildPR
+
+        orphan = OrphanedChildPR(
+            slice_id="slice-2",
+            pr_number=4242,
+            branch="egg/issue-9999/slice-2",
+            deleted_base="egg/issue-9999/slice-1",
+            intended_new_base="egg/issue-9999",
         )
+        result = rebase_callable(orphan)
         assert result is True
         gateway.rebase_onto.assert_called_once()
         call_args = gateway.rebase_onto.call_args
@@ -330,6 +340,11 @@ class TestStartStackedPrReconciler:
         assert call_args.kwargs["branch"] == "egg/issue-9999/slice-2"
         assert call_args.kwargs["new_base"] == "egg/issue-9999"
         assert call_args.kwargs["old_base"] == "egg/issue-9999/slice-1"
+        # The reviewer-flagged fix: pr_number must be threaded through so
+        # the gateway client can issue the gh pr edit --base call that
+        # actually retargets the PR on origin (without it the PR stays
+        # orphaned on a deleted base).
+        assert call_args.kwargs["pr_number"] == 4242
         # agent_role is fixed to "coder" so the gateway accepts the
         # request through the existing per-agent /git endpoint.
         assert call_args.kwargs["agent_role"] == "coder"
@@ -368,7 +383,16 @@ class TestStartStackedPrReconciler:
         rebase_callable = captured["rebase_onto"]
         # A raising gateway must surface as False — the reconciler counts
         # it as a failure but does not let the daemon die.
-        assert rebase_callable("b", "n", "o") is False
+        from stacked_pr_reconciler import OrphanedChildPR
+
+        orphan = OrphanedChildPR(
+            slice_id="slice-x",
+            pr_number=1,
+            branch="b",
+            deleted_base="o",
+            intended_new_base="n",
+        )
+        assert rebase_callable(orphan) is False
 
     def test_explicit_interval_overrides_env_lookup(self) -> None:
         """Passing interval_seconds bypasses get_stacked_pr_reconciler_interval_seconds."""

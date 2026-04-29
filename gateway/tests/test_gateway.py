@@ -2179,7 +2179,7 @@ class TestGhPrEdit:
     """Tests for /api/v1/gh/pr/edit endpoint."""
 
     def test_pr_edit_requires_title_or_body(self, client, auth_headers):
-        """PR edit requires either title or body."""
+        """PR edit requires title, body, or base."""
         response = client.post(
             "/api/v1/gh/pr/edit",
             headers=auth_headers,
@@ -2189,7 +2189,9 @@ class TestGhPrEdit:
 
         assert response.status_code == 400
         data = json.loads(response.data)
-        assert "title or body" in data["message"]
+        # Stacked-PR reconciler (#2137) added ``base`` as a third
+        # editable field — the error message lists all three.
+        assert "title, body, or base" in data["message"]
 
     def test_pr_edit_denied_when_not_owner(self, client, auth_headers):
         """PR edit denied when bot doesn't own the PR."""
@@ -2407,6 +2409,68 @@ class TestGhPrEdit:
             call_args = mock_gh.return_value.execute.call_args[0][0]
             assert "body=New body" in call_args
             assert not any("title=" in arg for arg in call_args)
+
+    def test_pr_edit_base_only_retargets_pr(self, client, auth_headers):
+        """PR edit with base only retargets the PR — used by the
+        stacked-PR reconciler (#2137 TASK-5-2) to point a child PR
+        at a new parent after the original parent merges."""
+        with (
+            patch.object(gateway, "get_policy_engine") as mock_policy,
+            patch.object(gateway, "get_github_client") as mock_gh,
+        ):
+            mock_engine = MagicMock()
+            mock_engine.check_pr_ownership.return_value = PolicyResult(
+                allowed=True,
+                reason="PR is owned by bot",
+                details={"author": "bot"},
+            )
+            mock_policy.return_value = mock_engine
+
+            mock_gh_result = MagicMock()
+            mock_gh_result.success = True
+            mock_gh_result.stdout = '{"number": 123, "base": {"ref": "main"}}'
+            mock_gh_result.stderr = ""
+            mock_gh.return_value.execute.return_value = mock_gh_result
+
+            response = client.post(
+                "/api/v1/gh/pr/edit",
+                headers=auth_headers,
+                data=json.dumps(
+                    {
+                        "repo": "test/repo",
+                        "pr_number": 123,
+                        "base": "egg/issue-2137",
+                    }
+                ),
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            call_args = mock_gh.return_value.execute.call_args[0][0]
+            assert "base=egg/issue-2137" in call_args
+            # Other fields must NOT be sent.
+            assert not any(arg.startswith("title=") for arg in call_args)
+            assert not any(arg.startswith("body=") for arg in call_args)
+
+    def test_pr_edit_base_must_be_non_empty_string(self, client, auth_headers):
+        """An empty/whitespace base ref must be rejected before
+        any GitHub round-trip — defends against a malformed
+        reconciler call ever silently retargeting to ``""``."""
+        response = client.post(
+            "/api/v1/gh/pr/edit",
+            headers=auth_headers,
+            data=json.dumps(
+                {
+                    "repo": "test/repo",
+                    "pr_number": 123,
+                    "base": "   ",
+                }
+            ),
+            content_type="application/json",
+        )
+        assert response.status_code == 400
+        data = response.get_json()
+        assert "base" in data["message"].lower()
 
 
 class TestGhPrClose:
