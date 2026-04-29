@@ -233,8 +233,12 @@ i5100=$(issue_in_run 5100)
 i4100=$(issue_before 4100)
 make_lookup "${TMP}/stub14.sh" 5100 "$i5100" 4100 "$i4100"
 rc=$(run_verifier "${TMP}/c14.json" "${TMP}/stub14.sh" "$RUN_START")
+# Assert the full predates-this-run message anchored on #4100, not just the
+# bare issue number — otherwise a regression that drops the descriptive text
+# but still echoes "#4100" somewhere would slip through.
 if [[ "$rc" -ne 0 ]] \
-  && grep -q "#4100" "${TMP}/violations.txt" \
+  && grep -qF "deferred-to #4100: issue created at" "${TMP}/violations.txt" \
+  && grep -qF "predates this run" "${TMP}/violations.txt" \
   && ! grep -q "#5100" "${TMP}/violations.txt"; then
   echo "PASS: only predating deferral flagged in mixed comment"
   PASSES=$((PASSES + 1))

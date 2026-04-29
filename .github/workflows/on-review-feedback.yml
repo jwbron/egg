@@ -544,6 +544,20 @@ jobs:
           REVIEWER_USERNAME: ${{ needs.resolve-inputs.outputs.reviewer_username }}
           AUTHORIZED_USERS: ${{ needs.resolve-inputs.outputs.authorized_users }}
 
+      # SECURITY: Stash the verify-contract script from the trusted main checkout
+      # into RUNNER_TEMP before swapping to the PR branch. The PR-branch checkout
+      # would otherwise overwrite action/verify-feedback-contract.sh, letting a
+      # PR ship a modified verifier that polices its own run.
+      - name: Stash trusted verify-contract script
+        if: steps.should-proceed.outputs.ok == 'true'
+        id: stash-verifier
+        run: |
+          set -euo pipefail
+          dest="${RUNNER_TEMP}/verify-feedback-contract.sh"
+          cp action/verify-feedback-contract.sh "$dest"
+          chmod +x "$dest"
+          echo "path=$dest" >> "$GITHUB_OUTPUT"
+
       - name: Checkout PR branch
         if: steps.should-proceed.outputs.ok == 'true'
         uses: actions/checkout@v4
@@ -584,7 +598,8 @@ jobs:
       # loudly so the violation cannot quietly merge into PR history.
       #
       # The verification logic lives in action/verify-feedback-contract.sh
-      # so it can be exercised by the fixture-driven test under
+      # (stashed into RUNNER_TEMP from the trusted main checkout above) so it
+      # can be exercised by the fixture-driven test under
       # action/tests/verify-feedback-contract.test.sh.
       - name: Verify feedback contract
         id: verify-contract
@@ -594,12 +609,16 @@ jobs:
           BOT_USERNAME: ${{ env.EGG_BOT_USERNAME }}
           RUN_START: ${{ steps.run-start.outputs.ts }}
           REPO: ${{ github.repository }}
+          VERIFIER: ${{ steps.stash-verifier.outputs.path }}
         run: |
           set -euo pipefail
 
           comments_file="${RUNNER_TEMP:-/tmp}/feedback-comments.json"
           violations_file="${RUNNER_TEMP:-/tmp}/feedback-violations.txt"
 
+          # Defend against `body: null` comments (rare but observed for some
+          # App-authored comments). Without `(.body // "")`, jq's `contains()`
+          # raises on the null and aborts the whole filter.
           gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate --slurp \
             | jq --arg user "$BOT_USERNAME" \
                  --arg user_bot "${BOT_USERNAME}[bot]" \
@@ -607,15 +626,15 @@ jobs:
                  '[.[][]
                    | select((.user.login == $user or .user.login == $user_bot)
                             and .created_at >= $start
-                            and (.body | contains("<!-- egg-status-comment -->") | not)
-                            and (.body | contains("<!-- egg-feedback-contract-violation -->") | not))]' \
+                            and ((.body // "") | contains("<!-- egg-status-comment -->") | not)
+                            and ((.body // "") | contains("<!-- egg-feedback-contract-violation -->") | not))]' \
             > "$comments_file"
 
           export COMMENTS_JSON_FILE="$comments_file"
           export VIOLATIONS_FILE="$violations_file"
           export RUN_START REPO
 
-          if action/verify-feedback-contract.sh; then
+          if "$VERIFIER"; then
             echo "Feedback contract: clean"
           else
             echo "::error::Feedback contract violations detected:"
