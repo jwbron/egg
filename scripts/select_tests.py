@@ -723,6 +723,23 @@ def build_graph(repo_root: Path | None = None, packages: tuple[str, ...] = PACKA
         #                                  (matches `tests/conftest.py:15`).
         #   - root / "config"            — `import host_config` etc.
         #                                  (matches `tests/conftest.py:16`).
+        #
+        # Asymmetry note: an externally-set ``PYTHONPATH=shared:...``
+        # makes grimp abort with ``NotATopLevelModule: shared.egg_agent``
+        # because ``egg_agent`` becomes reachable as both
+        # ``shared.egg_agent`` (registered in PACKAGES) and a bare
+        # top-level ``egg_agent`` via ``shared/``.  The defense-in-depth
+        # scrub at the top of ``main()`` (``_strip_pythonpath_from_sys_path``)
+        # removes any PYTHONPATH-derived entries from sys.path before
+        # grimp is imported, so the internal ``sys.path.insert(0, ...)``
+        # calls below cannot collide with one Python added at startup.
+        # Empirically the internal injection of ``root/shared`` does
+        # not trigger the same ``NotATopLevelModule`` failure, but the
+        # mechanism for that asymmetry is not fully understood — a
+        # future grimp release could become more sensitive.  If that
+        # ever happens, the right move is to stop injecting the
+        # subpackage source roots here and instead rely on the same
+        # ``PACKAGES`` registration grimp already uses.
         added_paths: list[str] = []
         for entry in (
             str(root),
@@ -1551,6 +1568,38 @@ def _main_inner(argv: list[str] | None = None) -> int:
     return _run_narrow_or_fallback(repo_root)
 
 
+def _strip_pythonpath_from_sys_path() -> None:
+    """Pop ``PYTHONPATH`` from the env AND remove its entries from
+    ``sys.path``.
+
+    A ``PYTHONPATH=shared:gateway:orchestrator`` (the value the Makefile
+    exports for pytest) leaves ``shared/`` at the head of ``sys.path``,
+    which causes grimp's ``build_graph`` to abort with
+    ``NotATopLevelModule: shared.egg_agent`` — ``egg_agent`` becomes
+    reachable as a bare top-level package via ``shared/`` AND as
+    ``shared.egg_agent`` via the namespace package, and grimp refuses
+    the ambiguity.  Python has already resolved the env var to absolute
+    paths and prepended them to sys.path at interpreter startup, so
+    just popping the env var is not enough — we also strip the
+    resolved entries from sys.path.
+    """
+    pythonpath = os.environ.pop("PYTHONPATH", None)
+    if not pythonpath:
+        return
+    for entry in pythonpath.split(os.pathsep):
+        if not entry:
+            continue
+        # Python prepends the resolved absolute path; try both forms.
+        candidates = {entry}
+        try:
+            candidates.add(str(Path(entry).resolve()))
+        except OSError:
+            pass
+        for candidate in candidates:
+            while candidate in sys.path:
+                sys.path.remove(candidate)
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point with the **fail-open** wrapper.
 
@@ -1572,6 +1621,19 @@ def main(argv: list[str] | None = None) -> int:
     exit 0 instead.  TASK-5-2 includes a regression test that locks
     this behaviour.
     """
+    # Defense-in-depth: a `PYTHONPATH` containing source roots like
+    # `shared` makes subpackages reachable as both `shared.egg_agent`
+    # and bare `egg_agent`, which causes grimp to abort the graph
+    # build with `NotATopLevelModule`.  The Makefile already strips
+    # the env via `env -u PYTHONPATH`, but anyone invoking the
+    # script directly (or any future caller that forgets the
+    # wrapper) gets the same protection here.
+    #
+    # Popping the env var alone is not enough — Python has already
+    # prepended the PYTHONPATH entries to sys.path at interpreter
+    # startup (resolved to absolute paths), and grimp inspects
+    # sys.path directly during `build_graph`.  Scrub both.
+    _strip_pythonpath_from_sys_path()
     try:
         return _main_inner(argv)
     except SystemExit:

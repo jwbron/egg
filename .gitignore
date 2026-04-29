@@ -66,3 +66,21 @@ Thumbs.db
 .egg-state/last-known-good/
 .egg-state/selection/
 .egg-state/grimp-cache/
+
+# Per-machine runtime telemetry written by the overseer; otherwise
+# leaves `git status` dirty after every local pipeline run and trips
+# the selector's "non-.py change" fallback into running the full suite.
+# Tracked test fixtures (test-00{2,3,4}-oversight.jsonl) are unaffected
+# — .gitignore only hides untracked paths.
+.egg-state/oversight/agent-timing.json
+.egg-state/oversight/agent-timing.json.lock
+.egg-state/oversight/*-oversight.jsonl
+.egg-state/oversight/*-health-summary.md
+.egg-state/oversight/filed-issues.jsonl
+.egg-state/oversight/filed-issues.jsonl.lock
+# `save_agent_timing` writes via `tempfile.NamedTemporaryFile(prefix=".<name>.", suffix=".tmp")`
+# and only `os.replace`s on the happy path; a SIGKILL mid-write leaves
+# a leftover tmp file alongside the target.  `append_filed_issue` uses
+# plain `open(p, "a")` + `fsync` (no rename pattern), so there's no
+# matching tmp leftover to ignore for that file.
+.egg-state/oversight/.agent-timing.json.*.tmp

@@ -16,11 +16,13 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 from tests.tools._select_tests_helpers import (
+    REPO_ROOT,
     SELECTOR_PATH,
     _git,
     commit_file,
@@ -465,3 +467,102 @@ def test_fail_open_subprocess_grimp_unavailable(
         or "selector exception" in proc.stderr
         or "trigger=" in proc.stderr  # any explicit trigger
     ), f"no fallback trigger logged on stderr: {proc.stderr!r}"
+
+
+# ----------------------------------------------------------------------
+# PYTHONPATH leak — the Makefile exports `PYTHONPATH=shared:gateway:orchestrator`
+# for pytest, which previously also reached `select_tests.py`.  With
+# `shared/` on sys.path, grimp's `build_graph` aborts with
+# `NotATopLevelModule: shared.egg_agent` and the selector silently
+# fell back to the full suite.  The two regression cases below pin
+# both the helper and the end-to-end contract.
+# ----------------------------------------------------------------------
+
+
+def test_strip_pythonpath_pops_env_and_sys_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``_strip_pythonpath_from_sys_path`` MUST remove PYTHONPATH from
+    ``os.environ`` AND strip its entries from ``sys.path`` (both raw
+    and ``Path.resolve()`` forms — Python prepends the resolved
+    absolute path at interpreter startup, but a sloppy caller could
+    inject the raw form too)."""
+    raw = "shared:gateway:orchestrator"
+    monkeypatch.setenv("PYTHONPATH", raw)
+    raw_entries = raw.split(os.pathsep)
+    resolved_entries = [str(Path(e).resolve()) for e in raw_entries]
+    # Inject both forms at the head of sys.path, then assert they're
+    # all gone after the strip.
+    original_path = list(sys.path)
+    try:
+        for entry in [*resolved_entries, *raw_entries]:
+            sys.path.insert(0, entry)
+        selector._strip_pythonpath_from_sys_path()
+        assert "PYTHONPATH" not in os.environ
+        for entry in [*raw_entries, *resolved_entries]:
+            assert entry not in sys.path, f"{entry!r} still on sys.path"
+    finally:
+        sys.path[:] = original_path
+
+
+def test_strip_pythonpath_no_op_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No PYTHONPATH → no env mutation, no sys.path mutation."""
+    monkeypatch.delenv("PYTHONPATH", raising=False)
+    snapshot = list(sys.path)
+    selector._strip_pythonpath_from_sys_path()
+    assert "PYTHONPATH" not in os.environ
+    assert sys.path == snapshot
+
+
+def test_subprocess_with_leaked_pythonpath_does_not_abort_graph() -> None:
+    """End-to-end contract: setting ``PYTHONPATH=shared:gateway:orchestrator``
+    in the child env (mimicking the Makefile pre-fix) MUST NOT cause
+    grimp's ``build_graph`` to abort with ``NotATopLevelModule``.
+
+    Drives ``--why`` against a real test path so the selector actually
+    reaches ``build_graph`` (the ``--full-suite`` short-circuits before
+    grimp is touched and would let the regression slip through silently).
+    ``explain_why`` calls ``build_graph`` immediately; under the bug it
+    logs ``select-tests: --why: graph build failed: NotATopLevelModule:``
+    on stderr, and with the strip in ``main()`` neither marker appears.
+
+    ``--why`` is purely read-only — no canary counter bump, no selection
+    record write — so this test has no effect on subsequent ``make test``
+    runs in the same checkout.
+
+    Skips when grimp isn't installed because the bug is a grimp-specific
+    failure mode.
+    """
+    pytest.importorskip("grimp")
+    env = os.environ.copy()
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    env.pop("EGG_AGENT_ROLE", None)
+    env["PYTHONPATH"] = "shared:gateway:orchestrator"
+    proc = subprocess.run(
+        [
+            find_python(),
+            str(SELECTOR_PATH),
+            "--why",
+            "tests/test_python_syntax.py",
+        ],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        timeout=60,
+    )
+    # Fail-open contract guarantees rc==0; assert it explicitly so a
+    # different non-zero exit (e.g. an unhandled exception escaping the
+    # wrapper) doesn't go unnoticed.
+    assert proc.returncode == 0, (
+        f"selector exited {proc.returncode} with leaked PYTHONPATH\n"
+        f"stdout: {proc.stdout!r}\nstderr: {proc.stderr!r}"
+    )
+    # The two buggy stderr signatures: grimp's exception class name and
+    # the explain_why fail-open log line that wraps it.  Either appearing
+    # means PYTHONPATH leaked through the strip and into build_graph.
+    assert "NotATopLevelModule" not in proc.stderr, (
+        f"PYTHONPATH leaked into grimp despite the strip:\n{proc.stderr!r}"
+    )
+    assert "graph build failed" not in proc.stderr, (
+        f"build_graph aborted (likely from PYTHONPATH leak):\n{proc.stderr!r}"
+    )
