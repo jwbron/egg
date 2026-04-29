@@ -9853,6 +9853,16 @@ def _publish_consensus_timeout_alert(
 # signature appears, the branch has absorbed merged-main commits, which
 # is the exact failure mode #2222 fixed at the root.
 #
+# Detection latency: the polling thread checks every 30 s, but the
+# orchestrator's local ``origin/<pipeline_branch>`` only refreshes
+# when it fetches — which happens at pipeline start, phase
+# boundaries, and a few resume / signal paths (the polling thread
+# itself does not fetch).  Contamination introduced mid-phase is
+# therefore detected at the next phase boundary's fetch, not within
+# 30 s.  This is **phase-boundary granularity, not real time** —
+# strictly better than detecting at PR open, but defense-in-depth
+# only; PR 1 (#2282) remains the primary gate.
+#
 # The signature heuristic is intentionally cheap and false-positive-
 # tolerant — per the issue, "we'd rather over-alert than miss another
 # contaminated PR."
@@ -9866,18 +9876,19 @@ def _check_branch_divergence_for_alert(
     pipeline_branch: str,
     base_branch: str,
     threshold: int = BRANCH_DIVERGENCE_THRESHOLD,
-) -> list[tuple[str, str]]:
-    """Return offending ``(sha, subject)`` pairs, or ``[]`` if no alert.
+) -> tuple[int, list[tuple[str, str]]]:
+    """Return ``(ahead_count, offenders)``.
 
-    Returns the list of ahead-commits whose subjects look like
+    ``offenders`` is the list of ahead-commits whose subjects look like
     merged-main PRs (``(#NNNN)``) when the pipeline branch is more
-    than ``threshold`` commits ahead of base.  Returns ``[]`` when
+    than ``threshold`` commits ahead of base.  Returns ``(0, [])`` when
     the branch is not far enough ahead, no signatures match, or any
     git invocation fails (best-effort — observability must never
-    block the pipeline).
+    block the pipeline).  The caller relies on ``ahead_count`` for
+    the alert body and uses ``offenders`` to decide whether to fire.
     """
     if not pipeline_branch or not base_branch or pipeline_branch == base_branch:
-        return []
+        return 0, []
 
     git_base = [
         "git",
@@ -9915,13 +9926,13 @@ def _check_branch_divergence_for_alert(
         ]
     )
     if count is None or count.returncode != 0:
-        return []
+        return 0, []
     try:
         ahead = int((count.stdout or "0").strip() or "0")
     except ValueError:
-        return []
+        return 0, []
     if ahead <= threshold:
-        return []
+        return ahead, []
 
     log = _run(
         [
@@ -9932,7 +9943,7 @@ def _check_branch_divergence_for_alert(
         ]
     )
     if log is None or log.returncode != 0:
-        return []
+        return ahead, []
 
     offenders: list[tuple[str, str]] = []
     for line in (log.stdout or "").splitlines():
@@ -9944,7 +9955,7 @@ def _check_branch_divergence_for_alert(
             continue
         if _BRANCH_DIVERGENCE_PR_RE.search(subject):
             offenders.append((sha, subject))
-    return offenders
+    return ahead, offenders
 
 
 def _publish_branch_divergence_alert(
@@ -10026,6 +10037,57 @@ def _publish_branch_divergence_alert(
             pipeline_id=pipeline_id,
             error=str(e),
             exc_info=True,
+        )
+
+
+def _branch_divergence_tick(
+    pipeline_id: str,
+    worktree_repo_path: Path,
+    store: StateStore,
+    alerted_shas: set[str],
+) -> None:
+    """One iteration of the branch-divergence detector.
+
+    Extracted from the ``_health_monitor_poll`` closure so the
+    dedupe + reset behavior is unit-testable.  Mutates ``alerted_shas``
+    in place: adds newly-fired SHAs, and clears the set when the
+    contamination window goes empty so re-introduction (same SHA,
+    e.g. agent re-runs a bad rebase) re-fires per the issue's
+    "rather over-alert than miss" stance.
+
+    All errors are logged-and-swallowed — observability must never
+    block the pipeline.
+    """
+    try:
+        pipeline = store.load_pipeline(pipeline_id)
+        branch = pipeline.branch
+        base = pipeline.base_branch
+        if not branch or not base:
+            return
+        ahead, offenders = _check_branch_divergence_for_alert(
+            pipeline_id=pipeline_id,
+            worktree_repo_path=worktree_repo_path,
+            pipeline_branch=branch,
+            base_branch=base,
+        )
+        if not offenders and alerted_shas:
+            alerted_shas.clear()
+        new_offenders = [(sha, subj) for sha, subj in offenders if sha not in alerted_shas]
+        if new_offenders:
+            _publish_branch_divergence_alert(
+                pipeline,
+                pipeline_id,
+                pipeline_branch=branch,
+                base_branch=base,
+                ahead_count=ahead,
+                offenders=new_offenders,
+            )
+            alerted_shas.update(sha for sha, _ in new_offenders)
+    except Exception as div_err:
+        logger.debug(
+            "Branch-divergence check failed",
+            pipeline_id=pipeline_id,
+            error=str(div_err),
         )
 
 
@@ -13801,68 +13863,16 @@ def _run_pipeline(
                             error=str(poll_err),
                         )
 
-                    # Branch-divergence detector (#2224 PR 3).  Reads the
-                    # latest pipeline state each tick so a base_branch /
-                    # branch update mid-pipeline is picked up; logs and
-                    # swallows all errors so observability never blocks
-                    # the pipeline.
-                    try:
-                        _div_pipeline = store.load_pipeline(pipeline_id)
-                        _div_branch = _div_pipeline.branch
-                        _div_base = _div_pipeline.base_branch
-                        if _div_branch and _div_base:
-                            offenders = _check_branch_divergence_for_alert(
-                                pipeline_id=pipeline_id,
-                                worktree_repo_path=worktree_repo_path,
-                                pipeline_branch=_div_branch,
-                                base_branch=_div_base,
-                            )
-                            new_offenders = [
-                                (sha, subj)
-                                for sha, subj in offenders
-                                if sha not in divergence_alerted_shas
-                            ]
-                            if new_offenders:
-                                # Re-count ahead for the alert body — the
-                                # offender list is the contaminated subset,
-                                # the body should report total divergence.
-                                _ahead_proc = subprocess.run(
-                                    [
-                                        "git",
-                                        "-c",
-                                        "core.hooksPath=/dev/null",
-                                        "-c",
-                                        f"safe.directory={worktree_repo_path}",
-                                        "-C",
-                                        str(worktree_repo_path),
-                                        "rev-list",
-                                        "--count",
-                                        f"origin/{_div_base}..origin/{_div_branch}",
-                                    ],
-                                    capture_output=True,
-                                    text=True,
-                                    timeout=15,
-                                    check=False,
-                                )
-                                try:
-                                    _ahead = int((_ahead_proc.stdout or "0").strip() or "0")
-                                except ValueError:
-                                    _ahead = 0
-                                _publish_branch_divergence_alert(
-                                    _div_pipeline,
-                                    pipeline_id,
-                                    pipeline_branch=_div_branch,
-                                    base_branch=_div_base,
-                                    ahead_count=_ahead,
-                                    offenders=new_offenders,
-                                )
-                                divergence_alerted_shas.update(sha for sha, _ in new_offenders)
-                    except Exception as div_err:
-                        logger.debug(
-                            "Branch-divergence check failed",
-                            pipeline_id=pipeline_id,
-                            error=str(div_err),
-                        )
+                    # Branch-divergence detector (#2224 PR 3).  Helper
+                    # re-loads pipeline state each tick so a
+                    # base_branch / branch update mid-pipeline is
+                    # picked up.  Dedupe set is mutated in place.
+                    _branch_divergence_tick(
+                        pipeline_id=pipeline_id,
+                        worktree_repo_path=worktree_repo_path,
+                        store=store,
+                        alerted_shas=divergence_alerted_shas,
+                    )
 
                     # Check overseer liveness and respawn if it exited mid-phase.
                     # Only check when phase_overseer_active is True — the overseer
