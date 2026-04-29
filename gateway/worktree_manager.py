@@ -2032,7 +2032,7 @@ def get_active_docker_containers() -> set[str]:
         )
         if result.returncode == 0:
             return set(result.stdout.strip().split("\n")) - {""}
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+    except subprocess.TimeoutExpired, FileNotFoundError:
         pass
     return set()
 

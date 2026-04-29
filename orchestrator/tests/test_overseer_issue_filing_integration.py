@@ -47,7 +47,7 @@ except ImportError:
 
 try:
     from overseer.classifier import classify_stall
-except (ImportError, ModuleNotFoundError):
+except ImportError, ModuleNotFoundError:
     classify_stall = None
 
 # ---------------------------------------------------------------------------

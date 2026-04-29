@@ -35,7 +35,7 @@ def _has_anchor_command(parser):
     try:
         args = parser.parse_args(["anchor", "show"])
         return hasattr(args, "anchor_command")
-    except (SystemExit, AttributeError):
+    except SystemExit, AttributeError:
         return False
 
 

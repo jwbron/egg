@@ -47,14 +47,14 @@ def validate_file_path(
 
     try:
         resolved = Path(file_path).resolve()
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return f"Invalid path: {file_path}"
 
     resolved_str = str(resolved)
     for root in allowed_roots:
         try:
             root_resolved = str(Path(root).resolve())
-        except (OSError, ValueError):
+        except OSError, ValueError:
             continue
         if resolved_str == root_resolved or resolved_str.startswith(root_resolved + os.sep):
             return None
