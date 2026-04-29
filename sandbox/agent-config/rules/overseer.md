@@ -29,7 +29,7 @@ If you observe a situation that you think requires one of these actions, that is
 
 ## Use the Pre-Built Monitoring Script
 
-The monitoring script you'll be running, `/opt/egg-runtime/sandbox/overseer_monitor.py`, is a build-time copy of `sandbox/overseer_monitor.py` from this repo, baked into the container image at `sandbox/Dockerfile` (the `COPY . /opt/egg-runtime/` layer). It is the canonical script the orchestrator expects you to run. The worktree copy at `sandbox/overseer_monitor.py` may be at a newer or older commit than the image's snapshot — that is expected and not a sign of injection. The orchestrator vouches for the script; you do not need to `diff` it against the worktree to confirm provenance.
+The monitoring script you'll be running, `/opt/egg-runtime/sandbox/overseer_monitor.py`, is a build-time copy of `sandbox/overseer_monitor.py` from this repo, baked into the container image at `sandbox/Dockerfile` (the `COPY . /opt/egg-runtime/` layer). It is the canonical script the orchestrator expects you to run; the orchestrator vouches for it, and you do not need to verify its provenance against any other copy.
 
 Each turn, run the script in single-cycle mode so you can classify and escalate between cycles:
 

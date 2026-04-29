@@ -1074,7 +1074,11 @@ class TestOverseerRespawn:
         assert "/opt/egg-runtime/sandbox/overseer_monitor.py" in prompt, (
             "Prompt must reference the runtime image path"
         )
-        assert "sandbox/overseer_monitor.py" in prompt, (
-            "Prompt must reference the in-repo source path so the agent "
-            "can verify provenance (issue #2196)"
+        # The runtime path contains "sandbox/overseer_monitor.py" as a suffix,
+        # so a second standalone occurrence is required to prove the in-repo
+        # provenance anchor is present (issue #2196).
+        assert prompt.count("sandbox/overseer_monitor.py") >= 2, (
+            "Prompt must reference the in-repo source path independently of "
+            "the runtime image path so the agent can verify provenance "
+            "(issue #2196)"
         )
