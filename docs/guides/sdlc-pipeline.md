@@ -1249,7 +1249,10 @@ Or pass it in the pipeline config JSON (e.g. via the API):
 | `start_phase` | str | `null` | Skip earlier phases and start execution from `"plan"` or `"implement"`. When set to `"implement"`, pass top-level `analysis`/`plan` fields to seed the contract (see Short-flow pipelines above). |
 | `max_concurrent_agents` | int | `6` | Maximum agents running simultaneously |
 | `message_poll_hint_seconds` | int | `30` | Suggested polling interval for agents |
-| `consensus_timeout_minutes` | int | `30` | Timeout before HITL escalation |
+| `consensus_timeout_minutes` | int \| null | `null` | Global consensus timeout. When set, applies to every phase. When `null` (the default), each phase falls back to the calibrated per-phase default below. |
+| `consensus_timeout_minutes_refine` | int \| null | `null` (effective `30`) | Per-phase consensus timeout for refine. Wins over the legacy global. |
+| `consensus_timeout_minutes_plan` | int \| null | `null` (effective `60`) | Per-phase consensus timeout for plan. Wins over the legacy global. |
+| `consensus_timeout_minutes_implement` | int \| null | `null` (effective `90`) | Per-phase consensus timeout for implement. Wins over the legacy global. |
 | `agent_idle_timeout_minutes` | int | `60` | Agent idle timeout |
 | `overseer_enabled` | bool | `true` | Enable the overseer agent for pipeline health monitoring |
 | `spawn_max_retries` | int | `2` | Max additional retry attempts for transient gateway worktree-creation failures during agent spawn. Total attempts = `spawn_max_retries + 1`. Set to `0` to disable retry. |
@@ -1315,7 +1318,7 @@ Phase completion in concurrent mode uses a consensus-based approach:
    - The orchestrator polls every 5 seconds and stops containers immediately on consensus
 4. Any agent can object (signal `OBJECTING`) to block completion
    - A HITL decision is created with options: **Override objections**, **Wait for resolution**, **Abort phase**
-5. Timeout (`consensus_timeout_minutes`, default 30) triggers HITL escalation
+5. Timeout (per-phase: refine 30 / plan 60 / implement 90 by default; configurable via `consensus_timeout_minutes_<phase>` or the legacy global `consensus_timeout_minutes`) triggers HITL escalation
    - Options: **Continue waiting**, **Accept current state**, **Abort phase**
    - Phase falls back to exit-code-based completion while awaiting the decision
 6. If a container exits cleanly without signaling `READY`, the consensus wrapper restarts it with a recovery prompt (up to `MAX_CONSENSUS_RESTARTS`, default 2). After exhausting restarts, the wrapper performs a final consensus check — if consensus has already been reached (`is_complete=True`), it exits with code 0 (success). Only if consensus is genuinely incomplete does it exit with code 1, triggering the single-agent failure path (HITL decision: retry, abort, or continue without). See [Concurrent Execution: Consensus Wrapper](concurrent-execution.md#consensus-wrapper).
@@ -1442,9 +1445,11 @@ egg-checkpoint show ckpt-<id>
 role. Messages are filtered by `to_role` — only targeted messages and broadcasts
 (`to_role: "all"`) are returned.
 
-**Consensus timeout**: If agents don't reach consensus within `consensus_timeout_minutes`,
-a HITL decision is created. Check agent states via `egg-orch pipeline status` to
-identify blocked or stuck agents.
+**Consensus timeout**: If agents don't reach consensus within the resolved per-phase
+budget (`consensus_timeout_minutes_<phase>` if set, else the legacy global
+`consensus_timeout_minutes`, else the calibrated default — refine 30 / plan 60 /
+implement 90), a HITL decision is created. Check agent states via
+`egg-orch pipeline status` to identify blocked or stuck agents.
 
 **Message bus empty**: Verify the pipeline has `concurrent_execution: true` in its
 config. The message bus is only active for concurrent pipelines.

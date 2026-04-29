@@ -33,7 +33,10 @@ Relevant `PipelineConfig` fields:
 | `start_phase` | `null` | Skip earlier phases and begin execution from `"plan"` or `"implement"` |
 | `max_concurrent_agents` | `6` | Maximum agents per phase |
 | `message_poll_hint_seconds` | `30` | Suggested polling interval for agents |
-| `consensus_timeout_minutes` | `30` | Consensus timeout before escalation or auto-advance |
+| `consensus_timeout_minutes` | `null` | Legacy global consensus timeout in minutes. When set, applies to every phase and overrides the phase-aware defaults below. When `null`, each phase falls back to its calibrated default. |
+| `consensus_timeout_minutes_refine` | `null` (effective `30`) | Per-phase override for refine. Wins over the legacy global. |
+| `consensus_timeout_minutes_plan` | `null` (effective `60`) | Per-phase override for plan. Wins over the legacy global. |
+| `consensus_timeout_minutes_implement` | `null` (effective `90`) | Per-phase override for implement. Wins over the legacy global. |
 | `agent_idle_timeout_minutes` | `60` | Idle agent timeout before termination |
 
 ## Agent Startup Protocol
@@ -719,7 +722,7 @@ If any agent is in the `OBJECTING` readiness state (separate from BRC phase), th
 
 ### Timeout Handling
 
-If consensus is not reached within `consensus_timeout_minutes`, the BRC tracker (`PeerConsensusTracker.handle_timeout()`) evaluates blocking agents by role criticality:
+If consensus is not reached within the resolved per-phase timeout (per-phase override > legacy global > calibrated default — refine 30, plan 60, implement 90; see issue #2263), the BRC tracker (`PeerConsensusTracker.handle_timeout()`) evaluates blocking agents by role criticality:
 
 - **Critical blockers** (required reviewers still unconfirmed): emits `CONSENSUS_FAILURE` and creates a HITL decision asking how to proceed.
 - **Advisory-only blockers** (non-critical roles unconfirmed): emits `CONSENSUS_TIMEOUT` and proceeds automatically — no HITL created.

@@ -10373,6 +10373,7 @@ def _run_concurrent_phase(
         ContainerInfo,
         ContainerStatus,
         PipelinePhase,
+        resolve_consensus_timeout_minutes,
     )
 
     try:
@@ -10697,7 +10698,7 @@ def _run_concurrent_phase(
     _logs_lock = threading.Lock()
 
     poll_interval = 5  # seconds
-    raw_timeout = getattr(pipeline.config, "consensus_timeout_minutes", 30)
+    raw_timeout = resolve_consensus_timeout_minutes(pipeline.config, phase_str)
     consensus_timeout = max(raw_timeout, 1) * 60  # minimum 1 minute
     start_time = time.monotonic()
     objection_decision_created = False
