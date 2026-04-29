@@ -344,6 +344,22 @@ class ApprovalMatrix:
             )
         return conditions
 
+    def get_latest_entry_timestamp(self) -> datetime | None:
+        """Return the timestamp of the most recent ACK or NACK across all edges.
+
+        Used by the BRC progress gate (#2243) to detect reviewer activity in
+        the window before opening an HITL consensus-failure decision. Returns
+        None if no edge has ever transitioned out of PENDING.
+        """
+        latest: datetime | None = None
+        for entry in self._entries.values():
+            ts = entry.timestamp
+            if ts is None:
+                continue
+            if latest is None or ts > latest:
+                latest = ts
+        return latest
+
     def get_latest_review_versions(self, reviewer: str) -> dict[str, int]:
         """Get the version of each review the reviewer has submitted.
 

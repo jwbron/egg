@@ -1250,6 +1250,7 @@ Or pass it in the pipeline config JSON (e.g. via the API):
 | `max_concurrent_agents` | int | `6` | Maximum agents running simultaneously |
 | `message_poll_hint_seconds` | int | `30` | Suggested polling interval for agents |
 | `consensus_timeout_minutes` | int | `30` | Timeout before HITL escalation |
+| `brc_consensus_progress_gate_seconds` | int | `300` | Defer consensus-timeout HITL while BRC bus or container heartbeats are active. Set to `0` to disable. |
 | `agent_idle_timeout_minutes` | int | `60` | Agent idle timeout |
 | `overseer_enabled` | bool | `true` | Enable the overseer agent for pipeline health monitoring |
 | `spawn_max_retries` | int | `2` | Max additional retry attempts for transient gateway worktree-creation failures during agent spawn. Total attempts = `spawn_max_retries + 1`. Set to `0` to disable retry. |
