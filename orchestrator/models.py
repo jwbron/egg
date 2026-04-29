@@ -630,7 +630,7 @@ class PipelineConfig(BaseModel):
     )
 
     @model_validator(mode="after")
-    def _validate_post_consensus_budgets(self) -> "PipelineConfig":
+    def _validate_post_consensus_budgets(self) -> PipelineConfig:
         """Reject configs where the absolute cap is below the per-iteration budget.
 
         Without this, a misconfigured pipeline (e.g. ``iteration_budget=7200``
