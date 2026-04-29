@@ -294,7 +294,7 @@ The contract tracks per-reviewer verdicts for debugging:
 
 ### Multi-Agent Orchestration
 
-The implement phase runs as a **DAG of independent slices** (#2137). Each slice has its own integration branch (`egg/issue-N/slice-M`), agent team, BRC consensus, and stacked PR targeting the parent slice's branch (or the pipeline branch for root slices). The `SliceScheduler` computes execution waves — slices whose dependencies are satisfied run concurrently (capped at `EGG_ORCH_MAX_PARALLEL_SLICES`, default 5); dependent slices wait in subsequent waves. See [Slice-DAG Implement Phase](../architecture/slice-dag.md) for the full model including forest validation, two-tier `max_cycles` accounting, failure cascade, and the stacked-PR reconciler.
+The implement phase runs as a **DAG of independent slices** (#2137). Each slice has its own integration branch (`egg/issue-N/slice-M`), agent team, BRC consensus, and stacked PR targeting the parent slice's branch (or the pipeline branch for root slices). The `SliceScheduler` computes execution waves — slices whose dependencies are satisfied run concurrently (capped at `EGG_ORCH_MAX_PARALLEL_SLICES`, default 5 per pipeline; a process-wide `EGG_ORCH_GLOBAL_MAX_PARALLEL_SLICES` cap, default 4, applies across all pipelines running in the same orchestrator process — #2241); dependent slices wait in subsequent waves. See [Slice-DAG Implement Phase](../architecture/slice-dag.md) for the full model including forest validation, two-tier `max_cycles` accounting, failure cascade, and the stacked-PR reconciler.
 
 Within each slice, concurrent BRC execution runs: specialized agents run simultaneously and coordinate via the message bus.
 
@@ -921,6 +921,7 @@ Default checks for each phase are defined in `shared/egg_contracts/phase_default
 - PR is auto-created by the orchestrator (no agent spawned). The PR title and description are sourced from the contract's `pr` field (populated by the plan agent), with commit log and diff stats appended automatically. When BRC consensus was active, a one-line pointer to the committed per-phase BRC history transcripts is included in the PR body (linked from `.egg-state/brc-history/`). See [Concurrent Execution — BRC History Link in PR Body](concurrent-execution.md#brc-history-link-in-pr-body) for details.
 - **Agent-outputs cleanup**: At PR-phase entry, the orchestrator removes `.egg-state/agent-outputs/` from the branch via `_cleanup_agent_outputs_for_pr()`. These files are ephemeral coder→tester handoff artifacts (e.g., `coder-test-changes.patch`) that the tester has already consumed. Leaving them causes merge conflicts in concurrent pipelines and pollutes the PR diff. Cleanup is best-effort — failures are logged but do not block PR creation.
 - **BRC history safety net**: Before PR creation, the orchestrator re-writes BRC history files for all completed phases via `_write_brc_history()`. This is a safety net — BRC history is normally written at each phase boundary, but per-phase pushes can fail silently. Re-writing in the PR phase ensures BRC history files are always present in the PR diff. All functions in this chain emit INFO-level diagnostic logs at entry, exit, and each early-return path (see [PR-Phase State File Troubleshooting](#pr-phase-state-file-troubleshooting)).
+- **Pre-PR-open rebase** (#2224): Immediately before calling `gh pr create`, the orchestrator rebases the pipeline branch against the current `origin/<base_branch>` via `_refresh_pipeline_branch_against_current_base()`. Phase-start rebases (`_rebase_pipeline_branch_onto_base`) only run once per phase iteration; if `base_branch` advances *during* the PR phase, the pipeline branch ends up behind. This step closes that gap so the PR opens with a clean linear diff. The operation is best-effort — on any failure (rebase conflict, push rejection, transient gateway error) the PR still opens against the un-rebased tip and the divergence is visible to the human reviewer. Only the pipeline branch is ever written to; `base_branch` is read-only here.
 - **Draft preservation**: Pipeline-specific draft files (`.egg-state/drafts/{id}-analysis.md`, `.egg-state/drafts/{id}-plan.md`) are **preserved** on the PR branch as artifacts of the pipeline's reasoning. Reviewers can compare the planned approach against the shipped code, and post-hoc debugging has the analysis and plan available as a baseline (see #1713). The PR phase used to remove these files to keep diffs focused; that behavior was reverted because the audit value outweighs the diff noise.
 - If PR creation returns no URL, the pipeline is marked **FAILED** immediately. The overseer also runs a safety-net check at pipeline completion: if `current_phase=pr` but no `pr_url` is in the phase artifacts, it creates a HITL decision and Slack notification to prevent stranded branch work from going unnoticed.
 
@@ -1232,11 +1233,18 @@ Or pass it in the pipeline config JSON (e.g. via the API):
     "concurrent_execution": true,
     "max_concurrent_agents": 6,
     "message_poll_hint_seconds": 30,
-    "consensus_timeout_minutes": 30,
     "agent_idle_timeout_minutes": 60
   }
 }
 ```
+
+Leave `consensus_timeout_minutes` unset to use the calibrated per-phase
+defaults below (refine 30 / plan 60 / implement 90). To tune a single
+phase, set the per-phase override — `consensus_timeout_minutes_implement: 120`
+to give implement extra runway without touching refine/plan. Setting the
+legacy global (`consensus_timeout_minutes`) overrides *every* phase, so a
+value of `30` would shrink plan from 60→30 and implement from 90→30; prefer
+per-phase overrides unless that uniform behaviour is intended.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -1249,7 +1257,10 @@ Or pass it in the pipeline config JSON (e.g. via the API):
 | `start_phase` | str | `null` | Skip earlier phases and start execution from `"plan"` or `"implement"`. When set to `"implement"`, pass top-level `analysis`/`plan` fields to seed the contract (see Short-flow pipelines above). |
 | `max_concurrent_agents` | int | `6` | Maximum agents running simultaneously |
 | `message_poll_hint_seconds` | int | `30` | Suggested polling interval for agents |
-| `consensus_timeout_minutes` | int | `30` | Timeout before publishing a consensus-timeout `OVERSEER_ALERT` |
+| `consensus_timeout_minutes` | int \| null | `null` | Global consensus timeout. When set, applies to every phase. When `null` (the default), each phase falls back to the calibrated per-phase default below. |
+| `consensus_timeout_minutes_refine` | int \| null | `null` (effective `30`) | Per-phase consensus timeout for refine. Wins over the legacy global. |
+| `consensus_timeout_minutes_plan` | int \| null | `null` (effective `60`) | Per-phase consensus timeout for plan. Wins over the legacy global. |
+| `consensus_timeout_minutes_implement` | int \| null | `null` (effective `90`) | Per-phase consensus timeout for implement. Wins over the legacy global. |
 | `brc_consensus_progress_gate_seconds` | int | `300` | Defer the consensus-timeout `OVERSEER_ALERT` while BRC bus or container heartbeats are active. Set to `0` to disable. |
 | `post_consensus_iteration_budget_seconds` | int | `3600` | Per-iteration wait budget after consensus timeout. Resets on each new `CONSENSUS_PROPOSE` from a producer. |
 | `post_consensus_max_total_seconds` | int | `14400` | Hard ceiling on total post-timeout wait. Must be ≥ `post_consensus_iteration_budget_seconds`. |
@@ -1318,7 +1329,7 @@ Phase completion in concurrent mode uses a consensus-based approach:
    - The orchestrator polls every 5 seconds and stops containers immediately on consensus
 4. Any agent can object (signal `OBJECTING`) to block completion
    - A HITL decision is created with options: **Override objections**, **Wait for resolution**, **Abort phase**
-5. Timeout (`consensus_timeout_minutes`, default 30) publishes a non-blocking `OVERSEER_ALERT` (subject `consensus-timeout: <agent_role> [<priority>]`) rather than gating on a HITL decision — see [issue #2264](https://github.com/jwbron/egg/issues/2264)
+5. Timeout (per-phase: refine 30 / plan 60 / implement 90 by default; configurable via `consensus_timeout_minutes_<phase>` or the legacy global `consensus_timeout_minutes`) publishes a non-blocking `OVERSEER_ALERT` (subject `consensus-timeout: <agent_role> [<priority>]`) rather than gating on a HITL decision — see [issue #2264](https://github.com/jwbron/egg/issues/2264)
    - The `/sdlc` skill surfaces the alert (Check agent logs / Acknowledge / Cancel pipeline)
    - The orchestrator continues polling for consensus under the post-timeout budget; operators can intervene with `cancel_task`, `restart_phase`, or `provide_input`
 6. If a container exits cleanly without signaling `READY`, the consensus wrapper restarts it with a recovery prompt (up to `MAX_CONSENSUS_RESTARTS`, default 2). After exhausting restarts, the wrapper performs a final consensus check — if consensus has already been reached (`is_complete=True`), it exits with code 0 (success). Only if consensus is genuinely incomplete does it exit with code 1, triggering the single-agent failure path (HITL decision: retry, abort, or continue without). See [Concurrent Execution: Consensus Wrapper](concurrent-execution.md#consensus-wrapper).
@@ -1445,10 +1456,13 @@ egg-checkpoint show ckpt-<id>
 role. Messages are filtered by `to_role` — only targeted messages and broadcasts
 (`to_role: "all"`) are returned.
 
-**Consensus timeout**: If agents don't reach consensus within `consensus_timeout_minutes`,
-the orchestrator publishes an `OVERSEER_ALERT` (subject `consensus-timeout: <agent_role> [<priority>]`,
-matching the SDLC skill's `<anomaly_type>: <agent_role> [<priority>]` convention so "Check agent
-logs" can extract the role) rather than gating the pipeline on a `choice` decision
+**Consensus timeout**: If agents don't reach consensus within the resolved per-phase
+budget (`consensus_timeout_minutes_<phase>` if set, else the legacy global
+`consensus_timeout_minutes`, else the calibrated default — refine 30 / plan 60 /
+implement 90), the orchestrator publishes an `OVERSEER_ALERT` (subject
+`consensus-timeout: <agent_role> [<priority>]`, matching the SDLC skill's
+`<anomaly_type>: <agent_role> [<priority>]` convention so "Check agent logs" can
+extract the role) rather than gating the pipeline on a `choice` decision
 (see [issue #2264](https://github.com/jwbron/egg/issues/2264)). The SDLC skill surfaces the alert via
 its existing notification flow (Check agent logs / Acknowledge / Cancel pipeline). Check agent
 states via `egg-orch pipeline status` to identify blocked or stuck agents; intervene with

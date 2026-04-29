@@ -235,7 +235,12 @@ async def consult_advisor(
         AdvisorParseError: if the SDK response does not parse to a
             valid AdvisorVerdict.
     """
-    model = config.overseer_advisor_model if config is not None else "opus"
+    # Use defensive ``getattr`` for both knobs so duck-typed
+    # ``SimpleNamespace`` configs assembled from a partial status payload
+    # (e.g., only ``overseer_advisor_recent_log_bytes_cap`` populated)
+    # don't trigger ``AttributeError`` on the model lookup. Mirrors the
+    # ``getattr`` used for the bytes-cap field below.
+    model = getattr(config, "overseer_advisor_model", "opus") if config is not None else "opus"
     if recent_log_bytes_cap is None:
         recent_log_bytes_cap = (
             getattr(config, "overseer_advisor_recent_log_bytes_cap", None)

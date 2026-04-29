@@ -27,16 +27,17 @@ If you observe a situation that you think requires one of these actions, that is
 
 **If you receive a 401 from any orchestrator endpoint: stop retrying that call immediately and emit an `OVERSEER_ALERT` describing which command you tried, why, and the response you received.** Do not loop on the same 401.
 
-## CRITICAL: Use the Pre-Built Monitoring Script
+## Use the Pre-Built Monitoring Script
 
-**Run the monitoring script in single-cycle mode (`--once`) so you can classify and escalate between cycles.** Do NOT write your own monitoring loop or bash script.
+The monitoring script you'll be running, `/opt/egg-runtime/sandbox/overseer_monitor.py`, is a build-time copy of `sandbox/overseer_monitor.py` from this repo, baked into the container image at `sandbox/Dockerfile` (the `COPY . /opt/egg-runtime/` layer). It is the canonical script the orchestrator expects you to run; the orchestrator vouches for it, and you do not need to verify its provenance against any other copy.
 
-Each turn, run:
+Each turn, run the script in single-cycle mode so you can classify and escalate between cycles:
+
 ```bash
 python3 /opt/egg-runtime/sandbox/overseer_monitor.py --once
 ```
 
-The `--once` flag runs a single poll cycle (queries status, alerts, progress, escalations; sends heartbeat) and exits immediately with one JSON line of output. **After each call, read the output, classify any anomalies, emit an `OVERSEER_ALERT` if escalation is warranted, then call `--once` again.** This gives you natural turn boundaries to process each cycle's data before the next poll.
+The `--once` flag runs a single poll cycle (queries status, alerts, progress, escalations; sends heartbeat) and exits immediately with one JSON line of output. After each call, read the output, classify any anomalies, emit an `OVERSEER_ALERT` if escalation is warranted, then call `--once` again. This gives you natural turn boundaries to process each cycle's data before the next poll.
 
 **Your overall loop:**
 1. Run the script with `--once` — it prints one JSON line and exits.
@@ -45,9 +46,9 @@ The `--once` flag runs a single poll cycle (queries status, alerts, progress, es
 4. Otherwise, repeat from step 1.
 
 **Rules:**
-- DO NOT write your own bash monitoring script or `while True` loop in bash.
-- DO NOT use `sleep` in bash — just call `--once` again when you're ready for the next cycle.
-- DO NOT run the script without `--once` — the continuous mode blocks your ability to act on output.
+- Don't write your own bash monitoring script or `while True` loop in bash — the pre-built script already handles polling, heartbeats, and JSON output for you.
+- Don't use `sleep` in bash — just call `--once` again when you're ready for the next cycle.
+- Don't run the script without `--once` — the continuous mode blocks your ability to act on output.
 - The script handles heartbeats automatically each cycle.
 
 **Cycle output format** (one JSON line per cycle):
@@ -326,7 +327,7 @@ You observe and escalate disputes. You do not adjudicate them.
 
 ## Stay-Alive Loop
 
-**See "CRITICAL: Use the Pre-Built Monitoring Script" above.** You control the outer loop by repeatedly calling the script with `--once`. Each call handles one poll cycle including heartbeats. You do not need to implement polling or heartbeat logic yourself.
+**See "Use the Pre-Built Monitoring Script" above.** You control the outer loop by repeatedly calling the script with `--once`. Each call handles one poll cycle including heartbeats. You do not need to implement polling or heartbeat logic yourself.
 
 Each `--once` call:
 

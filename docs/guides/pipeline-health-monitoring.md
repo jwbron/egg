@@ -106,6 +106,7 @@ The orchestrator processes structured progress events with deterministic rules. 
 | **Progress stall** | No structured progress update within threshold | Escalate to overseer/HITL (overseer decides whether to nudge) |
 | **Infrastructure error** | Agent reports `blocked` state with infrastructure-related blocker (git failures, gateway errors, permission denied) | Critical alert → overseer routes to HITL fast-path (bypasses nudge/redirect ladder) |
 | **BRC progress stall** | Fully-ACKed producer hasn't sent `CONSENSUS_CONFIRMED` within timeout | Send direct `OVERSEER_ALERT` to stuck producer instructing it to call `mcp__brc__confirm`; also escalate to overseer/HITL |
+| **Branch divergence** | Pipeline branch is >20 commits ahead of base AND ahead-commits contain merged-PR subject signatures (`(#NNNN)`) — the contamination shape from #2222 | Publish `OVERSEER_ALERT` with `anomaly_type: "branch-divergence"` listing offending commits; deduplicates per SHA |
 
 ### Infrastructure Error Detection
 
@@ -206,7 +207,7 @@ The health monitor now adds a **post-ACK confirmation timeout** via `check_brc_p
 
 **How it works:**
 1. `check_brc_progress()` is called as part of `check_tripwires()` on each monitoring cycle
-2. It queries `PeerConsensusTracker.get_fully_acked_producers()` to find producers where all reviewers have ACKed but the producer hasn't yet confirmed
+2. It queries `PeerConsensusTracker.get_fully_acked_producers()` to find producers that are actually ready to confirm — all of their reviewers have ACKed *and* `check_confirm_guard` would allow `mcp__brc__confirm` to succeed (notably the global zero-proposal guard, #1648). A producer that is fully ACKed but blocked because a peer producer still has `proposal_version == 0` is intentionally excluded so the timeout doesn't fire against an agent that is correctly waiting on its peer (#2187).
 3. For each such producer, it records a first-seen timestamp in `_fully_acked_first_seen`
 4. If `time.time() - first_seen > orchestrator_post_ack_confirmation_timeout_seconds` and the agent hasn't already been escalated (via `brc_progress_escalated` flag on `AgentState`), it creates an escalation with `alert_type: "brc_confirmation_timeout"` and fires registered callbacks
 5. The `_send_brc_confirmation_nudge` callback sends an `OVERSEER_ALERT` directly to the stuck producer (bypassing `MESSAGE_SENT` tracking to avoid rate-limit and heartbeat-tracking side-effects). The message body tells the producer to call `mcp__brc__confirm` and explains how to handle `status='pending_acks'` guard failures.
@@ -234,6 +235,24 @@ If a peer signal is found within the window, the alert is deferred. The deferral
 **Caveat — single-producer self-deferral:** Self-exclusion only applies to the peer-heartbeat path. The BRC-bus path (`get_latest_progress_timestamp`) aggregates proposals + ACK/NACK timestamps across the whole tracker and is **not** filtered by focal agent. On a single-producer pipeline (BRC tracker registered, no peers) the producer's own recent `CONSENSUS_PROPOSE` / ACK therefore defers its own heartbeat alert until `gate_seconds` elapses past that timestamp. The effective stall-detection window in that case is `heartbeat_threshold + gate_seconds` (≈360s with defaults) rather than `heartbeat_threshold` (≈60s). Genuinely-dead containers are still caught by `CONTAINER_STOPPED`; for a hung process inside a live container, detection is delayed by up to `gate_seconds`. Operators tuning these values on single-producer pipelines should size them with this combined window in mind.
 
 **Setting `orchestrator_alert_progress_gate_seconds = 0` disables the gate.** (#2242)
+
+### Branch-Divergence Detection
+
+When a pipeline's branch absorbs merged-main commits (the contamination shape investigated in #2222), the resulting PR shows a diff against main that includes unrelated merged work. The branch-divergence detector catches this at phase-boundary granularity — strictly better than detecting at PR open, but complementary to the primary gate in #2282.
+
+**Detection mechanism:**
+- Each 30-second health monitor tick calls `_branch_divergence_tick()`, which runs two git commands against `origin/<pipeline_branch>`:
+  1. `git rev-list --count origin/<base>..origin/<pipeline_branch>` — count commits ahead
+  2. If count > `BRANCH_DIVERGENCE_THRESHOLD` (20), `git log --no-merges --pretty=format:%H%x09%s` — list non-merge subjects
+- If any subjects match the `(#NNNN)` pattern (merged-PR signatures), those commits are "offenders"
+- An `OVERSEER_ALERT` with `anomaly_type: "branch-divergence"` is published listing the offending SHAs and subjects
+- All git errors are logged and swallowed — observability must never block the pipeline
+
+**Detection latency:** The local `origin/<pipeline_branch>` ref only refreshes when the orchestrator fetches — at pipeline start, phase boundaries, and a few resume/signal paths. The poll thread itself does not fetch. Contamination introduced mid-phase is therefore detected at the next phase boundary's fetch, not within 30 seconds.
+
+**Deduplication:** A per-pipeline `divergence_alerted_shas` set tracks which offending commit SHAs have already fired an alert. New alerts fire only for newly-discovered offenders. The set clears when the contamination window goes empty (including on transient git errors), so re-introduced contamination re-fires — consistent with the "rather over-alert than miss" posture of #2224.
+
+**False positives:** An agent legitimately including a `(#NNNN)` literal (with parentheses) in a commit subject — e.g., `"Reference benchmark suite (#2222)"` — would trigger the detector. The regex (`\(#\d+\)`) requires the literal `(` and `)` characters, so a bare `#2222` reference does not match. The alert body explains the false-positive scenario and instructs that no action is required if the diff against main looks clean.
 
 ### Configuration
 
@@ -451,7 +470,7 @@ The intersection gate keeps the heavy-tier model out of every poll cycle while s
 | `alert` | Emit an `OVERSEER_ALERT` carrying the advisor's `alert_summary`, `alert_detail`, and translated `priority`. The advisor returns `priority` as `p0..p3`; `egg_overseer.priority.label_to_alert` maps to the alert verb's `low|medium|high` dimension. |
 | `file_issue` | Emit an `OVERSEER_ALERT` whose `recommendation=file_issue` carries a fully composed `issue_title` + `issue_body` + `priority` + `anomaly_signature` in `recommendation_payload`. The CLI verb is **not** invoked here — see [Auto-Issue Filing (Shadow vs Live)](#auto-issue-filing-shadow-vs-live). |
 
-The advisor is exposed to the sandbox as a CLI verb (`egg-orch overseer consult-advisor`); the handler at `sandbox/egg_lib/orch_cli.py::cmd_overseer_consult_advisor` calls `consult_advisor` from `shared/egg_overseer/advisor.py` directly. The underlying `run_agent_async` call therefore runs sandbox-side and stays on the LLM-execution side of the EGG200 boundary documented in [agent-mode-design.md](agent-mode-design.md) — the orchestrator pod never holds Anthropic credentials. The model used is resolved from `PipelineConfig.overseer_advisor_model` (read via the orchestrator status endpoint) when a pipeline ID is available; falls back to the `opus` default when absent or the lookup fails. The CLI verb reads the keyword arguments (`classification`, `health_alerts`, `progress_events`, `recent_log_lines`) that comprise the executor → advisor prompt contract from a JSON file passed via `--inputs-file`.
+The advisor is exposed to the sandbox as a CLI verb (`egg-orch overseer consult-advisor`); the handler at `sandbox/egg_lib/orch_cli.py::cmd_overseer_consult_advisor` calls `consult_advisor` from `shared/egg_overseer/advisor.py` directly. The underlying `run_agent_async` call therefore runs sandbox-side and stays on the LLM-execution side of the EGG200 boundary documented in [agent-mode-design.md](agent-mode-design.md) — the orchestrator pod never holds Anthropic credentials. The model and byte cap are resolved from `PipelineConfig.overseer_advisor_model` and `PipelineConfig.overseer_advisor_recent_log_bytes_cap` (read via the orchestrator status endpoint) when a pipeline ID is available; falls back to the `opus` model default and 256 KiB byte cap when absent or the lookup fails. The CLI verb reads the keyword arguments (`classification`, `health_alerts`, `progress_events`, `recent_log_lines`) that comprise the executor → advisor prompt contract from a JSON file passed via `--inputs-file`.
 
 **No advisor cap is enforced in this PR** — the existing `max_llm_cost_per_hour=$5` envelope at `sandbox/agent-config/rules/overseer.md` remains the only budget control. A follow-up issue tracks an `overseer_advisor_max_uses_per_phase` (or equivalent) knob if production data shows the cap is needed.
 
@@ -554,7 +573,7 @@ The sandbox-side CLI verb is the one and only way the overseer invokes the advis
 | `progress_events` | `list[dict]` | Recent structured progress events |
 | `recent_log_lines` | `list[str]` | Tail of agent container log lines |
 
-The handler at `sandbox/egg_lib/orch_cli.py::cmd_overseer_consult_advisor` calls `egg_overseer.advisor.consult_advisor()` directly. Output is the JSON-serialized `AdvisorVerdict` written to `--output-file` (or stdout when omitted). The `run_agent_async` call runs sandbox-side, keeping the LLM call on the LLM-execution side of the EGG200 boundary; the orchestrator pod never holds Anthropic credentials. The model alias is resolved from `PipelineConfig.overseer_advisor_model` when a pipeline ID is provided (positional arg or `EGG_PIPELINE_ID`), falling back to `opus` when absent or the lookup fails.
+The handler at `sandbox/egg_lib/orch_cli.py::cmd_overseer_consult_advisor` calls `egg_overseer.advisor.consult_advisor()` directly. Output is the JSON-serialized `AdvisorVerdict` written to `--output-file` (or stdout when omitted). The `run_agent_async` call runs sandbox-side, keeping the LLM call on the LLM-execution side of the EGG200 boundary; the orchestrator pod never holds Anthropic credentials. The model alias and byte cap are resolved from `PipelineConfig.overseer_advisor_model` and `PipelineConfig.overseer_advisor_recent_log_bytes_cap` when a pipeline ID is provided (positional arg or `EGG_PIPELINE_ID`), falling back to `opus` and 256 KiB respectively when absent or the lookup fails.
 
 **Backwards compatibility — top-level optional fields with omit-when-unset serialization.** The `OVERSEER_ALERT` schema gains three first-class optional fields on the `Message` envelope (`orchestrator/message_store.py`): `recommendation: str | None`, `recommendation_payload: dict | None`, and `schema_version: int = 1`. The `Message.to_dict()` serializer **omits** each of the three fields when they hold their defaults, so legacy callers that don't set them produce JSON byte-identical to the pre-#1962 shape. New consumers branch on the presence of `recommendation` (or, equivalently, `schema_version >= 2`); old consumers see no envelope change. The `egg-orch overseer alert` CLI gains `--recommendation file_issue --recommendation-payload-file /path/to/payload.json` flags that populate the new fields; the sandbox handler at `sandbox/egg_agent_tools/handlers/progress.py::progress_overseer_alert` enforces a 50 KB cap on the payload and validates that `recommendation` is one of the legal values (`file_issue` is currently the only accepted value).
 

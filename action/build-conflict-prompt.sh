@@ -22,18 +22,18 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 
 fetch_pr_context() {
-    local pr_json
-    pr_json=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" 2>/dev/null || echo "{}")
+  local pr_json
+  pr_json=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" 2>/dev/null || echo "{}")
 
-    local pr_title pr_body pr_author base_ref head_ref
-    pr_title=$(echo "$pr_json" | jq -r '.title // ""')
-    pr_body=$(echo "$pr_json" | jq -r '.body // ""')
-    pr_author=$(echo "$pr_json" | jq -r '.user.login // ""')
-    base_ref=$(echo "$pr_json" | jq -r '.base.ref // "main"')
-    head_ref=$(echo "$pr_json" | jq -r '.head.ref // ""')
+  local pr_title pr_body pr_author base_ref head_ref
+  pr_title=$(echo "$pr_json" | jq -r '.title // ""')
+  pr_body=$(echo "$pr_json" | jq -r '.body // ""')
+  pr_author=$(echo "$pr_json" | jq -r '.user.login // ""')
+  base_ref=$(echo "$pr_json" | jq -r '.base.ref // "main"')
+  head_ref=$(echo "$pr_json" | jq -r '.head.ref // ""')
 
-    if [[ -n "$pr_title" ]]; then
-        cat <<EOF
+  if [[ -n "$pr_title" ]]; then
+    cat <<EOF
 ## PR Context
 
 **Title:** ${pr_title}
@@ -43,26 +43,26 @@ fetch_pr_context() {
 **Description:**
 ${pr_body:-"(No description provided)"}
 EOF
-    fi
+  fi
 }
 
 fetch_commit_messages() {
-    local base_ref="${BASE_REF:-main}"
+  local base_ref="${BASE_REF:-main}"
 
-    # Get commits unique to the PR branch (not in base)
-    local pr_commits
-    pr_commits=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/commits" 2>/dev/null \
-        | jq -r '.[] | "- \(.sha[0:7]): \(.commit.message | split("\n")[0])"' 2>/dev/null \
-        | head -20 || echo "")
+  # Get commits unique to the PR branch (not in base)
+  local pr_commits
+  pr_commits=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/commits" 2>/dev/null \
+    | jq -r '.[] | "- \(.sha[0:7]): \(.commit.message | split("\n")[0])"' 2>/dev/null \
+    | head -20 || echo "")
 
-    # Get recent commits on base branch
-    local base_commits
-    base_commits=$(gh api "repos/${GITHUB_REPOSITORY}/commits?sha=${base_ref}&per_page=10" 2>/dev/null \
-        | jq -r '.[] | "- \(.sha[0:7]): \(.commit.message | split("\n")[0])"' 2>/dev/null \
-        | head -10 || echo "")
+  # Get recent commits on base branch
+  local base_commits
+  base_commits=$(gh api "repos/${GITHUB_REPOSITORY}/commits?sha=${base_ref}&per_page=10" 2>/dev/null \
+    | jq -r '.[] | "- \(.sha[0:7]): \(.commit.message | split("\n")[0])"' 2>/dev/null \
+    | head -10 || echo "")
 
-    if [[ -n "$pr_commits" || -n "$base_commits" ]]; then
-        cat <<EOF
+  if [[ -n "$pr_commits" || -n "$base_commits" ]]; then
+    cat <<EOF
 
 ## Commit History
 
@@ -72,29 +72,29 @@ ${pr_commits:-"(Unable to fetch commits)"}
 ### Recent Base Branch Commits (what's being merged in):
 ${base_commits:-"(Unable to fetch commits)"}
 EOF
-    fi
+  fi
 }
 
 fetch_review_comments() {
-    # Get review comments that might inform conflict resolution.
-    # We filter OUT comments containing "conflict|merge|rebase|fix" because these
-    # are typically bot-generated status comments about conflicts themselves, not
-    # human feedback about the code changes. Human review comments about actual
-    # code (architecture, logic, style) are more useful for conflict resolution.
-    # Bot comments are also filtered via the user.login check in PR comments below.
-    local comments
-    comments=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/comments" 2>/dev/null \
-        | jq -r '.[] | select(.body | test("conflict|merge|rebase|fix"; "i") | not) | "**@\(.user.login)** on \(.path):\n\(.body)\n"' 2>/dev/null \
-        | head -c 2000 || echo "")
+  # Get review comments that might inform conflict resolution.
+  # We filter OUT comments containing "conflict|merge|rebase|fix" because these
+  # are typically bot-generated status comments about conflicts themselves, not
+  # human feedback about the code changes. Human review comments about actual
+  # code (architecture, logic, style) are more useful for conflict resolution.
+  # Bot comments are also filtered via the user.login check in PR comments below.
+  local comments
+  comments=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/comments" 2>/dev/null \
+    | jq -r '.[] | select(.body | test("conflict|merge|rebase|fix"; "i") | not) | "**@\(.user.login)** on \(.path):\n\(.body)\n"' 2>/dev/null \
+    | head -c 2000 || echo "")
 
-    # Get general PR comments
-    local pr_comments
-    pr_comments=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" 2>/dev/null \
-        | jq -r '.[] | select(.user.login | test("\\[bot\\]$") | not) | select(.body | contains("<!-- egg-") | not) | "**@\(.user.login):** \(.body | split("\n")[0])"' 2>/dev/null \
-        | head -20 || echo "")
+  # Get general PR comments
+  local pr_comments
+  pr_comments=$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" 2>/dev/null \
+    | jq -r '.[] | select(.user.login | test("\\[bot\\]$") | not) | select(.body | contains("<!-- egg-") | not) | "**@\(.user.login):** \(.body | split("\n")[0])"' 2>/dev/null \
+    | head -20 || echo "")
 
-    if [[ -n "$comments" || -n "$pr_comments" ]]; then
-        cat <<EOF
+  if [[ -n "$comments" || -n "$pr_comments" ]]; then
+    cat <<EOF
 
 ## Review Feedback
 
@@ -102,7 +102,7 @@ These comments may provide context for how to resolve conflicts:
 
 ${comments}${pr_comments:-"(No relevant review comments)"}
 EOF
-    fi
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -110,13 +110,13 @@ EOF
 # ---------------------------------------------------------------------------
 
 fetch_conflict_rules() {
-    local rules_file=".egg/conflict-rules.md"
+  local rules_file=".egg/conflict-rules.md"
 
-    if [[ -f "$rules_file" ]]; then
-        cat "$rules_file"
-    else
-        # Default conflict resolution rules when no repo-specific rules exist
-        cat <<'EOF'
+  if [[ -f "$rules_file" ]]; then
+    cat "$rules_file"
+  else
+    # Default conflict resolution rules when no repo-specific rules exist
+    cat <<'EOF'
 ## Default Conflict Resolution Rules
 
 **Auto-resolvable (resolve and push):**
@@ -132,7 +132,7 @@ fetch_conflict_rules() {
 - Database migrations that conflict
 - Configuration conflicts affecting production
 EOF
-    fi
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -140,27 +140,27 @@ EOF
 # ---------------------------------------------------------------------------
 
 build_prompt() {
-    local conflict_rules
-    conflict_rules=$(fetch_conflict_rules)
+  local conflict_rules
+  conflict_rules=$(fetch_conflict_rules)
 
-    # Load conflict conventions if available
-    local conventions_file
-    conventions_file="$(dirname "$0")/conflict-conventions.md"
-    local conventions=""
-    if [[ -f "$conventions_file" ]]; then
-        conventions=$(cat "$conventions_file")
-    fi
+  # Load conflict conventions if available
+  local conventions_file
+  conventions_file="$(dirname "$0")/conflict-conventions.md"
+  local conventions=""
+  if [[ -f "$conventions_file" ]]; then
+    conventions=$(cat "$conventions_file")
+  fi
 
-    local base_ref="${BASE_REF:-main}"
+  local base_ref="${BASE_REF:-main}"
 
-    # Fetch enhanced context from GitHub API
-    local pr_context commit_messages review_comments
-    pr_context=$(fetch_pr_context)
-    commit_messages=$(fetch_commit_messages)
-    review_comments=$(fetch_review_comments)
+  # Fetch enhanced context from GitHub API
+  local pr_context commit_messages review_comments
+  pr_context=$(fetch_pr_context)
+  commit_messages=$(fetch_commit_messages)
+  review_comments=$(fetch_review_comments)
 
-    local prompt
-    prompt="Resolve merge conflicts on PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}.
+  local prompt
+  prompt="Resolve merge conflicts on PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}.
 
 ${pr_context}
 
@@ -252,22 +252,22 @@ When resolving conflicts, consider:
 ${conventions:-Resolve conflicts conservatively. When in doubt, abort and escalate to human review. Use git push (never --force) to push the merged branch. Sign comments with: — Authored by egg}
 "
 
-    # Write prompt to temp file
-    local prompt_dir="${RUNNER_TEMP:-/tmp}"
-    mkdir -p "$prompt_dir"
-    local prompt_file="${prompt_dir}/conflict-prompt-${PR_NUMBER}.txt"
-    echo "$prompt" > "$prompt_file"
+  # Write prompt to temp file
+  local prompt_dir="${RUNNER_TEMP:-/tmp}"
+  mkdir -p "$prompt_dir"
+  local prompt_file="${prompt_dir}/conflict-prompt-${PR_NUMBER}.txt"
+  echo "$prompt" >"$prompt_file"
 
-    # Use opus for conflict resolution (needs reasoning capability for merges)
-    local model="opus"
+  # Use opus for conflict resolution (needs reasoning capability for merges)
+  local model="opus"
 
-    # Write outputs
-    {
-        echo "prompt-file=${prompt_file}"
-        echo "model=${model}"
-    } >> "${GITHUB_OUTPUT:-/dev/null}"
+  # Write outputs
+  {
+    echo "prompt-file=${prompt_file}"
+    echo "model=${model}"
+  } >>"${GITHUB_OUTPUT:-/dev/null}"
 
-    echo "Conflict resolution prompt built: ${#prompt} chars, model=${model}"
+  echo "Conflict resolution prompt built: ${#prompt} chars, model=${model}"
 }
 
 # ---------------------------------------------------------------------------

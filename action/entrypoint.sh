@@ -136,12 +136,12 @@ echo "=== Step 4: Capture output ==="
 {
   echo "exit-code=${SANDBOX_EXIT_CODE}"
   echo "log-file=${LOG_FILE}"
-} >> "${GITHUB_OUTPUT:-/dev/null}"
+} >>"${GITHUB_OUTPUT:-/dev/null}"
 
 # Extract PR URL from output (look for GitHub PR URLs in the log)
 PR_URL=$(grep -oP 'https://github\.com/[^/]+/[^/]+/pull/\d+' "$LOG_FILE" | tail -1 || true)
 if [[ -n "$PR_URL" ]]; then
-  echo "pr-url=${PR_URL}" >> "${GITHUB_OUTPUT:-/dev/null}"
+  echo "pr-url=${PR_URL}" >>"${GITHUB_OUTPUT:-/dev/null}"
   echo "PR created: $PR_URL"
 fi
 
@@ -175,7 +175,7 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     head -c 500000 "$LOG_FILE"
     echo '```'
     echo "</details>"
-  } >> "$GITHUB_STEP_SUMMARY"
+  } >>"$GITHUB_STEP_SUMMARY"
 fi
 
 # Exit with sandbox exit code
