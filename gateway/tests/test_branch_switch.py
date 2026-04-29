@@ -71,8 +71,8 @@ class TestIsBranchSwitchCheckoutBranch:
         assert is_branch_switch("checkout", ["origin/main"]) is True
 
     def test_checkout_branch_with_double_dash_and_files(self):
-        """checkout branch -- file is a branch switch (positional before --)."""
-        assert is_branch_switch("checkout", ["main", "--", "file.txt"]) is True
+        """checkout <tree-ish> -- file restores from <tree-ish>; not a branch switch."""
+        assert is_branch_switch("checkout", ["main", "--", "file.txt"]) is False
 
 
 class TestIsBranchSwitchCheckoutFiles:
@@ -105,8 +105,16 @@ class TestIsBranchSwitchEdgeCases:
     """Edge cases for the branch switch detection heuristic."""
 
     def test_checkout_head_double_dash_file(self):
-        """checkout HEAD -- file.txt: HEAD is a positional before -- so it's a branch switch."""
-        assert is_branch_switch("checkout", ["HEAD", "--", "file.txt"]) is True
+        """checkout HEAD -- file.txt restores from HEAD; not a branch switch."""
+        assert is_branch_switch("checkout", ["HEAD", "--", "file.txt"]) is False
+
+    def test_checkout_head_relative_double_dash_file(self):
+        """checkout HEAD~1 -- file.txt restores from a commit-ish; not a branch switch."""
+        assert is_branch_switch("checkout", ["HEAD~1", "--", "file.txt"]) is False
+
+    def test_checkout_sha_double_dash_file(self):
+        """checkout <sha> -- file.txt restores from a commit-ish; not a branch switch."""
+        assert is_branch_switch("checkout", ["abc1234", "--", "file.txt"]) is False
 
     def test_checkout_unknown_flags_ignored(self):
         """Unknown flags are skipped, positional still detected."""

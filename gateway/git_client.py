@@ -1819,14 +1819,15 @@ def is_branch_switch(operation: str, args: list[str]) -> bool:
     Returns True when the command would switch the active branch (e.g.
     ``git checkout other-branch``, ``git checkout -b new``).  Returns False
     for file-level operations (``git checkout -- file.txt``,
-    ``git checkout HEAD -- file``).
+    ``git checkout HEAD -- file``, ``git checkout main -- file``).
 
     Only meaningful for ``checkout`` and ``switch`` operations; returns
     False for everything else.
 
     The heuristic:
-    * If ``--`` separator is present, everything after it is a pathspec
-      → NOT a branch switch if there are no positional args before ``--``.
+    * If ``--`` separator is present, everything after it is a pathspec and
+      anything before it is a commit-ish source for the file restore
+      (``HEAD``, ``HEAD~1``, a sha, a branch name) — NOT a branch switch.
     * ``switch`` always operates on branches, so any invocation of
       ``switch`` is considered a branch switch.
     * ``checkout`` with ``-b``/``-B`` or ``--orphan`` is a branch switch.
@@ -1857,18 +1858,17 @@ def is_branch_switch(operation: str, args: list[str]) -> bool:
             continue
         positional_before_dd.append(arg)
 
-    # If there's a positional arg before -- it's treated as a branch ref.
-    # Known false positive: ``checkout HEAD -- file.txt`` classifies HEAD as
-    # a branch ref.  In practice, pipeline agents use ``checkout -- file.txt``
-    # instead, and the branch lock only fires for pipeline sessions.
-    if positional_before_dd and not has_double_dash:
+    # ``--`` separates a commit-ish source from pathspecs; the form
+    # ``checkout [<tree-ish>] -- <pathspec>`` restores files without
+    # switching branches, regardless of whether a tree-ish is present.
+    if has_double_dash:
+        return False
+
+    # No ``--``: any positional arg is a branch/ref to switch to.
+    if positional_before_dd:
         return True
 
-    # If there's a positional arg before -- AND after, the first is branch
-    if positional_before_dd and has_double_dash:
-        return True
-
-    # No positional args before -- → file checkout (e.g., checkout -- file.txt)
+    # No positional args, no ``--`` → bare checkout, no-op.
     return False
 
 
