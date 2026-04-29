@@ -1070,6 +1070,8 @@ class TestOverseerRespawn:
         assert "overseer_monitor.py --once" in prompt, (
             "Prompt must reference pre-built monitor script with --once flag"
         )
-        assert "DO NOT write your own monitoring loop" in prompt, (
-            "Prompt must prohibit custom loops"
+        assert "Don't write your own monitoring loop" in prompt, "Prompt must prohibit custom loops"
+        assert "runtime mount of `sandbox/overseer_monitor.py`" in prompt, (
+            "Prompt must anchor the /opt/egg-runtime/ path to its in-repo "
+            "source so the agent can verify provenance (issue #2196)"
         )
