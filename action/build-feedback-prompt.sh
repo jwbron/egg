@@ -119,25 +119,51 @@ ${filter_note}
 3. **Make fixes**: Address each piece of actionable feedback.
 4. **Verify**: Run tests and linters locally before pushing (\`make lint\`, \`make test\`).
 5. **Push**: Commit and push all fixes together.
-6. **Reply**: If you disagree with any feedback or cannot address it, reply to the specific review comment explaining your reasoning.
+6. **Respond**: Post a single top-level summary comment with a per-item disposition (see contract below).
 
-## Feedback Rules
+## Feedback Contract — review feedback must never disappear
 
-Address all actionable review feedback:
+Every actionable item in the review gets one of three dispositions, and your
+top-level response comment must list every item with its disposition tag:
 
-**Fix**: Correctness issues, security concerns, logic errors, missing error handling,
-resource leaks, breaking changes, pattern violations.
+- \`fixed-in-PR (commit <SHA>)\` — you made the change in this PR. Cite the
+  commit SHA you pushed.
+- \`deferred-to #<NNNN>\` — you decided not to fix in this PR. You **must**
+  have already filed the follow-up issue with \`gh issue create\` *before*
+  posting your response, and \`#<NNNN>\` must be the resulting issue number.
+- \`disagree (<reasoning>)\` — you disagree the change is needed. Explain why.
 
-**Respond (do not fix)**: If you disagree with feedback, post a reply explaining your
-reasoning instead of making the change. Be respectful but firm.
+**Default to in-PR fixes.** Deferral is the exception, not a coequal option.
+You may only defer when one of the following is true, and you must state which:
 
-**Skip**: Pure style suggestions that linters handle, subjective preferences without
-technical justification.
+  (i) the fix is large and risky enough that landing it here would balloon
+      this PR's scope past what reviewers can sensibly approve;
+  (ii) the fix needs design alignment that cannot be reached in this PR;
+  (iii) the reviewer explicitly asked for a follow-up.
+
+**No phantom follow-ups.** The following are forbidden in your response:
+
+  - \"will file a follow-up\", \"will track as a follow-up\", \"filing later\",
+    \"tracking separately\", or any other promise to file an issue *after*
+    posting the response.
+  - \`deferred-to\` without an actual GitHub issue number, or with a number
+    that does not exist or that you did not create during this run.
+
+If you decide to defer, run \`gh issue create\` first, capture the issue
+number from the output, then reference it inline as \`deferred-to #NNNN\`.
+A post-run guard scans your response for these violations and will fail this
+workflow run if any are found.
+
+**Skip** is allowed only for: pure style suggestions handled by linters, or
+subjective preferences without technical justification. Skipped items still
+appear in your response (mark them \`disagree (style preference, no
+technical impact)\` or similar).
 
 ## Conventions
 
-Use git commit and git push to push fixes. If you need to respond to review feedback,
-use \`gh pr comment\` or reply inline. Sign any comments with: — Authored by egg
+Use git commit and git push to push fixes. Post the top-level response with
+\`gh pr comment\`; you may also reply inline on specific threads. Sign any
+comments with: — Authored by egg
 "
 
   # Write prompt to temp file
