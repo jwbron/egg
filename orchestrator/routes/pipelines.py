@@ -9569,6 +9569,125 @@ def _persist_hitl_decision(
         return None
 
 
+def _check_brc_progress_gate(
+    pipeline_id: str,
+    slice_id: str | None,
+    active_role_names: list[str],
+    gate_seconds: float,
+) -> tuple[bool, str | None]:
+    """Return (defer, reason) for the BRC consensus-timeout progress gate (#2243).
+
+    Defers the auto-HITL consensus-failure decision when *any* of the
+    following has fired within ``gate_seconds``:
+
+    * The BRC tracker's most recent ``CONSENSUS_PROPOSE`` (producer
+      proposal) timestamp.
+    * The most recent ACK/NACK timestamp on the approval matrix.
+    * The most recent container heartbeat for any role in
+      ``active_role_names`` (filters out cross-phase pollution in the
+      shared :class:`HealthMonitor` singleton).
+
+    The gate is the operator-friendly half of the issue-2243 fix: at
+    :data:`consensus_timeout_minutes` we previously opened a `choice`
+    decision unconditionally, even when producers were minutes from
+    their first commit. With the gate, the polling loop keeps polling
+    while signals are alive; the decision only opens once the bus and
+    containers have both gone quiet for ``gate_seconds``.
+
+    ``gate_seconds <= 0`` disables the gate (returns ``(False, None)``).
+    Failures in any signal source are logged at WARNING and treated as
+    "no signal from that source" — never as a gate defer, since a
+    crashed signal collector must not silently keep us off the HITL
+    surface.
+
+    Heartbeat-cadence contract: the decision-17 path (coder mid-merge-
+    conflict before any ``CONSENSUS_PROPOSE``) relies on container
+    heartbeats firing at least every ``gate_seconds``. Sandbox
+    heartbeats (see ``shared/egg_agent`` heartbeat scheduler and
+    ``orchestrator/health_monitor.py``) cadence today is well under
+    300s, but a long uninterruptible subprocess (e.g. ``git rebase``
+    blocked on a merge driver) could starve them; once that happens
+    the gate falls open and the pre-fix behaviour returns. Tracked as
+    a follow-up under #2243.
+
+    TODO(#2243 step 2): same-role cross-phase pollution. The role-name
+    filter handles different-role ghosts (refiner heartbeat lingering
+    during a coder phase) but not same-role ghosts: ``coder`` reappears
+    across implement / implement-fix / fix-on-PR phases and
+    ``HealthMonitor._last_heartbeat['coder']`` is only popped on
+    ``clear_agent_state``. A phase boundary clear (or stamping the
+    heartbeat key with the phase) would close it; per-phase timeouts
+    in step 2 of the issue plan will likely subsume it.
+    """
+    if gate_seconds <= 0:
+        return False, None
+
+    # Two clocks, deliberately. ``now_dt`` is used for tracker
+    # timestamps (datetime in UTC). ``now_wallclock`` is the float
+    # epoch ``time.time()`` returns, matching the wall-clock values
+    # ``HealthMonitor._last_heartbeat`` is populated with. Despite the
+    # earlier name ``now_mono``, these are NOT monotonic — an NTP step
+    # on the orchestrator host can make ``(now - latest_hb)`` negative
+    # or skip the gate window. Acceptable today; revisit alongside the
+    # per-phase-timeout follow-up.
+    now_dt = datetime.now(UTC)
+    now_wallclock = time.time()
+
+    # 1. BRC bus signals (proposal + ACK/NACK timestamps).
+    try:
+        try:
+            from peer_consensus import get_peer_consensus_tracker
+        except ImportError:
+            from ..peer_consensus import (
+                get_peer_consensus_tracker,  # type: ignore[no-redef]
+            )
+        tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
+        if tracker is not None:
+            ts = tracker.get_latest_progress_timestamp()
+            if ts is not None and (now_dt - ts).total_seconds() < gate_seconds:
+                age = (now_dt - ts).total_seconds()
+                return True, f"BRC bus active {age:.0f}s ago"
+    except Exception as e:
+        logger.warning(
+            "BRC progress-gate tracker check failed",
+            pipeline_id=pipeline_id,
+            error=str(e),
+        )
+
+    # 2. Container heartbeats. Filter by active roles so a stale
+    # heartbeat from a prior phase in the singleton HealthMonitor
+    # doesn't keep us out of the HITL surface forever. An empty
+    # ``active_role_names`` means the caller has no live containers
+    # to gate on, so match nothing rather than every stale heartbeat.
+    if not active_role_names:
+        return False, None
+    try:
+        from health_monitor import get_health_monitor
+
+        hm = get_health_monitor()
+        if hm is not None:
+            active_set = set(active_role_names)
+            latest_hb: float | None = None
+            with hm._lock:  # noqa: SLF001 — read-only snapshot
+                hb_snapshot = dict(hm._last_heartbeat)  # noqa: SLF001
+            for agent_id, hb_time in hb_snapshot.items():
+                if agent_id not in active_set:
+                    continue
+                if latest_hb is None or hb_time > latest_hb:
+                    latest_hb = hb_time
+            if latest_hb is not None and (now_wallclock - latest_hb) < gate_seconds:
+                age = now_wallclock - latest_hb
+                return True, f"container heartbeat {age:.0f}s ago"
+    except Exception as e:
+        logger.warning(
+            "BRC progress-gate heartbeat check failed",
+            pipeline_id=pipeline_id,
+            error=str(e),
+        )
+
+    return False, None
+
+
 def _handle_brc_consensus_timeout(
     pipeline: Pipeline,
     pipeline_id: str,
@@ -9591,10 +9710,7 @@ def _handle_brc_consensus_timeout(
                 get_peer_consensus_tracker,  # type: ignore[no-redef]
             )
 
-        try:
-            _brc_tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
-        except TypeError:
-            _brc_tracker = get_peer_consensus_tracker(pipeline_id)
+        _brc_tracker = get_peer_consensus_tracker(pipeline_id, slice_id)
         if _brc_tracker is not None:
             _brc_timeout_result = _brc_tracker.handle_timeout()
             _brc_handled = _brc_tracker.is_timeout_handled()
@@ -10771,6 +10887,11 @@ def _run_concurrent_phase(
 
     _demoted_agents: set[str] = set()
 
+    # #2243 progress-gate state: log on first defer + first un-defer only
+    # so the polling loop doesn't spam at every iteration once we cross
+    # ``consensus_timeout``.
+    _progress_gate_deferring = False
+
     while True:
         elapsed = time.monotonic() - start_time
 
@@ -11195,6 +11316,43 @@ def _run_concurrent_phase(
 
         # 6. Consensus timeout
         if elapsed >= consensus_timeout:
+            # #2243 progress gate: keep polling instead of opening the
+            # auto-HITL decision while producer/reviewer activity is
+            # still live on the BRC bus or in container heartbeats.
+            # Without this gate, decision-15 / decision-17 on
+            # ``issue-1557-v2`` fired minutes before the next commit
+            # landed; "Continue waiting" was the only correct answer.
+            _gate_seconds = max(
+                0,
+                int(getattr(pipeline.config, "brc_consensus_progress_gate_seconds", 300)),
+            )
+            _gate_defer, _gate_reason = _check_brc_progress_gate(
+                pipeline_id,
+                slice_id,
+                [e.role.value for e in active_executions],
+                _gate_seconds,
+            )
+            if _gate_defer:
+                if not _progress_gate_deferring:
+                    logger.info(
+                        "Consensus timeout deferred by progress gate",
+                        pipeline_id=pipeline_id,
+                        elapsed_seconds=round(elapsed, 1),
+                        gate_seconds=_gate_seconds,
+                        reason=_gate_reason,
+                    )
+                    _progress_gate_deferring = True
+                time.sleep(poll_interval)
+                continue
+            if _progress_gate_deferring:
+                logger.info(
+                    "Consensus timeout proceeding — progress gate window elapsed",
+                    pipeline_id=pipeline_id,
+                    elapsed_seconds=round(elapsed, 1),
+                    gate_seconds=_gate_seconds,
+                )
+                _progress_gate_deferring = False
+
             logger.warning(
                 "Consensus timeout reached, falling back to container exit",
                 pipeline_id=pipeline_id,
