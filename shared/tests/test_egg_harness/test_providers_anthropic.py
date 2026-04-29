@@ -67,7 +67,7 @@ class TestAnthropicProviderInit:
         try:
             provider = AnthropicProvider(config=config)
             assert provider is not None
-        except (ValueError, TypeError, RuntimeError):
+        except ValueError, TypeError, RuntimeError:
             pass  # Also acceptable to reject
 
     def test_no_endpoint_uses_default(self):

@@ -195,7 +195,7 @@ def validate_port(port: int | str) -> tuple[bool, str | None]:
     """
     try:
         port_int = int(port)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return False, f"Port must be a number, got: {port}"
 
     if port_int < 1 or port_int > 65535:

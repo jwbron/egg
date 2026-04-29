@@ -367,7 +367,7 @@ def run_local_mode(
         # Prompt for task description interactively
         try:
             task = input(f"{BOLD}What would you like to build or change?{RESET}\n> ").strip()
-        except (EOFError, KeyboardInterrupt):
+        except EOFError, KeyboardInterrupt:
             print()
             return 1
 
@@ -381,7 +381,7 @@ def run_local_mode(
                 f"\n{BOLD}Any specific files or areas of the codebase this should touch?{RESET}\n"
                 f"{DIM}(press Enter to skip){RESET}\n> "
             ).strip()
-        except (EOFError, KeyboardInterrupt):
+        except EOFError, KeyboardInterrupt:
             scope = ""
 
         # Build refined prompt

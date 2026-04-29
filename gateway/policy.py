@@ -339,7 +339,7 @@ class PolicyEngine:
 
             config = get_user_mode_config()
             return config.get("github_user", "").lower() or None
-        except (ImportError, FileNotFoundError):
+        except ImportError, FileNotFoundError:
             return None
 
     def _is_configured_user_author(
