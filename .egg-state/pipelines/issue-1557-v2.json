@@ -325,10 +325,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-29T04:55:38.298829Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-29T05:08:57.828403Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"A. Best-effort — keep going, record per-call status in the plan draft mapping, surface failures in a follow-up HITL decision so a human can retry just the failed ones (Recommended). Idempotency key prevents duplicate creates on retry\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -455,7 +455,7 @@
     }
   ],
   "created_at": "2026-04-29T04:25:54.475428Z",
-  "updated_at": "2026-04-29T05:08:55.869661Z",
+  "updated_at": "2026-04-29T05:08:57.852732Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -469,6 +469,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 32,
+  "version": 33,
   "jira_ticket": null
 }
