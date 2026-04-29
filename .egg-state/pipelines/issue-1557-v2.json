@@ -191,10 +191,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-29T04:55:37.807772Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-29T05:08:40.197296Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"A. Auto-detect via gateway lookup at submit_task — keep one `jira_ticket` param, fetch the issue at submit time, branch on `issuetype.name == \\\"Epic\\\"` to pick the epic-aware refine/plan prompts and apply paths (Recommended)\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -455,7 +455,7 @@
     }
   ],
   "created_at": "2026-04-29T04:25:54.475428Z",
-  "updated_at": "2026-04-29T04:55:38.636569Z",
+  "updated_at": "2026-04-29T05:08:40.218090Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -469,6 +469,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 25,
+  "version": 26,
   "jira_ticket": null
 }
