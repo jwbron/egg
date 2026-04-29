@@ -8,8 +8,8 @@ Two surfaces:
   * Per-invocation JSON record at ``.egg-state/selection/<head_sha>.json``
     with all documented keys (schema_version, head, baseline {sha,
     source}, branch, mode, trigger, selected_count, total_count,
-    compute_ms, pytest_ms, timestamp, canary_fired, changed_files,
-    changed_modules, dynamic_import_seeds_hit).
+    compute_ms, pytest_ms, timestamp, changed_files, changed_modules,
+    dynamic_import_seeds_hit).
 
 The selection-record envelope is written by ``write_selection_record``
 which we can call directly without grimp.
@@ -44,7 +44,6 @@ def _make_record(tmp_path: Path, **overrides: object) -> dict:
         "selected_count": 2,
         "total_count": 10,
         "compute_ms": 42,
-        "canary_fired": False,
         "changed_files_list": ["gateway/policy.py", "shared/egg_config/foo.py"],
         "changed_modules_list": ["gateway.policy", "shared.egg_config.foo"],
         "dynamic_import_seeds_hit": [],
@@ -69,7 +68,6 @@ def test_selection_record_contains_every_documented_key(tmp_path: Path) -> None:
         "compute_ms",
         "pytest_ms",
         "timestamp",
-        "canary_fired",
         "changed_files",
         "changed_modules",
         "dynamic_import_seeds_hit",
@@ -122,12 +120,6 @@ def test_selection_record_mode_is_narrow_or_full_suite_or_bypass(tmp_path: Path)
         assert record["mode"] == mode
 
 
-def test_selection_record_canary_fired_is_bool(tmp_path: Path) -> None:
-    record = _make_record(tmp_path, canary_fired=True)
-    assert record["canary_fired"] is True
-    assert isinstance(record["canary_fired"], bool)
-
-
 def test_selection_record_timestamp_is_iso8601(tmp_path: Path) -> None:
     record = _make_record(tmp_path)
     # ISO-8601 with seconds precision and UTC timezone.
@@ -148,7 +140,6 @@ def test_selection_record_path_is_under_selection_log_dir(tmp_path: Path) -> Non
         selected_count=0,
         total_count=10,
         compute_ms=1,
-        canary_fired=False,
         changed_files_list=[],
         changed_modules_list=[],
         dynamic_import_seeds_hit=[],
@@ -214,8 +205,8 @@ _NARROW_LINE_RE = re.compile(
 _FULL_LINE_RE = re.compile(
     # trigger= ... up to the FINAL closing paren of the line.  The
     # trigger string itself may legitimately contain `(...)` (e.g.
-    # ``canary (every-10th invocation)``) so we anchor on the line end
-    # rather than the first close-paren.
+    # ``gateway source change (importlib test-loader)``) so we anchor
+    # on the line end rather than the first close-paren.
     r"^select-tests: full suite \d+ tests \(trigger=.+\)$"
 )
 
@@ -241,12 +232,10 @@ def test_narrow_line_format_matches_regex() -> None:
     [
         "Makefile changed",
         "shared/tests/ changed",
-        "canary (every-10th invocation)",
         "LKG not ancestor of HEAD",
         "unresolvable baseline",
         "dynamic-import reachability",
         "non-.py change",
-        "empty diff",
         "gateway source change (importlib test-loader)",
         "source file missing from graph: shared/egg_config/_orphan.py",
         "graph unavailable",
