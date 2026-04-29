@@ -28,6 +28,7 @@ is_test_file = _mod.is_test_file
 iter_source_files = _mod.iter_source_files
 load_config = _mod.load_config
 measure = _mod.measure
+update_allowlist = _mod.update_allowlist
 write_allowlist = _mod.write_allowlist
 
 
@@ -289,3 +290,46 @@ class TestYamlRoundTrip:
         write_allowlist(config, original)
         reloaded = load_config(out)
         assert reloaded.baselines == original
+
+    def test_update_allowlist_carries_issue_forward(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """update_allowlist must preserve the existing entry's issue link."""
+        repo_root = tmp_path / "repo"
+        (repo_root / "orchestrator").mkdir(parents=True)
+        # Write a file that will trip the (small) hard-line cap below.
+        big = repo_root / "orchestrator" / "big.py"
+        big.write_text("x = 1\n" * 50)
+
+        allowlist = tmp_path / "allowlist.yaml"
+        allowlist.write_text(
+            textwrap.dedent(
+                """
+                caps:
+                  hard_lines: 10
+                  hard_bytes: 1000000
+                  soft_lines: 5
+                  soft_bytes: 500000
+                files:
+                  orchestrator/big.py:
+                    lines: 50
+                    bytes: 300
+                    issue: "2248"
+                """
+            )
+        )
+        monkeypatch.setattr(_mod, "ALLOWLIST_PATH", allowlist)
+
+        rc = update_allowlist(repo_root)
+        assert rc == 0
+        capsys.readouterr()  # discard the "Wrote N entries" print
+
+        reloaded = load_config(allowlist)
+        entry = reloaded.baselines["orchestrator/big.py"]
+        assert entry.issue == "2248"
+        # And the line/byte counts were refreshed from the live file.
+        assert entry.lines == 50
+        assert entry.bytes == len(big.read_bytes())

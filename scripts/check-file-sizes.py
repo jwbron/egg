@@ -82,7 +82,10 @@ class Config:
     baselines: dict[str, Baseline]
 
 
-def load_config(path: Path = ALLOWLIST_PATH) -> Config:
+def load_config(path: Path | None = None) -> Config:
+    # Resolve the default at call time so tests can monkey-patch ALLOWLIST_PATH.
+    if path is None:
+        path = ALLOWLIST_PATH
     raw = yaml.safe_load(path.read_text()) or {}
     caps_raw = raw.get("caps") or {}
     caps = Caps(
