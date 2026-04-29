@@ -5,6 +5,7 @@ Tests for orchestrator models.
 from datetime import UTC, datetime
 
 from models import (
+    PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN,
     AgentExecution,
     AgentExecutionStatus,
     AgentExitInfo,
@@ -18,6 +19,7 @@ from models import (
     PipelineConfig,
     PipelinePhase,
     PipelineStatus,
+    resolve_consensus_timeout_minutes,
 )
 
 
@@ -408,6 +410,59 @@ class TestPipelineConfig:
             max_review_cycles=5,
         )
         assert config.max_review_cycles == 5
+
+
+class TestResolveConsensusTimeoutMinutes:
+    """Tests for resolve_consensus_timeout_minutes (issue #2263).
+
+    The resolver picks a per-phase timeout in this order:
+      1. Per-phase override field if explicitly set.
+      2. Legacy global ``consensus_timeout_minutes`` if explicitly set
+         (preserves the back-compat clause: pipelines that pass only the
+         global behave identically across all three phases).
+      3. Phase-aware default from PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN.
+    """
+
+    def test_phase_aware_defaults_when_nothing_set(self):
+        config = PipelineConfig()
+        assert resolve_consensus_timeout_minutes(config, "refine") == 30
+        assert resolve_consensus_timeout_minutes(config, "plan") == 60
+        assert resolve_consensus_timeout_minutes(config, "implement") == 90
+
+    def test_phase_defaults_match_constant(self):
+        config = PipelineConfig()
+        for phase, expected in PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN.items():
+            assert resolve_consensus_timeout_minutes(config, phase) == expected
+
+    def test_legacy_global_applies_to_all_phases(self):
+        config = PipelineConfig(consensus_timeout_minutes=45)
+        assert resolve_consensus_timeout_minutes(config, "refine") == 45
+        assert resolve_consensus_timeout_minutes(config, "plan") == 45
+        assert resolve_consensus_timeout_minutes(config, "implement") == 45
+
+    def test_per_phase_override_wins_over_legacy_global(self):
+        config = PipelineConfig(
+            consensus_timeout_minutes=45,
+            consensus_timeout_minutes_implement=120,
+        )
+        assert resolve_consensus_timeout_minutes(config, "refine") == 45
+        assert resolve_consensus_timeout_minutes(config, "plan") == 45
+        assert resolve_consensus_timeout_minutes(config, "implement") == 120
+
+    def test_per_phase_override_alone_uses_phase_defaults_for_others(self):
+        config = PipelineConfig(consensus_timeout_minutes_plan=15)
+        assert resolve_consensus_timeout_minutes(config, "refine") == 30
+        assert resolve_consensus_timeout_minutes(config, "plan") == 15
+        assert resolve_consensus_timeout_minutes(config, "implement") == 90
+
+    def test_unknown_phase_falls_back_to_refine_default(self):
+        config = PipelineConfig()
+        expected = PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN["refine"]
+        assert resolve_consensus_timeout_minutes(config, "totally-unknown") == expected
+
+    def test_unknown_phase_still_honors_legacy_global(self):
+        config = PipelineConfig(consensus_timeout_minutes=45)
+        assert resolve_consensus_timeout_minutes(config, "totally-unknown") == 45
 
 
 class TestStartPhaseValidator:
