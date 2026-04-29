@@ -203,6 +203,8 @@ After all reviewers ACK a producer's proposal, the producer must send `CONSENSUS
 
 The health monitor now adds a **post-ACK confirmation timeout** via `check_brc_progress()`. When a producer is fully ACKed (all reviewers have sent `CONSENSUS_ACK`) but hasn't yet sent `CONSENSUS_CONFIRMED`, a timeout clock starts. If the producer doesn't confirm within `orchestrator_post_ack_confirmation_timeout_seconds` (default: 180s / 3 minutes), the health monitor fires an escalation callback that **directly sends an `OVERSEER_ALERT` to the stuck producer** instructing it to call `mcp__brc__confirm` — bypassing the overseer agent's decision loop for this deterministic failure mode. The alert also triggers the standard overseer/HITL escalation path.
 
+**Plan-phase override:** The plan phase uses a higher threshold of `orchestrator_plan_post_ack_confirmation_timeout_seconds` (default: 300s / 5 minutes) instead of the standard 180s. Plan-phase post-ACK reconciliation (resolved decisions, feedback bodies, slice-DAG sanity checks) legitimately takes longer on heavy pipelines. (#2242)
+
 **How it works:**
 1. `check_brc_progress()` is called as part of `check_tripwires()` on each monitoring cycle
 2. It queries `PeerConsensusTracker.get_fully_acked_producers()` to find producers that are actually ready to confirm — all of their reviewers have ACKed *and* `check_confirm_guard` would allow `mcp__brc__confirm` to succeed (notably the global zero-proposal guard, #1648). A producer that is fully ACKed but blocked because a peer producer still has `proposal_version == 0` is intentionally excluded so the timeout doesn't fire against an agent that is correctly waiting on its peer (#2187).
@@ -216,6 +218,23 @@ The health monitor now adds a **post-ACK confirmation timeout** via `check_brc_p
 **Example:** In a pipeline run documented in issue #1613, a producer received reviewer ACKs and the orchestrator broadcast "All reviewers have ACKed — ready to confirm." Four out of five agents confirmed normally. The remaining producer entered a tight loop (heartbeat + message poll every ~4 seconds) for 11 minutes without ever sending `CONFIRMED`. With the post-ACK confirmation timeout, this would be detected and escalated after 3 minutes instead of 11.
 
 **Relationship to `IncompleteConsensusStallCheck`:** The Tier 1 health check `IncompleteConsensusStallCheck` catches a broader class of incomplete consensus stalls (including reviewers that haven't ACKed). The post-ACK confirmation timeout is narrower and faster — it specifically targets the "heartbeating but not confirming" failure mode and fires within 3 minutes rather than the ~10 minutes required by the Tier 1 check's grace + tick threshold.
+
+### Alive-Signal Gate for Heartbeat and Progress Alerts
+
+Before firing a per-agent `heartbeat_timeout` or `progress_stall` alert, the health monitor checks whether the pipeline still has observable forward progress from peers. This **alive-signal gate** defers the alert when any of the following has fired within `orchestrator_alert_progress_gate_seconds` (default: 300s):
+
+- The BRC tracker's most recent `CONSENSUS_PROPOSE` or ACK/NACK timestamp on this pipeline
+- A heartbeat from any **other** agent in the current-phase active-agent set
+
+If a peer signal is found within the window, the alert is deferred. The deferral is **gate-window-bounded, not indefinite**: the `escalated` flag is intentionally not set on defer, so each subsequent monitor cycle re-evaluates the gate and the alert fires once `gate_seconds` elapses past the most recent peer signal. This prevents false-positive escalations when one agent is slow but the pipeline as a whole is still moving. The gate mirrors `brc_consensus_progress_gate_seconds` but applies to the per-agent tripwires rather than the BRC consensus route.
+
+**Active-agent filter:** When a BRC tracker is registered, peer heartbeats are filtered to the tracker graph's current-phase roster. Prior-phase agents from non-recurring roles (e.g., a `refiner` role that last heartbeated during the previous refine phase) are excluded. When no tracker is registered, the filter is skipped and any known peer heartbeat within the window defers the alert.
+
+**Caveat — same-role cross-phase pollution:** Heartbeat keys in `_last_heartbeat` are not phase-stamped, so a role that recurs across phase transitions (e.g., `coder` across `implement → implement-fix`) can pass the active-agent filter with a stale heartbeat from the prior phase. Tracked under #2242 alongside the equivalent TODO in `_check_brc_progress_gate`.
+
+**Caveat — single-producer self-deferral:** Self-exclusion only applies to the peer-heartbeat path. The BRC-bus path (`get_latest_progress_timestamp`) aggregates proposals + ACK/NACK timestamps across the whole tracker and is **not** filtered by focal agent. On a single-producer pipeline (BRC tracker registered, no peers) the producer's own recent `CONSENSUS_PROPOSE` / ACK therefore defers its own heartbeat alert until `gate_seconds` elapses past that timestamp. The effective stall-detection window in that case is `heartbeat_threshold + gate_seconds` (≈360s with defaults) rather than `heartbeat_threshold` (≈60s). Genuinely-dead containers are still caught by `CONTAINER_STOPPED`; for a hung process inside a live container, detection is delayed by up to `gate_seconds`. Operators tuning these values on single-producer pipelines should size them with this combined window in mind.
+
+**Setting `orchestrator_alert_progress_gate_seconds = 0` disables the gate.** (#2242)
 
 ### Branch-Divergence Detection
 
@@ -246,8 +265,10 @@ Tripwire thresholds are configurable in `PipelineConfig`:
 | `orchestrator_implement_heartbeat_timeout_seconds` | `600` | Escalate to overseer/HITL after this many seconds without heartbeat during the **implement phase** (must be ≥ 10) |
 | `orchestrator_error_repeat_threshold` | `3` | Escalate after N identical consecutive errors |
 | `orchestrator_message_rate_limit` | `20` | Auto-throttle above this many messages per minute |
-| `post_proposal_grace_seconds` | `300` | Grace period (seconds) for reviewer-only agents after an upstream producer proposes, before heartbeat/progress stall checks apply (must be >= 30). This reuses the existing BRC proposal grace period setting. |
+| `post_proposal_grace_seconds` | `300` | Grace period (seconds) for reviewer-only agents after an upstream producer sends `CONSENSUS_PROPOSE`, before heartbeat/progress stall checks apply (must be >= 30). Resets on each new proposal. |
 | `orchestrator_post_ack_confirmation_timeout_seconds` | `180` | Timeout (seconds) for fully-ACKed producers to send `CONSENSUS_CONFIRMED` before escalation, regardless of heartbeat activity (must be >= 30) |
+| `orchestrator_plan_post_ack_confirmation_timeout_seconds` | `300` | Plan-phase override for the post-ACK confirm timeout. Plan-phase reconciliation (resolved decisions, feedback bodies, slice-DAG sanity) legitimately exceeds 180s on heavy pipelines. (must be >= 30; #2242) |
+| `orchestrator_alert_progress_gate_seconds` | `300` | Defer `heartbeat_timeout` and `progress_stall` per-agent alerts while any peer agent or the BRC bus has emitted a signal within this many seconds. Mirrors `brc_consensus_progress_gate_seconds` but for per-agent tripwires. 0 disables the gate. (#2242) |
 | `overseer_poll_interval_seconds` | `30` | How often the overseer checks health |
 | `overseer_max_redirects_before_escalation` | `2` | Redirect attempts before HITL escalation |
 | `overseer_decision_maker_model` | `"sonnet"` | LLM model for overseer decision-making tier |
@@ -256,7 +277,6 @@ Tripwire thresholds are configurable in `PipelineConfig`:
 | `overseer_rerun_min_work_seconds` | `60` | Minimum work duration required after a `request_changes` phase-gate decision; completions faster than this with `content_changed=False` are flagged as re-run anomalies |
 | `overseer_hitl_propagation_timeout_seconds` | `300` | Seconds to wait for a resolved phase-gate decision to appear in the SDLC contract before raising a propagation-failure alert |
 | `overseer_infra_error_dedup_window_seconds` | `300` | Time window for deduplicating infrastructure error escalations between Tier 1 and Tier 2 (same agent + same error pattern) |
-| `post_proposal_grace_seconds` | `300` | Grace period after a `CONSENSUS_PROPOSE` message before blocking reviewers can be flagged as stalled. Resets on each new proposal. |
 | `active_agent_stall_extension_seconds` | `120` | If a blocking agent has emitted a progress event within this window, stall responses are suppressed. Tier 1 resets its tick counter unconditionally (no cap). The overseer caps nudge deferrals at 1× the HITL threshold and HITL deferrals at 2× the HITL threshold from the absolute stall start. |
 | `overseer_max_agent_restarts` | `2` | Maximum auto-restarts per agent per phase before escalating to HITL. The overseer reads the authoritative count from the spawner's REST API response (unified with all restart sources) rather than tracking independently |
 | `overseer_heartbeat_failures_before_restart` | `3` | Consecutive heartbeat failures before the overseer triggers an agent restart (default: 3) |
