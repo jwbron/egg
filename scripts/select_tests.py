@@ -740,6 +740,22 @@ def build_graph(repo_root: Path | None = None, packages: tuple[str, ...] = PACKA
         # ever happens, the right move is to stop injecting the
         # subpackage source roots here and instead rely on the same
         # ``PACKAGES`` registration grimp already uses.
+        # Defense against the script-invocation tests/ shadow (#2259).
+        # Running ``python scripts/select_tests.py`` (the form the
+        # Makefile uses) makes Python prepend ``<root>/scripts`` to
+        # ``sys.path[0]``.  ``scripts/tests/`` then satisfies grimp's
+        # search for the top-level ``tests`` package and shadows
+        # ``<root>/tests/`` — the graph silently loses ~130 test
+        # modules under ``tests/<subdir>/`` (every file outside the
+        # 3 leaf modules in ``scripts/tests/``).  Pop every copy of
+        # ``<root>/scripts`` for the duration of the build and
+        # restore them after; PYTHONPATH-derived copies are already
+        # handled by ``_strip_pythonpath_from_sys_path`` above.
+        scripts_dir = str(root / "scripts")
+        scripts_dir_removed = 0
+        while scripts_dir in sys.path:
+            sys.path.remove(scripts_dir)
+            scripts_dir_removed += 1
         added_paths: list[str] = []
         for entry in (
             str(root),
@@ -764,6 +780,8 @@ def build_graph(repo_root: Path | None = None, packages: tuple[str, ...] = PACKA
                     sys.path.remove(entry)
                 except ValueError:
                     pass
+            for _ in range(scripts_dir_removed):
+                sys.path.insert(0, scripts_dir)
     finally:
         os.chdir(cwd)
 
