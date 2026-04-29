@@ -360,11 +360,18 @@ class TestContainerActivitySuppression:
 
     def test_activity_event_for_other_agent_does_not_suppress_focal(self):
         """Activity from a peer agent does not suppress an agent's own alert
-        (focal-agent gate is per-agent; peer signals belong to #2242)."""
+        via the focal-agent gate (per-agent isolation property of #2190).
+
+        The peer-progress gate (#2242) is OR'd in at the alert sites and
+        WILL defer on a peer's recent heartbeat, so we disable it here
+        (``orchestrator_alert_progress_gate_seconds=0``) to isolate the
+        focal-agent gate's behavior under test.
+        """
         bus = _make_event_bus()
         config = _make_config(
             orchestrator_heartbeat_timeout_seconds=60,
             orchestrator_activity_quiet_seconds=120,
+            orchestrator_alert_progress_gate_seconds=0,
         )
         monitor = _make_monitor(bus, config)
 
