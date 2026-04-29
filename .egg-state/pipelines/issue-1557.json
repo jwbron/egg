@@ -124,7 +124,7 @@
           "container_info": null,
           "started_at": "2026-04-29T02:15:12.479930Z",
           "completed_at": "2026-04-29T02:27:58.222414Z",
-          "commit": null,
+          "commit": "2a8e82c7371e6b80c69396d7970f9b4d1c7ab9ce",
           "outputs": {},
           "error": null,
           "retry_count": 0,
@@ -163,7 +163,7 @@
   },
   "decisions": [],
   "created_at": "2026-04-29T02:15:03.388835Z",
-  "updated_at": "2026-04-29T02:27:58.222698Z",
+  "updated_at": "2026-04-29T02:27:58.733899Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -177,6 +177,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 8,
+  "version": 9,
   "jira_ticket": null
 }
