@@ -326,6 +326,12 @@ class TestPostTimeoutRebaseline:
 
         mock_tracker = MagicMock()
         mock_tracker.get_latest_proposal_timestamp.side_effect = _latest_ts
+        # Also stub get_latest_progress_timestamp so the pre-timeout
+        # progress gate (#2243) doesn't hit its exception-fallback path
+        # on the auto-attribute MagicMock (which raises ``TypeError`` on
+        # ``datetime - MagicMock`` and produces noisy WARN logs that
+        # would mask a real gate-side regression).
+        mock_tracker.get_latest_progress_timestamp.return_value = None
 
         mock_lock.return_value.__enter__ = MagicMock(return_value=None)
         mock_lock.return_value.__exit__ = MagicMock(return_value=False)
@@ -351,6 +357,7 @@ class TestPostTimeoutRebaseline:
         # per-iteration check).
         assert ts_calls[0] >= 2
 
+    @patch("routes.pipelines.logger")
     @patch("routes.pipelines.time.sleep")
     @patch("routes.pipelines.time.monotonic")
     @patch("routes.pipelines._emit_event")
@@ -358,7 +365,14 @@ class TestPostTimeoutRebaseline:
     @patch("routes.pipelines._build_agent_prompt", return_value="test prompt")
     @patch("concurrent_executor.ConcurrentPhaseExecutor", autospec=False)
     def test_absolute_cap_bounds_unbounded_proposal_churn(
-        self, MockExecutor, mock_prompt, mock_lock, mock_emit, mock_monotonic, mock_sleep
+        self,
+        MockExecutor,
+        mock_prompt,
+        mock_lock,
+        mock_emit,
+        mock_monotonic,
+        mock_sleep,
+        mock_logger,
     ):
         """The absolute cap bounds the wait even with non-stop proposals.
 
@@ -409,6 +423,12 @@ class TestPostTimeoutRebaseline:
 
         mock_tracker = MagicMock()
         mock_tracker.get_latest_proposal_timestamp.side_effect = _latest_ts
+        # Also stub get_latest_progress_timestamp so the pre-timeout
+        # progress gate (#2243) doesn't hit its exception-fallback path
+        # on the auto-attribute MagicMock (which raises ``TypeError`` on
+        # ``datetime - MagicMock`` and produces noisy WARN logs that
+        # would mask a real gate-side regression).
+        mock_tracker.get_latest_progress_timestamp.return_value = None
 
         mock_lock.return_value.__enter__ = MagicMock(return_value=None)
         mock_lock.return_value.__exit__ = MagicMock(return_value=False)
@@ -426,3 +446,19 @@ class TestPostTimeoutRebaseline:
         # Absolute cap fires → force-kill → exit 1.
         assert exit_code == 1
         mock_docker.stop_container.assert_called_with("coder-1", timeout=30)
+        # Pin which cap fired.  With ``iteration_budget == max_total``
+        # an off-by-one in the rebaseline branch (e.g. the per-iteration
+        # check moved above the rebaseline) could let the iteration cap
+        # fire first and ``exit_code == 1`` would still hold.  Asserting
+        # on the warning message recovers the specificity the original
+        # ``5000 / 2500`` split provided before the cross-field
+        # validator (#2245 review feedback) made it invalid.
+        warning_messages = [
+            call.args[0] for call in mock_logger.warning.call_args_list if call.args
+        ]
+        assert any("absolute cap reached" in msg for msg in warning_messages), (
+            f"expected 'absolute cap reached' warning, got: {warning_messages}"
+        )
+        assert not any("iteration budget exhausted" in msg for msg in warning_messages), (
+            f"iteration budget should not have fired, got: {warning_messages}"
+        )
