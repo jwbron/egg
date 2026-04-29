@@ -1634,7 +1634,7 @@ class GatewayClient:
             stdout = (result.get("data", {}) or {}).get("stdout", "") or ""
             try:
                 items = json.loads(stdout) if stdout.strip() else []
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 logger.debug(
                     "list_open_prs: gh stdout not JSON",
                     pipeline_id=pipeline_id,

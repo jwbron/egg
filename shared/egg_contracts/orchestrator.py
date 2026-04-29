@@ -347,7 +347,7 @@ def load_agent_output(
                 with prefixed_file.open() as f:
                     result: dict[str, Any] = json.load(f)
                     return result
-            except (json.JSONDecodeError, OSError):
+            except json.JSONDecodeError, OSError:
                 return {}
         # Fall back to old global path
     global_file = output_dir / f"{role.value}-output.json"
@@ -359,7 +359,7 @@ def load_agent_output(
         with global_file.open() as f:
             result = json.load(f)
             return result
-    except (json.JSONDecodeError, OSError):
+    except json.JSONDecodeError, OSError:
         return {}
 
 

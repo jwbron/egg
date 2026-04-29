@@ -351,7 +351,7 @@ def load_index_from_ref(ref: str, repo_path: str) -> CheckpointIndexV2 | None:
     try:
         data = json.loads(content)
         return CheckpointIndexV2.model_validate(data)
-    except (json.JSONDecodeError, Exception):
+    except json.JSONDecodeError, Exception:
         return None
 
 
@@ -365,7 +365,7 @@ def load_checkpoint_from_ref(checkpoint_id: str, ref: str, repo_path: str) -> Ch
     try:
         data = json.loads(content)
         return CheckpointV2.model_validate(data)
-    except (json.JSONDecodeError, Exception):
+    except json.JSONDecodeError, Exception:
         return None
 
 

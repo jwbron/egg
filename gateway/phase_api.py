@@ -107,7 +107,7 @@ def validate_repo_path(repo_path: Path) -> tuple[bool, str]:
             resolved_base = base.resolve()
             if resolved_base.exists() and resolved.is_relative_to(resolved_base):
                 return True, ""
-        except (OSError, ValueError):
+        except OSError, ValueError:
             continue
 
     return False, f"Path '{repo_path}' is not within allowed directories"

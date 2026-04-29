@@ -488,7 +488,7 @@ def get_service_logs() -> tuple[Response, int]:
 
     try:
         lines = int(request.args.get("lines", 100))
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         lines = 100
     if lines <= 0:
         lines = 100
@@ -499,7 +499,7 @@ def get_service_logs() -> tuple[Response, int]:
     if since_raw is not None:
         try:
             since_seconds = int(since_raw)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return (
                 jsonify({"success": False, "message": "since_seconds must be an integer"}),
                 400,
@@ -818,7 +818,7 @@ def validate_deployment_manifests() -> tuple[Response, int]:
         in_scope = any(
             resolved.is_relative_to(root.resolve()) for root in repo_root_candidates if root
         )
-    except (OSError, RuntimeError):
+    except OSError, RuntimeError:
         in_scope = False
     if not in_scope:
         return (
