@@ -352,10 +352,10 @@
         {
           "container_id": "450d9c06-6be8-4981-ad9a-adb6bf154119",
           "container_name": "egg-sandbox-egg-agent-issue-1557-v2-reviewer-code-holistic",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-29T05:47:58.039545Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-29T07:18:19.055565Z",
+          "exit_code": -1,
           "agent_role": "reviewer_code_holistic",
           "session_token": null,
           "pod_name": null,
@@ -457,14 +457,14 @@
         },
         {
           "role": "reviewer_code_holistic",
-          "status": "running",
+          "status": "failed",
           "container_id": "450d9c06-6be8-4981-ad9a-adb6bf154119",
           "container_info": null,
           "started_at": "2026-04-29T05:47:58.039547Z",
-          "completed_at": null,
+          "completed_at": "2026-04-29T07:18:19.101040Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -536,6 +536,13 @@
           "last_lines": [],
           "terminated_at": "2026-04-29T07:18:18.986196Z",
           "container_id": "114f11b6-83cc-4f86-b648-3bf3f8eae054"
+        },
+        {
+          "role": "reviewer_code_holistic",
+          "exit_code": -1,
+          "last_lines": [],
+          "terminated_at": "2026-04-29T07:18:19.101045Z",
+          "container_id": "450d9c06-6be8-4981-ad9a-adb6bf154119"
         }
       ]
     }
@@ -887,7 +894,7 @@
     }
   ],
   "created_at": "2026-04-29T04:25:54.475428Z",
-  "updated_at": "2026-04-29T07:18:19.067123Z",
+  "updated_at": "2026-04-29T07:18:19.111579Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -901,6 +908,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-29T05:47:49.682719Z",
-  "version": 60,
+  "version": 61,
   "jira_ticket": null
 }
