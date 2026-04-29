@@ -293,6 +293,41 @@ class TestTimeoutHandling:
         assert result["action"] == "proceed_with_notification"
 
 
+class TestProgressTimestamps:
+    """Aggregate progress-timestamp accessor (#2243).
+
+    The BRC progress gate in routes/pipelines.py uses
+    ``get_latest_progress_timestamp`` to defer the auto consensus-failure
+    HITL decision while the bus is still moving. The accessor unifies
+    proposal timestamps and approval-matrix ACK/NACK timestamps so the
+    gate has a single signal to read.
+    """
+
+    def test_returns_none_when_no_activity(self, tracker):
+        assert tracker.get_latest_progress_timestamp() is None
+
+    def test_returns_proposal_timestamp_when_only_proposals(self, tracker):
+        tracker.handle_propose(
+            "coder", {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "abc123"}
+        )
+        proposal_ts = tracker.get_latest_proposal_timestamp()
+        progress_ts = tracker.get_latest_progress_timestamp()
+        assert proposal_ts is not None
+        assert progress_ts == proposal_ts
+
+    def test_ack_advances_progress_timestamp_past_proposal(self, tracker):
+        tracker.handle_propose(
+            "coder", {"summary": "v1", "artifacts": ["a.py"], "commit_sha": "abc123"}
+        )
+        proposal_ts = tracker.get_latest_proposal_timestamp()
+        # ACK happens after proposal — progress should advance to the ACK ts.
+        tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["a.py"]})
+        progress_ts = tracker.get_latest_progress_timestamp()
+        assert proposal_ts is not None
+        assert progress_ts is not None
+        assert progress_ts >= proposal_ts
+
+
 class TestAgentCrash:
     """Test agent crash handling."""
 
