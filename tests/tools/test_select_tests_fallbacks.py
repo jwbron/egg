@@ -512,15 +512,24 @@ def test_strip_pythonpath_no_op_when_unset(monkeypatch: pytest.MonkeyPatch) -> N
     assert sys.path == snapshot
 
 
-def test_subprocess_with_leaked_pythonpath_does_not_abort_graph(real_git, tmp_path: Path) -> None:
+def test_subprocess_with_leaked_pythonpath_does_not_abort_graph() -> None:
     """End-to-end contract: setting ``PYTHONPATH=shared:gateway:orchestrator``
     in the child env (mimicking the Makefile pre-fix) MUST NOT cause
-    grimp to abort with ``NotATopLevelModule`` against the real repo.
+    grimp's ``build_graph`` to abort with ``NotATopLevelModule``.
 
-    Runs against ``REPO_ROOT`` so PACKAGES (which includes
-    ``shared.egg_agent``) actually overlaps with the leaked
-    ``shared/`` entry.  Skips when grimp isn't installed because the
-    bug is a grimp-specific failure mode.
+    Drives ``--why`` against a real test path so the selector actually
+    reaches ``build_graph`` (the ``--full-suite`` short-circuits before
+    grimp is touched and would let the regression slip through silently).
+    ``explain_why`` calls ``build_graph`` immediately; under the bug it
+    logs ``select-tests: --why: graph build failed: NotATopLevelModule:``
+    on stderr, and with the strip in ``main()`` neither marker appears.
+
+    ``--why`` is purely read-only — no canary counter bump, no selection
+    record write — so this test has no effect on subsequent ``make test``
+    runs in the same checkout.
+
+    Skips when grimp isn't installed because the bug is a grimp-specific
+    failure mode.
     """
     pytest.importorskip("grimp")
     env = os.environ.copy()
@@ -528,7 +537,12 @@ def test_subprocess_with_leaked_pythonpath_does_not_abort_graph(real_git, tmp_pa
     env.pop("EGG_AGENT_ROLE", None)
     env["PYTHONPATH"] = "shared:gateway:orchestrator"
     proc = subprocess.run(
-        [find_python(), str(SELECTOR_PATH), "--full-suite"],
+        [
+            find_python(),
+            str(SELECTOR_PATH),
+            "--why",
+            "tests/test_python_syntax.py",
+        ],
         cwd=str(REPO_ROOT),
         capture_output=True,
         text=True,
@@ -536,19 +550,19 @@ def test_subprocess_with_leaked_pythonpath_does_not_abort_graph(real_git, tmp_pa
         env=env,
         timeout=60,
     )
-    # --full-suite avoids needing a synthetic git history but still
-    # exercises main()'s strip before any further setup.  The bug
-    # would surface as `graph build failed: NotATopLevelModule` on
-    # stderr from a subsequent narrow-mode invocation; with --full-suite
-    # we instead assert the strip itself didn't blow up and the
-    # selector returns the canonical test-root list.
+    # Fail-open contract guarantees rc==0; assert it explicitly so a
+    # different non-zero exit (e.g. an unhandled exception escaping the
+    # wrapper) doesn't go unnoticed.
     assert proc.returncode == 0, (
         f"selector exited {proc.returncode} with leaked PYTHONPATH\n"
         f"stdout: {proc.stdout!r}\nstderr: {proc.stderr!r}"
     )
-    out = proc.stdout.splitlines()
-    for d in selector.TEST_ROOT_DIRS:
-        assert d in out, f"missing {d} in stdout: {out!r}"
+    # The two buggy stderr signatures: grimp's exception class name and
+    # the explain_why fail-open log line that wraps it.  Either appearing
+    # means PYTHONPATH leaked through the strip and into build_graph.
     assert "NotATopLevelModule" not in proc.stderr, (
         f"PYTHONPATH leaked into grimp despite the strip:\n{proc.stderr!r}"
+    )
+    assert "graph build failed" not in proc.stderr, (
+        f"build_graph aborted (likely from PYTHONPATH leak):\n{proc.stderr!r}"
     )
