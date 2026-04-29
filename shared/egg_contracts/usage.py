@@ -85,7 +85,7 @@ class TokenCounts(BaseModel):
         """Calculate total tokens (input + output)."""
         return self.input_tokens + self.output_tokens
 
-    def add(self, other: "TokenCounts") -> "TokenCounts":
+    def add(self, other: TokenCounts) -> TokenCounts:
         """Add another TokenCounts to this one, returning a new instance."""
         return TokenCounts(
             input_tokens=self.input_tokens + other.input_tokens,

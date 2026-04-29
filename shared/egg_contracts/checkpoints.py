@@ -169,7 +169,7 @@ class AgentType(StrEnum):
     UNKNOWN = "unknown"
 
     @classmethod
-    def _missing_(cls, value: object) -> "AgentType":
+    def _missing_(cls, value: object) -> AgentType:
         """Coerce unrecognized agent types to UNKNOWN for backwards compatibility.
 
         WARNING: This is lossy — the original value is discarded. Any load-modify-save
@@ -347,7 +347,7 @@ class CheckpointSummaryV2(BaseModel):
     files_touched_count: int = Field(default=0, ge=0, description="Number of files touched")
 
     @classmethod
-    def from_checkpoint(cls, checkpoint: "CheckpointV2") -> "CheckpointSummaryV2":
+    def from_checkpoint(cls, checkpoint: CheckpointV2) -> CheckpointSummaryV2:
         """Create a summary from a full v2 checkpoint."""
         return cls(
             id=checkpoint.id,

@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 # #2137 — generification: the dependency-graph machinery is reused for both
 # the agent-role DAG (the original use case, AgentRole-keyed) and the slice
 # DAG used by the new SliceScheduler (str-keyed slice IDs). PEP-695 generic
-# class syntax (Python 3.13 target) lets both keying strategies share a
+# class syntax (Python 3.14 target) lets both keying strategies share a
 # single implementation. Concrete callers parameterise the type via
 # ``DependencyGraph[AgentRole]`` / ``DependencyGraph[str]``.
 # ---------------------------------------------------------------------------

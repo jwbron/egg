@@ -47,7 +47,7 @@ class ValidationResult:
         return self.status in (ConfigStatus.VALID, ConfigStatus.DEGRADED)
 
     @classmethod
-    def valid(cls, warnings: list[str] | None = None) -> "ValidationResult":
+    def valid(cls, warnings: list[str] | None = None) -> ValidationResult:
         """Create a valid result with optional warnings."""
         return cls(
             status=ConfigStatus.VALID,
@@ -55,7 +55,7 @@ class ValidationResult:
         )
 
     @classmethod
-    def invalid(cls, errors: list[str], warnings: list[str] | None = None) -> "ValidationResult":
+    def invalid(cls, errors: list[str], warnings: list[str] | None = None) -> ValidationResult:
         """Create an invalid result with errors."""
         return cls(
             status=ConfigStatus.INVALID,
@@ -64,7 +64,7 @@ class ValidationResult:
         )
 
     @classmethod
-    def degraded(cls, errors: list[str], warnings: list[str] | None = None) -> "ValidationResult":
+    def degraded(cls, errors: list[str], warnings: list[str] | None = None) -> ValidationResult:
         """Create a degraded result (partially valid)."""
         return cls(
             status=ConfigStatus.DEGRADED,
@@ -145,7 +145,7 @@ class BaseConfig(ABC):
 
     @classmethod
     @abstractmethod
-    def from_env(cls) -> "BaseConfig":
+    def from_env(cls) -> BaseConfig:
         """Load configuration from environment variables and config files.
 
         This method should:

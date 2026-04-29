@@ -17,11 +17,9 @@ import functools
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, TypeVar, cast
+from typing import Any, cast
 
 from flask import Response, g, jsonify, request
-
-F = TypeVar("F", bound=Callable[..., Any])  # noqa: UP047 – Python 3.11 compat
 
 # Add shared directory to path for egg_logging
 _shared_path = Path(__file__).parent.parent / "shared"
@@ -57,7 +55,7 @@ def _make_private_mode_error(operation: str) -> tuple[Response, int]:
     )
 
 
-def require_private_mode(f: F) -> F:  # noqa: UP047
+def require_private_mode[F: Callable[..., Any]](f: F) -> F:
     """Refuse the request unless ``g.session_mode == "private"``.
 
     Must be applied *after* ``@require_session_auth`` so that

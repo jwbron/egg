@@ -24,7 +24,7 @@ ARG PIP_IGNORE_INSTALLED=1
 ENV GOMODCACHE=/usr/local/pkg/mod
 
 # Install minimal tooling needed to run docker-setup.py and build commands
-# Python 3.13 is required because repos may set requires-python >= 3.13 in
+# Python 3.14 is required because repos may set requires-python >= 3.14 in
 # pyproject.toml. Without it, uv downloads a managed Python into /root/ which
 # creates broken symlinks when the .venv is persisted and restored for the
 # non-root runtime user.
@@ -35,10 +35,10 @@ RUN apt-get update && apt-get install -y \
     jq unzip software-properties-common \
     && add-apt-repository -y ppa:deadsnakes/ppa \
     && apt-get update \
-    && apt-get install -y python3.13 python3.13-venv python3.13-dev \
-    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.13 1 \
-    && update-alternatives --set python3 /usr/bin/python3.13 \
-    && python3.13 -m ensurepip --upgrade \
+    && apt-get install -y python3.14 python3.14-venv python3.14-dev \
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.14 1 \
+    && update-alternatives --set python3 /usr/bin/python3.14 \
+    && python3.14 -m ensurepip --upgrade \
     && pip3 install --no-cache-dir pyyaml \
     && rm -rf /var/lib/apt/lists/*
 
@@ -56,7 +56,7 @@ RUN chmod +x /tmp/docker-setup.py && \
     mkdir -p /opt/prebuilt-deps
 
 # =============================================================================
-# Stage 2: base — system packages, Python 3.13, pip deps, Claude tools
+# Stage 2: base — system packages, Python 3.14, pip deps, Claude tools
 # =============================================================================
 FROM ubuntu:22.04 AS base
 
@@ -67,7 +67,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 # PIP_IGNORE_INSTALLED bypasses the distutils uninstall error (e.g. blinker 1.4
 # installed by apt can't be removed by pip, but we can install a newer version
-# into Python 3.13's site-packages). ARG so it only applies during build — at
+# into Python 3.14's site-packages). ARG so it only applies during build — at
 # runtime it would cause pip to wastefully reinstall already-present packages.
 ARG PIP_IGNORE_INSTALLED=1
 # Point GOMODCACHE at the module cache populated during `docker build`
@@ -115,23 +115,23 @@ RUN curl -fsSL https://repo.charm.sh/apt/gpg.key | gpg --dearmor -o /usr/share/k
     && apt-get install -y glow \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python 3.13 as default (Ubuntu 22.04 ships with 3.10)
+# Install Python 3.14 as default (Ubuntu 22.04 ships with 3.10)
 # Note: We run apt-get update twice - once before adding the PPA to refresh
 # base Ubuntu package lists (avoiding stale libexpat1 etc), and once after
 # to pick up deadsnakes packages.
-# python3-pip from apt targets the system Python (3.10), not 3.13 — so we
+# python3-pip from apt targets the system Python (3.10), not 3.14 — so we
 # omit it and bootstrap pip via ensurepip after setting update-alternatives.
 RUN apt-get update && \
     add-apt-repository -y ppa:deadsnakes/ppa && \
     apt-get update && \
-    apt-get install -y python3.13 python3.13-venv python3.13-dev && \
-    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.13 1 && \
-    update-alternatives --set python3 /usr/bin/python3.13 && \
+    apt-get install -y python3.14 python3.14-venv python3.14-dev && \
+    update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.14 1 && \
+    update-alternatives --set python3 /usr/bin/python3.14 && \
     # Ensure 'python' command maps to python3 (many tools expect this)
-    update-alternatives --install /usr/bin/python python /usr/bin/python3.13 1 && \
-    # Bootstrap pip for Python 3.13 (ensurepip installs pip3 to /usr/local/bin)
-    python3.13 -m ensurepip --upgrade && \
-    python3.13 -m pip install --no-cache-dir --upgrade pip
+    update-alternatives --install /usr/bin/python python /usr/bin/python3.14 1 && \
+    # Bootstrap pip for Python 3.14 (ensurepip installs pip3 to /usr/local/bin)
+    python3.14 -m ensurepip --upgrade && \
+    python3.14 -m pip install --no-cache-dir --upgrade pip
 
 # Install pyyaml early - required by docker-setup.py for reading config
 RUN pip3 install --no-cache-dir pyyaml

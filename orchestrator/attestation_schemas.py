@@ -123,7 +123,7 @@ class ProposalPayload(BaseModel):
     )
 
     @model_validator(mode="after")
-    def validate_artifacts_non_empty(self) -> "ProposalPayload":
+    def validate_artifacts_non_empty(self) -> ProposalPayload:
         """Reject proposals with no artifact references."""
         if not self.artifacts:
             raise ValueError(
@@ -132,7 +132,7 @@ class ProposalPayload(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def validate_commit_sha_present(self) -> "ProposalPayload":
+    def validate_commit_sha_present(self) -> ProposalPayload:
         """Require commit_sha so reviewers can verify pushed code (#1473)."""
         if not self.commit_sha:
             raise ValueError(
@@ -172,7 +172,7 @@ class ReviewPayload(BaseModel):
     )
 
     @model_validator(mode="after")
-    def validate_artifact_references(self) -> "ReviewPayload":
+    def validate_artifact_references(self) -> ReviewPayload:
         """Reject reviews with no artifact references."""
         if not self.artifact_references:
             raise ValueError(
@@ -181,14 +181,14 @@ class ReviewPayload(BaseModel):
         return self
 
     @model_validator(mode="after")
-    def validate_nack_has_reason(self) -> "ReviewPayload":
+    def validate_nack_has_reason(self) -> ReviewPayload:
         """Require reason for NACK verdicts."""
         if self.verdict == "NACK" and not self.reason:
             raise ValueError("NACK verdict must include a reason")
         return self
 
     @model_validator(mode="after")
-    def validate_condition_only_on_ack(self) -> "ReviewPayload":
+    def validate_condition_only_on_ack(self) -> ReviewPayload:
         """Reject a pre_merge_condition attached to a NACK.
 
         A conditional NACK is nonsensical — NACK already blocks the producer,

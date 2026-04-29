@@ -47,9 +47,10 @@ logger = get_logger("orchestrator.mcp_tools")
 def _is_timeout_error(exc: BaseException) -> bool:
     """Check if an OSError/URLError is a timeout.
 
-    Handles both Python 3.11 (socket.timeout is OSError subclass) and
-    Python 3.12+ (socket.timeout is TimeoutError alias).  urllib wraps
-    the real timeout in URLError.reason.
+    On Python 3.14, ``socket.timeout`` is an alias for ``TimeoutError`` so
+    the explicit check is redundant — but it's kept to keep the call sites
+    obvious and to remain robust against urllib wrapping the real timeout
+    in ``URLError.reason``.
     """
     import socket
 
@@ -1978,7 +1979,7 @@ class PipelineToolHandler:
 
     # --- Gateway request infrastructure ---
 
-    def _get_gateway_client(self, **kwargs: Any) -> "GatewayClient":  # noqa: F821
+    def _get_gateway_client(self, **kwargs: Any) -> "GatewayClient":  # noqa: F821, UP037
         """Create a GatewayClient from the configured gateway URL.
 
         Extra kwargs are forwarded to the GatewayClient constructor
