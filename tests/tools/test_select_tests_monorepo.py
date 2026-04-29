@@ -17,7 +17,6 @@ are skipped when grimp isn't installed (``pytest.importorskip``).
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -82,20 +81,24 @@ def real_repo_graph():  # noqa: ANN201 — grimp graph type isn't public
     passed locally and in CI while the production invocation silently
     dropped ~130 modules from the graph (issue #2259).
     """
+    # Force scripts_dir to sys.path[0] unconditionally — if a prior
+    # test or PYTHONPATH already wedged it at, say, position 5,
+    # ``if scripts_dir not in sys.path`` would skip the insert and the
+    # shadow wouldn't fire reliably (build_graph resolves modules in
+    # sys.path order, so the shadow only triggers when scripts_dir
+    # precedes the real source roots).  Save sys.path wholesale and
+    # restore so we don't leak state to other tests.
+    # ``build_graph`` already wraps its own ``os.chdir`` in
+    # try/finally, so no separate cwd save/restore is needed here.
     scripts_dir = str(REPO_ROOT / "scripts")
-    needs_scripts = scripts_dir not in sys.path
-    if needs_scripts:
-        sys.path.insert(0, scripts_dir)
-    cwd = os.getcwd()
+    saved_path = sys.path[:]
+    while scripts_dir in sys.path:
+        sys.path.remove(scripts_dir)
+    sys.path.insert(0, scripts_dir)
     try:
         return selector.build_graph(REPO_ROOT)
     finally:
-        os.chdir(cwd)
-        if needs_scripts:
-            try:
-                sys.path.remove(scripts_dir)
-            except ValueError:
-                pass
+        sys.path[:] = saved_path
 
 
 # ----------------------------------------------------------------------
@@ -247,18 +250,18 @@ def test_scripts_dir_does_not_shadow_top_level_tests() -> None:
     this fix).  ``build_graph`` must scrub the entry for the
     duration of the build so the production graph is complete.
     """
+    # Unconditionally force scripts_dir to sys.path[0] — see the
+    # fixture comment for why the conditional ``not in sys.path``
+    # guard was insufficient.  Save sys.path wholesale and restore.
     scripts_dir = str(REPO_ROOT / "scripts")
-    needs_insert = scripts_dir not in sys.path
-    if needs_insert:
-        sys.path.insert(0, scripts_dir)
+    saved_path = sys.path[:]
+    while scripts_dir in sys.path:
+        sys.path.remove(scripts_dir)
+    sys.path.insert(0, scripts_dir)
     try:
         bundle = selector.build_graph(REPO_ROOT)
     finally:
-        if needs_insert:
-            try:
-                sys.path.remove(scripts_dir)
-            except ValueError:
-                pass
+        sys.path[:] = saved_path
     tests_modules = {m for m in bundle.all_test_modules if m.startswith("tests.")}
     # Floor of 100 leaves headroom for legitimate test additions
     # without coupling the assertion to the live count; the bug

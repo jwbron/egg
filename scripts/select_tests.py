@@ -780,6 +780,13 @@ def build_graph(repo_root: Path | None = None, packages: tuple[str, ...] = PACKA
                     sys.path.remove(entry)
                 except ValueError:
                     pass
+            # Restoration preserves multiplicity but not position —
+            # entries are re-inserted at sys.path[0] regardless of
+            # where they sat originally.  The production trigger
+            # (``python scripts/select_tests.py``) puts scripts_dir
+            # at position 0, so the round-trip is faithful for the
+            # case that matters; an exotic caller that wedged
+            # scripts_dir mid-path will see it shift to the front.
             for _ in range(scripts_dir_removed):
                 sys.path.insert(0, scripts_dir)
     finally:
