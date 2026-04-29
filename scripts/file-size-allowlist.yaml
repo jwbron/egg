@@ -20,8 +20,8 @@ caps:
 
 files:
   orchestrator/routes/pipelines.py:
-    lines: 15356
-    bytes: 669950
+    lines: 15514
+    bytes: 677112
     issue: "2248"
   gateway/gateway.py:
     lines: 9754
@@ -60,8 +60,8 @@ files:
     bytes: 83921
     issue: "2248"
   orchestrator/peer_consensus.py:
-    lines: 1988
-    bytes: 85268
+    lines: 2003
+    bytes: 85965
     issue: "2248"
   orchestrator/routes/signals.py:
     lines: 1986
@@ -72,8 +72,8 @@ files:
     bytes: 61597
     issue: "2248"
   scripts/select_tests.py:
-    lines: 1650
-    bytes: 63828
+    lines: 1875
+    bytes: 75206
     issue: "2248"
   orchestrator/routes/deployment.py:
     lines: 1604
