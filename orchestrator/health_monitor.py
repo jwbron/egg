@@ -67,6 +67,11 @@ INFRA_ERROR_PATTERNS = [
 EscalationCallback = Callable[[dict[str, Any]], None]
 ThrottleCallback = Callable[[dict[str, Any]], None]
 
+# Sentinel for AgentState.last_activity meaning "no CONTAINER_ACTIVITY event
+# has ever arrived for this agent." Compared with `<=` so any non-positive
+# float counts as never-seen. See `_has_recent_activity` (#2190).
+_NEVER_SEEN_ACTIVITY: float = 0.0
+
 
 @dataclass
 class AgentState:
@@ -77,11 +82,12 @@ class AgentState:
     last_progress: float = field(default_factory=time.time)
     # Wall-clock timestamp of the most recent CONTAINER_ACTIVITY event for
     # this agent (e.g. successful git commit registration).  Used to
-    # OR-suppress heartbeat/progress stall alerts against agents that are
+    # suppress heartbeat/progress stall alerts against agents that are
     # legitimately blocked in long tool calls but still making real
-    # progress (issue #2190).  Defaults to 0.0 — never seen — so a freshly
-    # spawned agent's silence is governed by the heartbeat anchor alone.
-    last_activity: float = 0.0
+    # progress (issue #2190).  Defaults to ``_NEVER_SEEN_ACTIVITY`` so a
+    # freshly spawned agent's silence is governed by the heartbeat anchor
+    # alone.
+    last_activity: float = _NEVER_SEEN_ACTIVITY
     error_counts: dict[str, int] = field(default_factory=lambda: defaultdict(int))
     message_timestamps: list[float] = field(default_factory=list)
     heartbeat_escalated: bool = False
@@ -231,16 +237,17 @@ class HealthMonitor:
         committing along the way; the bus saw silence but the agent was
         making real progress.
 
-        Complements #2242's :func:`_has_recent_peer_progress` (peer
-        signals; self-excluded). The two gates are OR'd: either the
-        focal agent's own activity OR a peer's recent progress is
-        sufficient to defer.
-
         Returns ``(False, None)`` when the agent has never emitted an
-        activity event (``last_activity == 0.0``) so a freshly spawned
-        but truly silent agent still escalates on the heartbeat anchor.
+        activity event (``last_activity == _NEVER_SEEN_ACTIVITY``) so a
+        freshly spawned but truly silent agent still escalates on the
+        heartbeat anchor.
 
-        ``orchestrator_activity_quiet_seconds <= 0`` disables the gate.
+        Setting ``orchestrator_activity_quiet_seconds=0`` disables the
+        gate entirely — operator escape hatch if the gate produces
+        false negatives in production.
+
+        Future #2242 work will OR this gate with a peer-progress gate;
+        see PR #2268 (separate, unmerged) for the peer-signal half.
         """
         threshold = self._config.orchestrator_activity_quiet_seconds
         if threshold <= 0:
@@ -248,9 +255,9 @@ class HealthMonitor:
 
         with self._lock:
             agent = self._agents.get(agent_id)
-            last_activity = agent.last_activity if agent is not None else 0.0
+            last_activity = agent.last_activity if agent is not None else _NEVER_SEEN_ACTIVITY
 
-        if last_activity <= 0.0:
+        if last_activity <= _NEVER_SEEN_ACTIVITY:
             return False, None
 
         age = now - last_activity

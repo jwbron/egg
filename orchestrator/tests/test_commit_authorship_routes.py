@@ -246,16 +246,13 @@ class TestRegisterEndpoint:
         """A successful registration publishes a CONTAINER_ACTIVITY event so
         HealthMonitor can suppress heartbeat/progress alerts against an
         agent that is demonstrably alive (#2190)."""
-        import routes.commit_authorship as route_mod  # type: ignore[import-not-found]
+        # Reroute get_event_bus inside the route module's helper. The route
+        # imports get_event_bus lazily inside _publish_container_activity,
+        # so patching the events module is sufficient.
+        import events as events_mod  # type: ignore[import-not-found]
         from events import EventBus, EventType  # type: ignore[import-not-found]
 
         bus = EventBus(async_delivery=False)
-        monkeypatch.setattr(
-            route_mod, "_publish_container_activity", route_mod._publish_container_activity
-        )
-        # Reroute get_event_bus inside the route module's helper.
-        import events as events_mod  # type: ignore[import-not-found]
-
         monkeypatch.setattr(events_mod, "get_event_bus", lambda: bus)
 
         captured: list = []

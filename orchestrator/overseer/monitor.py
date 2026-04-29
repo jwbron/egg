@@ -228,13 +228,34 @@ class OverseerMonitor:
             return await self._classifier.check_decision_consistency(phase_output, prior_decisions)
         return await check_decision_consistency(phase_output, prior_decisions)
 
-    async def _decide_corrective_action(self, classification: dict, context: dict) -> dict:
+    async def _decide_corrective_action(
+        self,
+        classification: dict,
+        context: dict,
+        *,
+        redirect_history: list[dict] | None = None,
+    ) -> dict:
         model = getattr(self.config, "overseer_decision_maker_model", "sonnet")
         if self._decision_maker and hasattr(self._decision_maker, "decide_corrective_action"):
-            return await self._decision_maker.decide_corrective_action(
-                classification, context, model=model
-            )
-        return await decide_corrective_action(classification, context, model=model)
+            try:
+                return await self._decision_maker.decide_corrective_action(
+                    classification,
+                    context,
+                    model=model,
+                    redirect_history=redirect_history,
+                )
+            except TypeError:
+                # Custom test doubles may not accept redirect_history; fall
+                # back to the legacy signature.
+                return await self._decision_maker.decide_corrective_action(
+                    classification, context, model=model
+                )
+        return await decide_corrective_action(
+            classification,
+            context,
+            model=model,
+            redirect_history=redirect_history,
+        )
 
     async def _compose_redirect_message(self, agent_role: str, issue: str, context: dict) -> str:
         model = getattr(self.config, "overseer_decision_maker_model", "sonnet")
@@ -417,6 +438,7 @@ class OverseerMonitor:
                 decision = await self._decide_corrective_action(
                     classification,
                     action_context,
+                    redirect_history=list(self._escalation_history.get(agent_role, [])),
                 )
                 await self._execute_action(decision, agent_role, container_logs=container_logs)
                 await self._resolve_alert(
@@ -529,6 +551,7 @@ class OverseerMonitor:
             decision = await self._decide_corrective_action(
                 classification,
                 action_context,
+                redirect_history=history,
             )
 
         await self._execute_action(decision, agent_role, container_logs=container_logs)
@@ -723,7 +746,7 @@ class OverseerMonitor:
             try:
                 body = json.loads(e.read().decode())
                 error_msg = body.get("message", str(e))
-            except (json.JSONDecodeError, UnicodeDecodeError):
+            except json.JSONDecodeError, UnicodeDecodeError:
                 error_msg = str(e)
             logger.error(
                 "Failed to restart agent %s (HTTP %s): %s",
@@ -1515,7 +1538,7 @@ class OverseerMonitor:
             work_duration: float | None = None
             try:
                 r = _dt.datetime.fromisoformat(resolved_at)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 continue
 
             for ct in cycle_timings:
@@ -1529,7 +1552,7 @@ class OverseerMonitor:
                     if s >= r:
                         work_duration = (c - s).total_seconds()
                         break
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     continue
 
             if work_duration is not None and work_duration < min_work:

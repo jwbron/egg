@@ -97,7 +97,11 @@ async def _call_decision_maker(prompt: str, context: str, *, model: str | None =
 
 
 async def decide_corrective_action(
-    classification: dict, context: dict, *, model: str | None = None
+    classification: dict,
+    context: dict,
+    *,
+    model: str | None = None,
+    redirect_history: list[dict] | None = None,
 ) -> dict:
     """Decide what corrective action to take based on a classification.
 
@@ -105,6 +109,11 @@ async def decide_corrective_action(
         classification: Output from a classifier function (e.g. classify_stall).
         context: Additional context (pipeline state, agent history, etc.).
         model: Override the default decision model.
+        redirect_history: Prior corrective actions sent to this agent.
+            Used by the deterministic post-hoc guard (#2190) to downgrade
+            ``restart_agent`` recommendations on first-occurrence
+            ``stuck`` classifications when the model disregards the
+            prompt's no-restart-on-first-stall guidance.
 
     Returns:
         A dict with keys:
@@ -165,10 +174,56 @@ async def decide_corrective_action(
     ctx = json.dumps({"classification": classification, "context": context}, default=str)
 
     raw = await _call_decision_maker(prompt, ctx, model=model)
-    return _parse_json_or_fallback(
+    decision = _parse_json_or_fallback(
         raw,
         {"action": "nudge", "message": raw, "priority": "medium"},
     )
+
+    return _enforce_no_first_stall_restart(decision, classification, redirect_history)
+
+
+def _enforce_no_first_stall_restart(
+    decision: dict,
+    classification: dict,
+    redirect_history: list[dict] | None,
+) -> dict:
+    """Deterministically downgrade ``restart_agent`` on first-stall alerts.
+
+    The decision-maker prompt instructs the model not to recommend
+    ``restart_agent`` for a first-occurrence stall classification (issue
+    #2190 — restarting destroys in-flight commits from agents mid-pytest).
+    Prompts are advisory; this guard is the load-bearing enforcement.
+
+    Trigger: ``action == "restart_agent"`` AND classification is
+    ``stuck``/``needs_help`` AND no prior nudge or redirect appears in
+    ``redirect_history``. In that state we rewrite the decision to a
+    ``nudge`` whose message body leads with the log-inspection step
+    documented in the prompt.
+    """
+    if decision.get("action") != "restart_agent":
+        return decision
+
+    cls = classification.get("classification")
+    if cls not in {"stuck", "needs_help"}:
+        return decision
+
+    history = redirect_history or []
+    if any(h.get("action") in {"nudge", "redirect"} for h in history):
+        return decision
+
+    original_msg = decision.get("message", "")
+    return {
+        "action": "nudge",
+        "message": (
+            "Inspect container logs via "
+            "`mcp__egg__get_container_logs(task_id=…, agent_role=…)` before "
+            "taking destructive action. The agent may be mid-tool-call (e.g. "
+            "a multi-minute pytest) rather than genuinely stuck; restart "
+            "would destroy in-flight commits. "
+            f"Original recommendation: {original_msg}"
+        ).strip(),
+        "priority": decision.get("priority", "medium"),
+    }
 
 
 async def compose_redirect_message(

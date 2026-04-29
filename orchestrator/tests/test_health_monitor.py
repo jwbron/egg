@@ -314,25 +314,31 @@ class TestContainerActivitySuppression:
         assert len(actions) == 1
 
     def test_disabled_gate_no_suppression(self):
-        """orchestrator_activity_quiet_seconds <= 0 disables the gate."""
+        """``orchestrator_activity_quiet_seconds=0`` disables the gate.
+
+        Even a CONTAINER_ACTIVITY event one second old must NOT suppress
+        a heartbeat alert — operators set the threshold to 0 as an
+        escape hatch when the gate is producing false negatives.
+        """
         bus = _make_event_bus()
         config = _make_config(
             orchestrator_heartbeat_timeout_seconds=60,
-            orchestrator_activity_quiet_seconds=1,
+            orchestrator_activity_quiet_seconds=0,
         )
-        # Pydantic enforces ge=1; we cannot construct 0 directly, so verify
-        # that with a 1-second window, a slightly-stale activity event no
-        # longer suppresses (equivalent semantics).
         monitor = _make_monitor(bus, config)
 
         _emit_heartbeat(bus, agent_id=AGENT_ID)
-        _emit_container_activity(bus, agent_id=AGENT_ID)
 
         with patch("health_monitor.time") as mock_time:
-            mock_time.time.return_value = time.time() + 61
+            base = time.time()
+            # Heartbeat is stale (61s old) and a brand-new activity event
+            # arrives — but the gate is disabled, so the alert still fires.
+            mock_time.time.return_value = base + 61
+            _emit_container_activity(bus, agent_id=AGENT_ID)
             actions = monitor.check_heartbeats()
 
         assert len(actions) == 1
+        assert actions[0]["agent_id"] == AGENT_ID
 
     def test_activity_event_for_other_pipeline_ignored(self):
         """CONTAINER_ACTIVITY for a different pipeline does not suppress."""
