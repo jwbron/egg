@@ -316,13 +316,13 @@ Drive the pipeline through one Bash invocation per quiet stretch. On entry:
 
 1. **First poll** — call the `get_status(task_id)` MCP tool to render the initial dashboard. `get_status` returns the full snapshot. It does **not** return a `cursor`; the cursor is produced by `wait-status` only. Cache the snapshot in conversation context as `last_status`. Initialize `last_cursor = ""` (empty — the first `wait-status` call snaps to the tip of both event sources).
 
-2. **Blocking wait** — invoke the canonical Bash idiom:
+2. **Blocking wait** — invoke the canonical Bash idiom (run from the repo root):
 
    ```bash
-   egg-orch pipeline wait-status <task_id> --since "<last_cursor>"
+   skills/sdlc/bin/wait-status <task_id> --since "<last_cursor>"
    ```
 
-   The CLI loops the orchestrator's `/status/wait` route server-side, threading the cursor between calls. Stdout is **JSON-lines** — one line per pipeline-relevant event. The CLI is silent on `no_change`, so the LLM only wakes when something happened. Exit codes:
+   The launcher wraps `sandbox/bin/egg-orch pipeline wait-status`, setting `PYTHONPATH` and `EGG_ORCHESTRATOR_URL` so no host-side configuration is required beyond `make deps`. It loops the orchestrator's `/status/wait` route server-side, threading the cursor between calls. Stdout is **JSON-lines** — one line per pipeline-relevant event. The CLI is silent on `no_change`, so the LLM only wakes when something happened. Exit codes:
 
    | Exit code | Meaning | Skill action |
    |-----------|---------|--------------|
@@ -987,7 +987,7 @@ All orchestrator and gateway interactions use the MCP tool surface. Never call R
 |------|---------|
 | `submit_task` | Submit a new pipeline task |
 | `get_status` | One-shot status snapshot (no cursor) — use for first poll and after `provide_input` |
-| `egg-orch pipeline wait-status` (Bash) | Long-poll for status changes; emits JSON-lines on stdout, threading the opaque cursor between calls. Replaces the prior `wait_for_status_change` MCP tool (#2211). |
+| `skills/sdlc/bin/wait-status` (Bash) | Long-poll for status changes; emits JSON-lines on stdout, threading the opaque cursor between calls. Host-side launcher around `sandbox/bin/egg-orch pipeline wait-status`. Replaces the prior `wait_for_status_change` MCP tool (#2211). |
 | `provide_input` | Respond to HITL decisions (serialize JSON payload as string) |
 | `list_tasks` | List tasks for a repository |
 | `cancel_task` | Cancel a running task |
@@ -1002,12 +1002,12 @@ All orchestrator and gateway interactions use the MCP tool surface. Never call R
 | `list_checkpoints` | Browse prior agent session transcripts (gateway-backed) |
 | `search_checkpoints` | Search checkpoint metadata for keywords (gateway-backed) |
 
-**Polling protocol:** First poll uses `get_status(task_id)` (MCP). Every subsequent quiet stretch uses one Bash invocation: `egg-orch pipeline wait-status <task_id> --since "<last_cursor>"`. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the full envelope contract and trigger allowlist.
+**Polling protocol:** First poll uses `get_status(task_id)` (MCP). Every subsequent quiet stretch uses one Bash invocation: `skills/sdlc/bin/wait-status <task_id> --since "<last_cursor>"`. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the full envelope contract and trigger allowlist.
 
 ## Critical Rules
 
 - **Always use MCP tools** — never call orchestrator/gateway APIs or CLIs directly
-- **First poll uses `get_status(task_id)` (MCP); every subsequent quiet stretch uses `egg-orch pipeline wait-status <task_id> --since "<last_cursor>"` (Bash)** — thread the `cursor` from each emitted JSON-line into the next Bash invocation's `--since`. The first `wait-status` call after the `get_status` snapshot uses an empty `--since` (route snaps to tip); `get_status` itself does NOT return a cursor. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the trigger allowlist, envelope, and exit-code contract.
+- **First poll uses `get_status(task_id)` (MCP); every subsequent quiet stretch uses `skills/sdlc/bin/wait-status <task_id> --since "<last_cursor>"` (Bash)** — thread the `cursor` from each emitted JSON-line into the next Bash invocation's `--since`. The first `wait-status` call after the `get_status` snapshot uses an empty `--since` (route snaps to tip); `get_status` itself does NOT return a cursor. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the trigger allowlist, envelope, and exit-code contract.
 - **Read each emitted JSON-line as it arrives.** The CLI is silent on `no_change` — it only emits when something happened. Re-fetch the full snapshot via `get_status` whenever the dashboard needs fields not on the JSON-line (running_agents, completed_agents, recent_messages, enriched pending_decisions).
 - **Always serialize JSON payloads as strings** for `provide_input` — the `response` parameter is a string, not an object. Pass `'{"action": "approve"}'` not `{"action": "approve"}`
 - **Never skip HITL** — always present decisions to the user and wait for their response
@@ -1296,13 +1296,13 @@ Drive the pipeline through one Bash invocation per quiet stretch. On entry:
 
 1. **First poll** — call the `get_status(task_id)` MCP tool to render the initial dashboard and cache the snapshot as `last_status`. `get_status` does not return a `cursor`; the cursor is produced by `wait-status` only. Initialize `last_cursor = ""` (empty — the first `wait-status` call snaps to the tip).
 
-2. **Blocking wait** — invoke the canonical Bash idiom:
+2. **Blocking wait** — invoke the canonical Bash idiom (run from the repo root):
 
    ```bash
-   egg-orch pipeline wait-status <task_id> --since "<last_cursor>"
+   skills/sdlc/bin/wait-status <task_id> --since "<last_cursor>"
    ```
 
-   The CLI loops `/status/wait` server-side, threading the cursor between calls. Stdout is **JSON-lines** — one line per pipeline-relevant event, silent on `no_change`. Exit codes:
+   The launcher wraps `sandbox/bin/egg-orch pipeline wait-status` and loops `/status/wait` server-side, threading the cursor between calls. Stdout is **JSON-lines** — one line per pipeline-relevant event, silent on `no_change`. Exit codes:
 
    | Exit code | Meaning | Skill action |
    |-----------|---------|--------------|
@@ -1432,7 +1432,7 @@ Phase: <phase where failure occurred>
 
 ## Short Flow Critical Rules
 
-- **Always use MCP tools for state-query operations** (`submit_task`, `get_status` for the first poll and one-shot snapshots, `provide_input`, `cancel_task`) — never call orchestrator APIs directly. **For blocking waits use the Bash CLI** `egg-orch pipeline wait-status` (issue #2211) — the MCP transport caps tool calls below typical quiet-phase intervals, so an MCP-driven wait would burn an LLM turn on every cap-elapsed return. Thread the JSON-line `cursor` into the next Bash invocation's `--since`. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the contract.
+- **Always use MCP tools for state-query operations** (`submit_task`, `get_status` for the first poll and one-shot snapshots, `provide_input`, `cancel_task`) — never call orchestrator APIs directly. **For blocking waits use the Bash launcher** `skills/sdlc/bin/wait-status` (host-side wrapper around `egg-orch pipeline wait-status`, issue #2211) — the MCP transport caps tool calls below typical quiet-phase intervals, so an MCP-driven wait would burn an LLM turn on every cap-elapsed return. Thread the JSON-line `cursor` into the next Bash invocation's `--since`. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the contract.
 - **Always serialize JSON payloads as strings** for `provide_input`
 - **Always pass `config`** with `{"start_phase": "implement", "hitl_gates": false, "overseer_enabled": true}` when calling `submit_task`
 - **Auto-approve phase gates** — this is a no-HITL flow; if a gate appears, approve it automatically and inform the user

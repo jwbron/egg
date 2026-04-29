@@ -25,10 +25,20 @@ spec:
           # Claude Code's MCP config (http://localhost:9850/mcp) works
           # without kubectl port-forward. Local-dev only; production
           # k8s should use a Service/Ingress.
+          #
+          # The orchestrator API (9849) gets the same treatment so the
+          # SDLC skill's wait-status launcher
+          # (skills/sdlc/bin/wait-status) can default
+          # EGG_ORCHESTRATOR_URL=http://localhost:9849 — keep both in
+          # sync.
           ports:
             - name: mcp
               containerPort: 9850
               hostPort: 9850
+              protocol: TCP
+            - name: api
+              containerPort: 9849
+              hostPort: 9849
               protocol: TCP
           env:
             - name: EGG_REPO_PATH

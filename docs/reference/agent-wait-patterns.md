@@ -636,6 +636,17 @@ re-fetching the full envelope when needed.
 egg-orch pipeline wait-status <pipeline_id> [--since <cursor>]
 ```
 
+Hosts invoke this via the SDLC skill's launcher,
+`skills/sdlc/bin/wait-status`, which sets `PYTHONPATH` and
+`EGG_ORCHESTRATOR_URL` so no host-side configuration is required
+beyond `make deps` ([#2232](https://github.com/jwbron/egg/issues/2232)).
+The launcher's default URL (`http://localhost:9849`) relies on the
+`hostPort: 9849` binding in
+`k8s/overlays/local/patches/orchestrator-volumes.yaml`. The bare
+`egg-orch pipeline wait-status` invocation shown above is the
+in-sandbox / unit-test entry point; host callers should always go
+through the launcher.
+
 The CLI loops `GET /api/v1/pipelines/<id>/status/wait?wait=25`,
 threading the cursor between successive calls. Stdout is **JSON-lines**
 — one line per pipeline-relevant event. The process exits with:
@@ -645,7 +656,7 @@ threading the cursor between successive calls. Stdout is **JSON-lines**
 | `0` | Pipeline reached terminal state (`complete` / `failed` / `cancelled`) or terminal-event wire value (`pipeline.completed` / `pipeline.failed` / `pipeline.cancelled`). |
 | `1` | `--max-iterations` cap hit (test harnesses only — default loops forever). |
 | `2` | Transient error budget exceeded (5xx / connection errors after backoff). Caller should retry. |
-| `3` | Permanent error (4xx, malformed cursor, unknown pipeline). Caller should surface to user, not retry. |
+| `3` | Permanent error (4xx, malformed cursor, unknown pipeline). Caller should surface to user, not retry. The `skills/sdlc/bin/wait-status` launcher also exits 3 on env-setup failures (missing `.venv/bin/python` or `sandbox/bin/egg-orch`); both signals collapse to "don't retry" from the caller's perspective. |
 
 Each emitted JSON line is a stable subset of the route's Path-A
 envelope:
@@ -851,8 +862,10 @@ last_status = $(egg-orch pipeline status $TASK_ID --json)
 render_full_dashboard(last_status)
 last_cursor = ""   # no cursor yet — first wait-status snaps to tip
 
-# blocking wait via Bash; emits one JSON line per event, exits on terminal
-egg-orch pipeline wait-status $TASK_ID --since "$last_cursor" \
+# blocking wait via Bash; emits one JSON line per event, exits on terminal.
+# Host-side callers use the SDLC skill's launcher (#2232); it wraps
+# `egg-orch pipeline wait-status` with PYTHONPATH and EGG_ORCHESTRATOR_URL.
+skills/sdlc/bin/wait-status $TASK_ID --since "$last_cursor" \
   | while IFS= read -r line; do
       cursor=$(jq -r .cursor <<< "$line")
       trigger=$(jq -r .trigger <<< "$line")
