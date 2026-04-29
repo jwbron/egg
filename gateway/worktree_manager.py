@@ -322,6 +322,20 @@ class WorktreeManager:
             # Re-apply push upstream config in case the assigned branch
             # changed across calls (idempotent when unchanged).
             self._configure_push_upstream(main_repo, branch_name, assigned_branch)
+            # Reset HEAD to a known-good ref so we don't inherit a stale
+            # left-over HEAD from a prior pipeline that collided on
+            # ``container_id`` (deterministic pipeline_id can collide when
+            # the same issue is resubmitted — see #2222).  Without this,
+            # the new pipeline's first push hits non-fast-forward and
+            # the reconcile path can absorb upstream main commits onto
+            # the pipeline branch.
+            self._reset_reused_worktree_to_safe_ref(
+                worktree_path=worktree_path,
+                main_repo=main_repo,
+                container_id=container_id,
+                assigned_branch=assigned_branch,
+                base_branch=base_branch,
+            )
             # Return info about existing worktree
             return WorktreeInfo(
                 container_id=container_id,
@@ -621,6 +635,109 @@ class WorktreeManager:
                     stderr=result.stderr.strip(),
                 )
                 return
+
+    def _reset_reused_worktree_to_safe_ref(
+        self,
+        worktree_path: Path,
+        main_repo: Path,
+        container_id: str,
+        assigned_branch: str | None,
+        base_branch: str,
+    ) -> None:
+        """Hard-reset a reused worktree to a known-good remote ref.
+
+        Picks the ref in this order:
+
+        1. ``origin/{assigned_branch}`` if ``assigned_branch`` is set and
+           resolvable.  This is the pipeline's own branch tip — by the
+           time we reach this code the orchestrator's create-pipeline
+           stale-branch check (#2222 Phase 3a) has already refused
+           re-submits where ``origin/{assigned_branch}`` carries
+           prior-pipeline commits, so a reset to it discards only
+           container-local state.
+        2. ``origin/{base_branch}`` if ``base_branch != "HEAD"`` and
+           resolvable.  Used when the assigned branch hasn't been
+           pushed yet (fresh pipeline, first agent) so there is no
+           remote tip to reset to.
+        3. No-op if neither resolves — preserves prior behaviour rather
+           than risk leaving the worktree in an undefined state.
+
+        Best-effort: any git failure is logged and swallowed so a
+        transient hiccup doesn't break worktree reuse.  The downstream
+        orchestrator-side ``_sync_worktree_with_remote`` and
+        ``_rebase_pipeline_branch_onto_base`` provide a second line of
+        defence.
+        """
+        # Best-effort fetch so the remote-tracking refs are current; if
+        # this fails we still attempt the reset against whatever local
+        # state we have.
+        try:
+            subprocess.run(
+                git_cmd("fetch", "origin"),
+                cwd=worktree_path,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=120,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            logger.warning(
+                "Fetch before worktree-reuse reset failed (continuing)",
+                container_id=container_id,
+                worktree_path=str(worktree_path),
+                error=str(exc),
+            )
+
+        target_ref: str | None = None
+        candidates: list[str] = []
+        if assigned_branch:
+            candidates.append(f"origin/{assigned_branch}")
+        if base_branch and base_branch != "HEAD":
+            candidates.append(f"origin/{base_branch}")
+        for candidate in candidates:
+            verify = subprocess.run(
+                git_cmd("rev-parse", "--verify", candidate),
+                cwd=worktree_path,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if verify.returncode == 0:
+                target_ref = candidate
+                break
+
+        if target_ref is None:
+            logger.info(
+                "Worktree reuse: no remote ref to reset to (preserving HEAD)",
+                container_id=container_id,
+                worktree_path=str(worktree_path),
+                assigned_branch=assigned_branch,
+                base_branch=base_branch,
+            )
+            return
+
+        reset = subprocess.run(
+            git_cmd("reset", "--hard", target_ref),
+            cwd=worktree_path,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if reset.returncode != 0:
+            logger.warning(
+                "Worktree reuse: reset to safe ref failed (continuing)",
+                container_id=container_id,
+                worktree_path=str(worktree_path),
+                target_ref=target_ref,
+                stderr=reset.stderr.strip(),
+            )
+            return
+        logger.info(
+            "Worktree reuse: reset HEAD to safe remote ref",
+            container_id=container_id,
+            worktree_path=str(worktree_path),
+            target_ref=target_ref,
+        )
 
     def _run_git_worktree_add(
         self,

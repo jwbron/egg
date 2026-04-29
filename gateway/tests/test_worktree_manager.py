@@ -652,6 +652,118 @@ class TestWorktreeManagerDockerGitDir:
         if result.returncode == 0:
             assert not result.stdout.strip().startswith("refs/heads/egg/")
 
+    def test_worktree_reuse_resets_to_safe_remote_ref(self, tmp_path):
+        """When a valid worktree is reused, the helper resets HEAD to a
+        known-good remote ref so a stale local HEAD from a prior pipeline
+        run on the same container_id (deterministic ID collision, see
+        #2222) doesn't get inherited.
+
+        Reproduction of the pre-fix shape:
+        - First create_worktree creates the worktree at origin/main.
+        - Test simulates yesterday's pipeline by adding a local-only
+          commit on top of the worktree HEAD.
+        - Second create_worktree (same container_id, with
+          assigned_branch=egg/issue-99 which exists on origin) must
+          reset HEAD to origin/egg/issue-99 — discarding the stale local
+          commit.
+        """
+        import subprocess as sp
+
+        env = {
+            **__import__("os").environ,
+            "GIT_AUTHOR_NAME": "test",
+            "GIT_AUTHOR_EMAIL": "t@t",
+            "GIT_COMMITTER_NAME": "test",
+            "GIT_COMMITTER_EMAIL": "t@t",
+        }
+
+        # Bare origin remote with main + a feature branch.
+        origin = tmp_path / "origin.git"
+        sp.run(["git", "init", "--bare", "-b", "main", str(origin)], check=True)
+
+        seed = tmp_path / "seed"
+        seed.mkdir()
+        sp.run(["git", "init", "-b", "main"], cwd=seed, check=True)
+        sp.run(["git", "remote", "add", "origin", str(origin)], cwd=seed, check=True)
+        sp.run(["git", "config", "user.email", "t@t"], cwd=seed, check=True)
+        sp.run(["git", "config", "user.name", "test"], cwd=seed, check=True)
+        (seed / "README.md").write_text("init\n")
+        sp.run(["git", "add", "."], cwd=seed, check=True)
+        sp.run(["git", "commit", "-m", "init"], cwd=seed, check=True, env=env)
+        sp.run(["git", "push", "origin", "main"], cwd=seed, check=True)
+        sp.run(["git", "checkout", "-b", "egg/issue-99"], cwd=seed, check=True)
+        (seed / "feature.md").write_text("feature\n")
+        sp.run(["git", "add", "."], cwd=seed, check=True)
+        sp.run(["git", "commit", "-m", "feature"], cwd=seed, check=True, env=env)
+        sp.run(["git", "push", "origin", "egg/issue-99"], cwd=seed, check=True)
+        feature_sha = sp.run(
+            ["git", "rev-parse", "HEAD"], cwd=seed, capture_output=True, text=True, check=True
+        ).stdout.strip()
+
+        # repos_base hosts a clone of the bare origin so create_worktree
+        # has somewhere to ``git worktree add`` from.
+        repos_base = tmp_path / "repos"
+        repos_base.mkdir()
+        repo_dir = repos_base / "test-repo"
+        sp.run(["git", "clone", str(origin), str(repo_dir)], check=True)
+        sp.run(["git", "config", "user.email", "t@t"], cwd=repo_dir, check=True)
+        sp.run(["git", "config", "user.name", "test"], cwd=repo_dir, check=True)
+        sp.run(["git", "fetch", "origin", "egg/issue-99"], cwd=repo_dir, check=True)
+
+        worktree_base = tmp_path / "worktrees"
+        manager = WorktreeManager(worktree_base=worktree_base, repos_base=repos_base)
+
+        # First creation — bind the worktree to origin/egg/issue-99.
+        info1 = manager.create_worktree(
+            "test-repo",
+            "issue-99-coder",
+            assigned_branch="egg/issue-99",
+        )
+        wt_path = info1.worktree_path
+        sp.run(
+            ["git", "-C", str(wt_path), "reset", "--hard", "origin/egg/issue-99"],
+            check=True,
+        )
+
+        # Simulate yesterday's pipeline leaving a local-only commit on top
+        # of origin/egg/issue-99.  Without the reset on reuse, the new
+        # pipeline would inherit this HEAD.
+        (wt_path / "stale_local.md").write_text("yesterday's leftover\n")
+        sp.run(["git", "-C", str(wt_path), "add", "."], check=True)
+        sp.run(
+            ["git", "-C", str(wt_path), "commit", "-m", "stale local-only"],
+            check=True,
+            env=env,
+        )
+        stale_head = sp.run(
+            ["git", "-C", str(wt_path), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        assert stale_head != feature_sha, "precondition: stale HEAD must differ from origin tip"
+
+        # Reuse: second create_worktree with the same container_id.
+        info2 = manager.create_worktree(
+            "test-repo",
+            "issue-99-coder",
+            assigned_branch="egg/issue-99",
+        )
+        assert info2.worktree_path == wt_path
+
+        # After reuse, HEAD must be back at origin/egg/issue-99 — the
+        # stale local commit has been discarded.
+        head_after = sp.run(
+            ["git", "-C", str(wt_path), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        assert head_after == feature_sha, (
+            f"reuse should reset HEAD to origin/egg/issue-99 ({feature_sha}); "
+            f"got {head_after} (still on stale local commit)"
+        )
+
     def test_create_worktree_reapplies_upstream_on_reuse(self, git_repo):
         """When a valid worktree is reused, upstream config is re-applied.
 

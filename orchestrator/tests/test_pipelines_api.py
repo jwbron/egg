@@ -626,6 +626,106 @@ class TestCreatePipelineJiraAndQualifier:
     @patch("routes.pipelines.get_gateway_client")
     @patch("routes.pipelines.get_state_store")
     @patch("routes.pipelines.get_repo_path")
+    def test_create_pipeline_rejects_stale_branch_with_no_active_pipeline(
+        self, mock_repo_path, mock_get_store, mock_gw_client, client
+    ):
+        """409 when the target branch exists, no active pipeline holds it,
+        but the branch tip differs from origin/<base_branch> — i.e. it
+        carries commits from a prior failed/cancelled pipeline run.
+        Starting on top of those would inherit the stale history and
+        reproduce the contamination shape of #2222.
+        """
+        mock_repo_path.return_value = Path("/home/egg/repos/webapp")
+        mock_gw = MagicMock()
+        mock_gw.ls_remote_branch.return_value = True
+        # Branch SHA differs from base SHA — prior-pipeline commits sit on top.
+        mock_gw.get_remote_branch_sha.side_effect = lambda **kwargs: (
+            "deadbeefcafef00d" * 2 + "00000000"
+            if "egg/" in kwargs["ref"]
+            else "feedfacefeedface" * 2 + "00000000"
+        )
+        mock_gw_client.return_value = mock_gw
+
+        # No active pipeline (terminal state).
+        mock_store = MagicMock()
+        mock_store.pipeline_exists.return_value = True
+        existing = Pipeline(
+            id="issue-2137",
+            repo="Khan/webapp",
+            status=PipelineStatus.CANCELLED,
+        )
+        mock_store.load_pipeline.return_value = existing
+        mock_get_store.return_value = mock_store
+
+        response = client.post(
+            "/api/v1/pipelines",
+            json={
+                "pipeline_id": "issue-2137",
+                "repo": "Khan/webapp",
+                "branch": "egg/issue-2137",
+                "base_branch": "main",
+                "issue_number": 2137,
+            },
+        )
+        assert response.status_code == 409
+        body = response.get_json()
+        assert body["details"]["reason"] == "stale_branch"
+        assert body["details"]["branch"] == "egg/issue-2137"
+        assert "cancel_task" in body["details"]["hint"]
+        assert "cleanup=true" in body["details"]["hint"]
+
+    @patch("routes.pipelines.get_gateway_client")
+    @patch("routes.pipelines.get_state_store")
+    @patch("routes.pipelines.get_repo_path")
+    def test_create_pipeline_allows_reuse_when_branch_at_base(
+        self, mock_repo_path, mock_get_store, mock_gw_client, client
+    ):
+        """When the target branch exists with no active pipeline AND its
+        tip matches origin/<base_branch>, allow reuse — that's a fresh
+        branch off base with no inherited state.
+        """
+        mock_repo_path.return_value = Path("/home/egg/repos/webapp")
+        mock_gw = MagicMock()
+        mock_gw.ls_remote_branch.return_value = True
+        # Both refs resolve to the same SHA — fresh-from-base.
+        same_sha = "abc123def456" * 3 + "abcd"
+        mock_gw.get_remote_branch_sha.return_value = same_sha
+        mock_gw_client.return_value = mock_gw
+
+        mock_store = MagicMock()
+        mock_store.pipeline_exists.return_value = True
+        existing = Pipeline(
+            id="issue-2137",
+            repo="Khan/webapp",
+            status=PipelineStatus.COMPLETE,
+        )
+        mock_store.load_pipeline.return_value = existing
+        mock_pipeline = MagicMock()
+        mock_pipeline.id = "issue-2137"
+        mock_pipeline.model_dump.return_value = {"id": "issue-2137"}
+        mock_store.create_pipeline.return_value = mock_pipeline
+        mock_get_store.return_value = mock_store
+
+        response = client.post(
+            "/api/v1/pipelines",
+            json={
+                "pipeline_id": "issue-2137",
+                "repo": "Khan/webapp",
+                "branch": "egg/issue-2137",
+                "base_branch": "main",
+                "issue_number": 2137,
+            },
+        )
+        assert response.status_code == 200
+        # A 200 alone is consistent with several short-circuit paths
+        # through ``create_pipeline``; assert the request actually
+        # reached creation so a future regression that returns 200
+        # without persisting the pipeline can't quietly pass this test.
+        mock_store.create_pipeline.assert_called_once()
+
+    @patch("routes.pipelines.get_gateway_client")
+    @patch("routes.pipelines.get_state_store")
+    @patch("routes.pipelines.get_repo_path")
     def test_branch_check_failure_does_not_block_creation(
         self, mock_repo_path, mock_get_store, mock_gw_client, client
     ):
