@@ -391,9 +391,9 @@ warm-graph performance). Same `rm -rf` recovery; the next run
 rebuilds it.
 
 `.egg-state/` as a whole is **not** gitignored — drafts, contracts,
-reviews, brc-history, and agent-outputs all live there and are
-tracked. The three subdirectories above are excluded, plus specific
-per-machine runtime telemetry files under `.egg-state/oversight/`
+reviews, brc-history, checks, and agent-outputs all live there and
+are tracked. The three subdirectories above are excluded, plus
+specific per-machine runtime telemetry files under `.egg-state/oversight/`
 (`agent-timing.json`, `*-oversight.jsonl`, `filed-issues.jsonl`,
 `*-health-summary.md`, their lockfiles, and `.tmp` leftovers from
 atomic writes — see `.gitignore` for the full list). These files
