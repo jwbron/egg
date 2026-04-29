@@ -303,7 +303,7 @@ def make_gateway_request(
             error_data = json.loads(e.read().decode())
             message = error_data.get("message", str(e))
             details = error_data.get("details") or {}
-        except (json.JSONDecodeError, Exception):
+        except json.JSONDecodeError, Exception:
             message = str(e)
             details = {}
         raise GatewayError(
@@ -332,7 +332,7 @@ def _render_gateway_error_and_exit(err: GatewayError) -> int:
     if err.details:
         try:
             print(f"Details: {json.dumps(err.details, indent=2)}", file=sys.stderr)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             pass
     if err.hint:
         print(err.hint, file=sys.stderr)
@@ -1214,7 +1214,7 @@ def cmd_agent_next(args: argparse.Namespace) -> int:
                 deps_satisfied = all(dep.value in complete for dep in role_def.dependencies)
                 if deps_satisfied:
                     runnable.append(role)
-            except (ValueError, KeyError):
+            except ValueError, KeyError:
                 # Unknown role - skip
                 pass
 

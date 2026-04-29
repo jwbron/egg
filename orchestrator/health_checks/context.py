@@ -236,7 +236,7 @@ class PipelineHealthContext:
             try:
                 raw = contract_path.read_text(errors="replace")
                 return json.loads(raw)  # type: ignore[no-any-return]
-            except (json.JSONDecodeError, OSError):
+            except json.JSONDecodeError, OSError:
                 continue
         return {}
 

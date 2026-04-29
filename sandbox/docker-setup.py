@@ -246,7 +246,7 @@ def load_build_commands_manifest(
                 continue
             result.append(entry)
         return result
-    except (json.JSONDecodeError, OSError):
+    except json.JSONDecodeError, OSError:
         return []
 
 
@@ -276,7 +276,7 @@ def load_extra_packages_manifest(
         if not isinstance(dnf, list):
             dnf = []
         return [str(p) for p in apt], [str(p) for p in dnf]
-    except (json.JSONDecodeError, OSError):
+    except json.JSONDecodeError, OSError:
         return [], []
 
 

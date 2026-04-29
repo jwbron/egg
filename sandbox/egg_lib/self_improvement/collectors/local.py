@@ -91,7 +91,7 @@ class LocalLogCollector(LogCollector):
             content = self.index_file.read_text()
             index: dict[str, list[dict[str, str | None]]] = json.loads(content)
             return index
-        except (OSError, json.JSONDecodeError):
+        except OSError, json.JSONDecodeError:
             return {}
 
     def _process_entry(

@@ -65,13 +65,13 @@ except ImportError:
 try:
     from overseer.classifier import classify_stall
     from overseer.classifier import clear_cache as clear_classifier_cache
-except (ImportError, ModuleNotFoundError):
+except ImportError, ModuleNotFoundError:
     classify_stall = None
     clear_classifier_cache = None
 
 try:
     from overseer.decision_maker import compose_redirect_message, decide_corrective_action
-except (ImportError, ModuleNotFoundError):
+except ImportError, ModuleNotFoundError:
     decide_corrective_action = None
     compose_redirect_message = None
 
