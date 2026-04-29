@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import textwrap
 from pathlib import Path
 
 import pytest
+import yaml
 
 _SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "check-file-sizes.py"
 _spec = importlib.util.spec_from_file_location("check_file_sizes", _SCRIPT_PATH)
@@ -24,7 +26,9 @@ FileStats = _mod.FileStats
 evaluate = _mod.evaluate
 is_test_file = _mod.is_test_file
 iter_source_files = _mod.iter_source_files
+load_config = _mod.load_config
 measure = _mod.measure
+write_allowlist = _mod.write_allowlist
 
 
 @pytest.fixture
@@ -174,3 +178,114 @@ class TestIterSourceFiles:
     def test_missing_root_is_fine(self, tmp_path: Path) -> None:
         # No source roots present at all -- should return empty list.
         assert iter_source_files(tmp_path) == []
+
+
+class TestYamlRoundTrip:
+    """Cover load_config + write_allowlist to guard against losing the
+    ``issue:`` tracking field on --update-allowlist."""
+
+    def _yaml(self, tmp_path: Path, body: str) -> Path:
+        p = tmp_path / "allowlist.yaml"
+        p.write_text(textwrap.dedent(body))
+        return p
+
+    def test_load_preserves_issue_field(self, tmp_path: Path) -> None:
+        path = self._yaml(
+            tmp_path,
+            """
+            caps:
+              hard_lines: 1500
+              hard_bytes: 100000
+              soft_lines: 800
+              soft_bytes: 60000
+            files:
+              foo/bar.py:
+                lines: 2000
+                bytes: 80000
+                issue: "2248"
+            """,
+        )
+        config = load_config(path)
+        assert config.baselines["foo/bar.py"].issue == "2248"
+
+    def test_load_handles_missing_issue_field(self, tmp_path: Path) -> None:
+        path = self._yaml(
+            tmp_path,
+            """
+            caps:
+              hard_lines: 1500
+              hard_bytes: 100000
+              soft_lines: 800
+              soft_bytes: 60000
+            files:
+              foo/bar.py:
+                lines: 2000
+                bytes: 80000
+            """,
+        )
+        config = load_config(path)
+        assert config.baselines["foo/bar.py"].issue is None
+
+    def test_load_handles_null_issue_field(self, tmp_path: Path) -> None:
+        path = self._yaml(
+            tmp_path,
+            """
+            caps:
+              hard_lines: 1500
+              hard_bytes: 100000
+              soft_lines: 800
+              soft_bytes: 60000
+            files:
+              foo/bar.py:
+                lines: 2000
+                bytes: 80000
+                issue: null
+            """,
+        )
+        config = load_config(path)
+        assert config.baselines["foo/bar.py"].issue is None
+
+    def test_write_emits_issue_when_present(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caps: Caps
+    ) -> None:
+        out = tmp_path / "out.yaml"
+        monkeypatch.setattr(_mod, "ALLOWLIST_PATH", out)
+        config = Config(caps=caps, baselines={})
+        baselines = {"foo/bar.py": Baseline(lines=2000, bytes=80_000, issue="2248")}
+        write_allowlist(config, baselines)
+        loaded = yaml.safe_load(out.read_text())
+        assert loaded["files"]["foo/bar.py"] == {
+            "lines": 2000,
+            "bytes": 80_000,
+            "issue": "2248",
+        }
+
+    def test_write_omits_issue_when_absent(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caps: Caps
+    ) -> None:
+        out = tmp_path / "out.yaml"
+        monkeypatch.setattr(_mod, "ALLOWLIST_PATH", out)
+        config = Config(caps=caps, baselines={})
+        baselines = {"foo/bar.py": Baseline(lines=2000, bytes=80_000)}
+        write_allowlist(config, baselines)
+        loaded = yaml.safe_load(out.read_text())
+        # No `issue:` key emitted when the baseline has none -- avoids
+        # littering new entries with `issue: null`.
+        assert loaded["files"]["foo/bar.py"] == {"lines": 2000, "bytes": 80_000}
+        assert "issue" not in loaded["files"]["foo/bar.py"]
+
+    def test_round_trip_preserves_issue(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caps: Caps
+    ) -> None:
+        """Regression: --update-allowlist must not silently drop issue links."""
+        out = tmp_path / "out.yaml"
+        monkeypatch.setattr(_mod, "ALLOWLIST_PATH", out)
+        config = Config(caps=caps, baselines={})
+        original = {
+            "a.py": Baseline(lines=2000, bytes=80_000, issue="2248"),
+            "b.py": Baseline(lines=2500, bytes=90_000, issue="9999"),
+            "c.py": Baseline(lines=1800, bytes=70_000),  # no issue
+        }
+        write_allowlist(config, original)
+        reloaded = load_config(out)
+        assert reloaded.baselines == original

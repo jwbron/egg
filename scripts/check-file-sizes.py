@@ -66,6 +66,7 @@ class Caps:
 class Baseline:
     lines: int
     bytes: int
+    issue: str | None = None
 
 
 @dataclass(frozen=True)
@@ -92,7 +93,11 @@ def load_config(path: Path = ALLOWLIST_PATH) -> Config:
     )
     files_raw: dict[str, Any] = raw.get("files") or {}
     baselines = {
-        rel: Baseline(lines=int(entry["lines"]), bytes=int(entry["bytes"]))
+        rel: Baseline(
+            lines=int(entry["lines"]),
+            bytes=int(entry["bytes"]),
+            issue=(str(entry["issue"]) if entry.get("issue") is not None else None),
+        )
         for rel, entry in files_raw.items()
     }
     return Config(caps=caps, baselines=baselines)
@@ -205,6 +210,13 @@ def check_all(repo_root: Path = REPO_ROOT) -> tuple[list[str], list[str], list[s
 
 def write_allowlist(config: Config, baselines: dict[str, Baseline]) -> None:
     """Rewrite the allowlist file preserving caps + sorted baselines."""
+
+    def _entry(b: Baseline) -> dict[str, Any]:
+        out: dict[str, Any] = {"lines": b.lines, "bytes": b.bytes}
+        if b.issue is not None:
+            out["issue"] = b.issue
+        return out
+
     payload: dict[str, Any] = {
         "caps": {
             "hard_lines": config.caps.hard_lines,
@@ -212,22 +224,30 @@ def write_allowlist(config: Config, baselines: dict[str, Baseline]) -> None:
             "soft_lines": config.caps.soft_lines,
             "soft_bytes": config.caps.soft_bytes,
         },
-        "files": {
-            rel: {"lines": b.lines, "bytes": b.bytes} for rel, b in sorted(baselines.items())
-        },
+        "files": {rel: _entry(b) for rel, b in sorted(baselines.items())},
     }
     ALLOWLIST_PATH.write_text(yaml.safe_dump(payload, sort_keys=False))
 
 
 def update_allowlist(repo_root: Path = REPO_ROOT) -> int:
-    """Refresh allowlist baselines from current file sizes."""
+    """Refresh allowlist baselines from current file sizes.
+
+    The ``issue:`` tracking field on each existing entry is carried forward;
+    losing it would drop the link between the file and its decomposition
+    follow-up.
+    """
     config = load_config()
     new_baselines: dict[str, Baseline] = {}
     for path in iter_source_files(repo_root):
         rel = str(path.relative_to(repo_root))
         stats = measure(path)
         if stats.lines > config.caps.hard_lines or stats.bytes > config.caps.hard_bytes:
-            new_baselines[rel] = Baseline(lines=stats.lines, bytes=stats.bytes)
+            existing = config.baselines.get(rel)
+            new_baselines[rel] = Baseline(
+                lines=stats.lines,
+                bytes=stats.bytes,
+                issue=existing.issue if existing is not None else None,
+            )
     write_allowlist(config, new_baselines)
     print(f"Wrote {len(new_baselines)} entries to {ALLOWLIST_PATH.name}")
     return 0
