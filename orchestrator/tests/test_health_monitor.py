@@ -2795,6 +2795,38 @@ class TestAlertProgressGate:
 
         assert len(actions) == 1
 
+    def test_gate_filters_inactive_agent_heartbeats(self):
+        """A heartbeat from an agent no longer in the active roster does not
+        defer alerts (mirrors ``_check_brc_progress_gate`` active-role filter)."""
+        bus = _make_event_bus()
+        config = _make_config(
+            orchestrator_heartbeat_timeout_seconds=60,
+            orchestrator_alert_progress_gate_seconds=300,
+        )
+        monitor = _make_monitor(bus, config)
+
+        base = time.time()
+        _emit_heartbeat(bus, agent_id=AGENT_ID)
+
+        # AGENT_ID_2 emits a fresh heartbeat then is reset (e.g. phase
+        # transition where the role didn't carry over). Its entry lingers
+        # in ``_last_heartbeat`` only if ``reset_agent`` wasn't called;
+        # simulate that pollution by injecting directly under the lock.
+        with monitor._lock:
+            monitor._last_heartbeat[AGENT_ID_2] = base + 200
+
+        # AGENT_ID_2 is NOT in ``_agents`` (never went through
+        # ``_get_or_create_agent``), so the filter must drop its
+        # heartbeat. With no other peer signal, AGENT_ID's alert fires.
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch("peer_consensus.get_peer_consensus_tracker", return_value=None),
+        ):
+            mock_time.time.return_value = base + 250
+            actions = monitor.check_heartbeats()
+
+        assert len(actions) == 1, "Inactive-agent heartbeats must not defer alerts for active peers"
+
 
 # ---------------------------------------------------------------------------
 # Tests: phase-aware post-ACK confirmation timeout (issue #2242)
@@ -2844,9 +2876,6 @@ class TestPlanPhasePostAckTimeout:
         config = _make_config(
             orchestrator_post_ack_confirmation_timeout_seconds=180,
             orchestrator_plan_post_ack_confirmation_timeout_seconds=300,
-            # Disable the alive-signal gate so this test isolates the
-            # phase-aware threshold path.
-            orchestrator_alert_progress_gate_seconds=0,
         )
         monitor = _make_monitor(bus, config)
         monitor.set_current_phase("plan")

@@ -239,24 +239,40 @@ class HealthMonitor:
 
         * The BRC tracker's most recent ``CONSENSUS_PROPOSE`` or ACK/NACK
           timestamp on this pipeline.
-        * A heartbeat from any peer agent other than ``exclude_agent_id``.
+        * A heartbeat from any peer agent other than ``exclude_agent_id``
+          that is currently in the active-agent set.
 
-        Excluding the focal agent prevents trivial self-deferral when the
-        agent itself is the silent one. Failures in any signal source are
-        logged at WARNING and treated as "no signal from that source" — a
-        crashed collector must never silently keep us off the alert
-        surface (mirrors the consensus-gate contract).
+        Self-exclusion only applies to the peer-heartbeat path. The BRC-bus
+        path is NOT filtered by focal agent — ``get_latest_progress_timestamp``
+        aggregates proposals + matrix ACK/NACK timestamps across the whole
+        tracker. On a single-producer pipeline (BRC tracker registered, no
+        peers) the producer's own recent propose/ACK therefore defers its
+        own heartbeat alert until ``gate_seconds`` elapses past that
+        timestamp; the effective stall-detection window in that case is
+        ``heartbeat_threshold + gate_seconds`` (≈360s with defaults) rather
+        than ``heartbeat_threshold`` (60s). For genuinely-dead containers
+        this is fine — ``CONTAINER_STOPPED`` covers that — but for a hung
+        process inside a live container, detection is delayed by up to
+        ``gate_seconds``. Filtering the tracker by focal agent would
+        require a new ``peer_consensus`` API; deferred until either the
+        delay matters in practice or we ship per-role tracker timestamp
+        accessors.
+
+        Failures in any signal source are logged at WARNING and treated as
+        "no signal from that source" — a crashed collector must never
+        silently keep us off the alert surface (mirrors the consensus-gate
+        contract).
 
         ``orchestrator_alert_progress_gate_seconds <= 0`` disables the gate.
 
-        TODO(#2242): the ``_last_heartbeat`` snapshot is not phase-filtered.
-        After a phase transition, prior-phase agents whose containers were
-        stopped will have stale ``last_heartbeat`` values that fall outside
-        the window naturally — but live containers from the prior phase
-        (e.g. overseer respawned across phases) could keep deferring. The
-        same TODO under ``_check_brc_progress_gate`` (same-role cross-phase
-        pollution) covers this; phase-stamped heartbeat keys would close
-        both at once.
+        Active-agent filter: peer heartbeats are filtered to the current
+        ``self._agents`` roster (mirrors ``_check_brc_progress_gate``'s
+        ``active_role_names`` semantics) so that prior-phase ghosts in
+        ``_last_heartbeat`` cannot defer current-phase alerts. Same-role
+        cross-phase pollution (e.g. ``coder`` reappearing across
+        implement / implement-fix) is still possible because the heartbeat
+        key is not phase-stamped; tracked under #2242 alongside the
+        equivalent TODO in ``_check_brc_progress_gate``.
         """
         gate_seconds = self._config.orchestrator_alert_progress_gate_seconds
         if gate_seconds <= 0:
@@ -284,14 +300,21 @@ class HealthMonitor:
                 error=str(e),
             )
 
-        # 2. Peer heartbeats. Snapshot under the lock to avoid racing
-        # mutations from event handlers.
+        # 2. Peer heartbeats. Snapshot heartbeats and the active-agent
+        # roster under the same lock so the active-set filter sees a
+        # consistent view. Filtering by ``self._agents`` keys mirrors
+        # ``_check_brc_progress_gate``'s ``active_role_names`` semantics —
+        # stale heartbeats from prior-phase agents that were never
+        # ``reset_agent``'d won't keep deferring current-phase alerts.
         with self._lock:
             hb_snapshot = dict(self._last_heartbeat)
+            active_agents = set(self._agents.keys())
 
         latest_peer_hb: float | None = None
         for agent_id, hb_time in hb_snapshot.items():
             if agent_id == exclude_agent_id:
+                continue
+            if agent_id not in active_agents:
                 continue
             if latest_peer_hb is None or hb_time > latest_peer_hb:
                 latest_peer_hb = hb_time
