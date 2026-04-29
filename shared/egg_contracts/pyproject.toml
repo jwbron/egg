@@ -2,7 +2,7 @@
 name = "egg-contracts"
 version = "0.1.0"
 description = "Contract library for structurally enforced agent checkpoints"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 dependencies = [
     "pydantic>=2.0.0",
 ]
