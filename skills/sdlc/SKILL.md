@@ -3,6 +3,7 @@ name: sdlc
 description: "Run an egg SDLC pipeline: full lifecycle (default) or lightweight coder+reviewer with --short."
 disable-model-invocation: true
 argument-hint: "[--short] [--qualifier <name>] [JIRA-1234 or issue# or description] [--repo owner/name]"
+allowed-tools: Monitor Bash(skills/sdlc/bin/wait-status:*) Bash(gh issue view:*) Bash(gh issue list:*) Bash(gh pr list:*) Bash(gh pr view:*) Bash(git remote:*) Bash(git -C *:remote:*) Bash(git log:*) Bash(git show:*) Bash(git ls-tree:*) Read Grep AskUserQuestion mcp__egg__submit_task mcp__egg__get_status mcp__egg__provide_input mcp__egg__list_tasks mcp__egg__cancel_task mcp__egg__check_health mcp__egg__list_containers mcp__egg__get_container_logs mcp__egg__send_message mcp__egg__get_consensus_status mcp__egg__get_phase mcp__egg__get_pipeline_snapshot mcp__egg__get_contract mcp__egg__list_checkpoints mcp__egg__search_checkpoints
 ---
 
 # SDLC Pipeline
@@ -312,24 +313,32 @@ Store the returned `task_id`. Confirm submission to the user:
 
 ## Phase 3 — Monitor
 
-Drive the pipeline through one Bash invocation per quiet stretch. On entry:
+Drive the pipeline through one Monitor invocation per quiet stretch. On entry:
 
 1. **First poll** — call the `get_status(task_id)` MCP tool to render the initial dashboard. `get_status` returns the full snapshot. It does **not** return a `cursor`; the cursor is produced by `wait-status` only. Cache the snapshot in conversation context as `last_status`. Initialize `last_cursor = ""` (empty — the first `wait-status` call snaps to the tip of both event sources).
 
-2. **Blocking wait** — invoke the canonical Bash idiom (run from the repo root):
+2. **Blocking wait** — invoke `skills/sdlc/bin/wait-status` through the **Monitor** tool, not Bash. The Monitor tool delivers each stdout line as a separate notification, so the LLM wakes on every emitted event in real time — exactly what the JSON-line streaming model assumes. Run from the repo root:
 
-   ```bash
-   skills/sdlc/bin/wait-status <task_id> --since "<last_cursor>"
+   ```
+   Monitor(
+     description: "wait-status <task_id>",
+     command: "skills/sdlc/bin/wait-status <task_id> --since \"<last_cursor>\"",
+     timeout_ms: 3600000,
+   )
    ```
 
-   The launcher wraps `sandbox/bin/egg-orch pipeline wait-status`, setting `PYTHONPATH` and `EGG_ORCHESTRATOR_URL` so no host-side configuration is required beyond `make deps`. It loops the orchestrator's `/status/wait` route server-side, threading the cursor between calls. Stdout is **JSON-lines** — one line per pipeline-relevant event. The CLI is silent on `no_change`, so the LLM only wakes when something happened. Exit codes:
+   The launcher wraps `sandbox/bin/egg-orch pipeline wait-status`, setting `PYTHONPATH` and `EGG_ORCHESTRATOR_URL` so no host-side configuration is required beyond `make deps`. It loops the orchestrator's `/status/wait` route server-side, threading the cursor between calls. Stdout is **JSON-lines** — one line per pipeline-relevant event, surfaced to the LLM as one notification per line. The CLI is silent on `no_change`, so the LLM only wakes when something happened. Exit codes (Monitor reports them as the watch's exit code):
 
    | Exit code | Meaning | Skill action |
    |-----------|---------|--------------|
    | `0` | Pipeline reached terminal state (`complete` / `failed` / `cancelled`) | Exit the monitor loop, move to Phase 5 |
-   | `2` | Transient error budget exceeded after backoff | Re-invoke with the same `last_cursor` |
+   | `2` | Transient error budget exceeded after backoff | Re-invoke Monitor with the same `last_cursor` |
    | `3` | Permanent error (4xx, malformed cursor, unknown pipeline) | Surface stderr to user; do NOT silently retry |
-   | (timeout) | Claude Code Bash 10 min cap reached | Re-invoke with the updated `last_cursor` |
+   | (timeout) | Monitor `timeout_ms` reached | Re-invoke Monitor with the updated `last_cursor` |
+
+   **Why Monitor and not Bash?** `wait-status` is designed to emit one JSON-line per event over the lifetime of a single CLI invocation. Foreground Bash blocks the LLM until the command exits and batches all events emitted in that window into one wake — so a `decision.created` that lands 30 seconds in won't be visible until the next event flushes the buffer. Background Bash sends a single completion notification when the whole CLI exits and forces file-polling for stdout. Monitor's per-line notification semantics match the streaming-stdout contract directly.
+
+   **Bash fallback:** If Monitor is unavailable in the harness, fall back to a foreground Bash invocation (`skills/sdlc/bin/wait-status <task_id> --since "<last_cursor>"`) — but be aware that events emitted within a single 10-minute Bash window will be batched at exit, not surfaced as they arrive. On Bash-cap timeout, re-invoke with the latest `last_cursor` from the batched output.
 
 3. **Read each emitted JSON line** as it arrives. The line shape is:
 
@@ -345,7 +354,7 @@ Drive the pipeline through one Bash invocation per quiet stretch. On entry:
    }
    ```
 
-   For `trigger: "message"` the line carries `messages: [...]` instead of `event_type`. Update `last_cursor` from each line's `cursor` field. The cursor is **opaque** (shape `msg:<id>|evt:<seq>`) — treat it as a string and thread it through `--since` on the next Bash invocation.
+   For `trigger: "message"` the line carries `messages: [...]` instead of `event_type`. Update `last_cursor` from each line's `cursor` field. The cursor is **opaque** (shape `msg:<id>|evt:<seq>`) — treat it as a string and thread it through `--since` on the next Monitor invocation.
 
    **Trigger allowlist:** `OVERSEER_ALERT`, `CONSENSUS_CONFIRMED`, `CONSENSUS_NACK`, `CONSENSUS_RE_REVIEW`, `phase.started`, `phase.completed`, `pipeline.completed`, `pipeline.failed`, `pipeline.cancelled`, `decision.created`. `decision.resolved` is **deliberately excluded** so the host doesn't self-wake on a `provide_input` it just submitted.
 
@@ -370,7 +379,7 @@ Drive the pipeline through one Bash invocation per quiet stretch. On entry:
 
 8. **Track elapsed time** using each line's `phase_elapsed_seconds` (server-computed). Fall back to local wall-clock only when this field is absent (phase boundaries, pending phases). Used for [Long-Running Phase Detection](#long-running-phase-detection).
 
-**Important: `wait-status` blocks server-side and emits events as they arrive. Do NOT wrap the Bash invocation in an outer `for`-loop or `sleep` — the CLI is already the loop, server-side. The skill's liveness guarantee comes from the CLI re-issuing the route call with the threaded cursor on every Path-B no-change return; intra-process loop, no LLM turn.** When the Claude Code Bash cap (10 min) forces the CLI to terminate, simply re-invoke with the latest `last_cursor` from your conversation context. The overseer is the primary deadlock detector and emits `OVERSEER_ALERT` on stalls, which is in the trigger allowlist. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the full event allowlist, exit-code contract, and concurrency model.
+**Important: `wait-status` blocks server-side and emits events as they arrive. Do NOT wrap the Monitor invocation in an outer `for`-loop or `sleep` — the CLI is already the loop, server-side, and Monitor surfaces each emitted line as its own notification. The skill's liveness guarantee comes from the CLI re-issuing the route call with the threaded cursor on every Path-B no-change return; intra-process loop, no LLM turn.** When Monitor's `timeout_ms` (or the Bash 10-min cap, if you're on the fallback path) forces the CLI to terminate, simply re-invoke with the latest `last_cursor` from your conversation context. The overseer is the primary deadlock detector and emits `OVERSEER_ALERT` on stalls, which is in the trigger allowlist. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the full event allowlist, exit-code contract, and concurrency model.
 
 Keep the dashboard output concise. Only show changes from the previous emit when possible.
 
@@ -664,7 +673,7 @@ A phase that registers agent-level `choice` / `feedback` decisions (via `registe
 
    The operator resolves the `phase_gate` via `provide_input` (`approve` / `request_changes` / `change_approach`).
 
-2. **Wave 2 — deferred decisions.** On `approve`, the pipeline **stays in `awaiting_human`** and the orchestrator moves the deferred choice/feedback decisions into `pending_decisions`. They wake the next `wait-status` Bash invocation via `decision.created`. The next phase does not start until all of them are resolved. On `request_changes` / `change_approach`, the deferred decisions are discarded with the phase reset — no Wave 2.
+2. **Wave 2 — deferred decisions.** On `approve`, the pipeline **stays in `awaiting_human`** and the orchestrator moves the deferred choice/feedback decisions into `pending_decisions`. They wake the next `wait-status` Monitor invocation via `decision.created`. The next phase does not start until all of them are resolved. On `request_changes` / `change_approach`, the deferred decisions are discarded with the phase reset — no Wave 2.
 
 **Operator messaging implications** — when narrating a `phase_gate` approval to the user, do not say "approves and moves to the next phase". The accurate framing is: "approves the draft; if the phase registered deferred decisions, they will surface next for you to resolve before `<next phase>` starts." When the draft lists open questions that are not in the current `pending_decisions` snapshot, frame them as "these will surface as `<phase>`-phase decisions once the gate is approved", not "these will come up in the `<next phase>` phase".
 
@@ -987,7 +996,7 @@ All orchestrator and gateway interactions use the MCP tool surface. Never call R
 |------|---------|
 | `submit_task` | Submit a new pipeline task |
 | `get_status` | One-shot status snapshot (no cursor) — use for first poll and after `provide_input` |
-| `skills/sdlc/bin/wait-status` (Bash) | Long-poll for status changes; emits JSON-lines on stdout, threading the opaque cursor between calls. Host-side launcher around `sandbox/bin/egg-orch pipeline wait-status`. Replaces the prior `wait_for_status_change` MCP tool (#2211). |
+| `skills/sdlc/bin/wait-status` (via Monitor) | Long-poll for status changes; emits JSON-lines on stdout — Monitor surfaces each line as its own notification, so the LLM wakes on every event. Host-side launcher around `sandbox/bin/egg-orch pipeline wait-status`. Replaces the prior `wait_for_status_change` MCP tool (#2211). Bash is a fallback only (events batch at exit). |
 | `provide_input` | Respond to HITL decisions (serialize JSON payload as string) |
 | `list_tasks` | List tasks for a repository |
 | `cancel_task` | Cancel a running task |
@@ -1002,12 +1011,12 @@ All orchestrator and gateway interactions use the MCP tool surface. Never call R
 | `list_checkpoints` | Browse prior agent session transcripts (gateway-backed) |
 | `search_checkpoints` | Search checkpoint metadata for keywords (gateway-backed) |
 
-**Polling protocol:** First poll uses `get_status(task_id)` (MCP). Every subsequent quiet stretch uses one Bash invocation: `skills/sdlc/bin/wait-status <task_id> --since "<last_cursor>"`. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the full envelope contract and trigger allowlist.
+**Polling protocol:** First poll uses `get_status(task_id)` (MCP). Every subsequent quiet stretch uses one **Monitor** invocation wrapping `skills/sdlc/bin/wait-status <task_id> --since "<last_cursor>"` so each emitted JSON-line wakes the LLM individually. Bash is a fallback (events batch at the 10-min Bash cap). See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the full envelope contract and trigger allowlist.
 
 ## Critical Rules
 
 - **Always use MCP tools** — never call orchestrator/gateway APIs or CLIs directly
-- **First poll uses `get_status(task_id)` (MCP); every subsequent quiet stretch uses `skills/sdlc/bin/wait-status <task_id> --since "<last_cursor>"` (Bash)** — thread the `cursor` from each emitted JSON-line into the next Bash invocation's `--since`. The first `wait-status` call after the `get_status` snapshot uses an empty `--since` (route snaps to tip); `get_status` itself does NOT return a cursor. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the trigger allowlist, envelope, and exit-code contract.
+- **First poll uses `get_status(task_id)` (MCP); every subsequent quiet stretch wraps `skills/sdlc/bin/wait-status <task_id> --since "<last_cursor>"` in the Monitor tool** — Monitor turns each emitted JSON-line into its own notification, which is what the per-event wake semantics of this skill require. Bash is a fallback only (events emitted in a single 10-min Bash window batch at exit). Thread the `cursor` from each emitted JSON-line into the next Monitor invocation's `--since`. The first `wait-status` call after the `get_status` snapshot uses an empty `--since` (route snaps to tip); `get_status` itself does NOT return a cursor. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the trigger allowlist, envelope, and exit-code contract.
 - **Read each emitted JSON-line as it arrives.** The CLI is silent on `no_change` — it only emits when something happened. Re-fetch the full snapshot via `get_status` whenever the dashboard needs fields not on the JSON-line (running_agents, completed_agents, recent_messages, enriched pending_decisions).
 - **Always serialize JSON payloads as strings** for `provide_input` — the `response` parameter is a string, not an object. Pass `'{"action": "approve"}'` not `{"action": "approve"}`
 - **Never skip HITL** — always present decisions to the user and wait for their response
@@ -1292,24 +1301,32 @@ Store the returned `task_id`. Confirm submission to the user:
 
 ## Phase S5 — Monitor
 
-Drive the pipeline through one Bash invocation per quiet stretch. On entry:
+Drive the pipeline through one Monitor invocation per quiet stretch. On entry:
 
 1. **First poll** — call the `get_status(task_id)` MCP tool to render the initial dashboard and cache the snapshot as `last_status`. `get_status` does not return a `cursor`; the cursor is produced by `wait-status` only. Initialize `last_cursor = ""` (empty — the first `wait-status` call snaps to the tip).
 
-2. **Blocking wait** — invoke the canonical Bash idiom (run from the repo root):
+2. **Blocking wait** — invoke `skills/sdlc/bin/wait-status` through the **Monitor** tool, not Bash. Monitor delivers each stdout line as its own notification, so the LLM wakes on every emitted event. Run from the repo root:
 
-   ```bash
-   skills/sdlc/bin/wait-status <task_id> --since "<last_cursor>"
+   ```
+   Monitor(
+     description: "wait-status <task_id>",
+     command: "skills/sdlc/bin/wait-status <task_id> --since \"<last_cursor>\"",
+     timeout_ms: 3600000,
+   )
    ```
 
-   The launcher wraps `sandbox/bin/egg-orch pipeline wait-status` and loops `/status/wait` server-side, threading the cursor between calls. Stdout is **JSON-lines** — one line per pipeline-relevant event, silent on `no_change`. Exit codes:
+   The launcher wraps `sandbox/bin/egg-orch pipeline wait-status` and loops `/status/wait` server-side, threading the cursor between calls. Stdout is **JSON-lines** — one line per pipeline-relevant event, silent on `no_change`, surfaced as one notification per line. Exit codes:
 
    | Exit code | Meaning | Skill action |
    |-----------|---------|--------------|
    | `0` | Pipeline reached terminal state | Exit, move to Phase S6 |
-   | `2` | Transient error budget exceeded | Re-invoke with same `last_cursor` |
+   | `2` | Transient error budget exceeded | Re-invoke Monitor with same `last_cursor` |
    | `3` | Permanent error (4xx, malformed cursor, unknown pipeline) | Surface stderr; do NOT silently retry |
-   | (timeout) | Claude Code Bash 10 min cap reached | Re-invoke with updated `last_cursor` |
+   | (timeout) | Monitor `timeout_ms` reached | Re-invoke Monitor with updated `last_cursor` |
+
+   **Why Monitor and not Bash?** Foreground Bash blocks until the CLI exits and batches every event in that window into one wake; background Bash emits only a single completion notification. Both break the per-event wake semantics this skill relies on (e.g. surfacing `decision.created` the moment the gate is created). Monitor's per-line notifications match the streaming-stdout contract.
+
+   **Bash fallback:** If Monitor isn't available, fall back to foreground Bash (`skills/sdlc/bin/wait-status <task_id> --since "<last_cursor>"`) — events will batch at the 10-min Bash cap, not stream as they arrive. On cap-elapsed exit, re-invoke with the latest `last_cursor` from the batched output.
 
 3. **Read each emitted JSON line** — same shape as Phase 3:
 
@@ -1325,7 +1342,7 @@ Drive the pipeline through one Bash invocation per quiet stretch. On entry:
    }
    ```
 
-   For `trigger: "message"` the line carries `messages: [...]` instead of `event_type`. Update `last_cursor` from each line's `cursor` field — the cursor is opaque (`msg:<id>|evt:<seq>`); thread it through `--since` on the next Bash invocation.
+   For `trigger: "message"` the line carries `messages: [...]` instead of `event_type`. Update `last_cursor` from each line's `cursor` field — the cursor is opaque (`msg:<id>|evt:<seq>`); thread it through `--since` on the next Monitor invocation.
 
    **Trigger allowlist:** `OVERSEER_ALERT`, `CONSENSUS_CONFIRMED`, `CONSENSUS_NACK`, `CONSENSUS_RE_REVIEW`, `phase.started`, `phase.completed`, `pipeline.completed`, `pipeline.failed`, `pipeline.cancelled`, `decision.created`. `decision.resolved` is excluded so the host doesn't self-wake on a `provide_input` it just submitted.
 
@@ -1347,7 +1364,7 @@ Drive the pipeline through one Bash invocation per quiet stretch. On entry:
 
 Keep the dashboard output concise. Only show changes from the previous emit when possible.
 
-**Important: `wait-status` blocks server-side and emits events as they arrive. Do NOT wrap the Bash invocation in an outer `for`-loop or `sleep` — the CLI is already the loop, server-side. The skill's liveness guarantee comes from the CLI re-issuing the route call with the threaded cursor on every Path-B no-change return; intra-process loop, no LLM turn.** When the Claude Code Bash cap (10 min) forces the CLI to terminate, simply re-invoke with the latest `last_cursor` from your conversation context. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the event allowlist, exit-code contract, and concurrency model.
+**Important: `wait-status` blocks server-side and emits events as they arrive. Do NOT wrap the Monitor invocation in an outer `for`-loop or `sleep` — the CLI is already the loop, server-side, and Monitor surfaces each emitted line as its own notification. The skill's liveness guarantee comes from the CLI re-issuing the route call with the threaded cursor on every Path-B no-change return; intra-process loop, no LLM turn.** When Monitor's `timeout_ms` (or the 10-min Bash cap, if you're on the fallback path) forces the CLI to terminate, simply re-invoke with the latest `last_cursor` from your conversation context. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the event allowlist, exit-code contract, and concurrency model.
 
 ### Failed Status Grace Period
 
@@ -1432,7 +1449,7 @@ Phase: <phase where failure occurred>
 
 ## Short Flow Critical Rules
 
-- **Always use MCP tools for state-query operations** (`submit_task`, `get_status` for the first poll and one-shot snapshots, `provide_input`, `cancel_task`) — never call orchestrator APIs directly. **For blocking waits use the Bash launcher** `skills/sdlc/bin/wait-status` (host-side wrapper around `egg-orch pipeline wait-status`, issue #2211) — the MCP transport caps tool calls below typical quiet-phase intervals, so an MCP-driven wait would burn an LLM turn on every cap-elapsed return. Thread the JSON-line `cursor` into the next Bash invocation's `--since`. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the contract.
+- **Always use MCP tools for state-query operations** (`submit_task`, `get_status` for the first poll and one-shot snapshots, `provide_input`, `cancel_task`) — never call orchestrator APIs directly. **For blocking waits, wrap the host-side launcher `skills/sdlc/bin/wait-status` (host wrapper around `egg-orch pipeline wait-status`, issue #2211) in the Monitor tool** — the MCP transport caps tool calls below typical quiet-phase intervals, so an MCP-driven wait would burn an LLM turn on every cap-elapsed return; and Bash batches per-event JSON-lines into a single wake at exit, defeating the streaming-stdout design. Monitor surfaces each emitted line as its own notification. Thread the JSON-line `cursor` into the next Monitor invocation's `--since`. Bash is a fallback only when Monitor is unavailable. See [Host-Side Waits](../../docs/reference/agent-wait-patterns.md#7-host-side-waits--egg-orch-pipeline-wait-status) for the contract.
 - **Always serialize JSON payloads as strings** for `provide_input`
 - **Always pass `config`** with `{"start_phase": "implement", "hitl_gates": false, "overseer_enabled": true}` when calling `submit_task`
 - **Auto-approve phase gates** — this is a no-HITL flow; if a gate appears, approve it automatically and inform the user
