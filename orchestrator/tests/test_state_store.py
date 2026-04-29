@@ -5,6 +5,7 @@ Note: Git operations are mocked since git init is not available in the sandbox.
 """
 
 import os
+import shutil
 import subprocess
 from unittest.mock import MagicMock, patch
 
@@ -1648,6 +1649,56 @@ class TestEnsureWorktreeIdempotency:
                     GitOperationError, match="Failed to remove stale state worktree"
                 ):
                     store._ensure_worktree()
+
+    def test_rmtree_enoent_treated_as_success(self, tmp_path):
+        """Regression for #2234.
+
+        `_ensure_worktree` runs from many threads concurrently (the state
+        store probe at ``state_store_probe.py``, every pipeline driver
+        thread polling via ``wait_for_decision``, the ``/api/v1/health``
+        probe, sibling pipelines on the same repo).  Between the
+        ``wt.exists()`` validity check and the ``shutil.rmtree(wt)`` that
+        the recreate path runs against the same path, a concurrent caller
+        can rmtree the directory, leaving our rmtree to raise
+        ``FileNotFoundError``.  The directory being gone is exactly the
+        desired post-state — we must treat ENOENT as success and continue
+        to the recreate path, not raise ``GitOperationError`` and zombie
+        the pipeline.
+        """
+        store, wt = self._make_store(tmp_path)
+        wt.mkdir()
+        (wt / ".git").write_text("gitdir: /broken\n")
+
+        # When our rmtree raises ENOENT, the recreate path needs wt gone
+        # on disk so the post-rmtree ``if wt.exists(): raise`` guard
+        # passes.  Simulate the racing deleter by removing wt for real.
+        # Bind the un-patched rmtree before patching so the helper's own
+        # delete does not recurse into the patched mock.
+        _real_rmtree = shutil.rmtree
+
+        def rmtree_after_concurrent_delete(path, *args, **kwargs):
+            _real_rmtree(path, ignore_errors=True)
+            raise FileNotFoundError(2, "No such file or directory", str(path))
+
+        with patch.object(
+            StateStore, "_run_git", side_effect=self._git_router(rev_parse_returncodes=[1, 1])
+        ) as mock_git:
+            with (
+                patch("state_store.time.sleep"),
+                patch("state_store.shutil.rmtree", side_effect=rmtree_after_concurrent_delete),
+            ):
+                # Must not raise — ENOENT means the racing caller already
+                # delivered the desired post-state.
+                result = store._ensure_worktree()
+
+        assert result == wt
+        # We must have continued through to recreate via `git worktree
+        # add`.  Without the ENOENT-as-success branch, this code path
+        # would have raised GitOperationError before reaching the add.
+        worktree_add_calls = [
+            c for c in mock_git.call_args_list if c.args[:2] == ("worktree", "add")
+        ]
+        assert len(worktree_add_calls) == 1
 
     def test_transient_rev_parse_failure_recovers_on_retry(self, tmp_path):
         """First rev-parse fails, second succeeds — worktree must be reused

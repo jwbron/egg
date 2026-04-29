@@ -26,6 +26,7 @@ sys.modules.setdefault("docker", MagicMock())
 sys.modules.setdefault("docker.errors", MagicMock())
 sys.modules.setdefault("docker.types", MagicMock())
 
+from events import EventType
 from gateway_client import GatewayError, PushResult
 from models import Pipeline, PipelinePhase, PipelineStatus
 
@@ -168,6 +169,116 @@ class TestFailurePathEmitsPipelineEvent:
             f"Expected _emit_pipeline_event called with 'pipeline.failed', "
             f"got calls: {mock_emit.call_args_list}"
         )
+
+
+class TestZombiePipelineSyntheticEvent:
+    """Regression tests for #2234.
+
+    When ``_run_pipeline``'s catch-all exception handler tries to mark
+    the pipeline FAILED but that itself crashes (e.g., the racing
+    ``_ensure_worktree`` ENOENT, lock timeout, or any other
+    ``StateStoreError``), the host blocked on ``/status/wait`` would
+    wait forever — its event allowlist requires
+    ``pipeline.failed/completed/cancelled`` to unblock and no event
+    was emitted.  The fix surfaces a synthetic ``PIPELINE_FAILED``
+    event to the EventBus so the host wakes up on the wedge.
+    """
+
+    @patch("routes.pipelines._run_concurrent_phase")
+    @patch("routes.pipelines._emit_event")
+    @patch(_COMMON_PATCHES[7])
+    @patch(_COMMON_PATCHES[6])
+    @patch(_COMMON_PATCHES[5])
+    @patch(_COMMON_PATCHES[4])
+    @patch(_COMMON_PATCHES[3])
+    @patch(_COMMON_PATCHES[2])
+    @patch(_COMMON_PATCHES[1])
+    @patch(_COMMON_PATCHES[0])
+    def test_synthetic_pipeline_failed_event_when_mark_failed_crashes(
+        self,
+        mock_emit,
+        mock_get_spawner,
+        mock_get_store,
+        mock_spawn_wait,
+        mock_state_lock,
+        mock_build_prompt,
+        mock_read_draft,
+        mock_report,
+        mock_event_bus_emit,
+        mock_run_concurrent,
+    ):
+        """When the FAILED-marking block raises, a synthetic
+        PIPELINE_FAILED event must be published to the EventBus with
+        ``persisted=False`` and the chained error context.
+        """
+        from routes.pipelines import _run_pipeline
+
+        pipeline = _make_running_pipeline()
+        mock_store, _ = _setup_mocks(
+            mock_report,
+            mock_read_draft,
+            mock_build_prompt,
+            mock_state_lock,
+            mock_spawn_wait,
+            mock_get_store,
+            mock_get_spawner,
+            mock_emit,
+            pipeline,
+        )
+
+        # Trigger the outer catch-all by raising a RuntimeError from
+        # ``_run_concurrent_phase`` — anything other than the
+        # ``(ContainerSpawnError, KubernetesSpawnError)`` the phase loop
+        # explicitly catches escapes to the outer ``except Exception``.
+        in_catchall = {"flag": False}
+
+        def concurrent_phase_raises(*args, **kwargs):
+            in_catchall["flag"] = True
+            raise RuntimeError("simulated outer-flow failure")
+
+        mock_run_concurrent.side_effect = concurrent_phase_raises
+
+        # Inner FAILED-marking block calls ``get_state_store`` fresh and
+        # then ``store.load_pipeline``.  Make post-failure load_pipeline
+        # raise to simulate the racing ``_ensure_worktree`` that kills
+        # mark-FAILED in #2234.
+        def load_after_failure(*args, **kwargs):
+            if in_catchall["flag"]:
+                raise RuntimeError("simulated mark-failed crash")
+            return pipeline
+
+        mock_store.load_pipeline.side_effect = load_after_failure
+
+        with (
+            patch.dict(os.environ, {"EGG_HOST_REPO_MAP": '{"repo": "/host/repo"}'}, clear=False),
+            patch("pathlib.Path.exists", return_value=True),
+        ):
+            _run_pipeline("issue-42", Path("/repo"))
+
+        # The synthetic PIPELINE_FAILED event must have been published
+        # with persisted=False so wait-status callers can break out and
+        # surface the wedge.
+        synthetic_calls = [
+            c
+            for c in mock_event_bus_emit.call_args_list
+            if c.args and c.args[0] == EventType.PIPELINE_FAILED
+        ]
+        assert len(synthetic_calls) >= 1, (
+            f"Expected at least one PIPELINE_FAILED EventBus emit; "
+            f"got: {mock_event_bus_emit.call_args_list}"
+        )
+        unpersisted = [
+            c for c in synthetic_calls if c.kwargs.get("data", {}).get("persisted") is False
+        ]
+        assert len(unpersisted) == 1, (
+            f"Expected exactly one synthetic emit with persisted=False; got: {synthetic_calls}"
+        )
+        emit_call = unpersisted[0]
+        assert emit_call.args[1] == "issue-42"
+        data = emit_call.kwargs["data"]
+        assert data["status"] == PipelineStatus.FAILED.value
+        assert "simulated outer-flow failure" in data["original_error"]
+        assert "simulated mark-failed crash" in data["mark_error"]
 
 
 class TestFailurePathPushesWorktreeBranch:

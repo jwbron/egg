@@ -14611,6 +14611,7 @@ def _run_pipeline(
         logger.error(
             "Pipeline execution failed", pipeline_id=pipeline_id, error=str(e), exc_info=True
         )
+        persisted_ok = False
         try:
             store = get_state_store(repo_path)
             with get_pipeline_state_lock(pipeline_id):
@@ -14627,6 +14628,7 @@ def _run_pipeline(
                     pipeline.status = PipelineStatus.FAILED
                     pipeline.error = str(e)
                     store.save_pipeline(pipeline)
+                    persisted_ok = True
 
                 # Report pipeline failure to collaborator
                 report_pipeline_status(
@@ -14648,6 +14650,33 @@ def _run_pipeline(
                 mark_error=str(fail_err),
                 exc_info=True,
             )
+            # Surface a synthetic ``pipeline.failed`` to the EventBus even
+            # though the mark-FAILED block raised.  Without this, hosts
+            # blocked on ``/status/wait`` (whose event allowlist requires
+            # pipeline.failed/completed/cancelled) wait forever on a dead
+            # runner — the zombie symptom in #2234.  ``persisted`` carries
+            # whether ``save_pipeline`` actually flushed FAILED to disk
+            # before the inner block raised: True means disk state matches
+            # the event, False means consumers should treat the event as
+            # the only authoritative source.
+            if _emit_event is not None:
+                try:
+                    _emit_event(
+                        EventType.PIPELINE_FAILED,
+                        pipeline_id,
+                        data={
+                            "status": PipelineStatus.FAILED.value,
+                            "persisted": persisted_ok,
+                            "original_error": str(e),
+                            "mark_error": str(fail_err),
+                        },
+                    )
+                except Exception as emit_err:
+                    logger.warning(
+                        "Failed to emit synthetic pipeline.failed event",
+                        pipeline_id=pipeline_id,
+                        error=str(emit_err),
+                    )
     finally:
         # Stop health monitor polling and unsubscribe from events
         if health_monitor_timer is not None:
