@@ -401,10 +401,10 @@
       ],
       "decision_type": "choice",
       "questions": [],
-      "status": "pending",
+      "status": "resolved",
       "created_at": "2026-04-29T04:55:38.545524Z",
-      "resolved_at": null,
-      "resolution": null,
+      "resolved_at": "2026-04-29T05:09:08.201254Z",
+      "resolution": "{\"action\": \"select\", \"selected\": \"B. Diff-then-prompt — if the live epic Description differs from what we wrote last time, surface a HITL diff before overwriting; safer but slower and harder to test\"}",
       "phase": "refine",
       "content_changed": null
     },
@@ -455,7 +455,7 @@
     }
   ],
   "created_at": "2026-04-29T04:25:54.475428Z",
-  "updated_at": "2026-04-29T05:09:05.890427Z",
+  "updated_at": "2026-04-29T05:09:08.236469Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -469,6 +469,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 36,
+  "version": 37,
   "jira_ticket": null
 }
