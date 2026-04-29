@@ -223,7 +223,14 @@ class TestReconcilerOnProducerShape:
         assert orphan.pr_number == 4242  # NOT 0 — would mean coercion bug
         assert orphan.branch == "egg/issue-2137/slice-2"
         assert orphan.deleted_base == "egg/issue-2137/slice-1"
-        assert orphan.intended_new_base == "egg/issue-2137/slice-1"
+        # slice-1 is the root, and its branch is gone (the merge
+        # cascade is the primary trigger here). The walk-up falls
+        # back to the pipeline branch ``egg/issue-2137`` — the
+        # last-resort safe target. This is the bug the reviewer
+        # caught: the old code would have left
+        # ``intended_new_base == "egg/issue-2137/slice-1"`` (the
+        # dead branch we just escaped from).
+        assert orphan.intended_new_base == "egg/issue-2137"
 
     def test_reconcile_once_drives_full_heal_callable_with_orphan(self) -> None:
         """``reconcile_once`` passes the full :class:`OrphanedChildPR`
@@ -328,7 +335,7 @@ class TestEndToEndOrphanHeal:
         # ``test_push_failure_short_circuits_pr_edit``); here we
         # assert the happy-path order.
         assert endpoints == [
-            "/api/v1/git",
+            "/api/v1/git/execute",
             "/api/v1/git/push",
             "/api/v1/gh/pr/edit",
         ]
@@ -346,7 +353,11 @@ class TestEndToEndOrphanHeal:
 
         # Step 2: force-with-lease push of the rebased branch back
         # to origin so the open PR's head ref reflects the rebase.
+        # ``consensus_push=True`` is required because the session has
+        # ``pipeline_id`` set — without it the gateway's pipeline-mode
+        # push enforcement returns 403.
         assert push_payload["force_with_lease"] is True
+        assert push_payload["consensus_push"] is True
         assert push_payload["refspec"] == "egg/issue-2137/slice-2:refs/heads/egg/issue-2137/slice-2"
 
         # Step 3: PR base retarget via the gateway's gh_pr_edit
@@ -412,7 +423,7 @@ class TestEndToEndOrphanHeal:
         assert result.rebases_failed == 0
         # All three steps fired in order via the live gateway client.
         assert endpoints == [
-            "/api/v1/git",
+            "/api/v1/git/execute",
             "/api/v1/git/push",
             "/api/v1/gh/pr/edit",
         ]

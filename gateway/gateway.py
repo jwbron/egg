@@ -1115,8 +1115,13 @@ def git_push() -> tuple[Response, int] | Response:
             "remote": "origin",
             "refspec": "branch-name",
             "force": false,
+            "force_with_lease": false,  # safer alternative to force
             "commit_sha": "<40-hex>",   # alternative to refspec; consensus pushes only
         }
+
+    ``force_with_lease`` (#2137 stacked-PR reconciler) is preferred over
+    ``force`` for non-fast-forward pushes. Both flags are mutually
+    exclusive — ``force_with_lease`` takes precedence if both are set.
 
     Policy: branch_ownership
     """
@@ -1128,6 +1133,7 @@ def git_push() -> tuple[Response, int] | Response:
     remote = data.get("remote", "origin")
     refspec = data.get("refspec", "")
     force = data.get("force", False)
+    force_with_lease = data.get("force_with_lease", False)
     container_id = data.get("container_id")
     commit_sha = data.get("commit_sha", "")
 
@@ -1873,7 +1879,13 @@ def git_push() -> tuple[Response, int] | Response:
     # core.hooksPath=/dev/null in git_cmd() which disables ALL hooks globally.
     # --no-verify is added as defense-in-depth for the pre-push hook. See issue #58.
     push_args = ["push", "--no-verify"]
-    if force:
+    if force_with_lease:
+        # ``--force-with-lease`` rejects the push if the remote has moved
+        # since we last fetched it — preferred over ``--force`` for
+        # non-fast-forward pushes (e.g. the stacked-PR reconciler's
+        # rebase-then-push heal path, #2137).
+        push_args.append("--force-with-lease")
+    elif force:
         push_args.append("--force")
     # NOTE: The push uses the original refspec (not a SHA-based refspec)
     # because it never calls ``update-ref`` pre-push, so the directory-

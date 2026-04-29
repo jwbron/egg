@@ -127,6 +127,12 @@ class TestFindOrphans:
         assert find_orphaned_child_prs(contract, prs, extant) == []
 
     def test_child_with_deleted_base_surfaces_orphan(self) -> None:
+        # The parent slice's branch was just deleted (the merge
+        # cascade) — that's why we're orphaned. The reconciler must
+        # walk up the DAG to find an extant ancestor and fall back
+        # to the pipeline branch when the chain has been entirely
+        # deleted (or, as here, the parent slice isn't in the
+        # contract).
         contract = _contract(
             _slice(
                 "slice-2",
@@ -150,26 +156,91 @@ class TestFindOrphans:
         assert orphan.pr_number == 11
         assert orphan.branch == "egg/issue-2137/slice-2"
         assert orphan.deleted_base == "egg/issue-2137/slice-1"
-        # Critical: ``intended_new_base`` comes from
-        # ``parent_branch_at_creation``, NOT from the PR's metadata.
-        assert orphan.intended_new_base == "egg/issue-2137/slice-1"
+        # Walk-up fallback: the parent's branch is gone (and slice-1
+        # isn't in the contract here), so the pipeline branch is the
+        # last-resort target.
+        assert orphan.intended_new_base == "egg/issue-2137"
 
-    def test_intended_new_base_uses_recorded_parent_not_pr_metadata(
-        self,
-    ) -> None:
-        # The PR's own ``base`` may have been modified by an out-of-
-        # band action; the reconciler must trust the contract record,
-        # not the PR's metadata.
+    def test_intended_new_base_walks_up_to_extant_ancestor(self) -> None:
+        # A 3-level chain (slice-1 → slice-2 → slice-3): when
+        # slice-2's branch is deleted (the immediate parent), the
+        # reconciler must walk up to slice-1 — its branch is still
+        # alive, so it's the right rebase target.
         contract = _contract(
+            _slice("slice-1"),
+            _slice(
+                "slice-2",
+                deps=["slice-1"],
+                parent_branch="egg/issue-2137/slice-1",
+            ),
+            _slice(
+                "slice-3",
+                deps=["slice-2"],
+                parent_branch="egg/issue-2137/slice-2",
+            ),
+        )
+        prs = [
+            _pr(
+                number=12,
+                head="egg/issue-2137/slice-3",
+                base="egg/issue-2137/slice-2",
+            )
+        ]
+        # slice-2's branch deleted; slice-1's still alive.
+        extant: set[str] = {"egg/issue-2137/slice-1"}
+        orphans = find_orphaned_child_prs(contract, prs, extant)
+        assert len(orphans) == 1
+        # Walk: slice-3's parent is slice-2 (deleted) → walk to
+        # slice-1 (extant) → use it.
+        assert orphans[0].intended_new_base == "egg/issue-2137/slice-1"
+
+    def test_intended_new_base_falls_back_to_pipeline_branch(self) -> None:
+        # All ancestors deleted: the pipeline branch is the safe
+        # fallback because it's never deleted by the stacked-PR
+        # flow.
+        contract = _contract(
+            _slice("slice-1"),
+            _slice(
+                "slice-2",
+                deps=["slice-1"],
+                parent_branch="egg/issue-2137/slice-1",
+            ),
+            _slice(
+                "slice-3",
+                deps=["slice-2"],
+                parent_branch="egg/issue-2137/slice-2",
+            ),
+        )
+        prs = [
+            _pr(
+                number=12,
+                head="egg/issue-2137/slice-3",
+                base="egg/issue-2137/slice-2",
+            )
+        ]
+        # Both ancestors gone.
+        extant: set[str] = set()
+        orphans = find_orphaned_child_prs(contract, prs, extant)
+        assert len(orphans) == 1
+        assert orphans[0].intended_new_base == "egg/issue-2137"
+
+    def test_intended_new_base_ignores_pr_metadata(self) -> None:
+        # The PR's own ``base`` may have been modified by an out-of-
+        # band action; the reconciler must compute its target from
+        # the contract DAG and ``extant_branches``, not from the
+        # PR's metadata.
+        contract = _contract(
+            _slice("slice-1"),
             _slice(
                 "slice-2",
                 deps=["slice-1"],
                 # The TRUE parent branch the slice was created off of:
                 parent_branch="egg/issue-2137/slice-1",
-            )
+            ),
         )
         # PR has been retargeted to a misleading base by some
-        # operator action.
+        # operator action — but slice-2's actual parent slice-1 is
+        # still alive on origin, so that's where we should rebase.
         prs = [
             _pr(
                 number=11,
@@ -177,11 +248,11 @@ class TestFindOrphans:
                 base="egg/issue-2137/some-other-thing",
             )
         ]
-        extant: set[str] = set()
+        extant: set[str] = {"egg/issue-2137/slice-1"}
         orphans = find_orphaned_child_prs(contract, prs, extant)
         assert len(orphans) == 1
-        # ``intended_new_base`` MUST be the contract record, not the
-        # PR's own (stale / wrong) base.
+        # ``intended_new_base`` is computed from the DAG + extant
+        # set, NOT from the PR's own base metadata.
         assert orphans[0].intended_new_base == "egg/issue-2137/slice-1"
 
     def test_no_pr_for_slice_silently_skipped(self) -> None:
@@ -390,7 +461,9 @@ class TestReconcileOnce:
         assert len(rebaser.calls) == 1
         called = rebaser.calls[0]
         assert called.branch == "egg/issue-2137/slice-2"
-        assert called.intended_new_base == "egg/issue-2137/slice-1"
+        # Walk-up fallback: slice-1 isn't in the contract here, so
+        # the pipeline branch is the last-resort rebase target.
+        assert called.intended_new_base == "egg/issue-2137"
         assert called.deleted_base == "egg/issue-2137/slice-1"
         # The orphan now carries the PR number so the production
         # bridge can retarget the PR after the rebase.

@@ -7,7 +7,7 @@ bridge in :mod:`orchestrator.gateway_client` is what production code
 actually injects: it (a) calls
 :func:`gateway.git_client.build_rebase_onto_args` to build the canonical
 argv, (b) registers a temp session with the gateway, (c) submits the
-rebase via the existing per-agent ``/api/v1/git`` endpoint, and (d)
+rebase via the existing per-agent ``/api/v1/git/execute`` endpoint, and (d)
 deletes the temp session.
 
 The reconciler test (``test_stacked_pr_reconciler.py``) exercises the
@@ -24,7 +24,7 @@ Coverage:
   is still released so the gateway doesn't accumulate dangling
   sessions across reconciliation cycles.
 * Successful path returns ``True``, sends ``operation=rebase`` with
-  the canonical argv to ``/api/v1/git``, and tears the session down.
+  the canonical argv to ``/api/v1/git/execute``, and tears the session down.
 * The temp ``container_id`` is namespaced with the pipeline id to
   avoid collisions across pipelines.
 * The default ``agent_role`` is ``coder`` (matches the existing
@@ -133,7 +133,7 @@ class TestHappyPath:
         # Inspect the /git request that was submitted.
         endpoint, *_ = make_request.call_args.args
         kwargs = make_request.call_args.kwargs
-        assert endpoint == "/api/v1/git"
+        assert endpoint == "/api/v1/git/execute"
         assert kwargs["method"] == "POST"
         payload = kwargs["data"]
         assert payload["operation"] == "rebase"
@@ -338,7 +338,7 @@ class TestEndToEndOrphanHeal:
         assert make_request.call_count == 3
         endpoints = [call.args[0] for call in make_request.call_args_list]
         assert endpoints == [
-            "/api/v1/git",
+            "/api/v1/git/execute",
             "/api/v1/git/push",
             "/api/v1/gh/pr/edit",
         ]
@@ -397,7 +397,7 @@ class TestEndToEndOrphanHeal:
             )
         assert ok is False
         # rebase + push attempted; pr/edit must NOT have been called.
-        assert call_log == ["/api/v1/git", "/api/v1/git/push"]
+        assert call_log == ["/api/v1/git/execute", "/api/v1/git/push"]
         assert "/api/v1/gh/pr/edit" not in call_log
 
     def test_pr_edit_failure_returns_false(self, client: GatewayClient) -> None:
@@ -445,7 +445,7 @@ class TestEndToEndOrphanHeal:
             )
         assert ok is True
         endpoints = [call.args[0] for call in make_request.call_args_list]
-        assert endpoints == ["/api/v1/git"]
+        assert endpoints == ["/api/v1/git/execute"]
 
     def test_pr_number_without_repo_is_rejected(self, client: GatewayClient) -> None:
         with (

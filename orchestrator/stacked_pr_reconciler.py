@@ -12,17 +12,23 @@ The reconciler runs on a fixed cadence (default 30 s, env var
 
 1. Lists open child slice PRs whose ``base`` branch no longer exists
    on origin.
-2. Computes the intended new base from
-   ``Slice.parent_branch_at_creation`` (recorded by TASK-4-2 when
-   the integration branch was provisioned).
+2. Computes the intended new base by walking up the slice DAG
+   from the orphan until an ancestor whose branch is still on
+   origin is found. The merge cascade is the primary trigger
+   here — the orphan's immediate parent is the branch that just
+   got deleted — so ``Slice.parent_branch_at_creation`` (which
+   names that same dead branch) cannot be used directly. The
+   pipeline branch is the last-resort fallback because it is
+   never deleted by the stacked-PR flow.
 3. Calls ``GatewayClient.rebase_onto`` (orchestrator-side bridge
    in :mod:`orchestrator.gateway_client`) which forwards the
    request through the gateway's existing per-agent allowlist
    plumbing — internally constructed via
    :func:`gateway.git_client.build_rebase_onto_args` and submitted
-   through the same ``/api/v1/git`` endpoint that authorised
-   agents use today. No new privileged orchestrator-role
-   endpoint is introduced (refine-phase decision-15).
+   through the same ``/api/v1/git/execute`` endpoint that
+   authorised agents use today. No new privileged
+   orchestrator-role endpoint is introduced (refine-phase
+   decision-15).
 
 This module is pure-Python and side-effect-free at import time —
 the orchestrator's pipeline run loop wires up an async timer that
@@ -54,12 +60,15 @@ class OrphanedChildPR:
     """A child slice PR whose base branch has been deleted.
 
     The reconciler builds one of these per detected orphan and
-    issues a single ``rebase_onto`` call per object. The
-    ``intended_new_base`` is sourced from
-    ``Slice.parent_branch_at_creation``, NOT inferred from the
-    PR's own metadata — this keeps the reconciler robust against
-    cases where the parent slice's branch has been renamed or
-    rebased out from under the PR.
+    issues a single ``rebase_onto`` call per object.
+    ``intended_new_base`` is computed by walking up the slice DAG
+    from the orphan's parent until an extant branch is found — the
+    immediate parent's branch is typically the one that just got
+    deleted (the merge cascade is the primary trigger), so naively
+    using ``parent_branch_at_creation`` would point at the same
+    dead branch. The pipeline branch (``egg/issue-N``) is the
+    last-resort fallback because it is never deleted by the
+    stacked-PR flow.
     """
 
     slice_id: str
@@ -67,6 +76,47 @@ class OrphanedChildPR:
     branch: str
     deleted_base: str
     intended_new_base: str
+
+
+def _resolve_extant_new_base(
+    slice_,
+    slices_by_id,
+    extant_branches: set[str],
+    issue_branch: str,
+) -> str:
+    """Walk up the slice DAG until an extant branch is found.
+
+    The orphan reconciler is triggered when a child slice's PR base
+    has been deleted on origin. ``Slice.parent_branch_at_creation``
+    points at that same just-deleted branch in the merge-cascade
+    case (the *primary* trigger), so retargeting to it would be a
+    no-op. Walk up via ``dependencies[0]`` (the forest constraint
+    guarantees ≤1 parent per slice) and return the first ancestor
+    whose branch is still on origin. If the entire chain has been
+    deleted, fall back to the pipeline branch — root-targeted
+    branches are stable.
+    """
+    # ``dependencies[0]`` is the canonical parent under the forest
+    # constraint enforced at plan ingestion. ``serialized_chain_order``
+    # only matters for would-be multi-parent slices that were
+    # serialised into a chain at planning time — and once serialised,
+    # the chain's first element becomes ``dependencies[0]``.
+    parent_id = slice_.dependencies[0] if slice_.dependencies else None
+    while parent_id:
+        parent_slice = slices_by_id.get(parent_id)
+        if parent_slice is None:
+            break
+        candidate = f"{issue_branch}/{parent_slice.id}"
+        if candidate in extant_branches:
+            return candidate
+        # This ancestor's branch is also gone (cascading merge).
+        # Walk one more level up.
+        parent_id = parent_slice.dependencies[0] if parent_slice.dependencies else None
+    # Either the slice has no dependencies (it's a root whose own
+    # PR shouldn't get here — roots target ``issue_branch`` directly,
+    # which is in ``extant_branches``), or every ancestor's branch
+    # has been deleted. Either way, the pipeline branch is safe.
+    return issue_branch
 
 
 @dataclass(frozen=True)
@@ -129,6 +179,7 @@ def find_orphaned_child_prs(
     issue_number = contract.issue.number if contract.issue is not None else None
     pipeline_id = contract.contract_key
     issue_branch = f"egg/issue-{issue_number}" if issue_number else f"egg/{pipeline_id}"
+    slices_by_id = {s.id: s for s in contract.slices}
 
     for slice_ in contract.slices:
         parent = slice_.parent_branch_at_creation
@@ -152,13 +203,18 @@ def find_orphaned_child_prs(
                 extra={"slice_id": slice_.id, "head": slice_branch, "raw_number": raw_number},
             )
             continue
+        # Walk up the DAG to find an extant ancestor. The merge
+        # cascade is the primary trigger for orphan detection, and
+        # in that case ``parent_branch_at_creation`` points at the
+        # same just-deleted branch we're trying to escape from.
+        new_base = _resolve_extant_new_base(slice_, slices_by_id, extant_branches, issue_branch)
         orphans.append(
             OrphanedChildPR(
                 slice_id=slice_.id,
                 pr_number=int(raw_number),
                 branch=slice_branch,
                 deleted_base=deleted_base,
-                intended_new_base=parent,
+                intended_new_base=new_base,
             )
         )
     return orphans
