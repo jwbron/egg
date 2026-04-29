@@ -25,16 +25,16 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 
 fetch_agent_design_criteria() {
-    local script_dir
-    script_dir="$(dirname "$0")"
-    local shared_file="${script_dir}/../shared/prompts/agent-design-criteria.md"
+  local script_dir
+  script_dir="$(dirname "$0")"
+  local shared_file="${script_dir}/../shared/prompts/agent-design-criteria.md"
 
-    if [[ -f "$shared_file" ]]; then
-        # Shared criteria (anchored to trusted checkout via script dir)
-        cat "$shared_file"
-    else
-        # Inline fallback for rollout safety
-        cat <<'EOF'
+  if [[ -f "$shared_file" ]]; then
+    # Shared criteria (anchored to trusted checkout via script dir)
+    cat "$shared_file"
+  else
+    # Inline fallback for rollout safety
+    cat <<'EOF'
 ## Review Philosophy
 
 The guidelines in `docs/guides/agent-mode-design.md` are **guidelines, not absolute rules**. Apply them with judgment:
@@ -65,7 +65,7 @@ Flag these **clear** anti-patterns:
 - Correctness/logic errors — the base review bot covers this
 - Borderline cases where the design choice is reasonable
 EOF
-    fi
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -73,17 +73,17 @@ EOF
 # ---------------------------------------------------------------------------
 
 build_prompt() {
-    local agent_design_criteria
-    agent_design_criteria=$(fetch_agent_design_criteria)
+  local agent_design_criteria
+  agent_design_criteria=$(fetch_agent_design_criteria)
 
-    local prompt
-    local is_rereview=false
-    local base_ref="${BASE_REF:-main}"
+  local prompt
+  local is_rereview=false
+  local base_ref="${BASE_REF:-main}"
 
-    # Check if this is a re-review (we have a previous review commit)
-    if [[ -n "${LAST_REVIEW_COMMIT:-}" ]]; then
-        is_rereview=true
-        prompt="**Specialized review**: Check PR #${PR_NUMBER} in ${GITHUB_REPOSITORY} for agent-mode design alignment.
+  # Check if this is a re-review (we have a previous review commit)
+  if [[ -n "${LAST_REVIEW_COMMIT:-}" ]]; then
+    is_rereview=true
+    prompt="**Specialized review**: Check PR #${PR_NUMBER} in ${GITHUB_REPOSITORY} for agent-mode design alignment.
 
 This is a **re-review** — you previously reviewed this PR at commit \`${LAST_REVIEW_COMMIT}\`.
 
@@ -122,8 +122,8 @@ Use the appropriate flag:
 
 Do NOT use \`--body\` with inline content — use \`--body-file\` to avoid shell escaping failures.
 "
-    else
-        prompt="**Specialized review**: Check PR #${PR_NUMBER} in ${GITHUB_REPOSITORY} for agent-mode design alignment.
+  else
+    prompt="**Specialized review**: Check PR #${PR_NUMBER} in ${GITHUB_REPOSITORY} for agent-mode design alignment.
 
 ## Scope
 
@@ -156,26 +156,26 @@ Use the appropriate flag:
 
 Do NOT use \`--body\` with inline content — use \`--body-file\` to avoid shell escaping failures.
 "
-    fi
+  fi
 
-    # Write prompt to temp file
-    local prompt_file="${RUNNER_TEMP:-/tmp}/review-prompt-${PR_NUMBER}.txt"
-    echo "$prompt" > "$prompt_file"
+  # Write prompt to temp file
+  local prompt_file="${RUNNER_TEMP:-/tmp}/review-prompt-${PR_NUMBER}.txt"
+  echo "$prompt" >"$prompt_file"
 
-    # Always use opus for reviews
-    local model="opus"
+  # Always use opus for reviews
+  local model="opus"
 
-    # Write outputs
-    {
-        echo "prompt-file=${prompt_file}"
-        echo "model=${model}"
-    } >> "${GITHUB_OUTPUT:-/dev/null}"
+  # Write outputs
+  {
+    echo "prompt-file=${prompt_file}"
+    echo "model=${model}"
+  } >>"${GITHUB_OUTPUT:-/dev/null}"
 
-    local review_type="initial"
-    if [[ "$is_rereview" == "true" ]]; then
-        review_type="re-review (since ${LAST_REVIEW_COMMIT:0:7})"
-    fi
-    echo "Agent-mode design review prompt built: ${#prompt} chars, model=${model}, type=${review_type}"
+  local review_type="initial"
+  if [[ "$is_rereview" == "true" ]]; then
+    review_type="re-review (since ${LAST_REVIEW_COMMIT:0:7})"
+  fi
+  echo "Agent-mode design review prompt built: ${#prompt} chars, model=${model}, type=${review_type}"
 }
 
 # ---------------------------------------------------------------------------

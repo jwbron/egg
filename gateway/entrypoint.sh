@@ -32,11 +32,11 @@ echo ""
 # secrets.env. Compose relied on shell-env passthrough; in k8s the Secret
 # volume exposes the file so we source it here.
 if [ -f /secrets/secrets.env ]; then
-    echo "Sourcing /secrets/secrets.env"
-    set -a
-    # shellcheck disable=SC1091
-    . /secrets/secrets.env
-    set +a
+  echo "Sourcing /secrets/secrets.env"
+  set -a
+  # shellcheck disable=SC1091
+  . /secrets/secrets.env
+  set +a
 fi
 
 # Always use locked-down Squid (only private containers route through it)
@@ -53,18 +53,18 @@ echo "Checking CA certificate for SSL bump..."
 # Copy CA cert to shared volume for container trust store
 # The sandbox entrypoint will add this to its trust store
 if [[ -d "/shared/certs" ]]; then
-    cp /etc/squid/certs/gateway-ca.crt /shared/certs/
-    chmod 644 /shared/certs/gateway-ca.crt
-    echo "CA certificate copied to shared volume"
+  cp /etc/squid/certs/gateway-ca.crt /shared/certs/
+  chmod 644 /shared/certs/gateway-ca.crt
+  echo "CA certificate copied to shared volume"
 else
-    echo "Note: /shared/certs not mounted - containers will need manual CA setup"
+  echo "Note: /shared/certs not mounted - containers will need manual CA setup"
 fi
 
 # Note: GitHub tokens are now managed in-memory by token_refresher.py
 # We only need to verify the launcher secret is mounted
 if [ ! -f "/secrets/launcher-secret" ]; then
-    echo "ERROR: /secrets/launcher-secret not mounted"
-    exit 1
+  echo "ERROR: /secrets/launcher-secret not mounted"
+  exit 1
 fi
 
 # Export launcher secret for authentication
@@ -88,30 +88,30 @@ mkdir -p /var/log/squid /var/spool/squid
 
 # Try to set ownership for squid's preferred user, but don't fail if we can't
 if chown -R proxy:proxy /var/log/squid /var/spool/squid 2>/dev/null; then
-    echo "  Log directories owned by proxy:proxy"
+  echo "  Log directories owned by proxy:proxy"
 else
-    # Running as non-root - verify directories are writable
-    if [ -w /var/log/squid ] && [ -w /var/spool/squid ]; then
-        echo "  Log directories writable by current user ($(id -un))"
-    else
-        echo "WARNING: Log directories may not be writable - Squid logging may fail"
-    fi
+  # Running as non-root - verify directories are writable
+  if [ -w /var/log/squid ] && [ -w /var/spool/squid ]; then
+    echo "  Log directories writable by current user ($(id -un))"
+  else
+    echo "WARNING: Log directories may not be writable - Squid logging may fail"
+  fi
 fi
 
 # Initialize cache directories if needed
 if [ ! -d "/var/spool/squid/00" ]; then
-    /usr/sbin/squid -z -N 2>/dev/null || true
+  /usr/sbin/squid -z -N 2>/dev/null || true
 fi
 
 # Verify Squid configuration exists
 if [ ! -f "$SQUID_CONF" ]; then
-    echo "ERROR: Squid configuration not found: $SQUID_CONF"
-    exit 1
+  echo "ERROR: Squid configuration not found: $SQUID_CONF"
+  exit 1
 fi
 # Only check allowed_domains.txt in lockdown mode (not used in allow-all mode)
 if [ "$SQUID_CONF" = "/etc/squid/squid.conf" ] && [ ! -f "/etc/squid/allowed_domains.txt" ]; then
-    echo "ERROR: Allowed domains file not found: /etc/squid/allowed_domains.txt"
-    exit 1
+  echo "ERROR: Allowed domains file not found: /etc/squid/allowed_domains.txt"
+  exit 1
 fi
 
 # Start Squid in daemon mode
@@ -121,19 +121,19 @@ fi
 elapsed=0
 max_wait=30
 while [ $elapsed -lt $max_wait ]; do
-    if /usr/sbin/squid -k check 2>/dev/null; then
-        echo "Squid proxy started successfully on port 3129"
-        break
-    fi
-    sleep 1
-    elapsed=$((elapsed + 1))
-    echo "Waiting for Squid to start... ($elapsed/$max_wait)"
+  if /usr/sbin/squid -k check 2>/dev/null; then
+    echo "Squid proxy started successfully on port 3129"
+    break
+  fi
+  sleep 1
+  elapsed=$((elapsed + 1))
+  echo "Waiting for Squid to start... ($elapsed/$max_wait)"
 done
 
 if [ $elapsed -ge $max_wait ]; then
-    echo "ERROR: Squid failed to start within $max_wait seconds"
-    cat /var/log/squid/cache.log 2>/dev/null || true
-    exit 1
+  echo "ERROR: Squid failed to start within $max_wait seconds"
+  cat /var/log/squid/cache.log 2>/dev/null || true
+  exit 1
 fi
 
 # =============================================================================
@@ -145,55 +145,55 @@ fi
 # See: https://github.com/jwbron/egg/issues/1387
 
 _squid_supervisor() {
-    local restart_count=0
-    local max_restarts=10
-    local backoff=2
+  local restart_count=0
+  local max_restarts=10
+  local backoff=2
 
-    while true; do
-        sleep 5
-        if ! /usr/sbin/squid -k check 2>/dev/null; then
-            restart_count=$((restart_count + 1))
-            echo "WARNING: Squid process is not running (restart $restart_count/$max_restarts)"
+  while true; do
+    sleep 5
+    if ! /usr/sbin/squid -k check 2>/dev/null; then
+      restart_count=$((restart_count + 1))
+      echo "WARNING: Squid process is not running (restart $restart_count/$max_restarts)"
 
-            if [ $restart_count -gt $max_restarts ]; then
-                echo "ERROR: Squid exceeded max restarts ($max_restarts), giving up. Container will be marked unhealthy."
-                break
-            fi
+      if [ $restart_count -gt $max_restarts ]; then
+        echo "ERROR: Squid exceeded max restarts ($max_restarts), giving up. Container will be marked unhealthy."
+        break
+      fi
 
-            # Clean up any leftover pid file
-            rm -f /var/run/squid.pid
+      # Clean up any leftover pid file
+      rm -f /var/run/squid.pid
 
-            echo "Restarting Squid..."
-            /usr/sbin/squid -f "$SQUID_CONF" 2>&1 || true
+      echo "Restarting Squid..."
+      /usr/sbin/squid -f "$SQUID_CONF" 2>&1 || true
 
-            # Wait for Squid to come back up
-            local wait=0
-            while [ $wait -lt 15 ]; do
-                if /usr/sbin/squid -k check 2>/dev/null; then
-                    echo "Squid restarted successfully (attempt $restart_count)"
-                    restart_count=0
-                    break
-                fi
-                sleep 1
-                wait=$((wait + 1))
-            done
-
-            if [ $wait -ge 15 ]; then
-                echo "WARNING: Squid failed to restart, will retry in ${backoff}s"
-                sleep $backoff
-                backoff=$((backoff * 2))
-                # Cap backoff at 60 seconds
-                [ $backoff -gt 60 ] && backoff=60
-            else
-                # Reset backoff on successful restart
-                backoff=2
-            fi
-        else
-            # Squid is healthy — reset restart counter
-            restart_count=0
-            backoff=2
+      # Wait for Squid to come back up
+      local wait=0
+      while [ $wait -lt 15 ]; do
+        if /usr/sbin/squid -k check 2>/dev/null; then
+          echo "Squid restarted successfully (attempt $restart_count)"
+          restart_count=0
+          break
         fi
-    done
+        sleep 1
+        wait=$((wait + 1))
+      done
+
+      if [ $wait -ge 15 ]; then
+        echo "WARNING: Squid failed to restart, will retry in ${backoff}s"
+        sleep $backoff
+        backoff=$((backoff * 2))
+        # Cap backoff at 60 seconds
+        [ $backoff -gt 60 ] && backoff=60
+      else
+        # Reset backoff on successful restart
+        backoff=2
+      fi
+    else
+      # Squid is healthy — reset restart counter
+      restart_count=0
+      backoff=2
+    fi
+  done
 }
 
 _squid_supervisor &
@@ -204,7 +204,7 @@ _squid_supervisor &
 
 echo "Validating configuration..."
 if ! python3 config_validator.py 2>/dev/null; then
-    echo "WARNING: Configuration validation had warnings (continuing anyway)"
+  echo "WARNING: Configuration validation had warnings (continuing anyway)"
 fi
 
 # =============================================================================
@@ -225,63 +225,63 @@ GIT_NAME="${EGG_USER_GIT_NAME:-egg}"
 GIT_EMAIL="${EGG_USER_GIT_EMAIL:-egg@example.com}"
 
 if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ] && [ "$(id -u)" = "0" ]; then
-    echo "Dropping privileges to UID=$HOST_UID GID=$HOST_GID"
-    # Defense-in-depth fallback: the passwd entry created below is the primary
-    # mechanism that makes gosu resolve HOME=/home/egg, but we export it here
-    # too in case the useradd/passwd lookup fails for any reason.
-    export HOME=/home/egg
+  echo "Dropping privileges to UID=$HOST_UID GID=$HOST_GID"
+  # Defense-in-depth fallback: the passwd entry created below is the primary
+  # mechanism that makes gosu resolve HOME=/home/egg, but we export it here
+  # too in case the useradd/passwd lookup fails for any reason.
+  export HOME=/home/egg
 
-    # Ensure the target UID has a passwd entry pointing to /home/egg.
-    # Without this, gosu defaults HOME="/" for unknown UIDs, causing
-    # git config and Path.home() to fail with Permission denied on /.gitconfig.
-    if ! getent passwd "$HOST_UID" > /dev/null 2>&1; then
-        getent group "$HOST_GID" > /dev/null 2>&1 || groupadd -g "$HOST_GID" egghost 2>/dev/null || true
-        useradd -u "$HOST_UID" -g "$HOST_GID" -d /home/egg -s /bin/bash -M -N egghost 2>/dev/null || true
+  # Ensure the target UID has a passwd entry pointing to /home/egg.
+  # Without this, gosu defaults HOME="/" for unknown UIDs, causing
+  # git config and Path.home() to fail with Permission denied on /.gitconfig.
+  if ! getent passwd "$HOST_UID" >/dev/null 2>&1; then
+    getent group "$HOST_GID" >/dev/null 2>&1 || groupadd -g "$HOST_GID" egghost 2>/dev/null || true
+    useradd -u "$HOST_UID" -g "$HOST_GID" -d /home/egg -s /bin/bash -M -N egghost 2>/dev/null || true
+  fi
+  chown "$HOST_UID:$HOST_GID" /home/egg
+  # Also chown Docker volume mount points - these are separate filesystems
+  # from /home/egg and are root-owned by default. The gateway process needs
+  # write access after gosu drops privileges.
+  for vol_dir in /home/egg/.egg-state /home/egg/.egg-worktrees; do
+    if [ -d "$vol_dir" ]; then
+      chown -R "$HOST_UID:$HOST_GID" "$vol_dir" 2>/dev/null || true
     fi
-    chown "$HOST_UID:$HOST_GID" /home/egg
-    # Also chown Docker volume mount points - these are separate filesystems
-    # from /home/egg and are root-owned by default. The gateway process needs
-    # write access after gosu drops privileges.
-    for vol_dir in /home/egg/.egg-state /home/egg/.egg-worktrees; do
-        if [ -d "$vol_dir" ]; then
-            chown -R "$HOST_UID:$HOST_GID" "$vol_dir" 2>/dev/null || true
+  done
+  # Chown repo bind-mount points — Docker bind mounts preserve host
+  # ownership, so these directories may be root-owned inside the
+  # container. Only chown the top-level directories (not recursive) —
+  # repo file contents are managed by git/gateway worktree operations.
+  # Also chown .git/worktrees/ in each repo so the gateway can create
+  # worktree admin dirs even if a previous root-privileged session left
+  # them root-owned (e.g., sessions before HOST_UID privilege drop was
+  # introduced).
+  if [ -d /home/egg/repos ]; then
+    # chown is best-effort: read-only mounts (k8s hostPath with
+    # readOnly: true) return EROFS but ownership is already correct
+    # on the host side, so nothing needs to change.
+    chown "$HOST_UID:$HOST_GID" /home/egg/repos 2>/dev/null || true
+    for repo_dir in /home/egg/repos/*/; do
+      if [ -d "$repo_dir" ]; then
+        chown "$HOST_UID:$HOST_GID" "$repo_dir" 2>/dev/null || true
+        if [ -d "$repo_dir/.git/worktrees" ]; then
+          chown -R "$HOST_UID:$HOST_GID" "$repo_dir/.git/worktrees" 2>/dev/null || true
         fi
+      fi
     done
-    # Chown repo bind-mount points — Docker bind mounts preserve host
-    # ownership, so these directories may be root-owned inside the
-    # container. Only chown the top-level directories (not recursive) —
-    # repo file contents are managed by git/gateway worktree operations.
-    # Also chown .git/worktrees/ in each repo so the gateway can create
-    # worktree admin dirs even if a previous root-privileged session left
-    # them root-owned (e.g., sessions before HOST_UID privilege drop was
-    # introduced).
-    if [ -d /home/egg/repos ]; then
-        # chown is best-effort: read-only mounts (k8s hostPath with
-        # readOnly: true) return EROFS but ownership is already correct
-        # on the host side, so nothing needs to change.
-        chown "$HOST_UID:$HOST_GID" /home/egg/repos 2>/dev/null || true
-        for repo_dir in /home/egg/repos/*/; do
-            if [ -d "$repo_dir" ]; then
-                chown "$HOST_UID:$HOST_GID" "$repo_dir" 2>/dev/null || true
-                if [ -d "$repo_dir/.git/worktrees" ]; then
-                    chown -R "$HOST_UID:$HOST_GID" "$repo_dir/.git/worktrees" 2>/dev/null || true
-                fi
-            fi
-        done
-    fi
+  fi
 
-    # Configure global git identity for gateway operations (commits, etc.)
-    # Repos can override this with local config if needed
-    echo "Configuring git identity for gateway: $GIT_NAME <$GIT_EMAIL>"
-    gosu "$HOST_UID:$HOST_GID" git config --global user.name "$GIT_NAME"
-    gosu "$HOST_UID:$HOST_GID" git config --global user.email "$GIT_EMAIL"
+  # Configure global git identity for gateway operations (commits, etc.)
+  # Repos can override this with local config if needed
+  echo "Configuring git identity for gateway: $GIT_NAME <$GIT_EMAIL>"
+  gosu "$HOST_UID:$HOST_GID" git config --global user.name "$GIT_NAME"
+  gosu "$HOST_UID:$HOST_GID" git config --global user.email "$GIT_EMAIL"
 
-    exec gosu "$HOST_UID:$HOST_GID" python3 gateway.py --host 0.0.0.0 --port 9848
+  exec gosu "$HOST_UID:$HOST_GID" python3 gateway.py --host 0.0.0.0 --port 9848
 else
-    # Configure global git identity for gateway operations (commits, etc.)
-    echo "Configuring git identity for gateway: $GIT_NAME <$GIT_EMAIL>"
-    git config --global user.name "$GIT_NAME"
-    git config --global user.email "$GIT_EMAIL"
+  # Configure global git identity for gateway operations (commits, etc.)
+  echo "Configuring git identity for gateway: $GIT_NAME <$GIT_EMAIL>"
+  git config --global user.name "$GIT_NAME"
+  git config --global user.email "$GIT_EMAIL"
 
-    exec python3 gateway.py --host 0.0.0.0 --port 9848
+  exec python3 gateway.py --host 0.0.0.0 --port 9848
 fi

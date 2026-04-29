@@ -69,7 +69,7 @@ if [[ -n "${INPUT_CHECKPOINT_REPO:-}" ]]; then
   CHECKPOINT_REPO_LINE="    checkpoint_repo: ${INPUT_CHECKPOINT_REPO}"
 fi
 
-cat > "$CONFIG_DIR/repositories.yaml" <<YAML
+cat >"$CONFIG_DIR/repositories.yaml" <<YAML
 github_username: ${GITHUB_ACTOR}
 bot_username: ${BOT_USERNAME}
 
@@ -95,21 +95,21 @@ YAML
 # Generate secrets.env
 # ---------------------------------------------------------------------------
 
-cat > "$CONFIG_DIR/secrets.env" <<ENV
+cat >"$CONFIG_DIR/secrets.env" <<ENV
 CLAUDE_CODE_OAUTH_TOKEN=${INPUT_ANTHROPIC_OAUTH_TOKEN}
 GITHUB_USER_TOKEN=${INPUT_GITHUB_TOKEN}
 ENV
 
 # Add bot GitHub App credentials if provided
 if [[ "$AUTH_MODE" == "bot" ]]; then
-  echo "GITHUB_APP_ID=${INPUT_BOT_APP_ID}" >> "$CONFIG_DIR/secrets.env"
-  echo "GITHUB_APP_INSTALLATION_ID=${INPUT_BOT_APP_INSTALLATION_ID}" >> "$CONFIG_DIR/secrets.env"
+  echo "GITHUB_APP_ID=${INPUT_BOT_APP_ID}" >>"$CONFIG_DIR/secrets.env"
+  echo "GITHUB_APP_INSTALLATION_ID=${INPUT_BOT_APP_INSTALLATION_ID}" >>"$CONFIG_DIR/secrets.env"
 
   # Write private key PEM to file for the gateway's token refresher.
   # Normalize literal \n sequences to real newlines — common when PEM keys
   # are pasted as a single line into CI secret UIs.
   PEM_CONTENT="${INPUT_BOT_APP_PRIVATE_KEY//\\n/$'\n'}"
-  printf '%s\n' "$PEM_CONTENT" > "$CONFIG_DIR/github-app.pem"
+  printf '%s\n' "$PEM_CONTENT" >"$CONFIG_DIR/github-app.pem"
   chmod 600 "$CONFIG_DIR/github-app.pem"
 
   # Validate PEM structure
@@ -126,21 +126,21 @@ fi
 # GATEWAY_BOT_BRANCH_PREFIX = branch namespace (for push ownership checks)
 # These are independent: bot name and branch prefix can differ
 BOT_BRANCH_PREFIX="${INPUT_BOT_BRANCH_PREFIX:-}"
-echo "GATEWAY_BOT_NAME=${BOT_USERNAME}" >> "$CONFIG_DIR/secrets.env"
-echo "GATEWAY_BOT_BRANCH_PREFIX=${BOT_BRANCH_PREFIX}" >> "$CONFIG_DIR/secrets.env"
+echo "GATEWAY_BOT_NAME=${BOT_USERNAME}" >>"$CONFIG_DIR/secrets.env"
+echo "GATEWAY_BOT_BRANCH_PREFIX=${BOT_BRANCH_PREFIX}" >>"$CONFIG_DIR/secrets.env"
 
 # Add reviewer bot credentials if provided
 # The reviewer bot is a separate GitHub App used for posting code reviews.
 # This allows reviews to use the full GitHub Reviews API (approve/request-changes)
 # since the reviewer is not the same account as the PR author.
 if [[ -n "${INPUT_REVIEWER_APP_ID:-}" && -n "${INPUT_REVIEWER_APP_PRIVATE_KEY:-}" && -n "${INPUT_REVIEWER_APP_INSTALLATION_ID:-}" ]]; then
-  echo "REVIEWER_APP_ID=${INPUT_REVIEWER_APP_ID}" >> "$CONFIG_DIR/secrets.env"
-  echo "REVIEWER_APP_INSTALLATION_ID=${INPUT_REVIEWER_APP_INSTALLATION_ID}" >> "$CONFIG_DIR/secrets.env"
+  echo "REVIEWER_APP_ID=${INPUT_REVIEWER_APP_ID}" >>"$CONFIG_DIR/secrets.env"
+  echo "REVIEWER_APP_INSTALLATION_ID=${INPUT_REVIEWER_APP_INSTALLATION_ID}" >>"$CONFIG_DIR/secrets.env"
 
   # Write reviewer private key PEM to file (same pattern as bot PEM).
   # Multiline PEM keys cannot be stored in secrets.env (line-based parsing).
   REVIEWER_PEM="${INPUT_REVIEWER_APP_PRIVATE_KEY//\\n/$'\n'}"
-  printf '%s\n' "$REVIEWER_PEM" > "$CONFIG_DIR/reviewer-app.pem"
+  printf '%s\n' "$REVIEWER_PEM" >"$CONFIG_DIR/reviewer-app.pem"
   chmod 600 "$CONFIG_DIR/reviewer-app.pem"
 
   # Validate PEM structure
@@ -153,7 +153,7 @@ if [[ -n "${INPUT_REVIEWER_APP_ID:-}" && -n "${INPUT_REVIEWER_APP_PRIVATE_KEY:-}
 
   # Add reviewer bot name for identity checks
   if [[ -n "${INPUT_REVIEWER_BOT_NAME:-}" ]]; then
-    echo "GATEWAY_REVIEWER_BOT_NAME=${INPUT_REVIEWER_BOT_NAME}" >> "$CONFIG_DIR/secrets.env"
+    echo "GATEWAY_REVIEWER_BOT_NAME=${INPUT_REVIEWER_BOT_NAME}" >>"$CONFIG_DIR/secrets.env"
   fi
 fi
 
@@ -163,15 +163,15 @@ chmod 600 "$CONFIG_DIR/secrets.env"
 # Generate launcher-secret
 # ---------------------------------------------------------------------------
 
-openssl rand -base64 32 > "$CONFIG_DIR/launcher-secret"
+openssl rand -base64 32 >"$CONFIG_DIR/launcher-secret"
 chmod 600 "$CONFIG_DIR/launcher-secret"
 
 # ---------------------------------------------------------------------------
 # Output
 # ---------------------------------------------------------------------------
 
-echo "EGG_CONFIG_DIR=$CONFIG_DIR" >> "${GITHUB_OUTPUT:-/dev/null}"
+echo "EGG_CONFIG_DIR=$CONFIG_DIR" >>"${GITHUB_OUTPUT:-/dev/null}"
 echo "Config directory: $CONFIG_DIR"
-echo "  repositories.yaml: $(wc -l < "$CONFIG_DIR/repositories.yaml") lines"
-echo "  secrets.env: $(wc -l < "$CONFIG_DIR/secrets.env") lines"
+echo "  repositories.yaml: $(wc -l <"$CONFIG_DIR/repositories.yaml") lines"
+echo "  secrets.env: $(wc -l <"$CONFIG_DIR/secrets.env") lines"
 echo "  launcher-secret: generated"

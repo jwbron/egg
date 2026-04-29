@@ -1951,17 +1951,18 @@ def cmd_overseer_consult_advisor(args: argparse.Namespace) -> int:
         print("Error: inputs.recent_log_lines must be an array", file=sys.stderr)
         return 2
 
-    # Resolve overseer_advisor_model from PipelineConfig when a
-    # pipeline-id is available (issue #2113). The orchestrator's
-    # status endpoint exposes the overseer-relevant config subset
-    # (orchestrator/routes/pipelines.py); we read overseer_advisor_model
-    # and pass a duck-typed config to consult_advisor. Falling back to
-    # config=None keeps the historic "opus" default for callers that
-    # do not provide a pipeline-id, and for any failure (orchestrator
-    # unreachable, malformed env, missing client module) — never crash
-    # the verb on the lookup path. NOTE: extend SimpleNamespace below
-    # if consult_advisor ever reads more `config.*` attributes; the
-    # duck-typed surface silently falls back to AttributeError today.
+    # Resolve advisor config knobs from PipelineConfig when a pipeline-id
+    # is available (issues #2113, #2170). The orchestrator's status
+    # endpoint exposes the overseer-relevant config subset
+    # (orchestrator/routes/pipelines.py); we read each field and pass a
+    # duck-typed config to consult_advisor. Falling back to config=None
+    # keeps the historic defaults ("opus" model, 256 KiB log cap) for
+    # callers that do not provide a pipeline-id, and for any failure
+    # (orchestrator unreachable, malformed env, missing client module) —
+    # never crash the verb on the lookup path. NOTE: extend the
+    # SimpleNamespace assembly below if consult_advisor ever reads more
+    # `config.*` attributes; the duck-typed surface silently falls back
+    # to AttributeError today.
     advisor_config: Any = None
     pid = getattr(args, "pipeline_id", None) or get_pipeline_id_from_env()
     if pid and _SAFE_ID_PATTERN.match(pid):
@@ -1974,22 +1975,30 @@ def cmd_overseer_consult_advisor(args: argparse.Namespace) -> int:
         except ImportError as exc:
             print(
                 f"Warning: cannot import egg_lib.orch_client ({exc}); "
-                f"falling back to default advisor model",
+                f"falling back to default advisor config",
                 file=sys.stderr,
             )
         else:
             try:
                 status = OrchClient().get_pipeline_status(quote(pid, safe=""))
                 cfg_dict = status.get("config") if isinstance(status, dict) else None
-                model = (
-                    cfg_dict.get("overseer_advisor_model") if isinstance(cfg_dict, dict) else None
-                )
-                if model:
-                    advisor_config = SimpleNamespace(overseer_advisor_model=model)
+                if isinstance(cfg_dict, dict):
+                    ns_kwargs: dict[str, Any] = {}
+                    model = cfg_dict.get("overseer_advisor_model")
+                    if model:
+                        ns_kwargs["overseer_advisor_model"] = model
+                    # bytes-cap can legitimately be 0 (disable sentinel),
+                    # so distinguish "absent" from "explicitly zero" with
+                    # `is not None` rather than truthiness.
+                    cap = cfg_dict.get("overseer_advisor_recent_log_bytes_cap")
+                    if cap is not None:
+                        ns_kwargs["overseer_advisor_recent_log_bytes_cap"] = cap
+                    if ns_kwargs:
+                        advisor_config = SimpleNamespace(**ns_kwargs)
             except OrchestratorError as exc:
                 print(
                     f"Warning: cannot read PipelineConfig for {pid} "
-                    f"({exc}); falling back to default advisor model",
+                    f"({exc}); falling back to default advisor config",
                     file=sys.stderr,
                 )
     elif pid:
@@ -1998,7 +2007,7 @@ def cmd_overseer_consult_advisor(args: argparse.Namespace) -> int:
         # sys.exit(1), which would collide with AdvisorParseError's
         # exit-code semantics. See review feedback on PR #2158.
         print(
-            f"Warning: pipeline_id {pid!r} is not a safe ID; falling back to default advisor model",
+            f"Warning: pipeline_id {pid!r} is not a safe ID; falling back to default advisor config",
             file=sys.stderr,
         )
 

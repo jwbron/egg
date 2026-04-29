@@ -21,121 +21,121 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 
 get_changed_files() {
-    local base_commit="${COMMIT_SHA:-HEAD~1}"
+  local base_commit="${COMMIT_SHA:-HEAD~1}"
 
-    # Get list of changed files (excluding docs and markdown)
-    git diff --name-only "${base_commit}..HEAD" 2>/dev/null | \
-        grep -v -E '^docs/' | \
-        grep -v -E '\.md$' || true
+  # Get list of changed files (excluding docs and markdown)
+  git diff --name-only "${base_commit}..HEAD" 2>/dev/null \
+    | grep -v -E '^docs/' \
+    | grep -v -E '\.md$' || true
 }
 
 get_commit_messages() {
-    local base_commit="${COMMIT_SHA:-HEAD~1}"
+  local base_commit="${COMMIT_SHA:-HEAD~1}"
 
-    # Get commit messages since base (usually just the merged commit)
-    git log --oneline "${base_commit}..HEAD" 2>/dev/null || echo "Unable to get commit messages"
+  # Get commit messages since base (usually just the merged commit)
+  git log --oneline "${base_commit}..HEAD" 2>/dev/null || echo "Unable to get commit messages"
 }
 
 get_diff_stats() {
-    local base_commit="${COMMIT_SHA:-HEAD~1}"
+  local base_commit="${COMMIT_SHA:-HEAD~1}"
 
-    # Get diffstat summary to help the agent gauge change magnitude
-    git diff --stat "${base_commit}..HEAD" 2>/dev/null | tail -1 || true
+  # Get diffstat summary to help the agent gauge change magnitude
+  git diff --stat "${base_commit}..HEAD" 2>/dev/null | tail -1 || true
 }
 
 get_new_files() {
-    local base_commit="${COMMIT_SHA:-HEAD~1}"
+  local base_commit="${COMMIT_SHA:-HEAD~1}"
 
-    # List files that were added (not modified), excluding docs/markdown
-    git diff --name-only --diff-filter=A "${base_commit}..HEAD" 2>/dev/null | \
-        grep -v -E '^docs/' | \
-        grep -v -E '\.md$' || true
+  # List files that were added (not modified), excluding docs/markdown
+  git diff --name-only --diff-filter=A "${base_commit}..HEAD" 2>/dev/null \
+    | grep -v -E '^docs/' \
+    | grep -v -E '\.md$' || true
 }
 
 find_related_docs() {
-    local base_commit="${COMMIT_SHA:-HEAD~1}"
+  local base_commit="${COMMIT_SHA:-HEAD~1}"
 
-    # Extract meaningful terms from changed CODE file paths (not docs) to
-    # find documentation that discusses the same components/concepts.
-    # We focus on domain-specific terms (e.g. "hitl", "sdlc", "gateway")
-    # and filter out generic project structure words.
-    local code_files
-    code_files=$(git diff --name-only "${base_commit}..HEAD" 2>/dev/null | \
-        grep -v -E '^docs/' | \
-        grep -v -E '\.md$' || true)
+  # Extract meaningful terms from changed CODE file paths (not docs) to
+  # find documentation that discusses the same components/concepts.
+  # We focus on domain-specific terms (e.g. "hitl", "sdlc", "gateway")
+  # and filter out generic project structure words.
+  local code_files
+  code_files=$(git diff --name-only "${base_commit}..HEAD" 2>/dev/null \
+    | grep -v -E '^docs/' \
+    | grep -v -E '\.md$' || true)
 
-    if [[ -z "$code_files" ]]; then
-        return
-    fi
+  if [[ -z "$code_files" ]]; then
+    return
+  fi
 
-    local path_terms
-    path_terms=$(echo "$code_files" | \
-        sed 's|/| |g; s|\.| |g; s|_| |g; s|-| |g' | \
-        tr ' ' '\n' | \
-        tr '[:upper:]' '[:lower:]' | \
-        grep -E '^[a-z0-9]+$' | \
-        grep -v -E '^(src|lib|pkg|cmd|internal|test|tests|unit|spec|py|ts|tsx|js|jsx|json|yml|yaml|md|txt|cfg|toml|ini|lock|go|rs|java|sh|bash|css|scss|html|init|main|index|utils|helpers|common|config|setup|__pycache__|node_modules|dist|build|vendor|egg|action|sandbox|github|workflows|on|push|prompt|integration|service|server|client|handler|manager|factory|model|view|controller|schema|migration|fixture|mock|stub)$' | \
-        grep -E '.{4,}' | \
-        sort -u || true)
+  local path_terms
+  path_terms=$(echo "$code_files" \
+    | sed 's|/| |g; s|\.| |g; s|_| |g; s|-| |g' \
+    | tr ' ' '\n' \
+    | tr '[:upper:]' '[:lower:]' \
+    | grep -E '^[a-z0-9]+$' \
+    | grep -v -E '^(src|lib|pkg|cmd|internal|test|tests|unit|spec|py|ts|tsx|js|jsx|json|yml|yaml|md|txt|cfg|toml|ini|lock|go|rs|java|sh|bash|css|scss|html|init|main|index|utils|helpers|common|config|setup|__pycache__|node_modules|dist|build|vendor|egg|action|sandbox|github|workflows|on|push|prompt|integration|service|server|client|handler|manager|factory|model|view|controller|schema|migration|fixture|mock|stub)$' \
+    | grep -E '.{4,}' \
+    | sort -u || true)
 
-    # Extract key terms from commit subject lines only (not full bodies,
-    # which contain too much noise). Focus on feature/component nouns.
-    local commit_terms
-    commit_terms=$(git log --format='%s' "${base_commit}..HEAD" 2>/dev/null | \
-        sed 's/\[.*\]//g; s/([^)]*)//g; s/#[0-9]*//g' | \
-        sed 's/[^a-zA-Z]/ /g' | \
-        tr ' ' '\n' | \
-        tr '[:upper:]' '[:lower:]' | \
-        grep -E '^[a-z]+$' | \
-        grep -v -E '^(the|and|for|with|from|that|this|not|but|can|all|its|into|also|new|add|fix|update|change|move|remove|use|make|set|get|run|docs|code|commit|merge|push|pull|review|test|bug|feat|chore|refactor|style|perf|revert|egg|none|before|after|when|only|some|more|other|wait|failing|failed|workflow|pipeline)$' | \
-        grep -E '.{4,}' | \
-        sort -u || true)
+  # Extract key terms from commit subject lines only (not full bodies,
+  # which contain too much noise). Focus on feature/component nouns.
+  local commit_terms
+  commit_terms=$(git log --format='%s' "${base_commit}..HEAD" 2>/dev/null \
+    | sed 's/\[.*\]//g; s/([^)]*)//g; s/#[0-9]*//g' \
+    | sed 's/[^a-zA-Z]/ /g' \
+    | tr ' ' '\n' \
+    | tr '[:upper:]' '[:lower:]' \
+    | grep -E '^[a-z]+$' \
+    | grep -v -E '^(the|and|for|with|from|that|this|not|but|can|all|its|into|also|new|add|fix|update|change|move|remove|use|make|set|get|run|docs|code|commit|merge|push|pull|review|test|bug|feat|chore|refactor|style|perf|revert|egg|none|before|after|when|only|some|more|other|wait|failing|failed|workflow|pipeline)$' \
+    | grep -E '.{4,}' \
+    | sort -u || true)
 
-    # Combine and deduplicate terms, take top candidates
-    local all_terms
-    all_terms=$(printf '%s\n%s\n' "$path_terms" "$commit_terms" | \
-        grep -v '^$' | sort -u | head -20)
+  # Combine and deduplicate terms, take top candidates
+  local all_terms
+  all_terms=$(printf '%s\n%s\n' "$path_terms" "$commit_terms" \
+    | grep -v '^$' | sort -u | head -20)
 
-    if [[ -z "$all_terms" ]]; then
-        return
-    fi
+  if [[ -z "$all_terms" ]]; then
+    return
+  fi
 
-    # Build grep pattern from terms
-    local pattern
-    pattern=$(echo "$all_terms" | tr '\n' '|' | sed 's/|$//')
+  # Build grep pattern from terms
+  local pattern
+  pattern=$(echo "$all_terms" | tr '\n' '|' | sed 's/|$//')
 
-    # Get list of docs changed in this commit (already being processed)
-    local changed_docs
-    changed_docs=$(git diff --name-only "${base_commit}..HEAD" 2>/dev/null | \
-        grep -E '^docs/' || true)
+  # Get list of docs changed in this commit (already being processed)
+  local changed_docs
+  changed_docs=$(git diff --name-only "${base_commit}..HEAD" 2>/dev/null \
+    | grep -E '^docs/' || true)
 
-    # Search all doc files for references to these terms, excluding:
-    # - structural docs (already checked separately in step 3)
-    # - docs changed in this same commit (already being processed)
-    local results
-    results=$(grep -rl -i -E "$pattern" docs/ 2>/dev/null | \
-        grep -v -E '(docs/index\.md|docs/development/STRUCTURE\.md|docs/architecture/README\.md)$' | \
-        sort -u || true)
+  # Search all doc files for references to these terms, excluding:
+  # - structural docs (already checked separately in step 3)
+  # - docs changed in this same commit (already being processed)
+  local results
+  results=$(grep -rl -i -E "$pattern" docs/ 2>/dev/null \
+    | grep -v -E '(docs/index\.md|docs/development/STRUCTURE\.md|docs/architecture/README\.md)$' \
+    | sort -u || true)
 
-    # Also search root-level markdown files (README.md is excluded here
-    # because it gets explicit handling as a structural doc in step 3)
-    local root_md_results
-    root_md_results=$(grep -rl -i -E "$pattern" ./*.md 2>/dev/null | \
-        sed 's|^\./||' | \
-        grep -v -E '^README\.md$' | \
-        sort -u || true)
+  # Also search root-level markdown files (README.md is excluded here
+  # because it gets explicit handling as a structural doc in step 3)
+  local root_md_results
+  root_md_results=$(grep -rl -i -E "$pattern" ./*.md 2>/dev/null \
+    | sed 's|^\./||' \
+    | grep -v -E '^README\.md$' \
+    | sort -u || true)
 
-    # Combine results from docs/ and root-level
-    results=$(printf '%s\n%s' "$results" "$root_md_results" | grep -v '^$' | sort -u)
+  # Combine results from docs/ and root-level
+  results=$(printf '%s\n%s' "$results" "$root_md_results" | grep -v '^$' | sort -u)
 
-    # Filter out docs that were changed in the same commit
-    if [[ -n "$changed_docs" ]]; then
-        local exclude_pattern
-        exclude_pattern=$(echo "$changed_docs" | tr '\n' '|' | sed 's/|$//')
-        echo "$results" | grep -v -E "^($exclude_pattern)$" || true
-    else
-        echo "$results"
-    fi
+  # Filter out docs that were changed in the same commit
+  if [[ -n "$changed_docs" ]]; then
+    local exclude_pattern
+    exclude_pattern=$(echo "$changed_docs" | tr '\n' '|' | sed 's/|$//')
+    echo "$results" | grep -v -E "^($exclude_pattern)$" || true
+  else
+    echo "$results"
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -143,69 +143,69 @@ find_related_docs() {
 # ---------------------------------------------------------------------------
 
 detect_high_risk_docs() {
-    local changed_files="$1"
-    local flags=""
+  local changed_files="$1"
+  local flags=""
 
-    if echo "$changed_files" | grep -qE 'sandbox/egg_lib/cli\.py'; then
-        flags+="README_CLI "
-    fi
+  if echo "$changed_files" | grep -qE 'sandbox/egg_lib/cli\.py'; then
+    flags+="README_CLI "
+  fi
 
-    if echo "$changed_files" | grep -qE '(gateway/phase_filter\.py|gateway/policy\.py|\.egg/phase-permissions\.json)'; then
-        flags+="README_ENFORCEMENT "
-    fi
+  if echo "$changed_files" | grep -qE '(gateway/phase_filter\.py|gateway/policy\.py|\.egg/phase-permissions\.json)'; then
+    flags+="README_ENFORCEMENT "
+  fi
 
-    if echo "$changed_files" | grep -qE '(docker-compose|bin/egg-deploy|sandbox/egg_lib/(compose|deploy))'; then
-        flags+="DEPLOYMENT_GUIDE "
-    fi
+  if echo "$changed_files" | grep -qE '(docker-compose|bin/egg-deploy|sandbox/egg_lib/(compose|deploy))'; then
+    flags+="DEPLOYMENT_GUIDE "
+  fi
 
-    if echo "$changed_files" | grep -qE '(action/action\.yml|action/entrypoint\.sh)'; then
-        flags+="README_ACTION ACTION_README "
-    fi
+  if echo "$changed_files" | grep -qE '(action/action\.yml|action/entrypoint\.sh)'; then
+    flags+="README_ACTION ACTION_README "
+  fi
 
-    if echo "$changed_files" | grep -qE '\.github/workflows/'; then
-        flags+="GITHUB_AUTOMATION "
-    fi
+  if echo "$changed_files" | grep -qE '\.github/workflows/'; then
+    flags+="GITHUB_AUTOMATION "
+  fi
 
-    if echo "$changed_files" | grep -qE 'orchestrator/'; then
-        flags+="README_ORCHESTRATION "
-    fi
+  if echo "$changed_files" | grep -qE 'orchestrator/'; then
+    flags+="README_ORCHESTRATION "
+  fi
 
-    echo "$flags"
+  echo "$flags"
 }
 
 build_high_risk_instructions() {
-    local flags="$1"
-    local instructions=""
+  local flags="$1"
+  local instructions=""
 
-    if [[ "$flags" == *"README_CLI"* ]]; then
-        instructions+="- **CLI Reference**: Compare argparse definitions in \`sandbox/egg_lib/cli.py\` against CLI Reference and Flags tables in \`README.md\`. Check for missing flags, changed descriptions, or reordered arguments.\n"
-    fi
+  if [[ "$flags" == *"README_CLI"* ]]; then
+    instructions+="- **CLI Reference**: Compare argparse definitions in \`sandbox/egg_lib/cli.py\` against CLI Reference and Flags tables in \`README.md\`. Check for missing flags, changed descriptions, or reordered arguments.\n"
+  fi
 
-    if [[ "$flags" == *"README_ENFORCEMENT"* ]]; then
-        instructions+="- **Enforcement tables**: Compare \`gateway/phase_filter.py\` and \`.egg/phase-permissions.json\` against the \"What's Enforced\" and \"Phase Permissions\" tables in \`README.md\`.\n"
-    fi
+  if [[ "$flags" == *"README_ENFORCEMENT"* ]]; then
+    instructions+="- **Enforcement tables**: Compare \`gateway/phase_filter.py\` and \`.egg/phase-permissions.json\` against the \"What's Enforced\" and \"Phase Permissions\" tables in \`README.md\`.\n"
+  fi
 
-    if [[ "$flags" == *"DEPLOYMENT_GUIDE"* ]]; then
-        instructions+="- **Deployment guide**: Check \`docs/guides/deployment.md\` for consistency with README Quick Start and CLI Reference. Ensure deployment commands and options match.\n"
-    fi
+  if [[ "$flags" == *"DEPLOYMENT_GUIDE"* ]]; then
+    instructions+="- **Deployment guide**: Check \`docs/guides/deployment.md\` for consistency with README Quick Start and CLI Reference. Ensure deployment commands and options match.\n"
+  fi
 
-    if [[ "$flags" == *"README_ACTION"* ]]; then
-        instructions+="- **GitHub Action inputs**: Compare \`action/action.yml\` inputs against the GitHub Action section in \`README.md\`.\n"
-    fi
+  if [[ "$flags" == *"README_ACTION"* ]]; then
+    instructions+="- **GitHub Action inputs**: Compare \`action/action.yml\` inputs against the GitHub Action section in \`README.md\`.\n"
+  fi
 
-    if [[ "$flags" == *"ACTION_README"* ]]; then
-        instructions+="- **Action README**: Check \`action/README.md\` for accuracy against \`action/action.yml\` and \`action/entrypoint.sh\`.\n"
-    fi
+  if [[ "$flags" == *"ACTION_README"* ]]; then
+    instructions+="- **Action README**: Check \`action/README.md\` for accuracy against \`action/action.yml\` and \`action/entrypoint.sh\`.\n"
+  fi
 
-    if [[ "$flags" == *"GITHUB_AUTOMATION"* ]]; then
-        instructions+="- **Workflow table**: Check \`docs/guides/github-automation.md\` for accuracy against actual workflow files in \`.github/workflows/\`.\n"
-    fi
+  if [[ "$flags" == *"GITHUB_AUTOMATION"* ]]; then
+    instructions+="- **Workflow table**: Check \`docs/guides/github-automation.md\` for accuracy against actual workflow files in \`.github/workflows/\`.\n"
+  fi
 
-    if [[ "$flags" == *"README_ORCHESTRATION"* ]]; then
-        instructions+="- **Orchestration section**: Check the Multi-Agent Orchestration section in \`README.md\` against files in \`orchestrator/\`.\n"
-    fi
+  if [[ "$flags" == *"README_ORCHESTRATION"* ]]; then
+    instructions+="- **Orchestration section**: Check the Multi-Agent Orchestration section in \`README.md\` against files in \`orchestrator/\`.\n"
+  fi
 
-    printf '%b' "$instructions"
+  printf '%b' "$instructions"
 }
 
 # ---------------------------------------------------------------------------
@@ -213,56 +213,58 @@ build_high_risk_instructions() {
 # ---------------------------------------------------------------------------
 
 build_prompt() {
-    local changed_files
-    local commit_messages
-    local base_commit="${COMMIT_SHA:-HEAD~1}"
+  local changed_files
+  local commit_messages
+  local base_commit="${COMMIT_SHA:-HEAD~1}"
 
-    changed_files=$(get_changed_files)
-    commit_messages=$(get_commit_messages)
-    local diff_stats
-    local new_files
-    local related_docs
-    diff_stats=$(get_diff_stats)
-    new_files=$(get_new_files)
-    related_docs=$(find_related_docs)
+  changed_files=$(get_changed_files)
+  commit_messages=$(get_commit_messages)
+  local diff_stats
+  local new_files
+  local related_docs
+  diff_stats=$(get_diff_stats)
+  new_files=$(get_new_files)
+  related_docs=$(find_related_docs)
 
-    # If no code files changed, skip
-    if [[ -z "$changed_files" ]]; then
-        echo "No code files changed (only docs/markdown), skipping doc-updater"
-        # Create a minimal prompt that exits immediately
-        local prompt_file="${RUNNER_TEMP:-/tmp}/doc-updater-prompt.txt"
-        echo "No code files changed since ${base_commit}. Nothing to do." > "$prompt_file"
-        {
-            echo "prompt_file=${prompt_file}"
-            echo "model=haiku"
-        } >> "${GITHUB_OUTPUT:-/dev/null}"
-        return
-    fi
+  # If no code files changed, skip
+  if [[ -z "$changed_files" ]]; then
+    echo "No code files changed (only docs/markdown), skipping doc-updater"
+    # Create a minimal prompt that exits immediately
+    local prompt_file="${RUNNER_TEMP:-/tmp}/doc-updater-prompt.txt"
+    echo "No code files changed since ${base_commit}. Nothing to do." >"$prompt_file"
+    {
+      echo "prompt_file=${prompt_file}"
+      echo "model=haiku"
+    } >>"${GITHUB_OUTPUT:-/dev/null}"
+    return
+  fi
 
-    # Detect high-risk file patterns that need specific doc cross-references
-    local high_risk_flags high_risk_instructions high_risk_step
-    high_risk_flags=$(detect_high_risk_docs "$changed_files")
-    high_risk_instructions=$(build_high_risk_instructions "$high_risk_flags")
+  # Detect high-risk file patterns that need specific doc cross-references
+  local high_risk_flags high_risk_instructions high_risk_step
+  high_risk_flags=$(detect_high_risk_docs "$changed_files")
+  high_risk_instructions=$(build_high_risk_instructions "$high_risk_flags")
 
-    # Build the conditional step 3b for the prompt
-    if [[ -n "$high_risk_flags" ]]; then
-        high_risk_step=$(cat <<'HRSTEP'
+  # Build the conditional step 3b for the prompt
+  if [[ -n "$high_risk_flags" ]]; then
+    high_risk_step=$(
+      cat <<'HRSTEP'
 3b. **Cross-reference high-risk sections** (flagged changes detected):
 
 HRSTEP
-)
-        high_risk_step+="${high_risk_instructions}"
-        high_risk_step+="
+    )
+    high_risk_step+="${high_risk_instructions}"
+    high_risk_step+="
     For each flagged section:
     - Read the SOURCE file to extract the current definitions
     - Read the TARGET doc section to check for discrepancies
     - If they differ, update the doc to match the source"
-    else
-        high_risk_step=""
-    fi
+  else
+    high_risk_step=""
+  fi
 
-    local prompt
-    prompt=$(cat <<PROMPT_EOF
+  local prompt
+  prompt=$(
+    cat <<PROMPT_EOF
 # Doc Updater Task
 
 Analyze recent code changes and determine if documentation needs to be updated.
@@ -408,33 +410,33 @@ Triggered by: <link to merged PR or commit>
 Authored-by: egg
 \`\`\`
 PROMPT_EOF
-)
+  )
 
-    # Add dry run instruction if applicable
-    if [[ "${DRY_RUN:-false}" == "true" ]]; then
-        prompt+="
+  # Add dry run instruction if applicable
+  if [[ "${DRY_RUN:-false}" == "true" ]]; then
+    prompt+="
 
 ## Dry Run Mode
 
 This is a dry run. Analyze the changes and describe what documentation updates
 you WOULD make, but do NOT create any branches or PRs. Just report your findings."
-    fi
+  fi
 
-    # Write prompt to temp file
-    local prompt_file="${RUNNER_TEMP:-/tmp}/doc-updater-prompt.txt"
-    echo "$prompt" > "$prompt_file"
+  # Write prompt to temp file
+  local prompt_file="${RUNNER_TEMP:-/tmp}/doc-updater-prompt.txt"
+  echo "$prompt" >"$prompt_file"
 
-    # Use sonnet for doc analysis (good balance of capability and speed)
-    local model="sonnet"
+  # Use sonnet for doc analysis (good balance of capability and speed)
+  local model="sonnet"
 
-    # Write outputs
-    {
-        echo "prompt_file=${prompt_file}"
-        echo "model=${model}"
-    } >> "${GITHUB_OUTPUT:-/dev/null}"
+  # Write outputs
+  {
+    echo "prompt_file=${prompt_file}"
+    echo "model=${model}"
+  } >>"${GITHUB_OUTPUT:-/dev/null}"
 
-    echo "Doc-updater prompt built: ${#prompt} chars, model=${model}"
-    echo "Changed files: $(echo "$changed_files" | wc -l) files"
+  echo "Doc-updater prompt built: ${#prompt} chars, model=${model}"
+  echo "Changed files: $(echo "$changed_files" | wc -l) files"
 }
 
 # ---------------------------------------------------------------------------
