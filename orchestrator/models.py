@@ -377,6 +377,30 @@ class PipelineConfig(BaseModel):
     consensus_timeout_minutes: int = Field(
         default=30, ge=1, description="Timeout for consensus before HITL escalation"
     )
+    post_consensus_iteration_budget_seconds: int = Field(
+        default=3600,
+        ge=60,
+        description=(
+            "After consensus_timeout_minutes elapses, the post-timeout poll loop "
+            "waits up to this many seconds without producer progress before "
+            "force-killing remaining containers (issue #2245). The clock "
+            "rebaselines whenever a producer issues a new CONSENSUS_PROPOSE "
+            "(initial propose or NACK→re-propose), so a healthy multi-iteration "
+            "BRC cycle no longer counts iteration time against a single fixed "
+            "budget."
+        ),
+    )
+    post_consensus_max_total_seconds: int = Field(
+        default=14400,
+        ge=60,
+        description=(
+            "Hard ceiling on the post-consensus-timeout wait, in seconds. "
+            "Caps the total time spent in the post-timeout poll loop even when "
+            "producer progress keeps rebaselining the per-iteration budget — "
+            "prevents an unbounded loop if propose events keep arriving but "
+            "consensus never converges. Default 4 hours."
+        ),
+    )
     brc_consensus_progress_gate_seconds: int = Field(
         default=300,
         ge=0,
@@ -624,6 +648,23 @@ class PipelineConfig(BaseModel):
             "Subsequent attempts scale by 3x (e.g. 30s, 90s). See #1879."
         ),
     )
+
+    @model_validator(mode="after")
+    def _validate_post_consensus_budgets(self) -> "PipelineConfig":
+        """Reject configs where the absolute cap is below the per-iteration budget.
+
+        Without this, a misconfigured pipeline (e.g. ``iteration_budget=7200``
+        with ``max_total=3600``) silently makes the per-iteration logic
+        unreachable — the absolute cap would always fire first. See #2245.
+        """
+        if self.post_consensus_max_total_seconds < self.post_consensus_iteration_budget_seconds:
+            raise ValueError(
+                "post_consensus_max_total_seconds "
+                f"({self.post_consensus_max_total_seconds}) must be >= "
+                "post_consensus_iteration_budget_seconds "
+                f"({self.post_consensus_iteration_budget_seconds})"
+            )
+        return self
 
     @model_validator(mode="before")
     @classmethod
