@@ -158,7 +158,7 @@ class StateConsistencyCheck:
 
         try:
             contract = json.loads(contract_content)
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             return None
 
         # Look for tasks with status=pending in the contract

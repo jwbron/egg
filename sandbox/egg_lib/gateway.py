@@ -747,7 +747,7 @@ def wait_for_gateway_health(timeout: int = 30, check_proxy: bool = True) -> bool
                 with urllib.request.urlopen(health_url, timeout=2) as response:
                     if response.status == 200:
                         api_healthy = True
-            except (urllib.error.URLError, OSError):
+            except urllib.error.URLError, OSError:
                 pass  # Gateway API not ready yet
 
         # Check 2: Squid proxy connectivity (only after API is healthy)
@@ -779,7 +779,7 @@ def wait_for_gateway_health(timeout: int = 30, check_proxy: bool = True) -> bool
                 # 401/403 means we reached Anthropic - proxy is working
                 if e.code in (401, 403):
                     proxy_healthy = True
-            except (urllib.error.URLError, OSError):
+            except urllib.error.URLError, OSError:
                 pass  # Proxy not ready yet
 
         # Success conditions

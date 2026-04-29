@@ -723,7 +723,7 @@ class OverseerMonitor:
             try:
                 body = json.loads(e.read().decode())
                 error_msg = body.get("message", str(e))
-            except (json.JSONDecodeError, UnicodeDecodeError):
+            except json.JSONDecodeError, UnicodeDecodeError:
                 error_msg = str(e)
             logger.error(
                 "Failed to restart agent %s (HTTP %s): %s",
@@ -1515,7 +1515,7 @@ class OverseerMonitor:
             work_duration: float | None = None
             try:
                 r = _dt.datetime.fromisoformat(resolved_at)
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 continue
 
             for ct in cycle_timings:
@@ -1529,7 +1529,7 @@ class OverseerMonitor:
                     if s >= r:
                         work_duration = (c - s).total_seconds()
                         break
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     continue
 
             if work_duration is not None and work_duration < min_work:

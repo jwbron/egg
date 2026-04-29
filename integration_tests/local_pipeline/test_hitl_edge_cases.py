@@ -120,7 +120,7 @@ class TestCustomInputDecision:
                         pending = status_data["data"].get("pending_decision")
                         if pending:
                             resolve_decision(orchestrator_url, pipeline_id, pending["id"])
-                    except (TimeoutError, AssertionError):
+                    except TimeoutError, AssertionError:
                         break
             except requests.RequestException:
                 pass
@@ -183,7 +183,7 @@ class TestInvalidDecisionId:
                         pending = status_data["data"].get("pending_decision")
                         if pending:
                             resolve_decision(orchestrator_url, pipeline_id, pending["id"])
-                    except (TimeoutError, AssertionError):
+                    except TimeoutError, AssertionError:
                         break
             except requests.RequestException:
                 pass
@@ -237,7 +237,7 @@ class TestAlreadyResolvedDecision:
                         pending = status_data["data"].get("pending_decision")
                         if pending:
                             resolve_decision(orchestrator_url, pipeline_id, pending["id"])
-                    except (TimeoutError, AssertionError):
+                    except TimeoutError, AssertionError:
                         break
             except requests.RequestException:
                 pass
@@ -315,7 +315,7 @@ class TestConcurrentDecisionResolution:
                         pending = status_data["data"].get("pending_decision")
                         if pending:
                             resolve_decision(orchestrator_url, pipeline_id, pending["id"])
-                    except (TimeoutError, AssertionError):
+                    except TimeoutError, AssertionError:
                         break
             except requests.RequestException:
                 pass
@@ -376,7 +376,7 @@ class TestDecisionWithInvalidResolution:
                         pending = status_data["data"].get("pending_decision")
                         if pending:
                             resolve_decision(orchestrator_url, pipeline_id, pending["id"])
-                    except (TimeoutError, AssertionError):
+                    except TimeoutError, AssertionError:
                         break
             except requests.RequestException:
                 pass

@@ -161,7 +161,7 @@ def _config_int(config: dict[str, Any], key: str, default: int) -> int:
     value = config.get(key, default)
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return default
 
 
@@ -389,7 +389,7 @@ def run_migrated_detectors(
         ts = nack.get("timestamp") or nack.get("ts")
         try:
             nack_dt = datetime.datetime.fromisoformat(ts) if ts else None
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             nack_dt = None
         if nack_dt is None:
             continue

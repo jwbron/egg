@@ -203,7 +203,7 @@ def docker_available() -> bool:
             check=False,
         )
         return result.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except FileNotFoundError, subprocess.TimeoutExpired:
         return False
 
 

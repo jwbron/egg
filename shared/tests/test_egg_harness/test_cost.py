@@ -159,7 +159,7 @@ class TestCostTrackerUnknownModel:
             tracker.add_usage(input_tokens=1000, output_tokens=500, model="unknown-model")
             # If it doesn't raise, cost should be zero or some default
             assert tracker.total_cost_usd >= 0.0
-        except (ValueError, KeyError):
+        except ValueError, KeyError:
             pass  # Also acceptable to raise for unknown models
 
     def test_openai_compatible_model_no_cost(self):
@@ -169,7 +169,7 @@ class TestCostTrackerUnknownModel:
             tracker.add_usage(input_tokens=1000, output_tokens=500, model="gpt-4o")
             # Should not crash; cost may be zero
             assert tracker.total_cost_usd >= 0.0
-        except (ValueError, KeyError):
+        except ValueError, KeyError:
             pass  # Acceptable to raise for non-Anthropic models
 
 
