@@ -11,12 +11,14 @@ VENV_BIN := $(VENV_DIR)/bin
 
 # Tool resolution: prefer venv, fall back to system PATH.
 # CI uses venv (via uv sync); the sandbox has tools installed globally.
-RUFF := $(if $(wildcard $(VENV_BIN)/ruff),$(VENV_BIN)/ruff,ruff)
-PYTEST := $(if $(wildcard $(VENV_BIN)/pytest),$(VENV_BIN)/pytest,pytest)
-MYPY := $(if $(wildcard $(VENV_BIN)/mypy),$(VENV_BIN)/mypy,mypy)
-YAMLLINT := $(if $(wildcard $(VENV_BIN)/yamllint),$(VENV_BIN)/yamllint,yamllint)
-BANDIT := $(if $(wildcard $(VENV_BIN)/bandit),$(VENV_BIN)/bandit,bandit)
-PYTHON := $(if $(wildcard $(VENV_BIN)/python),$(VENV_BIN)/python,python3)
+# Recursive (`=`, not `:=`) so the wildcard re-evaluates after a `sync-venv-if-uv`
+# prereq creates the venv on first use in a fresh worktree (issue #2280).
+RUFF = $(if $(wildcard $(VENV_BIN)/ruff),$(VENV_BIN)/ruff,ruff)
+PYTEST = $(if $(wildcard $(VENV_BIN)/pytest),$(VENV_BIN)/pytest,pytest)
+MYPY = $(if $(wildcard $(VENV_BIN)/mypy),$(VENV_BIN)/mypy,mypy)
+YAMLLINT = $(if $(wildcard $(VENV_BIN)/yamllint),$(VENV_BIN)/yamllint,yamllint)
+BANDIT = $(if $(wildcard $(VENV_BIN)/bandit),$(VENV_BIN)/bandit,bandit)
+PYTHON = $(if $(wildcard $(VENV_BIN)/python),$(VENV_BIN)/python,python3)
 
 # PYTHONPATH — set per-target to avoid leaking into unrelated recipes
 
@@ -199,7 +201,7 @@ check-linters:
 lint: lint-python lint-shell lint-yaml lint-docker lint-actions lint-custom
 
 lint-python: export PYTHONPATH := shared:gateway:orchestrator
-lint-python:
+lint-python: sync-venv-if-uv
 	@echo "==> Ruff check..."
 	@$(RUFF) check .
 	@echo "==> Ruff format check..."
@@ -227,7 +229,7 @@ lint-shell:
 		echo "SKIP: shellcheck not installed"; \
 	fi
 
-lint-yaml:
+lint-yaml: sync-venv-if-uv
 	@echo "==> Yamllint..."
 	@if command -v $(YAMLLINT) >/dev/null 2>&1; then \
 		$(YAMLLINT) -c .yamllint.yaml .; \
@@ -253,7 +255,7 @@ lint-actions:
 	fi
 
 lint-custom: export PYTHONPATH := shared:gateway:orchestrator
-lint-custom:
+lint-custom: sync-venv-if-uv
 	@echo "==> Custom checks..."
 	@failed=""; \
 	for script in scripts/check-*.py; do \
@@ -376,7 +378,7 @@ smoketest-long-poll: venv  ## Smoke-test the long-poll / event-driven wait infra
 		orchestrator/tests/test_concurrent_integration.py::TestEventDrivenConsensusWait \
 		-v --timeout=90
 
-security:
+security: sync-venv-if-uv
 	@echo "==> Running security scan..."
 	@if command -v $(BANDIT) >/dev/null 2>&1; then \
 		$(BANDIT) -r gateway shared sandbox orchestrator -ll -c pyproject.toml; \
@@ -415,7 +417,7 @@ lint-fix: lint-python-fix lint-shell-fix lint-yaml-fix
 	@echo ""
 	@echo "Auto-fixes applied. Run 'make lint' to verify."
 
-lint-python-fix:
+lint-python-fix: sync-venv-if-uv
 	@echo "==> Fixing Python files with ruff..."
 	@$(RUFF) check --fix --unsafe-fixes .
 	@$(RUFF) format .
@@ -437,7 +439,7 @@ lint-shell-fix:
 		echo "No shell scripts found."; \
 	fi
 
-lint-yaml-fix:
+lint-yaml-fix: sync-venv-if-uv
 	@echo "==> Fixing YAML files..."
 	@if [ -n "$(YAML_FILES)" ]; then \
 		echo "  Removing trailing whitespace..."; \
