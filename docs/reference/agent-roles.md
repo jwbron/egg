@@ -187,7 +187,7 @@ each surface so reviewers know to keep them in sync.
 
 ### `tester`
 
-**Purpose**: Find gaps in the implementation, write and run tests, run linters and type checkers, and report issues for the coder to fix.
+**Purpose**: Find gaps in the implementation, write and run tests, run linters and type checkers, and report issues for the coder to fix. While the coder is producing, the tester drafts test scaffolding from the plan alone — file paths from `tasks[].files`, function signatures from acceptance criteria, fixture imports, and mock-input scenarios — before calling `wait-loop` on the coder's `CONSENSUS_PROPOSE`. This scaffold-first approach recovers downstream-producer time: the tester's propose-ready iteration starts at the coder's first commit rather than first propose.
 
 **File access**:
 - Owned scope (allowed writes): **test files and test infrastructure only.**

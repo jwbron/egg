@@ -529,7 +529,7 @@ class AgentLoop:
         try:
             self._original_sigterm_handler = signal.getsignal(signal.SIGTERM)
             signal.signal(signal.SIGTERM, self._handle_sigterm)
-        except (OSError, ValueError):
+        except OSError, ValueError:
             # signal.signal() can only be called from the main thread;
             # if we are not on the main thread, skip handler
             # installation silently.
@@ -541,7 +541,7 @@ class AgentLoop:
             return
         try:
             signal.signal(signal.SIGTERM, self._original_sigterm_handler)
-        except (OSError, ValueError):
+        except OSError, ValueError:
             pass
         finally:
             self._original_sigterm_handler = None

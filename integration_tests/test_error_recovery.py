@@ -40,7 +40,7 @@ class TestGatewayErrorRecovery:
             )
             # Either fails or returns error
             assert not result.get("success", True) or "error" in str(result).lower()
-        except (requests.exceptions.HTTPError, ValueError):
+        except requests.exceptions.HTTPError, ValueError:
             # Error is acceptable
             pass
 

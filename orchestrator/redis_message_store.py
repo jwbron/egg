@@ -73,7 +73,7 @@ def _message_from_redis(stream_id: str, fields: dict[bytes | str, bytes | str]) 
     metadata_str = _get("metadata")
     try:
         metadata = json.loads(metadata_str) if metadata_str else {}
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError, TypeError:
         metadata = {}
 
     timestamp_str = _get("timestamp")
