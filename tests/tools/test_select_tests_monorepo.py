@@ -17,7 +17,7 @@ are skipped when grimp isn't installed (``pytest.importorskip``).
 
 from __future__ import annotations
 
-import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -71,12 +71,34 @@ def _path_to_test_module(rel_path: Path) -> str:
 @pytest.fixture(scope="module")
 def real_repo_graph():  # noqa: ANN201 — grimp graph type isn't public
     """Build the grimp graph against the live egg monorepo using the
-    selector's ``build_graph`` helper.  Returns the GraphBundle."""
-    cwd = os.getcwd()
+    selector's ``build_graph`` helper.  Returns the GraphBundle.
+
+    Reproduces the script-invocation ``sys.path`` shape the Makefile
+    actually uses (``python scripts/select_tests.py`` puts
+    ``<root>/scripts`` at ``sys.path[0]``).  Without this, pytest's
+    own ``sys.path`` keeps ``scripts/`` invisible, the ``scripts/tests/``
+    shadow never fires, and ``test_every_test_file_is_a_graph_node``
+    passed locally and in CI while the production invocation silently
+    dropped ~130 modules from the graph (issue #2259).
+    """
+    # Force scripts_dir to sys.path[0] unconditionally — if a prior
+    # test or PYTHONPATH already wedged it at, say, position 5,
+    # ``if scripts_dir not in sys.path`` would skip the insert and the
+    # shadow wouldn't fire reliably (build_graph resolves modules in
+    # sys.path order, so the shadow only triggers when scripts_dir
+    # precedes the real source roots).  Save sys.path wholesale and
+    # restore so we don't leak state to other tests.
+    # ``build_graph`` already wraps its own ``os.chdir`` in
+    # try/finally, so no separate cwd save/restore is needed here.
+    scripts_dir = str(REPO_ROOT / "scripts")
+    saved_path = sys.path[:]
+    while scripts_dir in sys.path:
+        sys.path.remove(scripts_dir)
+    sys.path.insert(0, scripts_dir)
     try:
         return selector.build_graph(REPO_ROOT)
     finally:
-        os.chdir(cwd)
+        sys.path[:] = saved_path
 
 
 # ----------------------------------------------------------------------
@@ -210,4 +232,42 @@ def test_gateway_modules_marked_as_dynamic_imports(real_repo_graph) -> None:
         "no gateway.* module marked as dynamic-import seed; the "
         "regex-scan in DYNAMIC_IMPORT_PATTERNS may have drifted from "
         "the gateway sources"
+    )
+
+
+# ----------------------------------------------------------------------
+# Issue #2259 regression — `<root>/scripts` on sys.path must not shadow
+# the top-level `tests/` package during graph construction.
+# ----------------------------------------------------------------------
+
+
+def test_scripts_dir_does_not_shadow_top_level_tests() -> None:
+    """When invoked as ``python scripts/select_tests.py`` (the form
+    the Makefile uses), Python prepends ``<root>/scripts`` to
+    ``sys.path[0]``.  ``scripts/tests/`` (which has only 3 leaf
+    modules) then satisfies grimp's search for the ``tests`` package
+    and shadows the real ``<root>/tests/`` (133 files at the time of
+    this fix).  ``build_graph`` must scrub the entry for the
+    duration of the build so the production graph is complete.
+    """
+    # Unconditionally force scripts_dir to sys.path[0] — see the
+    # fixture comment for why the conditional ``not in sys.path``
+    # guard was insufficient.  Save sys.path wholesale and restore.
+    scripts_dir = str(REPO_ROOT / "scripts")
+    saved_path = sys.path[:]
+    while scripts_dir in sys.path:
+        sys.path.remove(scripts_dir)
+    sys.path.insert(0, scripts_dir)
+    try:
+        bundle = selector.build_graph(REPO_ROOT)
+    finally:
+        sys.path[:] = saved_path
+    tests_modules = {m for m in bundle.all_test_modules if m.startswith("tests.")}
+    # Floor of 100 leaves headroom for legitimate test additions
+    # without coupling the assertion to the live count; the bug
+    # showed 3 modules, so a regression returns to single digits.
+    assert len(tests_modules) > 100, (
+        f"only {len(tests_modules)} tests.* modules in the graph — the "
+        f"scripts/tests/ shadow has likely returned (issue #2259). "
+        f"Sample: {sorted(tests_modules)[:5]}"
     )
