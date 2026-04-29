@@ -377,6 +377,30 @@ class PipelineConfig(BaseModel):
     consensus_timeout_minutes: int = Field(
         default=30, ge=1, description="Timeout for consensus before HITL escalation"
     )
+    post_consensus_iteration_budget_seconds: int = Field(
+        default=3600,
+        ge=60,
+        description=(
+            "After consensus_timeout_minutes elapses, the post-timeout poll loop "
+            "waits up to this many seconds without producer progress before "
+            "force-killing remaining containers (issue #2245). The clock "
+            "rebaselines whenever a producer issues a new CONSENSUS_PROPOSE "
+            "(initial propose or NACK→re-propose), so a healthy multi-iteration "
+            "BRC cycle no longer counts iteration time against a single fixed "
+            "budget."
+        ),
+    )
+    post_consensus_max_total_seconds: int = Field(
+        default=14400,
+        ge=60,
+        description=(
+            "Hard ceiling on the post-consensus-timeout wait, in seconds. "
+            "Caps the total time spent in the post-timeout poll loop even when "
+            "producer progress keeps rebaselining the per-iteration budget — "
+            "prevents an unbounded loop if propose events keep arriving but "
+            "consensus never converges. Default 4 hours."
+        ),
+    )
     agent_idle_timeout_minutes: int = Field(
         default=60, ge=1, description="Timeout for idle agents before termination"
     )
