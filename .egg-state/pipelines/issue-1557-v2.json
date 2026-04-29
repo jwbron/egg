@@ -300,10 +300,10 @@
         {
           "container_id": "e2aac530-b983-475d-842f-3c9154d2ea05",
           "container_name": "egg-sandbox-egg-agent-issue-1557-v2-documenter",
-          "status": "running",
+          "status": "failed",
           "started_at": "2026-04-29T05:47:58.039510Z",
-          "exited_at": null,
-          "exit_code": null,
+          "exited_at": "2026-04-29T07:18:14.935389Z",
+          "exit_code": -1,
           "agent_role": "documenter",
           "session_token": null,
           "pod_name": null,
@@ -405,14 +405,14 @@
       "agents": [
         {
           "role": "documenter",
-          "status": "running",
+          "status": "failed",
           "container_id": "e2aac530-b983-475d-842f-3c9154d2ea05",
           "container_info": null,
           "started_at": "2026-04-29T05:47:58.039526Z",
-          "completed_at": null,
+          "completed_at": "2026-04-29T07:18:15.006593Z",
           "commit": null,
           "outputs": {},
-          "error": null,
+          "error": "Container exited with code -1",
           "retry_count": 0,
           "conflicts": []
         },
@@ -522,7 +522,15 @@
       "error": null,
       "hitl_feedback": null,
       "phase_start_sha": "e84951b05bd320c4b482ee48a87f721fee84c1d5",
-      "agent_exits": []
+      "agent_exits": [
+        {
+          "role": "documenter",
+          "exit_code": -1,
+          "last_lines": [],
+          "terminated_at": "2026-04-29T07:18:15.006609Z",
+          "container_id": "e2aac530-b983-475d-842f-3c9154d2ea05"
+        }
+      ]
     }
   },
   "decisions": [
@@ -872,7 +880,7 @@
     }
   ],
   "created_at": "2026-04-29T04:25:54.475428Z",
-  "updated_at": "2026-04-29T06:27:43.215310Z",
+  "updated_at": "2026-04-29T07:18:15.006682Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -886,6 +894,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": "2026-04-29T05:47:49.682719Z",
-  "version": 57,
+  "version": 58,
   "jira_ticket": null
 }
