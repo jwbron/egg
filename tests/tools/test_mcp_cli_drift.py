@@ -102,7 +102,7 @@ def _extract_handler_reference(module, cmd_func_name: str) -> object | None:
         return None
     try:
         src = inspect.getsource(fn)
-    except (OSError, TypeError):
+    except OSError, TypeError:
         return None
     tree = ast.parse(src)
 
@@ -160,7 +160,7 @@ def _function_references_name(fn, *, attr_name: str) -> bool:
     """
     try:
         src = inspect.getsource(fn)
-    except (OSError, TypeError):
+    except OSError, TypeError:
         return False
     tree = ast.parse(src)
     for node in ast.walk(tree):

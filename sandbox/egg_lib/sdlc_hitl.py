@@ -100,7 +100,7 @@ def _find_repo_path() -> Path:
         )
         if result.returncode == 0 and result.stdout.strip():
             return Path(result.stdout.strip())
-    except (subprocess.SubprocessError, FileNotFoundError, OSError):
+    except subprocess.SubprocessError, FileNotFoundError, OSError:
         pass
 
     # Strategy 4: walk up from cwd looking for .git
@@ -157,7 +157,7 @@ def _load_pending_contract_decisions(
         return []
     try:
         data = json.loads(contract_path.read_text())
-    except (json.JSONDecodeError, OSError):
+    except json.JSONDecodeError, OSError:
         return []
     decisions = data.get("decisions", [])
     if not isinstance(decisions, list):
@@ -192,7 +192,7 @@ def _resolve_contract_decision(
         return False
     try:
         data = json.loads(contract_path.read_text())
-    except (json.JSONDecodeError, OSError):
+    except json.JSONDecodeError, OSError:
         return False
 
     decisions = data.get("decisions", [])
@@ -283,7 +283,7 @@ def _handle_contract_questions(
             print(f"    {DIM}/s Skip  /q Return to menu{RESET}")
             try:
                 answer = input(f"    {BOLD}Answer:{RESET} ").strip()
-            except (EOFError, KeyboardInterrupt):
+            except EOFError, KeyboardInterrupt:
                 print()
                 return "quit"
 
@@ -321,7 +321,7 @@ def _run_pager(cmd: list[str], tmp_path: str) -> bool:
             stderr=sys.stderr,
         )
         return result.returncode == 0
-    except (FileNotFoundError, OSError):
+    except FileNotFoundError, OSError:
         return False
 
 
@@ -446,7 +446,7 @@ def _prompt_choice(prompt: str, valid: set[str]) -> str:
     while True:
         try:
             choice = input(prompt).strip()
-        except (EOFError, KeyboardInterrupt):
+        except EOFError, KeyboardInterrupt:
             print()
             return "c"  # Cancel on EOF/interrupt
         if choice in valid:
@@ -464,7 +464,7 @@ def _prompt_text(prompt: str) -> str:
             if line == "":
                 break
             lines.append(line)
-    except (EOFError, KeyboardInterrupt):
+    except EOFError, KeyboardInterrupt:
         print()
     return "\n".join(lines)
 
@@ -782,7 +782,7 @@ def _handle_feedback(
             print(f"\n  {BOLD}Q: {q_text}{RESET}")
             try:
                 answer = input("  > ").strip()
-            except (EOFError, KeyboardInterrupt):
+            except EOFError, KeyboardInterrupt:
                 print()
                 return False
             answers[q_id] = answer
@@ -880,11 +880,11 @@ def _handle_feedback(
                     try:
                         answer = input("  > ").strip()
                         answers[q_id] = answer
-                    except (EOFError, KeyboardInterrupt):
+                    except EOFError, KeyboardInterrupt:
                         print()
                 else:
                     print(f"  {RED}Invalid question number.{RESET}")
-            except (ValueError, EOFError, KeyboardInterrupt):
+            except ValueError, EOFError, KeyboardInterrupt:
                 print(f"  {RED}Invalid input.{RESET}")
 
 

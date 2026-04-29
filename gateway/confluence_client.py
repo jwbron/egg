@@ -1059,7 +1059,7 @@ def _parse_retry_after(value: str | None) -> int:
         return _DEFAULT_RETRY_AFTER_SECONDS
     try:
         parsed = int(str(value).strip())
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return _DEFAULT_RETRY_AFTER_SECONDS
     if parsed <= 0:
         return _DEFAULT_RETRY_AFTER_SECONDS

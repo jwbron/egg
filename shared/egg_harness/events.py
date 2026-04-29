@@ -154,7 +154,7 @@ class EventBus:
                         cb(*args)
                     else:
                         cb(*args[:n_params])
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     # inspect.signature can fail for builtins; fall back to
                     # passing all args.
                     cb(*args)

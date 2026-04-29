@@ -155,7 +155,7 @@ class TestExtractBranchFromRefspecEdgeCases:
         try:
             result = extract_branch_from_refspec(None)
             assert result is None
-        except (TypeError, AttributeError):
+        except TypeError, AttributeError:
             # Expected if function doesn't handle None
             pass
 
