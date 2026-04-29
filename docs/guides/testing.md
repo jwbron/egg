@@ -89,12 +89,20 @@ by the `make test` recipe. The algorithm is:
    downstream-mapping step return an empty set. The graph is cached
    on disk under `.egg-state/grimp-cache/` (gitignored) so successive
    sandbox invocations reuse a warm graph.
-5. **Compute the reverse closure.** For each changed module
-   `m`, call `graph.find_downstream_modules(m, as_package=...)`.
-   `as_package=True` is used when the changed path is an
-   `__init__.py` (a package-level edit can affect anything
-   downstream of the whole package); `as_package=False` is used for
-   leaf-module edits.
+5. **Compute the reverse closure.** For each changed module `m`,
+   two sources of upstream-test edges are combined:
+   - **Grimp edges:** `graph.find_downstream_modules(m, as_package=...)`.
+     `as_package=True` for `__init__.py` edits (package-level edit
+     can affect anything downstream of the whole package);
+     `as_package=False` for leaf-module edits.
+   - **Bare-name AST edges:** An AST scan of every in-repo `.py`
+     maps bare-name import targets (e.g. `from action_guards import
+     …`) to fully-qualified grimp module ids, covering the test and
+     production files that import via short names rather than
+     fully-qualified package paths. Applies to `shared.*`,
+     `orchestrator.*`, and `sandbox.*`; `gateway.*` is excluded —
+     its importlib test-loader pattern is handled by the
+     `gateway/*.py` widening trigger (§7).
 6. **Map modules → test files.** Intersect the downstream set with
    the pre-collected set of every `test_*.py` / `*_test.py` file
    in the graph. The selector emits the resulting set of test file
@@ -318,8 +326,16 @@ Static reverse import graphs are powerful, but they cannot see:
   do not have static import edges from their consumers. The
   dynamic-import scan picks up the consumer side; missed cases
   surface when CI runs `make test-all`.
-- **Gateway's importlib test-loader.** This is the most
-  consequential blind spot in this repo. `gateway/tests/conftest.py`
+- **Bare-name imports for non-gateway packages.** `shared.*`,
+  `orchestrator.*`, and `sandbox.*` modules are almost universally
+  imported by bare name throughout the codebase (e.g. `from
+  egg_logging.signatures import …` rather than `from
+  shared.egg_logging.signatures import …`). Grimp registers modules
+  under fully-qualified names, so a plain grimp traversal misses
+  those edges. **Mitigation:** the bare-name AST resolver (step 5)
+  AST-scans every `.py` and maps bare-name targets back to
+  fully-qualified ids, making these edges visible to narrowing.
+- **Gateway's importlib test-loader.** `gateway/tests/conftest.py`
   defines `_load_module_with_replaced_imports`, which uses
   `importlib.util.spec_from_file_location` to load production
   modules and then injects mocks via `sys.modules`. Every gateway
@@ -330,9 +346,10 @@ Static reverse import graphs are powerful, but they cannot see:
   to a file matching `gateway/*.py` (production files directly
   under `gateway/`, NOT `gateway/tests/`) widens to the full suite
   with the explicit trigger string `gateway source change (importlib
-  test-loader)`. A conftest refactor to standard imports is the
-  right long-term fix and is tracked separately; until then, the
-  `gateway/*.py` trigger is the simple, stable workaround.
+  test-loader)`. The bare-name AST resolver (step 5) intentionally
+  excludes `gateway.*` — the importlib loader pattern makes AST
+  edges unreliable there, so the widening trigger remains the stable
+  workaround.
 
 These limits are the reason the fallback-trigger list in §4 is as
 broad as it is — narrowing trades coverage for speed, and any
