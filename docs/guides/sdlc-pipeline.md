@@ -1251,6 +1251,8 @@ Or pass it in the pipeline config JSON (e.g. via the API):
 | `message_poll_hint_seconds` | int | `30` | Suggested polling interval for agents |
 | `consensus_timeout_minutes` | int | `30` | Timeout before HITL escalation |
 | `brc_consensus_progress_gate_seconds` | int | `300` | Defer consensus-timeout HITL while BRC bus or container heartbeats are active. Set to `0` to disable. |
+| `post_consensus_iteration_budget_seconds` | int | `3600` | Per-iteration wait budget after consensus timeout. Resets on each new `CONSENSUS_PROPOSE` from a producer. |
+| `post_consensus_max_total_seconds` | int | `14400` | Hard ceiling on total post-timeout wait. Must be ≥ `post_consensus_iteration_budget_seconds`. |
 | `agent_idle_timeout_minutes` | int | `60` | Agent idle timeout |
 | `overseer_enabled` | bool | `true` | Enable the overseer agent for pipeline health monitoring |
 | `spawn_max_retries` | int | `2` | Max additional retry attempts for transient gateway worktree-creation failures during agent spawn. Total attempts = `spawn_max_retries + 1`. Set to `0` to disable retry. |
