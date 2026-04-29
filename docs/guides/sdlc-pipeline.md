@@ -1160,7 +1160,12 @@ The `source_branch` and `source_artifact_prefix` parameters are also accepted by
 }
 ```
 
-**Branch reuse for resubmissions** — when resubmitting a pipeline after a prior run was cancelled or failed, the orchestrator no longer returns HTTP 409 if the branch already exists on the remote. The check now considers whether an active (non-terminal) pipeline exists for that pipeline ID. If the prior pipeline is in a terminal state (cancelled, failed, or complete) or no pipeline state exists, the branch is reused. A 409 is only returned when both the branch exists AND an active pipeline is running.
+**Branch reuse for resubmissions** — when resubmitting a pipeline after a prior run was cancelled or failed, `create_pipeline` checks two conditions before allowing branch reuse:
+
+1. **Active pipeline conflict**: if the branch exists and an active (non-terminal) pipeline holds it, the call returns HTTP 409. Use a qualifier to create a parallel pipeline, or cancel the existing one first.
+2. **Stale branch guard** (#2222): if the branch exists, no active pipeline holds it, but the branch tip differs from `origin/<base_branch>`, the call returns HTTP 409 with `reason: stale_branch`. This prevents a new pipeline from inheriting commits left by a prior failed/cancelled run — which would contaminate the resulting PR via the push-reconcile path. The response body includes a `hint` field pointing to the resolution: `cancel_task(task_id='<id>', cleanup=true)` deletes the stale branch and pipeline state so the resubmission can proceed cleanly.
+
+Branch reuse proceeds silently only when the branch tip equals `origin/<base_branch>` (a fresh branch carrying no prior-pipeline commits).
 
 ### Contract CLI Commands
 
