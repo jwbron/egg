@@ -81,6 +81,15 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.14"
+
+    - name: Install Python orchestration dependencies
+      shell: bash
+      run: python3 -m pip install --disable-pip-version-check pyyaml
+
     - name: Run egg
       id: run
       shell: bash
