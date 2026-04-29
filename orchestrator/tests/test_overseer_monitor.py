@@ -44,6 +44,23 @@ except (ImportError, ModuleNotFoundError) as exc:
 
 
 # ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _scope_egg_repo_path(monkeypatch, tmp_path):
+    """Scope EGG_REPO_PATH to tmp_path for every test in this file.
+
+    OverseerMonitor.__init__ resolves _oversight_dir from EGG_REPO_PATH and
+    writes JSONL records to {EGG_REPO_PATH}/.egg-state/oversight/{pipeline_id}-oversight.jsonl
+    via _log_oversight_event. Without this scoping the writes land in the
+    real repo, dirtying tracked content and blocking `git rebase` (#2244).
+    """
+    monkeypatch.setenv("EGG_REPO_PATH", str(tmp_path))
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 

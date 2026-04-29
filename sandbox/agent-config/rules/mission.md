@@ -73,7 +73,7 @@ gh pr create --head egg/<description> --title "Brief description" --body "..." -
 
 **WORKTREE WARNING**: `git checkout main` FAILS. Always use: `git checkout -b egg/<name> origin/main`
 
-**BRANCH LOCK (Pipeline mode)**: Branch switching blocked by gateway. Use `git checkout -- <file>` to restore individual files.
+**BRANCH LOCK (Pipeline mode)**: Branch switching blocked by gateway. Use `git checkout [<commit-ish>] -- <file>` to restore individual files (e.g. `git checkout HEAD -- <file>`, `git checkout HEAD~1 -- <file>`, or `git checkout -- <file>`).
 
 **Wrong branch fix**: `git log --oneline -1` (save hash), create correct branch, `git cherry-pick <hash>`
 

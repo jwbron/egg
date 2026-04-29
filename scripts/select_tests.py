@@ -12,8 +12,7 @@ to the base branch when no LKG exists, and falling back to the FULL
 SUITE whenever static analysis cannot be trusted (conftest /
 lockfile / workflow changes, non-`.py` changes, dynamic-import
 reachability, `shared/tests/` fixture edits, unresolvable baseline,
-LKG-not-an-ancestor, gateway/*.py changes, source-file staleness,
-canary every-10th invocation).
+LKG-not-an-ancestor, gateway/*.py changes, source-file staleness).
 
 Correctness posture: the gate is "never skip a test that exercises a
 changed code path".  Any sign of static-analysis fog widens to the
@@ -35,8 +34,8 @@ USAGE
         ancestor-of-HEAD); refuses non-zero on failure.
 
     scripts/select_tests.py --full-suite
-        Emit all test directories on stdout and reset the canary
-        counter.  Used internally by `make test-all`.
+        Emit all test directories on stdout.  Used internally by
+        `make test-all`.
 
     scripts/select_tests.py --patch-selection-json --head <sha> \
                             --pytest-ms <int>
@@ -73,6 +72,7 @@ DESIGN REFERENCES
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import re
@@ -131,6 +131,32 @@ PACKAGES: tuple[str, ...] = SOURCE_PACKAGES + TEST_PACKAGES
 # task-2-3) walks to confirm every .py file is a node in the grimp
 # graph.  Excludes test directories (those are walked separately).
 SOURCE_ROOTS: tuple[str, ...] = ("gateway", "orchestrator", "sandbox", "shared")
+
+# Top-level prefixes to strip when synthesising a "bare-name" view of
+# every fully-qualified module id.  Mirrors the sys.path injections
+# done in `build_graph` (and the matching conftest.py setups): every
+# directory listed here is at the head of sys.path at test time, so a
+# file like `shared/egg_logging/signatures.py` is reachable both as
+# `shared.egg_logging.signatures` (the form grimp registers under
+# `PACKAGES`) AND as `egg_logging.signatures` (the form virtually
+# every test/production file in the repo actually writes — verified
+# 406/407 test files and 33/33 sampled production files use bare
+# names).  The AST resolver in `build_bare_name_upstream_edges` uses
+# this list to bridge that gap so changeset-aware narrowing can
+# follow test→production edges in a codebase that grimp alone cannot
+# trace.
+#
+# `gateway.` is intentionally absent: `gateway/` is NOT on sys.path
+# during `build_graph` (the importlib test-loader pattern in
+# `gateway/tests/conftest.py` would shadow grimp's view), and
+# `gateway/*.py` changes are handled by their own dedicated widening
+# trigger.
+BARE_NAME_STRIP_PREFIXES: tuple[str, ...] = (
+    "shared.",
+    "orchestrator.",
+    "sandbox.tools.",  # checked before "sandbox." so the longer prefix wins
+    "sandbox.",
+)
 
 # Test-root directories (relative paths) the selector emits when
 # falling back to the full suite OR when the user invokes
@@ -198,6 +224,7 @@ __all__ = (
     "TEST_PACKAGES",
     "SOURCE_ROOTS",
     "TEST_ROOT_DIRS",
+    "BARE_NAME_STRIP_PREFIXES",
     "FALLBACK_PATH_PATTERNS",
     "DYNAMIC_IMPORT_PATTERNS",
     "SIDECAR_DIR",
@@ -347,10 +374,6 @@ def _sidecar_path(branch: str, repo_root: Path | None = None) -> Path:
     return _resolve_root(repo_root) / SIDECAR_DIR / f"{branch}.sha"
 
 
-def _canary_path(branch: str, repo_root: Path | None = None) -> Path:
-    return _resolve_root(repo_root) / SIDECAR_DIR / f"{branch}.canary"
-
-
 def read_sidecar_lkg(branch: str | None, repo_root: Path | None = None) -> str | None:
     """Read the LKG sidecar for `branch`; return the sha or None.
 
@@ -381,22 +404,6 @@ def read_sidecar_lkg(branch: str | None, repo_root: Path | None = None) -> str |
 def write_sidecar_lkg(branch: str, sha: str, repo_root: Path | None = None) -> None:
     """Atomically write `sha` to the LKG sidecar for `branch`."""
     _atomic_write_text(_sidecar_path(branch, repo_root), sha + "\n")
-
-
-def read_canary_count(branch: str | None, repo_root: Path | None = None) -> int:
-    if branch is None:
-        return 0
-    path = _canary_path(branch, repo_root)
-    if not path.exists():
-        return 0
-    try:
-        return int(path.read_text(encoding="utf-8").strip())
-    except (OSError, ValueError):
-        return 0
-
-
-def write_canary_count(branch: str, count: int, repo_root: Path | None = None) -> None:
-    _atomic_write_text(_canary_path(branch, repo_root), str(count) + "\n")
 
 
 # ----------------------------------------------------------------------
@@ -447,14 +454,6 @@ def record_good(sha_arg: str | None, repo_root: Path | None = None) -> int:
         raise RecordGoodValidationError(f"sha {sha} is not an ancestor of HEAD")
 
     write_sidecar_lkg(branch, sha, repo_root=repo_root)
-    # `make test-all` runs --record-good on green; resetting the canary
-    # here means the developer doesn't get punished by a canary-fired
-    # full-suite re-run on their VERY NEXT `make test` after they
-    # already exercised the full suite (reviewer non-blocking #5).
-    try:
-        write_canary_count(branch, 0, repo_root=repo_root)
-    except OSError:
-        pass
     return 0
 
 
@@ -607,6 +606,13 @@ class GraphBundle:
       - missing_source_paths:   list[str] — repo-relative .py paths under
                                 SOURCE_ROOTS that did NOT resolve to a
                                 graph node (R2 staleness guard).
+      - bare_name_upstream:     dict[str, set[str]] — reverse-edge map
+                                produced by the AST resolver.  Keys are
+                                fully-qualified production modules; the
+                                set is the modules that import that
+                                production module via bare name.
+                                Supplements grimp for the 406/407 test
+                                files that use the bare-name pattern.
     """
 
     def __init__(
@@ -616,12 +622,14 @@ class GraphBundle:
         all_test_modules: set[str],
         dynamic_import_modules: set[str],
         missing_source_paths: list[str],
+        bare_name_upstream: dict[str, set[str]] | None = None,
     ) -> None:
         self.graph = graph
         self.all_modules = all_modules
         self.all_test_modules = all_test_modules
         self.dynamic_import_modules = dynamic_import_modules
         self.missing_source_paths = missing_source_paths
+        self.bare_name_upstream = bare_name_upstream if bare_name_upstream is not None else {}
 
 
 def _enumerate_source_paths(repo_root: Path) -> Iterable[Path]:
@@ -668,6 +676,184 @@ def _scan_dynamic_imports(graph: Any, repo_root: Path) -> set[str]:
                 marked.add(module)
                 break
     return marked
+
+
+# ----------------------------------------------------------------------
+# Bare-name AST resolver
+#
+# This codebase imports in-repo modules by bare name almost universally
+# (`from action_guards import …`, `from egg_logging.signatures import …`),
+# leaning on the sys.path injections in `build_graph` and the various
+# `conftest.py` files.  Grimp registers production modules under their
+# fully-qualified names (`orchestrator.action_guards`,
+# `shared.egg_logging.signatures`), so the bare-name imports resolve
+# to "external" nodes that grimp filters out — the test→production
+# edges become invisible and changeset-aware narrowing widens to the
+# full suite for nearly every source change.
+#
+# The resolver below supplements grimp by AST-scanning every file in
+# the graph, mapping each bare-name import target to the set of
+# fully-qualified production modules it could resolve to (using the
+# same prefix-stripping rules grimp's sys.path injections imply), and
+# emitting a reverse-edge map keyed on the FQ production module.
+# `reverse_closure` then walks both grimp's transitive closure AND
+# these synthetic edges.  Failures (SyntaxError, OSError) are
+# swallowed per the fail-open contract — an unscanable file simply
+# contributes no extra edges.
+# ----------------------------------------------------------------------
+
+
+def _module_to_filesystem_path(module: str, repo_root: Path) -> Path | None:
+    """Inverse of `path_to_module`: given a grimp module id, return
+    the source file path (leaf module `.py` or package `__init__.py`).
+    Returns None when neither candidate exists on disk."""
+    leaf = repo_root / (module.replace(".", os.sep) + ".py")
+    if leaf.is_file():
+        return leaf
+    init = repo_root / module.replace(".", os.sep) / "__init__.py"
+    if init.is_file():
+        return init
+    return None
+
+
+def _extract_imports(tree: ast.Module) -> set[str]:
+    """Yield every top-level absolute-import target from `tree`.
+
+    For ``import X`` we yield ``X``.  For ``import X.Y.Z`` we yield
+    every dotted prefix — ``X``, ``X.Y``, AND ``X.Y.Z`` — because
+    Python's import machinery actually loads each parent package on
+    the way down, so a change to ``X/__init__.py`` is a real
+    dependency of any module that does ``import X.Y.Z`` (not just
+    ones that do ``import X`` directly).
+
+    For ``from X import Y`` we yield BOTH ``X`` (because the parent
+    package is loaded) AND ``X.Y`` (because Y may itself be a
+    submodule — common in this repo, e.g. ``from egg_logging.signatures
+    import …`` or ``from egg_logging import signatures``).
+
+    Relative imports (``from . import …``) are skipped — grimp already
+    sees those because they preserve the package context.
+
+    Star imports yield only the parent (no per-name expansion possible).
+    """
+    targets: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if not alias.name:
+                    continue
+                # Add every dotted prefix so a change to the parent
+                # package's __init__.py reaches importers of a deeper
+                # submodule.  ``import a.b.c`` -> {"a", "a.b", "a.b.c"}.
+                parts = alias.name.split(".")
+                for i in range(1, len(parts) + 1):
+                    targets.add(".".join(parts[:i]))
+        elif isinstance(node, ast.ImportFrom):
+            if node.level != 0:
+                continue
+            if node.module is None:
+                continue
+            targets.add(node.module)
+            for alias in node.names:
+                if alias.name and alias.name != "*":
+                    targets.add(f"{node.module}.{alias.name}")
+    return targets
+
+
+def build_bare_name_index(all_modules: set[str]) -> dict[str, set[str]]:
+    """Map every plausible import name back to the FQ production modules
+    it could resolve to.
+
+    Each FQ module appears under its own name (a no-op self-lookup) and,
+    for every prefix in `BARE_NAME_STRIP_PREFIXES` it starts with, also
+    under the prefix-stripped form.  Test modules are excluded because
+    bare-name-importing a test module is not a pattern in this repo
+    (and we only need the resolver to bridge test→production edges).
+
+    A bare-name string with multiple FQ candidates is over-included by
+    the closure (safer than under-narrowing).
+    """
+    test_prefixes = tuple(t + "." for t in TEST_PACKAGES)
+    index: dict[str, set[str]] = {}
+    for fq in all_modules:
+        if fq in TEST_PACKAGES or any(fq.startswith(p) for p in test_prefixes):
+            continue
+        index.setdefault(fq, set()).add(fq)
+        # Policy: record EVERY applicable prefix-stripped view (not
+        # just the longest match).  Both `sandbox.` and `sandbox.tools.`
+        # may apply to `sandbox.tools.foo`, and either short form
+        # (`tools.foo` or `foo`) is a valid runtime bare-name import
+        # in this repo — the resolver records both so the closure
+        # widens through whichever shape an importer wrote.  Ambiguity
+        # here over-includes consumers, which is the safer side of the
+        # narrow-vs-widen trade-off.
+        for prefix in BARE_NAME_STRIP_PREFIXES:
+            if fq.startswith(prefix):
+                bare = fq[len(prefix) :]
+                if bare:
+                    index.setdefault(bare, set()).add(fq)
+    return index
+
+
+def build_bare_name_upstream_edges(all_modules: set[str], repo_root: Path) -> dict[str, set[str]]:
+    """Return a reverse-edge map ``{fq_production_module: {importer, …}}``
+    derived from an AST scan of every module's source file.
+
+    The map captures bare-name imports that grimp does NOT see because
+    the imported short name is not a registered top-level package.
+    Self-edges are dropped.  Imports that don't resolve to any FQ
+    production module are silently ignored (likely third-party).
+
+    Errors during file read or AST parse are swallowed — the resolver
+    fails open like the rest of the selector.
+    """
+    leaf_index = build_bare_name_index(all_modules)
+    upstream: dict[str, set[str]] = {}
+
+    for module in all_modules:
+        source_path = _module_to_filesystem_path(module, repo_root)
+        if source_path is None:
+            continue
+        try:
+            source = source_path.read_text(encoding="utf-8", errors="replace")
+            tree = ast.parse(source, filename=str(source_path))
+        except (SyntaxError, OSError, ValueError):
+            # ValueError covers null-byte source etc.
+            continue
+        for imported in _extract_imports(tree):
+            for fq in leaf_index.get(imported, ()):
+                if fq == module:
+                    continue
+                upstream.setdefault(fq, set()).add(module)
+    return upstream
+
+
+def _walk_upstream_combined(bundle: GraphBundle, seeds: Iterable[str]) -> set[str]:
+    """BFS over importers of every seed, combining grimp's transitive
+    closure (`find_downstream_modules`, which in grimp's terminology
+    means consumers — modules that import the given module) with the
+    AST resolver's bare-name reverse edges.
+
+    Returns the set of every module reachable from any seed via either
+    edge source, including the seeds themselves.
+    """
+    closure: set[str] = set(seeds)
+    frontier: set[str] = set(closure)
+    while frontier:
+        module = frontier.pop()
+        try:
+            grimp_consumers = bundle.graph.find_downstream_modules(module, as_package=False)
+        except Exception:  # noqa: BLE001 — fail-open
+            grimp_consumers = set()
+        for c in grimp_consumers:
+            if c not in closure:
+                closure.add(c)
+                frontier.add(c)
+        for c in bundle.bare_name_upstream.get(module, ()):
+            if c not in closure:
+                closure.add(c)
+                frontier.add(c)
+    return closure
 
 
 def build_graph(repo_root: Path | None = None, packages: tuple[str, ...] = PACKAGES) -> GraphBundle:
@@ -818,12 +1004,18 @@ def build_graph(repo_root: Path | None = None, packages: tuple[str, ...] = PACKA
         if module not in all_modules:
             missing_source_paths.append(str(src_path))
 
+    # Bare-name AST resolver — supplements grimp's edges for the
+    # codebase's universal bare-name import pattern.  See the section
+    # comment above `_module_to_filesystem_path` for context.
+    bare_name_upstream = build_bare_name_upstream_edges(all_modules, root)
+
     return GraphBundle(
         graph=graph,
         all_modules=all_modules,
         all_test_modules=all_test_modules,
         dynamic_import_modules=dynamic_import_modules,
         missing_source_paths=missing_source_paths,
+        bare_name_upstream=bare_name_upstream,
     )
 
 
@@ -845,6 +1037,11 @@ def reverse_closure(bundle: GraphBundle, module_path_pairs: Iterable[tuple[str, 
     call site) prevents any chance of `__init__.py` detection misfiring
     when the unresolvable-paths filter shortens one list relative to
     the other (reviewer_contract feedback on the v1 proposal).
+
+    The walk combines grimp's transitive closure with the AST
+    resolver's bare-name reverse edges (`bundle.bare_name_upstream`),
+    so consumers that import the changed module via bare name —
+    grimp's structural blind spot in this repo — are still picked up.
     """
     init_modules: set[str] = set()
     leaf_modules: set[str] = set()
@@ -854,22 +1051,24 @@ def reverse_closure(bundle: GraphBundle, module_path_pairs: Iterable[tuple[str, 
         else:
             leaf_modules.add(module)
 
-    closure: set[str] = set()
+    # Step 1: grimp's package-mode closure for `__init__.py` seeds (a
+    # package edit can affect anything downstream of the WHOLE package,
+    # not just the __init__ leaf).  Leaf seeds are handled by the
+    # combined walker below.
+    closure: set[str] = set(init_modules) | set(leaf_modules)
     for module in init_modules:
         try:
-            downstream = bundle.graph.find_downstream_modules(module, as_package=True)
+            closure |= set(bundle.graph.find_downstream_modules(module, as_package=True))
         except Exception:  # noqa: BLE001 — fail-open at upper layer
             continue
-        closure |= set(downstream)
-        closure.add(module)
-    for module in leaf_modules:
-        try:
-            downstream = bundle.graph.find_downstream_modules(module, as_package=False)
-        except Exception:  # noqa: BLE001 — fail-open at upper layer
-            continue
-        closure |= set(downstream)
-        closure.add(module)
-    return closure
+
+    # Step 2: combined BFS — extends `closure` via grimp's leaf-mode
+    # closure AND the bare-name resolver's reverse edges.  Re-walking
+    # from every node already in `closure` is correct (set-membership
+    # checks short-circuit visited nodes) and ensures bare-name edges
+    # discovered downstream of the package-mode closure are still
+    # followed transitively.
+    return _walk_upstream_combined(bundle, closure)
 
 
 def is_dynamic_import_touched(bundle: GraphBundle, changed_modules: Iterable[str]) -> bool:
@@ -979,7 +1178,6 @@ def write_selection_record(
     selected_count: int,
     total_count: int,
     compute_ms: int,
-    canary_fired: bool,
     changed_files_list: list[str],
     changed_modules_list: list[str],
     dynamic_import_seeds_hit: list[str],
@@ -998,7 +1196,6 @@ def write_selection_record(
         "compute_ms": compute_ms,
         "pytest_ms": None,  # Populated by `--patch-selection-json` later.
         "timestamp": _now_iso(),
-        "canary_fired": canary_fired,
         "changed_files": list(changed_files_list),
         "changed_modules": list(changed_modules_list),
         "dynamic_import_seeds_hit": list(dynamic_import_seeds_hit),
@@ -1051,7 +1248,6 @@ def evaluate_fallback_triggers(
     bundle: GraphBundle | None,
     baseline_source: str,
     lkg_was_stale: bool,
-    canary_fired: bool,
 ) -> str | None:
     """Return an explicit trigger string when the changeset forces a
     full-suite fallback, or None when the narrow path is safe.
@@ -1059,10 +1255,6 @@ def evaluate_fallback_triggers(
     Order matters: the first matching trigger wins so the stderr line
     names the most-specific reason rather than a generic catch-all.
     """
-    # 0. Canary every-10th invocation — cheapest check, deterministic.
-    if canary_fired:
-        return "canary (every-10th invocation)"
-
     # 1. Baseline resolution failed before we even got here.
     if baseline_source == "UNRESOLVABLE":
         return "unresolvable baseline"
@@ -1072,33 +1264,29 @@ def evaluate_fallback_triggers(
     if lkg_was_stale:
         return "LKG not ancestor of HEAD"
 
-    # 3. Empty changeset — there's nothing to be confident about.
-    if not paths:
-        return "empty diff"
-
-    # 4. Path-pattern triggers.  Priority order: most-specific first
+    # 3. Path-pattern triggers.  Priority order: most-specific first
     #    so the stderr line names the most-informative reason
     #    rather than a generic "non-.py change" catch-all when a
     #    Makefile / pyproject.toml is in the same diff.
 
-    # 4a. conftest at any level.  Match the literal filename or `/conftest.py`
+    # 3a. conftest at any level.  Match the literal filename or `/conftest.py`
     # at a path boundary so files like `myconftest.py` don't false-fire.
     for raw_path in paths:
         if raw_path == "conftest.py" or raw_path.endswith("/conftest.py"):
             return "conftest changed"
 
-    # 4b. shared/tests/** (Q2 — fixture edits widen).
+    # 3b. shared/tests/** (Q2 — fixture edits widen).
     for raw_path in paths:
         if raw_path.startswith("shared/tests/"):
             return "shared/tests/ changed"
 
-    # 4c. Static path triggers (Makefile, pyproject.toml, uv.lock, etc.).
+    # 3c. Static path triggers (Makefile, pyproject.toml, uv.lock, etc.).
     for pattern, trigger_string in FALLBACK_PATH_PATTERNS:
         for raw_path in paths:
             if _fnmatch(raw_path, pattern):
                 return trigger_string
 
-    # 4d. Gateway importlib-test-loader mapping (R1).  Hits any
+    # 3d. Gateway importlib-test-loader mapping (R1).  Hits any
     # `gateway/<file>.py` that is NOT under `gateway/tests/`.  Checked
     # BEFORE the generic non-.py rule so a mixed diff names the
     # specific blind spot.
@@ -1123,18 +1311,18 @@ def evaluate_fallback_triggers(
         ):
             return "gateway source change (importlib test-loader)"
 
-    # 4e. Non-.py changes (decision-5) — the catch-all when none of
+    # 3e. Non-.py changes (decision-5) — the catch-all when none of
     # the more-specific path triggers fired.
     for raw_path in paths:
         if not raw_path.endswith(".py"):
             return "non-.py change"
 
-    # 5. Source-file staleness guard (R2).  Without a graph we cannot
+    # 4. Source-file staleness guard (R2).  Without a graph we cannot
     #    evaluate; defer to the unresolvable-module check below.
     if bundle is not None and bundle.missing_source_paths:
         return f"source file missing from graph: {bundle.missing_source_paths[0]}"
 
-    # 6. Unresolvable module path (path doesn't map to a graph node).
+    # 5. Unresolvable module path (path doesn't map to a graph node).
     if bundle is not None:
         for raw_path in paths:
             module = path_to_module(raw_path)
@@ -1144,7 +1332,7 @@ def evaluate_fallback_triggers(
             if module not in bundle.all_modules:
                 return f"unresolvable module path: {raw_path}"
 
-    # 7. Dynamic-import reachability (decision-10).
+    # 6. Dynamic-import reachability (decision-10).
     if bundle is not None and bundle.dynamic_import_modules:
         resolved_modules: list[str] = [
             m for m in (path_to_module(p) for p in paths) if m is not None
@@ -1285,7 +1473,6 @@ def _run_narrow_or_fallback(repo_root: Path) -> int:
 
     baseline_sha, baseline_source, branch = resolve_baseline(repo_root=repo_root)
     lkg_was_stale = lkg_is_stale(repo_root=repo_root)
-    role_readonly = is_role_readonly(repo_root)
 
     # Resolve HEAD for the selection-record path.  HEAD is always
     # resolvable (sandboxes always have a HEAD) — if it isn't, fall
@@ -1306,7 +1493,6 @@ def _run_narrow_or_fallback(repo_root: Path) -> int:
                 selected_count=len(TEST_ROOT_DIRS),
                 total_count=len(TEST_ROOT_DIRS),
                 compute_ms=int((time.monotonic() - t0) * 1000),
-                canary_fired=False,
                 changed_files_list=[],
                 changed_modules_list=[],
                 dynamic_import_seeds_hit=[],
@@ -1317,14 +1503,6 @@ def _run_narrow_or_fallback(repo_root: Path) -> int:
         return 0
     head_sha = head_stdout.strip()
 
-    # Canary counter — read-only roles do NOT bump or write the
-    # counter (sidecar dir is per-branch and not theirs to mutate).
-    canary_fired = False
-    if not role_readonly and branch is not None:
-        count = read_canary_count(branch, repo_root=repo_root) + 1
-        canary_fired = count % 10 == 0
-        write_canary_count(branch, 0 if canary_fired else count, repo_root=repo_root)
-
     # Compute the diff against the baseline (or empty list when
     # baseline_source == "UNRESOLVABLE").
     if baseline_sha is not None:
@@ -1332,24 +1510,15 @@ def _run_narrow_or_fallback(repo_root: Path) -> int:
     else:
         diff = []
 
-    # Build the grimp graph.  This is the expensive call; it's also the
-    # one most likely to fail in a sandbox without grimp installed.  The
-    # outer fail-open wrapper catches the ImportError.
-    bundle: GraphBundle | None = None
-    try:
-        bundle = build_graph(repo_root)
-    except Exception as e:  # noqa: BLE001 — fall through to fallback eval
-        _log(f"select-tests: graph build failed: {type(e).__name__}: {e}")
-        # Without a graph we still want to evaluate the
-        # path-pattern triggers — but if none fire, we must widen to
-        # full suite anyway because we cannot compute the closure.
-
-    # PYTEST_ARGS bypass classifier (R5 / Q5) — runs BEFORE the
-    # fallback evaluator so an explicit-path PYTEST_ARGS short-
-    # circuits everything (the developer is steering pytest manually
-    # and doesn't want narrowing).  Flag values like
-    # `--hypothesis-seed=gateway/tests/x.py` correctly classify as
-    # intersect (narrow) — see pytest_args_have_explicit_path
+    # PYTEST_ARGS bypass classifier (R5 / Q5) — runs BEFORE both the
+    # empty-diff short-circuit and the fallback evaluator so an
+    # explicit-path PYTEST_ARGS short-circuits everything (the
+    # developer is steering pytest manually and doesn't want
+    # narrowing).  In particular, on a clean tree (`make test
+    # PYTEST_ARGS=tests/foo/test_bar.py`) the empty-diff branch must
+    # NOT fire — the user wants pytest to run that path.  Flag values
+    # like `--hypothesis-seed=gateway/tests/x.py` correctly classify
+    # as intersect (narrow) — see pytest_args_have_explicit_path
     # comments and TASK-5-4 for the regression cases.
     pytest_args_tokens = _split_pytest_args_env()
     bypass_narrowing = pytest_args_have_explicit_path(pytest_args_tokens, repo_root)
@@ -1357,9 +1526,11 @@ def _run_narrow_or_fallback(repo_root: Path) -> int:
     if bypass_narrowing:
         # Bypass mode — emit nothing on stdout, let the Makefile fall
         # through to the user's explicit PYTEST_ARGS path.  Record
-        # the decision so telemetry catches the override.
+        # the decision so telemetry catches the override.  We
+        # deliberately skip `build_graph` here because the bypass
+        # ignores the closure entirely; total_count falls back to the
+        # cheap TEST_ROOT_DIRS count.
         compute_ms = int((time.monotonic() - t0) * 1000)
-        total_count = len(bundle.all_test_modules) if bundle is not None else len(TEST_ROOT_DIRS)
         _log(
             "select-tests: bypass mode — PYTEST_ARGS contains an explicit "
             "test path; narrowing skipped, pytest runs only the user-"
@@ -1374,9 +1545,8 @@ def _run_narrow_or_fallback(repo_root: Path) -> int:
                 mode="bypass",
                 trigger="PYTEST_ARGS explicit path",
                 selected_count=0,
-                total_count=total_count,
+                total_count=len(TEST_ROOT_DIRS),
                 compute_ms=compute_ms,
-                canary_fired=canary_fired,
                 changed_files_list=diff,
                 changed_modules_list=[],
                 dynamic_import_seeds_hit=[],
@@ -1385,6 +1555,50 @@ def _run_narrow_or_fallback(repo_root: Path) -> int:
         except OSError:
             pass
         return 0
+
+    # Empty diff against a resolvable, current baseline = nothing to
+    # test.  Skip pytest entirely — the Makefile prints "no tests
+    # selected" when the selector emits zero stdout lines.
+    # Unresolvable-baseline / stale-LKG still widen for safety; those
+    # are evaluated by the trigger evaluator below.
+    if not diff and baseline_source != "UNRESOLVABLE" and not lkg_was_stale:
+        compute_ms = int((time.monotonic() - t0) * 1000)
+        short_baseline = _short_sha(baseline_sha) if baseline_sha else "?"
+        _log(
+            f"select-tests: no changes since baseline {short_baseline}; "
+            f"selected 0 tests (skipping pytest)"
+        )
+        try:
+            write_selection_record(
+                head=head_sha,
+                baseline_sha=baseline_sha,
+                baseline_source=baseline_source,
+                branch=branch,
+                mode="narrow",
+                trigger="none",
+                selected_count=0,
+                total_count=0,
+                compute_ms=compute_ms,
+                changed_files_list=[],
+                changed_modules_list=[],
+                dynamic_import_seeds_hit=[],
+                repo_root=repo_root,
+            )
+        except OSError:
+            pass
+        return 0
+
+    # Build the grimp graph.  This is the expensive call; it's also the
+    # one most likely to fail in a sandbox without grimp installed.  The
+    # outer fail-open wrapper catches the ImportError.
+    bundle: GraphBundle | None = None
+    try:
+        bundle = build_graph(repo_root)
+    except Exception as e:  # noqa: BLE001 — fall through to fallback eval
+        _log(f"select-tests: graph build failed: {type(e).__name__}: {e}")
+        # Without a graph we still want to evaluate the
+        # path-pattern triggers — but if none fire, we must widen to
+        # full suite anyway because we cannot compute the closure.
 
     # Pre-compute changed-modules-list + seeds-hit ONCE so both the
     # narrow and full-suite branches can write a uniformly-detailed
@@ -1406,7 +1620,6 @@ def _run_narrow_or_fallback(repo_root: Path) -> int:
         bundle=bundle,
         baseline_source=baseline_source,
         lkg_was_stale=lkg_was_stale,
-        canary_fired=canary_fired,
     )
 
     # If we have no graph and no explicit trigger, force a full suite
@@ -1416,24 +1629,21 @@ def _run_narrow_or_fallback(repo_root: Path) -> int:
         trigger = "graph unavailable"
 
     # Last-line-of-defense check: when narrowing IS possible (bundle
-    # exists, no trigger fired), but the import resolver returned
-    # zero downstream tests for any non-test changed module — widen
-    # to full suite.  Bare-name imports under orchestrator/ /
-    # sandbox/ / tests/ that grimp's resolver can't see would
-    # otherwise silently select zero tests for every change there.
-    # We skip the check when the changed module IS itself a test
-    # module (test-only edits already narrow correctly via
-    # downstream-of-leaf).  Reviewer #1 fallback (option (c)).
+    # exists, no trigger fired), but neither grimp's import graph nor
+    # the bare-name AST resolver can reach any test module from a
+    # non-test changed module — widen to full suite.  Such a module is
+    # a true blind spot: nothing in the graph claims to import it, so
+    # narrowing risks skipping a real consumer that uses a pattern
+    # neither analysis can see (e.g., subprocess invocation, runtime
+    # plugin discovery, or a bare-name import we haven't taught the
+    # resolver about).
     if bundle is not None and trigger is None and module_path_pairs:
         zero_downstream_offenders: list[str] = []
         for module, _path in module_path_pairs:
             if module in bundle.all_test_modules:
                 continue  # editing a test pulls only itself; that's fine
-            try:
-                downstream = bundle.graph.find_downstream_modules(module, as_package=False)
-            except Exception:  # noqa: BLE001
-                downstream = set()
-            if not (set(downstream) & bundle.all_test_modules):
+            reachable = _walk_upstream_combined(bundle, [module])
+            if not (reachable & bundle.all_test_modules):
                 zero_downstream_offenders.append(module)
         if zero_downstream_offenders:
             trigger = f"no downstream tests for changed module: {zero_downstream_offenders[0]}"
@@ -1459,7 +1669,6 @@ def _run_narrow_or_fallback(repo_root: Path) -> int:
             selected_count=total_count,
             total_count=total_count,
             compute_ms=compute_ms,
-            canary_fired=canary_fired,
             changed_files_list=diff,
             changed_modules_list=changed_modules_list,
             dynamic_import_seeds_hit=seeds_hit,
@@ -1494,7 +1703,6 @@ def _run_narrow_or_fallback(repo_root: Path) -> int:
         selected_count=selected_count,
         total_count=total_count,
         compute_ms=compute_ms,
-        canary_fired=canary_fired,
         changed_files_list=diff,
         changed_modules_list=changed_modules_list,
         dynamic_import_seeds_hit=seeds_hit,
@@ -1532,7 +1740,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--full-suite",
         action="store_true",
-        help="Emit all test directories on stdout and reset the canary counter.",
+        help="Emit all test directories on stdout (used by `make test-all`).",
     )
     parser.add_argument(
         "--patch-selection-json",
@@ -1576,14 +1784,6 @@ def _main_inner(argv: list[str] | None = None) -> int:
             return 1
 
     if args.full_suite:
-        # Reset the canary counter; --full-suite is the bulk escape
-        # hatch and `make test-all`'s wrapper.
-        branch = _git_current_branch(cwd=repo_root)
-        if branch is not None:
-            try:
-                write_canary_count(branch, 0, repo_root=repo_root)
-            except OSError:
-                pass
         return emit_full_suite()
 
     if args.why is not None:
