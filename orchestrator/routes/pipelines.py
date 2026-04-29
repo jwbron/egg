@@ -5751,9 +5751,17 @@ def _refresh_pipeline_branch_against_current_base(
 
     ``_rebase_pipeline_branch_onto_base`` runs at the start of each
     phase iteration to clean up stale branch state on resume.  Nothing
-    between branch-cut and PR-open refreshes against ``origin/<base>``;
-    if main advances *during* the PR phase's own work, the resulting
-    PR is behind.  This helper closes that gap.
+    between branch-cut and PR-open refreshes against
+    ``origin/<base_branch>``; if ``base_branch`` advances *during* the
+    PR phase's own work, the resulting PR is behind.  This helper
+    closes that gap.
+
+    The pipeline branch is the only ref this helper writes to: the
+    rebase replays pipeline-branch commits onto current
+    ``origin/<base_branch>``, and the force-push targets
+    ``pipeline_branch``.  ``base_branch`` is read-only here — no
+    commits are ever pushed to it, even when it happens to be
+    ``main``.
 
     On success, force-pushes the rebased branch so the open PR's head
     SHA reflects the rebase.
@@ -5849,11 +5857,11 @@ def _refresh_pipeline_branch_against_current_base(
     # Step 4: Compute the merge-base so we can use the safe
     # ``--onto <new_base> <upstream>`` form (HEAD is the implicit branch
     # being rebased after the step-5 reset).  The merge-base is the
-    # commit where the branch diverged from base; using it as
+    # commit where the branch diverged from base_branch; using it as
     # ``<upstream>`` tells git "replay only the commits unique to HEAD
-    # onto <new_base>" — no main commits get absorbed into the branch's
-    # linear history, which is the contamination shape #2222 hardened
-    # against in the push-reconcile path.
+    # onto <new_base>" — no base-branch commits get absorbed into the
+    # branch's linear history, which is the contamination shape #2222
+    # hardened against in the push-reconcile path.
     merge_base_proc = _run_git(
         ["merge-base", f"origin/{pipeline_branch}", f"origin/{base_branch}"],
         timeout=15,
@@ -7591,14 +7599,17 @@ def _auto_create_pr(
             pipeline_id=pipeline.id,
         )
 
-    # Refresh the pipeline branch against current origin/<base> so the
-    # PR opens with a clean linear diff (#2224 PR 2).  Phase-start
-    # rebases (``_rebase_pipeline_branch_onto_base``) only run once per
-    # phase iteration; if main advanced *during* the PR phase, the
-    # branch is now behind.  The helper is best-effort — on any
-    # failure (rebase conflict, push reject, transient gateway error)
-    # the PR still opens against the un-rebased tip and the
-    # divergence becomes visible to the human reviewer.
+    # Refresh the pipeline branch against current
+    # ``origin/<base_branch>`` so the PR opens with a clean linear
+    # diff (#2224 PR 2).  Phase-start rebases
+    # (``_rebase_pipeline_branch_onto_base``) only run once per phase
+    # iteration; if ``base_branch`` advanced *during* the PR phase,
+    # the pipeline branch is now behind.  The helper is best-effort —
+    # on any failure (rebase conflict, push reject, transient gateway
+    # error) the PR still opens against the un-rebased tip and the
+    # divergence becomes visible to the human reviewer.  Only
+    # ``pipeline.branch`` is rewritten; ``base_branch`` is never
+    # modified or pushed to.
     try:
         _refresh_pipeline_branch_against_current_base(
             spawner=spawner,

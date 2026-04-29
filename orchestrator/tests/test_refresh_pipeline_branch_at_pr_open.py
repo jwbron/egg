@@ -1,10 +1,11 @@
 """Tests for ``_refresh_pipeline_branch_against_current_base`` (#2224 PR 2).
 
-Closes the gap where main advances *during* the PR phase: before this
-helper, ``_auto_create_pr`` opened the PR against whatever tip
-``origin/<pipeline_branch>`` had — which could be N commits behind
-current ``origin/<base>``.  The helper is best-effort: any failure
-falls back to opening the PR against the un-rebased tip.
+Closes the gap where ``base_branch`` advances *during* the PR phase:
+before this helper, ``_auto_create_pr`` opened the PR against
+whatever tip ``origin/<pipeline_branch>`` had — which could be N
+commits behind current ``origin/<base_branch>``.  The helper is
+best-effort: any failure falls back to opening the PR against the
+un-rebased tip.  ``base_branch`` is never written to.
 """
 
 from __future__ import annotations
