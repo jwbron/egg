@@ -1591,23 +1591,33 @@ class PeerConsensusTracker:
         return min(timestamps)
 
     def get_fully_acked_producers(self) -> dict[str, float]:
-        """Return producers that are fully ACKed but have not yet confirmed.
+        """Return producers that are ready to confirm but have not yet done so.
 
-        These producers have received all required ACKs and should be
-        transitioning to CONFIRMED. If they remain in this state for too
-        long, the health monitor should escalate.
+        A producer is "ready" only when ``check_confirm_guard`` would actually
+        allow ``mcp__brc__confirm`` to succeed. That includes the per-role
+        fully-ACKed check AND the global zero-proposal guard (#1648): if any
+        producer in the review graph has ``proposal_version == 0``, no agent
+        can confirm yet, and a ``brc_confirmation_timeout`` alert against the
+        patient producer would be a false positive (#2187).
 
         Returns:
             Dict mapping producer role to proposal timestamp (epoch float)
-            for producers where ``matrix.is_fully_acked(role)`` is True and
-            ``_producer_phases[role]`` is ``PROPOSED`` (not yet CONFIRMED).
+            for producers in ``PROPOSED`` phase whose confirm guard passes.
         """
         result: dict[str, float] = {}
         with self._lock:
+            # Iterating ``_producer_phases`` (rather than
+            # ``self.graph.all_roles()`` filtered by ``is_producer``, as
+            # ``_collect_newly_ready_producers`` does) is safe today because
+            # every graph producer is registered before consensus begins —
+            # both iterations yield the same set. If registration ever
+            # becomes optional, prefer the graph-based iteration so the
+            # detector and the post-handler nudge stay in lockstep.
             for role, phase in self._producer_phases.items():
                 if phase != ConsensusPhase.PROPOSED:
                     continue
-                if not self.matrix.is_fully_acked(role):
+                guard = check_confirm_guard(role, self.graph, self.matrix, self._confirmed)
+                if not guard.allowed:
                     continue
                 ts = self._proposal_timestamps.get(role)
                 if ts is not None:
