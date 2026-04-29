@@ -7,6 +7,7 @@ Note: Git operations are mocked since git init is not available in the sandbox.
 import os
 import shutil
 import subprocess
+import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -1867,6 +1868,100 @@ class TestBranchHeldByPrunableWorktree:
         assert not admin_dir.exists()
         # Calling again — nothing left to remove.
         assert store._remove_admin_dir_for_path(unrelated_path) is False
+
+    def test_concurrent_callers_serialize_through_git_op(self, tmp_path):
+        """Two callers entering ``_ensure_worktree`` concurrently must
+        both succeed.  Pre-fix (#2177), the recovery sequence
+        ``worktree add`` (fail) → ``_remove_admin_dir_for_path`` →
+        ``worktree add`` (retry) released ``_git_op`` between the
+        inner ``_run_git`` calls, so the loser found the admin dir
+        already cleaned (returned False) and re-raised the original
+        ``GitOperationError`` as a misleading one-shot 500.  Wrapping
+        the bring-up sequence in ``_git_op`` makes the loser block on
+        the lock and observe a healthy worktree on entry."""
+        store_seed, wt = self._make_store(tmp_path)
+
+        # Wedge state: admin dir for a vanished path holds the branch.
+        stale_path = tmp_path / "old-pipeline-worktree"
+        admin_dir = store_seed.repo_path / ".git" / "worktrees" / "old-pipeline-worktree"
+        admin_dir.mkdir(parents=True)
+        (admin_dir / "gitdir").write_text(f"{stale_path}/.git\n")
+
+        add_call_count = {"n": 0}
+        depth_when_removing_admin: list[int] = []
+        counter_lock = threading.Lock()
+        errors: list[BaseException] = []
+        results: list = []
+
+        def fake_run(*args, check=True, cwd=None):
+            if args[:2] == ("worktree", "add"):
+                with counter_lock:
+                    add_call_count["n"] += 1
+                    is_first = add_call_count["n"] == 1
+                if is_first:
+                    raise GitOperationError(
+                        f"Git command failed: fatal: 'egg/pipeline-state' "
+                        f"is already used by worktree at '{stale_path}'\n"
+                    )
+                # Retry: materialize wt so subsequent rev-parse + the
+                # other thread's wt.exists() probe both observe a
+                # healthy worktree.
+                wt.mkdir(parents=True, exist_ok=True)
+                (wt / ".git").touch()
+                return MagicMock(stdout="", returncode=0)
+            if args[:2] == ("rev-parse", "--is-inside-work-tree"):
+                return MagicMock(
+                    stdout="",
+                    returncode=0 if (wt / ".git").exists() else 1,
+                )
+            if args[:2] == ("rev-parse", "--verify"):
+                return MagicMock(stdout="", returncode=0)
+            return MagicMock(stdout="", returncode=0)
+
+        original_remove = StateStore._remove_admin_dir_for_path
+
+        def tracked_remove(self, target_path):
+            # _flock_depth > 0 proves the recovery is running under
+            # the cross-process lock — i.e., the loser cannot squeeze
+            # in between our failing add and our retry.
+            depth_when_removing_admin.append(StateStore._flock_depth)
+            return original_remove(self, target_path)
+
+        def caller():
+            try:
+                s = StateStore(store_seed.repo_path, worktree_dir=wt)
+                results.append(s._ensure_worktree())
+            except BaseException as exc:
+                errors.append(exc)
+
+        with (
+            patch.object(StateStore, "_run_git", side_effect=fake_run),
+            patch.object(
+                StateStore,
+                "_remove_admin_dir_for_path",
+                tracked_remove,
+            ),
+        ):
+            threads = [threading.Thread(target=caller) for _ in range(2)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+        assert errors == [], f"concurrent callers must not raise: {errors}"
+        assert results == [wt, wt]
+        # Exactly one fail+retry pair across both threads — the loser
+        # never re-entered the recovery path; it observed the wt as
+        # healthy under the lock and short-circuited.
+        assert add_call_count["n"] == 2, (
+            f"expected one fail + one retry, got {add_call_count['n']} adds"
+        )
+        # The recovery removed the admin dir while holding the lock.
+        assert depth_when_removing_admin, "recovery never ran"
+        assert all(d > 0 for d in depth_when_removing_admin), (
+            f"_remove_admin_dir_for_path ran outside _git_op: depths={depth_when_removing_admin}"
+        )
+        assert not admin_dir.exists()
 
 
 class TestEnsureWorktreeRepoPathGuard:
