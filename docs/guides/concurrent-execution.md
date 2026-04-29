@@ -35,6 +35,8 @@ Relevant `PipelineConfig` fields:
 | `message_poll_hint_seconds` | `30` | Suggested polling interval for agents |
 | `consensus_timeout_minutes` | `30` | Consensus timeout before escalation or auto-advance |
 | `brc_consensus_progress_gate_seconds` | `300` | Defer the consensus-timeout HITL decision while BRC bus activity (proposals, ACKs/NACKs) or container heartbeats have fired within this window. Set to `0` to disable. |
+| `post_consensus_iteration_budget_seconds` | `3600` | Per-iteration wait budget in the post-timeout poll loop. Resets each time a producer issues a new `CONSENSUS_PROPOSE` (initial or NACK→re-propose), giving each iteration a clean clock. |
+| `post_consensus_max_total_seconds` | `14400` | Hard ceiling on the total post-timeout wait, regardless of how often the per-iteration budget rebaselines. Must be ≥ `post_consensus_iteration_budget_seconds`. |
 | `agent_idle_timeout_minutes` | `60` | Idle agent timeout before termination |
 
 ## Agent Startup Protocol
@@ -739,7 +741,7 @@ Timeout handling is idempotent — if the timeout fires multiple times (e.g., du
 
 **Consensus reached during timeout wait**: After the BRC timeout evaluation, the orchestrator enters an event-driven polling loop that rechecks consensus proactively:
 
-- **Polling mechanics**: 30-second intervals, up to 3600s total budget.
+- **Polling mechanics**: 30-second intervals. The per-iteration budget (`post_consensus_iteration_budget_seconds`, default 3600s) resets each time a producer issues a new `CONSENSUS_PROPOSE`, so productive multi-iteration BRC cycles are not cut off mid-iteration. An absolute cap (`post_consensus_max_total_seconds`, default 14400s) bounds the total wait regardless of proposal churn.
 - **Consensus complete** (all agents confirmed, no unresolved NACKs): the orchestrator immediately stops remaining containers, marks agents complete, restores the pipeline from `FAILED` to `RUNNING` if needed, and returns success — the timeout evaluation is overridden by the consensus outcome.
 - **Unresolved NACKs remain**: the orchestrator escalates to HITL with options "Retry phase", "Accept current state", "Abort phase". See [issue #1693](https://github.com/jwbron/egg/issues/1693).
 
