@@ -9,7 +9,7 @@ tests for code that does not exist yet. The tester prompt (both the
 reviewer-preparation block and, since #2249, the producer-orientation
 block) tells tester to draft test scaffolding from the plan while the
 coder is producing — file paths from ``tasks[].files``, signatures from
-acceptance criteria, fixture imports, and mocked-input scenarios — and
+acceptance criteria, fixture imports, and mock-input scenarios — and
 to defer the actual ``wait-loop`` on coder's CONSENSUS_PROPOSE until the
 scaffolds are drafted.
 
