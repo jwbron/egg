@@ -34,6 +34,7 @@ Relevant `PipelineConfig` fields:
 | `max_concurrent_agents` | `6` | Maximum agents per phase |
 | `message_poll_hint_seconds` | `30` | Suggested polling interval for agents |
 | `consensus_timeout_minutes` | `30` | Consensus timeout before escalation or auto-advance |
+| `brc_consensus_progress_gate_seconds` | `300` | Defer the consensus-timeout HITL decision while BRC bus activity (proposals, ACKs/NACKs) or container heartbeats have fired within this window. Set to `0` to disable. |
 | `agent_idle_timeout_minutes` | `60` | Idle agent timeout before termination |
 
 ## Agent Startup Protocol
@@ -719,7 +720,12 @@ If any agent is in the `OBJECTING` readiness state (separate from BRC phase), th
 
 ### Timeout Handling
 
-If consensus is not reached within `consensus_timeout_minutes`, the BRC tracker (`PeerConsensusTracker.handle_timeout()`) evaluates blocking agents by role criticality:
+If consensus is not reached within `consensus_timeout_minutes`, the orchestrator first checks the **BRC progress gate** before opening a HITL decision. While any of the following have fired within `brc_consensus_progress_gate_seconds` (default 300 s), the orchestrator continues polling rather than escalating immediately:
+
+- A `CONSENSUS_PROPOSE` or ACK/NACK on the BRC bus
+- A container heartbeat from any active role in the current phase
+
+Once the bus and containers have been quiet for the full gate window, the BRC tracker (`PeerConsensusTracker.handle_timeout()`) evaluates blocking agents by role criticality:
 
 - **Critical blockers** (required reviewers still unconfirmed): emits `CONSENSUS_FAILURE` and publishes an `OVERSEER_ALERT` (subject `consensus-timeout: <agent_role> [high]`, where `<agent_role>` is the first critical-blocker role; the phase is preserved in `metadata.phase`) so the SDLC skill surfaces it as a non-blocking notification — see [issue #2264](https://github.com/jwbron/egg/issues/2264). The alert's `metadata.blocking_agents` is narrowed to the critical-blocker roles only (advisory roles, if any, are excluded so the high-priority signal isn't diluted).
 - **Advisory-only blockers** (non-critical roles unconfirmed): emits `CONSENSUS_TIMEOUT` and proceeds automatically — no alert created.

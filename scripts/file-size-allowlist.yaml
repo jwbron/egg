@@ -72,8 +72,8 @@ files:
     bytes: 61597
     issue: "2248"
   scripts/select_tests.py:
-    lines: 1850
-    bytes: 73711
+    lines: 1875
+    bytes: 75206
     issue: "2248"
   orchestrator/routes/deployment.py:
     lines: 1604
