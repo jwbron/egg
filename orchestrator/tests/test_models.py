@@ -455,9 +455,10 @@ class TestResolveConsensusTimeoutMinutes:
         assert resolve_consensus_timeout_minutes(config, "plan") == 15
         assert resolve_consensus_timeout_minutes(config, "implement") == 90
 
-    def test_unknown_phase_falls_back_to_30(self):
+    def test_unknown_phase_falls_back_to_refine_default(self):
         config = PipelineConfig()
-        assert resolve_consensus_timeout_minutes(config, "totally-unknown") == 30
+        expected = PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN["refine"]
+        assert resolve_consensus_timeout_minutes(config, "totally-unknown") == expected
 
     def test_unknown_phase_still_honors_legacy_global(self):
         config = PipelineConfig(consensus_timeout_minutes=45)
