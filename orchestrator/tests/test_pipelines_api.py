@@ -10,6 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from flask import Flask
+from gateway_client import PushResult
 from models import (
     AgentExecution,
     AgentExecutionStatus,
@@ -95,7 +96,7 @@ class TestDeletePipelineBranchCleanup:
         mock_spawner_fn.return_value = mock_spawner
 
         mock_gw = MagicMock()
-        mock_gw.delete_remote_branch.return_value = True
+        mock_gw.delete_remote_branch.return_value = PushResult(ok=True)
         mock_gw_fn.return_value = mock_gw
 
         response = client.delete("/api/v1/pipelines/test-pipeline")
@@ -143,7 +144,7 @@ class TestDeletePipelineBranchCleanup:
         mock_spawner_fn.return_value = mock_spawner
 
         mock_gw = MagicMock()
-        mock_gw.delete_remote_branch.return_value = True
+        mock_gw.delete_remote_branch.return_value = PushResult(ok=True)
         mock_gw_fn.return_value = mock_gw
 
         response = client.delete("/api/v1/pipelines/issue-1973")
@@ -170,7 +171,9 @@ class TestDeletePipelineBranchCleanup:
         mock_spawner_fn.return_value = mock_spawner
 
         mock_gw = MagicMock()
-        mock_gw.delete_remote_branch.return_value = False
+        mock_gw.delete_remote_branch.return_value = PushResult(
+            ok=False, category="network", detail="connection refused"
+        )
         mock_gw_fn.return_value = mock_gw
 
         response = client.delete("/api/v1/pipelines/test-pipeline")
@@ -245,7 +248,7 @@ class TestDeletePipelineBranchCleanup:
         mock_spawner_fn.return_value = mock_spawner
 
         mock_gw = MagicMock()
-        mock_gw.delete_remote_branch.return_value = True
+        mock_gw.delete_remote_branch.return_value = PushResult(ok=True)
         mock_gw_fn.return_value = mock_gw
 
         response = client.delete("/api/v1/pipelines/test-pipeline")
@@ -257,6 +260,43 @@ class TestDeletePipelineBranchCleanup:
             for call in mock_gw.delete_remote_branch.call_args_list
         }
         assert called_branches == {"egg/test", "egg/container-shared/work"}
+
+    @patch("routes.pipelines.get_gateway_client")
+    @patch("routes.pipelines.get_container_spawner")
+    @patch("routes.pipelines._resolve_pipeline")
+    def test_delete_pipeline_treats_already_deleted_as_success(
+        self, mock_resolve, mock_spawner_fn, mock_gw_fn, client
+    ):
+        """``already_deleted`` is the desired state — cleanup must not warn
+        or treat it as a failure when a branch was never pushed (#2055)."""
+        pipeline = _make_pipeline_with_containers("test-pipeline")
+
+        mock_store = MagicMock()
+        mock_resolve.return_value = (mock_store, pipeline)
+
+        mock_spawner = MagicMock()
+        mock_spawner.cleanup_pipeline.return_value = 0
+        mock_spawner_fn.return_value = mock_spawner
+
+        mock_gw = MagicMock()
+        mock_gw.delete_remote_branch.return_value = PushResult(
+            ok=False,
+            category="already_deleted",
+            detail="error: unable to delete: remote ref does not exist",
+        )
+        mock_gw_fn.return_value = mock_gw
+
+        with patch("routes.pipelines.logger") as mock_logger:
+            response = client.delete("/api/v1/pipelines/test-pipeline")
+            assert response.status_code == 200
+
+            # No "deletion failed" warnings — the desired state is satisfied.
+            for call in mock_logger.warning.call_args_list:
+                assert "Remote branch deletion failed" not in (call.args[0] if call.args else "")
+
+            # And the success-summary log records all branches as deleted.
+            info_messages = [call.args[0] for call in mock_logger.info.call_args_list if call.args]
+            assert "Cleaned up remote branches" in info_messages
 
     @patch("routes.pipelines.get_gateway_client")
     @patch("routes.pipelines.get_container_spawner")
@@ -1006,7 +1046,7 @@ class TestRuntimeStateLeakageOnBranchReuse:
         mock_spawner_fn.return_value = mock_spawner
 
         mock_gw = MagicMock()
-        mock_gw.delete_remote_branch.return_value = True
+        mock_gw.delete_remote_branch.return_value = PushResult(ok=True)
         mock_gw_fn.return_value = mock_gw
 
         with patch("routes.pipelines._clear_pipeline_runtime_state") as mock_clear:

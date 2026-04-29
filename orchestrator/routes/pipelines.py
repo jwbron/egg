@@ -2076,8 +2076,22 @@ def _cleanup_remote_branches(
 
     deleted = 0
     for branch in sorted(branches):
-        if gateway_client.delete_remote_branch(pipeline_id, repo_path_str, branch, mode=mode):
+        result = gateway_client.delete_remote_branch(pipeline_id, repo_path_str, branch, mode=mode)
+        # ``already_deleted`` means the desired state (branch absent on
+        # remote) is satisfied — count it as success rather than churning a
+        # warning every time a pipeline is cleaned up before any branch was
+        # ever pushed.
+        category = getattr(result, "category", None)
+        if result or category == "already_deleted":
             deleted += 1
+        else:
+            logger.warning(
+                "Remote branch deletion failed during pipeline cleanup",
+                pipeline_id=pipeline_id,
+                branch=branch,
+                category=category,
+                detail=getattr(result, "detail", None),
+            )
 
     if deleted:
         logger.info(

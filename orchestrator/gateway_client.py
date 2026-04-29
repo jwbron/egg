@@ -139,6 +139,8 @@ def _classify_push_stderr(stderr: str) -> str:
         return "shallow_clone"
     if "already exists" in s:
         return "branch_exists"
+    if "remote ref does not exist" in s:
+        return "already_deleted"
     return "push_rejected"
 
 
@@ -1074,68 +1076,30 @@ class GatewayClient:
         repo_path: str,
         branch: str,
         mode: Literal["public", "private"] = "public",
-    ) -> bool:
-        """Delete a remote branch using a temporary session.
+    ) -> PushResult:
+        """Delete a remote branch with launcher auth (orchestrator-trusted).
 
-        Best-effort operation used to clean up worktree branches from the
-        remote when a pipeline is deleted. Registers a temp session, pushes
-        a deletion refspec (`:branch`), then cleans up the session.
+        Sends a deletion refspec (``:branch``) through the same
+        ``_do_push`` path used by ``push_worktree_branch``.  Authenticates
+        with the launcher secret rather than a sandbox session token: the
+        orchestrator is on the privileged side of the trust boundary, and
+        the gateway's pipeline-push enforcement (#2028) was 403'ing the
+        old temp-session shape, so cleanup silently no-op'd and shared
+        ``egg/<pipeline-id>`` branches accumulated on origin (#2055).
 
-        Args:
-            pipeline_id: Pipeline ID (used as container_id for the temp session)
-            repo_path: Path to a repo directory (for the push endpoint)
-            branch: Remote branch name to delete
-
-        Returns:
-            True if deletion succeeded, False otherwise
+        Returns ``PushResult`` so callers can distinguish ``already_deleted``
+        (the desired state — branch absent on remote) from real failures
+        (``permission_denied``, ``network``, etc.).  ``PushResult`` is
+        truthy on success so existing ``if delete_remote_branch(...):``
+        callers keep working.
         """
-        temp_container_id = f"{pipeline_id}-branch-cleanup-{branch.replace('/', '-')}"
-        session_token: str | None = None
-        try:
-            session = self.register_session(
-                container_id=temp_container_id,
-                container_ip=self.self_ip,
-                mode=mode,
-                pipeline_id=pipeline_id,
-                branch=branch,
-            )
-            session_token = session.session_token
-
-            # Push with empty source = delete remote branch.
-            # Do NOT include container_id — repo_path is already the
-            # resolved path; the synthetic container_id has no real
-            # worktree and would trigger a "worktree not found" error.
-            self._make_request(
-                "/api/v1/git/push",
-                method="POST",
-                data={
-                    "repo_path": repo_path,
-                    "remote": "origin",
-                    "refspec": f":{branch}",
-                },
-                bearer_token=session_token,
-            )
-
-            logger.info(
-                "Deleted remote branch",
-                pipeline_id=pipeline_id,
-                branch=branch,
-            )
-            return True
-        except Exception as e:
-            logger.warning(
-                "Best-effort remote branch deletion failed",
-                pipeline_id=pipeline_id,
-                branch=branch,
-                error=str(e),
-            )
-            return False
-        finally:
-            if session_token:
-                try:
-                    self.delete_session(session_token)
-                except Exception:
-                    pass
+        return self._do_push(
+            pipeline_id=pipeline_id,
+            repo_path=repo_path,
+            branch=branch,
+            mode=mode,
+            refspec=f":{branch}",
+        )
 
     def create_pr(
         self,

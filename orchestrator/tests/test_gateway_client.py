@@ -1165,19 +1165,26 @@ class TestPushWorktreeBranch:
 
 
 class TestDeleteRemoteBranch:
-    """Tests for delete_remote_branch method."""
+    """Tests for delete_remote_branch method.
+
+    Post-#2055: deletion goes through ``_do_push`` with launcher auth
+    (no temp-session ceremony).  The pipeline-push enforcement that
+    blocked the prior shape (#2028) exempts launcher-auth requests.
+    """
 
     def test_delete_remote_branch_success(self, gateway_client, mock_gateway_server):
-        """Test successful deletion of a remote branch."""
+        """Successful deletion returns a truthy ``PushResult``."""
         result = gateway_client.delete_remote_branch(
             pipeline_id="issue-42",
             repo_path="/home/egg/.egg-worktrees/issue-42/repo",
             branch="egg/container-abc123/work",
         )
-        assert result is True
+        assert isinstance(result, PushResult)
+        assert result.ok is True
+        assert bool(result) is True
 
     def test_delete_remote_branch_gateway_unreachable(self):
-        """Test deletion fails gracefully when gateway is unreachable."""
+        """Transport failure surfaces as a falsy ``PushResult`` with category."""
         client = GatewayClient(
             gateway_host="localhost",
             gateway_port=19999,
@@ -1190,35 +1197,50 @@ class TestDeleteRemoteBranch:
             repo_path="/some/path",
             branch="egg/container-abc123/work",
         )
-        assert result is False
+        assert isinstance(result, PushResult)
+        assert result.ok is False
+        assert result.category in ("gateway_unreachable", "gateway_error", "unknown")
+        assert bool(result) is False
 
-    def test_delete_remote_branch_cleans_up_session(self, gateway_client, mock_gateway_server):
-        """Test that temp session is cleaned up after deletion."""
-        with patch.object(gateway_client, "delete_session") as mock_delete:
-            gateway_client.delete_remote_branch(
-                pipeline_id="issue-42",
-                repo_path="/some/path",
-                branch="egg/container-abc123/work",
-            )
-            # Session should be cleaned up
-            mock_delete.assert_called_once_with("test-token-12345")
+    def test_delete_remote_branch_uses_launcher_auth(self, gateway_client, mock_gateway_server):
+        """Pin the trust-boundary fix: deletion authenticates with the
+        launcher secret (not a session token), so it bypasses the
+        gateway's pipeline-push enforcement (#2028, #2055)."""
+        captured: dict = {}
 
-    def test_delete_remote_branch_registers_session_with_branch(
-        self, gateway_client, mock_gateway_server
-    ):
-        """Test that register_session is called with branch so gateway assigns correct branch."""
-        with patch.object(
-            gateway_client, "register_session", wraps=gateway_client.register_session
-        ) as mock_reg:
-            gateway_client.delete_remote_branch(
-                pipeline_id="issue-42",
-                repo_path="/some/path",
-                branch="egg/container-abc123/work",
-            )
-            mock_reg.assert_called_once()
-            call_kwargs = mock_reg.call_args
-            registered_branch = call_kwargs.kwargs["branch"]
-            assert registered_branch == "egg/container-abc123/work"
+        original = gateway_client._make_request
+
+        def spy(endpoint, *args, **kwargs):
+            if endpoint == "/api/v1/git/push":
+                captured["use_launcher_auth"] = kwargs.get("use_launcher_auth")
+                captured["bearer_token"] = kwargs.get("bearer_token")
+                captured["data"] = kwargs.get("data")
+            return original(endpoint, *args, **kwargs)
+
+        with patch.object(gateway_client, "_make_request", side_effect=spy):
+            with patch.object(gateway_client, "register_session") as mock_reg:
+                gateway_client.delete_remote_branch(
+                    pipeline_id="issue-42",
+                    repo_path="/some/path",
+                    branch="egg/container-abc123/work",
+                )
+                # No temp session — the orchestrator authenticates directly.
+                mock_reg.assert_not_called()
+
+        assert captured["use_launcher_auth"] is True
+        assert captured["bearer_token"] is None
+        assert captured["data"]["refspec"] == ":egg/container-abc123/work"
+
+    def test_delete_remote_branch_already_deleted_classifier(self):
+        """``remote ref does not exist`` stderr classifies as ``already_deleted``."""
+        # Direct classifier check — keeps the test independent of HTTP
+        # plumbing while pinning the category callers depend on to
+        # distinguish desired-state-already from real failures.
+        category = _classify_push_stderr(
+            "error: unable to delete 'egg/container-abc/work': remote ref does not exist\n"
+            "error: failed to push some refs to 'origin'"
+        )
+        assert category == "already_deleted"
 
 
 class TestFetchWorktreeBranch:
