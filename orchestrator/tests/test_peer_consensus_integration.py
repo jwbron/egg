@@ -3023,6 +3023,11 @@ class TestGetFullyAckedProducers:
             "coder",
             {"summary": "test", "artifacts": ["a.py"], "commit_sha": "abc123"},
         )
+        # tester must also propose to pass global zero-proposal guard (#1648)
+        tracker.handle_propose(
+            "tester",
+            {"summary": "tests", "artifacts": ["tests/t.py"], "commit_sha": "def456"},
+        )
         # Both critical reviewers ACK
         tracker.handle_ack("reviewer_code", "coder", {"artifact_references": ["a.py"]})
         tracker.handle_ack("reviewer_contract", "coder", {"artifact_references": ["a.py"]})
@@ -3085,6 +3090,48 @@ class TestGetFullyAckedProducers:
 
         result = t.get_fully_acked_producers()
         assert "coder" in result, "Advisory reviewer ACK should not be required"
+
+    def test_excludes_when_global_zero_proposal_blocks(self):
+        """Regression for #2187.
+
+        A producer that is PROPOSED + fully-ACKed must not appear in the
+        result while another producer in the graph is still at
+        ``proposal_version == 0`` — ``mcp__brc__confirm`` would reject with
+        ``pending_acks`` (global zero-proposal guard, #1648), so firing a
+        ``brc_confirmation_timeout`` against the patient producer is a false
+        positive.
+        """
+        graph = get_default_implement_graph()
+        t = PeerConsensusTracker("test-2187", graph, cooldown_seconds=0)
+        for role in graph.all_roles():
+            t.register_agent(role)
+
+        # Documenter proposes; coder and tester have not.
+        t.handle_propose(
+            "documenter",
+            {"summary": "docs", "artifacts": ["docs/README.md"], "commit_sha": "abc"},
+        )
+        # All critical reviewers ACK documenter (default-implement graph
+        # uses reviewer_code as the lone critical reviewer for documenter).
+        t.handle_ack("reviewer_code", "documenter", {"artifact_references": ["docs/README.md"]})
+
+        result = t.get_fully_acked_producers()
+        assert "documenter" not in result, (
+            "Patient producer must be hidden while peers have proposal_version == 0"
+        )
+
+        # Once peers propose, documenter becomes ready.
+        t.handle_propose(
+            "coder", {"summary": "code", "artifacts": ["src/m.py"], "commit_sha": "def"}
+        )
+        t.handle_propose(
+            "tester",
+            {"summary": "tests", "artifacts": ["tests/t.py"], "commit_sha": "ghi"},
+        )
+        result = t.get_fully_acked_producers()
+        assert "documenter" in result, (
+            "Once global guard clears, documenter should surface as ready"
+        )
 
 
 class TestReadyToConfirmNudge:

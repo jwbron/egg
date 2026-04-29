@@ -2358,6 +2358,232 @@ class TestBRCProgressCheck:
         assert len(warn_calls) == 1
 
 
+class TestBRCProgressGlobalZeroProposalGate:
+    """Regression coverage for #2187.
+
+    ``check_brc_progress`` reads its candidate set from
+    ``PeerConsensusTracker.get_fully_acked_producers``. Prior to #2187 the
+    helper returned PROPOSED+ACKed producers regardless of whether
+    ``mcp__brc__confirm`` would actually accept them, so a fast producer
+    waiting on a slower peer's first proposal was nudged with
+    ``brc_confirmation_timeout``. The agent then dutifully called confirm,
+    got rejected with ``pending_acks`` (global zero-proposal guard, #1648),
+    and went back to waiting — producing nothing but message-bus churn.
+
+    The fix gates ``get_fully_acked_producers`` on ``check_confirm_guard``,
+    so the detector never sees a producer that isn't actually ready to
+    confirm. These tests exercise the detector through a real
+    ``PeerConsensusTracker`` to verify the integration end-to-end.
+    """
+
+    def _build_tracker(self):
+        """Build a real PeerConsensusTracker for the default implement graph."""
+        from peer_consensus import PeerConsensusTracker
+        from review_graph import get_default_implement_graph
+
+        graph = get_default_implement_graph()
+        tracker = PeerConsensusTracker("issue-2187", graph, cooldown_seconds=0)
+        for role in graph.all_roles():
+            tracker.register_agent(role)
+        return tracker
+
+    def test_no_alert_while_peer_producer_has_zero_proposal(self):
+        """No ``brc_confirmation_timeout`` while any peer producer has
+        ``proposal_version == 0`` — the patient agent is correctly waiting,
+        and ``mcp__brc__confirm`` would reject under the global zero-proposal
+        guard. Mirrors the issue-2187 repro: documenter proposes + gets
+        ACKed, coder/tester are still WORKING."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_post_ack_confirmation_timeout_seconds=180)
+        monitor = _make_monitor(bus, config)
+
+        escalations: list[dict] = []
+        monitor.on_escalation(lambda e: escalations.append(e))
+
+        _emit_heartbeat(bus, agent_id="documenter")
+
+        tracker = self._build_tracker()
+        # Documenter is the easy case: no critical reviewers in the default
+        # implement graph (reviewer_code reviews documenter ADVISORY-only),
+        # so handle_propose alone leaves it fully-ACKed at the per-role
+        # level. The advisory ACK below makes that explicit.
+        tracker.handle_propose(
+            "documenter",
+            {"summary": "docs", "artifacts": ["docs/README.md"], "commit_sha": "abc"},
+        )
+        tracker.handle_ack(
+            "reviewer_code",
+            "documenter",
+            {"artifact_references": ["docs/README.md"]},
+        )
+
+        base = time.time()
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=tracker,
+            ),
+        ):
+            # First call records first-seen — but only if the helper
+            # surfaces documenter, which it must NOT, since coder/tester
+            # haven't proposed.
+            mock_time.time.return_value = base
+            monitor.check_brc_progress()
+
+            # Well past the 180s timeout — still no alert.
+            mock_time.time.return_value = base + 400
+            actions = monitor.check_brc_progress()
+
+        assert actions == [], (
+            "Patient producer must not be escalated while peers have proposal_version == 0"
+        )
+        assert escalations == []
+        assert "documenter" not in monitor._fully_acked_first_seen, (
+            "Patient producer should not even enter the timeout-tracking dict"
+        )
+
+    def test_alert_fires_after_peers_finally_propose(self):
+        """Once all producers have proposed, the global guard clears and the
+        timeout window starts from genuine readiness — full 180s grace from
+        the moment the patient agent is actually able to confirm."""
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_post_ack_confirmation_timeout_seconds=180)
+        monitor = _make_monitor(bus, config)
+
+        escalations: list[dict] = []
+        monitor.on_escalation(lambda e: escalations.append(e))
+
+        _emit_heartbeat(bus, agent_id="documenter")
+
+        tracker = self._build_tracker()
+        tracker.handle_propose(
+            "documenter",
+            {"summary": "docs", "artifacts": ["docs/README.md"], "commit_sha": "abc"},
+        )
+        tracker.handle_ack(
+            "reviewer_code",
+            "documenter",
+            {"artifact_references": ["docs/README.md"]},
+        )
+
+        base = time.time()
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=tracker,
+            ),
+        ):
+            # Pre-clear: no alert at base+400.
+            mock_time.time.return_value = base
+            monitor.check_brc_progress()
+            mock_time.time.return_value = base + 400
+            monitor.check_brc_progress()
+
+        assert escalations == []
+
+        # Peers finally propose — global guard clears.
+        tracker.handle_propose(
+            "coder",
+            {"summary": "code", "artifacts": ["src/m.py"], "commit_sha": "def"},
+        )
+        tracker.handle_propose(
+            "tester",
+            {"summary": "tests", "artifacts": ["tests/t.py"], "commit_sha": "ghi"},
+        )
+        # Critical reviewers ACK coder and tester (default implement graph).
+        for reviewer in (
+            "reviewer_code",
+            "reviewer_code_holistic",
+            "reviewer_security",
+            "reviewer_concurrency",
+        ):
+            tracker.handle_ack(reviewer, "coder", {"artifact_references": ["src/m.py"]})
+            tracker.handle_ack(reviewer, "tester", {"artifact_references": ["tests/t.py"]})
+        tracker.handle_ack("reviewer_contract", "coder", {"artifact_references": ["src/m.py"]})
+        tracker.handle_ack("tester", "coder", {"artifact_references": ["src/m.py"]})
+
+        cleared = base + 500
+        _emit_heartbeat(bus, agent_id="coder")
+        _emit_heartbeat(bus, agent_id="tester")
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=tracker,
+            ),
+        ):
+            # First post-clear tick records first-seen for newly-ready producers.
+            mock_time.time.return_value = cleared
+            monitor.check_brc_progress()
+            assert escalations == [], "Within fresh timeout window"
+
+            # Within the new 180s window — no alert.
+            mock_time.time.return_value = cleared + 100
+            monitor.check_brc_progress()
+            assert escalations == []
+
+            # Past the new window — alert fires for the producers that are
+            # genuinely stuck post-clear.
+            mock_time.time.return_value = cleared + 181
+            monitor.check_brc_progress()
+
+        assert any(e["alert_type"] == "brc_confirmation_timeout" for e in escalations), (
+            "Genuine post-clear stall should still escalate"
+        )
+
+    def test_single_producer_phase_unaffected(self):
+        """In a single-producer phase the global zero-proposal set is empty
+        once that producer proposes, so the legitimate timeout still fires.
+        Sanity check that the gate didn't accidentally suppress the
+        single-producer case."""
+        from peer_consensus import PeerConsensusTracker
+        from review_graph import ReviewCriticality, ReviewEdge, ReviewGraph
+
+        graph = ReviewGraph(
+            [ReviewEdge("reviewer_solo", "solo_producer", ReviewCriticality.CRITICAL)]
+        )
+        tracker = PeerConsensusTracker("issue-2187-solo", graph, cooldown_seconds=0)
+        tracker.register_agent("solo_producer")
+        tracker.register_agent("reviewer_solo")
+        tracker.handle_propose(
+            "solo_producer",
+            {"summary": "solo", "artifacts": ["a.py"], "commit_sha": "abc"},
+        )
+        tracker.handle_ack(
+            "reviewer_solo",
+            "solo_producer",
+            {"artifact_references": ["a.py"]},
+        )
+
+        bus = _make_event_bus()
+        config = _make_config(orchestrator_post_ack_confirmation_timeout_seconds=180)
+        monitor = _make_monitor(bus, config)
+        escalations: list[dict] = []
+        monitor.on_escalation(lambda e: escalations.append(e))
+        _emit_heartbeat(bus, agent_id="solo_producer")
+
+        base = time.time()
+        with (
+            patch("health_monitor.time") as mock_time,
+            patch(
+                "peer_consensus.get_peer_consensus_tracker",
+                return_value=tracker,
+            ),
+        ):
+            mock_time.time.return_value = base
+            monitor.check_brc_progress()
+
+            mock_time.time.return_value = base + 181
+            actions = monitor.check_brc_progress()
+
+        assert len(actions) == 1, "Single-producer phase: legitimate timeout still escalates"
+        assert actions[0]["agent_id"] == "solo_producer"
+        assert actions[0]["alert_type"] == "brc_confirmation_timeout"
+        assert len(escalations) == 1
+
+
 # ---------------------------------------------------------------------------
 # Tests: PipelineConfig new fields (#1613 — task-1-2)
 # ---------------------------------------------------------------------------
