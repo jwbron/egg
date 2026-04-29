@@ -573,13 +573,19 @@ jobs:
       # Post-run feedback-contract guard. Scans the bot's top-level response
       # comments posted during this run for forbidden phantom-follow-up
       # phrases (e.g. "will file a follow-up"), and verifies that every
-      # `deferred-to #NNNN` reference points to an issue that exists and was
-      # created during/after this run started. Lines beginning with `>`
-      # (quoted reviewer text) are excluded from the phrase scan.
+      # `deferred-to #NNNN` reference points to a real issue (not a PR)
+      # created during this run, with a 60s grace window for clock skew.
+      # Lines beginning with `>` (quoted reviewer text) and contents of
+      # fenced code blocks / inline backtick spans are excluded from the
+      # phrase scan to avoid false positives on legitimate citations.
       #
       # On violation: this step exits non-zero, the next step posts a
       # flag comment naming the offenses, and the workflow run fails
       # loudly so the violation cannot quietly merge into PR history.
+      #
+      # The verification logic lives in action/verify-feedback-contract.sh
+      # so it can be exercised by the fixture-driven test under
+      # action/tests/verify-feedback-contract.test.sh.
       - name: Verify feedback contract
         id: verify-contract
         if: steps.should-proceed.outputs.ok == 'true' && steps.egg.outcome == 'success'
@@ -591,9 +597,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Fetch top-level PR comments authored by the bot during this run.
-          # Skip infrastructure status markers — we only scan the agent's response.
-          response_comments=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate --slurp \
+          comments_file="${RUNNER_TEMP:-/tmp}/feedback-comments.json"
+          violations_file="${RUNNER_TEMP:-/tmp}/feedback-violations.txt"
+
+          gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate --slurp \
             | jq --arg user "$BOT_USERNAME" \
                  --arg user_bot "${BOT_USERNAME}[bot]" \
                  --arg start "$RUN_START" \
@@ -601,56 +608,21 @@ jobs:
                    | select((.user.login == $user or .user.login == $user_bot)
                             and .created_at >= $start
                             and (.body | contains("<!-- egg-status-comment -->") | not)
-                            and (.body | contains("<!-- egg-feedback-contract-violation -->") | not))]')
+                            and (.body | contains("<!-- egg-feedback-contract-violation -->") | not))]' \
+            > "$comments_file"
 
-          count=$(echo "$response_comments" | jq 'length')
-          echo "Found ${count} response comment(s) posted during this run"
+          export COMMENTS_JSON_FILE="$comments_file"
+          export VIOLATIONS_FILE="$violations_file"
+          export RUN_START REPO
 
-          if [[ "$count" -eq 0 ]]; then
-            echo "::warning::No top-level response comment found from the agent. Skipping contract scan."
-            exit 0
-          fi
-
-          violations_file="${RUNNER_TEMP:-/tmp}/feedback-violations.txt"
-          : > "$violations_file"
-
-          # Forbidden phrases — phantom follow-up promises.
-          forbidden_pattern='(will file|will track|filing later|tracking separately|file a follow[- ]?up|track.{0,15}follow[- ]?up|follow[- ]?up later|will open an issue)'
-
-          # Process each response comment.
-          while IFS= read -r b64body; do
-            decoded=$(echo "$b64body" | base64 -d)
-            # Strip lines that start with `>` (quoted reviewer text) before scanning.
-            unquoted=$(echo "$decoded" | grep -v '^[[:space:]]*>' || true)
-
-            # 1. Forbidden phrase scan.
-            if echo "$unquoted" | grep -iEq "$forbidden_pattern"; then
-              matches=$(echo "$unquoted" | grep -iEo "$forbidden_pattern" | sort -u | paste -sd, -)
-              echo "forbidden phrase(s): ${matches}" >> "$violations_file"
-            fi
-
-            # 2. deferred-to issue verification — must exist and be created during/after run start.
-            while IFS= read -r issue_num; do
-              [[ -z "$issue_num" ]] && continue
-              issue_json=$(gh api "repos/${REPO}/issues/${issue_num}" 2>/dev/null || true)
-              if [[ -z "$issue_json" ]]; then
-                echo "deferred-to #${issue_num}: issue does not exist" >> "$violations_file"
-                continue
-              fi
-              created=$(echo "$issue_json" | jq -r '.created_at')
-              if [[ "$created" < "$RUN_START" ]]; then
-                echo "deferred-to #${issue_num}: issue created at ${created} predates this run (started ${RUN_START}) — re-deferring to a prior-round issue is not allowed; create a fresh follow-up or fix in-PR" >> "$violations_file"
-              fi
-            done < <(echo "$unquoted" | grep -oE 'deferred-to #[0-9]+' | grep -oE '[0-9]+' | sort -u)
-          done < <(echo "$response_comments" | jq -r '.[].body | @base64')
-
-          if [[ -s "$violations_file" ]]; then
+          if action/verify-feedback-contract.sh; then
+            echo "Feedback contract: clean"
+          else
             echo "::error::Feedback contract violations detected:"
             cat "$violations_file"
             echo "violations_file=${violations_file}" >> "$GITHUB_OUTPUT"
             exit 1
           fi
-          echo "Feedback contract: clean"
 
       - name: Flag feedback-contract violations
         if: failure() && steps.verify-contract.outcome == 'failure'
@@ -709,6 +681,9 @@ jobs:
           elif [[ "${{ steps.verify-contract.outcome }}" == "failure" ]]; then
             BODY="<!-- egg-status-comment -->
           egg ran but the feedback contract was violated — see the flag comment above. [View run logs](${RUN_URL})${HIDDEN_MSG}"
+          elif [[ "${{ steps.egg.outcome }}" == "cancelled" ]]; then
+            BODY="<!-- egg-status-comment -->
+          egg was cancelled mid-run. [View run logs](${RUN_URL})${HIDDEN_MSG}"
           elif [[ "${{ steps.egg.outcome }}" == "failure" ]]; then
             BODY="<!-- egg-status-comment -->
           egg failed to address feedback. [View run logs](${RUN_URL})${HIDDEN_MSG}"
