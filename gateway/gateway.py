@@ -2283,6 +2283,144 @@ def git_execute() -> tuple[Response, int] | Response:
             )
             return make_error(denial_reason, status_code=403)
 
+    # SECURITY: Block agent-initiated ``git rebase`` against the base
+    # branch from pipeline sessions (#2224, follow-up to #2222).  The
+    # pipeline branch is rebased onto the base branch only via the
+    # orchestrator's controlled rebase in
+    # ``orchestrator/routes/pipelines.py::_rebase_pipeline_branch_onto_base``
+    # — which itself uses the *bare* form ``git rebase origin/<base>``
+    # but is safe because steps 1–5 of the helper enforce ancestry
+    # preconditions and reset HEAD to the pipeline-branch tip *before*
+    # the rebase replays.  Crucially, that helper runs as a subprocess
+    # on the orchestrator-side worktree and does *not* route through
+    # this endpoint, so this guard does not interfere with it.  An
+    # agent reaching for ``git rebase origin/main`` (intentionally or
+    # via a "resolve conflicts" intuition) reproduces the contamination
+    # shape from #2222 even with the orchestrator-side fixes in place.
+    #
+    # The ``--onto X UP <branch>`` form is allowed when ``X`` (the
+    # *new* base) is *not* a protected ref — that shape is used by the
+    # stacked-PR healer in
+    # ``orchestrator/gateway_client.py::rebase_onto``, which always
+    # passes a slice/issue branch as ``new_base`` (never ``origin/main``;
+    # see ``stacked_pr_reconciler._resolve_extant_new_base``).  Calls
+    # with ``--onto origin/main …`` are *blocked*: when ``X == UP ==
+    # origin/main`` the operation reduces to bare ``git rebase
+    # origin/main`` and reproduces the contamination shape (the value
+    # of ``UP`` is irrelevant — the new HEAD is whatever ``X``
+    # resolves to, with the upstream-to-HEAD commits replayed on top).
+    if operation == "rebase":
+        session = getattr(g, "session", None)
+        assigned = getattr(session, "assigned_branch", None) if session else None
+        if isinstance(assigned, str) and assigned:
+            # ``protected_refs`` lists every form an agent (or an
+            # innocent rename) could use to name the base branch.  We
+            # normalise inputs by stripping ``refs/remotes/`` and
+            # ``refs/heads/`` prefixes before comparing so canonical
+            # full ref names hit the same guard.  Pipelines whose base
+            # is not ``main`` are not currently in production
+            # (orchestrator's ``base_branch`` defaults to ``main``); if
+            # non-main bases ship, derive this set from the session's
+            # recorded base branch instead of hardcoding it.
+            protected_refs = {
+                "origin/main",
+                "main",
+                "origin/HEAD",
+                "FETCH_HEAD",
+            }
+
+            def _normalise_ref(value: str) -> str:
+                # Strip ``refs/remotes/`` (canonical full remote-tracking
+                # ref) and ``refs/heads/`` (canonical local-branch ref)
+                # so e.g. ``refs/remotes/origin/main`` matches
+                # ``origin/main`` in ``protected_refs``.  Other shapes
+                # (SHAs, ``origin/main~1``, ``origin/main^``) are caught
+                # by exact-match below or fall through — they are
+                # acknowledged in the docstring as residual gaps.
+                if value.startswith("refs/remotes/"):
+                    return value[len("refs/remotes/") :]
+                if value.startswith("refs/heads/"):
+                    return value[len("refs/heads/") :]
+                return value
+
+            offender: str | None = None
+
+            # Branch 1: ``--onto <new_base>`` is present.  Reject when
+            # the *new base* (the value of ``--onto``) is a protected
+            # ref, regardless of what the upstream positional is.  This
+            # closes the ``--onto origin/main origin/main`` bypass:
+            # ``git rebase --onto X UP`` rebases HEAD onto X using UP as
+            # the upstream, so when X is the base branch the operation
+            # produces the same contamination shape as bare ``git
+            # rebase origin/main``.
+            #
+            # Collect *every* ``--onto`` occurrence rather than the
+            # first — git's ``OPT_STRING`` semantics make duplicate
+            # ``--onto`` flags overwrite, so the *last* value wins, and
+            # an adversarial ``--onto safe --onto origin/main`` would
+            # otherwise slip past a first-match check.  Reject when any
+            # of the supplied values is a protected ref.  Empty values
+            # (``--onto=`` with nothing after) are treated as "not
+            # provided" so the bare-form upstream check below still
+            # runs against the positional args.
+            onto_values: list[str] = []
+            j = 0
+            while j < len(validated_args):
+                arg = validated_args[j]
+                if arg.startswith("--onto="):
+                    value = arg.split("=", 1)[1]
+                    if value:
+                        onto_values.append(value)
+                elif arg == "--onto" and j + 1 < len(validated_args):
+                    value = validated_args[j + 1]
+                    if value:
+                        onto_values.append(value)
+                    j += 1
+                j += 1
+
+            if onto_values:
+                offender = next(
+                    (v for v in onto_values if _normalise_ref(v) in protected_refs),
+                    None,
+                )
+            else:
+                # Branch 2: bare ``git rebase <upstream> [<branch>]``
+                # form — first positional is the upstream.  Reject when
+                # the upstream is a protected ref.
+                positional = [a for a in validated_args if not a.startswith("-")]
+                offender = next(
+                    (p for p in positional if _normalise_ref(p) in protected_refs),
+                    None,
+                )
+
+            if offender is not None:
+                denial_reason = (
+                    f"git rebase against '{offender}' is not allowed in "
+                    f"pipeline sessions. The pipeline branch is rebased "
+                    f"onto the base branch only via the orchestrator's "
+                    f"controlled rebase (`_rebase_pipeline_branch_onto_base`), "
+                    f"which runs as a subprocess that does not route through "
+                    f"this endpoint; an agent-initiated `git rebase "
+                    f"origin/main` (or `--onto origin/main …`) reproduces "
+                    f"the contamination shape from #2222. If you need to "
+                    f"bring in new commits from the base, ask the operator "
+                    f"to resume the pipeline so the orchestrator-side "
+                    f"rebase runs."
+                )
+                audit_log(
+                    "git_execute_blocked",
+                    operation,
+                    success=False,
+                    details={
+                        "repo_path": repo_path,
+                        "git_args": validated_args,
+                        "container_id": container_id,
+                        "assigned_branch": assigned,
+                        "reason": denial_reason,
+                    },
+                )
+                return make_error(denial_reason, status_code=403)
+
     # SECURITY: Block branch-switching for pipeline sessions.
     # Pipeline containers are locked to their worktree branch to prevent
     # cross-contamination between pipeline tasks.
