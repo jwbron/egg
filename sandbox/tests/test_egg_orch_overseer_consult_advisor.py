@@ -415,6 +415,84 @@ class TestOverseerConsultAdvisorCommand:
         assert cfg is not None
         assert getattr(cfg, "overseer_advisor_model", None) == "claude-opus-4-7"
 
+    def test_pipeline_id_resolves_recent_log_bytes_cap_from_config(self, tmp_path: Path) -> None:
+        """Regression for issue #2170.
+
+        When a pipeline-id is provided, the verb must read
+        ``PipelineConfig.overseer_advisor_recent_log_bytes_cap`` from the
+        orchestrator status endpoint and pass it through to
+        ``consult_advisor`` alongside ``overseer_advisor_model`` —
+        previously only the model field flowed through, so the bytes-cap
+        knob silently defaulted to the 256 KiB module constant on every
+        production invocation.
+        """
+        inputs = tmp_path / "inputs.json"
+        _write_inputs(inputs)
+
+        captured: dict[str, object] = {}
+
+        async def _fake(**kwargs: object) -> AdvisorVerdict:
+            captured.update(kwargs)
+            return AdvisorVerdict(decision="watch", reasoning="ok")
+
+        class _StubClient:
+            def get_pipeline_status(self, pid: str) -> dict[str, object]:
+                assert pid == "pipe-cap"
+                return {
+                    "config": {
+                        "overseer_advisor_model": "opus",
+                        "overseer_advisor_recent_log_bytes_cap": 65_536,
+                    }
+                }
+
+        with (
+            patch("egg_overseer.advisor.consult_advisor", side_effect=_fake),
+            patch("egg_lib.orch_client.OrchClient", lambda: _StubClient()),
+        ):
+            rc = cmd_overseer_consult_advisor(
+                _make_args(inputs_file=inputs, pipeline_id="pipe-cap")
+            )
+
+        assert rc == 0
+        cfg = captured["config"]
+        assert cfg is not None
+        assert getattr(cfg, "overseer_advisor_model", None) == "opus"
+        assert getattr(cfg, "overseer_advisor_recent_log_bytes_cap", None) == 65_536
+
+    def test_recent_log_bytes_cap_zero_sentinel_propagates_from_config(
+        self, tmp_path: Path
+    ) -> None:
+        """``0`` is the documented "disable cap" sentinel and must reach
+        ``consult_advisor`` rather than being treated as "absent" by a
+        truthiness check on the dict value (issue #2170)."""
+        inputs = tmp_path / "inputs.json"
+        _write_inputs(inputs)
+
+        captured: dict[str, object] = {}
+
+        async def _fake(**kwargs: object) -> AdvisorVerdict:
+            captured.update(kwargs)
+            return AdvisorVerdict(decision="watch", reasoning="ok")
+
+        class _StubClient:
+            def get_pipeline_status(self, pid: str) -> dict[str, object]:
+                return {
+                    "config": {"overseer_advisor_recent_log_bytes_cap": 0},
+                }
+
+        with (
+            patch("egg_overseer.advisor.consult_advisor", side_effect=_fake),
+            patch("egg_lib.orch_client.OrchClient", lambda: _StubClient()),
+        ):
+            rc = cmd_overseer_consult_advisor(
+                _make_args(inputs_file=inputs, pipeline_id="pipe-zero")
+            )
+
+        assert rc == 0
+        cfg = captured["config"]
+        assert cfg is not None
+        assert getattr(cfg, "overseer_advisor_recent_log_bytes_cap", "missing") == 0
+
     def test_pipeline_id_from_env_resolves_advisor_model(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -476,7 +554,7 @@ class TestOverseerConsultAdvisorCommand:
 
         assert rc == 0
         assert captured["config"] is None
-        assert "falling back to default advisor model" in capsys.readouterr().err
+        assert "falling back to default advisor config" in capsys.readouterr().err
 
     def test_malformed_pipeline_id_falls_back_without_crashing(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -554,7 +632,7 @@ class TestOverseerConsultAdvisorCommand:
         assert captured["config"] is None
         err = capsys.readouterr().err
         assert "cannot import egg_lib.orch_client" in err
-        assert "falling back to default advisor model" in err
+        assert "falling back to default advisor config" in err
 
     def test_parser_accepts_positional_pipeline_id(self) -> None:
         """The new positional arg must coexist with the existing flags."""

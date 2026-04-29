@@ -27,20 +27,20 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 
 fetch_autofixer_rules() {
-    local rules_file=".egg/autofixer-rules.md"
-    local script_dir
-    script_dir="$(dirname "$0")"
-    local shared_file="${script_dir}/../shared/prompts/autofixer-rules.md"
+  local rules_file=".egg/autofixer-rules.md"
+  local script_dir
+  script_dir="$(dirname "$0")"
+  local shared_file="${script_dir}/../shared/prompts/autofixer-rules.md"
 
-    if [[ -f "$rules_file" ]]; then
-        # User override takes priority
-        cat "$rules_file"
-    elif [[ -f "$shared_file" ]]; then
-        # Shared criteria (anchored to trusted checkout via script dir)
-        cat "$shared_file"
-    else
-        # Inline fallback for rollout safety
-        cat <<'EOF'
+  if [[ -f "$rules_file" ]]; then
+    # User override takes priority
+    cat "$rules_file"
+  elif [[ -f "$shared_file" ]]; then
+    # Shared criteria (anchored to trusted checkout via script dir)
+    cat "$shared_file"
+  else
+    # Inline fallback for rollout safety
+    cat <<'EOF'
 ## Autofixer Rules
 
 ### Fix ALL Failures
@@ -60,7 +60,7 @@ fetch_autofixer_rules() {
 - Security issues requiring architectural changes
 - Failures that require understanding business requirements to resolve correctly
 EOF
-    fi
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -68,28 +68,28 @@ EOF
 # ---------------------------------------------------------------------------
 
 build_prompt() {
-    local autofixer_rules
-    autofixer_rules=$(fetch_autofixer_rules)
+  local autofixer_rules
+  autofixer_rules=$(fetch_autofixer_rules)
 
-    # Load autofixer conventions if available
-    local conventions_file
-    conventions_file="$(dirname "$0")/autofixer-conventions.md"
-    local conventions=""
-    if [[ -f "$conventions_file" ]]; then
-        conventions=$(cat "$conventions_file")
+  # Load autofixer conventions if available
+  local conventions_file
+  conventions_file="$(dirname "$0")/autofixer-conventions.md"
+  local conventions=""
+  if [[ -f "$conventions_file" ]]; then
+    conventions=$(cat "$conventions_file")
+  fi
+
+  # Build workflow context
+  local workflow_context=""
+  if [[ -n "${FAILED_WORKFLOW:-}" && "${FAILED_WORKFLOW}" != "manual" ]]; then
+    workflow_context="The **${FAILED_WORKFLOW}** workflow failed."
+    if [[ -n "${FAILED_RUN_ID:-}" ]]; then
+      workflow_context="${workflow_context} Run ID: ${FAILED_RUN_ID}."
     fi
+  fi
 
-    # Build workflow context
-    local workflow_context=""
-    if [[ -n "${FAILED_WORKFLOW:-}" && "${FAILED_WORKFLOW}" != "manual" ]]; then
-        workflow_context="The **${FAILED_WORKFLOW}** workflow failed."
-        if [[ -n "${FAILED_RUN_ID:-}" ]]; then
-            workflow_context="${workflow_context} Run ID: ${FAILED_RUN_ID}."
-        fi
-    fi
-
-    local prompt
-    prompt="Fix failing checks on PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}.
+  local prompt
+  prompt="Fix failing checks on PR #${PR_NUMBER} in ${GITHUB_REPOSITORY}.
 
 ${workflow_context}
 
@@ -107,22 +107,22 @@ ${autofixer_rules}
 ${conventions:-Use git commit and git push to push fixes. Use gh pr comment to report issues you cannot auto-fix. Sign comments with: -- Authored by egg}
 "
 
-    # Write prompt to temp file
-    local prompt_dir="${RUNNER_TEMP:-/tmp}"
-    mkdir -p "$prompt_dir"
-    local prompt_file="${prompt_dir}/autofixer-prompt-${PR_NUMBER}.txt"
-    echo "$prompt" > "$prompt_file"
+  # Write prompt to temp file
+  local prompt_dir="${RUNNER_TEMP:-/tmp}"
+  mkdir -p "$prompt_dir"
+  local prompt_file="${prompt_dir}/autofixer-prompt-${PR_NUMBER}.txt"
+  echo "$prompt" >"$prompt_file"
 
-    # Use opus for autofixing (needs reasoning capability)
-    local model="opus"
+  # Use opus for autofixing (needs reasoning capability)
+  local model="opus"
 
-    # Write outputs
-    {
-        echo "prompt-file=${prompt_file}"
-        echo "model=${model}"
-    } >> "${GITHUB_OUTPUT:-/dev/null}"
+  # Write outputs
+  {
+    echo "prompt-file=${prompt_file}"
+    echo "model=${model}"
+  } >>"${GITHUB_OUTPUT:-/dev/null}"
 
-    echo "Autofixer prompt built: ${#prompt} chars, model=${model}"
+  echo "Autofixer prompt built: ${#prompt} chars, model=${model}"
 }
 
 # ---------------------------------------------------------------------------

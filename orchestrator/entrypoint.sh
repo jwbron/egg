@@ -26,136 +26,136 @@ echo "  UID/GID: $HOST_UID:$HOST_GID"
 # (GITHUB_USER_TOKEN, GATEWAY_BOT_NAME, etc.) — Compose relied on shell-env
 # passthrough; in k8s the Secret volume exposes the file.
 if [ -f /secrets/secrets.env ]; then
-    echo "Sourcing /secrets/secrets.env"
-    set -a
-    # shellcheck disable=SC1091
-    . /secrets/secrets.env
-    set +a
+  echo "Sourcing /secrets/secrets.env"
+  set -a
+  # shellcheck disable=SC1091
+  . /secrets/secrets.env
+  set +a
 fi
 
 # Wait for gateway if configured
 if [ -n "$WAIT_FOR_GATEWAY" ] && [ "$WAIT_FOR_GATEWAY" = "true" ]; then
-    GATEWAY_HOST="${GATEWAY_HOST:-egg-gateway}"
-    GATEWAY_PORT="${GATEWAY_PORT:-9848}"
-    echo "Waiting for gateway at $GATEWAY_HOST:$GATEWAY_PORT..."
+  GATEWAY_HOST="${GATEWAY_HOST:-egg-gateway}"
+  GATEWAY_PORT="${GATEWAY_PORT:-9848}"
+  echo "Waiting for gateway at $GATEWAY_HOST:$GATEWAY_PORT..."
 
-    max_attempts=30
-    attempt=0
-    while [ $attempt -lt $max_attempts ]; do
-        if curl -sf "http://$GATEWAY_HOST:$GATEWAY_PORT/api/v1/health" > /dev/null 2>&1; then
-            echo "Gateway is ready"
-            break
-        fi
-        attempt=$((attempt + 1))
-        echo "  Waiting for gateway (attempt $attempt/$max_attempts)..."
-        sleep 2
-    done
-
-    if [ $attempt -eq $max_attempts ]; then
-        echo "Warning: Gateway not available after $max_attempts attempts"
+  max_attempts=30
+  attempt=0
+  while [ $attempt -lt $max_attempts ]; do
+    if curl -sf "http://$GATEWAY_HOST:$GATEWAY_PORT/api/v1/health" >/dev/null 2>&1; then
+      echo "Gateway is ready"
+      break
     fi
+    attempt=$((attempt + 1))
+    echo "  Waiting for gateway (attempt $attempt/$max_attempts)..."
+    sleep 2
+  done
+
+  if [ $attempt -eq $max_attempts ]; then
+    echo "Warning: Gateway not available after $max_attempts attempts"
+  fi
 fi
 
 # Build command arguments
 CMD_ARGS="serve --host $ORCHESTRATOR_HOST --port $ORCHESTRATOR_PORT"
 if [ "$ORCHESTRATOR_DEBUG" = "true" ]; then
-    CMD_ARGS="$CMD_ARGS --debug"
+  CMD_ARGS="$CMD_ARGS --debug"
 fi
 
 # Drop privileges to match host user so volume mounts are accessible
 if [ -n "${HOST_UID:-}" ] && [ -n "${HOST_GID:-}" ] && [ "$(id -u)" = "0" ]; then
-    # Validate HOST_UID is a real non-root user.  Running as root creates
-    # git refs with root:root ownership, breaking host git operations.
-    if [ "$HOST_UID" = "0" ]; then
-        echo "ERROR: HOST_UID must not be 0 (root)." >&2
-        echo "Set HOST_UID/HOST_GID to your host user: id -u / id -g" >&2
-        exit 1
-    fi
-
-    echo "Dropping privileges to UID=$HOST_UID GID=$HOST_GID"
-    # Defense-in-depth fallback: the passwd entry created below is the primary
-    # mechanism that makes gosu resolve HOME=/home/egg, but we export it here
-    # too in case the useradd/passwd lookup fails for any reason.
-    export HOME=/home/egg
-
-    # Ensure the target UID has a passwd entry pointing to /home/egg.
-    # Without this, gosu defaults HOME="/" for unknown UIDs, causing
-    # git config and Path.home() to fail with Permission denied on /.gitconfig.
-    if ! getent passwd "$HOST_UID" > /dev/null 2>&1; then
-        getent group "$HOST_GID" > /dev/null 2>&1 || groupadd -g "$HOST_GID" egghost 2>/dev/null || true
-        useradd -u "$HOST_UID" -g "$HOST_GID" -d /home/egg -s /bin/bash -M -N egghost 2>/dev/null || true
-    fi
-    chown "$HOST_UID:$HOST_GID" /home/egg
-
-    # chown Docker volume mount point that is root-owned by default
-    if [ -d /home/egg/.egg-state ]; then
-        chown -R "$HOST_UID:$HOST_GID" /home/egg/.egg-state 2>/dev/null || true
-    fi
-    # Chown repo bind-mount points — Docker bind mounts preserve host
-    # ownership, so these directories may be root-owned inside the
-    # container. Only chown the top-level directories (not recursive) —
-    # repo file contents are managed by git/gateway worktree operations.
-    if [ -d /home/egg/repos ]; then
-        # chown is best-effort — k8s hostPath readOnly mounts return EROFS
-        # but ownership is already correct on the host side.
-        chown "$HOST_UID:$HOST_GID" /home/egg/repos 2>/dev/null || true
-        for repo_dir in /home/egg/repos/*/; do
-            if [ -d "$repo_dir" ]; then
-                chown "$HOST_UID:$HOST_GID" "$repo_dir" 2>/dev/null || true
-            fi
-        done
-    fi
-
-    # Ensure .egg-state/pipelines dirs inside repos are writable by the orchestrator.
-    # These may have been created by git or the gateway under a different UID.
-    for repo_dir in /home/egg/repos /home/egg/repos/*/; do
-        egg_state="$repo_dir/.egg-state"
-        if [ -d "$egg_state" ]; then
-            chown -R "$HOST_UID:$HOST_GID" "$egg_state"
-        fi
-        # Pre-create the pipelines directory so the orchestrator can write to it
-        pipelines_dir="$repo_dir/.egg-state/pipelines"
-        mkdir -p "$pipelines_dir" 2>/dev/null || true
-        chown -R "$HOST_UID:$HOST_GID" "$repo_dir/.egg-state" 2>/dev/null || true
-    done
-
-    # Grant Docker socket access to the dropped-privilege user.
-    # Change the socket's group to HOST_GID so gosu'd process can use it.
-    if [ -S /var/run/docker.sock ]; then
-        chgrp "$HOST_GID" /var/run/docker.sock
-        chmod g+rw /var/run/docker.sock
-        echo "  Docker socket: granted group access to GID $HOST_GID"
-    fi
-
-    # Configure git identity for state commits
-    gosu "$HOST_UID:$HOST_GID" git config --global user.name "egg-orchestrator"
-    gosu "$HOST_UID:$HOST_GID" git config --global user.email "egg@localhost"
-
-    # Mark all repo bind-mounts and per-repo state worktrees as safe
-    # directories.  Ownership mismatches between host UID and container UID
-    # cause git to reject operations with "dubious ownership" errors.
-    state_dir="${EGG_STATE_DIR:-/home/egg/.egg-state}"
-    for repo_dir in /home/egg/repos/*/; do
-        if [ -d "$repo_dir/.git" ]; then
-            repo_name=$(basename "$repo_dir")
-            gosu "$HOST_UID:$HOST_GID" git config --global --add safe.directory "$repo_dir"
-            gosu "$HOST_UID:$HOST_GID" git config --global --add safe.directory "${state_dir}/pipeline-worktree-${repo_name}"
-        fi
-    done
-    # Backward compat: single-repo setups use the unsuffixed worktree path
-    gosu "$HOST_UID:$HOST_GID" git config --global --add safe.directory "${state_dir}/pipeline-worktree"
-
-    exec gosu "$HOST_UID:$HOST_GID" python -u cli.py $CMD_ARGS
-elif [ "$(id -u)" = "0" ]; then
-    # Running as root without HOST_UID/HOST_GID — refuse to continue.
-    # This would create root-owned git refs that break host git operations.
-    echo "ERROR: running as root but HOST_UID/HOST_GID are not set." >&2
-    echo "Cannot drop privileges. Set HOST_UID and HOST_GID in docker-compose.yml." >&2
+  # Validate HOST_UID is a real non-root user.  Running as root creates
+  # git refs with root:root ownership, breaking host git operations.
+  if [ "$HOST_UID" = "0" ]; then
+    echo "ERROR: HOST_UID must not be 0 (root)." >&2
+    echo "Set HOST_UID/HOST_GID to your host user: id -u / id -g" >&2
     exit 1
-else
-    # Already running as non-root (e.g. docker run --user), no gosu needed.
-    git config --global user.name "egg-orchestrator"
-    git config --global user.email "egg@localhost"
+  fi
 
-    exec python -u cli.py $CMD_ARGS
+  echo "Dropping privileges to UID=$HOST_UID GID=$HOST_GID"
+  # Defense-in-depth fallback: the passwd entry created below is the primary
+  # mechanism that makes gosu resolve HOME=/home/egg, but we export it here
+  # too in case the useradd/passwd lookup fails for any reason.
+  export HOME=/home/egg
+
+  # Ensure the target UID has a passwd entry pointing to /home/egg.
+  # Without this, gosu defaults HOME="/" for unknown UIDs, causing
+  # git config and Path.home() to fail with Permission denied on /.gitconfig.
+  if ! getent passwd "$HOST_UID" >/dev/null 2>&1; then
+    getent group "$HOST_GID" >/dev/null 2>&1 || groupadd -g "$HOST_GID" egghost 2>/dev/null || true
+    useradd -u "$HOST_UID" -g "$HOST_GID" -d /home/egg -s /bin/bash -M -N egghost 2>/dev/null || true
+  fi
+  chown "$HOST_UID:$HOST_GID" /home/egg
+
+  # chown Docker volume mount point that is root-owned by default
+  if [ -d /home/egg/.egg-state ]; then
+    chown -R "$HOST_UID:$HOST_GID" /home/egg/.egg-state 2>/dev/null || true
+  fi
+  # Chown repo bind-mount points — Docker bind mounts preserve host
+  # ownership, so these directories may be root-owned inside the
+  # container. Only chown the top-level directories (not recursive) —
+  # repo file contents are managed by git/gateway worktree operations.
+  if [ -d /home/egg/repos ]; then
+    # chown is best-effort — k8s hostPath readOnly mounts return EROFS
+    # but ownership is already correct on the host side.
+    chown "$HOST_UID:$HOST_GID" /home/egg/repos 2>/dev/null || true
+    for repo_dir in /home/egg/repos/*/; do
+      if [ -d "$repo_dir" ]; then
+        chown "$HOST_UID:$HOST_GID" "$repo_dir" 2>/dev/null || true
+      fi
+    done
+  fi
+
+  # Ensure .egg-state/pipelines dirs inside repos are writable by the orchestrator.
+  # These may have been created by git or the gateway under a different UID.
+  for repo_dir in /home/egg/repos /home/egg/repos/*/; do
+    egg_state="$repo_dir/.egg-state"
+    if [ -d "$egg_state" ]; then
+      chown -R "$HOST_UID:$HOST_GID" "$egg_state"
+    fi
+    # Pre-create the pipelines directory so the orchestrator can write to it
+    pipelines_dir="$repo_dir/.egg-state/pipelines"
+    mkdir -p "$pipelines_dir" 2>/dev/null || true
+    chown -R "$HOST_UID:$HOST_GID" "$repo_dir/.egg-state" 2>/dev/null || true
+  done
+
+  # Grant Docker socket access to the dropped-privilege user.
+  # Change the socket's group to HOST_GID so gosu'd process can use it.
+  if [ -S /var/run/docker.sock ]; then
+    chgrp "$HOST_GID" /var/run/docker.sock
+    chmod g+rw /var/run/docker.sock
+    echo "  Docker socket: granted group access to GID $HOST_GID"
+  fi
+
+  # Configure git identity for state commits
+  gosu "$HOST_UID:$HOST_GID" git config --global user.name "egg-orchestrator"
+  gosu "$HOST_UID:$HOST_GID" git config --global user.email "egg@localhost"
+
+  # Mark all repo bind-mounts and per-repo state worktrees as safe
+  # directories.  Ownership mismatches between host UID and container UID
+  # cause git to reject operations with "dubious ownership" errors.
+  state_dir="${EGG_STATE_DIR:-/home/egg/.egg-state}"
+  for repo_dir in /home/egg/repos/*/; do
+    if [ -d "$repo_dir/.git" ]; then
+      repo_name=$(basename "$repo_dir")
+      gosu "$HOST_UID:$HOST_GID" git config --global --add safe.directory "$repo_dir"
+      gosu "$HOST_UID:$HOST_GID" git config --global --add safe.directory "${state_dir}/pipeline-worktree-${repo_name}"
+    fi
+  done
+  # Backward compat: single-repo setups use the unsuffixed worktree path
+  gosu "$HOST_UID:$HOST_GID" git config --global --add safe.directory "${state_dir}/pipeline-worktree"
+
+  exec gosu "$HOST_UID:$HOST_GID" python -u cli.py $CMD_ARGS
+elif [ "$(id -u)" = "0" ]; then
+  # Running as root without HOST_UID/HOST_GID — refuse to continue.
+  # This would create root-owned git refs that break host git operations.
+  echo "ERROR: running as root but HOST_UID/HOST_GID are not set." >&2
+  echo "Cannot drop privileges. Set HOST_UID and HOST_GID in docker-compose.yml." >&2
+  exit 1
+else
+  # Already running as non-root (e.g. docker run --user), no gosu needed.
+  git config --global user.name "egg-orchestrator"
+  git config --global user.email "egg@localhost"
+
+  exec python -u cli.py $CMD_ARGS
 fi
