@@ -60,7 +60,10 @@ class OrchestratorHealth:
     status: str
     service: str = "egg-orchestrator"
     timestamp: str | None = None
-    components: dict[str, str] | None = None
+    # ``components`` is heterogeneous (#2176): ``state_store`` is a per-repo
+    # map (``{repo_path: {"status": "ok"} | {"status": "error", "error": str}}``)
+    # while ``state_store_summary`` and ``docker`` are plain strings.
+    components: dict[str, Any] | None = None
     error: str | None = None
 
 
