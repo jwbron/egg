@@ -2353,18 +2353,34 @@ def git_execute() -> tuple[Response, int] | Response:
             # the upstream, so when X is the base branch the operation
             # produces the same contamination shape as bare ``git
             # rebase origin/main``.
-            onto_value: str | None = None
-            for j, arg in enumerate(validated_args):
+            #
+            # Collect *every* ``--onto`` occurrence rather than the
+            # first — git's ``OPT_STRING`` semantics make duplicate
+            # ``--onto`` flags overwrite, so the *last* value wins, and
+            # an adversarial ``--onto safe --onto origin/main`` would
+            # otherwise slip past a first-match check.  Reject when any
+            # of the supplied values is a protected ref.  Empty values
+            # (``--onto=`` with nothing after) are treated as "not
+            # provided" so the bare-form upstream check below still
+            # runs against the positional args.
+            onto_values: list[str] = []
+            j = 0
+            while j < len(validated_args):
+                arg = validated_args[j]
                 if arg.startswith("--onto="):
-                    onto_value = arg.split("=", 1)[1]
-                    break
-                if arg == "--onto" and j + 1 < len(validated_args):
-                    onto_value = validated_args[j + 1]
-                    break
+                    value = arg.split("=", 1)[1]
+                    if value:
+                        onto_values.append(value)
+                elif arg == "--onto" and j + 1 < len(validated_args):
+                    onto_values.append(validated_args[j + 1])
+                    j += 1
+                j += 1
 
-            if onto_value is not None:
-                if _normalise_ref(onto_value) in protected_refs:
-                    offender = onto_value
+            if onto_values:
+                offender = next(
+                    (v for v in onto_values if _normalise_ref(v) in protected_refs),
+                    None,
+                )
             else:
                 # Branch 2: bare ``git rebase <upstream> [<branch>]``
                 # form — first positional is the upstream.  Reject when

@@ -732,6 +732,106 @@ class TestBareRebaseAgainstBaseBlocking:
             # also pass on a 500 from any other path.
             assert mock_run.called
 
+    def test_duplicate_onto_with_protected_ref_blocked(self, client, auth_with_branch):
+        """``git rebase --onto <safe> --onto origin/main …`` is blocked.
+
+        Git's ``OPT_STRING`` parser overwrites on each ``--onto``, so
+        the *last* value is what git actually rebases onto.  A
+        first-match check (the previous shape of this guard) would see
+        the safe value and let the request through, after which git
+        would happily rebase onto ``origin/main`` and reproduce the
+        #2222 contamination shape.  See review on #2282.
+        """
+        headers, mock_result, mock_policy, current_sm = auth_with_branch
+
+        with (
+            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy),
+            patch.object(gateway, "audit_log"),
+            patch.object(gateway, "validate_repo_path", return_value=(True, "")),
+        ):
+            response = client.post(
+                "/api/v1/git/execute",
+                json={
+                    "repo_path": "/home/egg/repos/myrepo",
+                    "operation": "rebase",
+                    "args": [
+                        "--onto",
+                        "egg/issue-42/safe",
+                        "--onto",
+                        "origin/main",
+                        "egg/issue-42",
+                    ],
+                },
+                headers=headers,
+            )
+            assert response.status_code == 403
+
+    def test_onto_first_protected_then_safe_still_blocked(self, client, auth_with_branch):
+        """``git rebase --onto origin/main --onto <safe> …`` is also blocked.
+
+        Even though git's last-wins semantics mean the *safe* value is
+        what git actually uses, the presence of ``--onto origin/main``
+        anywhere in the argv is suspicious enough to reject — a
+        legitimate caller has no reason to mention the base branch as a
+        ``--onto`` value at all, and accepting it on the strength of a
+        trailing override invites further bypass shapes.
+        """
+        headers, mock_result, mock_policy, current_sm = auth_with_branch
+
+        with (
+            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy),
+            patch.object(gateway, "audit_log"),
+            patch.object(gateway, "validate_repo_path", return_value=(True, "")),
+        ):
+            response = client.post(
+                "/api/v1/git/execute",
+                json={
+                    "repo_path": "/home/egg/repos/myrepo",
+                    "operation": "rebase",
+                    "args": [
+                        "--onto",
+                        "origin/main",
+                        "--onto",
+                        "egg/issue-42/safe",
+                        "egg/issue-42",
+                    ],
+                },
+                headers=headers,
+            )
+            assert response.status_code == 403
+
+    def test_onto_eq_empty_value_falls_through_to_bare_check(self, client, auth_with_branch):
+        """``git rebase --onto= origin/main`` is blocked by the bare-form check.
+
+        ``--onto=`` with an empty value is degenerate (git itself
+        rejects or ignores it).  The previous shape of this guard
+        treated the empty string as "``--onto`` is present", which
+        short-circuited the bare-form upstream check and let the
+        ``origin/main`` positional reach git unfiltered.  The fix
+        treats an empty ``--onto=`` value as "not provided" so the
+        bare-form check still runs.  See review on #2282.
+        """
+        headers, mock_result, mock_policy, current_sm = auth_with_branch
+
+        with (
+            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy),
+            patch.object(gateway, "audit_log"),
+            patch.object(gateway, "validate_repo_path", return_value=(True, "")),
+        ):
+            response = client.post(
+                "/api/v1/git/execute",
+                json={
+                    "repo_path": "/home/egg/repos/myrepo",
+                    "operation": "rebase",
+                    "args": ["--onto=", "origin/main"],
+                },
+                headers=headers,
+            )
+            assert response.status_code == 403
+
     def test_onto_eq_form_against_slice_branch_allowed(self, client, auth_with_branch):
         """``git rebase --onto=<slice-branch> origin/main <branch>`` is also allowed."""
         headers, mock_result, mock_policy, current_sm = auth_with_branch
