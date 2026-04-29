@@ -14,6 +14,38 @@ from typing import Any, Literal, NamedTuple
 from egg_contracts.models import PipelinePhase
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+# Phase-aware fallback defaults for consensus timeout. Calibrated against
+# producer/reviewer fan-out and iteration profile per phase — see #2263.
+PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN: dict[str, int] = {
+    "refine": 30,
+    "plan": 60,
+    "implement": 90,
+}
+
+
+def resolve_consensus_timeout_minutes(config: PipelineConfig, phase: str) -> int:
+    """Resolve the consensus timeout (minutes) for *phase*.
+
+    Resolution order, highest priority first:
+
+    1. The phase-specific override field (``consensus_timeout_minutes_<phase>``).
+    2. The legacy global field (``consensus_timeout_minutes``), if explicitly
+       set — preserves the AC clause that pipelines passing only the global
+       continue to behave identically across all three phases.
+    3. The phase-aware default from :data:`PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN`,
+       falling back to the ``refine`` default for any unknown phase string
+       (the smallest calibrated budget — safe upper bound for unrecognized
+       phases that may have shorter NACK loops than ``implement``).
+    """
+    override: int | None = getattr(config, f"consensus_timeout_minutes_{phase}", None)
+    if override is not None:
+        return override
+    if config.consensus_timeout_minutes is not None:
+        return config.consensus_timeout_minutes
+    return PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN.get(
+        phase, PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN["refine"]
+    )
+
 
 class PipelineStatus(StrEnum):
     """Overall status of a pipeline."""
@@ -374,10 +406,40 @@ class PipelineConfig(BaseModel):
     message_poll_hint_seconds: int = Field(
         default=30, ge=1, description="Suggested message polling interval for agents"
     )
-    consensus_timeout_minutes: int = Field(
-        default=30,
+    consensus_timeout_minutes: int | None = Field(
+        default=None,
         ge=1,
-        description="Timeout for consensus before publishing an OVERSEER_ALERT (#2264)",
+        description=(
+            "Global consensus timeout in minutes before publishing an "
+            "OVERSEER_ALERT. When set, applies to every phase and overrides "
+            "phase-aware defaults. When None (the default), each phase uses "
+            "its calibrated default from PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN "
+            "unless a per-phase field below is set. (#2263, #2264)"
+        ),
+    )
+    consensus_timeout_minutes_refine: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Per-phase consensus timeout for refine. When set, wins over the legacy "
+            "global and the phase-aware default. (#2263)"
+        ),
+    )
+    consensus_timeout_minutes_plan: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Per-phase consensus timeout for plan. When set, wins over the legacy "
+            "global and the phase-aware default. (#2263)"
+        ),
+    )
+    consensus_timeout_minutes_implement: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Per-phase consensus timeout for implement. When set, wins over the "
+            "legacy global and the phase-aware default. (#2263)"
+        ),
     )
     post_consensus_iteration_budget_seconds: int = Field(
         default=3600,
