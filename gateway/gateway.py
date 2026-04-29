@@ -2372,7 +2372,9 @@ def git_execute() -> tuple[Response, int] | Response:
                     if value:
                         onto_values.append(value)
                 elif arg == "--onto" and j + 1 < len(validated_args):
-                    onto_values.append(validated_args[j + 1])
+                    value = validated_args[j + 1]
+                    if value:
+                        onto_values.append(value)
                     j += 1
                 j += 1
 

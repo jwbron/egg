@@ -832,6 +832,33 @@ class TestBareRebaseAgainstBaseBlocking:
             )
             assert response.status_code == 403
 
+    def test_onto_separated_empty_value_falls_through_to_bare_check(self, client, auth_with_branch):
+        """``git rebase --onto "" origin/main`` is blocked by the bare-form check.
+
+        Symmetric with ``test_onto_eq_empty_value_falls_through_to_bare_check``:
+        the separated-form empty value (``--onto`` followed by ``""``) is
+        also treated as "not provided" so the bare-form upstream check
+        still runs against ``origin/main``.  See review on #2282.
+        """
+        headers, mock_result, mock_policy, current_sm = auth_with_branch
+
+        with (
+            patch.object(current_sm, "validate_session_for_request", return_value=mock_result),
+            patch.object(gateway, "check_private_repo_access", return_value=mock_policy),
+            patch.object(gateway, "audit_log"),
+            patch.object(gateway, "validate_repo_path", return_value=(True, "")),
+        ):
+            response = client.post(
+                "/api/v1/git/execute",
+                json={
+                    "repo_path": "/home/egg/repos/myrepo",
+                    "operation": "rebase",
+                    "args": ["--onto", "", "origin/main"],
+                },
+                headers=headers,
+            )
+            assert response.status_code == 403
+
     def test_onto_eq_form_against_slice_branch_allowed(self, client, auth_with_branch):
         """``git rebase --onto=<slice-branch> origin/main <branch>`` is also allowed."""
         headers, mock_result, mock_policy, current_sm = auth_with_branch
