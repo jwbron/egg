@@ -265,14 +265,23 @@ class HealthMonitor:
 
         ``orchestrator_alert_progress_gate_seconds <= 0`` disables the gate.
 
-        Active-agent filter: peer heartbeats are filtered to the current
-        ``self._agents`` roster (mirrors ``_check_brc_progress_gate``'s
-        ``active_role_names`` semantics) so that prior-phase ghosts in
-        ``_last_heartbeat`` cannot defer current-phase alerts. Same-role
-        cross-phase pollution (e.g. ``coder`` reappearing across
-        implement / implement-fix) is still possible because the heartbeat
-        key is not phase-stamped; tracked under #2242 alongside the
-        equivalent TODO in ``_check_brc_progress_gate``.
+        Active-agent filter: when a BRC tracker is registered for the
+        pipeline, peer heartbeats are filtered to the tracker graph's
+        ``all_roles()`` set — i.e. the current phase's roster as
+        installed by :func:`concurrent_executor.spawn_active_phase_agents`
+        — so prior-phase ghosts in ``_last_heartbeat`` (a singleton state
+        not phase-stamped on transition) cannot defer current-phase
+        alerts. This mirrors :func:`_check_brc_progress_gate`'s
+        ``active_role_names`` filter; using ``self._agents.keys()``
+        instead would be a no-op because every heartbeat write also
+        populates ``_agents``. When no tracker is registered (early
+        startup, between phases, or non-BRC phases) the filter is
+        skipped — the gate falls back to peer heartbeats from any
+        known agent. Same-role cross-phase pollution (``coder``
+        reappearing across implement / implement-fix) is still possible
+        because the heartbeat key is not phase-stamped; tracked under
+        #2242 alongside the equivalent TODO in
+        :func:`_check_brc_progress_gate`.
         """
         gate_seconds = self._config.orchestrator_alert_progress_gate_seconds
         if gate_seconds <= 0:
@@ -280,7 +289,9 @@ class HealthMonitor:
 
         # 1. BRC bus signals (pipeline-scope tracker; per-slice trackers are
         # not consulted from HealthMonitor — peer heartbeats below cover
-        # sliced pipelines where bus activity may be partitioned).
+        # sliced pipelines where bus activity may be partitioned). The same
+        # tracker also supplies the active-role set used by step 2.
+        active_role_set: set[str] | None = None
         try:
             from peer_consensus import get_peer_consensus_tracker
 
@@ -291,6 +302,17 @@ class HealthMonitor:
                     age = now - ts.timestamp()
                     if 0 <= age < gate_seconds:
                         return True, f"BRC bus active {age:.0f}s ago"
+                # The tracker's graph is rebuilt per phase (see
+                # ``concurrent_executor.spawn_active_phase_agents``), so
+                # ``all_roles()`` is the current-phase active set.
+                try:
+                    active_role_set = set(tracker.graph.all_roles())
+                except Exception as e:
+                    logger.warning(
+                        "Alert progress-gate active-role lookup failed",
+                        pipeline_id=self._pipeline_id,
+                        error=str(e),
+                    )
         except ImportError:
             pass
         except Exception as e:
@@ -300,21 +322,19 @@ class HealthMonitor:
                 error=str(e),
             )
 
-        # 2. Peer heartbeats. Snapshot heartbeats and the active-agent
-        # roster under the same lock so the active-set filter sees a
-        # consistent view. Filtering by ``self._agents`` keys mirrors
-        # ``_check_brc_progress_gate``'s ``active_role_names`` semantics —
-        # stale heartbeats from prior-phase agents that were never
-        # ``reset_agent``'d won't keep deferring current-phase alerts.
+        # 2. Peer heartbeats. ``active_role_set`` (from the tracker graph
+        # above) drops stale heartbeats whose role isn't part of the
+        # current phase. When no tracker is registered, the filter is
+        # skipped so the gate degrades to "any known peer heartbeat
+        # within the window defers" — the pre-#2242 fallback behavior.
         with self._lock:
             hb_snapshot = dict(self._last_heartbeat)
-            active_agents = set(self._agents.keys())
 
         latest_peer_hb: float | None = None
         for agent_id, hb_time in hb_snapshot.items():
             if agent_id == exclude_agent_id:
                 continue
-            if agent_id not in active_agents:
+            if active_role_set is not None and agent_id not in active_role_set:
                 continue
             if latest_peer_hb is None or hb_time > latest_peer_hb:
                 latest_peer_hb = hb_time
