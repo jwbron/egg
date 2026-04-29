@@ -3,7 +3,7 @@ name: sdlc
 description: "Run an egg SDLC pipeline: full lifecycle (default) or lightweight coder+reviewer with --short."
 disable-model-invocation: true
 argument-hint: "[--short] [--qualifier <name>] [JIRA-1234 or issue# or description] [--repo owner/name]"
-allowed-tools: Monitor Bash(skills/sdlc/bin/wait-status:*) Bash(gh issue view:*) Bash(gh issue list:*) Bash(gh pr list:*) Bash(gh pr view:*) Bash(git remote:*) Bash(git -C *:remote:*) Bash(git log:*) Bash(git show:*) Bash(git ls-tree:*) Read Grep AskUserQuestion mcp__egg__submit_task mcp__egg__get_status mcp__egg__provide_input mcp__egg__list_tasks mcp__egg__cancel_task mcp__egg__check_health mcp__egg__list_containers mcp__egg__get_container_logs mcp__egg__send_message mcp__egg__get_consensus_status mcp__egg__get_phase mcp__egg__get_pipeline_snapshot mcp__egg__get_contract mcp__egg__list_checkpoints mcp__egg__search_checkpoints
+allowed-tools: Monitor Bash(skills/sdlc/bin/wait-status:*) Bash(gh issue view:*) Bash(gh issue list:*) Bash(gh pr list:*) Bash(gh pr view:*) Bash(git remote:*) Bash(git -C * remote:*) AskUserQuestion mcp__egg__submit_task mcp__egg__get_status mcp__egg__provide_input mcp__egg__list_tasks mcp__egg__cancel_task mcp__egg__check_health mcp__egg__list_containers mcp__egg__get_container_logs mcp__egg__send_message mcp__egg__get_consensus_status mcp__egg__get_phase mcp__egg__get_pipeline_snapshot mcp__egg__get_contract mcp__egg__list_checkpoints mcp__egg__search_checkpoints
 ---
 
 # SDLC Pipeline
@@ -317,15 +317,18 @@ Drive the pipeline through one Monitor invocation per quiet stretch. On entry:
 
 1. **First poll** — call the `get_status(task_id)` MCP tool to render the initial dashboard. `get_status` returns the full snapshot. It does **not** return a `cursor`; the cursor is produced by `wait-status` only. Cache the snapshot in conversation context as `last_status`. Initialize `last_cursor = ""` (empty — the first `wait-status` call snaps to the tip of both event sources).
 
-2. **Blocking wait** — invoke `skills/sdlc/bin/wait-status` through the **Monitor** tool, not Bash. The Monitor tool delivers each stdout line as a separate notification, so the LLM wakes on every emitted event in real time — exactly what the JSON-line streaming model assumes. Run from the repo root:
+2. **Blocking wait** — invoke `skills/sdlc/bin/wait-status` through the **Monitor** tool, not Bash. The Monitor tool delivers each stdout line as a separate notification, so the LLM wakes on every emitted event in real time — exactly what the JSON-line streaming model assumes. Run from the repo root. The block below is pseudocode for the Monitor tool input — the actual call uses the Monitor tool's JSON parameter shape (`description`, `command`, `timeout_ms`):
 
    ```
+   # pseudocode — see Monitor tool for the JSON parameter shape
    Monitor(
      description: "wait-status <task_id>",
      command: "skills/sdlc/bin/wait-status <task_id> --since \"<last_cursor>\"",
      timeout_ms: 3600000,
    )
    ```
+
+   Keep the escaped quotes around `<last_cursor>` — the cursor is shaped `msg:<id>|evt:<seq>` and the literal `|` is shell-significant; without quoting the shell would treat it as a pipe.
 
    The launcher wraps `sandbox/bin/egg-orch pipeline wait-status`, setting `PYTHONPATH` and `EGG_ORCHESTRATOR_URL` so no host-side configuration is required beyond `make deps`. It loops the orchestrator's `/status/wait` route server-side, threading the cursor between calls. Stdout is **JSON-lines** — one line per pipeline-relevant event, surfaced to the LLM as one notification per line. The CLI is silent on `no_change`, so the LLM only wakes when something happened. Exit codes (Monitor reports them as the watch's exit code):
 
@@ -335,6 +338,7 @@ Drive the pipeline through one Monitor invocation per quiet stretch. On entry:
    | `2` | Transient error budget exceeded after backoff | Re-invoke Monitor with the same `last_cursor` |
    | `3` | Permanent error (4xx, malformed cursor, unknown pipeline) | Surface stderr to user; do NOT silently retry |
    | (timeout) | Monitor `timeout_ms` reached | Re-invoke Monitor with the updated `last_cursor` |
+   | (auto-stopped) | Monitor stopped on its own with a high-volume notice (busy implement-phase BRC bursts can trip this) | Re-invoke Monitor with the latest `last_cursor` |
 
    **Why Monitor and not Bash?** `wait-status` is designed to emit one JSON-line per event over the lifetime of a single CLI invocation. Foreground Bash blocks the LLM until the command exits and batches all events emitted in that window into one wake — so a `decision.created` that lands 30 seconds in won't be visible until the next event flushes the buffer. Background Bash sends a single completion notification when the whole CLI exits and forces file-polling for stdout. Monitor's per-line notification semantics match the streaming-stdout contract directly.
 
@@ -1305,15 +1309,18 @@ Drive the pipeline through one Monitor invocation per quiet stretch. On entry:
 
 1. **First poll** — call the `get_status(task_id)` MCP tool to render the initial dashboard and cache the snapshot as `last_status`. `get_status` does not return a `cursor`; the cursor is produced by `wait-status` only. Initialize `last_cursor = ""` (empty — the first `wait-status` call snaps to the tip).
 
-2. **Blocking wait** — invoke `skills/sdlc/bin/wait-status` through the **Monitor** tool, not Bash. Monitor delivers each stdout line as its own notification, so the LLM wakes on every emitted event. Run from the repo root:
+2. **Blocking wait** — invoke `skills/sdlc/bin/wait-status` through the **Monitor** tool, not Bash. Monitor delivers each stdout line as its own notification, so the LLM wakes on every emitted event. Run from the repo root. The block below is pseudocode for the Monitor tool input — the actual call uses the Monitor tool's JSON parameter shape (`description`, `command`, `timeout_ms`):
 
    ```
+   # pseudocode — see Monitor tool for the JSON parameter shape
    Monitor(
      description: "wait-status <task_id>",
      command: "skills/sdlc/bin/wait-status <task_id> --since \"<last_cursor>\"",
      timeout_ms: 3600000,
    )
    ```
+
+   Keep the escaped quotes around `<last_cursor>` — the cursor is shaped `msg:<id>|evt:<seq>` and the literal `|` is shell-significant; without quoting the shell would treat it as a pipe.
 
    The launcher wraps `sandbox/bin/egg-orch pipeline wait-status` and loops `/status/wait` server-side, threading the cursor between calls. Stdout is **JSON-lines** — one line per pipeline-relevant event, silent on `no_change`, surfaced as one notification per line. Exit codes:
 
@@ -1323,6 +1330,7 @@ Drive the pipeline through one Monitor invocation per quiet stretch. On entry:
    | `2` | Transient error budget exceeded | Re-invoke Monitor with same `last_cursor` |
    | `3` | Permanent error (4xx, malformed cursor, unknown pipeline) | Surface stderr; do NOT silently retry |
    | (timeout) | Monitor `timeout_ms` reached | Re-invoke Monitor with updated `last_cursor` |
+   | (auto-stopped) | Monitor stopped on its own with a high-volume notice (busy implement-phase BRC bursts can trip this) | Re-invoke Monitor with the latest `last_cursor` |
 
    **Why Monitor and not Bash?** Foreground Bash blocks until the CLI exits and batches every event in that window into one wake; background Bash emits only a single completion notification. Both break the per-event wake semantics this skill relies on (e.g. surfacing `decision.created` the moment the gate is created). Monitor's per-line notifications match the streaming-stdout contract.
 
