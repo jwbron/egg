@@ -23,7 +23,7 @@ PHASE_CONSENSUS_TIMEOUT_DEFAULTS_MIN: dict[str, int] = {
 }
 
 
-def resolve_consensus_timeout_minutes(config: "PipelineConfig", phase: str) -> int:
+def resolve_consensus_timeout_minutes(config: PipelineConfig, phase: str) -> int:
     """Resolve the consensus timeout (minutes) for *phase*.
 
     Resolution order, highest priority first:
