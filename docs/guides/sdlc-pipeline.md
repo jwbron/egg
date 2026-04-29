@@ -294,7 +294,9 @@ The contract tracks per-reviewer verdicts for debugging:
 
 ### Multi-Agent Orchestration
 
-The implement phase uses concurrent BRC execution, where specialized agents run simultaneously and coordinate via the message bus.
+The implement phase runs as a **DAG of independent slices** (#2137). Each slice has its own integration branch (`egg/issue-N/slice-M`), agent team, BRC consensus, and stacked PR targeting the parent slice's branch (or the pipeline branch for root slices). The `SliceScheduler` computes execution waves — slices whose dependencies are satisfied run concurrently (capped at `EGG_ORCH_MAX_PARALLEL_SLICES`, default 5); dependent slices wait in subsequent waves. See [Slice-DAG Implement Phase](../architecture/slice-dag.md) for the full model including forest validation, two-tier `max_cycles` accounting, failure cascade, and the stacked-PR reconciler.
+
+Within each slice, concurrent BRC execution runs: specialized agents run simultaneously and coordinate via the message bus.
 
 **Agent Roles:**
 
@@ -1364,14 +1366,18 @@ all changes.
 **Reviewer (code/contract)**: Reviews committed code or contract artifacts. Polls for
 `PROGRESS` from coder. Signals `READY` after review is complete.
 
-### Shared Pipeline Branch
+### Branch Model
 
-All concurrent agents operate on the pipeline's shared branch (e.g., `egg/issue-999`).
-Rather than each agent having an isolated worktree branch, all agents commit directly
-to a single shared history. Agents coordinate via the message bus to sequence commits
-and avoid conflicts — for example, the coder signals `HANDOFF` when its changes are
-committed so downstream agents (tester, documenter) know it is safe to pull and build
-on top.
+For the **refine** and **plan** phases, all concurrent agents operate on the pipeline's
+shared branch (e.g., `egg/issue-999`) — they commit directly to a single shared history
+and coordinate via the message bus to sequence commits and avoid conflicts (for example,
+the coder signals `HANDOFF` when its changes are committed so downstream agents know it
+is safe to pull and build on top).
+
+For the **implement** phase, the pipeline branch is no longer shared across the whole
+team. Tasks are split into a DAG of slices, and each slice runs on its own integration
+branch (`egg/issue-999/slice-M`); the shared-history coordination above applies *within*
+a slice's agent team. See [Slice-DAG Implement Phase](../architecture/slice-dag.md).
 
 ### Failure Handling
 
@@ -1443,11 +1449,11 @@ identify blocked or stuck agents.
 **Message bus empty**: Verify the pipeline has `concurrent_execution: true` in its
 config. The message bus is only active for concurrent pipelines.
 
-**Commit conflicts**: Since all concurrent agents share a single branch, agents
-coordinate commits via the message bus to avoid conflicts. If an agent encounters a
-conflict when pushing, it should pull, rebase, and retry. If conflicts persist, the
-agent signals `BLOCKED` and a HITL decision is created. Consider adding role-based
-file restrictions to minimize overlap.
+**Commit conflicts**: Within a single team's branch (the pipeline branch for refine/plan,
+or a slice's integration branch for implement), concurrent agents coordinate commits via
+the message bus to avoid conflicts. If an agent encounters a conflict when pushing, it
+should pull, rebase, and retry. If conflicts persist, the agent signals `BLOCKED` and a
+HITL decision is created. Consider adding role-based file restrictions to minimize overlap.
 
 ## Agent MCP tools (`EGG_MCP_TOOLS` flag)
 

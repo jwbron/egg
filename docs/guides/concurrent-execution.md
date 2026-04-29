@@ -1,6 +1,8 @@
 # Concurrent Execution Mode
 
-Concurrent execution mode runs all agents for the current pipeline phase simultaneously — all sharing the pipeline branch — rather than sequentially in dependency-ordered waves. Agents communicate via the orchestrator message bus and signal readiness for phase completion via a consensus protocol. BRC consensus is active by default for the **refine**, **plan**, and **implement** phases. Additional phases (such as `review`) can be added via the `concurrent_phases` config.
+Concurrent execution mode runs all agents for the current pipeline phase simultaneously rather than sequentially in dependency-ordered waves. Agents communicate via the orchestrator message bus and signal readiness for phase completion via a consensus protocol. BRC consensus is active by default for the **refine**, **plan**, and **implement** phases. Additional phases (such as `review`) can be added via the `concurrent_phases` config.
+
+**Implement-phase note**: the implement phase no longer runs as a single team on a shared branch. Instead, the plan's tasks are split into a DAG of independent **slices** — each slice runs its own concurrent agent team on its own integration branch. Concurrent execution within each slice follows the BRC protocol described here. See [Slice-DAG Implement Phase](../architecture/slice-dag.md) for the slice-level orchestration model.
 
 This is distinct from the standard wave-based parallel execution (Tier 2), where agents run in dependency order but multiple independent agents execute in parallel within each wave.
 
@@ -44,7 +46,7 @@ When concurrent execution starts, the `ConcurrentPhaseExecutor` (in `orchestrato
 | `plan` | `architect`, `task_planner`, `risk_analyst`, `reviewer_plan` |
 | `implement` | `coder`, `tester`, `documenter`, `reviewer_code`, `reviewer_code_holistic`, `reviewer_contract`, `reviewer_security`, `reviewer_concurrency` |
 
-**Shared branch**: All agents operate on the pipeline's shared branch (e.g., `egg/issue-123`). Agents coordinate commits via the message bus to sequence their work and avoid conflicts.
+**Branch model**: For **refine** and **plan**, all agents operate on the pipeline's shared branch (e.g., `egg/issue-123`) and coordinate commits via the message bus to sequence their work and avoid conflicts. For **implement**, each slice runs on its own integration branch (`egg/issue-N/slice-M`); the shared-branch coordination described below applies *within* a slice's agent team — see [Slice-DAG Implement Phase](../architecture/slice-dag.md).
 
 **Environment injection**: Each concurrent agent receives:
 
@@ -857,12 +859,12 @@ Each concurrent agent runs in its own isolated git worktree. This prevents agent
 
 **Architecture:**
 - Each agent pod receives a unique worktree created by the gateway, keyed by Job name (not pipeline ID)
-- All agents push to the same shared pipeline branch (e.g., `egg/issue-{N}`)
+- For **refine** and **plan**, all agents push to the same shared pipeline branch (e.g., `egg/issue-{N}`); for **implement**, all agents within a slice push to that slice's integration branch (`egg/issue-{N}/slice-{M}`) — see [Slice-DAG Implement Phase](../architecture/slice-dag.md)
 - Git worktrees share the object store — only working tree files are duplicated, so disk overhead is marginal
 
 **Push coordination (pull-before-push):**
 1. Agent finishes work, commits in its own worktree
-2. Agent pushes to the shared branch via the gateway
+2. Agent pushes to the team's branch (pipeline branch for refine/plan, slice integration branch for implement) via the gateway
 3. If push is rejected (another agent pushed first) → `git pull --rebase` → retry push
 4. Rebase **cannot conflict** because agents have mutually exclusive file write permissions (see [Agent Roles Reference](../reference/agent-roles.md))
 
@@ -872,7 +874,7 @@ This works because role restrictions guarantee non-overlapping file sets (coder 
 
 ### Reviewer Worktree Sync
 
-Per-agent worktrees are created at phase start from the pipeline branch. When a producer pushes commits and proposes, the reviewer's worktree does not automatically have those commits. To address this, the BRC preamble instructs reviewers to sync their worktree before reviewing:
+Per-agent worktrees are created at phase start from the team's branch — the pipeline branch for refine/plan, the slice integration branch for each implement slice. When a producer pushes commits and proposes, the reviewer's worktree does not automatically have those commits. To address this, the BRC preamble instructs reviewers to sync their worktree before reviewing:
 
 ```bash
 git fetch origin && git merge origin/{branch} --no-edit
