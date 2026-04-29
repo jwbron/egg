@@ -14,7 +14,7 @@ from llm.result import AgentResult
 
 def _run_async(coro):
     """Helper to run async code in tests without pytest-asyncio."""
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 def _make_sdk_result(**overrides):

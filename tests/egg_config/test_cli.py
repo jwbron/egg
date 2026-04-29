@@ -56,7 +56,7 @@ class MockConfig(BaseConfig):
         }
 
     @classmethod
-    def from_env(cls) -> "MockConfig":
+    def from_env(cls) -> MockConfig:
         return cls()
 
 

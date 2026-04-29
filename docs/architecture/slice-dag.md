@@ -154,7 +154,7 @@ once.
 `DependencyNode`, `ExecutionWave`, `ExecutionPlan`, and `DependencyGraph`
 are now generic over the node-key type. The classes use **PEP 695 generic
 class syntax** (`class DependencyGraph[NodeT: Hashable]: ...`) — matching
-`pyproject.toml`'s `target-version = "py313"` — rather than the older
+`pyproject.toml`'s `target-version = "py314"` — rather than the older
 `Generic[NodeT]` + `TypeVar` shape. Existing agent-role-keyed callers
 continue to use `DependencyGraph[AgentRole]`; the slice scheduler uses
 `DependencyGraph[str]` with slice IDs as node keys. One implementation,

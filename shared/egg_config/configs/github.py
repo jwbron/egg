@@ -168,7 +168,7 @@ class GitHubConfig(BaseConfig):
         return remaining < 300
 
     @classmethod
-    def from_env(cls) -> "GitHubConfig":
+    def from_env(cls) -> GitHubConfig:
         """Load GitHub configuration from environment and config files.
 
         Token sources (in priority order):
