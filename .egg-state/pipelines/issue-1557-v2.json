@@ -350,10 +350,29 @@
       "resolution": null,
       "phase": "refine",
       "content_changed": null
+    },
+    {
+      "id": "decision-11",
+      "question": "Confluence link discovery during refine: how does the agent find linked Confluence pages on a Jira epic?",
+      "context": "Open contract question decision-10, registered by an agent during the refine phase.",
+      "options": [
+        "A. Scrape `/wiki/` URLs from the rendered ticket body via regex on the `renderedBody` HTML — simple, no new gateway endpoint, but misses pages linked via Jira's structured `Web Link` / `Confluence Link` remote-link API",
+        "B. Call Jira's remote-links endpoint via the gateway's `execute` passthrough (`GET /rest/api/3/issue/{key}/remotelink`) — structured but requires confirming the path is on the gateway's GET allowlist; captures structured Confluence links but not body-embedded URLs",
+        "C. Both — union of (A) and (B) with deduplication on canonical Confluence page ID (Recommended). Most complete coverage at the cost of two reads per refine",
+        "Other (explain in reply)"
+      ],
+      "decision_type": "choice",
+      "questions": [],
+      "status": "pending",
+      "created_at": "2026-04-29T04:55:38.433405Z",
+      "resolved_at": null,
+      "resolution": null,
+      "phase": "refine",
+      "content_changed": null
     }
   ],
   "created_at": "2026-04-29T04:25:54.475428Z",
-  "updated_at": "2026-04-29T04:55:38.391802Z",
+  "updated_at": "2026-04-29T04:55:38.453591Z",
   "contract_synced": true,
   "network_mode": null,
   "mode": "issue",
@@ -367,6 +386,6 @@
   "source_branch": null,
   "source_artifact_prefix": null,
   "run_epoch": null,
-  "version": 21,
+  "version": 22,
   "jira_ticket": null
 }
