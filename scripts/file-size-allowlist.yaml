@@ -24,8 +24,8 @@ files:
     bytes: 669950
     issue: "2248"
   gateway/gateway.py:
-    lines: 9753
-    bytes: 373015
+    lines: 9754
+    bytes: 373121
     issue: "2248"
   sandbox/egg_lib/orch_cli.py:
     lines: 3512
