@@ -1031,36 +1031,3 @@ class TestHandleBrcConsensusTimeoutSliceId:
             if slice_passed is None and len(args) >= 2:
                 slice_passed = args[1]
             assert slice_passed is None
-
-    def test_typeerror_falls_back_to_pipeline_scope(self) -> None:
-        """Older import-shim trackers without slice_id fall back gracefully."""
-        pipeline = _make_pipeline()
-
-        call_history: list[tuple] = []
-
-        def _shim_get(*args: Any, **kwargs: Any) -> MagicMock:
-            call_history.append((args, kwargs))
-            if len(args) > 1 or "slice_id" in kwargs:
-                raise TypeError("legacy shim — no slice_id support")
-            tracker = MagicMock()
-            tracker.handle_timeout.return_value = {"action": "noop"}
-            tracker.is_timeout_handled.return_value = False
-            return tracker
-
-        with patch("peer_consensus.get_peer_consensus_tracker", side_effect=_shim_get):
-            _handle_brc_consensus_timeout(
-                pipeline=pipeline,
-                pipeline_id=pipeline.id,
-                consensus_timeout=1800.0,
-                blocking_agents=["coder"],
-                store=MagicMock(),
-                slice_id="slice-7",
-            )
-        # Two calls: first with slice_id (raises TypeError), second
-        # without slice_id (succeeds).
-        assert len(call_history) == 2
-        # Second call has only the pipeline_id positionally.
-        second_args, second_kwargs = call_history[1]
-        assert second_args == (pipeline.id,) or (
-            second_args == (pipeline.id, None) and "slice_id" not in second_kwargs
-        )

@@ -1444,6 +1444,21 @@ class PeerConsensusTracker:
                 return None
             return max(self._proposal_timestamps.values())
 
+    def get_latest_progress_timestamp(self) -> datetime | None:
+        """Return the most recent BRC-bus activity timestamp, or None.
+
+        Aggregates the latest CONSENSUS_PROPOSE timestamp with the latest
+        ACK/NACK timestamp from the approval matrix. Used by the BRC
+        progress gate (#2243) to defer the auto consensus-failure HITL
+        decision while the bus is still moving.
+        """
+        with self._lock:
+            latest = self.get_latest_proposal_timestamp()
+            entry_ts = self.matrix.get_latest_entry_timestamp()
+            if entry_ts is not None and (latest is None or entry_ts > latest):
+                latest = entry_ts
+            return latest
+
     def evaluate(self) -> dict[str, Any]:
         """Evaluate current consensus state.
 

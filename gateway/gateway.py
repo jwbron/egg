@@ -2307,7 +2307,8 @@ def git_execute() -> tuple[Response, int] | Response:
             return make_error(
                 f"Branch switching is not allowed in pipeline sessions. "
                 f"You are locked to branch '{assigned}'. "
-                f"Use 'git checkout -- <file>' to restore files instead.",
+                f"Use 'git checkout [<commit-ish>] -- <file>' to restore files instead "
+                f"(e.g. 'git checkout HEAD -- <file>' or 'git checkout <sha> -- <file>').",
                 status_code=403,
             )
 
