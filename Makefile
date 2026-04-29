@@ -276,10 +276,10 @@ lint-custom:
 ## LKG sidecar exists), and runs pytest on only that subset.  Any
 ## sign of static-analysis fog (conftest / Makefile / pyproject /
 ## uv.lock / workflow / shared/tests / non-.py / gateway/*.py /
-## dynamic-import / unresolvable-baseline / LKG-not-ancestor /
-## canary every-10th invocation) widens to the full suite with an
-## explicit trigger string on stderr.  See docs/guides/testing.md
-## and scripts/select_tests.py for the full design.
+## dynamic-import / unresolvable-baseline / LKG-not-ancestor) widens
+## to the full suite with an explicit trigger string on stderr.  See
+## docs/guides/testing.md and scripts/select_tests.py for the full
+## design.
 ##
 ## CI runs `make test-all` (below) to keep the 80% coverage gate
 ## enforced; narrowing is a local-inner-loop optimisation only.

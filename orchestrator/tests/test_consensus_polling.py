@@ -299,8 +299,8 @@ class TestConsensusTimeout:
         """When consensus times out, a HITL decision is created."""
         # Use a callable side_effect that (a) starts before the timeout,
         # (b) jumps past the 30-min consensus timeout, and (c) keeps
-        # advancing so the post-timeout polling budget (#1921) also
-        # exhausts within a bounded number of iterations.
+        # advancing so the post-timeout per-iteration budget (#1921 /
+        # #2245) also exhausts within a bounded number of iterations.
         _calls = [0]
 
         def _monotonic():
@@ -308,8 +308,8 @@ class TestConsensusTimeout:
             if _calls[0] == 1:
                 return 0.0
             # Each subsequent call jumps 2000s so both the 1800s
-            # consensus timeout and the 3600s post-timeout budget
-            # elapse quickly.
+            # consensus timeout and the default 3600s per-iteration
+            # post-timeout budget elapse quickly.
             return float(1801.0 + _calls[0] * 2000.0)
 
         mock_monotonic.side_effect = _monotonic
@@ -343,8 +343,10 @@ class TestConsensusTimeout:
         # Timeout with no convergence → force-kill path → exit 1 (#1921).
         # Prior to #1921 this returned 0 because wait_for_container was
         # mocked to return a clean exit; post-#1921 the polling loop
-        # force-kills still-running containers when the 3600s budget
-        # elapses, which is the realistic outcome.
+        # force-kills still-running containers when the per-iteration
+        # post-timeout budget elapses (#2245: budget rebaselines on
+        # producer progress; with no tracker proposals here the
+        # iteration clock never resets).
         assert exit_code == 1
         # HITL decision should have been created on the pipeline
         mock_add_decision.assert_called_once()
@@ -365,7 +367,8 @@ class TestConsensusTimeout:
         from events import EventType
 
         # See test_timeout_creates_hitl_decision for why monotonic must
-        # keep advancing past the 3600s post-timeout budget (#1921).
+        # keep advancing past the post-timeout per-iteration budget
+        # (#1921 / #2245).
         _calls = [0]
 
         def _monotonic():

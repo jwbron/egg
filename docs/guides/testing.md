@@ -70,8 +70,12 @@ by the `make test` recipe. The algorithm is:
       suite with trigger `unresolvable baseline`.
 2. **Compute the changed-files set.** Union of `git diff --name-only
    <baseline>...HEAD` and `git status --porcelain` (uncommitted
-   work). An empty diff falls back to the full suite — a fresh tree
-   should be honest about coverage.
+   work). An empty diff against a resolvable, current baseline
+   short-circuits to "selected 0 tests" and skips pytest entirely
+   — there is nothing reachable from a non-existent change. Empty
+   diff combined with an unresolvable baseline or a stale LKG still
+   widens to the full suite (those are real safety triggers, not
+   changeset reasoning).
 3. **Evaluate fallback triggers.** Any trigger from §4 short-circuits
    selection and runs the full suite, with the explicit trigger
    string printed to stderr.
@@ -85,12 +89,23 @@ by the `make test` recipe. The algorithm is:
    downstream-mapping step return an empty set. The graph is cached
    on disk under `.egg-state/grimp-cache/` (gitignored) so successive
    sandbox invocations reuse a warm graph.
-5. **Compute the reverse closure.** For each changed module
-   `m`, call `graph.find_downstream_modules(m, as_package=...)`.
-   `as_package=True` is used when the changed path is an
-   `__init__.py` (a package-level edit can affect anything
-   downstream of the whole package); `as_package=False` is used for
-   leaf-module edits.
+5. **Compute the reverse closure.** For each changed module `m`,
+   two sources of upstream-test edges are combined:
+   - **Grimp edges:** `graph.find_downstream_modules(m, as_package=...)`.
+     `as_package=True` for `__init__.py` edits (package-level edit
+     can affect anything downstream of the whole package);
+     `as_package=False` for leaf-module edits.
+   - **Bare-name AST edges:** An AST scan of every module
+     registered in the grimp graph (i.e. every `.py` under the
+     `PACKAGES` constant — the four source roots and four test
+     roots; `scripts/`, `integration_tests/`, and other un-registered
+     trees are not scanned) maps bare-name import targets (e.g.
+     `from action_guards import …`) to fully-qualified grimp module
+     ids, covering the test and production files that import via
+     short names rather than fully-qualified package paths. Applies
+     to `shared.*`, `orchestrator.*`, and `sandbox.*`; `gateway.*`
+     is excluded — its importlib test-loader pattern is handled by
+     the `gateway/*.py` widening trigger (§7).
 6. **Map modules → test files.** Intersect the downstream set with
    the pre-collected set of every `test_*.py` / `*_test.py` file
    in the graph. The selector emits the resulting set of test file
@@ -174,8 +189,6 @@ suite, with the explicit trigger string written to stderr (e.g.
 | **Unresolvable changed path** | A changed path that cannot be mapped to an in-repo module (e.g. brand-new file not yet in grimp's graph, a `scripts/*.py` with no wheel binding). |
 | **Unresolvable baseline** | LKG missing AND `origin/<base>` missing or `merge-base` failing. |
 | **LKG not ancestor of HEAD** | The recorded LKG sha is not reachable from `HEAD` (force-push, reset, history rewrite). |
-| **Empty diff** | `git diff` plus `git status` produces zero changed paths. Conservative — empty diff on a fresh tree should still be honest about coverage. |
-| **Canary every 10th invocation** | A per-branch counter at `.egg-state/last-known-good/<branch>.canary` increments on every narrow `make test` invocation. When `count % 10 == 0`, the selector forces the full suite with trigger `canary (every-10th invocation)` and resets the counter. This catches silent drift that the static analysis missed. |
 
 When a fallback fires, the stderr line uses the **explicit trigger
 name** (e.g. `Makefile changed`, `gateway source change (importlib
@@ -221,7 +234,6 @@ Every invocation also persists a structured record. The schema:
 | `compute_ms` | integer | Selector wall-clock in milliseconds. |
 | `pytest_ms` | integer | Pytest wall-clock in milliseconds; written by the Makefile after pytest returns (`select_tests.py --patch-selection-json --head <sha> --pytest-ms <int>`). |
 | `timestamp` | string | ISO-8601 UTC timestamp. |
-| `canary_fired` | bool | Whether the canary trigger fired this invocation. |
 | `changed_files` | list[string] | Paths from `git diff` + `git status`. |
 | `changed_modules` | list[string] | Resolved module paths for the changed files. |
 | `dynamic_import_seeds_hit` | list[string] | Module paths flagged as containing dynamic-import patterns and reachable from the changed set. |
@@ -305,10 +317,9 @@ Static reverse import graphs are powerful, but they cannot see:
   (e.g. `subprocess.run(["python", "scripts/foo.py"])`) does not
   have an import edge to that binary. Tests that exercise CLI
   surfaces by subprocess will be missed by narrowing alone — this
-  is mitigated in practice because (a) such tests almost always
-  also touch a shared test fixture or a subprocess-helper module
-  that grimp does see, and (b) the canary every-10th-invocation
-  rule provides a periodic full-suite checkpoint.
+  is mitigated in practice because such tests almost always also
+  touch a shared test fixture or a subprocess-helper module that
+  grimp does see. Run `make test-all` before push for ground truth.
 - **Data-file loads.** A test that does
   `Path("fixtures/foo.json").read_text()` has no import edge to
   the data file. Non-`.py` changes fall back to the full suite as
@@ -316,10 +327,18 @@ Static reverse import graphs are powerful, but they cannot see:
 - **Entry-point plugin registrations.** Plugins discovered via
   `importlib.metadata.entry_points()` (e.g. some pytest plugins)
   do not have static import edges from their consumers. The
-  dynamic-import scan picks up the consumer side; the canary
-  catches missed cases.
-- **Gateway's importlib test-loader.** This is the most
-  consequential blind spot in this repo. `gateway/tests/conftest.py`
+  dynamic-import scan picks up the consumer side; missed cases
+  surface when CI runs `make test-all`.
+- **Bare-name imports for non-gateway packages.** `shared.*`,
+  `orchestrator.*`, and `sandbox.*` modules are almost universally
+  imported by bare name throughout the codebase (e.g. `from
+  egg_logging.signatures import …` rather than `from
+  shared.egg_logging.signatures import …`). Grimp registers modules
+  under fully-qualified names, so a plain grimp traversal misses
+  those edges. **Mitigation:** the bare-name AST resolver (step 5)
+  AST-scans every `.py` and maps bare-name targets back to
+  fully-qualified ids, making these edges visible to narrowing.
+- **Gateway's importlib test-loader.** `gateway/tests/conftest.py`
   defines `_load_module_with_replaced_imports`, which uses
   `importlib.util.spec_from_file_location` to load production
   modules and then injects mocks via `sys.modules`. Every gateway
@@ -330,9 +349,10 @@ Static reverse import graphs are powerful, but they cannot see:
   to a file matching `gateway/*.py` (production files directly
   under `gateway/`, NOT `gateway/tests/`) widens to the full suite
   with the explicit trigger string `gateway source change (importlib
-  test-loader)`. A conftest refactor to standard imports is the
-  right long-term fix and is tracked separately; until then, the
-  `gateway/*.py` trigger is the simple, stable workaround.
+  test-loader)`. The bare-name AST resolver (step 5) intentionally
+  excludes `gateway.*` — the importlib loader pattern makes AST
+  edges unreliable there, so the widening trigger remains the stable
+  workaround.
 
 These limits are the reason the fallback-trigger list in §4 is as
 broad as it is — narrowing trades coverage for speed, and any
@@ -369,7 +389,7 @@ Two directories accumulate on disk and are gitignored:
 - `.egg-state/selection/` — one JSON record per `make test`
   invocation, keyed by `HEAD` sha.
 - `.egg-state/last-known-good/` — at most one `<branch>.sha` file
-  and one `<branch>.canary` counter per branch.
+  per branch.
 
 **No automatic pruning is performed.** Per-invocation pruning
 would add filesystem churn and a subtle GC dependency for marginal
@@ -443,8 +463,6 @@ The stderr trigger string is the diagnostic. Common cases:
   sidecar.
 - `unresolvable baseline` — `origin/main` is missing or
   inaccessible. Check `git remote -v` and `git fetch origin`.
-- `canary (every-10th invocation)` — expected once per ten narrow
-  runs.
 - `gateway source change (importlib test-loader)` — known blind
   spot, see §7. The full suite is the right answer here.
 
@@ -457,11 +475,12 @@ PYTEST_ARGS="path/to/specific/test.py" make test
 An explicit path in `PYTEST_ARGS` bypasses narrowing — the
 developer is asking for that specific selection.
 
-**"I changed nothing but `make test` ran the full suite."**
+**"I changed nothing and `make test` did nothing."**
 
-Empty-diff handling intentionally falls back to the full suite — a
-fresh tree should be honest about coverage. Make a change, or run
-`make test-all` directly.
+That is the correct behavior. With no changes against a resolvable
+baseline, the selector emits `selected 0 tests (skipping pytest)` and
+the Makefile prints `no tests selected` and exits 0. To run the full
+suite anyway, use `make test-all`.
 
 ---
 
